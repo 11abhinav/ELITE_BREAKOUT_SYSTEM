@@ -2087,6 +2087,7 @@ _global_lock = ProcessLock("global_scanner_lock")
 def start(force: bool = False, session=None, run_ctx=None) -> int:
     from database import is_scanner_stopped, upsert_scanner_health
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
+    import time
     if is_scanner_stopped("REVERSAL"):
         logger.info("🛑 Reversal Scanner is STOPPED by Admin. Skipping execution.")
         upsert_scanner_health("REVERSAL", "STOPPED", error_msg="REVERSAL scanner is explicitly disabled by admin.")
@@ -2106,12 +2107,37 @@ def start(force: bool = False, session=None, run_ctx=None) -> int:
         raise RuntimeError("Scanner is already actively running!")
 
     _scan_start = print_scanner_start_banner("reversal_scanner", queued_at=queued_at)
+    
+    created_ctx = False
+    if run_ctx is None:
+        try:
+            from database import start_scanner_execution_run
+            run_ctx = start_scanner_execution_run(scanner_name="REVERSAL", trigger_type="MANUAL", scheduler_name="CLI")
+            created_ctx = True
+        except Exception: pass
+
     try:
-        return _start_wrapper(force, session=session, run_ctx=run_ctx)
+        total_alerts = _start_wrapper(force, session=session, run_ctx=run_ctx)
+        if run_ctx:
+            run_ctx.add_alert(total_alerts)
+        return total_alerts
+    except Exception as e:
+        if created_ctx:
+            try:
+                from database import complete_scanner_execution_run
+                complete_scanner_execution_run(run_ctx, exception=e)
+                created_ctx = False
+            except Exception: pass
+        raise
     finally:
         print_scanner_end_banner("reversal_scanner", _scan_start)
         _scan_lock.release()
         _global_lock.release()
+        if created_ctx:
+            try:
+                from database import complete_scanner_execution_run
+                complete_scanner_execution_run(run_ctx)
+            except Exception: pass
 
 
 def _start_wrapper(force: bool = False, session=None, run_ctx=None) -> int:
