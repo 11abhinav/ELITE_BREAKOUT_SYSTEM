@@ -9,7 +9,7 @@
 #    returns immediately — zero DB round trips, zero race conditions.
 #
 # 2. WHY STILL CALL init_db() IN EACH SCANNER?
-#    On a fresh Railway deploy the table doesn't exist yet. We can't remove
+#    On a fresh Coolify deploy the table doesn't exist yet. We can't remove
 #    the call entirely. But with the lock it's safe for all scanners to call
 #    it — the second caller just sees _DB_INITIALIZED=True and returns.
 #
@@ -99,7 +99,7 @@ def _get_pool() -> pool.ThreadedConnectionPool:
         if not db_url:
             raise RuntimeError(
                 "DATABASE_URL env var is not set. "
-                "Add the Railway Postgres addon and it will be injected automatically."
+                "Add the Postgres service in Coolify and set the DATABASE_URL environment variable."
             )
         # Configure pool size via env override if provided (fallback to 50)
         maxconn = int(os.getenv("DB_MAXCONN", "100"))
@@ -108,7 +108,7 @@ def _get_pool() -> pool.ThreadedConnectionPool:
             minconn=minconn,
             maxconn=maxconn,
             dsn=db_url,
-            connect_timeout=10  # 10s connection timeout for Railway Postgres
+            connect_timeout=10  # 10s connection timeout for Postgres
         )
         try:
             # Initialize semaphore to mirror pool capacity
