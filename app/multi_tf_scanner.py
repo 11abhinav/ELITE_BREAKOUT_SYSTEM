@@ -614,10 +614,19 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
     # This causes 96 threads to fight for the Python GIL, causing a 70+ second stall.
     # Sequential fetching completely eliminates GIL contention, making the scanner FASTER overall.
     logger.info(f"⚡ [MULTI_TF] Sequentially fetching 30m, 15m, 5m, and 1d intraday timeframes for {len(ladder_symbols)} symbols...")
+    import time
     
+    _t_start_fetch = time.perf_counter()
     data_30m = _fetch_tf("30m", "10d", "30m", needs_30m)
+    _t_30m = time.perf_counter() - _t_start_fetch
+    
+    _t_start_fetch = time.perf_counter()
     data_15m = _fetch_tf("15m", "5d", "15m", needs_15m)
+    _t_15m = time.perf_counter() - _t_start_fetch
+    
+    _t_start_fetch = time.perf_counter()
     data_5m  = _fetch_tf("5m", "5d", "5m", needs_5m)
+    
     if session is not None and needs_5m:
         data_daily = {
             s: session.get(s).ohlcv_df
@@ -626,6 +635,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
         }
     else:
         data_daily = _fetch_tf("1d", "5d", "1d", needs_5m)
+    _t_5m_1d = time.perf_counter() - _t_start_fetch
         
     def _check_fetch(data_dict, needed_list, tf_label):
         if not needed_list: return True
@@ -1271,11 +1281,20 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
             logger.exception(f"Fault isolation caught exception in Phase B/C/D: {e}")
             return
 
-
+    _eval_start_t = time.perf_counter()
     with ThreadPoolExecutor(max_workers=10, thread_name_prefix="MTF_Worker") as executor:
         futures = [executor.submit(_process_item, item) for item in active_items]
         for f in as_completed(futures):
             f.result()
+    _eval_dur = time.perf_counter() - _eval_start_t
+    
+    logger.info(
+        f"⏱️ [MULTI_TF] Lower TF Phase Timing | "
+        f"Fetch 30m: {_t_30m:.2f}s | "
+        f"Fetch 15m: {_t_15m:.2f}s | "
+        f"Fetch 5m+1d: {_t_5m_1d:.2f}s | "
+        f"Evaluation: {_eval_dur:.2f}s"
+    )
     # ── Log the funnel so we can see exactly where stocks drop off ────────
     logger.info(f"📊 Phase B/C/D Funnel: "
                 f"30m_cands={lower_funnel['armed_candidates']} → bb_pass={lower_funnel['bb_pass']} → armed={lower_funnel['armed']} | "

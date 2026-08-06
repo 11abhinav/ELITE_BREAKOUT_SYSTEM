@@ -1451,6 +1451,11 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                             if live_price and float(live_price) > 0:
                                 live_price = float(live_price)
                                 
+                                # Cast OHLCV columns to float64 to avoid pandas FutureWarnings during stitching
+                                for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+                                    if col in hist_df.columns:
+                                        hist_df[col] = hist_df[col].astype('float64')
+                                
                                 last_dt = hist_df.index[-1] if not hist_df.index.empty else None
                                 t_col = 'Date' if 'Date' in hist_df.columns else ('Datetime' if 'Datetime' in hist_df.columns else None)
                                 if t_col:
@@ -1511,7 +1516,12 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                             except Exception as e:
                                 logger.error(f"❌ Error processing symbol {sym} in parallel: {e}")
                     _parallel_ms = (time.perf_counter() - _t_parallel) * 1000
-                    logger.info(f"⚡ [PARALLEL_SCANNER] Batch {batch_num}/{total_batches}: processed {len(chunk)} symbols in {_parallel_ms:.1f}ms (workers={SCAN_WORKER_THREADS})")
+                    logger.info(
+                        f"⏱️ [WEALTH ENGINE] Batch {batch_num}/{total_batches} Timing | "
+                        f"Fetch {len(chunk)} symbols: (Prefetched bulk) | "
+                        f"Evaluation: {_parallel_ms/1000:.2f}s | "
+                        f"Technicals so far: {len(technicals)}"
+                    )
                 else:
                     for i, sym in enumerate(chunk):
                         try:
@@ -1526,7 +1536,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 del chunk_historical_data
                 del chunk_live_prices
                 del chunk_concalls
-                logger.info(f"⏳ [WEALTH ENGINE] Evaluated Batch {batch_num}/{total_batches} ({min(batch_num * BATCH_SIZE, len(all_symbols_to_fetch))}/{len(all_symbols_to_fetch)} stocks) | Technicals evaluated so far: {len(technicals)}")
+                logger.info(f"⏳ [WEALTH ENGINE] Evaluated Batch {batch_num}/{total_batches} ({min(batch_num * BATCH_SIZE, len(all_symbols_to_fetch))}/{len(all_symbols_to_fetch)} stocks)")
 
         required_count = int(len(df) * 0.70)
         if global_fetched_count < required_count:

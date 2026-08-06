@@ -449,7 +449,15 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
     missing_data_stocks = []
     
     try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        from config import SCAN_WORKER_THREADS
+    except ImportError:
+        SCAN_WORKER_THREADS = 4
+        
+    workers = min(4, SCAN_WORKER_THREADS, len(to_fetch))
+    workers = max(1, workers)
+    
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(process, sym) for sym in to_fetch]
             for idx, future in enumerate(concurrent.futures.as_completed(futures, timeout=1800)):
                 sym, result = future.result()

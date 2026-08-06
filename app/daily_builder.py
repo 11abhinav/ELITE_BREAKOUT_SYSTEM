@@ -1064,10 +1064,6 @@ def classify_stock(row: pd.Series) -> dict:
     symbol = normalize_symbol(str(row.get("name", "UNKNOWN")))
     sector = str(row.get("sector", ""))
     try:
-        # NOTE: _classify_lock is not needed here as classification is currently single-threaded.
-        # TODO: Wrap classify_stock body with _classify_lock when parallelizing
-        # _DELIVERY_DATA and _INST_BUYS reads are NOT thread-safe currently
-        # The lock is preserved elsewhere for when we parallelize this via ThreadPoolExecutor.
         if _is_financial(sector):
             return _classify_fin(row, symbol)
         else:
@@ -1280,16 +1276,19 @@ def _main_impl(force_rebuild: bool = False):
         os.makedirs(os.path.dirname(OUTPUT_PARQUET), exist_ok=True)
 
         logger.info("🔍 [FETCH] Fetching TradingView universe (symbol list + fundamentals)...")
+        import time
+        _fetch_start_t = time.perf_counter()
         universe_df = fetch_universe()
+        _fetch_dur = time.perf_counter() - _fetch_start_t
 
         if universe_df.empty:
             logger.error("❌ No stocks returned from TradingView")
             return
             
         try:
-            logger.info(f"✅ [FETCH] Universe fetched successfully: {len(universe_df)} symbols from TradingView")
+            logger.info(f"✅ [FETCH] Universe fetched successfully: {len(universe_df)} symbols from TradingView in {_fetch_dur:.2f}s")
         except Exception:
-            logger.info("✅ [FETCH] Universe fetched successfully from TradingView")
+            logger.info(f"✅ [FETCH] Universe fetched successfully from TradingView in {_fetch_dur:.2f}s")
 
         tmp_univ = "data/temp_universe.parquet.tmp"
         universe_df.to_parquet(tmp_univ)
@@ -1343,9 +1342,35 @@ def _main_impl(force_rebuild: bool = False):
         fin_mask = universe_df["sector"].isin(FINANCIAL_SECTORS)
         logger.info(f"📊 [CLASSIFY] Classifying {len(universe_df)} stocks... (Non-Financial: {(~fin_mask).sum()} | Financial: {fin_mask.sum()})")
         logger.info("🔍 [CLASSIFY] Starting classification of each universe row (this may take some time)...")
-
-        results = [classify_stock(row) for _, row in universe_df.iterrows()]
-        winners = [r for r in results if r is not None]
+        import time
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        try:
+            from config import SCAN_WORKER_THREADS
+        except ImportError:
+            SCAN_WORKER_THREADS = 8
+            
+        workers = min(os.cpu_count() or 8, SCAN_WORKER_THREADS, len(universe_df))
+        workers = max(1, workers)
+        
+        _eval_start_t = time.perf_counter()
+        
+        # Convert DataFrame to a list of dicts to avoid iterrows() overhead
+        # Dicts support .get() just like pd.Series
+        records = universe_df.to_dict('records')
+        winners = []
+        
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(classify_stock, rec) for rec in records]
+            for future in as_completed(futures):
+                try:
+                    res = future.result()
+                    if res is not None:
+                        winners.append(res)
+                except Exception as e:
+                    logger.warning(f"Error classifying stock in thread: {e}")
+                    
+        _eval_dur = time.perf_counter() - _eval_start_t
+        logger.info(f"⏱️ [DAILY_BUILDER] Evaluation Timing | Classified {len(universe_df)} stocks using {workers} threads in {_eval_dur:.2f}s")
         logger.info(f"✅ [CLASSIFY] Classification complete. Winners found: {len(winners)}")
 
         if EXCLUSION_LOG:

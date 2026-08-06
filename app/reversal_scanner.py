@@ -1474,6 +1474,8 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
 
         for batch_num, chunk_df in enumerate(chunk_iterable(scan_watchlist, BATCH_SIZE), start=1):
             try:
+                import time
+                _batch_start_t = time.perf_counter()
                 # [VERSION: MARKET_DATA_SESSION_v1.0] Serve from session when available;
                 # fall back to independent per-batch fetch otherwise.
                 # Session keys match watchlist "Stock" column exactly.
@@ -1486,11 +1488,9 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                         for _, row in chunk_df.iterrows()
                     }
                 else:
-                    # [VERSION: PERF_PHASE0_v1.0] Stage timing: historical fetch per batch
-                    _t_fetch = _time_mod.perf_counter()
                     all_ticker_data = fetch_watchlist_data(chunk_df, "2y", "1d")
-                    _fetch_ms = (_time_mod.perf_counter() - _t_fetch) * 1000
-                    logger.debug(f"⏱ [STAGE] reversal.historical_fetch batch {batch_num}: {_fetch_ms:.0f}ms ({len(chunk_df)} symbols)")
+                    
+                _fetch_dur = time.perf_counter() - _batch_start_t
 
             except Exception as fetch_err:
                 logger.error(f"❌ [REVERSAL] Batch {batch_num} fetch error: {fetch_err}")
@@ -1747,11 +1747,19 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                 total_batches = (len(scan_watchlist) + BATCH_SIZE - 1) // BATCH_SIZE
 
 
+                _eval_start_t = time.perf_counter()
                 with ThreadPoolExecutor(max_workers=10, thread_name_prefix="Reversal_Worker") as executor:
                     futures = [executor.submit(_process_row, idx, row) for idx, (_, row) in enumerate(chunk_df.iterrows(), start=1)]
                     for f in as_completed(futures):
                         f.result()
-                logger.info(f"⏳ [REVERSAL SCANNER] Evaluated Batch {batch_num}/{total_batches} ({min(batch_num * BATCH_SIZE, len(scan_watchlist))}/{len(scan_watchlist)} stocks) | Shortlisted so far: {len(shortlisted_alerts)}")
+                _eval_dur = time.perf_counter() - _eval_start_t
+                        
+                logger.info(
+                    f"⏱️ [REVERSAL SCANNER] Batch {batch_num}/{total_batches} Timing | "
+                    f"Fetch {len(chunk_df)} symbols: {_fetch_dur:.2f}s | "
+                    f"Evaluation: {_eval_dur:.2f}s | "
+                    f"Shortlisted so far: {len(shortlisted_alerts)}"
+                )
                 gc.collect()
 
         total_symbols = len(watchlist)

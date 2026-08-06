@@ -1,3 +1,11 @@
 {"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-06T07:21:06.560849+05:30", "duration_s": 13.76, "rss_before_mb": 344.6, "rss_after_mb": 407.6, "rss_delta_mb": 62.9, "error": null}
 {"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-06T07:39:59.714779+05:30", "duration_s": 18.026, "rss_before_mb": 314.7, "rss_after_mb": 345.2, "rss_delta_mb": 30.4, "error": null}
 {"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-06T07:45:54.137915+05:30", "duration_s": 14.169, "rss_before_mb": 340.2, "rss_after_mb": 397.9, "rss_delta_mb": 57.7, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-06T08:09:02.412591+05:30", "duration_s": 17.763, "rss_before_mb": 330.1, "rss_after_mb": 383.7, "rss_delta_mb": 53.7, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-06T08:09:45.595535+05:30", "duration_s": 18.166, "rss_before_mb": 331.5, "rss_after_mb": 392.5, "rss_delta_mb": 61.0, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-06T08:23:36.463179+05:30", "duration_s": 15.01, "rss_before_mb": 342.8, "rss_after_mb": 377.4, "rss_delta_mb": 34.6, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-06T08:27:31.478847+05:30", "duration_s": 14.301, "rss_before_mb": 397.1, "rss_after_mb": 452.3, "rss_delta_mb": 55.2, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-06T08:33:43.525591+05:30", "duration_s": 16.743, "rss_before_mb": 340.7, "rss_after_mb": 403.2, "rss_delta_mb": 62.5, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-06T10:01:31.963439+05:30", "duration_s": 14.347, "rss_before_mb": 367.6, "rss_after_mb": 412.7, "rss_delta_mb": 45.2, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-06T10:18:37.298238+05:30", "duration_s": 16.041, "rss_before_mb": 304.5, "rss_after_mb": 360.6, "rss_delta_mb": 56.1, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-06T10:24:14.302292+05:30", "duration_s": 12.388, "rss_before_mb": 305.7, "rss_after_mb": 340.0, "rss_delta_mb": 34.3, "error": null}

@@ -1649,8 +1649,11 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         symbols = symbols[:debug_limit]
         
     # 2. Phase 1: Batch Download Price & Volume Metrics (using auto_adjust=False)
+    import time
+    _batch_start_t = time.perf_counter()
     symbols = list(set(symbols))
     price_data_map = batch_download_market_data(symbols, session=session)
+    _fetch_dur = time.perf_counter() - _batch_start_t
     if not price_data_map:
         logger.error("❌ Failed to download batch price data. Aborting scan.")
         raise RuntimeError("Failed to download batch price data from YFinance/Fyers. Market data provider down.")
@@ -1862,6 +1865,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     # Init Rejection Log count
     unverified_pledge_count = 0
     
+    _eval_start_t = time.perf_counter()
     for f in fundamentals_list:
         sym = f.get("symbol")
         price_data = price_data_map.get(sym)
@@ -2121,6 +2125,12 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
 
         from config import SCANNER_MAX_ALERTS
         max_alerts = SCANNER_MAX_ALERTS.get("MULTIBAGGER", 10)
+        _eval_dur = time.perf_counter() - _eval_start_t
+        logger.info(
+            f"⏱️ [MULTIBAGGER] Batch 1/1 Timing | "
+            f"Fetch {len(symbols)} symbols: {_fetch_dur:.2f}s | "
+            f"Evaluation: {_eval_dur:.2f}s"
+        )
         if len(alert_candidates) > max_alerts:
             logger.info(f"Limiting MULTIBAGGER alerts from {len(alert_candidates)} to {max_alerts}")
             for cand in alert_candidates[max_alerts:]:

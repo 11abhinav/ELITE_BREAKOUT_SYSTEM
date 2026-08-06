@@ -468,6 +468,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     with MemoryProfiler("Pullback Scanner Process"):
         for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
             with BatchMemoryTracker("PULLBACK", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
+                import time
+                _batch_start_t = time.perf_counter()
                 # [VERSION: MARKET_DATA_SESSION_v1.0] Serve from session when available.
                 if session is not None:
                     all_ticker_data = {
@@ -479,177 +481,134 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                     }
                 else:
                     all_ticker_data = fetch_watchlist_data(chunk_df, "2y", "1d")
+                    
+                _fetch_dur = time.perf_counter() - _batch_start_t
+                _eval_start_t = time.perf_counter()
                 if not all_ticker_data:
                     for _, row in chunk_df.iterrows():
                         symbols_processed += 1
                         rejected["provider_error"] += 1
                     continue
 
-                for idx, (_, row) in enumerate(chunk_df.iterrows(), start=1):
-                    symbols_processed += 1
-                    symbol = row.get("Stock", "UNKNOWN")
+
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+                
+                # Convert chunk_df to records to avoid iterrows overhead
+                chunk_records = chunk_df.to_dict('records')
+                
+                def _evaluate_row(row_dict):
+                    sym = row_dict.get("Stock", "UNKNOWN")
                     try:
-                        category = row.get("Category", "MIDCAP")
-                        sector = row.get("Sector", None)
+                        category = row_dict.get("Category", "MIDCAP")
+                        sector = row_dict.get("Sector", None)
 
                         from core_enums import ProviderResult
 
-                        # Robust symbol resolution across .NS / .BO suffixes
-                        ticker_data = all_ticker_data.get(symbol)
-                        if ticker_data is None:
-                            ticker_data = all_ticker_data.get(f"{symbol}.NS")
-                        if ticker_data is None:
-                            ticker_data = all_ticker_data.get(f"{symbol}.BO")
-                        if ticker_data is None:
-                            ticker_data = all_ticker_data.get(symbol.split('.')[0])
+                        ticker_data = all_ticker_data.get(sym)
+                        if ticker_data is None: ticker_data = all_ticker_data.get(f"{sym}.NS")
+                        if ticker_data is None: ticker_data = all_ticker_data.get(f"{sym}.BO")
+                        if ticker_data is None: ticker_data = all_ticker_data.get(sym.split('.')[0])
 
                         if ticker_data is None:
-                            logger.debug(f"REJECTION: {symbol} (Phase: FETCH, Reason: Missing historical data)")
-                            rejected["no_data"] += 1
-                            provider_stats_counts["EMPTY_DATA"] += 1
-                            continue
+                            return (None, "no_data", "EMPTY_DATA", None, sym)
 
                         if isinstance(ticker_data, ProviderResult):
-                            logger.debug(f"REJECTION: {symbol} (Phase: FETCH, Reason: Provider error ({ticker_data.name}))")
-                            provider_stats_counts[ticker_data.name] = provider_stats_counts.get(ticker_data.name, 0) + 1
-                            rejected["provider_error"] += 1
-                            continue
-                        else:
-                            provider_stats_counts["SUCCESS"] += 1
-                            provider_resolved_symbols.add(symbol)
+                            return (None, "provider_error", ticker_data.name, None, sym)
 
-                        if (symbol, "PULLBACK") in cooldown_alerts:
-                            logger.debug(f"REJECTION: {symbol} (Phase: COOLDOWN_GATE, Reason: Cooldown active from recent Pullback alert)")
-                            rejected["cooldown"] = rejected.get("cooldown", 0) + 1
-                            continue
+                        if (sym, "PULLBACK") in cooldown_alerts:
+                            return (None, "cooldown", "SUCCESS", None, sym)
 
                         df = ticker_data.copy()
-                        
-                        # [PULLBACK_NAN_FIX] Sanitize raw incoming data to prevent REJ_PRICE_NAN hard-failures
                         df.dropna(subset=["Open", "High", "Low", "Close", "Volume"], inplace=True)
 
-                        # [STALE_DATA_CHECK] Replicating EOD's strict timestamp freshness validation
                         if getattr(ticker_data, 'attrs', {}).get('is_stale'):
-                            rejected["stale_data"] = rejected.get("stale_data", 0) + 1
-                            continue
+                            return (None, "stale_data", "SUCCESS", None, sym)
                             
                         _stale_col = next((c for c in ["Date", "Datetime"] if c in df.columns), None)
                         if is_historical_fallback and dataset_date:
                             try:
                                 _target_val = df.index[-1] if isinstance(df.index, pd.DatetimeIndex) else (df.iloc[-1][_stale_col] if _stale_col else None)
                                 if _target_val is None:
-                                    rejected["stale_data"] = rejected.get("stale_data", 0) + 1
-                                    continue
+                                    return (None, "stale_data", "SUCCESS", None, sym)
                                 _last_ts = pd.to_datetime(_target_val)
                                 if _last_ts.date() != pd.to_datetime(dataset_date).date():
-                                    rejected["stale_data"] = rejected.get("stale_data", 0) + 1
-                                    continue
+                                    return (None, "stale_data", "SUCCESS", None, sym)
                             except Exception as e:
-                                logger.debug(f"⏭️ {symbol} fallback date alignment check failed: {e}")
-                                rejected["stale_data"] = rejected.get("stale_data", 0) + 1
-                                continue
+                                return (None, "stale_data", "SUCCESS", None, sym)
                         else:
                             _expected_max_age_days = 4
                             _benchmark_date = ist_now.date()
                             if _stale_col:
                                 try:
                                     _last_ts = pd.to_datetime(df.iloc[-1][_stale_col])
-                                    if _last_ts.tzinfo is None:
-                                        _last_ts = _last_ts.tz_localize("Asia/Kolkata")
-                                    else:
-                                        _last_ts = _last_ts.tz_convert("Asia/Kolkata")
+                                    if _last_ts.tzinfo is None: _last_ts = _last_ts.tz_localize("Asia/Kolkata")
+                                    else: _last_ts = _last_ts.tz_convert("Asia/Kolkata")
                                     _bar_age_days = (_benchmark_date - _last_ts.date()).days
                                     if _bar_age_days < 0 or _bar_age_days > _expected_max_age_days:
-                                        rejected["stale_data"] = rejected.get("stale_data", 0) + 1
-                                        continue
+                                        return (None, "stale_data", "SUCCESS", None, sym)
                                 except Exception as e:
-                                    logger.debug(f"⏭️ {symbol} stale-data check failed: {e}")
-                                    rejected["stale_data"] = rejected.get("stale_data", 0) + 1
-                                    continue
+                                    return (None, "stale_data", "SUCCESS", None, sym)
                             elif isinstance(df.index, pd.DatetimeIndex) and len(df) > 0:
                                 try:
                                     _last_ts = pd.Timestamp(df.index[-1])
-                                    if _last_ts.tzinfo is not None:
-                                        _last_ts = _last_ts.tz_convert("Asia/Kolkata")
-                                    else:
-                                        _last_ts = _last_ts.tz_localize("Asia/Kolkata")
+                                    if _last_ts.tzinfo is not None: _last_ts = _last_ts.tz_convert("Asia/Kolkata")
+                                    else: _last_ts = _last_ts.tz_localize("Asia/Kolkata")
                                     _bar_age_days = (_benchmark_date - _last_ts.date()).days
                                     if _bar_age_days < 0 or _bar_age_days > _expected_max_age_days:
-                                        rejected["stale_data"] = rejected.get("stale_data", 0) + 1
-                                        continue
+                                        return (None, "stale_data", "SUCCESS", None, sym)
                                 except Exception as e:
-                                    logger.debug(f"⏭️ {symbol} stale-data check failed (index): {e}")
-                                    rejected["stale_data"] = rejected.get("stale_data", 0) + 1
-                                    continue
+                                    return (None, "stale_data", "SUCCESS", None, sym)
 
                         if df.empty or len(df) < effective_config.get("MIN_HISTORY", 200):
-                            logger.debug(f"REJECTION: {symbol} (Phase: BAR_HISTORY, Reason: Insufficient bars ({len(df) if isinstance(df, pd.DataFrame) else 0} < {effective_config.get('MIN_HISTORY', 200)}))")
-                            rejected["insufficient_bars"] += 1
-                            continue
+                            return (None, "insufficient_bars", "SUCCESS", None, sym)
 
                         df.attrs['adjusted'] = True
-                        df.attrs['symbol'] = symbol
+                        df.attrs['symbol'] = sym
                         as_of_index = len(df) - 1
                         historical_view = df.iloc[:as_of_index + 1]
 
-                        # PHASE A: ELIGIBILITY & ESTABLISHED UPTREND
                         try:
                             swing_utils.check_data_quality(historical_view)
                         except DataQualityError as dqe:
-                            logger.debug(f"REJECTION: {symbol} (Phase: DATA_QUALITY, Reason: {dqe})")
-                            rejected["data_quality"] += 1
-                            continue
+                            return (None, "data_quality", "SUCCESS", None, sym)
 
-                        fresh_valid_symbols.add(symbol)
+                        fresh_val = sym
 
                         from indicator_manager import manager
-                        bundle = manager.compute_base_indicators(historical_view, symbol)
+                        bundle = manager.compute_base_indicators(historical_view, sym)
                         last_bar = historical_view.iloc[-1]
                         
                         sma50_val = bundle.sma_50.iloc[-1] if bundle.sma_50 is not None and not bundle.sma_50.empty else None
                         sma200_val = bundle.sma_200.iloc[-1] if bundle.sma_200 is not None and not bundle.sma_200.empty else None
 
                         if not (sma50_val and sma200_val and last_bar['Close'] > sma50_val > sma200_val):
-                            logger.debug(f"REJECTION: {symbol} (Phase: UPTREND_GATE, Reason: Price not > SMA50 > SMA200)")
-                            rejected["no_uptrend"] += 1
-                            continue
+                            return (None, "no_uptrend", "SUCCESS", fresh_val, sym)
 
-                        # PHASE B: IMPULSE & ORDERLY PULLBACK STRUCTURE
                         pivots = swing_utils.detect_confirmed_pivots(historical_view, effective_config["LOOKBACK"], effective_config["CONFIRM"])
                         if not pivots:
-                            logger.debug(f"REJECTION: {symbol} (Phase: PIVOT_DETECTION, Reason: No confirmed swing pivots)")
-                            rejected["no_pivots"] += 1
-                            continue
+                            return (None, "no_pivots", "SUCCESS", fresh_val, sym)
 
                         impulse = swing_utils.select_pullback_origin(pivots, historical_view, effective_config)
                         if not impulse:
-                            logger.debug(f"REJECTION: {symbol} (Phase: IMPULSE_WAVE, Reason: No valid impulse origin)")
-                            rejected["no_impulse"] += 1
-                            continue
+                            return (None, "no_impulse", "SUCCESS", fresh_val, sym)
 
                         ps = swing_utils.measure_pullback(historical_view, impulse, effective_config, debug=effective_config.get("DEBUG_SWINGS", False))
-                        save_funnel_telemetry("PULLBACK", run_date, symbol, ps.stage_results)
+                        save_funnel_telemetry("PULLBACK", run_date, sym, ps.stage_results)
                     
                         if not ps.valid:
-                            logger.debug(f"REJECTION: {symbol} (Phase: PULLBACK_STRUCTURE, Reason: Invalid pullback depth/volume structure)")
-                            rejected["pullback_invalid"] += 1
-                            continue
+                            return (None, "pullback_invalid", "SUCCESS", fresh_val, sym)
 
-                        # PHASE C: RESUMPTION TRIGGER
                         trig = swing_utils.detect_resumption_trigger(historical_view, ps, effective_config)
                         if not trig.valid:
-                            logger.debug(f"REJECTION: {symbol} (Phase: RESUMPTION_TRIGGER, Reason: No valid trigger bar)")
-                            rejected["no_trigger"] += 1
-                            continue
+                            return (None, "no_trigger", "SUCCESS", fresh_val, sym)
 
-                        logger.info(f"📍 PICKED [PULLBACK: IN BETWEEN]: {symbol} @ ₹{trig.entry_price:.2f} (Retracement: {ps.depth_pct:.1f}%, Vol Ratio: {ps.volume_ratio:.2f}x)")
+                        logger.info(f"📍 PICKED [PULLBACK: IN BETWEEN]: {sym} @ ₹{trig.entry_price:.2f} (Retracement: {ps.depth_pct:.1f}%, Vol Ratio: {ps.volume_ratio:.2f}x)")
                         
                         close_position = getattr(trig, "close_position", 0.5)
-                        
                         atr_val = float(bundle.atr_14.iloc[-1]) if hasattr(bundle, 'atr_14') and bundle.atr_14 is not None and not bundle.atr_14.empty and not pd.isna(bundle.atr_14.iloc[-1]) else float(trig.entry_price) * 0.025
 
                         cand = PullbackCandidate(
-                            symbol=symbol,
+                            symbol=sym,
                             as_of_date=ist_now.date(),
                             structure=ps,
                             trigger=trig,
@@ -661,13 +620,57 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                         )
                         cand.trigger_close_position = close_position
                         cand.atr_val = atr_val
-                        candidates.append(cand)
+                        
+                        return (cand, None, "SUCCESS", fresh_val, sym)
                     except Exception as sym_err:
-                        logger.error(f"❌ Error processing symbol {symbol} in Pullback Scanner: {sym_err}")
-                        rejected["processing_error"] += 1
-                        continue
+                        logger.error(f"❌ Error processing symbol {sym} in Pullback Scanner: {sym_err}")
+                        return (None, "processing_error", "SUCCESS", None, sym)
+
+                try:
+                    from config import SCAN_WORKER_THREADS
+                except ImportError:
+                    SCAN_WORKER_THREADS = 8
+                
+                workers = min(os.cpu_count() or 8, SCAN_WORKER_THREADS, len(chunk_records))
+                workers = max(1, workers)
+                
+                with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="PullbackWorker") as executor:
+                    futures = [executor.submit(_evaluate_row, rec) for rec in chunk_records]
+                    for future in as_completed(futures):
+                        symbols_processed += 1
+                        try:
+                            cand, rej_reason, prov_stat, fresh_val, sym = future.result()
+                            if prov_stat != "EMPTY_DATA" and prov_stat != "SUCCESS":
+                                provider_stats_counts[prov_stat] = provider_stats_counts.get(prov_stat, 0) + 1
+                                provider_resolved_symbols.add(sym)
+                            elif prov_stat == "EMPTY_DATA":
+                                provider_stats_counts["EMPTY_DATA"] += 1
+                            else:
+                                provider_stats_counts["SUCCESS"] += 1
+                                provider_resolved_symbols.add(sym)
+                                
+                            if fresh_val:
+                                fresh_valid_symbols.add(fresh_val)
+                                
+                            if rej_reason:
+                                rejected[rej_reason] = rejected.get(rej_reason, 0) + 1
+                            if cand:
+                                candidates.append(cand)
+                        except Exception as e:
+                            logger.error(f"Error in pullback thread processing: {e}")
+                            rejected["processing_error"] = rejected.get("processing_error", 0) + 1
+
             del all_ticker_data
             import gc; gc.collect()
+            
+            _eval_dur = time.perf_counter() - _eval_start_t
+            logger.info(
+                f"⏱️ [PULLBACK SCANNER] Batch {batch_num}/{total_batches} Timing | "
+                f"Fetch {len(chunk_df)} symbols: {_fetch_dur:.2f}s | "
+                f"Evaluation: {_eval_dur:.2f}s | "
+                f"Candidates found so far: {len(candidates)}"
+            )
+            
             logger.info(f"⏳ [PULLBACK SCANNER] Evaluated Batch {batch_num}/{total_batches} ({min(batch_num * BATCH_SIZE, len(watchlist))}/{len(watchlist)} stocks) | Candidates found so far: {len(candidates)}")
 
     logger.info(f"📊 Pullback Candidates Discovered: {len(candidates)}")

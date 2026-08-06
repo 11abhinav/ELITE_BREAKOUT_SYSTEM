@@ -740,6 +740,8 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
             for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
                 with BatchMemoryTracker("EOD", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
                     import pandas as pd
+                    import time
+                    _batch_start_t = time.perf_counter()
                     # [VERSION: MARKET_DATA_SESSION_v1.0] Serve from session when available;
                     # fall back to independent fetch otherwise.
                     if session is not None:
@@ -752,6 +754,8 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                         }
                     else:
                         all_ticker_data = fetch_watchlist_data(chunk_df, "2y", "1d")
+                        
+                    _fetch_dur = time.perf_counter() - _batch_start_t
                     if not all_ticker_data:
                         continue
                     

@@ -38,7 +38,8 @@ class IndicatorExecutor:
     """
 
     def __init__(self, mode: Optional[str] = None, max_workers: Optional[int] = None):
-        self.mode = mode or os.getenv("INDICATOR_EXECUTION_MODE", "thread")
+        # Default to 'sequential' to prevent Python GIL thrashing with pandas operations
+        self.mode = mode or os.getenv("INDICATOR_EXECUTION_MODE", "sequential")
         self.max_workers = max_workers or int(os.getenv("INDICATOR_MAX_WORKERS", "24"))
 
     def execute(self, jobs: List[Dict[str, Any]]) -> Dict[str, pd.DataFrame]:

@@ -55,9 +55,9 @@ def run_ai_worker_scan_once() -> dict:
         
         upsert_scanner_health("AI Worker", "RUNNING", error_msg="AI Worker Scan in progress...")
         now_ist = datetime.now(IST_ZONE)
-        logger.info("=" * 70)
-        logger.info(f"🤖 [AI WORKER] Starting concall analysis scan | {now_ist.strftime('%H:%M:%S IST')}")
-        logger.info("=" * 70)
+        logger.debug("=" * 70)
+        logger.debug(f"🤖 [AI WORKER] Starting concall analysis scan | {now_ist.strftime('%H:%M:%S IST')}")
+        logger.debug("=" * 70)
         
         if not os.path.exists(WATCHLIST_PATH):
             logger.warning("Watchlist parquet file does not exist yet.")
@@ -110,7 +110,7 @@ def run_ai_worker_scan_once() -> dict:
         db_processed_count = get_total_cached_concalls()
         if not actual_pending:
             elapsed = round(time.time() - _fn_start, 1)
-            logger.info(f"🤖 [AI WORKER] All {total_stocks} stocks already cached today. Nothing to do. ({elapsed}s)")
+            logger.debug(f"🤖 [AI WORKER] All {total_stocks} stocks already cached today. Nothing to do. ({elapsed}s)")
             return {"total_count": total_stocks, "processed_count": db_processed_count}
             
         logger.info(f"🤖 [AI WORKER] {len(actual_pending)}/{total_stocks} stocks need analysis | {total_stocks - len(actual_pending)} already cached in DB")

@@ -189,9 +189,9 @@ def worker_loop():
         loop_start = time.time()
         mode = get_worker_mode()
         now = datetime.now(IST_ZONE)
-        logger.info(f"\n{'='*70}")
-        logger.info(f"🔄 [PLEDGE WORKER] Iteration #{iteration} | Mode={mode} | Time={now.strftime('%H:%M:%S IST')}")
-        logger.info(f"{'='*70}")
+        logger.debug(f"\n{'='*70}")
+        logger.debug(f"🔄 [PLEDGE WORKER] Iteration #{iteration} | Mode={mode} | Time={now.strftime('%H:%M:%S IST')}")
+        logger.debug(f"{'='*70}")
         
         # [VERSION: PLEDGE_WORKER_PROGRESS_v1.6] Load universe and check DB on every loop iteration
         # to ensure dashboard stats show correct cumulative counts (old + todays) instantly on boot.
@@ -281,9 +281,9 @@ def worker_loop():
                 time.sleep(3600)
                 continue
                 
-            logger.info(f"📋 [PLEDGE WORKER] Universe loaded in {time.time()-loop_start:.1f}s | Watchlist={watchlist_count} | Excluded={excluded_count} | Constituents={constituents_count} | Total={len(symbols_set)} unique symbols")
-            logger.info(f"💾 [PLEDGE WORKER] Checking DB for stale pledge data (threshold: 28 days)...")
-            logger.info(f"🔍 [PLEDGE WORKER] DB Check complete: {len(stale_symbols)} stale symbols need refresh, {total_watch - len(stale_symbols)} already fresh in DB")
+            logger.debug(f"📋 [PLEDGE WORKER] Universe loaded in {time.time()-loop_start:.1f}s | Watchlist={watchlist_count} | Excluded={excluded_count} | Constituents={constituents_count} | Total={len(symbols_set)} unique symbols")
+            logger.debug(f"💾 [PLEDGE WORKER] Checking DB for stale pledge data (threshold: 28 days)...")
+            logger.debug(f"🔍 [PLEDGE WORKER] DB Check complete: {len(stale_symbols)} stale symbols need refresh, {total_watch - len(stale_symbols)} already fresh in DB")
             upsert_scanner_health("Pledge Worker", "OK", today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg=f"Last: Starting... | Total stale: {len(stale_symbols)}")
 
             if not stale_symbols:
@@ -293,10 +293,10 @@ def worker_loop():
                     
                 sleep_secs = 3600 # Check every hour
                 # [VERSION: PLEDGE_WORKER_PROGRESS_v1.4] Update start loops to show processed_base / total_watch
-                logger.info(f"✅ [PLEDGE WORKER] All promoter pledges are processed for today. Sleeping {sleep_secs}s...")
+                logger.debug(f"✅ [PLEDGE WORKER] All promoter pledges are processed for today. Sleeping {sleep_secs}s...")
                 upsert_scanner_health("Pledge Worker", "IDLE", last_success=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(), today_alerts=total_watch, processed_count=total_watch, total_count=total_watch, error_msg=f"All processed | Total: {total_watch}")
                 sleep_with_mode_check(sleep_secs)
-                logger.info("⏰ Woke up from daily sleep! Starting fresh scan...")
+                logger.debug("⏰ Woke up from daily sleep! Starting fresh scan...")
                 continue
                 
             logger.info(f"Found {len(stale_symbols)} symbols needing pledge updates (out of {total_watch} total).")
