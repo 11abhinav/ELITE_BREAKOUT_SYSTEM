@@ -935,8 +935,25 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                                 
                             combined = combined.sort_index() if time_col_comb is None else combined.sort_values(time_col_comb)
                             
-                            # Keep reasonable history limit to prevent infinite growth
-                            max_rows = 5000 if interval.endswith('m') else 2000
+                            # [VERSION: CACHE_MAX_ROWS_OPTIMIZATION_v1.0]
+                            # RATIONALE: Previously, intraday data was hardcoded to 5000 rows and daily data to 2000 rows.
+                            # - PERFORMANCE FIX: 5000 rows for 30m/1h caused massive CPU bottlenecks during apply_indicators 
+                            #   (taking ~80s per 14 symbols). We cap 15m/30m/1h at 800 rows which is enough for a 260-period 
+                            #   indicator lookback + burn-in padding. 1m-5m stay high to ensure enough trading days.
+                            # - MULTIBAGGER FIX: The old 2000 row limit truncated the 10-year Multibagger scan (which needs ~2520 days).
+                            #   Daily limit is now raised to 3000 rows to ensure 10-year history remains cached intact.
+                            if interval.endswith('m'):
+                                if interval in ('1m', '2m', '3m'):
+                                    max_rows = 5000
+                                elif interval == '5m':
+                                    max_rows = 1500
+                                else: # 10m, 15m, 30m, 45m, 60m
+                                    max_rows = 800
+                            elif interval.endswith('h'):
+                                max_rows = 800 # 1h, 2h, 4h
+                            else:
+                                max_rows = 3000 # 1d, 1w, 1mo (supports 10-year daily history)
+                                
                             combined = combined.tail(max_rows).copy()
                             
                             # [VERSION: CACHE_INDEX_FIX] If time is in a column, reset the index to prevent PyArrow
