@@ -282,12 +282,13 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
         "atr_14": float(bundle.atr_14.iloc[-1]) if hasattr(bundle, 'atr_14') and bundle.atr_14 is not None and not bundle.atr_14.empty and not pd.isna(bundle.atr_14.iloc[-1]) else float(entry_val * 0.025)
     }
 
-def start(force: bool = False, session=None):
+def start(force: bool = False, session=None, run_ctx=None):
     """
     Main entry point for Pullback Scanner. Acquires process lock and delegates to pipeline.
     """
     from database import is_scanner_stopped, upsert_scanner_health
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
+    import time
     if is_scanner_stopped("PULLBACK"):
         logger.info("🛑 Pullback Scanner is STOPPED by Admin. Skipping execution.")
         return 0
@@ -306,12 +307,40 @@ def start(force: bool = False, session=None):
         raise RuntimeError("Pullback Scanner is already actively running!")
 
     _scan_start = print_scanner_start_banner("pullback_scanner", queued_at=queued_at)
+    
+    created_ctx = False
+    if run_ctx is None:
+        try:
+            from database import start_scanner_execution_run
+            run_ctx = start_scanner_execution_run(scanner_name="PULLBACK", trigger_type="MANUAL", scheduler_name="CLI")
+            created_ctx = True
+        except Exception: pass
+
     try:
-        return run_pullback_pipeline(force=force, session=session)
+        total = run_pullback_pipeline(force=force, session=session)
+        if run_ctx and isinstance(total, dict) and "total_count" in total:
+            run_ctx.set_total_stocks(total["total_count"])
+            run_ctx.fresh_count = total["processed_count"]
+            if "today_alerts" in total:
+                run_ctx.add_alert(total["today_alerts"])
+        return total
+    except Exception as e:
+        if created_ctx:
+            try:
+                from database import complete_scanner_execution_run
+                complete_scanner_execution_run(run_ctx, exception=e)
+                created_ctx = False
+            except Exception: pass
+        raise
     finally:
         print_scanner_end_banner("pullback_scanner", _scan_start)
         _scan_lock.release()
         _global_lock.release()
+        if created_ctx:
+            try:
+                from database import complete_scanner_execution_run
+                complete_scanner_execution_run(run_ctx)
+            except Exception: pass
 
 def _determine_dataset_date(sample_data: dict) -> Optional[str]:
     if not sample_data:

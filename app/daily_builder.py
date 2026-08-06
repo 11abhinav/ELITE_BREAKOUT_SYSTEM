@@ -1080,7 +1080,7 @@ from lock_utils import ProcessLock
 _build_lock = ProcessLock("daily_builder")
 _global_lock = ProcessLock("global_scanner_lock")
 
-def main(force_rebuild: bool = False):
+def main(force_rebuild: bool = False, run_ctx=None):
     import time
     from database import is_scanner_stopped, upsert_scanner_health
     if is_scanner_stopped("DAILY_BUILDER"):
@@ -1099,15 +1099,41 @@ def main(force_rebuild: bool = False):
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [DAILY_BUILDER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
+    from lock_utils import print_scanner_start_banner, print_scanner_end_banner
+    _scan_start = print_scanner_start_banner("daily_builder", queued_at=queued_at)
+    
+    created_ctx = False
+    if run_ctx is None:
+        try:
+            from database import start_scanner_execution_run
+            run_ctx = start_scanner_execution_run(scanner_name="DAILY_BUILDER", trigger_type="MANUAL", scheduler_name="CLI")
+            created_ctx = True
+        except Exception:
+            pass
+
     if not _build_lock.acquire(blocking=False):
         _global_lock.release()
         raise RuntimeError("Daily Builder is already actively running!")
 
     try:
         _main_wrapper(force_rebuild)
+    except Exception as e:
+        if created_ctx:
+            try:
+                from database import complete_scanner_execution_run
+                complete_scanner_execution_run(run_ctx, exception=e)
+                created_ctx = False
+            except Exception: pass
+        raise
     finally:
+        print_scanner_end_banner("daily_builder", _scan_start)
         _build_lock.release()
         _global_lock.release()
+        if created_ctx:
+            try:
+                from database import complete_scanner_execution_run
+                complete_scanner_execution_run(run_ctx)
+            except Exception: pass
 
 def _main_wrapper(force_rebuild: bool = False):
     from datetime import datetime, time as dt_time

@@ -820,12 +820,34 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None):
         return None
 
     _scan_start = print_scanner_start_banner("wealth_engine", queued_at=queued_at)
+    
+    created_ctx = False
+    if run_ctx is None:
+        try:
+            from database import start_scanner_execution_run
+            run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type="MANUAL", scheduler_name="CLI")
+            created_ctx = True
+        except Exception: pass
+
     try:
         return _run_wealth_scan_wrapper(is_test_mode=is_test_mode, run_ctx=run_ctx, session=session)
+    except Exception as e:
+        if created_ctx:
+            try:
+                from database import complete_scanner_execution_run
+                complete_scanner_execution_run(run_ctx, exception=e)
+                created_ctx = False
+            except Exception: pass
+        raise
     finally:
         print_scanner_end_banner("wealth_engine", _scan_start)
         _scan_lock.release()
         _global_lock.release()
+        if created_ctx:
+            try:
+                from database import complete_scanner_execution_run
+                complete_scanner_execution_run(run_ctx)
+            except Exception: pass
 
 import pandas as pd
 from datetime import datetime

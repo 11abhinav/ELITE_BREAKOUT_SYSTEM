@@ -1583,9 +1583,10 @@ from lock_utils import ProcessLock
 _scan_lock = ProcessLock("multibagger")
 _global_lock = ProcessLock("global_scanner_lock")
 
-def start(debug_limit: int = None, is_test_mode: bool = False, session=None):
+def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run_ctx=None):
     from database import is_scanner_stopped, upsert_scanner_health
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
+    import time
     if is_scanner_stopped("MULTIBAGGER"):
         logger.info("🛑 Multibagger Scanner is STOPPED by Admin. Skipping execution.")
         return {}
@@ -1604,12 +1605,34 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None):
         raise RuntimeError("Multibagger Scanner is already actively running!")
 
     _scan_start = print_scanner_start_banner("multibagger", queued_at=queued_at)
+    
+    created_ctx = False
+    if run_ctx is None:
+        try:
+            from database import start_scanner_execution_run
+            run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER", trigger_type="MANUAL", scheduler_name="CLI")
+            created_ctx = True
+        except Exception: pass
+
     try:
         return run_scanner(debug_limit, is_test_mode, session)
+    except Exception as e:
+        if created_ctx:
+            try:
+                from database import complete_scanner_execution_run
+                complete_scanner_execution_run(run_ctx, exception=e)
+                created_ctx = False
+            except Exception: pass
+        raise
     finally:
         print_scanner_end_banner("multibagger", _scan_start)
         _scan_lock.release()
         _global_lock.release()
+        if created_ctx:
+            try:
+                from database import complete_scanner_execution_run
+                complete_scanner_execution_run(run_ctx)
+            except Exception: pass
 
 def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=None):
     """Main scanning wrapper."""
