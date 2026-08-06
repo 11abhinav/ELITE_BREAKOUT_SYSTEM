@@ -19,3 +19,4 @@
 {"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-05T23:25:39.145899+05:30", "duration_s": 0.001, "rss_before_mb": 319.3, "rss_after_mb": 319.3, "rss_delta_mb": 0.0, "error": "Simulated crash in Multi TF"}
 {"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-05T23:30:17.479257+05:30", "duration_s": 0.001, "rss_before_mb": 365.2, "rss_after_mb": 365.2, "rss_delta_mb": 0.0, "error": "Simulated crash in Multi TF"}
 {"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-05T23:34:05.836838+05:30", "duration_s": 0.0, "rss_before_mb": 369.1, "rss_after_mb": 369.1, "rss_delta_mb": 0.0, "error": "Simulated crash in Multi TF"}
+{"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-05T23:39:26.198949+05:30", "duration_s": 0.0, "rss_before_mb": 443.7, "rss_after_mb": 443.7, "rss_delta_mb": 0.0, "error": "Simulated crash in Multi TF"}
