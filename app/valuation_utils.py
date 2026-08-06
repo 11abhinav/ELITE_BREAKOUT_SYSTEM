@@ -70,7 +70,8 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
                 .order_by("ticker")
                 .limit(5000)
             )
-            total, df = q.get_scanner_data()
+            # Pass explicit connect and read timeout down to requests.post
+            total, df = q.get_scanner_data(timeout=(5, 15))
             
             if df is not None and not df.empty:
                 # Paginate if needed

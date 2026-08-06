@@ -1204,6 +1204,41 @@ def save_checkpoint(state: dict):
     except Exception as e:
         logger.warning(f"Could not save checkpoint to DB: {e}")
 
+def ensure_daily_builder_cache() -> bool:
+    """
+    Ensure the local Daily Builder parquet cache exists and is valid.
+    If missing or corrupt, attempt to restore it from the database.
+    Returns True if valid cache exists (local or restored), False if rebuild is needed.
+    """
+    import os, pandas as pd
+    
+    def _is_valid(path):
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            try:
+                df = pd.read_parquet(path)
+                if not df.empty and "Stock" in df.columns:
+                    return True
+            except Exception:
+                pass
+        return False
+
+    if _is_valid(OUTPUT_PARQUET):
+        logger.info("Daily Builder Cache: Source = Local")
+        return True
+        
+    # Not valid locally, attempt DB restore
+    try:
+        from database import download_parquet_from_db
+        if download_parquet_from_db("daily_builder", OUTPUT_PARQUET):
+            if _is_valid(OUTPUT_PARQUET):
+                logger.info("Daily Builder Cache: Source = Restored from DB")
+                return True
+    except Exception as e:
+        logger.warning(f"Failed to restore Daily Builder cache from DB: {e}")
+        
+    logger.info("Daily Builder Cache: Source = Rebuilt")
+    return False
+
 def _main_impl(force_rebuild: bool = False):
     global _DELIVERY_DATA, _INST_BUYS
     # ── DB RE-RUN GUARD ──
@@ -1212,7 +1247,11 @@ def _main_impl(force_rebuild: bool = False):
             from database import check_data_exists_for_today
             if check_data_exists_for_today():
                 logger.info("⏭️ [DAILY BUILDER] Watchlist data already exists in PostgreSQL 'included' table for today's date. Skipping daily builder execution (re-run guard).")
-                return
+                if ensure_daily_builder_cache():
+                    state = load_checkpoint()
+                    state["fundamentals_scored"] = True
+                    save_checkpoint(state)
+                    return
         except Exception as e:
             logger.warning(f"⚠️ DB re-run guard check failed: {e}. Proceeding with daily builder scan.")
 
