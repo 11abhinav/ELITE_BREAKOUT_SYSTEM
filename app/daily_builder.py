@@ -1234,6 +1234,7 @@ def ensure_daily_builder_cache() -> bool:
     """
     Ensure the local Daily Builder parquet cache exists and is valid.
     If missing or corrupt, attempt to restore it from the database.
+    Also restores the 1d history bundle.
     Returns True if valid cache exists (local or restored), False if rebuild is needed.
     """
     import os, pandas as pd
@@ -1248,19 +1249,32 @@ def ensure_daily_builder_cache() -> bool:
                 pass
         return False
 
+    is_valid_cache = False
     if _is_valid(OUTPUT_PARQUET):
         logger.info("Daily Builder Cache: Source = Local")
-        return True
-        
-    # Not valid locally, attempt DB restore
+        is_valid_cache = True
+    else:
+        # Not valid locally, attempt DB restore
+        try:
+            from database import download_parquet_from_db
+            if download_parquet_from_db("daily_builder", OUTPUT_PARQUET):
+                if _is_valid(OUTPUT_PARQUET):
+                    logger.info("Daily Builder Cache: Source = Restored from DB")
+                    is_valid_cache = True
+        except Exception as e:
+            logger.warning(f"Failed to restore Daily Builder cache from DB: {e}")
+
+    # Always ensure 1d history bundle is restored if we are restoring from DB, or just to be safe.
     try:
-        from database import download_parquet_from_db
-        if download_parquet_from_db("daily_builder", OUTPUT_PARQUET):
-            if _is_valid(OUTPUT_PARQUET):
-                logger.info("Daily Builder Cache: Source = Restored from DB")
-                return True
+        from database import restore_history_bundle_from_db
+        # Fast no-op if local files already exist (or it will extract if missing)
+        # Actually restore_history_bundle_from_db checks DB vs Local.
+        restore_history_bundle_from_db("1d")
     except Exception as e:
-        logger.warning(f"Failed to restore Daily Builder cache from DB: {e}")
+        logger.warning(f"Failed to restore 1d history bundle: {e}")
+
+    if is_valid_cache:
+        return True
         
     logger.info("Daily Builder Cache: Source = Rebuilt")
     return False
