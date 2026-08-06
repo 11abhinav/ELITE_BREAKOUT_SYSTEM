@@ -1517,6 +1517,13 @@
             </thead>
             <tbody id="tradeBody"></tbody>
           </table>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; padding: 0 8px;">
+            <div id="tradePaginationInfo" style="font-size:12px; color:var(--muted);"></div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-sm" id="tradePrevBtn" onclick="changeTradePage(-1)">Previous</button>
+              <button class="btn btn-sm" id="tradeNextBtn" onclick="changeTradePage(1)">Next</button>
+            </div>
+          </div>
         </div>
         </div>
       </div>
@@ -2593,6 +2600,14 @@
 
     // ── KPIs
     let ALL_TRADES = [], activeKpi = null;
+    let currentTradePage = 1;
+    const tradesPerPage = 100;
+    
+    function changeTradePage(dir) {
+      currentTradePage += dir;
+      if (currentTradePage < 1) currentTradePage = 1;
+      renderTradeTable();
+    }
 
     function renderKPIs(s) {
       const filteredTrades = window._currentFilteredTrades || ALL_TRADES;
@@ -4009,11 +4024,28 @@
       if (tc) tc.textContent = `${filtered.length} trade${filtered.length !== 1 ? 's' : ''}`;
       
       const body = document.getElementById('tradeBody');
+      const pInfo = document.getElementById('tradePaginationInfo');
       if (!filtered.length) {
         body.innerHTML = `<tr><td colspan="14" style="text-align:center;padding:32px;color:var(--muted)">No trades match this filter.</td></tr>`;
+        if (pInfo) pInfo.innerText = '';
         return;
       }
-      body.innerHTML = buildTradeRows(filtered, maxAbs, 'main-');
+      
+      const totalPages = Math.ceil(filtered.length / tradesPerPage);
+      if (currentTradePage > totalPages) currentTradePage = totalPages;
+      const startIdx = (currentTradePage - 1) * tradesPerPage;
+      const endIdx = startIdx + tradesPerPage;
+      const paginatedTrades = filtered.slice(startIdx, endIdx);
+      
+      body.innerHTML = buildTradeRows(paginatedTrades, maxAbs, 'main-');
+      
+      if (pInfo) {
+        pInfo.innerText = `Showing ${startIdx + 1}-${Math.min(endIdx, filtered.length)} of ${filtered.length} trades (Page ${currentTradePage} of ${totalPages})`;
+      }
+      const prevBtn = document.getElementById('tradePrevBtn');
+      const nextBtn = document.getElementById('tradeNextBtn');
+      if (prevBtn) prevBtn.disabled = currentTradePage <= 1;
+      if (nextBtn) nextBtn.disabled = currentTradePage >= totalPages;
       
       // Calculate and append summary if drilled down
       if (activeKpi && activeKpi !== 'total' && filtered.length > 0) {
@@ -4562,7 +4594,12 @@
         loadMultibaggerWatchlist(),
         loadPendingUsers(),
         loadUserWatchlist(),
-        loadScannerStatus(),
+        loadScannerStatus().then(live => {
+          if (live) {
+            window._scannerStats = {...(window._scannerStats||{}), ...live};
+            if (typeof renderScannerGrid === 'function') renderScannerGrid(window._scannerStats);
+          }
+        }),
         fetchDatabaseTablesSummary(),
         loadAdvancedOutcomeAnalytics(),
         loadValidationHealth(),
@@ -5153,41 +5190,50 @@ async function initDashboard() {
   ]).catch(e => console.error("Error loading secondary dashboard components:", e));
 
   // Auto-refresh scanner status every 60s if diagnostics are loaded
-
-  setInterval(async () => {
-    if (diagnosticsLoaded) {
-      const live = await loadScannerStatus();
-      if (live) {
-        window._scannerStats = {...(window._scannerStats||{}), ...live};
-        renderScannerGrid(window._scannerStats);
-        loadNonCriticalErrors();
+  async function refreshScannerStatus() {
+    try {
+      if (diagnosticsLoaded) {
+        const live = await loadScannerStatus();
+        if (live) {
+          window._scannerStats = {...(window._scannerStats||{}), ...live};
+          renderScannerGrid(window._scannerStats);
+          loadNonCriticalErrors();
+        }
       }
-    }
-    fetchScannerExecutionHistory(currentSehPage);
-  }, 60000);
+      await fetchScannerExecutionHistory(currentSehPage);
+    } catch (e) { console.error("Error in refreshScannerStatus:", e); }
+    setTimeout(refreshScannerStatus, 60000);
+  }
+  setTimeout(refreshScannerStatus, 60000);
 
   // Start viewer ping
-  pingViewer();
-  setInterval(pingViewer, 30000);
+  async function schedulePingViewer() {
+    try { await pingViewer(); } catch (e) { console.error("Error pinging viewer:", e); }
+    setTimeout(schedulePingViewer, 30000);
+  }
+  schedulePingViewer();
 
   // Auto-Refresh Every 3 Minutes
-  setInterval(() => {
-    loadData().then(data => {
-      if (data.trades) {
+  async function refreshAllData() {
+    try {
+      const data = await loadData();
+      if (data && data.trades) {
         ALL_TRADES = data.trades;
         EXIT_HISTORY_CACHE.clear();
         populateFilters(ALL_TRADES);
-        fetchSignalLadder();
-  loadMultibaggerWatchlist();
+        await fetchSignalLadder();
+        await loadMultibaggerWatchlist();
         renderTradeTable();
         updateSim();
-        loadCapitalInfo();
+        await loadCapitalInfo();
       }
       if (diagnosticsLoaded) {
-        loadDiagnostics();
+        await loadDiagnostics();
       }
-    });
-  }, 180000);
+    } catch (e) { console.error("Error in refreshAllData:", e); }
+    setTimeout(refreshAllData, 180000);
+  }
+  setTimeout(refreshAllData, 180000);
 }
 
 function togglePreviewAnalytics() {
@@ -5701,9 +5747,9 @@ async function fetchTodaysAlertsAndBlink_Admin(){
       });
     });
   }catch(e){console.warn('fetchTodaysAlerts_Admin failed', e)}
+  setTimeout(fetchTodaysAlertsAndBlink_Admin, ALERT_FETCH_INTERVAL_ADMIN);
 }
 setTimeout(fetchTodaysAlertsAndBlink_Admin, 2000);
-setInterval(fetchTodaysAlertsAndBlink_Admin, ALERT_FETCH_INTERVAL_ADMIN);
   </script>
   <!-- Users Modal -->
   <div id="usersModal"
@@ -5847,7 +5893,7 @@ function fetchUsersData() {
 
   <script>
 let currentChatUser = null;
-let chatInterval = null;
+let chatTimeout = null;
 let adminLastMessageCount = 0;
 
 function openAdminChat(userName) {
@@ -5860,17 +5906,22 @@ function openAdminChat(userName) {
     // Close the users modal so chat is prominent
     closeUsersModal();
     
-    fetchAdminChatMessages();
-    if (chatInterval) clearInterval(chatInterval);
-    chatInterval = setInterval(fetchAdminChatMessages, 3000);
+    if (chatTimeout) clearTimeout(chatTimeout);
+    pollAdminChatMessages();
+}
+
+async function pollAdminChatMessages() {
+    if (!currentChatUser || document.getElementById('admin-chat-panel').style.display === 'none') return;
+    try { await fetchAdminChatMessages(); } catch(e) { console.error(e); }
+    chatTimeout = setTimeout(pollAdminChatMessages, 3000);
 }
 
 function closeAdminChat() {
     document.getElementById('admin-chat-panel').style.display = 'none';
     currentChatUser = null;
-    if (chatInterval) {
-        clearInterval(chatInterval);
-        chatInterval = null;
+    if (chatTimeout) {
+        clearTimeout(chatTimeout);
+        chatTimeout = null;
     }
 }
 

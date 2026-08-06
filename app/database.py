@@ -750,7 +750,9 @@ def init_db():
                         CONSTRAINT idx_fetch_errors_uni UNIQUE (source_name, scanner_name, symbol, interval, category)
                     )
                 """)
-
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_fetch_errors_ack ON fetch_errors(is_acknowledged)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_fetch_errors_scan ON fetch_errors(scanner_name)")
+                
                 # 19. validation_history
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS validation_history (
