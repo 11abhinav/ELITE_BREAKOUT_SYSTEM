@@ -942,15 +942,15 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             #   indicator lookback + burn-in padding. 1m-5m stay high to ensure enough trading days.
                             # - MULTIBAGGER FIX: The old 2000 row limit truncated the 10-year Multibagger scan (which needs ~2520 days).
                             #   Daily limit is now raised to 3000 rows to ensure 10-year history remains cached intact.
-                            if interval.endswith('m'):
+                            if 'm' in interval:
                                 if interval in ('1m', '2m', '3m'):
-                                    max_rows = 5000
-                                elif interval == '5m':
                                     max_rows = 1500
+                                elif interval == '5m':
+                                    max_rows = 750
                                 else: # 10m, 15m, 30m, 45m, 60m
-                                    max_rows = 800
-                            elif interval.endswith('h'):
-                                max_rows = 800 # 1h, 2h, 4h
+                                    max_rows = 400
+                            elif 'h' in interval:
+                                max_rows = 400 # 1h, 2h, 4h
                             else:
                                 max_rows = 3000 # 1d, 1w, 1mo (supports 10-year daily history)
                                 
