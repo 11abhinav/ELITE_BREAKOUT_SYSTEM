@@ -821,7 +821,7 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None):
 
     _scan_start = print_scanner_start_banner("wealth_engine", queued_at=queued_at)
     try:
-        return _run_wealth_scan_wrapper(is_test_mode)
+        return _run_wealth_scan_wrapper(is_test_mode=is_test_mode, run_ctx=run_ctx, session=session)
     finally:
         print_scanner_end_banner("wealth_engine", _scan_start)
         _scan_lock.release()
@@ -1182,7 +1182,7 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
 # =====================================================================================
 
 
-def _run_wealth_scan_wrapper(is_test_mode=False):
+def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
     import time
     start_time = time.time()
     # [VERSION: PERF_PHASE0_v1.0] Reset stage timer ring buffer at scan start
