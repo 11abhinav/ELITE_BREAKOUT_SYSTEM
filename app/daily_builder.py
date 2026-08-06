@@ -1116,7 +1116,7 @@ def main(force_rebuild: bool = False, run_ctx=None):
         raise RuntimeError("Daily Builder is already actively running!")
 
     try:
-        _main_wrapper(force_rebuild)
+        _main_wrapper(force_rebuild, run_ctx=run_ctx)
     except Exception as e:
         if created_ctx:
             try:
@@ -1135,7 +1135,7 @@ def main(force_rebuild: bool = False, run_ctx=None):
                 complete_scanner_execution_run(run_ctx)
             except Exception: pass
 
-def _main_wrapper(force_rebuild: bool = False):
+def _main_wrapper(force_rebuild: bool = False, run_ctx=None):
     from datetime import datetime, time as dt_time
     from zoneinfo import ZoneInfo
     from config import WATCHLIST_PATH, MIN_DAILY_LIQUIDITY_RUPEES_WATCHLIST
@@ -1166,6 +1166,11 @@ def _main_wrapper(force_rebuild: bool = False):
             
             outcome = "SUCCESS" if proc and proc > 0 else "FAILED"
             
+            if run_ctx and tot and proc:
+                run_ctx.set_total_stocks(tot)
+                run_ctx.mark_fresh(proc)
+                duration_sec = run_ctx.to_dict().get("duration_seconds", duration_sec)
+                
             upsert_scanner_health(
                 "DAILY_BUILDER", "OK" if outcome != "FAILED" else "DEGRADED",
                 last_success=datetime.now(_ist).isoformat(),
