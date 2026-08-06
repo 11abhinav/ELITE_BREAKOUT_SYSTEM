@@ -1,4 +1,6 @@
 from __future__ import annotations
+from scanner_telemetry import ScannerDecisionLogger, global_telemetry
+import time as _time
 import os
 import time
 import logging

@@ -1,3 +1,5 @@
+from scanner_telemetry import ScannerDecisionLogger, global_telemetry
+import time as _time
 # =====================================================================================
 # app/eod_scanner.py (SCHEDULER READY)
 # EOD BREAKOUT SCANNER WITH CONSOLIDATED MAIL AUTOMATION
@@ -666,6 +668,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
         ]}
         
         market_regime = get_macro_regime(nifty_ret_20d)
+        telemetry_logger = ScannerDecisionLogger("EOD", scan_id, market_regime)
         logger.info(f"📊 Market Regime Classifier: {market_regime}")
 
         # [EOD_REGIME_CTX_FIX_v1.0] BUG-1 FIX: regime_ctx was never initialized in eod_scanner.
@@ -770,6 +773,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                     _batch_lock = threading.Lock()
                     def _process_row(idx, row_tuple, all_ticker_data=all_ticker_data):
                         symbol = "UNKNOWN"
+                        _row_start_time = _time.perf_counter()
                         try:
                             row = row_tuple._asdict() if hasattr(row_tuple, '_asdict') else (row_tuple if isinstance(row_tuple, dict) else {})
                             symbol   = row.get("Stock", "UNKNOWN")
@@ -787,6 +791,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             if ticker_data is None:
                                 with _batch_lock:
                                     rejection_counts["no_data"] += 1
+                                    telemetry_logger.record_reject(symbol, "DATA", "NO_DATA", None, None, start_time=_row_start_time)
                                 with _batch_lock:
                                     provider_stats_counts["EMPTY_DATA"] += 1
                                 with _batch_lock:
@@ -800,6 +805,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                 if res != ProviderResult.SUCCESS:
                                     with _batch_lock:
                                         rejection_counts["no_data"] += 1
+                                        telemetry_logger.record_reject(symbol, "DATA", "NO_DATA", None, None, start_time=_row_start_time)
                                     with _batch_lock:
                                         scan_failures.append(ScanFailure(symbol=symbol, scanner_name="EOD", provider="unknown", failure_reason=f"Provider error: {res.name}", scan_id=scan_id))
                                     return
@@ -812,12 +818,14 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             if ticker.empty:
                                 with _batch_lock:
                                     rejection_counts["no_data"] += 1
+                                    telemetry_logger.record_reject(symbol, "DATA", "NO_DATA", None, None, start_time=_row_start_time)
                                 return
 
                             # If provider returned stale data (used as fallback during rate limits), skip EOD buy generation
                             if getattr(ticker, 'attrs', {}).get('is_stale'):
                                 with _batch_lock:
                                     rejection_counts["stale_data"] += 1
+                                    telemetry_logger.record_reject(symbol, "DATA", "STALE_DATA", None, None, start_time=_row_start_time)
                                 return
 
                             if isinstance(ticker.columns, pd.MultiIndex):
@@ -839,6 +847,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             if missing_col:
                                 with _batch_lock:
                                     rejection_counts["missing_col"] += 1
+                                    telemetry_logger.record_reject(symbol, "DATA", "MISSING_COL", None, None, start_time=_row_start_time)
                                 return
 
                             ticker = ticker.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
@@ -846,12 +855,14 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             if ticker.empty:
                                 with _batch_lock:
                                     rejection_counts["no_data"] += 1
+                                    telemetry_logger.record_reject(symbol, "DATA", "NO_DATA", None, None, start_time=_row_start_time)
                                 return
 
                             # [VERSION: EOD_BAR_LIMIT_FIX] Lowered bar minimum from 200 to 50 to allow IPOs/new listings to be evaluated
                             if len(ticker) < 50:
                                 with _batch_lock:
                                     rejection_counts["insufficient_bars"] += 1
+                                    telemetry_logger.record_reject(symbol, "LIQUIDITY", "INSUFFICIENT_BARS", len(ticker) if "ticker" in locals() else 0, 50, start_time=_row_start_time)
                                 return
 
                             # [PERFORMANCE_FIX] apply_indicators() is now pre-calculated by price_cache.py 
@@ -862,6 +873,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             if ticker is None or ticker.empty:
                                 with _batch_lock:
                                     rejection_counts["indicator_fail"] += 1
+                                    telemetry_logger.record_reject(symbol, "DATA", "INDICATOR_FAIL", None, None, start_time=_row_start_time)
                                 return
 
                             signals = detect_breakouts(ticker, timeframe="1d")
@@ -869,6 +881,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             if len(signals) < MIN_SIGNALS:
                                 with _batch_lock:
                                     rejection_counts["weak_signals"] += 1
+                                    telemetry_logger.record_reject(symbol, "BREAKOUT", "WEAK_SIGNALS", len(signals) if "signals" in locals() else 0, MIN_SIGNALS if "MIN_SIGNALS" in locals() else 3, start_time=_row_start_time)
                                 return
 
                             latest = ticker.iloc[-1]
@@ -877,6 +890,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                 logger.debug(f"[EOD] {symbol} rejected: latest RSI is missing or NaN")
                                 with _batch_lock:
                                     rejection_counts["indicator_nan"] += 1
+                                    telemetry_logger.record_reject(symbol, "DATA", "INDICATOR_NAN", None, None, start_time=_row_start_time)
                                 return
 
                             # [VERSION: EOD_PATCH_v1.1] [BUG FIX 8 REGRESSION FIX] Proper fallback to DatetimeIndex when Date/Datetime column is missing
@@ -902,6 +916,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             if _staleness["is_stale"]:
                                 with _batch_lock:
                                     rejection_counts["stale_data"] += 1
+                                    telemetry_logger.record_reject(symbol, "DATA", "STALE_DATA", None, None, start_time=_row_start_time)
                                 logger.info(f"🚫 [EOD] {symbol} skipped — Data stale. Available till {_staleness['latest_available']} (Expected at least {_staleness['expected_date']})")
                                 return
 
@@ -915,6 +930,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                 logger.debug(f"REJECTION: {symbol} (Phase: LIQUIDITY_FILTER, Reason: 20D average volume is zero)")
                                 with _batch_lock:
                                     rejection_counts["zero_avg_volume"] += 1
+                                    telemetry_logger.record_reject(symbol, "LIQUIDITY", "ZERO_AVG_VOLUME", avg_volume if "avg_volume" in locals() else 0, 1, start_time=_row_start_time)
                                 return
 
                             volume_ratio = _safe_float(latest.get("Volume")) / avg_volume
@@ -930,6 +946,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             if candle_range <= 0:
                                 with _batch_lock:
                                     rejection_counts["zero_candle_range"] += 1
+                                    telemetry_logger.record_reject(symbol, "STRUCTURE", "ZERO_CANDLE_RANGE", 0, 1, start_time=_row_start_time)
                                 return
 
                             body_ratio     = candle_body / candle_range
@@ -963,21 +980,25 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                 logger.debug(f"REJECTION: {symbol} (Phase: VOLUME_RATIO, Reason: Volume ratio {volume_ratio:.2f}x < {MIN_VOLUME_RATIO:.2f}x)")
                                 with _batch_lock:
                                     rejection_counts["low_volume"] += 1
+                                    telemetry_logger.record_reject(symbol, "VOLUME", "LOW_VOLUME", volume_ratio if "volume_ratio" in locals() else 0, MIN_VOLUME_RATIO if "MIN_VOLUME_RATIO" in locals() else 1.0, start_time=_row_start_time)
                                 return
                             if avg_volume < MIN_AVG_VOLUME_SHARES:
                                 logger.debug(f"REJECTION: {symbol} (Phase: LIQUIDITY_FILTER, Reason: Avg volume {avg_volume:.0f} < {MIN_AVG_VOLUME_SHARES:.0f} shares)")
                                 with _batch_lock:
                                     rejection_counts["low_avg_volume"] += 1
+                                    telemetry_logger.record_reject(symbol, "LIQUIDITY", "LOW_AVG_VOLUME", avg_volume if "avg_volume" in locals() else 0, MIN_AVG_VOLUME_SHARES if "MIN_AVG_VOLUME_SHARES" in locals() else 50000, start_time=_row_start_time)
                                 return
                             if candle_close < MIN_STOCK_PRICE:
                                 logger.debug(f"REJECTION: {symbol} (Phase: PRICE_FLOOR, Reason: Close ₹{candle_close:.2f} < ₹{MIN_STOCK_PRICE:.2f})")
                                 with _batch_lock:
                                     rejection_counts["penny_stock"] += 1
+                                    telemetry_logger.record_reject(symbol, "PRICE", "PENNY_STOCK", candle_close if "candle_close" in locals() else 0, MIN_STOCK_PRICE if "MIN_STOCK_PRICE" in locals() else 20, start_time=_row_start_time)
                                 return
                             if not (MIN_RSI <= rsi_val <= MAX_RSI):
                                 logger.debug(f"REJECTION: {symbol} (Phase: RSI_GATE, Reason: RSI {rsi_val:.1f} outside {MIN_RSI}-{MAX_RSI} range)")
                                 with _batch_lock:
                                     rejection_counts["rsi_range"] += 1
+                                    telemetry_logger.record_reject(symbol, "RSI", "RSI_RANGE", rsi_val if "rsi_val" in locals() else 0, MIN_RSI if "MIN_RSI" in locals() else 50, start_time=_row_start_time)
                                 return
 
                             # ── v6: STRUCTURAL BREAKOUT FILTERS ─────────────────────────────
@@ -986,6 +1007,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                 logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Missing PRIOR_20D_HIGH indicator)")
                                 with _batch_lock:
                                     rejection_counts["missing_atr"] += 1
+                                    telemetry_logger.record_reject(symbol, "STRUCTURE", "MISSING_ATR", None, None, start_time=_row_start_time)
                                 return
 
                             prior_high = _safe_float(latest.get("PRIOR_20D_HIGH"))
@@ -993,24 +1015,28 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                 logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Invalid prior 20D high ₹{prior_high:.2f})")
                                 with _batch_lock:
                                     rejection_counts["no_structural_breakout"] += 1
+                                    telemetry_logger.record_reject(symbol, "STRUCTURE", "NO_BREAKOUT", candle_close if "candle_close" in locals() else 0, prior_high if "prior_high" in locals() else 0, start_time=_row_start_time)
                                 return
 
                             if candle_close <= prior_high:
                                 logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Close ₹{candle_close:.2f} <= Prior 20D High ₹{prior_high:.2f})")
                                 with _batch_lock:
                                     rejection_counts["no_structural_breakout"] += 1
+                                    telemetry_logger.record_reject(symbol, "STRUCTURE", "NO_BREAKOUT", candle_close if "candle_close" in locals() else 0, prior_high if "prior_high" in locals() else 0, start_time=_row_start_time)
                                 return
 
                             # Not Extended
                             if "ATR20" not in ticker.columns or pd.isna(latest.get("ATR20")):
                                 with _batch_lock:
                                     rejection_counts["missing_atr"] += 1
+                                    telemetry_logger.record_reject(symbol, "STRUCTURE", "MISSING_ATR", None, None, start_time=_row_start_time)
                                 return
 
                             atr20 = _safe_float(latest.get("ATR20"))
                             if atr20 <= 0:
                                 with _batch_lock:
                                     rejection_counts["missing_atr"] += 1
+                                    telemetry_logger.record_reject(symbol, "STRUCTURE", "MISSING_ATR", None, None, start_time=_row_start_time)
                                 return
 
                             # [VERSION: BUSINESS_LOGIC_FIX_v1.0] Gap-and-go penalty (Soft Gate)
@@ -1028,6 +1054,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                 logger.debug(f"REJECTION: {symbol} (Phase: ATR_EXPANSION, Reason: Candle range / ATR20 ({candle_range / atr20:.2f}) < {min_atr_expansion:.1f})")
                                 with _batch_lock:
                                     rejection_counts["no_atr_expansion"] += 1
+                                    telemetry_logger.record_reject(symbol, "STRUCTURE", "NO_ATR_EXPANSION", candle_range/atr20 if "candle_range" in locals() and "atr20" in locals() and atr20 > 0 else 0, 0.9, start_time=_row_start_time)
                                 return
 
                             # [FIX P1-2] Removed redundant BB_WIDTH_PCTILE check on the current bar.
@@ -1041,6 +1068,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                     logger.debug(f"REJECTION: {symbol} (Phase: EMA20_TREND, Reason: Close ₹{candle_close:.2f} < EMA20 ₹{_safe_float(latest.get('EMA20')):.2f})")
                                     with _batch_lock:
                                         rejection_counts["below_ema20"] += 1
+                                        telemetry_logger.record_reject(symbol, "TREND", "BELOW_EMA20", candle_close if "candle_close" in locals() else 0, _safe_float(latest.get("EMA20")) if "latest" in locals() else 0, start_time=_row_start_time)
                                     return
 
                             if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")):
@@ -1048,6 +1076,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                     logger.debug(f"REJECTION: {symbol} (Phase: SMA50_TREND, Reason: Close ₹{candle_close:.2f} < SMA50 ₹{_safe_float(latest.get('SMA50')):.2f})")
                                     with _batch_lock:
                                         rejection_counts["below_sma50"] += 1
+                                        telemetry_logger.record_reject(symbol, "TREND", "BELOW_SMA50", candle_close if "candle_close" in locals() else 0, _safe_float(latest.get("SMA50")) if "latest" in locals() else 0, start_time=_row_start_time)
                                     return
 
                             if "ADX" in ticker.columns and not pd.isna(latest.get("ADX")):
@@ -1055,6 +1084,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                     logger.debug(f"REJECTION: {symbol} (Phase: ADX_GATE, Reason: ADX {_safe_float(latest.get('ADX')):.1f} < {ADX_MIN_THRESHOLD})")
                                     with _batch_lock:
                                         rejection_counts["weak_adx"] += 1
+                                        telemetry_logger.record_reject(symbol, "TREND", "WEAK_ADX", _safe_float(latest.get("ADX")) if "latest" in locals() else 0, ADX_MIN_THRESHOLD if "ADX_MIN_THRESHOLD" in locals() else 20, start_time=_row_start_time)
                                     return
 
                             # MACD is no longer mandatory, shifted to scoring engine
@@ -1066,6 +1096,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                     if pct_from_high > MAX_DISTANCE_FROM_52W_HIGH_PCT:
                                         with _batch_lock:
                                             rejection_counts["far_from_52w_high"] += 1
+                                            telemetry_logger.record_reject(symbol, "STRUCTURE", "FAR_FROM_52W_HIGH", pct_from_high if "pct_from_high" in locals() else 0, MAX_DISTANCE_FROM_52W_HIGH_PCT if "MAX_DISTANCE_FROM_52W_HIGH_PCT" in locals() else 20, start_time=_row_start_time)
                                         return
 
                             if len(ticker) >= 2:
@@ -1076,6 +1107,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                     if single_move_pct > max_single_day_move_pct:
                                         with _batch_lock:
                                             rejection_counts["gap_day"] += 1
+                                            telemetry_logger.record_reject(symbol, "STRUCTURE", "GAP_DAY", single_move_pct if "single_move_pct" in locals() else 0, 15.0, start_time=_row_start_time)
                                         return
 
                             # [FIX P1-1] Removed hard 3% gap filter — gap penalty is now
@@ -1129,6 +1161,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                     logger.debug(f"  ⊘ {symbol} base too wide (BB Pctile {bb_width_pctile:.2f}) — skipping")
                                     with _batch_lock:
                                         rejection_counts["base_too_wide"] += 1
+                                        telemetry_logger.record_reject(symbol, "STRUCTURE", "BASE_TOO_WIDE", bb_width_pctile if "bb_width_pctile" in locals() else 0, 0.80, start_time=_row_start_time)
                                     return
 
                             # ── v6: OBV STRUCTURE — SCORING PENALTY (not hard reject) ──────────
@@ -1211,6 +1244,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             if score < global_min_score:
                                 with _batch_lock:
                                     rejection_counts["low_score"] += 1
+                                    telemetry_logger.record_reject(symbol, "SCORE", "LOW_SCORE", score if "score" in locals() else 0, global_min_score if "global_min_score" in locals() else 0, start_time=_row_start_time)
                                 logger.debug(f"REJECTION: {symbol} (Phase: SCORE_GATE, Reason: Score {score:.1f} < threshold {global_min_score})")
                                 try:
                                     from near_miss_tracker import log_near_miss
@@ -1225,6 +1259,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             if (symbol, "EOD") in cooldown_alerts:
                                 with _batch_lock:
                                     rejection_counts["duplicate"] += 1
+                                    telemetry_logger.record_reject(symbol, "SYSTEM", "DUPLICATE", None, None, start_time=_row_start_time)
                                 return
 
                             # ── Dynamic S/R and Indicator-based SL + Target (EOD mode) ───────
@@ -1255,7 +1290,8 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                 
                             if sl_result.get("is_rejected"):
                                 with _batch_lock:
-                                    rejection_counts["low_rr"] += 1  # Reusing this counter for engine rejects
+                                    rejection_counts["low_rr"] += 1
+                                    telemetry_logger.record_reject(symbol, "RISK", "LOW_RR", sl_result.get("natural_rr", 0) if "sl_result" in locals() else 0, 2.0, start_time=_row_start_time)  # Reusing this counter for engine rejects
                                 from database import save_rejected_alert
                                 if not is_test_mode:
                                     save_rejected_alert(
@@ -1379,6 +1415,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                 }
                                 with _batch_lock:
                                     approved_candidates.append(cand)
+                                    telemetry_logger.record_pass(symbol, int(score), float(sl_result.get("natural_rr", 0)), {"VolumeRatio": round(volume_ratio, 2), "RSI": round(rsi_val, 1)}, _row_start_time)
                             else:
                                 pass
 
@@ -1453,6 +1490,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                     
                 if not saved:
                     rejection_counts["duplicate"] += 1
+                    telemetry_logger.record_reject(symbol, "SYSTEM", "DUPLICATE", None, None, start_time=_row_start_time)
                     continue
                     
                 alerts_by_category.setdefault(c["category"], []).append({

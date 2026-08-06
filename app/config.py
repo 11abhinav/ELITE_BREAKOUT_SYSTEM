@@ -732,3 +732,7 @@ _MODE_CONFIG = {
 
 
 SCANNER_MULTI_TF = "MULTI_TF"
+
+# Scanner Telemetry
+SCANNER_DECISION_LOGGING = True
+

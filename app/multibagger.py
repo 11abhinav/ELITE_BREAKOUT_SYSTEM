@@ -1,3 +1,5 @@
+from scanner_telemetry import ScannerDecisionLogger, global_telemetry
+import time as _time
 import io
 import os
 import time
