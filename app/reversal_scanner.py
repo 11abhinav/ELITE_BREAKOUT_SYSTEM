@@ -1868,6 +1868,7 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
         # Database transaction commit block
         db_success = False
         try:
+            from database import _DB_WRITE_LOCK
             with _DB_WRITE_LOCK:
                 with get_connection() as conn:
                     try:

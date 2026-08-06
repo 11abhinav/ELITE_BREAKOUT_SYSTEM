@@ -764,7 +764,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                     import threading
                     from concurrent.futures import ThreadPoolExecutor, as_completed
                     _batch_lock = threading.Lock()
-                    def _process_row(idx, row_tuple):
+                    def _process_row(idx, row_tuple, all_ticker_data=all_ticker_data):
                         symbol = "UNKNOWN"
                         try:
                             row = row_tuple._asdict() if hasattr(row_tuple, '_asdict') else (row_tuple if isinstance(row_tuple, dict) else {})

@@ -1617,6 +1617,7 @@ def run_system_scheduler():
                     def _run_earnings_post_market():
                         try:
                             logger.info("📅 SCHEDULER | [10:00 PM - 12:00 AM IST] Earnings Calendar off-peak refresh starting...")
+                            from earnings_calendar import run_earnings_calendar_refresh
                             run_earnings_calendar_refresh()
                         except Exception as e:
                             logger.error(f"❌ SCHEDULER | Earnings Calendar off-peak refresh failed: {e}")
@@ -1846,6 +1847,7 @@ def _run_multibagger_scanner_single():
             try:
                 from market_data_session import MarketDataSession
                 from watchlist_cache import get_watchlist
+                import pandas as pd
                 wl_df = get_watchlist()
                 symbols = wl_df["Stock"].dropna().tolist() if isinstance(wl_df, pd.DataFrame) and "Stock" in wl_df.columns else list(wl_df)
                 session = MarketDataSession.build(symbols=symbols, ist_date=datetime.now(IST).date(), requester="MULTIBAGGER")
@@ -2215,7 +2217,7 @@ def _trigger_reversal():
 
 def _trigger_wealth_engine():
     from wealth_engine import run_wealth_scan
-    run_wealth_scan(run_ctx=run_ctx)
+    run_wealth_scan()
 
 def _trigger_multibagger():
     import multibagger

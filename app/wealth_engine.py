@@ -1421,7 +1421,8 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         logger.info(f"⏱ [STAGE] 1D bulk_historical_fetch: {_stage_ms_hist_bulk:.0f}ms for {len(all_symbols_to_fetch)} symbols")
         stage_tracker.end_stage(f"Acquired {len(all_historical_data)} historical dataframes")
 
-        stage_tracker.start_stage(4, "Indicator Calculation & Scoring", f"Workers={SCAN_WORKER_THREADS if 'SCAN_WORKER_THREADS' in locals() or 'SCAN_WORKER_THREADS' in globals() else 3}")
+        from config import SCAN_WORKER_THREADS
+        stage_tracker.start_stage(4, "Indicator Calculation & Scoring", f"Workers={SCAN_WORKER_THREADS}")
 
         _t_hist_total = time.perf_counter()
         _t_indicator_total_ms = 0.0
