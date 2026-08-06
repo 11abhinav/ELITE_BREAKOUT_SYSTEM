@@ -3765,6 +3765,7 @@ def upload_parquet_to_db(name: str, file_path: str):
     if not os.path.exists(file_path):
         return
     import time
+    import psycopg2
     today = datetime.now(IST).strftime("%Y-%m-%d")
     init_db()
     try:
