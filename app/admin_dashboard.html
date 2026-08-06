@@ -3298,7 +3298,7 @@
             `<input type="checkbox" class="trade-checkbox" value="${t.id}" onchange="updateBulkActionsVisibility()">`;
 
         let eventMarkHtml = '';
-        if (t.earnings_flag || (t.days_to_earnings != null && t.days_to_earnings <= 5)) {
+        if (t.earnings_flag || (t.days_to_earnings != null && t.days_to_earnings <= 5) || t.earnings_severity === 'UNVERIFIED') {
           const d = t.days_to_earnings;
           const s = t.earnings_severity;
           if (d === 0 || s === 'HIGH_TODAY') {

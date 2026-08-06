@@ -1093,7 +1093,7 @@ function buildTradeRows(trades, maxAbs, prefix) {
     const barW = t.pnl_pct != null ? Math.min(100, Math.abs(t.pnl_pct) / maxAbs * 100).toFixed(1) : 0;
     const barColor = t.pnl_pct == null ? C.muted : t.pnl_pct >= 0 ? C.accent : C.warn;
     let eventMarkHtml = '';
-    if (t.earnings_flag || (t.days_to_earnings != null && t.days_to_earnings <= 5)) {
+    if (t.earnings_flag || (t.days_to_earnings != null && t.days_to_earnings <= 5) || t.earnings_severity === 'UNVERIFIED') {
       const d = t.days_to_earnings;
       const s = t.earnings_severity;
       if (d === 0 || s === 'HIGH_TODAY') {

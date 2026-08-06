@@ -41,8 +41,8 @@ class YahooEarningsProvider(EarningsProvider):
             yf_acquire(context=f"YahooEarningsProvider | {symbol}")
             try:
                 t = yf.Ticker(ticker_str)
+                # t.calendar is much cheaper and faster. We try this first.
                 cal = t.calendar
-                ed_df = t.earnings_dates
             finally:
                 yf_release()
 
@@ -59,6 +59,13 @@ class YahooEarningsProvider(EarningsProvider):
                     if len(vals) > 0 and pd.notnull(vals[0]):
                         dt_val = pd.to_datetime(vals[0])
                         return dt_val.date(), DateStatus.ESTIMATED
+
+            # If calendar fails, try earnings_dates (might raise lxml error on some OS)
+            yf_acquire(context=f"YahooEarningsProvider | {symbol}")
+            try:
+                ed_df = t.earnings_dates
+            finally:
+                yf_release()
 
             if ed_df is not None and not ed_df.empty:
                 now_date = datetime.now(IST).date()

@@ -16,6 +16,12 @@
 
 import pandas as pd
 import ta
+import numpy as np
+import warnings
+
+# Suppress annoying numpy nanmean warnings for empty slices in rolling windows
+warnings.filterwarnings("ignore", message="Mean of empty slice", category=RuntimeWarning)
+
 import gc
 from memory_profiler import profile_function
 

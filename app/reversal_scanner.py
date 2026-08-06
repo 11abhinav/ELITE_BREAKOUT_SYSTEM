@@ -185,7 +185,7 @@ def _opt_float(series, key: str, default: float) -> float:
 MIN_REVERSAL_SCORE_PCT = 0.52
 MIN_REVERSAL_SCORE     = round(MAX_POSSIBLE_SCORE * MIN_REVERSAL_SCORE_PCT) # 58
 CORE_SCORE_MAX         = 25 + 15 + 15 + 15   # 70 pts max for core technical components
-CORE_SCORE_FLOOR       = 30                  # Core technical floor (14+3+0+8 = 25 min achievable core after gates; setups < 30 filtered)
+CORE_SCORE_FLOOR       = 24                  # Core technical floor (14+3+0+8 = 25 min achievable core after gates; setups < 24 filtered)
 
 REGIME_REVERSAL_PREMIUM = {
     "STRONG_BEAR": 2,
