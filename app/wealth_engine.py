@@ -337,8 +337,17 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
             liquidity = float(avg_vol * cmp) if avg_vol > 0 else 0.0
 
             # Momentum Quality Evaluation
+            # [PERF OPT: BYPASS_INDICATOR_MANAGER_v1.0] Attach pre-calculated scalar indicators to hist
+            # so calculate_momentum_quality_score skips expensive indicator_manager re-computation per stock.
+            hist_eval = hist.copy()
+            hist_eval["sma_50"] = sma_50
+            hist_eval["sma_200"] = sma_200
+            hist_eval["ema_20"] = ema_20
+            hist_eval["rsi"] = rsi
+            hist_eval["atr"] = atr
+            
             from wealth_momentum_filter import calculate_momentum_quality_score
-            mom_score, mom_conf = calculate_momentum_quality_score(hist, symbol=symbol)
+            mom_score, mom_conf = calculate_momentum_quality_score(hist_eval, symbol=symbol)
 
             return {
                 "sma_200": sma_200,
