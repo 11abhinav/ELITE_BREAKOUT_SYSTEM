@@ -47,7 +47,7 @@ Use this document to diagnose stale data bugs, unexpected API calls, or "why is 
 
 **Code ref**: `price_cache.py:268–270`
 
-All `1d` requests with any period (`"1y"`, `"6mo"`, `"1mo"`, `"10d"`, `"3mo"`) are normalized to `period="2y"` internally. So ALL EOD, Reversal, Pullback, Wealth Engine, and Multibagger share **one cache key**: `("1d", "2y")`.
+All `1d` requests with any period (`"1y"`, `"6mo"`, `"1mo"`, `"10d"`, `"3mo"`) are normalized to `period="1y"` internally. So ALL EOD, Reversal, Pullback, Wealth Engine, and Multibagger share **one unified cache key**: `("1d", "1y")`. This eliminates 50% data payload overhead and prevents cache key fragmentation.
 
 ### RAM Cache TTL
 
@@ -103,12 +103,12 @@ Each parquet has a companion `.meta.json`:
 
 | Scanner | Interval | Period | Entry Point |
 |---------|----------|--------|-------------|
-| EOD Breakout | `1d` | `2y` | `fetch_watchlist_data()` |
-| Reversal | `1d` | `2y` | `fetch_watchlist_data()` |
-| Pullback | `1d` | `2y` | `fetch_watchlist_data()` |
-| Wealth Engine | `1d` | `2y` (stored as `1y` call, normalized) | `fetch_unified_historical()` |
-| Multibagger | `1d` | `2y` | `fetch_watchlist_data()` |
-| Multi-TF | `5m`, `15m`, `1h` | `10d` | `get_intraday_snapshot()` |
+| EOD Breakout | `1d` | `1y` | `fetch_watchlist_data()` |
+| Reversal | `1d` | `1y` | `fetch_watchlist_data()` |
+| Pullback | `1d` | `1y` | `fetch_watchlist_data()` |
+| Wealth Engine | `1d` | `1y` | `fetch_unified_historical()` |
+| Multibagger | `1d` | `1y` | `fetch_watchlist_data()` |
+| Multi-TF | `5m`, `15m`, `1h` | `10d` / `15d` | `get_intraday_snapshot()` |
 
 ---
 
@@ -441,8 +441,8 @@ Used for: Wealth admission gate, last scan metadata, feature flags
 | Scanner | Schedule | Data Consumed | Output |
 |---------|----------|--------------|--------|
 | **Daily Builder** | 01:00 AM daily | TradingView fundamentals (Fyers) | `daily_watchlist.parquet`, PostgreSQL `daily_watchlist` |
-| **Wealth Engine (initial)** | 02:00 AM daily | Daily parquet (1d/2y), fundamentals cache, pledge, concalls | `elite_wealth_system.parquet`, `wealth_buy_alert` table |
-| **Multibagger (initial)** | 04:00 AM daily | Daily parquet (1d/2y), fundamentals cache (triggers refresh), pledge | `alerts` table |
+| **Wealth Engine (initial)** | 02:00 AM daily | Daily parquet (1d/1y), fundamentals cache, pledge, concalls | `elite_wealth_system.parquet`, `wealth_buy_alert` table |
+| **Multibagger (initial)** | 04:00 AM daily | Daily parquet (1d/1y), fundamentals cache (triggers refresh), pledge | `alerts` table |
 | **Master Symbols Refresh** | 07:00 AM daily | NSE/BSE instrument universe | In-memory symbol registry |
 | **Verify Scans** | 08:30 AM daily | DB scanner_health table | Staleness notifications |
 | **Cache Warmup** | 09:14:30 AM daily | Fetches 15m cache for watchlist | In-memory `price_cache._cache` |
@@ -451,10 +451,10 @@ Used for: Wealth admission gate, last scan metadata, feature flags
 | **Performance Tracker** | Every 5 min, 09:15 AM – 15:30 PM | Live CMP, existing alerts | `alerts` table (status updates) |
 | **Multibagger Exit Monitor** | Every 15 min, 09:15 AM – 15:30 PM | Live CMP, `alerts` table | `alerts` table (exit updates) |
 | **Wealth Exit Monitor** | Every 5 min, 09:15 AM – 15:30 PM | Live CMP, `wealth_buy_alert` table | `wealth_buy_alert` table (exit updates) |
-| **EOD Scanner** | 18:00 IST daily (after bhavcopy ready) | 1d parquet (2y), fundamentals, pledge, earnings | `alerts` table (`EOD` scanner) |
-| **Reversal Scanner** | 18:00 IST daily (sequential after EOD) | 1d parquet (2y), fundamentals, pledge | `alerts` table (`REVERSAL` scanner) |
-| **Pullback Scanner** | 18:00 IST daily (sequential after Reversal) | 1d parquet (2y) | `alerts` table (`PULLBACK` scanner) |
-| **Multibagger Scanner** | 19:00 IST daily + Saturday 06:00 AM | 1d parquet (2y), fundamentals (triggers refresh), pledge | `alerts` table (`MULTIBAGGER` scanner) |
+| **EOD Scanner** | 18:00 IST daily (after bhavcopy ready) | 1d parquet (1y), fundamentals, pledge, earnings | `alerts` table (`EOD` scanner) |
+| **Reversal Scanner** | 18:00 IST daily (sequential after EOD) | 1d parquet (1y), fundamentals, pledge | `alerts` table (`REVERSAL` scanner) |
+| **Pullback Scanner** | 18:00 IST daily (sequential after Reversal) | 1d parquet (1y) | `alerts` table (`PULLBACK` scanner) |
+| **Multibagger Scanner** | 19:00 IST daily + Saturday 06:00 AM | 1d parquet (1y), fundamentals (triggers refresh), pledge | `alerts` table (`MULTIBAGGER` scanner) |
 | **Earnings Calendar** | Sat-Sun 03:00–12:00 IST / Mon-Fri 04:00–06:00 IST + 22:00 IST | Yahoo Finance earnings dates | PostgreSQL `earnings_calendar` table |
 | **AI Worker** | Sat-Sun 03:00–12:00 IST / Mon-Fri 04:00–06:00 IST | NSE concall PDFs → AI model | PostgreSQL `ai_concall_cache_v3` table |
 | **Pledge Worker** | Sat-Sun 03:00–12:00 IST / Mon-Fri 04:00–06:00 IST | Trendlyne/NSE pledge data | PostgreSQL `promoter_pledge_cache` table |

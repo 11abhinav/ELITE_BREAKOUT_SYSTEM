@@ -32,14 +32,14 @@
 
 **Code ref**: `price_cache.py:268`
 
-All `interval="1d"` requests regardless of `period` (`"1y"`, `"6mo"`, `"1mo"`, `"10d"`, `"3mo"`) are silently normalized to `period="2y"` internally:
+All `interval="1d"` requests regardless of `period` (`"6mo"`, `"1mo"`, `"10d"`, `"3mo"`, `"1y"`) are normalized to `period="1y"` internally:
 
 ```python
-if interval == "1d" and period in ("6mo", "1mo", "10d", "3mo", "1y"):
-    period = "2y"
+if interval == "1d" and period in ("6mo", "1mo", "10d", "3mo"):
+    period = "1y"
 ```
 
-This ensures EOD Scanner, Reversal Scanner, Pullback Scanner, Wealth Engine, and Multibagger all share **one single cache key** `("1d", "2y")` and do not trigger redundant downloads.
+This ensures EOD Scanner, Reversal Scanner, Pullback Scanner, Wealth Engine, and Multibagger all share **one unified cache key** `("1d", "1y")` and do not trigger redundant downloads.
 
 ### 2C. RAM Cache TTL (Dynamic Cadence)
 
@@ -399,12 +399,13 @@ Every dataset from any external provider is validated before being stored:
 
 ---
 
-## 12. Rate Limiter — Yahoo Finance
+## 12. Centralized Gateway & Rate Limiter — Yahoo Finance
 
-**Source File**: `app/yf_rate_limiter.py`
+**Source File**: `app/safe_yf_call.py` (Centralized Gateway) & `app/yf_rate_limiter.py`
 
 | Setting | Value |
 |---------|-------|
+| Centralized Gateway | `safe_yf_call(func, *args, **kwargs)` thread-safe wrapper |
 | Max concurrent threads | 2 |
 | Inter-request delay | 0.3s (+ 0.1s CPU yield for Flask) |
 | Circuit breaker trigger | HTTP 429 / "Too Many Requests" / "rate limit" in error string |
