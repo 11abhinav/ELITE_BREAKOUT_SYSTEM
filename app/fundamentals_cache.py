@@ -587,7 +587,7 @@ def get_fundamentals(symbol: str) -> dict:
         return res
     # [VERSION: FUNDAMENTALS_NORM_FIX_v1.0] Canonical fallback lookup for BSE/SME/NS suffix variations
     try:
-        from symbol_router import normalize_id
+        from valuation_utils import normalize_id  # [FIX: IMPORT_VALIDITY] normalize_id is defined in valuation_utils, not symbol_router
         norm_s = normalize_id(symbol)
         for k, v in cache.items():
             if normalize_id(k) == norm_s:
