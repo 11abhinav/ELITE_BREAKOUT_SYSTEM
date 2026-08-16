@@ -63,12 +63,28 @@ class SymbolRouter:
         self.routing_fallbacks = 0
 
     def _normalize_key(self, symbol: str, interval: str) -> Tuple[str, str]:
-        """Normalize symbol and interval into canonical tuple key."""
+        """
+        [VERSION: SYMBOL_ROUTER_SERIES_v1.0] Canonical Series Normalization for BO, SME (-SM/-ST), and EQ symbols.
+        RATIONALE:
+          - Preserves series/exchange context so BSE (.BO), SME (-SM, -ST), and NSE EQ mainboard
+            symbols are tracked independently without collisions.
+          - Option B permanent sticky logic applies to ALL series type symbols permanently across sessions.
+        """
         clean_sym = str(symbol or "").strip().upper()
-        if clean_sym.endswith(".NS"): clean_sym = clean_sym[:-3]
-        if clean_sym.endswith(".BO"): clean_sym = clean_sym[:-3]
+        
+        # Categorize exchange/series
+        if clean_sym.endswith(".BO") or clean_sym.startswith("BSE:") or clean_sym.isdigit():
+            base = clean_sym.replace(".BO", "").replace("BSE:", "")
+            canonical = f"BSE:{base}"
+        elif clean_sym.endswith("-SM") or clean_sym.endswith("-ST") or "-SM" in clean_sym or "-ST" in clean_sym:
+            base = clean_sym.replace(".NS", "").replace("NSE:", "")
+            canonical = f"SME:{base}"
+        else:
+            base = clean_sym.replace(".NS", "").replace("NSE:", "")
+            canonical = f"NSE:{base}"
+            
         clean_interval = str(interval or "1d").strip().lower()
-        return (clean_sym, clean_interval)
+        return (canonical, clean_interval)
 
     def get_route(self, symbol: str, interval: str) -> RoutingState:
         """

@@ -49,6 +49,18 @@ def test_option_b_permanent_sticky_retention():
     router.record_result("ABC", "1d", "upstox", is_success=False, err_code=ProviderErrorCode.UNSUPPORTED_SYMBOL)
     assert router.get_route("ABC", "1d") == RoutingState.FYERS_ONLY
 
+def test_bo_sme_eq_series_handling():
+    router = SymbolRouter()
+    # 1. BSE stock (532648.BO) fails on Fyers, succeeds on Upstox
+    router.record_result("532648.BO", "1d", "fyers", is_success=False, err_code=ProviderErrorCode.UNSUPPORTED_SYMBOL)
+    assert router.get_route("532648.BO", "1d") == RoutingState.UPSTOX_ONLY
+    assert router.get_route("BSE:532648", "1d") == RoutingState.UPSTOX_ONLY  # Canonical alias match
+    
+    # 2. SME stock (KALYANI-SM) fails on Fyers, succeeds on Upstox
+    router.record_result("KALYANI-SM", "1d", "fyers", is_success=False, err_code=ProviderErrorCode.NOT_FOUND)
+    assert router.get_route("KALYANI-SM", "1d") == RoutingState.UPSTOX_ONLY
+    assert router.get_route("NSE:KALYANI-SM", "1d") == RoutingState.UPSTOX_ONLY  # Canonical SME alias match
+
 def test_concurrent_routing_updates():
     import threading
     router = SymbolRouter()
