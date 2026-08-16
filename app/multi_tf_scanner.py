@@ -1391,13 +1391,14 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                     
                     import time as tm
                     now = tm.time()
-                    if now - _last_mtf_parquet_upload > 3600:
-                        try:
-                            upload_parquet_to_db("multi_tf_system", MULTI_TF_PATH)
-                            logger.info("💾 [MULTI_TF] Successfully exported and uploaded multi_tf_system.parquet to DB.")
-                            _last_mtf_parquet_upload = now
-                        except Exception as up_e:
-                            logger.warning(f"Failed background parquet upload: {up_e}")
+                    try:
+                        # [VERSION: ALWAYS_SAVE_MULTI_TF_PARQUET_v1.0] Always upload parquet to DB on scan completion.
+                        # RATIONALE: Previous 3600s throttle prevented scans finished within 1h from saving to DB.
+                        upload_parquet_to_db("multi_tf_system", MULTI_TF_PATH)
+                        logger.info("💾 [MULTI_TF] Successfully exported and uploaded multi_tf_system.parquet to DB.")
+                        _last_mtf_parquet_upload = now
+                    except Exception as up_e:
+                        logger.warning(f"Failed background parquet upload: {up_e}")
 
                     for _tf in ("1h", "30m", "15m", "5m"):
                         try:

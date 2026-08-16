@@ -1377,10 +1377,13 @@ def run_system_scheduler():
             if not os.path.exists(MULTI_TF_PATH):
                 logger.warning(f"⚠️ Multi-TF system missing from disk. Attempting DB restore for {today_str}...")
                 try:
-                    from database import download_parquet_from_db_today
+                    from database import download_parquet_from_db_today, download_parquet_from_db
                     restored = download_parquet_from_db_today("multi_tf_system", MULTI_TF_PATH)
+                    if not restored:
+                        restored = download_parquet_from_db("multi_tf_system", MULTI_TF_PATH)
+
                     if restored and os.path.exists(MULTI_TF_PATH):
-                        logger.info("✅ Multi-TF system restored from DB (today's data).")
+                        logger.info("✅ Multi-TF system restored from DB.")
                 except Exception as e:
                     logger.warning(f"Failed to restore multi_tf_system from DB: {e}")
         except Exception as e:
