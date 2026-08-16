@@ -1103,7 +1103,8 @@ def run_system_scheduler():
                 from daily_builder import main as build_watchlist
                 try:
                     with MemoryProfiler("DAILY_BUILDER", force_gc_cleanup=True):
-                        build_watchlist()
+                        with scanner_execution_lock:
+                            build_watchlist()
                     complete_scanner_execution_run(run_ctx)
                 except Exception as db_err:
                     complete_scanner_execution_run(run_ctx, exception=db_err)
