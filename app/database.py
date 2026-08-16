@@ -30,32 +30,39 @@ import json
 import logging
 import threading
 
-# [VERSION: DB_UPLOAD_GIL_FIX] Global process pool for isolated DB uploads
+# [VERSION: DB_UPLOAD_THREAD_POOL_v1.0] Background ThreadPoolExecutor for DB uploads
+# RATIONALE: ProcessPoolExecutor requires target functions and arguments to be picklable.
+# Local closures (e.g. bg_db_sync in wealth_engine.py) and lambdas failed silently under pickle,
+# preventing today's parquet exports from uploading to Postgres DB.
 import concurrent.futures
 import atexit
-import multiprocessing
 
 _UPLOAD_POOL = None
 
 def _get_upload_pool():
     global _UPLOAD_POOL
-    # Only initialize the pool in the MainProcess to avoid recursive fork/spawn loops
-    if multiprocessing.current_process().name == "MainProcess":
-        if _UPLOAD_POOL is None:
-            _UPLOAD_POOL = concurrent.futures.ProcessPoolExecutor(max_workers=1)
-            def _shutdown():
+    if _UPLOAD_POOL is None:
+        _UPLOAD_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=3, thread_name_prefix="db_upload")
+        def _shutdown():
+            global _UPLOAD_POOL
+            if _UPLOAD_POOL is not None:
                 _UPLOAD_POOL.shutdown(wait=False)
-            atexit.register(_shutdown)
+        atexit.register(_shutdown)
     return _UPLOAD_POOL
 
 def submit_background_upload(target_func, *args, **kwargs):
     pool = _get_upload_pool()
-    if pool is not None:
-        pool.submit(target_func, *args, **kwargs)
-    else:
-        # Fallback for when we are already in a child process (should not happen)
-        import threading
-        threading.Thread(target=target_func, args=args, kwargs=kwargs, daemon=True).start()
+    def _wrapper():
+        try:
+            target_func(*args, **kwargs)
+        except Exception as e:
+            logger.exception(f"❌ Background DB upload task failed: {e}")
+
+    try:
+        pool.submit(_wrapper)
+    except Exception as e:
+        logger.exception(f"❌ Failed to submit background DB upload task: {e}")
+
 
 from contextlib import contextmanager
 from datetime import datetime
