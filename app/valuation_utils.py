@@ -168,19 +168,46 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
             
     return pd.DataFrame()
 
+import json
+
+PEER_MEDIANS_CACHE_PATH = "data/peer_medians_cache.json"
 _peer_medians_cache: dict = {"ts": 0.0, "data": {}}
 _peer_medians_lock = threading.Lock()
 
 def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
     """
     Compute median P/E, P/B, and ROE per stock dynamically using a peer subset from the overall market universe.
-    Cached for 1 hour in-memory to eliminate overhead per scan.
+    Cached for 24 hours with disk & DB persistence to eliminate cold-boot overhead per scan.
     Returns {symbol: {"median_pe": ..., "median_pb": ..., "median_roe": ...}}
     """
     global _peer_medians_cache
     now = time.time()
     with _peer_medians_lock:
-        if _peer_medians_cache["data"] and (now - _peer_medians_cache["ts"]) < 3600:
+        # [VERSION: PEER_MEDIANS_DB_CACHE_v1.0] Restore from disk/DB if RAM cache is empty on server boot
+        if not _peer_medians_cache["data"]:
+            if os.path.exists(PEER_MEDIANS_CACHE_PATH):
+                try:
+                    with open(PEER_MEDIANS_CACHE_PATH, "r") as f:
+                        cached_json = json.load(f)
+                    if (now - cached_json.get("ts", 0)) < 86400 and cached_json.get("data"):
+                        _peer_medians_cache["ts"] = cached_json.get("ts", 0)
+                        _peer_medians_cache["data"] = cached_json.get("data", {})
+                except Exception:
+                    pass
+
+            if not _peer_medians_cache["data"]:
+                try:
+                    from database import download_parquet_from_db
+                    if download_parquet_from_db("peer_medians_cache", PEER_MEDIANS_CACHE_PATH):
+                        with open(PEER_MEDIANS_CACHE_PATH, "r") as f:
+                            cached_json = json.load(f)
+                        if (now - cached_json.get("ts", 0)) < 86400 and cached_json.get("data"):
+                            _peer_medians_cache["ts"] = cached_json.get("ts", 0)
+                            _peer_medians_cache["data"] = cached_json.get("data", {})
+                except Exception:
+                    pass
+
+        if _peer_medians_cache["data"] and (now - _peer_medians_cache["ts"]) < 86400:
             cached = _peer_medians_cache["data"]
             missing = [s for s in symbols if s not in cached]
             if not missing:
@@ -367,6 +394,14 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
     with _peer_medians_lock:
         _peer_medians_cache["ts"] = time.time()
         _peer_medians_cache["data"].update(medians_map)
+        try:
+            os.makedirs(os.path.dirname(PEER_MEDIANS_CACHE_PATH), exist_ok=True)
+            with open(PEER_MEDIANS_CACHE_PATH, "w") as f:
+                json.dump({"ts": _peer_medians_cache["ts"], "data": _peer_medians_cache["data"]}, f)
+            from database import upload_parquet_to_db, submit_background_upload
+            submit_background_upload(lambda: upload_parquet_to_db("peer_medians_cache", PEER_MEDIANS_CACHE_PATH))
+        except Exception as e:
+            logger.warning(f"Failed to persist peer medians cache to disk/DB: {e}")
         
     return medians_map
 def norm_num(x):
