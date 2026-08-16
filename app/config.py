@@ -413,11 +413,8 @@ TARGET_CONFIDENCE_BASELINE = {
     "value": 85
 }
 
-SCORE_THRESHOLDS = {
-    "15m": 75,
-    "1h":  75,
-    "1d":  75,
-}
+# [FIX: DUPLICATE_CONFIG] This was a duplicate of the SCORE_THRESHOLDS defined at the top of this file.
+# Removed to avoid confusion. The authoritative definition is at the top of config.py.
 
 MIN_NATURAL_RR = {
     "MULTI_TF": 1.5,
@@ -581,7 +578,7 @@ REGIME_POLICIES = {
         "capital_allocation_mult": 1.0
     },
     "BEAR": {
-        "score_modifier": 5,
+        "score_modifier": 5,  # [FIX: ALERT_GATE] Was 5 — correct, threshold → 80
         "allow_mean_reversion": True,
         "max_new_positions_per_day": 1,
         "min_target_quality_override": 80,
@@ -589,7 +586,7 @@ REGIME_POLICIES = {
         "capital_allocation_mult": 0.5
     },
     "SIDEWAYS": {
-        "score_modifier": 8,
+        "score_modifier": 3,  # [FIX: ALERT_GATE] Was +8 (threshold→83, near-impossible). Reduced to +3 (threshold→78). SIDEWAYS should still allow quality breakouts.
         "allow_mean_reversion": True,
         "max_new_positions_per_day": 2,
         "min_target_quality_override": 75,
@@ -597,7 +594,7 @@ REGIME_POLICIES = {
         "capital_allocation_mult": 0.5
     },
     "RANGEBOUND": {
-        "score_modifier": 8,
+        "score_modifier": 3,  # [FIX: ALERT_GATE] Was +8 (threshold→83). Reduced to +3 (threshold→78). Same reasoning as SIDEWAYS.
         "allow_mean_reversion": True,
         "max_new_positions_per_day": 2,
         "min_target_quality_override": 75,
@@ -605,7 +602,7 @@ REGIME_POLICIES = {
         "capital_allocation_mult": 0.5
     },
     "WEAK_BEAR": {
-        "score_modifier": 10,
+        "score_modifier": 5,  # [FIX: ALERT_GATE] Was +10 (threshold→85, effectively impossible). Reduced to +5 (threshold→80). Same as BEAR — proportionate.
         "allow_mean_reversion": True,
         "max_new_positions_per_day": 1,
         "min_target_quality_override": 80,

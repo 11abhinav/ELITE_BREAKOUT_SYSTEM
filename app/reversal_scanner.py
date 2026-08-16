@@ -90,7 +90,7 @@ VOL_WINDOW_BARS        = 5
 MIN_STOCK_PRICE        = REVERSAL_CONFIG.get("MIN_STOCK_PRICE", 100.0)
 MIN_AVG_DAILY_VOLUME   = REVERSAL_CONFIG["MIN_AVG_DAILY_VOLUME"]
 MIN_ROE                = REVERSAL_CONFIG["MIN_ROE"]
-MIN_YOY_REVENUE_GROWTH = -15.0
+MIN_YOY_REVENUE_GROWTH = REVERSAL_CONFIG.get("MIN_YOY_REVENUE_GROWTH_FLOOR", -15.0)  # [FIX: CONFIG_DRIFT] Was hardcoded -15.0 while REVERSAL_CONFIG had 5.0 (unused). Reversal is mean-reversion — needs lenient floor. Default -15.0 is correct.
 MAX_DROP_BELOW_SMA200  = REVERSAL_CONFIG["MAX_DROP_BELOW_SMA200"]
 QUALITY_CAT_MIN_DROP   = REVERSAL_CONFIG.get("QUALITY_CAT_MIN_DROP", 15.0)
 
@@ -847,7 +847,11 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    REQUIRE_FUNDAMENTALS = True
+    # [FIX: ALERT_GATE] Was hardcoded True — ignored config entirely. Now reads from REVERSAL_CONFIG.
+    # With the normalize_id import fix in fundamentals_cache, canonical symbol lookups now work correctly.
+    # Keeping default True (fail-closed is the correct safety posture for a quality reversal scanner),
+    # but exposing as a config knob so it can be relaxed for backtesting or low-fundamentals periods.
+    REQUIRE_FUNDAMENTALS = REVERSAL_CONFIG.get("REQUIRE_FUNDAMENTALS", True)
     roe_val = _parse_robust_pct(fund_data, "roe", "ROE %") if fund_data else None
     rev_growth = _parse_robust_pct(fund_data, "yoy_revenue", "YOY Revenue %") if fund_data else None
 
@@ -861,6 +865,7 @@ def _evaluate_candidate(
             "sl_result": {},
             "context": {},
         }
+
 
     # Plausibility boundary validations: Relaxed floors to allow early turnaround assets in mean reversion
     cat_str = fund_data.get("Category", "") if fund_data else ""

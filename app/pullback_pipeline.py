@@ -405,11 +405,15 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     regime_thresholds = {
         "STRONG_BULL": 74.0,
         "BULL": 74.0,
+        "WEAK_BULL": 74.0,     # [FIX: EXPLICIT] Was missing — fell to default 76.0. Aligning with BULL tier.
         "NEUTRAL": 76.0,
+        "SIDEWAYS": 76.0,      # [FIX: EXPLICIT] Was missing — fell to default 76.0. Now explicit.
+        "RANGEBOUND": 76.0,    # [FIX: EXPLICIT] Was missing — fell to default 76.0. Now explicit.
         "WEAK_BEAR": 80.0,
         "BEAR": 80.0,
     }
     required_threshold = regime_thresholds.get(market_regime, 76.0)
+
 
     stage_tracker.end_stage(f"Regime={market_regime}")
     stage_tracker.start_stage(2, "Watchlist & Data Acquisition", "Loading fundamental watchlist and fetching historical price data")
