@@ -546,25 +546,26 @@ def _is_cache_long_enough(cached_df: pd.DataFrame, period: str, sym: str = "") -
             # A requested period of N calendar days will have at least N * 0.65 calendar days diff
             # between the first and last candle. If days_diff is smaller, we are missing historical data.
             if days_diff < (req * 0.65):
-                # [VERSION: UNIFIED_2Y_CACHE_v1.0] For "2y" requests: if the disk cache has >= 200 days
-                # (roughly 1y of trading days), accept it as "long enough" and allow a DELTA extension
-                # instead of a full re-download. This prevents Reversal Scanner from re-downloading 2
-                # years of data from scratch when 1y parquets already exist from EOD/Wealth Engine.
-                # The delta fetch will top up the remaining ~1y incrementally.
-                if p == "2y" and days_diff >= 200:
+                # [VERSION: UNIFIED_CACHE_OPTIMIZATION_v2.0]
+                # Never discard existing valid cache files (>= 30 rows / 45 calendar days).
+                # Accept existing Parquets with >= 30 rows as long enough for incremental DELTA updates
+                # to prevent forcing a 1-year full re-download on every scan cycle.
+                if days_diff >= 45 or len(cached_df) >= 30:
                     return True
 
                 # Check if we already hit the beginning of history (IPO/recent listing)
-                # [VERSION: CACHE_POISON_FIX] Ignore earliest_dates if we have fewer than 10 bars to prevent 1-bar starvation
                 if len(cached_df) >= 10:
                     earliest_path = os.path.join(DATA_DIR, "earliest_dates.json")
                     if os.path.exists(earliest_path):
                         try:
                             with open(earliest_path, "r") as f:
                                 earliest_dates = json.load(f)
-                                if sym and earliest_dates.get(sym):
+                                clean_sym = sym.replace('.NS', '').replace('.BO', '').replace('BSE:', '').replace('NSE:', '').strip().upper()
+                                raw_sym = sym.strip().upper()
+                                target_earliest = earliest_dates.get(clean_sym) or earliest_dates.get(raw_sym)
+                                if target_earliest:
                                     first_dt = first_ts.date().isoformat() if hasattr(first_ts, 'date') else None
-                                    if first_dt == earliest_dates[sym]:
+                                    if first_dt == target_earliest:
                                         # We have hit the absolute beginning of history for this symbol
                                         return True
                         except Exception:
