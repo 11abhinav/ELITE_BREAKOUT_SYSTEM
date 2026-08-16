@@ -66,6 +66,16 @@ def test_user_watchlist_batch_delete_and_clear_all(monkeypatch):
             cmp_updated_at TEXT
         )
     """)
+    # [VERSION: EARNINGS_BADGE_v1.0] earnings_calendar needed by get_user_watchlist LEFT JOIN
+    sqlite_conn.execute("""
+        CREATE TABLE earnings_calendar (
+            symbol TEXT PRIMARY KEY,
+            earnings_date TEXT,
+            date_status TEXT,
+            updated_at TEXT
+        )
+    """)
+
 
     monkeypatch.setattr("app.database.init_db", lambda: None)
     monkeypatch.setattr("app.database.get_connection", lambda: SqliteConnWrapper(sqlite_conn))
