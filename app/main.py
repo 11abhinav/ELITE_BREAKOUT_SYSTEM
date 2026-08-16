@@ -1492,7 +1492,7 @@ def run_system_scheduler():
                     from config import WATCHLIST_PATH
                     import pandas as pd
                     wl_df = pd.read_parquet(WATCHLIST_PATH)
-                    fetch_watchlist_data(wl_df, "10d", "15m", requester="SCHEDULER_WARMUP")
+                    fetch_watchlist_data(wl_df, interval="15m", period="10d", requester="SCHEDULER_WARMUP")
                     logger.info("✅ SCHEDULER | Precision Warmup Complete")
                 except Exception as e:
                     logger.error(f"❌ SCHEDULER | Precision Warmup Failed: {e}")

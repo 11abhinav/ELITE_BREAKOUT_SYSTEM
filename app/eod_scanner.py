@@ -756,7 +756,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             for _, row in chunk_df.iterrows()
                         }
                     else:
-                        all_ticker_data = fetch_watchlist_data(chunk_df, "2y", "1d")
+                        all_ticker_data = fetch_watchlist_data(chunk_df, interval="1d", period="2y", requester="EOD")
                         
                     _fetch_dur = time.perf_counter() - _batch_start_t
                     if not all_ticker_data:

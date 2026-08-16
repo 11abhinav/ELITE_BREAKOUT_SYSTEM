@@ -541,7 +541,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     df = pre_fetched_df
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         sample_df = pd.DataFrame([{"Stock": sym_clean, "Category": "MIDCAP", "Sector": "GENERAL"}])
-        fetched_map = fetch_watchlist_data(sample_df, "1y", "1d", requester="STOCK_ANALYZER")
+        fetched_map = fetch_watchlist_data(sample_df, interval="1d", period="1y", requester="STOCK_ANALYZER")
 
         if isinstance(fetched_map, dict):
             df = fetched_map.get(sym_clean)
@@ -1030,11 +1030,11 @@ def analyze_watchlist(symbols: list, user_id: str = "DEFAULT_USER", is_deep_anal
     # 1. Single Bulk Market Data Fetch for all symbols in the watchlist
     sample_df = pd.DataFrame([{"Stock": s, "Category": "MIDCAP", "Sector": "GENERAL"} for s in clean_syms])
     logger.info(f"📥 [STOCK ANALYZER BATCH] Fetching 1Y daily OHLCV for {len(clean_syms)} symbols in 1 bulk request...")
-    fetched_map = fetch_watchlist_data(sample_df, "1y", "1d", requester="STOCK_ANALYZER_BATCH")
+    fetched_map = fetch_watchlist_data(sample_df, interval="1d", period="1y", requester="STOCK_ANALYZER_BATCH")
     logger.info(f"✅ [STOCK ANALYZER BATCH] Bulk fetch complete. {len(fetched_map)} datasets received.")
 
     logger.info(f"📥 [STOCK ANALYZER BATCH] Fetching 1mo 1H OHLCV for {len(clean_syms)} symbols in 1 bulk request for Multi-TF Evaluator...")
-    fetched_h1_map = fetch_watchlist_data(sample_df, "1mo", "1h", requester="STOCK_ANALYZER_BATCH_H1")
+    fetched_h1_map = fetch_watchlist_data(sample_df, interval="1h", period="1mo", requester="STOCK_ANALYZER_BATCH_H1")
 
     results = {}
     for idx, sym in enumerate(clean_syms, 1):
