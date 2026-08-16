@@ -577,6 +577,11 @@ class AutoSwitchingFetcher(DataFetcher):
             upstox_fetcher = self._get_fetcher_by_name("upstox")
             fyers_fetcher = self._get_fetcher_by_name("fyers")
             
+            # [VERSION: SYMBOL_ROUTER_PARTITIONING_v1.0] Batch Partitioning via SymbolRouter
+            # RATIONALE:
+            #   - Bypasses known-incompatible brokers for sticky symbols (e.g. Fyers failure on BSE/SME symbols).
+            #   - Directs sticky symbols straight to the working broker (UPSTOX_ONLY / FYERS_ONLY) on 100% of future runs.
+            #   - Dual-working equities remain in LOAD_BALANCED to split traffic 50/50 and prevent 429 rate-limits.
             upstox_only_symbols = []
             fyers_only_symbols = []
             balanced_symbols = []

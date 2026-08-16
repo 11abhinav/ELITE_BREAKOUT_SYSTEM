@@ -1338,7 +1338,9 @@ def run_system_scheduler():
                     from database import download_parquet_from_db_today, download_parquet_from_db
                     restored = download_parquet_from_db_today("wealth_engine", WEALTH_PATH)
                     if not restored:
-                        # Fallback to latest available Parquet in DB from previous session if today's scan hasn't uploaded yet
+                        # [VERSION: DB_PARQUET_RESTORE_FALLBACK_v1.0] Fallback to latest DB parquet
+                        # RATIONALE: If today's scan hasn't uploaded yet, fetch the most recent available Wealth Parquet
+                        # from DB (from previous session) so the dashboard has instant state available on startup.
                         restored = download_parquet_from_db("wealth_engine", WEALTH_PATH)
 
                     if restored and os.path.exists(WEALTH_PATH):

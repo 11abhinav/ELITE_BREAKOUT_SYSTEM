@@ -1966,6 +1966,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                         # RATIONALE: Previous 3600s throttle prevented scans finished within 1h of a previous scan from saving to DB,
                         # leaving DB stale across restarts.
                         upload_parquet_to_db("wealth_engine", WEALTH_PATH)
+                        logger.info("💾 [WEALTH_ENGINE] Successfully exported and uploaded wealth_engine.parquet to PostgreSQL DB (Always-Save policy).")
                         _last_parquet_upload = now
 
                         upload_history_bundle_to_db("1d")
