@@ -319,7 +319,7 @@ def start(force: bool = False, session=None, run_ctx=None):
         except Exception: pass
 
     try:
-        total = run_pullback_pipeline(force=force, session=session)
+        total = run_pullback_pipeline(force=force, session=session, run_ctx=run_ctx)
         if run_ctx and isinstance(total, dict) and "total_count" in total:
             run_ctx.set_total_stocks(total["total_count"])
             run_ctx.fresh_count = total["processed_count"]
@@ -367,7 +367,7 @@ def _determine_dataset_date(sample_data: dict) -> Optional[str]:
         return most_common_date
     return None
 
-def run_pullback_pipeline(run_date: str = None, force: bool = False, session=None) -> int:
+def run_pullback_pipeline(run_date: str = None, force: bool = False, session=None, run_ctx=None) -> int:
     init_db()
     ist_now = datetime.now(IST)
     if not run_date:
@@ -392,6 +392,9 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     # ---------------- PRECONDITIONS & REGIME CHECK ----------------
     nifty_ret_20d = get_nifty_20d_return()
     market_regime = get_macro_regime(nifty_ret_20d)
+    # central telemetry setup
+    scan_id = run_ctx.run_id if (run_ctx and getattr(run_ctx, "run_id", None)) else f"run_{int(_time.time())}"
+    telemetry_logger = ScannerDecisionLogger("PULLBACK", scan_id, market_regime)
     logger.info(f"📊 Market Regime: {market_regime}")
 
     if market_regime == "STRONG_BEAR":
@@ -666,11 +669,15 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                 workers = max(1, workers)
                 
                 with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="PullbackWorker") as executor:
-                    futures = [executor.submit(_evaluate_row, rec) for rec in chunk_records]
-                    for future in as_completed(futures):
+                    future_to_sym = {
+                        executor.submit(_evaluate_row, rec): rec.get("Stock", "UNKNOWN")
+                        for rec in chunk_records
+                    }
+                    for future in as_completed(future_to_sym):
+                        sym = future_to_sym[future]
                         symbols_processed += 1
                         try:
-                            cand, rej_reason, prov_stat, fresh_val, sym = future.result()
+                            cand, rej_reason, prov_stat, fresh_val, _ = future.result()
                             if prov_stat != "EMPTY_DATA" and prov_stat != "SUCCESS":
                                 provider_stats_counts[prov_stat] = provider_stats_counts.get(prov_stat, 0) + 1
                                 provider_resolved_symbols.add(sym)
@@ -685,11 +692,27 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                                 
                             if rej_reason:
                                 rejected[rej_reason] = rejected.get(rej_reason, 0) + 1
+                                telemetry_logger.record_reject(
+                                    symbol=sym,
+                                    last_stage="PRE_CHECK",
+                                    gate=rej_reason.upper(),
+                                    actual=None,
+                                    required=None,
+                                    start_time=_batch_start_t
+                                )
                             if cand:
                                 candidates.append(cand)
                         except Exception as e:
                             logger.error(f"Error in pullback thread processing: {e}")
                             rejected["processing_error"] = rejected.get("processing_error", 0) + 1
+                            telemetry_logger.record_reject(
+                                symbol=sym,
+                                last_stage="PRE_CHECK",
+                                gate="PROCESSING_ERROR",
+                                actual=None,
+                                required=None,
+                                start_time=_batch_start_t
+                            )
 
             del all_ticker_data
             import gc; gc.collect()
@@ -833,6 +856,13 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         if c.final_score < required_threshold:
             logger.debug(f"REJECTION: {c.symbol} (Phase: SCORE_GATE, Reason: Final score {c.final_score:.1f} < required {required_threshold})")
             rejected["score_below_threshold"] += 1
+            telemetry_logger.record_reject(
+                symbol=c.symbol,
+                last_stage="SCORE_GATE",
+                gate="SCORE_BELOW_THRESHOLD",
+                actual=float(c.final_score),
+                required=float(required_threshold)
+            )
             try:
                 from near_miss_tracker import log_near_miss
                 log_near_miss(
@@ -861,6 +891,13 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             c.suppressed_by = "EOD"
             rejected["eod_suppressed"] += 1
             logger.debug(f"REJECTION: {c.symbol} (Phase: EOD_SUPPRESSION, Reason: Primary EOD alert already generated tonight)")
+            telemetry_logger.record_reject(
+                symbol=c.symbol,
+                last_stage="EOD_SUPPRESSION",
+                gate="EOD_SUPPRESSED",
+                actual=None,
+                required=None
+            )
 
     survivors = [c for c in scored_candidates if c.status != CandidateState.SUPPRESSED]
 
@@ -882,6 +919,13 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             logger.debug(f"REJECTION: {c.symbol} (Phase: SL_TARGET_ENGINE, Reason: {sl_result.get('rejection_reason')})")
             c.status = CandidateState.REJECTED
             rejected["risk_rejected"] += 1
+            telemetry_logger.record_reject(
+                symbol=c.symbol,
+                last_stage="RISK_ENGINE",
+                gate="RISK_REJECTED",
+                actual=None,
+                required=None
+            )
         else:
             c.sl_result = sl_result
             valid_risk_candidates.append(c)
@@ -898,6 +942,13 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             c.status = CandidateState.SUPPRESSED
             rejected["ranked_out"] += 1
             logger.info(f"🚫 {c.symbol} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {c.final_score:.1f})")
+            telemetry_logger.record_reject(
+                symbol=c.symbol,
+                last_stage="RANK_LIMIT",
+                gate="RANKED_OUT",
+                actual=float(c.final_score),
+                required=None
+            )
             try:
                 save_rejected_alert(c.symbol, "PULLBACK", "RANKED_OUT", context={"score": c.final_score})
             except Exception:
@@ -971,6 +1022,15 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                     f"depth={c.structure.depth_pct:.1f}% | volume_ratio={c.structure.volume_ratio:.2f} | "
                     f"category=PULLBACK"
                 )
+                telemetry_logger.record_pass(
+                    symbol=c.symbol,
+                    score=final_score_val,
+                    rr=float(sl_result.get("natural_rr", 2.0)),
+                    metadata={
+                        "depth_pct": c.structure.depth_pct,
+                        "volume_ratio": c.structure.volume_ratio
+                    }
+                )
                 try:
                     from telegram_engine import send_telegram_message
                     msg = (
@@ -993,6 +1053,13 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                 c.status = CandidateState.SUPPRESSED
                 rejected["persistence_failed"] += 1
                 logger.info(f"REJECTION: {c.symbol} (Phase: PERSISTENCE, Reason: {reason})")
+                telemetry_logger.record_reject(
+                    symbol=c.symbol,
+                    last_stage="PERSISTENCE",
+                    gate="PERSISTENCE_FAILED",
+                    actual=None,
+                    required=None
+                )
 
     if not is_historical_fallback:
         upsert_scanner_health(
@@ -1050,6 +1117,9 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         "======================================================================"
     ])
     logger.info("\n".join(summary_lines))
+    telemetry_logger.print_summary()
+    global_telemetry.print_system_summary()
+
     try:
         stage_tracker.end_stage(f"Alerts={alert_count} persisted")
         stage_tracker.print_summary(alerts_found=alert_count)

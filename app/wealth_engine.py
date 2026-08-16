@@ -1209,6 +1209,18 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
 def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
     import time
     start_time = time.time()
+    
+    # central telemetry setup
+    regime_str = "NEUTRAL"
+    try:
+        from macro_utils import get_nifty_20d_return, get_macro_regime
+        nifty_ret = get_nifty_20d_return()
+        regime_str = get_macro_regime(nifty_ret)
+    except Exception:
+        pass
+    scan_id = run_ctx.run_id if (run_ctx and getattr(run_ctx, "run_id", None)) else f"run_{int(_time.time())}"
+    telemetry_logger = ScannerDecisionLogger("WEALTH_ENGINE", scan_id, regime_str)
+
     # [VERSION: PERF_PHASE0_v1.0] Reset stage timer ring buffer at scan start
     from perf_utils import reset_stage_timers, ScannerStageTracker
     reset_stage_timers()
@@ -1341,8 +1353,10 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         total_batches = (len(all_symbols_to_fetch) + BATCH_SIZE - 1) // BATCH_SIZE
 
         def process_symbol(idx, sym, historical_cache=None, concall_cache=None):
+            _sym_start = _time.perf_counter()
             try:
                 tech = calculate_wealth_technicals(sym, nifty_6m_ret, historical_cache=historical_cache)
+                tech["_row_start_time"] = _sym_start
                 if tech.get("cmp") is None and not prev_wealth_df.empty and sym in prev_wealth_df["Stock"].values:
                     prev_row = prev_wealth_df[prev_wealth_df["Stock"] == sym].iloc[0]
                     tech["cmp"] = prev_row.get("cmp")
@@ -1370,7 +1384,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 elif tech.get("cmp") is None:
                     with _rejection_lock:
                         rejection_counts["no_data"] = rejection_counts.get("no_data", 0) + 1
-                    return {"Stock": sym}
+                    return {"Stock": sym, "_row_start_time": _sym_start}
                 else:
                     tech["used_fallback_data"] = False
                     tech["fallback_timestamp"] = None
@@ -1392,7 +1406,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 logger.exception(f"❌ [WEALTH ENGINE] process_symbol failed for {sym}: {e}")
                 with _rejection_lock:
                     rejection_counts["processing_error"] = rejection_counts.get("processing_error", 0) + 1
-                return {"Stock": sym}
+                return {"Stock": sym, "_row_start_time": _sym_start}
 
         stage_tracker.end_stage(f"Found {len(candidate_symbols)} candidates, {len(portfolio_dict)} portfolio positions")
         stage_tracker.start_stage(2, "Live Quote CMP Fetch (Upstox)", f"Target: {len(all_symbols_to_fetch)} symbols")
@@ -1744,6 +1758,89 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
             # [FIX-W2] Always log full traceback — never swallow BUY alert persistence failures silently.
             logger.exception("❌ [WEALTH ENGINE] BUY alert persistence block failed. Alerts may not have been saved.")
 
+        # Telemetry decision logging for all candidate symbols
+        for _, row in wealth_df.iterrows():
+            symbol = row.get("Stock")
+            if not symbol:
+                continue
+            
+            sig_code = row.get("Signal_Code")
+            score = float(row.get("FM_Score", 0.0))
+            
+            # Extract standard metrics
+            cmp_val = _safe_num(row.get("cmp"))
+            sma200_val = _safe_num(row.get("sma_200"))
+            rs_val = _safe_num(row.get("rs_6m"))
+            cons_score = float(row.get("Consistency_Score", 0.0))
+            val_score = float(row.get("Valuation_Score", 0.0))
+            mom_score = float(row.get("momentum_score", 0.0))
+            
+            metadata = {
+                "Bucket": row.get("Portfolio_Bucket"),
+                "Valuation_Score": val_score,
+                "Consistency_Score": cons_score,
+                "Momentum_Score": mom_score,
+                "CMP": cmp_val,
+                "SMA200": sma200_val,
+            }
+            
+            row_start = row.get("_row_start_time", start_time)
+            
+            if sig_code == "BUY":
+                telemetry_logger.record_pass(
+                    symbol=symbol,
+                    score=score,
+                    rr=2.0,
+                    metadata=metadata,
+                    start_time=row_start
+                )
+            else:
+                reason = str(row.get("Signal_Reason", ""))
+                gate = "FAILED_PATTERN"
+                actual = None
+                required = None
+                
+                if "Incomplete" in reason:
+                    gate = "INCOMPLETE_DATA"
+                elif "Stale Data" in reason:
+                    gate = "STALE_DATA"
+                elif "Low Consistency" in reason:
+                    gate = "LOW_CONSISTENCY"
+                    actual = cons_score
+                    required = 15.0
+                elif "Overvalued" in reason:
+                    gate = "OVERVALUED"
+                    actual = val_score
+                    required = 5.0
+                elif "Below 200 SMA" in reason:
+                    gate = "BELOW_200SMA"
+                    actual = cmp_val
+                    required = sma200_val
+                elif "Score" in reason and "< 55" in reason:
+                    gate = "LOW_SCORE"
+                    actual = score
+                    required = 55.0
+                elif "Low Momentum" in reason:
+                    gate = "LOW_MOMENTUM"
+                elif "Ranked Out" in reason:
+                    gate = "RANKED_OUT"
+                elif "Failed Bucket Quality Gates" in reason:
+                    gate = "FAILED_BUCKET_GATES"
+                elif "Rejected by DB" in reason or "SUPPRESSED" in sig_code:
+                    gate = "DB_SUPPRESSED"
+                
+                telemetry_logger.record_reject(
+                    symbol=symbol,
+                    last_stage="ENTRY_TIMING",
+                    gate=gate,
+                    actual=actual,
+                    required=required,
+                    score=score,
+                    rr=0.0,
+                    metadata={"reason": reason, **metadata},
+                    start_time=row_start
+                )
+
         passed_layer1 = len(wealth_df[wealth_df["Portfolio_Bucket"] != "REVIEW"]) if "Portfolio_Bucket" in wealth_df.columns else 0
         logger.info(
             f"=== [WEALTH ENGINE PIPELINE SUMMARY] ===\n"
@@ -1754,6 +1851,8 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
             f"Alerts Persisted to DB: {saved_alerts_count}\n"
             f"=========================================="
         )
+        telemetry_logger.print_summary()
+        global_telemetry.print_system_summary()
         
         if run_ctx:
             run_ctx.set_total_stocks(len(candidate_symbols))
