@@ -524,10 +524,16 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
             tv_entry = tv_data.get(clean_sym) or tv_data.get(sym)
             if tv_entry:
                 existing = cache.get(sym) or {}
-                # Preserve exact YFinance Piotroski score if already present and fresh
-                if existing.get("source") == "YFINANCE" and not is_stale(existing, get_tier(row.get("market_cap_basic", 0) / 10000000)):
-                    tv_entry["score"] = existing.get("score", tv_entry["score"])
-                    tv_entry["source"] = "YFINANCE"
+                tier = get_tier(row.get("market_cap_basic", 0) / 10000000)
+                
+                # Preserve exact YFinance Piotroski score if already present and fresh (< 7/14/30 days)
+                if existing.get("source") == "YFINANCE":
+                    yf_dt = existing.get("yf_date") or existing.get("date")
+                    tv_entry["yf_date"] = yf_dt
+                    if not is_stale({"date": yf_dt}, tier):
+                        tv_entry["score"] = existing.get("score", tv_entry["score"])
+                        tv_entry["source"] = "YFINANCE"
+                
                 cache[sym] = tv_entry
                 updated_from_tv += 1
         logger.info(f"⚡ [FUNDAMENTALS] Primary TradingView bulk refresh updated {updated_from_tv}/{len(universe_df)} stocks instantly.")
@@ -539,8 +545,9 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
         sym = row["name"]
         mc = row.get("market_cap_basic", 0) / 10000000
         tier = get_tier(mc)
-        entry = cache.get(sym)
-        if not entry or (entry.get("source") != "YFINANCE" and is_stale(entry, tier)):
+        entry = cache.get(sym) or {}
+        yf_dt = entry.get("yf_date") or entry.get("date")
+        if entry.get("source") != "YFINANCE" or is_stale({"date": yf_dt}, tier):
             to_fetch_yf.append(sym)
             
     logger.info(f"📊 [FUNDAMENTALS] Secondary YFinance queue for full Piotroski balance sheets: {len(to_fetch_yf)} symbols pending (limiting to top 10 per run)")
