@@ -1438,4 +1438,30 @@ def clear_price_cache():
     return stats_before, stats_after
 
 
+def get_cached_df(symbol: str, interval: str = "1d", period: str = "1y") -> pd.DataFrame:
+    """Retrieve a cached dataframe from RAM or disk parquet without making network requests."""
+    key = (interval, period)
+    with _lock:
+        if key in _cache and isinstance(_cache[key], dict):
+            entry = _cache[key].get(symbol)
+            if entry and isinstance(entry, dict) and isinstance(entry.get("data"), pd.DataFrame):
+                return entry["data"]
+            elif isinstance(_cache[key].get("data"), dict):
+                df = _cache[key]["data"].get(symbol)
+                if isinstance(df, pd.DataFrame) and not df.empty:
+                    return df
+
+    # Disk fallback
+    file_path = os.path.join(DATA_DIR, "history", interval, f"{symbol.replace(':', '_')}.parquet")
+    if os.path.exists(file_path):
+        try:
+            df = pd.read_parquet(file_path)
+            if not df.empty:
+                return df
+        except Exception:
+            pass
+    return None
+
+
+
 
