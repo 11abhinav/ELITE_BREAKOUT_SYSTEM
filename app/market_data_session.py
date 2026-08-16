@@ -331,11 +331,11 @@ class MarketDataSession:
         import pandas as pd
 
         # Estimate prior cached symbols for hit/miss delta
-        cache_key = ("1d", "2y")
+        cache_key = ("1d", "1y")
         pre_cached_syms = set(_cache.get(cache_key, {}).keys())
 
         wl = pd.DataFrame({"Stock": symbols})
-        raw = fetch_watchlist_data(wl, period="2y", interval="1d", requester=requester)
+        raw = fetch_watchlist_data(wl, period="1y", interval="1d", requester=requester)
 
         post_cached_syms = set(_cache.get(cache_key, {}).keys())
         new_fetched = post_cached_syms - pre_cached_syms

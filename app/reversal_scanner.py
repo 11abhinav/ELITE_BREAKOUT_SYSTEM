@@ -1491,7 +1491,7 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                         for _, row in chunk_df.iterrows()
                     }
                 else:
-                    all_ticker_data = fetch_watchlist_data(chunk_df, interval="1d", period="2y", requester="REVERSAL")
+                    all_ticker_data = fetch_watchlist_data(chunk_df, interval="1d", period="1y", requester="REVERSAL")
                     
                 _fetch_dur = time.perf_counter() - _batch_start_t
 

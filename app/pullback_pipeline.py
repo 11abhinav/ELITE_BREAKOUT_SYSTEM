@@ -514,7 +514,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                         for _, row in chunk_df.iterrows()
                     }
                 else:
-                    all_ticker_data = fetch_watchlist_data(chunk_df, interval="1d", period="2y", requester="PULLBACK")
+                    all_ticker_data = fetch_watchlist_data(chunk_df, interval="1d", period="1y", requester="PULLBACK")
                     
                 _fetch_dur = time.perf_counter() - _batch_start_t
                 _eval_start_t = time.perf_counter()
