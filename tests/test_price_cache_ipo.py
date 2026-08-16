@@ -17,16 +17,16 @@ def test_ipo_cache_logic(tmp_path, monkeypatch):
     monkeypatch.setattr(price_cache, "DATA_DIR", str(tmp_path))
     earliest_path = os.path.join(str(tmp_path), "earliest_dates.json")
     
-    # 1. Setup mock data (20 days of data, below the 30-row incremental threshold)
+    # 1. Setup mock data (80 days of data)
     today = datetime.now()
-    dates = [today - timedelta(days=i) for i in range(20)]
+    dates = [today - timedelta(days=i) for i in range(80)]
     dates.reverse()
-    df = pd.DataFrame({"Date": dates, "Close": [100]*20})
+    df = pd.DataFrame({"Date": dates, "Close": [100]*80})
     df.set_index("Date", inplace=True)
     
     req_period = "1y" # expects 300 days * 0.65 = 195 days
     
-    # Test 1: Before full fetch (no earliest_date recorded and < 30 rows)
+    # Test 1: Before full fetch (no earliest_date recorded)
     is_long = _is_cache_long_enough(df, req_period, sym)
     assert is_long is False, "Expected cache to NOT be long enough before FULL fetch"
     

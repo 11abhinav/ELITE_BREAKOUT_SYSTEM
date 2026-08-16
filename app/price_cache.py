@@ -546,13 +546,6 @@ def _is_cache_long_enough(cached_df: pd.DataFrame, period: str, sym: str = "") -
             # A requested period of N calendar days will have at least N * 0.65 calendar days diff
             # between the first and last candle. If days_diff is smaller, we are missing historical data.
             if days_diff < (req * 0.65):
-                # [VERSION: UNIFIED_CACHE_OPTIMIZATION_v2.0]
-                # Never discard existing valid cache files (>= 30 rows / 45 calendar days).
-                # Accept existing Parquets with >= 30 rows as long enough for incremental DELTA updates
-                # to prevent forcing a 1-year full re-download on every scan cycle.
-                if days_diff >= 45 or len(cached_df) >= 30:
-                    return True
-
                 # Check if we already hit the beginning of history (IPO/recent listing)
                 if len(cached_df) >= 10:
                     earliest_path = os.path.join(DATA_DIR, "earliest_dates.json")
