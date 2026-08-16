@@ -1474,13 +1474,8 @@ def _main_impl(force_rebuild: bool = False):
                 except Exception as e:
                     logger.warning(f"⚠️ Failed to upload exclusion log to Postgres in background: {e}")
 
-            import threading
-            threading.Thread(
-                target=_bg_excl_db_backup,
-                args=(ex_df.copy(),),
-                name="DailyBuilderExclBackup",
-                daemon=True
-            ).start()
+            from database import submit_background_upload
+            submit_background_upload(_bg_excl_db_backup, ex_df.copy())
 
         # Fallback Logic: check if today's build is materially degraded compared to yesterday's
         build_source_date = None
@@ -1645,13 +1640,8 @@ def _main_impl(force_rebuild: bool = False):
             except Exception as e:
                 logger.warning(f"⚠️ Failed to upload watchlist to Postgres in background: {e}")
 
-        import threading
-        threading.Thread(
-            target=_bg_watchlist_db_backup,
-            args=(final_df.copy(),),
-            name="DailyBuilderDBBackup",
-            daemon=True
-        ).start()
+        from database import submit_background_upload
+        submit_background_upload(_bg_watchlist_db_backup, final_df.copy())
         
         save_checkpoint({**state, "fundamentals_scored": True})
         try:
