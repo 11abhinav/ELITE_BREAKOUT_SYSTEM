@@ -3910,8 +3910,13 @@ def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
             tmp_path = tmp.name
             
-        # Execute tar at OS level. -C changes directory before adding files.
-        subprocess.run(["tar", "-czf", tmp_path, "-C", history_dir, "."], check=True, capture_output=True)
+        # Execute tar at OS level. GNU tar return code 0 = success, 1 = file changed while reading (non-fatal warning on Linux)
+        res = subprocess.run(["tar", "-czf", tmp_path, "-C", history_dir, "."], capture_output=True)
+        if res.returncode not in (0, 1) or not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
+            logger.warning(f"⚠️ OS tar returned exit code {res.returncode}. Falling back to Python tarfile module.")
+            with tarfile.open(tmp_path, "w:gz") as tar:
+                for f in files:
+                    tar.add(os.path.join(history_dir, f), arcname=f)
         
         with open(tmp_path, "rb") as f:
             binary_data = f.read()
