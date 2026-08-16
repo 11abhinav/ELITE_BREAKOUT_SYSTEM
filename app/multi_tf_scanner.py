@@ -615,29 +615,42 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
     # to simultaneously calculate pandas technical indicators via ThreadPoolExecutor. 
     # This causes 96 threads to fight for the Python GIL, causing a 70+ second stall.
     # Sequential fetching completely eliminates GIL contention, making the scanner FASTER overall.
-    logger.info(f"⚡ [MULTI_TF] Sequentially fetching 30m, 15m, 5m, and 1d intraday timeframes for {len(ladder_symbols)} symbols...")
+    logger.info(f"⚡ [MULTI_TF] Parallel pre-fetching 30m, 15m, and 5m intraday timeframes for {len(ladder_symbols)} symbols...")
     import time
     
     _t_start_fetch = time.perf_counter()
-    data_30m = _fetch_tf("30m", "10d", "30m", needs_30m)
-    _t_30m = time.perf_counter() - _t_start_fetch
-    
-    _t_start_fetch = time.perf_counter()
-    data_15m = _fetch_tf("15m", "5d", "15m", needs_15m)
-    _t_15m = time.perf_counter() - _t_start_fetch
-    
-    _t_start_fetch = time.perf_counter()
-    data_5m  = _fetch_tf("5m", "5d", "5m", needs_5m)
-    
-    if session is not None and needs_5m:
-        data_daily = {
-            s: session.get(s).ohlcv_df
-            for s in needs_5m
-            if session.get(s) is not None and getattr(session.get(s), "ohlcv_df", None) is not None
-        }
-    else:
-        data_daily = _fetch_tf("1d", "5d", "1d", needs_5m)
-    _t_5m_1d = time.perf_counter() - _t_start_fetch
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3, thread_name_prefix="MTFFetch") as fetch_executor:
+        fut_30m = fetch_executor.submit(_fetch_tf, "30m", "10d", "30m", needs_30m)
+        fut_15m = fetch_executor.submit(_fetch_tf, "15m", "5d", "15m", needs_15m)
+        fut_5m  = fetch_executor.submit(_fetch_tf, "5m", "5d", "5m", needs_5m)
+
+        data_30m = fut_30m.result()
+        data_15m = fut_15m.result()
+        data_5m  = fut_5m.result()
+    _t_fetch_intraday = time.perf_counter() - _t_start_fetch
+    _t_30m = _t_fetch_intraday
+    _t_15m = _t_fetch_intraday
+    _t_5m_1d = _t_fetch_intraday
+
+    # Load 1D daily data directly from local RAM/disk price cache (zero network requests)
+    data_daily = {}
+    if needs_5m:
+        if session is not None:
+            data_daily = {
+                s: session.get(s).ohlcv_df
+                for s in needs_5m
+                if session.get(s) is not None and getattr(session.get(s), "ohlcv_df", None) is not None
+            }
+        else:
+            from price_cache import get_cached_df
+            for s in needs_5m:
+                cdf = get_cached_df(s, "1d", "1y")
+                if cdf is not None and not cdf.empty:
+                    data_daily[s] = cdf
+            missing_1d = [s for s in needs_5m if s not in data_daily]
+            if missing_1d:
+                res_1d = _fetch_tf("1d", "1y", "1d", missing_1d)
+                data_daily.update(res_1d)
         
     def _check_fetch(data_dict, needed_list, tf_label):
         if not needed_list: return True
