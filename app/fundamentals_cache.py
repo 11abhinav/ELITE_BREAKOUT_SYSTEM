@@ -572,16 +572,26 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
     logger.info("✅ Fundamental refresh complete.")
 
 def get_piotroski_score(symbol: str) -> int:
-    from data_registry import registry
-    cache = registry.get("fundamentals_cache")
-    if not cache:
-        cache = load_cache() # Fallback if registry not initialized
-    entry = cache.get(symbol) or {}
-    return entry.get("score", -1)
+    f_dict = get_fundamentals(symbol)
+    return f_dict.get("score", -1)
 
 def get_fundamentals(symbol: str) -> dict:
     from data_registry import registry
     cache = registry.get("fundamentals_cache")
     if not cache:
         cache = load_cache()
-    return cache.get(symbol) or {}
+    if not cache:
+        return {}
+    res = cache.get(symbol)
+    if res:
+        return res
+    # [VERSION: FUNDAMENTALS_NORM_FIX_v1.0] Canonical fallback lookup for BSE/SME/NS suffix variations
+    try:
+        from symbol_router import normalize_id
+        norm_s = normalize_id(symbol)
+        for k, v in cache.items():
+            if normalize_id(k) == norm_s:
+                return v
+    except Exception:
+        pass
+    return {}
