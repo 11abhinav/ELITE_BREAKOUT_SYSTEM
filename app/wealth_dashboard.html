@@ -770,14 +770,27 @@
       if (!b) return '-';
       return `<span style="font-size:11px;color:var(--muted)">${b}</span>`;
     };
+    const parseToISTDate = (ts) => {
+      if (!ts) return null;
+      let str = String(ts).trim();
+      str = str.replace(/\s*(GMT|UTC).*$/i, '');
+      if (str.includes('T') || str.includes(' ')) {
+        if (!str.includes('T')) str = str.replace(' ', 'T');
+        if (!str.includes('+') && !str.includes('Z') && !/-\d{2}:\d{2}$/.test(str)) {
+          str += '+05:30';
+        }
+      } else if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+        str += 'T00:00:00+05:30';
+      }
+      const d = new Date(str);
+      return isNaN(d.getTime()) ? null : d;
+    };
+
     const fmtDetailTime = (isoStr) => {
       if (!isoStr) return '';
-      try {
-        const d = new Date(isoStr);
-        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' ' + d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-      } catch (e) {
-        return isoStr;
-      }
+      const d = parseToISTDate(isoStr);
+      if (!d) return String(isoStr);
+      return d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true });
     };
     const fmt = (v) => v !== null && v !== undefined ? parseFloat(v).toFixed(1) : '-';
     const getScoreCls = (s) => s >= 65 ? 'score-high' : (s >= 55 ? 'score-med' : 'score-low');
@@ -1189,18 +1202,9 @@
         const breakoutType = alert.breakout_type || '-';
         const fmScore = alert.fm_score ? alert.fm_score.toFixed(1) : '-';
         const currentScore = alert.current_score ? alert.current_score.toFixed(1) : '-';
-        const alertDate = alert.alert_date || '-';
-        const alertTimeStr = alert.alert_time || '';
-        let alertTime = '';
-        if (alertTimeStr) {
-          if (alertTimeStr.includes('T')) {
-            alertTime = alertTimeStr.split('T')[1].substring(0, 5);
-          } else if (alertTimeStr.includes(' ')) {
-            alertTime = alertTimeStr.split(' ')[1].substring(0, 5);
-          } else {
-            alertTime = alertTimeStr.substring(0, 5);
-          }
-        }
+        const fullAlertTs = alert.alert_date ? `${alert.alert_date} ${alert.alert_time || ''}`.trim() : '';
+        const dAlert = parseToISTDate(fullAlertTs || alert.alert_date);
+        const alertDateStr = dAlert ? dAlert.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : (alert.alert_date || '-');
         
         const posPct = alert.position_pct ? (parseFloat(alert.position_pct) * 100).toFixed(2) + '%' : '-';
         const posAmt = parseFloat(alert.position_amount) || 0;
@@ -1215,7 +1219,7 @@
         return `
           <tr>
             <td class="sym"><strong>${symbol}</strong></td>
-            <td class="mono">${alertDate} ${alertTime}</td>
+            <td class="mono">${alertDateStr}</td>
             <td class="mono">₹${alertPrice.toFixed(2)}</td>
             <td class="mono">₹${currentPrice > 0 ? currentPrice.toFixed(2) : '-'}</td>
             <td class="mono" style="color:var(--accent); font-weight:bold;">${posPct}</td>
@@ -1263,9 +1267,11 @@
       empty.style.display = 'none';
       tbody.innerHTML = positions.map(pos => {
         const symbol = pos.symbol || '';
-        const entryDate = pos.alert_date ? `${pos.alert_date} ${pos.alert_time ? pos.alert_time.split('.')[0] : ''}`.trim() : '-';
+        const dEntry = parseToISTDate(pos.alert_date ? `${pos.alert_date} ${pos.alert_time || ''}`.trim() : '');
+        const entryDate = dEntry ? dEntry.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : (pos.alert_date || '-');
         const entryPrice = parseFloat(pos.alert_price) || 0;
-        const exitDate = pos.exit_date ? `${pos.exit_date} ${pos.exit_time ? pos.exit_time.split('.')[0] : ''}`.trim() : '-';
+        const dExit = parseToISTDate(pos.exit_date ? `${pos.exit_date} ${pos.exit_time || ''}`.trim() : '');
+        const exitDate = dExit ? dExit.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : (pos.exit_date || '-');
         const exitPrice = parseFloat(pos.exit_price) || 0;
         const pnlRs = parseFloat(pos.pnl_rs) || 0;
         const pnlPct = parseFloat(pos.pnl_pct) || 0;
@@ -1273,10 +1279,8 @@
         
         // Calculate days held
         let daysHeld = '-';
-        if (pos.alert_date && pos.exit_date) {
-          const entry = new Date(pos.alert_date);
-          const exit = new Date(pos.exit_date);
-          daysHeld = Math.floor((exit - entry) / (1000 * 60 * 60 * 24));
+        if (dEntry && dExit) {
+          daysHeld = Math.floor((dExit - dEntry) / (1000 * 60 * 60 * 24));
         }
         
         const pnlColor = pnlRs >= 0 ? 'var(--green)' : 'var(--red)';

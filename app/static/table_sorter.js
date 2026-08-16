@@ -105,15 +105,17 @@ const TableSorter = {
       let aText = aCol.innerText.trim();
       let bText = bCol.innerText.trim();
       
-      // Special Date Parsing (Handle "YYYY-MM-DD" and "DD-MM-YYYY")
-      const dateRegex = /^(\d{2,4})[-/](\d{2})[-/](\d{2,4})/;
-      if (dateRegex.test(aText) && dateRegex.test(bText)) {
-          let da = new Date(aText);
-          let db = new Date(bText);
-          if (!isNaN(da) && !isNaN(db)) {
-             return currentSort.asc ? da - db : db - da;
-          }
+      // Special Date Parsing (Handle ISO, GMT, IST, and localized dates)
+      if (aText.length >= 8 && bText.length >= 8) {
+        let daClean = aText.replace(/IST|GMT|UTC/gi, '').trim();
+        let dbClean = bText.replace(/IST|GMT|UTC/gi, '').trim();
+        let da = Date.parse(daClean);
+        let db = Date.parse(dbClean);
+        if (!isNaN(da) && !isNaN(db) && da > 946684800000 && db > 946684800000) {
+          return currentSort.asc ? da - db : db - da;
+        }
       }
+
 
       // Cleanup numbers (remove currency symbols, commas, percent signs, up/down arrows)
       aText = aText.replace(/₹|,|%|↑|↓|\+/g, '').trim();

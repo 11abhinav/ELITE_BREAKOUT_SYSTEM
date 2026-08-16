@@ -40,14 +40,16 @@ def serialize_datetimes(obj):
         return {k: serialize_datetimes(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [serialize_datetimes(i) for i in obj]
-    elif isinstance(obj, (datetime, date)):
-        if isinstance(obj, datetime):
-            if obj.tzinfo is None:
-                obj = obj.replace(tzinfo=IST)
-            else:
-                obj = obj.astimezone(IST)
+    elif isinstance(obj, datetime):
+        if obj.tzinfo is None:
+            obj = obj.replace(tzinfo=IST)
+        else:
+            obj = obj.astimezone(IST)
         return obj.isoformat()
+    elif isinstance(obj, date):
+        return obj.strftime("%Y-%m-%d")
     return obj
+
 
 
 try:

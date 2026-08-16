@@ -2303,6 +2303,67 @@
     }
 
     // ── CONSTANTS
+    const parseToISTDate = (ts) => {
+      if (!ts) return null;
+      let str = String(ts).trim();
+      str = str.replace(/\s*(GMT|UTC).*$/i, '');
+      if (str.includes('T') || str.includes(' ')) {
+        if (!str.includes('T')) str = str.replace(' ', 'T');
+        if (!str.includes('+') && !str.includes('Z') && !/-\d{2}:\d{2}$/.test(str)) {
+          str += '+05:30';
+        }
+      } else if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+        str += 'T00:00:00+05:30';
+      }
+      const d = new Date(str);
+      return isNaN(d.getTime()) ? null : d;
+    };
+
+    // Format alert_time as "DD-MM HH:MM" (24h IST) for the table date column
+    const fmtAlertTime = ts => {
+      if (!ts) return '—';
+      const d = parseToISTDate(ts);
+      if (!d) return String(ts);
+      return d.toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
+    };
+
+    // Format closed_at ISO timestamp as "DD Mon HH:MM" (24h IST)
+    const fmtClosedAt = ts => {
+      if (!ts) return '—';
+      const d = parseToISTDate(ts);
+      if (!d) return String(ts);
+      return d.toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
+    };
+
+    const fmtDetailTime = ts => {
+      if (!ts) return '—';
+      const d = parseToISTDate(ts);
+      if (!d) return String(ts);
+      return d.toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      }) + ' IST';
+    };
+
     const C = {
       accent: '#00d4a1', accent2: '#4d7cfe', warn: '#ff4d6d', amber: '#f59e0b',
       muted: '#6b7280', border: 'rgba(255,255,255,.07)', text: '#e8eaf0',
@@ -2341,46 +2402,7 @@
       return d.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true, day: '2-digit', month: 'short' });
     };
 
-    // Format alert_time as "DD-MM HH:MM" (24h) for the table date column
-    const fmtAlertTime = ts => {
-      if (!ts) return '—';
-      const s = ts.replace('T', ' ').slice(0, 16);  // "YYYY-MM-DD HH:MM"
-      const [datePart, timePart] = s.split(' ');
-      if (!datePart || !timePart) return s;
-      const [y, m, dd] = datePart.split('-');
-      return `${dd}-${m} ${timePart}`;
-    };
 
-    // Format closed_at ISO timestamp as "DD Mon HH:MM" (24h IST)
-    const fmtClosedAt = ts => {
-      if (!ts) return '—';
-      try {
-        const s = ts.replace('T', ' ').slice(0, 16); // "YYYY-MM-DD HH:MM"
-        const parts = s.split(' ');
-        if (parts.length !== 2) return s;
-        const [y, m, d] = parts[0].split('-');
-        const [h, min] = parts[1].split(':');
-
-        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        const mName = monthNames[parseInt(m, 10) - 1] || m;
-
-        return `${d} ${mName}, ${h}:${min}`;
-      } catch {
-        return ts.slice(0, 16);
-      }
-    };
-
-    const fmtDetailTime = ts => {
-      if (!ts) return '—';
-      try {
-        const d = new Date(ts.replace(' ', 'T'));
-        if (isNaN(d)) return ts;
-        return d.toLocaleString('en-IN', {
-          timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short',
-          hour: '2-digit', minute: '2-digit', hour12: false
-        });
-      } catch { return ts; }
-    };
 
     // ── LOAD DATA
     function openChart(symbol, cmp) {
@@ -2407,7 +2429,7 @@
           } else {
             html = '<div style="display: flex; flex-wrap: wrap; gap:24px;">';
             data.forEach(item => {
-              const date = new Date(item.date).toLocaleDateString('en-IN');
+              const date = formatISTDate(item.date);
               html += `<div>
               <a href="${item.link}" target="_blank" style="color:var(--accent); text-decoration:none; font-weight:600; font-size:13px; display:block; margin-bottom:4px; line-height:1.4; font-family:var(--font-body); white-space:normal;">${item.title}</a>
               ${item.summary ? `<div style="font-size:11px; color:var(--text); opacity:0.8; margin-bottom:4px; line-height:1.4; font-family:var(--font-body); white-space:normal;">${item.summary.substring(0, 150)}...</div>` : ''}
@@ -7342,38 +7364,30 @@ function removeFromWatchlist(sym) {
 }
 
 function formatISTDateTime(isoStr) {
-  if (!isoStr) return 'Pending';
-  try {
-    const d = new Date(isoStr);
-    if (isNaN(d.getTime())) return isoStr;
-    return d.toLocaleString('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    }) + ' IST';
-  } catch (e) {
-    return isoStr;
-  }
+  if (!isoStr || isoStr === '—' || isoStr === 'Pending' || isoStr === 'N/A') return 'Pending';
+  const d = parseToISTDate(isoStr);
+  if (!d) return String(isoStr);
+  return d.toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  }) + ' IST';
 }
 
 function formatISTDate(isoStr) {
-  if (!isoStr) return '—';
-  try {
-    const d = new Date(isoStr);
-    if (isNaN(d.getTime())) return isoStr;
-    return d.toLocaleDateString('en-IN', {
-      timeZone: 'Asia/Kolkata',
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric'
-    });
-  } catch (e) {
-    return isoStr;
-  }
+  if (!isoStr || isoStr === '—' || isoStr === 'Pending' || isoStr === 'N/A') return '—';
+  const d = parseToISTDate(isoStr);
+  if (!d) return String(isoStr);
+  return d.toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  });
 }
 
 // [VERSION: WATCHLIST_PERF_v1.0] Shared promise cache — loadUserWatchlist and loadManualWatchlist
