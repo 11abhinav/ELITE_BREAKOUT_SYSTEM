@@ -552,12 +552,14 @@ def _is_cache_long_enough(cached_df: pd.DataFrame, period: str, sym: str = "") -
                                 earliest_dates = json.load(f)
                                 clean_sym = sym.replace('.NS', '').replace('.BO', '').replace('BSE:', '').replace('NSE:', '').strip().upper()
                                 raw_sym = sym.strip().upper()
-                                target_earliest = earliest_dates.get(clean_sym) or earliest_dates.get(raw_sym)
+                                target_earliest = (
+                                    earliest_dates.get(clean_sym) or 
+                                    earliest_dates.get(raw_sym) or 
+                                    earliest_dates.get(f"NSE:{clean_sym}") or
+                                    earliest_dates.get(f"BSE:{clean_sym}")
+                                )
                                 if target_earliest:
-                                    first_dt = first_ts.date().isoformat() if hasattr(first_ts, 'date') else None
-                                    if first_dt == target_earliest:
-                                        # We have hit the absolute beginning of history for this symbol
-                                        return True
+                                    return True
                         except Exception:
                             pass
                 return False
@@ -1035,7 +1037,10 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                                 earliest_ts = pd.to_datetime(n_df[t_col].iloc[0]) if t_col else pd.to_datetime(n_df.index[0])
                                 earliest_dt_str = earliest_ts.date().isoformat() if hasattr(earliest_ts, 'date') else None
                                 if earliest_dt_str:
+                                    clean_sym = sym.replace('.NS', '').replace('.BO', '').replace('BSE:', '').replace('NSE:', '').strip().upper()
                                     batch_earliest_updates[sym] = earliest_dt_str
+                                    batch_earliest_updates[clean_sym] = earliest_dt_str
+                                    batch_earliest_updates[f"NSE:{clean_sym}"] = earliest_dt_str
                             except Exception as e:
                                 logger.debug(f"Failed to record earliest date for {sym}: {e}")
 
