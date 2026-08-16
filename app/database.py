@@ -3780,10 +3780,11 @@ def get_sector_momentum(days=7):
 
 # ── Parquet Binary Cache ──────────────────────────────────────────────────────
 
-def upload_parquet_to_db(name: str, file_path: str):
+def upload_parquet_to_db(name: str, file_path: str) -> bool:
     """Upload a binary parquet file to the database for today."""
     if not os.path.exists(file_path):
-        return
+        logger.warning(f"⚠️ [PARQUET DB SYNC SKIPPED] Cannot upload '{name}': file does not exist at {file_path}")
+        return False
     import time
     import psycopg2
     today = datetime.now(IST).strftime("%Y-%m-%d")
@@ -3802,9 +3803,11 @@ def upload_parquet_to_db(name: str, file_path: str):
                 """, (name, today, psycopg2.Binary(binary_data)))
             conn.commit()
         dur_s = time.perf_counter() - _t_start
-        logger.info(f"💾 [PARQUET DB SYNC COMPLETE] Uploaded '{name}' ({size_kb:.1f} KB) to Postgres DB parquet_cache in {dur_s:.2f}s")
+        logger.info(f"💾 [PARQUET DB SYNC SUCCESS] Uploaded '{name}' ({size_kb:.1f} KB) for {today} to Postgres DB parquet_cache in {dur_s:.2f}s")
+        return True
     except Exception as e:
-        logger.exception(f"❌ Failed to upload '{name}' to DB: {e}")
+        logger.error(f"❌ [PARQUET DB SYNC FAILURE] Failed to upload '{name}' to DB: {e}", exc_info=True)
+        return False
 
 def download_parquet_from_db(name: str, file_path: str) -> bool:
     """Download the latest binary parquet file from the database."""
@@ -3889,10 +3892,12 @@ def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 
 
     history_dir = os.path.join(DATA_DIR, "history", interval)
     if not os.path.exists(history_dir):
+        logger.warning(f"⚠️ [HISTORY BUNDLE DB SYNC SKIPPED] Directory does not exist: {history_dir}")
         return False
 
     files = [f for f in os.listdir(history_dir) if f.endswith(".parquet") or f.endswith(".meta.json")]
     if not files:
+        logger.warning(f"⚠️ [HISTORY BUNDLE DB SYNC SKIPPED] No files to compress in {history_dir}")
         return False
 
     init_db()
@@ -3915,7 +3920,7 @@ def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 
         current_md5 = hashlib.md5(binary_data).hexdigest()
 
         if not force and _last_bundle_checksum.get(interval) == current_md5:
-            logger.info(f"ℹ️ [DB] Skipped history_bundle_{interval} upload — dataset unchanged (MD5: {current_md5[:8]})")
+            logger.info(f"ℹ️ [HISTORY BUNDLE DB SYNC] Skipped history_bundle_{interval} upload — dataset unchanged (MD5: {current_md5[:8]})")
             _last_bundle_upload_time[interval] = now_ts
             return True
 
@@ -3934,10 +3939,10 @@ def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 
 
         _last_bundle_upload_time[interval] = now_ts
         _last_bundle_checksum[interval] = current_md5
-        logger.info(f"💾 Uploaded {len(files)} files ({len(binary_data)} bytes, MD5: {current_md5[:8]}) for {name} to DB parquet_cache for {today}")
+        logger.info(f"💾 [HISTORY BUNDLE DB SYNC SUCCESS] Uploaded {len(files)} files ({len(binary_data)/1024.0:.1f} KB, MD5: {current_md5[:8]}) for {name} to DB parquet_cache for {today}")
         return True
     except Exception as e:
-        logger.exception(f"❌ Failed to upload history bundle for {interval} to DB")
+        logger.error(f"❌ [HISTORY BUNDLE DB SYNC FAILURE] Failed to upload history bundle for {interval} to DB: {e}", exc_info=True)
         return False
 
 def restore_history_bundle_from_db(interval: str = "1d") -> bool:

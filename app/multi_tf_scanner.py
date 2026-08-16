@@ -1392,19 +1392,20 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                     import time as tm
                     now = tm.time()
                     try:
-                        # [VERSION: ALWAYS_SAVE_MULTI_TF_PARQUET_v1.0] Always upload parquet to DB on scan completion.
-                        # RATIONALE: Previous 3600s throttle prevented scans finished within 1h from saving to DB.
-                        upload_parquet_to_db("multi_tf_system", MULTI_TF_PATH)
-                        logger.info("💾 [MULTI_TF] Successfully exported and uploaded multi_tf_system.parquet to DB.")
+                        ok = upload_parquet_to_db("multi_tf_system", MULTI_TF_PATH)
+                        if ok:
+                            logger.info("💾 [MULTI_TF] Successfully exported and uploaded multi_tf_system.parquet to DB.")
+                        else:
+                            logger.error("❌ [MULTI_TF] Failed to upload multi_tf_system.parquet to DB.")
                         _last_mtf_parquet_upload = now
                     except Exception as up_e:
-                        logger.warning(f"Failed background parquet upload: {up_e}")
+                        logger.error(f"❌ [MULTI_TF] Error uploading parquet: {up_e}", exc_info=True)
 
                     for _tf in ("1h", "30m", "15m", "5m"):
                         try:
                             upload_history_bundle_to_db(_tf)
                         except Exception as e:
-                            logger.warning(f"Failed background bundle upload for {_tf}: {e}")
+                            logger.error(f"❌ [MULTI_TF] Error uploading history bundle for {_tf}: {e}", exc_info=True)
                     dur_s = time.perf_counter() - _t_start
                     logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Uploaded intraday history bundles to DB' | Duration={dur_s:.2f}s")
                 

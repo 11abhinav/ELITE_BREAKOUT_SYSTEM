@@ -1692,14 +1692,17 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             t_name = threading.current_thread().name
             logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | InitiatedBy='MultibaggerScanner' | Action='Uploading 1d history bundle to DB'")
             _t_start = time.perf_counter()
-            upload_history_bundle_to_db("1d", force=True)
+            ok = upload_history_bundle_to_db("1d", force=True)
             dur_s = time.perf_counter() - _t_start
-            logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Uploaded 1d history bundle to DB' | Duration={dur_s:.2f}s")
+            if ok:
+                logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Uploaded 1d history bundle to DB' | Duration={dur_s:.2f}s")
+            else:
+                logger.error(f"❌ [BACKGROUND WORKER FAILED] Worker='{t_name}' | Action='Failed uploading 1d history bundle to DB'")
 
         from database import submit_background_upload
         submit_background_upload(upload_mb_bundle_job)
     except Exception as _up_err:
-        logger.debug(f"Post-multibagger bundle upload thread spawn failed: {_up_err}")
+        logger.error(f"❌ [MULTIBAGGER] Post-multibagger bundle upload submission failed: {_up_err}", exc_info=True)
         
     # Apply cheap filters to build shortlist:
     # Exclude penny stocks (< ₹10) and illiquid stocks (turnover_20d < ₹10 Lakhs)

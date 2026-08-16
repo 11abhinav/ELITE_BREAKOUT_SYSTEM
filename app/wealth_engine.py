@@ -2049,11 +2049,11 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                         import time
                         from database import upload_parquet_to_db, upsert_scanner_health, upload_history_bundle_to_db
                         now = time.time()
-                        # [VERSION: ALWAYS_SAVE_WEALTH_PARQUET_v1.0] Always upload parquet to DB on full scan completion.
-                        # RATIONALE: Previous 3600s throttle prevented scans finished within 1h of a previous scan from saving to DB,
-                        # leaving DB stale across restarts.
-                        upload_parquet_to_db("wealth_engine", WEALTH_PATH)
-                        logger.info("💾 [WEALTH_ENGINE] Successfully exported and uploaded wealth_engine.parquet to PostgreSQL DB (Always-Save policy).")
+                        ok = upload_parquet_to_db("wealth_engine", WEALTH_PATH)
+                        if ok:
+                            logger.info("💾 [WEALTH_ENGINE] Successfully exported and uploaded wealth_engine.parquet to PostgreSQL DB (Always-Save policy).")
+                        else:
+                            logger.error("❌ [WEALTH_ENGINE] Failed to upload wealth_engine.parquet to PostgreSQL DB.")
                         _last_parquet_upload = now
 
                         upload_history_bundle_to_db("1d")
@@ -2064,7 +2064,8 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                             today_alerts=len(wealth_df[wealth_df["Signal_Code"] == "BUY"]), total_count=len(wealth_df),
                             duration_seconds=duration_sec
                         )
-                    except Exception as _sh_e: logger.exception(f"Error in bg_db_sync: {_sh_e}")
+                    except Exception as _sh_e:
+                        logger.error(f"❌ [WEALTH_ENGINE] Error in bg_db_sync: {_sh_e}", exc_info=True)
 
                 from database import submit_background_upload
                 submit_background_upload(bg_db_sync)
@@ -2296,9 +2297,12 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                     import time
                     from database import upload_parquet_to_db, update_position_real_time_prices, upsert_scanner_health
                     now = time.time()
-                    # Intraday update throttle: save to DB every 5 mins (300s) instead of 1h (3600s)
                     if now - _last_parquet_upload > 300:
-                        upload_parquet_to_db("wealth_engine", WEALTH_PATH)
+                        ok = upload_parquet_to_db("wealth_engine", WEALTH_PATH)
+                        if ok:
+                            logger.info("💾 [WEALTH_ENGINE] Successfully uploaded intraday wealth_engine.parquet to DB.")
+                        else:
+                            logger.error("❌ [WEALTH_ENGINE] Failed intraday upload of wealth_engine.parquet to DB.")
                         _last_parquet_upload = now
                         
                     if realtime_metrics:
@@ -2312,7 +2316,8 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                             today_alerts=today_buys, total_count=len(wealth_df),
                             duration_seconds=duration_sec
                         )
-                except Exception as _e: logger.exception(f"Error in bg_db_sync_intraday: {_e}")
+                except Exception as _e:
+                    logger.error(f"❌ [WEALTH_ENGINE] Error in bg_db_sync_intraday: {_e}", exc_info=True)
 
             from database import submit_background_upload
             submit_background_upload(bg_db_sync_intraday)
