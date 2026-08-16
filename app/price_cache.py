@@ -278,11 +278,10 @@ def get_dynamic_cadence(interval: str) -> int:
 def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval: str = "15m", requester: str = None) -> dict[str, pd.DataFrame]:
     global _cache_hits, _cache_misses
     from telemetry_manager import telemetry
-    # [VERSION: UNIFIED_2Y_CACHE_v1.0] Standardize all 1d requests to "2y" so EOD, Reversal, Pullback,
-    # Wealth Engine and Multibagger all share one single cache key ("1d", "2y").
-    # This eliminates redundant re-downloads caused by Reversal requesting "2y" while others had "1y".
-    if interval == "1d" and period in ("6mo", "1mo", "10d", "3mo", "1y"):
-        period = "2y"
+    # [VERSION: UNIFIED_1Y_CACHE_v2.0] Standardize all 1d requests to "1y" so EOD, Reversal, Pullback,
+    # Wealth Engine and Multibagger all share one single cache key ("1d", "1y").
+    if interval == "1d" and period in ("6mo", "1mo", "10d", "3mo", "2y"):
+        period = "1y"
     cache_key = (interval, period)
     cadence = get_dynamic_cadence(interval)
     now_mono = time.monotonic()
@@ -294,11 +293,9 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
         
         for s in watchlist["Stock"]:
             sym_entry = cache_dict.get(s)
-            # [VERSION: UNIFIED_2Y_CACHE_v1.0] Cross-period RAM lookup: if requesting "2y" and not found,
-            # check "1y" RAM slot. Both periods hold daily data; "1y" disk parquets will be delta-extended
-            # on the next batch fetch so no full re-download is needed on first run after the upgrade.
+            # [VERSION: UNIFIED_1Y_CACHE_v2.0] Cross-period RAM lookup: if requesting "1y" and not found, check "2y" RAM slot.
             if not sym_entry and interval == "1d":
-                sym_entry = _cache.get(("1d", "1y"), {}).get(s)
+                sym_entry = _cache.get(("1d", "2y"), {}).get(s)
             if sym_entry and isinstance(sym_entry.get("data"), pd.DataFrame) and not sym_entry["data"].empty:
                 age = now_mono - sym_entry["ts"]
                 if age < cadence:
