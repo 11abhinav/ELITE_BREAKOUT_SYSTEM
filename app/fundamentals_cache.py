@@ -178,22 +178,16 @@ def fetch_single_piotroski(symbol: str) -> dict:
     else:
         yf_sym = f"{symbol.replace('_', '-')}.NS"
         
+    def raw_yf_download(sym_name):
+        t = yf.Ticker(sym_name)
+        return t, t.info, t.financials, t.balance_sheet
+
     def try_fetch(sym_name):
-        try:
-            yf_acquire(context=f"Piotroski Cache | {symbol}")
-            try:
-                t = yf.Ticker(sym_name)
-                info = t.info
-                fin = t.financials
-                bs = t.balance_sheet
-            finally:
-                yf_release()
-            return t, info, fin, bs
-        except Exception as inner_e:
-            msg = str(inner_e).lower()
-            if 'too many requests' in msg or 'rate limit' in msg:
-                record_rate_limit(context=f"Piotroski Cache | {symbol}")
-            raise inner_e
+        from yf_rate_limiter import safe_yf_call
+        res = safe_yf_call(lambda: raw_yf_download(sym_name), symbol=sym_name, context="Piotroski Cache", max_retries=1)
+        if res is None:
+            return None, {}, pd.DataFrame(), pd.DataFrame()
+        return res
 
     max_retries = 3
     t, info, fin, bs = None, None, None, None

@@ -567,15 +567,12 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         if df is None or not isinstance(df, pd.DataFrame) or df.empty:
             try:
                 import yfinance as yf
+                from yf_rate_limiter import safe_yf_call
                 for yf_sym in [f"{sym_clean}.NS", f"{sym_clean}.BO", sym_clean]:
-                    try:
-                        ticker_obj = yf.Ticker(yf_sym)
-                        ydf = ticker_obj.history(period="1y")
-                        if ydf is not None and not ydf.empty and len(ydf) >= 5:
-                            df = ydf.reset_index()
-                            break
-                    except Exception:
-                        continue
+                    ydf = safe_yf_call(lambda: yf.Ticker(yf_sym).history(period="1y"), symbol=yf_sym, context="StockAnalyzerFallback", max_retries=1)
+                    if ydf is not None and not ydf.empty and len(ydf) >= 5:
+                        df = ydf.reset_index()
+                        break
             except Exception as _yfe:
                 logger.debug(f"Direct yfinance fallback fetch warning for {sym_clean}: {_yfe}")
 

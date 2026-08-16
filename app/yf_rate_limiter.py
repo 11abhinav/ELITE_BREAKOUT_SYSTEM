@@ -156,3 +156,52 @@ def get_backoff_delay(attempt: int) -> float:
     jitter = base * 0.2
     return max(0.0, base + random.uniform(-jitter, jitter))
 
+
+def safe_yf_call(fetch_fn, symbol: str = "", context: str = "Unknown", max_retries: int = 3):
+    """
+    Centralized Gateway for ALL Yahoo Finance API Calls.
+    Enforces concurrency limits, minimal spacing, circuit breaker,
+    429 detection, exponential backoff, and guaranteed semaphore release.
+    """
+    if is_circuit_open():
+        logger.warning(f"🚦 [YF_GATEWAY] Yahoo circuit OPEN — skipping request for {symbol} ({context}).")
+        return None
+
+    last_exception = None
+    for attempt in range(max_retries):
+        if is_circuit_open():
+            logger.warning(f"🚦 [YF_GATEWAY] Circuit tripped during retries — aborting {symbol} ({context}).")
+            return None
+
+        if not acquire(context=f"{context} | {symbol}"):
+            logger.warning(f"⏳ [YF_GATEWAY] Could not acquire YF lock for {symbol} ({context}).")
+            return None
+
+        try:
+            res = fetch_fn()
+            record_success()
+            return res
+        except Exception as e:
+            last_exception = e
+            msg = str(e).lower()
+            if 'too many requests' in msg or 'rate limit' in msg or '429' in msg:
+                record_rate_limit(context=f"{context} | {symbol}")
+                if attempt < max_retries - 1:
+                    delay = get_backoff_delay(attempt)
+                    logger.warning(f"⚠️ [YF_GATEWAY] Rate limit event on {symbol} ({context}) [attempt {attempt+1}/{max_retries}]. Retrying in {delay:.1f}s...")
+                    time.sleep(delay)
+                else:
+                    logger.error(f"❌ [YF_GATEWAY] Max retries reached for {symbol} ({context}) due to rate limit: {e}")
+                    return None
+            else:
+                logger.warning(f"⚠️ [YF_GATEWAY] Fetch error for {symbol} ({context}) [attempt {attempt+1}/{max_retries}]: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(1.0 + random.uniform(0.1, 0.5))
+                else:
+                    return None
+        finally:
+            release()
+
+    return None
+
+

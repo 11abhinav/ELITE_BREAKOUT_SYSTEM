@@ -72,19 +72,20 @@ class YahooEarningsProvider(EarningsProvider):
     def fetch_earnings_date(self, symbol: str) -> Tuple[Optional[date], str]:
         """Fetches upcoming earnings date via yfinance with fallback to NSE."""
         import yfinance as yf
-        from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit
+        from yf_rate_limiter import safe_yf_call
         clean_upper = symbol.strip().upper()
         ticker_str = clean_upper if clean_upper.endswith(".NS") or clean_upper.endswith(".BO") else f"{clean_upper}.NS"
+
+        def _fetch_calendar():
+            t = yf.Ticker(ticker_str)
+            return t.calendar
+
+        def _fetch_earnings_dates():
+            t = yf.Ticker(ticker_str)
+            return t.earnings_dates
         
         try:
-            yf_acquire(context=f"YahooEarningsProvider | {symbol}")
-            try:
-                t = yf.Ticker(ticker_str)
-                # t.calendar is much cheaper and faster. We try this first.
-                cal = t.calendar
-            finally:
-                yf_release()
-
+            cal = safe_yf_call(_fetch_calendar, symbol=symbol, context="YahooEarningsProvider", max_retries=1)
             if cal is not None and len(cal) > 0:
                 if isinstance(cal, dict) and "Earnings Date" in cal:
                     ed_list = cal["Earnings Date"]
@@ -99,13 +100,8 @@ class YahooEarningsProvider(EarningsProvider):
                         dt_val = pd.to_datetime(vals[0])
                         return dt_val.date(), DateStatus.ESTIMATED
 
-            # If calendar fails, try earnings_dates (might raise lxml error on some OS)
-            yf_acquire(context=f"YahooEarningsProvider | {symbol}")
-            try:
-                ed_df = t.earnings_dates
-            finally:
-                yf_release()
-
+            # If calendar fails, try earnings_dates
+            ed_df = safe_yf_call(_fetch_earnings_dates, symbol=symbol, context="YahooEarningsProvider", max_retries=1)
             if ed_df is not None and not ed_df.empty:
                 now_date = datetime.now(IST).date()
                 future_dates = [d.date() for d in ed_df.index if d.date() >= now_date]
@@ -113,9 +109,6 @@ class YahooEarningsProvider(EarningsProvider):
                     return min(future_dates), DateStatus.ESTIMATED
                     
         except Exception as e:
-            msg = str(e).lower()
-            if 'too many requests' in msg or 'rate limit' in msg or '429' in msg:
-                record_rate_limit(context=f"YahooEarningsProvider | {symbol}")
             logger.debug(f"Yahoo earnings fetch failed for {symbol}: {e}")
             
         # Fallback to NSE API if Yahoo fails or returns unknown
