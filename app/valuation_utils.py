@@ -182,6 +182,31 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
     """
     global _peer_medians_cache
     now = time.time()
+    
+    # 🚀 ULTRA-FAST PATH: Return RAM cached sector medians immediately if available (0 lock contention)
+    if _peer_medians_cache.get("data") and (now - _peer_medians_cache.get("ts", 0)) < 86400:
+        cached = _peer_medians_cache["data"]
+        missing = False
+        for s in symbols:
+            if s not in cached:
+                norm_s = normalize_id(s)
+                found = any(normalize_id(cs) == norm_s for cs in cached)
+                if not found:
+                    missing = True
+                    break
+        if not missing:
+            res = {}
+            for s in symbols:
+                if s in cached:
+                    res[s] = cached[s]
+                else:
+                    norm_s = normalize_id(s)
+                    for cs in cached:
+                        if normalize_id(cs) == norm_s:
+                            res[s] = cached[cs]
+                            break
+            return res
+
     acquired = _peer_medians_lock.acquire(blocking=False)
     if not acquired:
         if _peer_medians_cache.get("data"):
