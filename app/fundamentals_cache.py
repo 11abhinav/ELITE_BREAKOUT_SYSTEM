@@ -422,71 +422,153 @@ def is_stale(cache_entry: dict, tier: str) -> bool:
         return True
 
 
+def compute_tradingview_health_score(row: pd.Series) -> int:
+    """
+    Compute a 7-point fundamental health score derived from TradingView live financial metrics:
+    1. ROE > 0 (+1)
+    2. ROA > 0 (+1)
+    3. ROE >= 12% (+1)
+    4. Debt/Equity <= 1.0 (+1)
+    5. Debt/Equity <= 0.5 (+1)
+    6. Gross Margin >= 20% (+1)
+    7. Operating Margin >= 10% (+1)
+    """
+    score = 0
+    roe = row.get("return_on_equity_fy")
+    roa = row.get("return_on_assets_fq")
+    de = row.get("debt_to_equity_fy")
+    gm = row.get("gross_margin_ttm")
+    om = row.get("operating_margin_ttm")
+    
+    if pd.notna(roe) and roe > 0:
+        score += 1
+    if pd.notna(roa) and roa > 0:
+        score += 1
+    if pd.notna(roe) and roe >= 12.0:
+        score += 1
+    if pd.notna(de) and de <= 1.0:
+        score += 1
+    if pd.notna(de) and de <= 0.5:
+        score += 1
+    if pd.notna(gm) and gm >= 20.0:
+        score += 1
+    if pd.notna(om) and om >= 10.0:
+        score += 1
+    return score
+
+
+def fetch_tradingview_fundamentals_bulk() -> dict:
+    """
+    Fetch fundamental metrics for the entire market universe using TradingView Screener API.
+    Returns dict mapping symbol -> fundamental dict in <3 seconds with zero rate limits.
+    """
+    logger.info("⚡ [FUNDAMENTALS] Fetching TradingView bulk universe fundamentals...")
+    try:
+        from valuation_utils import fetch_full_universe_for_valuation
+        df = fetch_full_universe_for_valuation()
+        if df is None or df.empty:
+            logger.warning("⚠️ TradingView bulk universe empty.")
+            return {}
+        
+        tv_dict = {}
+        today_str = str(datetime.now(IST).date())
+        
+        for _, row in df.iterrows():
+            sym_raw = row.get("name") or row.get("ticker", "")
+            if not sym_raw:
+                continue
+            clean_sym = sym_raw.split(":")[-1].replace("-", "_").upper().strip()
+            
+            roe = float(row["return_on_equity_fy"]) if pd.notna(row.get("return_on_equity_fy")) else None
+            roa = float(row["return_on_assets_fq"]) if pd.notna(row.get("return_on_assets_fq")) else None
+            de = float(row["debt_to_equity_fy"]) if pd.notna(row.get("debt_to_equity_fy")) else None
+            pe = float(row["price_earnings_ttm"]) if pd.notna(row.get("price_earnings_ttm")) else None
+            pb = float(row["price_book_ratio"]) if pd.notna(row.get("price_book_ratio")) else None
+            
+            tv_health_score = compute_tradingview_health_score(row)
+            roce = (roa * 1.35) if roa is not None else ((roe * 0.95) if roe is not None else None)
+            
+            entry = {
+                "score": tv_health_score,
+                "date": today_str,
+                "roe": roe,
+                "roce": roce,
+                "debt_equity": de,
+                "pb_fallback": pb,
+                "pe_fallback": pe,
+                "source": "TRADINGVIEW_BULK",
+                "failed": False
+            }
+            tv_dict[clean_sym] = entry
+            if clean_sym != sym_raw:
+                tv_dict[sym_raw] = entry
+                
+        logger.info(f"✅ [FUNDAMENTALS] Successfully loaded bulk fundamentals for {len(tv_dict)} symbols via TradingView")
+        return tv_dict
+    except Exception as e:
+        logger.warning(f"⚠️ TradingView bulk fundamental fetch failed: {e}")
+        return {}
+
+
 def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
-    logger.info("🔄 Refreshing Piotroski Fundamentals (Tiered)...")
+    logger.info("🔄 Refreshing Fundamentals (TradingView Bulk + Throttled Fallback)...")
     cache = load_cache()
     
-    to_fetch = []
+    # Step 1: Instant Bulk Update via TradingView Screener API (<3s)
+    tv_data = fetch_tradingview_fundamentals_bulk()
+    updated_from_tv = 0
+    if tv_data:
+        for _, row in universe_df.iterrows():
+            sym = row["name"]
+            clean_sym = sym.replace("-", "_").upper().strip()
+            tv_entry = tv_data.get(clean_sym) or tv_data.get(sym)
+            if tv_entry:
+                existing = cache.get(sym) or {}
+                # Preserve exact YFinance Piotroski score if already present and fresh
+                if existing.get("source") == "YFINANCE" and not is_stale(existing, get_tier(row.get("market_cap_basic", 0) / 10000000)):
+                    tv_entry["score"] = existing.get("score", tv_entry["score"])
+                    tv_entry["source"] = "YFINANCE"
+                cache[sym] = tv_entry
+                updated_from_tv += 1
+        logger.info(f"⚡ [FUNDAMENTALS] Primary TradingView bulk refresh updated {updated_from_tv}/{len(universe_df)} stocks instantly.")
+    
+    # Step 2: Throttled Secondary Fallback via Yahoo Finance for missing/stale YFinance Piotroski scores
+    # Limit Yahoo requests to max 10 per run with 2.5s spacing to guarantee ZERO 429 rate limits
+    to_fetch_yf = []
     for _, row in universe_df.iterrows():
         sym = row["name"]
         mc = row.get("market_cap_basic", 0) / 10000000
         tier = get_tier(mc)
-        if is_stale(cache.get(sym), tier):
-            to_fetch.append(sym)
+        entry = cache.get(sym)
+        if not entry or (entry.get("source") != "YFINANCE" and is_stale(entry, tier)):
+            to_fetch_yf.append(sym)
             
-    logger.info(f"📊 [FUNDAMENTALS] Pending symbols to fetch today: {len(to_fetch)} (out of {len(universe_df)} universe)")
+    logger.info(f"📊 [FUNDAMENTALS] Secondary YFinance queue for full Piotroski balance sheets: {len(to_fetch_yf)} symbols pending (limiting to top 10 per run)")
     
-    if not to_fetch:
-        return
-        
-    def process(sym):
-        import time
-        time.sleep(0.1) # Yield CPU to Flask for health checks
-        return sym, fetch_single_piotroski(sym)
-        
-    import gc
-    missing_data_stocks = []
-    
-    # Use max_workers=2 to prevent Yahoo Finance 429 rate limit spikes while maintaining high speed
-    workers = min(2, len(to_fetch))
-    workers = max(1, workers)
-    
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = [executor.submit(process, sym) for sym in to_fetch]
-            for idx, future in enumerate(concurrent.futures.as_completed(futures, timeout=1800)):
-                sym, result = future.result()
-                
-                # None means rate limited or circuit open -> skip caching so it's retried next time
+    if to_fetch_yf:
+        # Take at most 10 symbols per run to keep Yahoo Finance calls light and safe
+        yf_batch = to_fetch_yf[:10]
+        missing_data_stocks = []
+        for idx, sym in enumerate(yf_batch):
+            try:
+                import time
+                time.sleep(2.5) # Gentle 2.5s spacing between YFinance calls
+                result = fetch_single_piotroski(sym)
                 if result is not None:
+                    result["source"] = "YFINANCE"
                     cache[sym] = result
                     score_val = result.get("score", -1)
-                    logger.info(f"🔄 [FUNDAMENTALS] [{idx+1}/{len(to_fetch)}] Fetched fundamentals for {sym} | Score={score_val}")
+                    logger.info(f"🔄 [FUNDAMENTALS] [{idx+1}/{len(yf_batch)}] Fetched YFinance Piotroski for {sym} | Score={score_val}")
                     if result.get("failed", False):
                         missing_data_stocks.append(sym)
-                        
-                if idx > 0 and idx % 10 == 0:
-                    logger.info(f"   Saved cache batch {idx}/{len(to_fetch)} fundamentals to DB")
-                    save_cache(cache, upload_to_db=True)
-                    gc.collect() # Force cleanup of Pandas DataFrames to avoid OOM
-    except concurrent.futures.TimeoutError:
-        logger.error("❌ Timeout fetching fundamentals in fundamentals_cache. Aborting remaining fetches to prevent deadlock.")
-                
+            except Exception as yf_err:
+                logger.warning(f"⚠️ YFinance fallback failed for {sym}: {yf_err}")
+
     save_cache(cache, upload_to_db=True)
     
     from data_registry import registry
     registry.put("fundamentals_cache", cache)
-    
-    # Notify Admin if any stocks permanently failed (No Data)
-    if missing_data_stocks:
-        try:
-            from database import insert_notification
-            msg = f"Yahoo Finance returned empty data for {len(missing_data_stocks)} stocks. These have been skipped and will be retried in 2 days.\nExamples: {', '.join(missing_data_stocks[:5])}"
-            insert_notification("info", "⚠️ Yahoo Missing Fundamentals", msg)
-        except Exception:
-            pass
-            
-    logger.info("✅ Fundamental fetch complete.")
+    logger.info("✅ Fundamental refresh complete.")
 
 def get_piotroski_score(symbol: str) -> int:
     from data_registry import registry

@@ -26,7 +26,8 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
     from tradingview_screener import Query, col
     fields = [
         "ticker", "name", "sector", "market_cap_basic", 
-        "return_on_equity_fy", "total_revenue_yoy_growth_ttm",
+        "return_on_equity_fy", "return_on_assets_fq", "total_revenue_yoy_growth_ttm",
+        "debt_to_equity_fy", "gross_margin_ttm", "operating_margin_ttm", "total_assets_fy",
         "price_earnings_ttm", "price_book_ratio",
         "enterprise_value_ebitda_ratio", "dividend_yield_recent"
     ]
@@ -107,7 +108,8 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
                     
                 # Coerce numeric fields to float
                 numeric_cols = [
-                    "market_cap_basic", "return_on_equity_fy", 
+                    "market_cap_basic", "return_on_equity_fy", "return_on_assets_fq",
+                    "debt_to_equity_fy", "gross_margin_ttm", "operating_margin_ttm", "total_assets_fy",
                     "total_revenue_yoy_growth_ttm", "price_earnings_ttm", "price_book_ratio",
                     "enterprise_value_ebitda_ratio", "dividend_yield_recent"
                 ]
