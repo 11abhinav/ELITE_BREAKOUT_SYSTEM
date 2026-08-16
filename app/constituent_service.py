@@ -1,11 +1,13 @@
 import io
+import json
+import os
 import time
 import logging
 import threading
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
-from datetime import datetime
+from datetime import datetime, date
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger("constituent_service")
@@ -146,10 +148,35 @@ class ConstituentService:
             if success_count == 0:
                 logger.error("❌ Failed to download ANY constituents from NSE.")
                 if cls._cached_symbols is not None:
-                    logger.warning("⚠️ Retaining previous constituent cache due to complete network failure.")
+                    logger.warning("⚠️ Retaining previous constituent RAM cache due to complete network failure.")
                     return list(cls._cached_symbols)
-                else:
-                    return []
+                # [VERSION: CONSTITUENT_DISK_CACHE_v1.0] RAM cache empty (e.g. pod restart).
+                # Attempt to load from the on-disk JSON cache written after the last successful download.
+                try:
+                    from config import CONSTITUENT_CACHE_PATH, CONSTITUENT_DISK_CACHE_MAX_DAYS
+                    if os.path.exists(CONSTITUENT_CACHE_PATH):
+                        with open(CONSTITUENT_CACHE_PATH, 'r') as _dcf:
+                            _dc = json.load(_dcf)
+                        _dc_date = datetime.strptime(_dc.get("cached_at", "2000-01-01"), "%Y-%m-%d").date()
+                        _dc_age_days = (date.today() - _dc_date).days
+                        _dc_symbols = _dc.get("symbols", [])
+                        if _dc_symbols and _dc_age_days <= CONSTITUENT_DISK_CACHE_MAX_DAYS:
+                            logger.warning(
+                                f"⚠️ [CONSTITUENT DISK CACHE] Loaded {len(_dc_symbols)} symbols from disk "
+                                f"(cached {_dc_age_days}d ago on {_dc_date}). "
+                                "Using as last-resort fallback — NSE live fetch failed."
+                            )
+                            return list(_dc_symbols)
+                        elif _dc_symbols:
+                            logger.error(
+                                f"❌ [CONSTITUENT DISK CACHE] Cache too old ({_dc_age_days}d > "
+                                f"{CONSTITUENT_DISK_CACHE_MAX_DAYS}d limit). Not using stale universe."
+                            )
+                    else:
+                        logger.error("❌ [CONSTITUENT DISK CACHE] No disk cache found at constituent_cache.json.")
+                except Exception as _dc_err:
+                    logger.warning(f"⚠️ [CONSTITUENT DISK CACHE] Disk cache load failed: {_dc_err}")
+                return []
                     
             from daily_builder import SYMBOL_CORRECTIONS
             normalized = []
@@ -169,10 +196,25 @@ class ConstituentService:
             cls.last_refresh = time.time()
             
             logger.info(f"🎯 Total unique constituent symbols fetched: {cls.symbol_count}")
-            
+
             cls._cached_symbols = sorted_symbols
             cls._cache_trading_date = current_market_date
-            
+
+            # [VERSION: CONSTITUENT_DISK_CACHE_v1.0] Persist to disk after every successful
+            # live download so pod restarts have a fallback without needing to hit NSE again.
+            try:
+                from config import CONSTITUENT_CACHE_PATH
+                _disk_payload = {
+                    "symbols": sorted_symbols,
+                    "cached_at": str(current_market_date),
+                    "symbol_count": len(sorted_symbols)
+                }
+                with open(CONSTITUENT_CACHE_PATH, 'w') as _dcf:
+                    json.dump(_disk_payload, _dcf)
+                logger.debug(f"💾 [CONSTITUENT DISK CACHE] Saved {len(sorted_symbols)} symbols to {CONSTITUENT_CACHE_PATH}")
+            except Exception as _dc_write_err:
+                logger.warning(f"⚠️ [CONSTITUENT DISK CACHE] Failed to persist disk cache: {_dc_write_err}")
+
             return list(cls._cached_symbols)
 
 def fetch_constituents() -> list:

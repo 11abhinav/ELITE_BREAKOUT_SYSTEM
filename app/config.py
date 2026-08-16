@@ -42,6 +42,26 @@ os.makedirs(DATA_DIR, exist_ok=True)
 WATCHLIST_PATH = os.path.join(DATA_DIR, "elite_fundamental_watchlist.parquet")
 DB_PATH = os.path.join(DATA_DIR, "alerts.db")
 
+# Path for NSE constituent disk cache (Fix RCA-MB-2)
+CONSTITUENT_CACHE_PATH = os.path.join(DATA_DIR, "constituent_cache.json")
+
+# =====================================================================================
+# RESILIENCE / FALLBACK CONFIGURATION
+# =====================================================================================
+
+# [VERSION: WEALTH_CB_FALLBACK_v1.0] Maximum age (hours) of the saved wealth parquet
+# that is still acceptable for the circuit-breaker fallback path.
+# When YFinance/Fyers circuit breakers fire, Wealth Engine will load the last-saved
+# parquet (suppressing new BUY signals but keeping exit monitor running) if the
+# parquet was written within this many hours. 12h covers the overnight 2AM scan
+# through end of trading day. Beyond 12h the system aborts as before.
+WEALTH_CB_FALLBACK_MAX_AGE_HOURS = int(os.environ.get("WEALTH_CB_FALLBACK_MAX_AGE_HOURS", "12"))
+
+# [VERSION: CONSTITUENT_DISK_CACHE_v1.0] Maximum age (days) of the on-disk NSE
+# constituent cache file before it is considered too stale to use as a last resort.
+# NSE index rebalancing happens quarterly, so 7 days is always safe.
+CONSTITUENT_DISK_CACHE_MAX_DAYS = int(os.environ.get("CONSTITUENT_DISK_CACHE_MAX_DAYS", "7"))
+
 # =====================================================================================
 # SYSTEM & PROFILING CONFIGURATION
 # =====================================================================================

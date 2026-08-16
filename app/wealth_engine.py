@@ -1598,17 +1598,95 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                     exact_reason += f"YFinance Circuit Breaker OPEN ({int(_price_provider.cooldown_until - time.time())}s). "
             except Exception:
                 pass
-            
+
             error_details = exact_reason if exact_reason else "Unknown APIs fail / no cache available"
-            logger.error(f"❌ INCOMPLETE DATA: Fetched {global_fetched_count}/{len(df)} symbols. Aborting to protect dashboard. {error_details}")
-            
-            if not getattr(database, "DONT_SAVE_WEALTH", False):
-                try:
-                    upsert_scanner_health("Wealth Engine", "DOWN", error_msg=f"Data fetch failed: {global_fetched_count}/{len(df)}")
-                    from database import insert_notification
-                    insert_notification("error", "⚠️ WEALTH ENGINE DEGRADED", f"Data fetched for only {global_fetched_count}/{len(df)} symbols.\nReason: {error_details}")
-                except Exception:
-                    pass
+            logger.error(f"❌ INCOMPLETE DATA: Fetched {global_fetched_count}/{len(df)} symbols. {error_details}")
+
+            # [VERSION: WEALTH_CB_FALLBACK_v1.0] Instead of hard-aborting, attempt to load
+            # the last saved wealth parquet so the exit monitor still runs on open positions.
+            # BUY_GATE_ACTIVE is not applicable here — we skip straight to exit monitoring.
+            # If parquet is missing or older than WEALTH_CB_FALLBACK_MAX_AGE_HOURS (12h default),
+            # the original abort behaviour is preserved unchanged.
+            _cb_fallback_used = False
+            try:
+                from config import WEALTH_CB_FALLBACK_MAX_AGE_HOURS
+                if os.path.exists(WEALTH_PATH):
+                    _parquet_age_h = (time.time() - os.path.getmtime(WEALTH_PATH)) / 3600.0
+                    if _parquet_age_h <= WEALTH_CB_FALLBACK_MAX_AGE_HOURS:
+                        _cb_df = pd.read_parquet(WEALTH_PATH)
+                        if not _cb_df.empty:
+                            logger.warning(
+                                f"⚠️ [WEALTH CB FALLBACK] Parquet age={_parquet_age_h:.1f}h "
+                                f"<= {WEALTH_CB_FALLBACK_MAX_AGE_HOURS}h limit. "
+                                f"Running exit monitor on {len(open_symbols)} open position(s). "
+                                "BUY signals suppressed."
+                            )
+                            if not getattr(database, "DONT_SAVE_WEALTH", False):
+                                try:
+                                    upsert_scanner_health(
+                                        "Wealth Engine", "DEGRADED",
+                                        error_msg=(
+                                            f"CB Fallback: {global_fetched_count}/{len(df)} fetched. "
+                                            f"Exit monitor running on data aged {_parquet_age_h:.1f}h. "
+                                            + error_details
+                                        )
+                                    )
+                                    from database import insert_notification
+                                    insert_notification(
+                                        "error",
+                                        "⚠️ WEALTH ENGINE — CB FALLBACK MODE",
+                                        f"Data fetched for only {global_fetched_count}/{len(df)} symbols. "
+                                        f"Reason: {error_details}. "
+                                        f"Parquet age: {_parquet_age_h:.1f}h — exit monitor still running on open positions."
+                                    )
+                                except Exception:
+                                    pass
+                            # Run exit monitoring on open positions using live prices + stale df
+                            _cb_realtime = {}
+                            try:
+                                if open_symbols:
+                                    from live_prices import get_live_prices
+                                    _cb_realtime = get_live_prices(open_symbols) or {}
+                            except Exception as _rt_cb_err:
+                                logger.warning(f"⚠️ [WEALTH CB FALLBACK] Live price fetch failed: {_rt_cb_err}")
+                            _cb_portfolio_rows = []
+                            for _cb_sym, _cb_pinfo in portfolio_dict.items():
+                                _cb_row = {"Stock": _cb_sym}
+                                if "Stock" in _cb_df.columns and _cb_sym in _cb_df["Stock"].values:
+                                    _cb_row = _cb_df[_cb_df["Stock"] == _cb_sym].iloc[0].to_dict()
+                                _cb_row["entry_price"] = _cb_pinfo["entry_price"]
+                                _cb_row["entry_date"] = _cb_pinfo["entry_date"]
+                                if _cb_sym in _cb_realtime:
+                                    _cb_row["cmp"] = _cb_realtime[_cb_sym]
+                                    _cb_row["used_fallback_data"] = False
+                                _cb_portfolio_rows.append(_cb_row)
+                            if _cb_portfolio_rows:
+                                _cb_port_df = pd.DataFrame(_cb_portfolio_rows)
+                                evaluate_open_positions(_cb_port_df, portfolio_dict)
+                                logger.info(f"✅ [WEALTH CB FALLBACK] Exit monitor evaluated {len(_cb_portfolio_rows)} open position(s).")
+                            _cb_fallback_used = True
+                        else:
+                            logger.warning("⚠️ [WEALTH CB FALLBACK] Saved parquet is empty — cannot use as fallback.")
+                    else:
+                        logger.error(
+                            f"❌ [WEALTH CB FALLBACK] Parquet too old ({_parquet_age_h:.1f}h "
+                            f"> {WEALTH_CB_FALLBACK_MAX_AGE_HOURS}h limit). Aborting."
+                        )
+                else:
+                    logger.error("❌ [WEALTH CB FALLBACK] No saved parquet on disk. Aborting.")
+            except Exception as _cb_err:
+                logger.warning(f"⚠️ [WEALTH CB FALLBACK] Fallback attempt failed: {_cb_err}")
+
+            if not _cb_fallback_used:
+                if not getattr(database, "DONT_SAVE_WEALTH", False):
+                    try:
+                        upsert_scanner_health("Wealth Engine", "DOWN", error_msg=f"Data fetch failed: {global_fetched_count}/{len(df)}")
+                        from database import insert_notification
+                        insert_notification("error", "⚠️ WEALTH ENGINE DEGRADED", f"Data fetched for only {global_fetched_count}/{len(df)} symbols.\nReason: {error_details}")
+                    except Exception:
+                        pass
+                return pd.DataFrame()
+            # CB fallback complete — return so full scoring pipeline is skipped
             return pd.DataFrame()
 
         tech_df = pd.DataFrame(technicals)

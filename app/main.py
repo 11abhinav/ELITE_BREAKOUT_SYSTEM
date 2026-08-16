@@ -1526,16 +1526,30 @@ def run_system_scheduler():
             # 09:14:30 - Precision Warmup for Intraday Scanners
             if now.hour == 9 and now.minute == 14 and now.second >= 30 and not warmup_ran:
                 warmup_ran = True
-                logger.info("🚀 SCHEDULER | [09:14:30] Executing Precision Warmup Sequence (15m Cache Initialization)")
+                logger.info("🚀 SCHEDULER | [09:14:30] Executing Precision Warmup Sequence (15m + 1H Cache Initialization)")
                 try:
                     from price_cache import fetch_watchlist_data
                     from config import WATCHLIST_PATH
                     import pandas as pd
                     wl_df = pd.read_parquet(WATCHLIST_PATH)
-                    fetch_watchlist_data(wl_df, interval="15m", period="10d", requester="SCHEDULER_WARMUP")
-                    logger.info("✅ SCHEDULER | Precision Warmup Complete")
+                    # [VERSION: WARMUP_1H_v1.0] Pre-warm 15m cache for Multi-TF Phase B/C/D
+                    fetch_watchlist_data(wl_df, interval="15m", period="10d", requester="SCHEDULER_WARMUP_15M")
+                    logger.info("✅ SCHEDULER | 15m Warmup Complete")
                 except Exception as e:
-                    logger.error(f"❌ SCHEDULER | Precision Warmup Failed: {e}")
+                    logger.error(f"❌ SCHEDULER | 15m Warmup Failed: {e}")
+                try:
+                    from price_cache import fetch_watchlist_data
+                    from config import WATCHLIST_PATH
+                    import pandas as pd
+                    wl_df = pd.read_parquet(WATCHLIST_PATH)
+                    # [VERSION: WARMUP_1H_v1.0] Pre-warm 1H cache for Multi-TF Phase A (1H Trend Scanner).
+                    # Phase A runs on first 15-min boundary at 09:30. Without this pre-warm,
+                    # the 1H cache is cold → evaluate_data_staleness() marks data stale →
+                    # symbols are silently skipped in the 09:30 Phase A cycle.
+                    fetch_watchlist_data(wl_df, interval="1h", period="15d", requester="SCHEDULER_WARMUP_1H")
+                    logger.info("✅ SCHEDULER | 1H Warmup Complete")
+                except Exception as e:
+                    logger.error(f"❌ SCHEDULER | 1H Warmup Failed: {e}")
             elif now.hour == 9 and now.minute == 15 and not warmup_ran:
                 logger.error("🚨 CRITICAL: 09:15 reached but Warmup did not complete! Scans will suffer severe cache misses.")
                 # We do not set warmup_ran = True here so we know it failed, but we avoid re-triggering.
