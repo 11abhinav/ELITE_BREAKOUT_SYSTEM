@@ -1962,9 +1962,11 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                         import time
                         from database import upload_parquet_to_db, upsert_scanner_health, upload_history_bundle_to_db
                         now = time.time()
-                        if now - _last_parquet_upload > 3600:
-                            upload_parquet_to_db("wealth_engine", WEALTH_PATH)
-                            _last_parquet_upload = now
+                        # [VERSION: ALWAYS_SAVE_WEALTH_PARQUET_v1.0] Always upload parquet to DB on full scan completion.
+                        # RATIONALE: Previous 3600s throttle prevented scans finished within 1h of a previous scan from saving to DB,
+                        # leaving DB stale across restarts.
+                        upload_parquet_to_db("wealth_engine", WEALTH_PATH)
+                        _last_parquet_upload = now
 
                         upload_history_bundle_to_db("1d")
                             
@@ -2206,7 +2208,8 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                     import time
                     from database import upload_parquet_to_db, update_position_real_time_prices, upsert_scanner_health
                     now = time.time()
-                    if now - _last_parquet_upload > 3600:
+                    # Intraday update throttle: save to DB every 5 mins (300s) instead of 1h (3600s)
+                    if now - _last_parquet_upload > 300:
                         upload_parquet_to_db("wealth_engine", WEALTH_PATH)
                         _last_parquet_upload = now
                         

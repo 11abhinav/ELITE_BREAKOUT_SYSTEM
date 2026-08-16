@@ -1335,10 +1335,14 @@ def run_system_scheduler():
             if not os.path.exists(WEALTH_PATH):
                 logger.warning(f"⚠️ Wealth system missing from disk. Attempting DB restore for {today_str}...")
                 try:
-                    from database import download_parquet_from_db_today
+                    from database import download_parquet_from_db_today, download_parquet_from_db
                     restored = download_parquet_from_db_today("wealth_engine", WEALTH_PATH)
+                    if not restored:
+                        # Fallback to latest available Parquet in DB from previous session if today's scan hasn't uploaded yet
+                        restored = download_parquet_from_db("wealth_engine", WEALTH_PATH)
+
                     if restored and os.path.exists(WEALTH_PATH):
-                        logger.info("✅ Wealth system restored from DB (today's data).")
+                        logger.info("✅ Wealth system restored from DB.")
                     elif run_test_scans:
                         logger.warning("⚠️ Wealth system missing from DB too. Non-market hours: running test setup scan.")
                         if not is_scanner_stopped("Wealth Engine"):
@@ -1351,10 +1355,13 @@ def run_system_scheduler():
                 if mtime.date() < now.date():
                     logger.warning(f"⚠️ Wealth system is from {mtime.date()}, not today ({today_str}). Attempting DB restore...")
                     try:
-                        from database import download_parquet_from_db_today
+                        from database import download_parquet_from_db_today, download_parquet_from_db
                         restored = download_parquet_from_db_today("wealth_engine", WEALTH_PATH)
+                        if not restored:
+                            restored = download_parquet_from_db("wealth_engine", WEALTH_PATH)
+
                         if restored and os.path.exists(WEALTH_PATH):
-                            logger.info("✅ Wealth system restored from DB (today's data).")
+                            logger.info("✅ Wealth system restored from DB.")
                         elif run_test_scans:
                             logger.warning("⚠️ Wealth system not in today DB. Non-market hours: running test setup scan.")
                             if not is_scanner_stopped("Wealth Engine"):
