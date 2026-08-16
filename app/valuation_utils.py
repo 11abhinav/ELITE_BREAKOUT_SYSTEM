@@ -209,14 +209,27 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
 
         if _peer_medians_cache["data"] and (now - _peer_medians_cache["ts"]) < 86400:
             cached = _peer_medians_cache["data"]
-            missing = [s for s in symbols if s not in cached]
-            if not missing:
+            # [VERSION: PEER_MEDIANS_PARTIAL_CACHE_FIX_v1.0] Always reuse cached data for all available symbols.
+            # Never throw away 296 cached entries just because missing >= 20. Only compute for missing symbols!
+            symbols_to_compute = []
+            for s in symbols:
+                if s not in cached:
+                    # Also try normalized lookup
+                    norm_s = normalize_id(s)
+                    found = False
+                    for cs in cached:
+                        if normalize_id(cs) == norm_s:
+                            cached[s] = cached[cs]
+                            found = True
+                            break
+                    if not found:
+                        symbols_to_compute.append(s)
+            
+            if not symbols_to_compute:
                 return {s: cached[s] for s in symbols if s in cached}
-            elif len(missing) < 20 and len(cached) > 0:
-                result = {s: cached[s] for s in symbols if s in cached}
-                for ms in missing:
-                    result[ms] = {"median_pe": None, "median_pb": None, "median_roe": None, "peer_count": 0}
-                return result
+            else:
+                # Only pass missing symbols to compute_peer_medians logic below
+                symbols = symbols_to_compute
 
     try:
         universe_df = fetch_full_universe_for_valuation()
