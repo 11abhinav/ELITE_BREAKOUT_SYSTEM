@@ -65,12 +65,28 @@ def calculate_momentum_quality_score(hist: pd.DataFrame, symbol: str = None) -> 
         sym = symbol or df.attrs.get('symbol', 'UNKNOWN')
         
         # Check if indicators are pre-calculated in the dataframe to avoid expensive re-computation
-        has_precalc = all(col in df.columns for col in ["sma_50", "sma_200", "ema_20", "RSI", "ATR"])
+        def _get_ind(df, bundle, candidates, bundle_attr):
+            for c in candidates:
+                if c in df.columns:
+                    return df[c]
+            if bundle is not None and hasattr(bundle, bundle_attr):
+                val = getattr(bundle, bundle_attr)
+                if val is not None:
+                    return val
+            return None
+
+        has_precalc = any(c in df.columns for c in ["SMA_50", "sma_50", "SMA_200", "sma_200", "RSI_14", "RSI"])
         if has_precalc:
             bundle = None
         else:
             from indicator_manager import manager
             bundle = manager.compute_base_indicators(df, sym)
+
+        sma50_col = _get_ind(df, bundle, ["SMA_50", "sma_50"], "sma_50")
+        sma200_col = _get_ind(df, bundle, ["SMA_200", "sma_200"], "sma_200")
+        ema20_col = _get_ind(df, bundle, ["EMA_20", "ema_20"], "ema_20")
+        rsi_col = _get_ind(df, bundle, ["RSI_14", "RSI", "rsi_14", "rsi"], "rsi_14")
+        atr_col = _get_ind(df, bundle, ["ATR_20", "ATR", "atr_20", "atr_14", "atr"], "atr_14")
 
         # 6-month return estimate (approx 126 trading days). If not available, use full-range
         if len(df) >= 126:
@@ -93,8 +109,8 @@ def calculate_momentum_quality_score(hist: pd.DataFrame, symbol: str = None) -> 
 
         # 2) Trend bias: price relative to SMA200 and SMA50
         last_close = _safe_last(df["Close"])
-        last_sma50 = _safe_last(df["sma_50"]) if bundle is None else (_safe_last(bundle.sma_50) if bundle.sma_50 is not None else 0)
-        last_sma200 = _safe_last(df["sma_200"]) if bundle is None else (_safe_last(bundle.sma_200) if bundle.sma_200 is not None else 0)
+        last_sma50 = _safe_last(sma50_col) if sma50_col is not None else 0
+        last_sma200 = _safe_last(sma200_col) if sma200_col is not None else 0
         if last_sma200 and last_close and last_close > last_sma200:
             score += 8
         if last_sma50 and last_close and last_close > last_sma50:
@@ -102,14 +118,14 @@ def calculate_momentum_quality_score(hist: pd.DataFrame, symbol: str = None) -> 
 
         # 3) EMA slope (short-term acceleration)
         try:
-            ema20 = df["ema_20"].dropna() if bundle is None else (bundle.ema_20.dropna() if bundle.ema_20 is not None else None)
+            ema20 = ema20_col.dropna() if ema20_col is not None else None
             if ema20 is not None and len(ema20) >= 3 and ema20.iloc[-1] > ema20.iloc[-3]:
                 score += 6
         except Exception:
             pass
 
         # 4) RSI sanity: penalize extreme overbought/oversold (gives quality signal)
-        last_rsi = _safe_last(df["RSI"]) if bundle is None else (_safe_last(bundle.rsi_14) if bundle.rsi_14 is not None else None)
+        last_rsi = _safe_last(rsi_col) if rsi_col is not None else None
         if last_rsi is not None:
             if 40 <= last_rsi <= 70:
                 score += 6
@@ -117,7 +133,7 @@ def calculate_momentum_quality_score(hist: pd.DataFrame, symbol: str = None) -> 
                 score += 3
 
         # 5) ATR relative: lower ATR (percent) => higher quality (0-10)
-        last_atr = _safe_last(df["ATR"]) if bundle is None else (_safe_last(bundle.atr_14) if bundle.atr_14 is not None else None)
+        last_atr = _safe_last(atr_col) if atr_col is not None else None
         if last_atr and last_close:
             atr_pct = (last_atr / last_close) * 100
             if atr_pct < 1.5:

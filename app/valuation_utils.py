@@ -36,10 +36,13 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
     def load_valid_cache():
         if os.path.exists(UNIVERSE_CACHE_PATH):
             try:
-                df = pd.read_pickle(UNIVERSE_CACHE_PATH)
-                gen_time = df.attrs.get("generated_at", 0.0)
+                try:
+                    df = pd.read_parquet(UNIVERSE_CACHE_PATH)
+                except Exception:
+                    df = pd.read_pickle(UNIVERSE_CACHE_PATH)
+                gen_time = df.attrs.get("generated_at", os.path.getmtime(UNIVERSE_CACHE_PATH))
                 age_hours = (time.time() - gen_time) / 3600
-                if age_hours < 72:
+                if age_hours < 72 and not df.empty:
                     return df
             except Exception as e:
                 logger.warning(f"Failed to read local universe cache: {e}")
