@@ -593,9 +593,13 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
         i["symbol"] for i in active_items
         if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")
     })
-    needs_30m = ladder_symbols
-    needs_15m = ladder_symbols
-    needs_5m  = ladder_symbols
+    # 🚀 SCALABILITY OPTIMIZATION:
+    # 30m & 15m are needed for HOURLY_APPROVED and SETUP_ARMED candidates.
+    # 5m data is ONLY needed for candidates that have passed 30m squeeze (SETUP_ARMED or ENTRY_READY).
+    # This prevents downloading 5m data for 1,000s of 1H candidates, ensuring sub-60s scaling regardless of universe size.
+    needs_30m = list({i["symbol"] for i in active_items if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")})
+    needs_15m = list({i["symbol"] for i in active_items if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")})
+    needs_5m  = list({i["symbol"] for i in active_items if i["current_state"] in ("SETUP_ARMED", "ENTRY_READY")})
     
     import concurrent.futures
     import pandas as pd
