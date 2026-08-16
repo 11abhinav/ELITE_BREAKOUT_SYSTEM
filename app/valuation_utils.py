@@ -182,7 +182,13 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
     """
     global _peer_medians_cache
     now = time.time()
-    with _peer_medians_lock:
+    acquired = _peer_medians_lock.acquire(blocking=False)
+    if not acquired:
+        if _peer_medians_cache.get("data"):
+            return {s: _peer_medians_cache["data"][s] for s in symbols if s in _peer_medians_cache["data"]}
+        _peer_medians_lock.acquire()
+
+    try:
         # [VERSION: PEER_MEDIANS_DB_CACHE_v1.0] Restore from disk/DB if RAM cache is empty on server boot
         if not _peer_medians_cache["data"]:
             if os.path.exists(PEER_MEDIANS_CACHE_PATH):
@@ -415,6 +421,8 @@ def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
             submit_background_upload(lambda: upload_parquet_to_db("peer_medians_cache", PEER_MEDIANS_CACHE_PATH))
         except Exception as e:
             logger.warning(f"Failed to persist peer medians cache to disk/DB: {e}")
+    finally:
+        _peer_medians_lock.release()
         
     return medians_map
 def norm_num(x):

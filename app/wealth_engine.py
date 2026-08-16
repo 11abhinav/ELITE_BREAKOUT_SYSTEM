@@ -261,8 +261,17 @@ class DataQuality(str, Enum):
     CACHED_MULTI_DAY = "CACHED_MULTI_DAY"
     MISSING_PARTIAL = "MISSING_PARTIAL"
 
+_wealth_tech_cache = {}
+
 def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cache: dict = None) -> dict:
     """Fetch MAs, 6-month RS vs Nifty, distance to 52W high, Liquidity, RSI, and ATR."""
+    if historical_cache is not None:
+        _h = historical_cache.get(symbol)
+        if _h is not None and not _h.empty:
+            _last_ts = str(_h.index[-1]) if not _h.index.empty else ""
+            _ckey = (symbol, len(_h), _last_ts, nifty_6m_ret)
+            if _ckey in _wealth_tech_cache:
+                return _wealth_tech_cache[_ckey].copy()
     defaults = {
         "sma_200": None, "sma_50": None, "ema_20": None, "cmp": None, 
         "rs_6m": None, "dist_52w_high": None, "liquidity": 0.0,
@@ -349,7 +358,7 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
             from wealth_momentum_filter import calculate_momentum_quality_score
             mom_score, mom_conf = calculate_momentum_quality_score(hist_eval, symbol=symbol)
 
-            return {
+            res_dict = {
                 "sma_200": sma_200,
                 "sma_50":  sma_50,
                 "ema_20":  ema_20,
@@ -366,6 +375,9 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
                 "is_stale": is_stale,
                 "above_sma200": bool(cmp >= sma_200) if sma_200 is not None else False
             }
+            if historical_cache is not None and _h is not None and not _h.empty:
+                _wealth_tech_cache[_ckey] = res_dict
+            return res_dict
         except Exception as e:
             logger.warning(f"Attempt {attempt+1}/{RETRY_ATTEMPTS} failed for {symbol}: {e}")
             if attempt < RETRY_ATTEMPTS - 1:
