@@ -3085,20 +3085,34 @@ def get_multibagger_watchlist():
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 if status_filter:
                     cur.execute("""
-                        SELECT symbol, buy_zone_low, buy_zone_high, latest_price,
-                               growth_score, value_score, trend_score, total_score,
-                               bucket, status, notes, last_alert_price, last_alert_at, last_updated
-                        FROM watchlist
-                        WHERE status = %s
-                        ORDER BY total_score DESC NULLS LAST
+                        SELECT w.symbol, w.buy_zone_low, w.buy_zone_high, w.latest_price,
+                               w.growth_score, w.value_score, w.trend_score, w.total_score,
+                               w.bucket, w.status, w.notes, w.last_alert_price, w.last_alert_at, w.last_updated,
+                               -- [VERSION: EARNINGS_BADGE_v1.0] Earnings fields from earnings_calendar
+                               COALESCE(ec.earnings_date IS NOT NULL, FALSE)                  AS earnings_flag,
+                               COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)    AS days_to_earnings,
+                               ec.earnings_date,
+                               COALESCE(ec.date_status, 'NONE')                               AS earnings_severity,
+                               ''                                                            AS warning_msg
+                        FROM watchlist w
+                        LEFT JOIN earnings_calendar ec ON ec.symbol = w.symbol
+                        WHERE w.status = %s
+                        ORDER BY w.total_score DESC NULLS LAST
                     """, (status_filter,))
                 else:
                     cur.execute("""
-                        SELECT symbol, buy_zone_low, buy_zone_high, latest_price,
-                               growth_score, value_score, trend_score, total_score,
-                               bucket, status, notes, last_alert_price, last_alert_at, last_updated
-                        FROM watchlist
-                        ORDER BY total_score DESC NULLS LAST
+                        SELECT w.symbol, w.buy_zone_low, w.buy_zone_high, w.latest_price,
+                               w.growth_score, w.value_score, w.trend_score, w.total_score,
+                               w.bucket, w.status, w.notes, w.last_alert_price, w.last_alert_at, w.last_updated,
+                               -- [VERSION: EARNINGS_BADGE_v1.0] Earnings fields from earnings_calendar
+                               COALESCE(ec.earnings_date IS NOT NULL, FALSE)                  AS earnings_flag,
+                               COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)    AS days_to_earnings,
+                               ec.earnings_date,
+                               COALESCE(ec.date_status, 'NONE')                               AS earnings_severity,
+                               ''                                                            AS warning_msg
+                        FROM watchlist w
+                        LEFT JOIN earnings_calendar ec ON ec.symbol = w.symbol
+                        ORDER BY w.total_score DESC NULLS LAST
                     """)
                 return cur.fetchall()
 

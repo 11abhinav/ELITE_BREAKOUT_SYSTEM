@@ -2733,16 +2733,29 @@ def get_todays_alerts(today_str: str) -> list[dict]:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             try:
                 cur.execute("""
-                    SELECT id, symbol, breakout_type, alert_time::text as alert_time, scanner, category, entry_price,
-                        stop_loss, initial_stop_loss, target_1, target_2, target_3, target_4, target_price, remaining_shares, signals, score::int as score, status, seen_by_user, seen_by_admin, is_rejected
-                    FROM alerts
-                    WHERE alert_date = %s
+                    SELECT a.id, a.symbol, a.breakout_type, a.alert_time::text as alert_time, a.scanner, a.category, a.entry_price,
+                        a.stop_loss, a.initial_stop_loss, a.target_1, a.target_2, a.target_3, a.target_4, a.target_price, a.remaining_shares, a.signals, a.score::int as score, a.status, a.seen_by_user, a.seen_by_admin, a.is_rejected,
+                        -- [VERSION: EARNINGS_BADGE_v1.0] Earnings fields from alerts table (populated at alert creation time)
+                        COALESCE(a.earnings_flag, FALSE)                         AS earnings_flag,
+                        COALESCE(a.days_to_earnings, 999)                        AS days_to_earnings,
+                        a.earnings_date,
+                        COALESCE(a.earnings_severity, 'NONE')                    AS earnings_severity,
+                        COALESCE(a.warning_msg, '')                              AS warning_msg
+                    FROM alerts a
+                    WHERE a.alert_date = %s
                     UNION ALL
-                    SELECT id, symbol, breakout_type, alert_time::text as alert_time, breakout_type as scanner, portfolio_bucket as category, alert_price as entry_price,
-                        NULL::real as stop_loss, NULL::real as initial_stop_loss, NULL::real as target_1, NULL::real as target_2, NULL::real as target_3, NULL::real as target_4, NULL::real as target_price, NULL::int as remaining_shares, entry_signal as signals, fm_score::int as score, 
-                        CASE WHEN is_closed THEN 'CLOSED' ELSE 'OPEN' END as status, FALSE as seen_by_user, FALSE as seen_by_admin, FALSE as is_rejected
-                    FROM wealth_buy_alert
-                    WHERE alert_date = %s
+                    SELECT w.id, w.symbol, w.breakout_type, w.alert_time::text as alert_time, w.breakout_type as scanner, w.portfolio_bucket as category, w.alert_price as entry_price,
+                        NULL::real as stop_loss, NULL::real as initial_stop_loss, NULL::real as target_1, NULL::real as target_2, NULL::real as target_3, NULL::real as target_4, NULL::real as target_price, NULL::int as remaining_shares, w.entry_signal as signals, w.fm_score::int as score,
+                        CASE WHEN w.is_closed THEN 'CLOSED' ELSE 'OPEN' END as status, FALSE as seen_by_user, FALSE as seen_by_admin, FALSE as is_rejected,
+                        -- [VERSION: EARNINGS_BADGE_v1.0] Earnings fields from earnings_calendar for wealth alerts
+                        COALESCE(ec.earnings_date IS NOT NULL, FALSE)           AS earnings_flag,
+                        COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999) AS days_to_earnings,
+                        ec.earnings_date,
+                        COALESCE(ec.date_status, 'NONE')                         AS earnings_severity,
+                        ''                                                       AS warning_msg
+                    FROM wealth_buy_alert w
+                    LEFT JOIN earnings_calendar ec ON ec.symbol = w.symbol
+                    WHERE w.alert_date = %s
                     ORDER BY alert_time DESC
                 """, (today_str, today_str))
                 return [dict(row) for row in cur.fetchall()]
@@ -4765,42 +4778,58 @@ def _get_wealth_positions(is_closed: bool = None, symbol: str = None, trade_date
     try:
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                query = "SELECT * FROM wealth_buy_alert WHERE 1=1"
+                # [VERSION: EARNINGS_BADGE_v1.0] LEFT JOIN earnings_calendar so all Wealth alert
+                # views (wealth dashboard, today alerts UNION leg) carry earnings badge fields.
+                query = """
+                    SELECT w.*,
+                        COALESCE(ec.earnings_date IS NOT NULL, FALSE)                AS earnings_flag,
+                        COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)  AS days_to_earnings,
+                        ec.earnings_date                                              AS ec_earnings_date,
+                        COALESCE(ec.date_status, 'NONE')                              AS earnings_severity,
+                        ''                                                            AS warning_msg
+                    FROM wealth_buy_alert w
+                    LEFT JOIN earnings_calendar ec ON ec.symbol = w.symbol
+                    WHERE 1=1
+                """
                 params = []
 
                 if is_closed is not None:
-                    query += " AND is_closed = %s"
+                    query += " AND w.is_closed = %s"
                     params.append(is_closed)
-                
+
                 if symbol:
-                    query += " AND symbol = %s"
+                    query += " AND w.symbol = %s"
                     params.append(symbol)
-                
+
                 if trade_date:
-                    query += " AND alert_date = %s"
+                    query += " AND w.alert_date = %s"
                     params.append(trade_date)
                 elif days_back is not None:
-                    # Depending on whether we want open or closed positions, we filter on the appropriate date
                     if is_closed is True:
-                        query += " AND exit_date::DATE >= (CURRENT_DATE - INTERVAL '%s days')"
+                        query += " AND w.exit_date::DATE >= (CURRENT_DATE - INTERVAL '%s days')"
                     else:
-                        query += " AND alert_date::DATE >= (CURRENT_DATE - INTERVAL '%s days')"
+                        query += " AND w.alert_date::DATE >= (CURRENT_DATE - INTERVAL '%s days')"
                     params.append(days_back)
-                
+
                 if is_closed is True:
-                    query += " ORDER BY exit_date DESC, exit_time DESC"
+                    query += " ORDER BY w.exit_date DESC, w.exit_time DESC"
                 else:
-                    query += " ORDER BY alert_date DESC, alert_time DESC"
-                    
+                    query += " ORDER BY w.alert_date DESC, w.alert_time DESC"
+
                 cur.execute(query, tuple(params))
                 rows = [dict(row) for row in cur.fetchall()]
-                
+
                 # Coalesce dynamic display fields uniformly
                 for row in rows:
                     if row.get('current_price') is None:
                         row['current_price'] = row.get('alert_price')
                     if row.get('current_score') is None:
                         row['current_score'] = row.get('fm_score')
+                    # Normalise ec_earnings_date alias → earnings_date (avoid key collision with w.*)
+                    if 'ec_earnings_date' in row:
+                        ec_ed = row.pop('ec_earnings_date')
+                        if row.get('earnings_date') is None:
+                            row['earnings_date'] = ec_ed.isoformat() if hasattr(ec_ed, 'isoformat') else ec_ed
                 return rows
     except Exception as e:
         logger.exception(f"❌ Failed to fetch wealth positions from _get_wealth_positions")
@@ -6502,19 +6531,25 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                 cur.execute("""
                     SELECT w.symbol, w.company_name, w.added_at,
                            COALESCE(m.last_scanned_at, w.last_scanned_at),
-                           CASE 
-                               WHEN m.health_score IS NOT NULL AND m.health_score > 0 THEN m.health_score 
-                               WHEN w.last_health_score IS NOT NULL AND w.last_health_score > 0 THEN w.last_health_score 
-                               ELSE NULL 
+                           CASE
+                               WHEN m.health_score IS NOT NULL AND m.health_score > 0 THEN m.health_score
+                               WHEN w.last_health_score IS NOT NULL AND w.last_health_score > 0 THEN w.last_health_score
+                               ELSE NULL
                            END,
                            COALESCE(m.status, w.last_status),
                            w.notes,
                            COALESCE(m.last_deep_analysis_at, w.last_deep_analysis_at),
                            COALESCE(m.deep_analysis_result, w.deep_analysis_result) as deep_analysis_result,
                            m.cmp,
-                           m.cmp_updated_at
+                           m.cmp_updated_at,
+                           -- [VERSION: EARNINGS_BADGE_v1.0] Earnings fields so user watchlist shows earnings badge
+                           COALESCE(ec.earnings_date IS NOT NULL, FALSE)                 AS earnings_flag,
+                           COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)   AS days_to_earnings,
+                           ec.earnings_date                                               AS earnings_date,
+                           COALESCE(ec.date_status, 'NONE')                              AS earnings_severity
                     FROM user_watchlists w
                     LEFT JOIN stock_analysis_master m ON w.symbol = m.symbol
+                    LEFT JOIN earnings_calendar ec ON ec.symbol = w.symbol
                     WHERE w.user_id = %s
                     ORDER BY w.added_at DESC
                 """, (user_id_str,))
@@ -6575,6 +6610,12 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                         "close_price": float(close_price) if close_price is not None else None,
                         "cmp": resolved_cmp,
                         "cmp_updated_at": cmp_ts_str,
+                        # [VERSION: EARNINGS_BADGE_v1.0] Earnings fields from earnings_calendar JOIN
+                        "earnings_flag": bool(r[11]) if len(r) > 11 and r[11] is not None else False,
+                        "days_to_earnings": int(r[12]) if len(r) > 12 and r[12] is not None else 999,
+                        "earnings_date": r[13].isoformat() if len(r) > 13 and hasattr(r[13], 'isoformat') else (str(r[13]) if len(r) > 13 and r[13] else None),
+                        "earnings_severity": r[14] if len(r) > 14 and r[14] else "NONE",
+                        "warning_msg": "",
                     })
 
                 # Batch-fetch live CMP for missing or stale symbols
