@@ -201,8 +201,7 @@ def fetch_single_piotroski(symbol: str) -> dict:
     
     for attempt in range(max_retries):
         try:
-            # Increase base sleep from 0.5-2.0s to 1.5-3.5s to stay well below Yahoo Finance 2000 req/hr limits
-            time.sleep(random.uniform(1.5, 3.5))
+            time.sleep(random.uniform(1.2, 2.5))
             t, info, fin, bs = try_fetch(yf_sym)
             if fin.empty and bs.empty:
                 if yf_sym.endswith(".NS"):
@@ -435,7 +434,7 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
         if is_stale(cache.get(sym), tier):
             to_fetch.append(sym)
             
-    logger.info(f"📥 Need to fetch {len(to_fetch)} symbols out of {len(universe_df)} for Piotroski.")
+    logger.info(f"📊 [FUNDAMENTALS] Pending symbols to fetch today: {len(to_fetch)} (out of {len(universe_df)} universe)")
     
     if not to_fetch:
         return
@@ -448,12 +447,8 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
     import gc
     missing_data_stocks = []
     
-    try:
-        from config import SCAN_WORKER_THREADS
-    except ImportError:
-        SCAN_WORKER_THREADS = 4
-        
-    workers = min(4, SCAN_WORKER_THREADS, len(to_fetch))
+    # Use max_workers=2 to prevent Yahoo Finance 429 rate limit spikes while maintaining high speed
+    workers = min(2, len(to_fetch))
     workers = max(1, workers)
     
     try:
@@ -465,11 +460,13 @@ def refresh_fundamentals_tiered(universe_df: pd.DataFrame):
                 # None means rate limited or circuit open -> skip caching so it's retried next time
                 if result is not None:
                     cache[sym] = result
+                    score_val = result.get("score", -1)
+                    logger.info(f"🔄 [FUNDAMENTALS] [{idx+1}/{len(to_fetch)}] Fetched fundamentals for {sym} | Score={score_val}")
                     if result.get("failed", False):
                         missing_data_stocks.append(sym)
                         
                 if idx > 0 and idx % 10 == 0:
-                    logger.info(f"   Fetched {idx}/{len(to_fetch)} fundamentals")
+                    logger.info(f"   Saved cache batch {idx}/{len(to_fetch)} fundamentals to DB")
                     save_cache(cache, upload_to_db=True)
                     gc.collect() # Force cleanup of Pandas DataFrames to avoid OOM
     except concurrent.futures.TimeoutError:
