@@ -360,7 +360,8 @@ class InstrumentedLock:
             }
 
 # GLOBAL LOCK to prevent concurrent scanner execution (fixes Fyers/Yahoo rate limits)
-scanner_execution_lock = InstrumentedLock()
+scanner_execution_lock = InstrumentedLock("scanner_execution_lock")
+wealth_execution_lock = InstrumentedLock("wealth_execution_lock")
 
 def format_duration(seconds: Optional[float]) -> str:
     if seconds is None:
@@ -1178,7 +1179,7 @@ def run_system_scheduler():
             telemetry.log_scheduler_event("WEALTH_ENGINE_INIT", "CYCLE_START")
             telemetry.log_session_timeline("Started Wealth Engine Initial Setup Cycle")
             with MemoryProfiler("WEALTH_ENGINE_INIT", force_gc_cleanup=True):
-                with scanner_execution_lock:
+                with wealth_execution_lock:
                     run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type="SCHEDULED", scheduler_name="CRON")
                     try:
                         run_wealth_scan(run_ctx=run_ctx)
@@ -1248,7 +1249,7 @@ def run_system_scheduler():
                     run_ctx = None
                     try:
                         with MemoryProfiler("WEALTH_ENGINE_15M", force_gc_cleanup=True):
-                            with scanner_execution_lock:
+                            with wealth_execution_lock:
                                 run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type="SCHEDULED", scheduler_name="CRON")
                                 try:
                                     from wealth_engine import run_wealth_scan
