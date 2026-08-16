@@ -1091,8 +1091,8 @@ def run_system_scheduler():
             else:
                 logger.info("🕒 SCHEDULER | [1:00 AM] Triggering Daily Builder")
                 from telemetry_manager import telemetry
-                from database import start_scanner_execution_run, complete_scanner_execution_run
-                run_ctx = start_scanner_execution_run(scanner_name="DAILY_BUILDER", trigger_type="SCHEDULED", scheduler_name="CRON")
+                from database import start_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health
+                upsert_scanner_health("DAILY_BUILDER", status="QUEUED", error_msg="Waiting for global execution lock...")
                 telemetry.log_scheduler_event("DAILY_BUILDER", "CYCLE_START")
                 # Pre-Daily Builder 4-step defensive memory purge
                 try:
@@ -1101,13 +1101,20 @@ def run_system_scheduler():
                 except Exception:
                     pass
                 from daily_builder import main as build_watchlist
+                run_ctx = None
                 try:
                     with MemoryProfiler("DAILY_BUILDER", force_gc_cleanup=True):
                         with scanner_execution_lock:
-                            build_watchlist()
-                    complete_scanner_execution_run(run_ctx)
+                            run_ctx = start_scanner_execution_run(scanner_name="DAILY_BUILDER", trigger_type="SCHEDULED", scheduler_name="CRON")
+                            try:
+                                build_watchlist()
+                                complete_scanner_execution_run(run_ctx)
+                            except Exception as db_err:
+                                complete_scanner_execution_run(run_ctx, exception=db_err)
+                                raise db_err
                 except Exception as db_err:
-                    complete_scanner_execution_run(run_ctx, exception=db_err)
+                    if run_ctx:
+                        complete_scanner_execution_run(run_ctx, exception=db_err)
                     raise db_err
 
             
@@ -1157,8 +1164,9 @@ def run_system_scheduler():
     def safe_run_wealth_scan_initial():
         """Run Wealth Engine at 2:00 AM with fresh watchlist."""
         start_time = time.time()
-        from database import start_scanner_execution_run, complete_scanner_execution_run
-        run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type="SCHEDULED", scheduler_name="CRON")
+        from database import start_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health
+        upsert_scanner_health("Wealth Engine", status="QUEUED", error_msg="Waiting for global execution lock...")
+        run_ctx = None
         try:
             logger.info("🕒 SCHEDULER | [2:00 AM] Triggering Wealth Engine (initial setup)")
             from telemetry_manager import telemetry
@@ -1166,10 +1174,15 @@ def run_system_scheduler():
             telemetry.log_session_timeline("Started Wealth Engine Initial Setup Cycle")
             with MemoryProfiler("WEALTH_ENGINE_INIT", force_gc_cleanup=True):
                 with scanner_execution_lock:
-                    run_wealth_scan(run_ctx=run_ctx)
+                    run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type="SCHEDULED", scheduler_name="CRON")
+                    try:
+                        run_wealth_scan(run_ctx=run_ctx)
+                        duration_sec = round(time.time() - start_time, 1)
+                        complete_scanner_execution_run(run_ctx)
+                    except Exception as run_err:
+                        complete_scanner_execution_run(run_ctx, exception=run_err)
+                        raise run_err
             
-            duration_sec = round(time.time() - start_time, 1)
-            complete_scanner_execution_run(run_ctx)
             # Mark success
             now_str = datetime.now(IST).isoformat()
             upsert_scanner_health(
@@ -1186,7 +1199,8 @@ def run_system_scheduler():
                 pass
             return True
         except Exception as e:
-            complete_scanner_execution_run(run_ctx, exception=e)
+            if run_ctx:
+                complete_scanner_execution_run(run_ctx, exception=e)
             if "actively running" in str(e).lower():
                 logger.info("⏳ Wealth Engine is actively running.")
                 return False
@@ -1223,15 +1237,22 @@ def run_system_scheduler():
                     logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering FULL Wealth Engine Scan (15-min BUY alert cycle)")
                     from telemetry_manager import telemetry
                     from database import start_scanner_execution_run, complete_scanner_execution_run
-                    run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type="SCHEDULED", scheduler_name="CRON")
+                    upsert_scanner_health("Wealth Engine", status="QUEUED", error_msg="Waiting for global execution lock...")
                     telemetry.log_scheduler_event("WEALTH_ENGINE_15M", "CYCLE_START")
                     _scan_start_t = time.time()
+                    run_ctx = None
                     try:
                         with MemoryProfiler("WEALTH_ENGINE_15M", force_gc_cleanup=True):
-                            from wealth_engine import run_wealth_scan
-                            run_wealth_scan(run_ctx=run_ctx)
-                        duration_sec = round(time.time() - _scan_start_t, 1)
-                        complete_scanner_execution_run(run_ctx)
+                            with scanner_execution_lock:
+                                run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type="SCHEDULED", scheduler_name="CRON")
+                                try:
+                                    from wealth_engine import run_wealth_scan
+                                    run_wealth_scan(run_ctx=run_ctx)
+                                    duration_sec = round(time.time() - _scan_start_t, 1)
+                                    complete_scanner_execution_run(run_ctx)
+                                except Exception as run_err:
+                                    complete_scanner_execution_run(run_ctx, exception=run_err)
+                                    raise run_err
                         now_str = datetime.now(IST).isoformat()
                         upsert_scanner_health(
                             "Wealth Engine",
@@ -1242,6 +1263,8 @@ def run_system_scheduler():
                         )
                         logger.info(f"✅ Wealth Engine (market hours) FULL SCAN completed in {format_duration(duration_sec)}")
                     except Exception as run_err:
+                        if run_ctx:
+                            complete_scanner_execution_run(run_ctx, exception=run_err)
                         logger.exception(f"❌ [CRITICAL SCANNER FAILURE] Wealth Engine scan failed: {run_err}")
                         complete_scanner_execution_run(run_ctx, exception=run_err)
                         raise run_err
