@@ -105,12 +105,23 @@ const TableSorter = {
       let aText = aCol.innerText.trim();
       let bText = bCol.innerText.trim();
       
-      // Special Date Parsing (Handle ISO, GMT, IST, and localized dates)
-      if (aText.length >= 8 && bText.length >= 8) {
+      // Special Date Parsing (Handle ISO, GMT, IST, DD Mon YYYY, and localized dates)
+      if (aText.length >= 6 && bText.length >= 6) {
         let daClean = aText.replace(/IST|GMT|UTC/gi, '').trim();
         let dbClean = bText.replace(/IST|GMT|UTC/gi, '').trim();
         let da = Date.parse(daClean);
         let db = Date.parse(dbClean);
+        if (isNaN(da) || isNaN(db)) {
+          // Try parsing DD Mon YYYY (e.g., "13 Aug 2026" or "13 Aug, 10:30")
+          const dPartsA = daClean.match(/^(\d{1,2})[-/\s]+([A-Za-z]+|\d{1,2})[-/\s,]*(\d{2,4})?/);
+          const dPartsB = dbClean.match(/^(\d{1,2})[-/\s]+([A-Za-z]+|\d{1,2})[-/\s,]*(\d{2,4})?/);
+          if (dPartsA && dPartsB) {
+            const yrA = dPartsA[3] || new Date().getFullYear();
+            const yrB = dPartsB[3] || new Date().getFullYear();
+            da = Date.parse(`${dPartsA[2]} ${dPartsA[1]}, ${yrA}`);
+            db = Date.parse(`${dPartsB[2]} ${dPartsB[1]}, ${yrB}`);
+          }
+        }
         if (!isNaN(da) && !isNaN(db) && da > 946684800000 && db > 946684800000) {
           return currentSort.asc ? da - db : db - da;
         }
