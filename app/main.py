@@ -114,6 +114,11 @@ except Exception as _fyers_scope_err:
 # scanner-ready checkpoint. This is a passive metric — no behavior is changed.
 _boot_elapsed = _time.monotonic() - _PROCESS_START_TIME
 logger.info(f"⏱  [STARTUP] Boot sequence complete in {_boot_elapsed:.1f}s (imports + DB init + diagnostics)")
+try:
+    from symbol_router import symbol_router
+    symbol_router.load_persisted_routes()
+except Exception as _router_err:
+    logger.warning(f"⚠️ Failed to restore symbol router state on boot: {_router_err}")
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Map watchdog thread names to dashboard database keys

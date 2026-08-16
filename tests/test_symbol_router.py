@@ -33,17 +33,21 @@ def test_interval_specific_routing_nifty_scenario():
     # 1d for NIFTY 50 remains LOAD_BALANCED!
     assert router.get_route("NIFTY 50", "1d") == RoutingState.LOAD_BALANCED
 
-def test_self_healing_recovery_on_success():
+def test_option_b_permanent_sticky_retention():
     router = SymbolRouter()
-    # Step 1: Learn sticky UPSTOX_ONLY
+    # Step 1: Learn sticky UPSTOX_ONLY when Fyers fails
     router.record_result("ABC", "1d", "fyers", is_success=False, err_code=ProviderErrorCode.UNSUPPORTED_SYMBOL)
     assert router.get_route("ABC", "1d") == RoutingState.UPSTOX_ONLY
     
-    # Step 2: Fyers later succeeds on revalidation
-    router.record_result("ABC", "1d", "fyers", is_success=True)
+    # Step 2: Upstox succeeds on subsequent scans
+    router.record_result("ABC", "1d", "upstox", is_success=True)
     
-    # Step 3: Restored to LOAD_BALANCED
-    assert router.get_route("ABC", "1d") == RoutingState.LOAD_BALANCED
+    # Step 3: Retains UPSTOX_ONLY permanently under Option B without resetting to LOAD_BALANCED
+    assert router.get_route("ABC", "1d") == RoutingState.UPSTOX_ONLY
+    
+    # Step 4: If Upstox later fails with UNSUPPORTED_SYMBOL, route updates to FYERS_ONLY
+    router.record_result("ABC", "1d", "upstox", is_success=False, err_code=ProviderErrorCode.UNSUPPORTED_SYMBOL)
+    assert router.get_route("ABC", "1d") == RoutingState.FYERS_ONLY
 
 def test_concurrent_routing_updates():
     import threading

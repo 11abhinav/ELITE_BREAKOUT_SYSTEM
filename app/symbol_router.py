@@ -72,26 +72,18 @@ class SymbolRouter:
 
     def get_route(self, symbol: str, interval: str) -> RoutingState:
         """
-        Thread-safe lookup of routing state for (symbol, interval).
-        Handles session-boundary and 24h TTL expiration automatically.
+        [VERSION: SYMBOL_ROUTER_OPTION_B_v1.0] Permanent Sticky Routing (Option B)
+        RATIONALE:
+          - Sticky routes (UPSTOX_ONLY / FYERS_ONLY) do NOT expire daily.
+          - Once a working broker is identified for a symbol/interval, it is reused
+            permanently across days without spending time re-probing failed brokers.
+          - Routes only change if the active working broker fails.
         """
         key = self._normalize_key(symbol, interval)
-        now_mono = time.monotonic()
-        today_ist = datetime.now(IST).strftime("%Y-%m-%d")
 
         with self._lock:
             entry = self._routes.get(key)
             if entry is None:
-                return RoutingState.LOAD_BALANCED
-
-            # Check expiration: if session date changed AND age > 24 hours, expire route for self-healing
-            is_expired = (entry.session_date != today_ist) and ((now_mono - entry.learned_at) >= self.sticky_ttl_seconds)
-            if is_expired:
-                logger.info(
-                    f"🔄 [ROUTING_REVALIDATION] Expired sticky route for {key[0]} [{key[1]}] "
-                    f"(was {entry.state.value} due to {entry.reason.value}). Re-probing via LOAD_BALANCED."
-                )
-                del self._routes[key]
                 return RoutingState.LOAD_BALANCED
 
             if entry.state in (RoutingState.UPSTOX_ONLY, RoutingState.FYERS_ONLY):
@@ -133,9 +125,10 @@ class SymbolRouter:
         err_code: Optional[ProviderErrorCode] = None
     ):
         """
-        Record fetch attempt outcome for (symbol, interval).
-        If permanent/sticky failure occurs, updates state to UPSTOX_ONLY / FYERS_ONLY.
-        If revalidation succeeds, restores state to LOAD_BALANCED.
+        [VERSION: SYMBOL_ROUTER_OPTION_B_v1.0] Record fetch attempt outcome for (symbol, interval).
+        Option B behavior: Once a working broker is assigned (UPSTOX_ONLY / FYERS_ONLY),
+        it remains sticky indefinitely as long as it succeeds.
+        If the active broker fails with a permanent error, the route updates to the alternative broker.
         """
         key = self._normalize_key(symbol, interval)
         now_mono = time.monotonic()
@@ -149,13 +142,7 @@ class SymbolRouter:
             existing = self._routes.get(key)
 
             if is_success:
-                # If a previously sticky route succeeds during revalidation, restore to LOAD_BALANCED
-                if existing and existing.state != RoutingState.LOAD_BALANCED:
-                    logger.info(
-                        f"✅ [ROUTING_RECOVERY] Provider '{prov}' successfully fetched {key[0]} [{key[1]}]. "
-                        f"Restoring route state from {existing.state.value} -> LOAD_BALANCED."
-                    )
-                    del self._routes[key]
+                # Active broker succeeded — retain sticky state indefinitely under Option B
                 return
 
             # Handle Failure: ONLY sticky/permanent error codes trigger state change
@@ -168,7 +155,7 @@ class SymbolRouter:
             if err_code in sticky_codes:
                 target_state = RoutingState.UPSTOX_ONLY if "fyers" in prov else RoutingState.FYERS_ONLY
                 
-                # Check if state is changing
+                # Update route to the alternative working broker
                 if existing is None or existing.state != target_state:
                     self._routes[key] = RouteEntry(
                         state=target_state,
@@ -178,14 +165,65 @@ class SymbolRouter:
                         session_date=today_ist
                     )
                     logger.warning(
-                        f"📌 [ROUTING_LEARN] Capability Override Learned | Key=({key[0]}, {key[1]}) | "
+                        f"📌 [ROUTING_LEARN] Permanent Option B Override Learned | Key=({key[0]}, {key[1]}) | "
                         f"FailedProvider={prov.upper()} | Error={err_code.value} | TargetState={target_state.value}"
                     )
+                    self._persist_routes_async()
             else:
                 logger.debug(
                     f"ℹ️ [ROUTING_TRANSIENT] Non-sticky transient error for {key[0]} [{key[1]}] on {prov.upper()}: "
-                    f"{err_code.value if err_code else 'TRANSIENT'} (State remains LOAD_BALANCED)"
+                    f"{err_code.value if err_code else 'TRANSIENT'} (State remains {existing.state.value if existing else 'LOAD_BALANCED'})"
                 )
+
+    def _persist_routes_async(self):
+        """Asynchronously persist sticky routes to database so they survive server restarts."""
+        try:
+            import threading
+            def _bg_save():
+                try:
+                    import json
+                    from database import save_system_state
+                    with self._lock:
+                        serializable = {
+                            f"{k[0]}|{k[1]}": {
+                                "state": v.state.value,
+                                "reason": v.reason.value,
+                                "confidence": v.confidence,
+                                "session_date": v.session_date
+                            }
+                            for k, v in self._routes.items()
+                        }
+                    save_system_state("symbol_router_routes_v1", json.dumps(serializable))
+                except Exception as e:
+                    logger.warning(f"Failed to persist symbol router state: {e}")
+
+            threading.Thread(target=_bg_save, name="SymbolRouterPersist", daemon=True).start()
+        except Exception:
+            pass
+
+    def load_persisted_routes(self):
+        """Load persisted sticky routes from database on startup."""
+        try:
+            import json
+            from database import get_system_state
+            raw_json = get_system_state("symbol_router_routes_v1")
+            if raw_json:
+                data = json.loads(raw_json)
+                with self._lock:
+                    for k_str, val in data.items():
+                        parts = k_str.split("|")
+                        if len(parts) == 2:
+                            sym, inv = parts[0], parts[1]
+                            self._routes[(sym, inv)] = RouteEntry(
+                                state=RoutingState(val["state"]),
+                                reason=ProviderErrorCode(val["reason"]),
+                                confidence=val.get("confidence", "HIGH"),
+                                learned_at=time.monotonic(),
+                                session_date=val.get("session_date", "")
+                            )
+                logger.info(f"💾 [SYMBOL_ROUTER] Restored {len(self._routes)} permanent sticky routes from DB.")
+        except Exception as e:
+            logger.warning(f"Failed to load symbol router state from DB: {e}")
 
     def record_fallback_event(self):
         """Track runtime fallbacks from primary to secondary provider."""
