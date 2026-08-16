@@ -10,53 +10,87 @@ logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 from database import get_connection
 
-# TTL Cache settings
-MACRO_CACHE_TTL_SECONDS = 300  # 5 minutes
+# [VERSION: MACRO_CACHE_V2.0] Session-Aware Single-Flight Macro Cache with 15m TTL
+# RATIONALE:
+#   - TTL set to 900s (15 minutes) to eliminate redundant network fetching across 5m scanner cycles.
+#   - Stores session_date (IST) in cache entry to prevent yesterday's data from crossing session boundaries.
+#   - Employs single-flight lock pattern: releases cache lock during external network API calls so
+#     unrelated scanner threads are not blocked while macro calculations execute.
+MACRO_CACHE_TTL_SECONDS = 900  # 15 minutes
 
 class MacroCache:
     def __init__(self):
         self.lock = Lock()
         
-        # 1-year daily cache (used for 20d return, 6m return, 52w distance, regime)
-        self.daily_data = None
-        self.daily_last_fetched = 0
-        
-        # 5-day 15m cache (used for intraday drop)
-        self.intraday_data = None
-        self.intraday_last_fetched = 0
+        # Structure: {"computed_at": float, "session_date": str, "data": pd.DataFrame}
+        self.daily_entry = None
+        self.daily_in_flight = False
+
+        self.intraday_entry = None
+        self.intraday_in_flight = False
 
 _cache = MacroCache()
 
 def _get_daily_nifty() -> pd.DataFrame:
-    """Fetch 1-year daily NIFTY data with 5-minute caching."""
-    now = time.time()
+    """Fetch 1-year daily NIFTY data with single-flight session-aware 15-minute caching."""
+    now_mono = time.monotonic()
+    today_ist = datetime.now(IST).strftime("%Y-%m-%d")
+
+    # 1. Fast Cache Check under Lock
     with _cache.lock:
-        if _cache.daily_data is not None and (now - _cache.daily_last_fetched) < MACRO_CACHE_TTL_SECONDS:
-            return _cache.daily_data
+        entry = _cache.daily_entry
+        if entry is not None:
+            if entry.get("session_date") == today_ist and (now_mono - entry.get("computed_at", 0)) < MACRO_CACHE_TTL_SECONDS:
+                return entry.get("data")
             
+        # Avoid duplicate parallel fetches
+        if _cache.daily_in_flight and entry is not None:
+            return entry.get("data")
+            
+        _cache.daily_in_flight = True
+
+    # 2. Network API Fetch OUTSIDE of Cache Lock (Single-Flight Pattern)
     try:
         from price_cache import fetch_unified_historical
-        # We need at least 1 year for the 6-month returns and 52W high
         fetched = fetch_unified_historical(["NIFTY 50"], period="1y", interval="1d", requester="macro_daily")
         df = fetched.get("NIFTY 50")
         from core_enums import ProviderResult
         if df is not None and not isinstance(df, ProviderResult) and not df.empty:
             with _cache.lock:
-                _cache.daily_data = df
-                _cache.daily_last_fetched = time.time()
+                _cache.daily_entry = {
+                    "computed_at": now_mono,
+                    "session_date": today_ist,
+                    "data": df
+                }
+                _cache.daily_in_flight = False
             return df
     except Exception:
-        logger.exception(f"Failed to fetch Nifty daily macro data")
+        logger.exception("Failed to fetch Nifty daily macro data")
+    finally:
+        with _cache.lock:
+            _cache.daily_in_flight = False
         
-    return _cache.daily_data
+    with _cache.lock:
+        return _cache.daily_entry.get("data") if _cache.daily_entry else None
 
 def _get_intraday_nifty() -> pd.DataFrame:
-    """Fetch 5-day 15-minute NIFTY data with 5-minute caching."""
-    now = time.time()
+    """Fetch 5-day 15-minute NIFTY data with single-flight session-aware 15-minute caching."""
+    now_mono = time.monotonic()
+    today_ist = datetime.now(IST).strftime("%Y-%m-%d")
+
+    # 1. Fast Cache Check under Lock
     with _cache.lock:
-        if _cache.intraday_data is not None and (now - _cache.intraday_last_fetched) < MACRO_CACHE_TTL_SECONDS:
-            return _cache.intraday_data
+        entry = _cache.intraday_entry
+        if entry is not None:
+            if entry.get("session_date") == today_ist and (now_mono - entry.get("computed_at", 0)) < MACRO_CACHE_TTL_SECONDS:
+                return entry.get("data")
+                
+        if _cache.intraday_in_flight and entry is not None:
+            return entry.get("data")
             
+        _cache.intraday_in_flight = True
+
+    # 2. Network API Fetch OUTSIDE of Cache Lock (Single-Flight Pattern)
     try:
         from price_cache import fetch_unified_historical
         fetched = fetch_unified_historical(["NIFTY 50"], period="5d", interval="15m", requester="macro_intraday")
@@ -64,13 +98,21 @@ def _get_intraday_nifty() -> pd.DataFrame:
         from core_enums import ProviderResult
         if df is not None and not isinstance(df, ProviderResult) and not df.empty:
             with _cache.lock:
-                _cache.intraday_data = df
-                _cache.intraday_last_fetched = time.time()
+                _cache.intraday_entry = {
+                    "computed_at": now_mono,
+                    "session_date": today_ist,
+                    "data": df
+                }
+                _cache.intraday_in_flight = False
             return df
     except Exception:
-        logger.exception(f"Failed to fetch Nifty intraday macro data")
+        logger.exception("Failed to fetch Nifty intraday macro data")
+    finally:
+        with _cache.lock:
+            _cache.intraday_in_flight = False
         
-    return _cache.intraday_data
+    with _cache.lock:
+        return _cache.intraday_entry.get("data") if _cache.intraday_entry else None
 
 class MarketRegimeEngine:
     @staticmethod

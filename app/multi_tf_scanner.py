@@ -1554,6 +1554,17 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
             logger.info("=========================================")
             logger.info(f"📊 Hourly Phase: {dict(metrics_a)}")
             logger.info(f"📊 Lower TF Phase: {dict(metrics_b)}")
+            try:
+                from symbol_router import symbol_router
+                router_telemetry = symbol_router.get_telemetry_summary()
+                logger.info(
+                    f"📊 [PROVIDER_ROUTING] Total Sticky Routes: {router_telemetry.get('total_sticky_routes', 0)} "
+                    f"(Upstox-Only: {router_telemetry.get('upstox_only_count', 0)}, Fyers-Only: {router_telemetry.get('fyers_only_count', 0)}) | "
+                    f"Avoided Failures: {router_telemetry.get('avoided_failed_requests', 0)} | "
+                    f"Fallbacks: {router_telemetry.get('routing_fallbacks', 0)}"
+                )
+            except Exception:
+                pass
             logger.info(f"✅ [COMPLETE] MULTI-TF LADDER DONE | {elapsed_time:.2f}s | Status=OK")
             logger.info("=========================================")
 

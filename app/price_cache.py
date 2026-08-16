@@ -720,8 +720,32 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
         
     fresh_count = fresh_count_container[0]
 
-    # Process each group
+    # [VERSION: SCOPED_DELTA_COALESCING_V1.0] Coalesce fragmented DELTA date ranges for current (interval, period) scope
+    # Merges multiple incremental DELTA date ranges (e.g. 2026-08-03 and 2026-08-04) into single min(range_from) pass.
+    coalesced_groups = {}
+    delta_items = []
+    delta_range_froms = []
+
     for group_key, items in fetch_groups.items():
+        if group_key == "FULL":
+            coalesced_groups["FULL"] = items
+        else:
+            delta_items.extend(items)
+            if isinstance(group_key, tuple) and len(group_key) >= 1:
+                delta_range_froms.append(group_key[0])
+
+    if delta_items:
+        min_range_from = min(delta_range_froms) if delta_range_froms else today_str
+        unified_group_key = (min_range_from, today_str)
+        coalesced_groups[unified_group_key] = delta_items
+        if len(delta_range_froms) > 1:
+            logger.info(
+                f"⚡ [SCOPED_DELTA_COALESCE] Coalesced {len(delta_range_froms)} DELTA date ranges "
+                f"into single unified range [{min_range_from} to {today_str}] for {len(delta_items)} symbols [{interval}]"
+            )
+
+    # Process each coalesced group
+    for group_key, items in coalesced_groups.items():
         group_symbols = [item[0] for item in items]
         group_total = len(group_symbols)
         

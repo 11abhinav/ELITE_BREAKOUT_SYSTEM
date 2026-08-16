@@ -570,13 +570,34 @@ class AutoSwitchingFetcher(DataFetcher):
                     "reasons": {"provider_unavailable": 0}, "latency_s": 0.0
                 }
                 
-        # 2. Scatter to Premium Providers
+        # [VERSION: SYMBOL_ROUTER_V1.0] Partition missing symbols into routing buckets based on (symbol, interval) capability state
         if active_premiums and missing_symbols:
-            num_providers = len(active_premiums)
-            chunk_size = (len(missing_symbols) + num_providers - 1) // num_providers
+            from symbol_router import symbol_router, RoutingState
             
+            upstox_fetcher = self._get_fetcher_by_name("upstox")
+            fyers_fetcher = self._get_fetcher_by_name("fyers")
+            
+            upstox_only_symbols = []
+            fyers_only_symbols = []
+            balanced_symbols = []
+            
+            for s in missing_symbols:
+                route = symbol_router.get_route(s, interval)
+                if route == RoutingState.UPSTOX_ONLY and upstox_fetcher:
+                    upstox_only_symbols.append(s)
+                elif route == RoutingState.FYERS_ONLY and fyers_fetcher:
+                    fyers_only_symbols.append(s)
+                else:
+                    balanced_symbols.append(s)
+                    
+            if upstox_only_symbols or fyers_only_symbols:
+                logger.info(
+                    f"📌 [SYMBOL_ROUTER] Batch Partitioned | Balanced: {len(balanced_symbols)} | "
+                    f"Upstox-Only: {len(upstox_only_symbols)} | Fyers-Only: {len(fyers_only_symbols)}"
+                )
+
             import concurrent.futures
-            
+
             def fetch_chunk(p_name, fetcher, chunk):
                 start_t = time.time()
                 prov_stats = {
@@ -605,58 +626,73 @@ class AutoSwitchingFetcher(DataFetcher):
                 return p_name, prov_results, prov_stats, actual_chunk
 
             futures = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=num_providers) as executor:
-                for i, (p_name, fetcher) in enumerate(active_premiums):
-                    chunk = missing_symbols[i*chunk_size : (i+1)*chunk_size]
-                    if chunk:
-                        futures.append(executor.submit(fetch_chunk, p_name, fetcher, chunk))
-                        
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max(4, len(active_premiums) + 2)) as executor:
+                # Dispatch sticky UPSTOX_ONLY bucket directly to Upstox
+                if upstox_only_symbols and upstox_fetcher:
+                    futures.append(executor.submit(fetch_chunk, "upstox", upstox_fetcher, upstox_only_symbols))
+                    
+                # Dispatch sticky FYERS_ONLY bucket directly to Fyers
+                if fyers_only_symbols and fyers_fetcher:
+                    futures.append(executor.submit(fetch_chunk, "fyers", fyers_fetcher, fyers_only_symbols))
+                    
+                # Split LOAD_BALANCED bucket across all active premium providers
+                if balanced_symbols:
+                    num_providers = len(active_premiums)
+                    chunk_size = (len(balanced_symbols) + num_providers - 1) // num_providers
+                    for i, (p_name, fetcher) in enumerate(active_premiums):
+                        chunk = balanced_symbols[i*chunk_size : (i+1)*chunk_size]
+                        if chunk:
+                            futures.append(executor.submit(fetch_chunk, p_name, fetcher, chunk))
+
             for future in concurrent.futures.as_completed(futures):
                 try:
                     p_name, prov_results, prov_stats, actual_chunk = future.result()
                     
                     for s in actual_chunk:
                         res = prov_results.get(s)
-                        if res:
-                            fallback_results[s] = res
-                            if res.dataframe is not None and res.quality_report and res.quality_report.is_valid:
-                                results[s] = res
-                                if s in missing_symbols:
-                                    missing_symbols.remove(s)
-                                prov_stats["succeeded"] += 1
-                            else:
-                                prov_stats["failed"] += 1
-                                err_msg = str(getattr(res, 'error', '') or '').lower()
-                                if "timeout" in err_msg:
-                                    prov_stats["reasons"]["timeout"] += 1
-                                elif "rate" in err_msg or "429" in err_msg or "circuit" in err_msg:
-                                    prov_stats["reasons"]["rate_limit"] += 1
-                                elif "quality" in err_msg or "reject" in err_msg:
-                                    prov_stats["reasons"]["quality_rejected"] += 1
-                                elif "malformed" in err_msg or "format" in err_msg:
-                                    prov_stats["reasons"]["malformed"] += 1
-                                else:
-                                    prov_stats["reasons"]["missing"] += 1
-                                    
-                                if p_name == "fyers":
-                                    self._mark_fyers_degraded(s)
+                        if res and res.dataframe is not None and getattr(res, 'quality_report', None) and res.quality_report.is_valid:
+                            results[s] = res
+                            if s in missing_symbols:
+                                missing_symbols.remove(s)
+                            prov_stats["succeeded"] += 1
+                            symbol_router.record_result(s, interval, p_name, is_success=True)
                         else:
                             prov_stats["failed"] += 1
-                            prov_stats["reasons"]["missing"] += 1
+                            err_msg = str(getattr(res, 'error', '') or '').lower() if res else "No data returned"
+                            if "timeout" in err_msg:
+                                prov_stats["reasons"]["timeout"] += 1
+                            elif "rate" in err_msg or "429" in err_msg or "circuit" in err_msg:
+                                prov_stats["reasons"]["rate_limit"] += 1
+                            elif "quality" in err_msg or "reject" in err_msg:
+                                prov_stats["reasons"]["quality_rejected"] += 1
+                            elif "malformed" in err_msg or "format" in err_msg:
+                                prov_stats["reasons"]["malformed"] += 1
+                            else:
+                                prov_stats["reasons"]["missing"] += 1
+                                
+                            if p_name == "fyers":
+                                self._mark_fyers_degraded(s)
+                            symbol_router.record_result(s, interval, p_name, is_success=False, error_msg=err_msg)
                     
-                    provider_telemetry[p_name] = prov_stats
+                    if p_name in provider_telemetry:
+                        for k, v in prov_stats.items():
+                            if k == "reasons":
+                                for rk, rv in v.items():
+                                    provider_telemetry[p_name]["reasons"][rk] = provider_telemetry[p_name]["reasons"].get(rk, 0) + rv
+                            elif isinstance(v, (int, float)):
+                                provider_telemetry[p_name][k] = provider_telemetry[p_name].get(k, 0) + v
+                    else:
+                        provider_telemetry[p_name] = prov_stats
                 except Exception as e:
                     logger.error(f"Error processing load-balanced future: {e}")
                     
         # 2.5 Premium Fallback Phase: Process missing symbols through OTHER premium providers before Yahoo
         if missing_symbols and len(active_premiums) > 1:
+            from symbol_router import symbol_router
             for prov_name, fetcher in active_premiums:
                 if not missing_symbols:
                     break
                 
-                # Only try symbols that this provider hasn't already successfully fetched
-                # Actually, the symbols in missing_symbols are the ones that FAILED on their assigned provider.
-                # Just try them all on this premium provider. If it fails again, it stays in missing_symbols.
                 current_batch = list(missing_symbols)
                 start_t = time.time()
                 try:
@@ -671,13 +707,15 @@ class AutoSwitchingFetcher(DataFetcher):
                             if s in missing_symbols:
                                 missing_symbols.remove(s)
                             succeeded_count += 1
+                            symbol_router.record_fallback_event()
+                            symbol_router.record_result(s, interval, prov_name, is_success=True)
                             if prov_name in provider_telemetry:
                                 provider_telemetry[prov_name]["succeeded"] += 1
                             logger.info(f"✅ [Premium Fallback] {prov_name.upper()} successfully recovered data for missing symbol: {s}")
                         elif prov_name in provider_telemetry:
                             provider_telemetry[prov_name]["failed"] += 1
-                        else:
-                            pass # Leave in missing_symbols
+                            err_msg = str(getattr(res, 'error', '') or '').lower() if res else "Fallback missing"
+                            symbol_router.record_result(s, interval, prov_name, is_success=False, error_msg=err_msg)
                     if succeeded_count > 0:
                         logger.info(f"🔄 [Premium Fallback] {prov_name} recovered {succeeded_count} missing symbols in total!")
                 except Exception as e:
