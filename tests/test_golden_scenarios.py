@@ -47,8 +47,8 @@ def build_scenario_data(base_history, volume_weak=False, gap_up=False, rr_poor=F
         history.loc[last_idx, 'High'] = 103.0
     
     if volume_weak:
-        # To fail the volume ratio filter (> 2.0 or 2.5), set current volume to average
-        history.loc[last_idx, 'Volume'] = 100_000
+        # To fail the volume ratio filter (vol_ratio >= 0.80), set current volume below 0.80 threshold
+        history.loc[last_idx, 'Volume'] = 50_000
     else:
         # To pass the volume ratio filter, boost it
         history.loc[last_idx, 'Volume'] = 500_000

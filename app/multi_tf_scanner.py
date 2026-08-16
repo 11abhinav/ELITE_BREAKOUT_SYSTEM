@@ -1037,10 +1037,16 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                     # the stock never actually tested the breakout zone.
                     defense_level = trigger_level
                     if not is_ready and low <= defense_level + (0.15 * atr20):
-                        # PULLBACK_TRIGGER_MODE Logic
-                        trigger_mode = MULTI_TF_CONFIG.get("PULLBACK_TRIGGER_MODE", "PREVIOUS_BODY")
+                        # [VERSION: PHASE_D_PULLBACK_REFINEMENT_v1.0]
+                        # Safe structural correction for Phase D Pullback Trigger:
+                        # 1. PREVIOUS_CLOSE mode requires close > prev_close (confirms support defense without un-economical full-bar engulfing)
+                        # 2. Volume threshold set to vol_ratio >= 0.80 for pullback retest recovery (vs >1.05 for thrust breakouts)
+                        # 3. Close position threshold set to >= 0.50 (closes in upper half of 5m bounce candle)
+                        trigger_mode = MULTI_TF_CONFIG.get("PULLBACK_TRIGGER_MODE", "PREVIOUS_CLOSE")
                     
-                        if trigger_mode == "PREVIOUS_BODY":
+                        if trigger_mode == "PREVIOUS_CLOSE":
+                            c_engulf = close > float(prev["Close"])
+                        elif trigger_mode == "PREVIOUS_BODY":
                             c_engulf = close > max(float(prev["Open"]), float(prev["Close"]))
                         elif trigger_mode == "PREVIOUS_HIGH":
                             c_engulf = close > float(prev["High"])
@@ -1054,10 +1060,10 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                             )
                             c_engulf = is_inside and close > float(prev["High"])
                         else:
-                            c_engulf = close > max(float(prev["Open"]), float(prev["Close"]))
+                            c_engulf = close > float(prev["Close"])
                         
-                        if close >= trigger_level and c_engulf and close > open_px and vol_ratio > 1.0:
-                            if close_position >= 0.6:  # strong interaction/engulfing
+                        if close >= trigger_level and c_engulf and close > open_px and vol_ratio >= 0.80:
+                            if close_position >= 0.50:  # closes in upper half of 5m bounce candle
                                 is_ready = True
                                 trigger_type = "pullback"
 
@@ -1065,18 +1071,20 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                         # Log reasons only if stock has touched/entered the trigger zone
                         if close >= (trigger_level - buffer_val) or low <= trigger_level + (0.15 * atr20):
                             # Boolean evaluations for decision trace
-                            trigger_mode = MULTI_TF_CONFIG.get("PULLBACK_TRIGGER_MODE", "PREVIOUS_BODY")
-                            if trigger_mode == "PREVIOUS_BODY":
+                            trigger_mode = MULTI_TF_CONFIG.get("PULLBACK_TRIGGER_MODE", "PREVIOUS_CLOSE")
+                            if trigger_mode == "PREVIOUS_CLOSE":
+                                c_engulf = close > float(prev["Close"])
+                            elif trigger_mode == "PREVIOUS_BODY":
                                 c_engulf = close > max(float(prev["Open"]), float(prev["Close"]))
                             elif trigger_mode == "PREVIOUS_HIGH":
                                 c_engulf = close > float(prev["High"])
                             elif trigger_mode == "PREVIOUS_OPEN":
                                 c_engulf = close > float(prev["Open"])
                             else:
-                                c_engulf = close > max(float(prev["Open"]), float(prev["Close"]))
+                                c_engulf = close > float(prev["Close"])
                         
-                            c_vol = vol_ratio > 1.0
-                            c_close_pos = close_position >= 0.6
+                            c_vol = vol_ratio >= 0.80
+                            c_close_pos = close_position >= 0.50
                             c_bull_body = close > open_px
                             c_defended = low <= trigger_level + (0.15 * atr20)
                             c_above_trig = close >= trigger_level
