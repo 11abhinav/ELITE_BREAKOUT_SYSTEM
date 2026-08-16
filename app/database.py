@@ -3849,14 +3849,14 @@ def delete_stale_parquet_from_db(name: str) -> bool:
 _last_bundle_upload_time: dict[str, float] = {}
 _last_bundle_checksum: dict[str, str] = {}
 
-def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 300.0, force: bool = False) -> bool:
+def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 60.0, force: bool = False) -> bool:
     """
     Compresses all OHLCV parquet and metadata sidecars in data/history/{interval}/
     into a tar.gz bundle and persists to PostgreSQL parquet_cache under name 'history_bundle_{interval}'.
 
-    [OPTIMIZATION: DB_UPLOAD_THROTTLE_v1.0 + CHECKSUM_SKIP_v1.0]
-    Throttles uploads so that calls within `min_interval_sec` (default 5 minutes)
-    or with identical MD5 checksums skip the heavy tar.gz DB upload, unless force=True.
+    [OPTIMIZATION: MD5_CHECKSUM_FIRST_v1.0]
+    Checks MD5 checksum first. If files have changed, uploads immediately to PostgreSQL DB
+    without time throttling so history is never lost across server restarts.
     """
     import io
     import time
@@ -3866,13 +3866,6 @@ def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 
 
     global _last_bundle_upload_time, _last_bundle_checksum
     now_ts = time.time()
-    last_ts = _last_bundle_upload_time.get(interval, 0.0)
-    if not force and (now_ts - last_ts) < min_interval_sec:
-        logger.debug(
-            f"ℹ️ [DB] Skipping history_bundle_{interval} upload "
-            f"({now_ts - last_ts:.0f}s elapsed < {min_interval_sec:.0f}s threshold)"
-        )
-        return True
 
     history_dir = os.path.join(DATA_DIR, "history", interval)
     if not os.path.exists(history_dir):
