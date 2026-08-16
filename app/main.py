@@ -1588,8 +1588,7 @@ def run_system_scheduler():
                         last_multi_tf = current_slot
                         if not is_scanner_stopped("MULTI_TF"):
                             logger.info(f"🚀 MULTI_TF SCAN | Starting 5m candle-aligned cycle at {now.strftime('%H:%M:%S IST')}...")
-                            with scanner_execution_lock:
-                                _trigger_multi_tf()
+                            _trigger_multi_tf()
                         else:
                             logger.info("⏭️ MULTI_TF is STOPPED by Admin. Skipping candle-aligned cycle.")
                 

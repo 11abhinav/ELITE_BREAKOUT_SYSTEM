@@ -1445,14 +1445,6 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
         raise RuntimeError("Scanner is already actively running!")
 
     queued_at = None
-    if not _global_lock.acquire(blocking=False):
-        queued_at = time.monotonic()
-        logger.info("⏳ [MULTI_TF] Global lock busy — marking status QUEUED and waiting...")
-        upsert_scanner_health("MULTI_TF", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
-        if not _global_lock.acquire(blocking=True):
-            _scan_lock.release()
-            raise RuntimeError("Failed to acquire global scanner lock.")
-        logger.info(f"✅ [MULTI_TF] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
     own_ctx = False
     if run_ctx is None:
@@ -1475,7 +1467,6 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
     finally:
         print_scanner_end_banner("multi_tf_scanner", _scan_start)
         _scan_lock.release()
-        _global_lock.release()
 
 def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=None):
     from datetime import time as dt_time
