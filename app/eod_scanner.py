@@ -756,6 +756,11 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             for _, row in chunk_df.iterrows()
                         }
                     else:
+                        # [VERSION: UNIFIED_1Y_CACHE_v2.0]
+                        # Aligned on unified 1-year cache (period="1y", interval="1d").
+                        # EOD Scanner requires SMA200 & 52W High (252 trading days = ~365 cal days max).
+                        # Using period="1y" shares the exact same Parquet cache files with Wealth Engine & Reversal scanner,
+                        # eliminating 50% data payload and preventing cache key fragmentation.
                         all_ticker_data = fetch_watchlist_data(chunk_df, interval="1d", period="1y", requester="EOD")
                         
                     _fetch_dur = time.perf_counter() - _batch_start_t

@@ -88,6 +88,10 @@ SECTOR_ETF_MAP: dict[str, str] = {
 BENCHMARK_TICKER       = "NIFTY 50"
 RS_LOOKBACK_DAYS       = 20
 MOMENTUM_LOOKBACK_DAYS = 5
+# [VERSION: UNIFIED_1Y_CACHE_v2.0]
+# Sector ETFs are fetched with DOWNLOAD_PERIOD = "1y" so their Parquet cache files
+# contain a full 1-year history (~250 rows). This ensures they pass _is_cache_long_enough()
+# in price_cache.py and perform fast daily DELTA updates instead of triggering full refetches.
 DOWNLOAD_PERIOD        = "1y"
 MIN_BARS_REQUIRED      = RS_LOOKBACK_DAYS + MOMENTUM_LOOKBACK_DAYS + 5
 HIGHLIGHT_THRESHOLD_PCT = 5.0

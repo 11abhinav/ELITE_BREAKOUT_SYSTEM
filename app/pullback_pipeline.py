@@ -514,6 +514,11 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                         for _, row in chunk_df.iterrows()
                     }
                 else:
+                    # [VERSION: UNIFIED_1Y_CACHE_v2.0]
+                    # Aligned on unified 1-year cache (period="1y", interval="1d").
+                    # Pullback Pipeline requires SMA200 & 200-bar min history (200 trading days = ~280 cal days max).
+                    # Using period="1y" shares the exact same Parquet cache files with Wealth Engine & EOD scanner,
+                    # eliminating 50% data payload and preventing cache key fragmentation.
                     all_ticker_data = fetch_watchlist_data(chunk_df, interval="1d", period="1y", requester="PULLBACK")
                     
                 _fetch_dur = time.perf_counter() - _batch_start_t
