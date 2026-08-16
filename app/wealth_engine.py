@@ -1746,7 +1746,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         
         if peer_medians_thread is not None:
             logger.info("⏱ [WEALTH ENGINE] Waiting for background peer medians thread to complete...")
-            peer_medians_thread.join(timeout=15.0) # [PERF OPT] Reduced from 180s to 15s to prevent long scanner stalls
+            peer_medians_thread.join(timeout=1.0) # [PERF OPT] Reduced from 180s to 15s to prevent long scanner stalls
             if peer_medians_thread.is_alive():
                 logger.warning("⚠️ [WEALTH ENGINE] Background peer medians thread timed out after 15s. Continuing with cached/available data.")
         

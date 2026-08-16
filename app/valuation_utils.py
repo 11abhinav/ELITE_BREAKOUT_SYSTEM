@@ -174,6 +174,17 @@ PEER_MEDIANS_CACHE_PATH = "data/peer_medians_cache.json"
 _peer_medians_cache: dict = {"ts": 0.0, "data": {}}
 _peer_medians_lock = threading.Lock()
 
+# Auto-restore disk cache on module import to eliminate cold-boot overhead
+if os.path.exists(PEER_MEDIANS_CACHE_PATH):
+    try:
+        with open(PEER_MEDIANS_CACHE_PATH, "r") as _f:
+            _c = json.load(_f)
+        if _c.get("data"):
+            _peer_medians_cache["ts"] = _c.get("ts", 0.0)
+            _peer_medians_cache["data"] = _c.get("data", {})
+    except Exception:
+        pass
+
 def compute_peer_medians(symbols: list, known_sectors: dict = None) -> dict:
     """
     Compute median P/E, P/B, and ROE per stock dynamically using a peer subset from the overall market universe.
