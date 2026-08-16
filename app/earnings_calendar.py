@@ -29,9 +29,48 @@ class EarningsProvider(ABC):
         """Returns (earnings_date, date_status)."""
         pass
 
-class YahooEarningsProvider(EarningsProvider):
+class NseEarningsProvider(EarningsProvider):
+    """Fallback provider fetching upcoming earnings/board meeting dates directly from NSE India APIs."""
     def fetch_earnings_date(self, symbol: str) -> Tuple[Optional[date], str]:
-        """Fetches upcoming earnings date via yfinance."""
+        import requests
+        clean_sym = symbol.strip().upper().replace(".NS", "").replace(".BO", "")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://www.nseindia.com/",
+        }
+        try:
+            session = requests.Session()
+            session.get("https://www.nseindia.com", headers=headers, timeout=10)
+            url = f"https://www.nseindia.com/api/corporate-announcements?index=equities&symbol={clean_sym}"
+            resp = session.get(url, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                items = resp.json()
+                now_date = datetime.now(IST).date()
+                for item in items:
+                    purpose = str(item.get("purpose", "")).lower()
+                    desc = str(item.get("desc", "")).lower()
+                    if "financial result" in purpose or "board meeting" in purpose or "results" in desc:
+                        an_date_str = item.get("an_dt") or item.get("bm_date")
+                        if an_date_str:
+                            try:
+                                dt = pd.to_datetime(an_date_str).date()
+                                if dt >= now_date:
+                                    return dt, DateStatus.CONFIRMED
+                            except Exception:
+                                pass
+        except Exception as e:
+            logger.debug(f"NSE earnings fetch failed for {clean_sym}: {e}")
+        return None, DateStatus.UNKNOWN
+
+
+class YahooEarningsProvider(EarningsProvider):
+    def __init__(self):
+        self._fallback_nse = NseEarningsProvider()
+
+    def fetch_earnings_date(self, symbol: str) -> Tuple[Optional[date], str]:
+        """Fetches upcoming earnings date via yfinance with fallback to NSE."""
         import yfinance as yf
         from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit
         clean_upper = symbol.strip().upper()
@@ -79,7 +118,8 @@ class YahooEarningsProvider(EarningsProvider):
                 record_rate_limit(context=f"YahooEarningsProvider | {symbol}")
             logger.debug(f"Yahoo earnings fetch failed for {symbol}: {e}")
             
-        return None, DateStatus.UNKNOWN
+        # Fallback to NSE API if Yahoo fails or returns unknown
+        return self._fallback_nse.fetch_earnings_date(symbol)
 
 
 class EarningsCalendarService:
@@ -96,7 +136,7 @@ class EarningsCalendarService:
         Intended to run daily during off-peak hours (22:00-23:59 IST).
         - Priority 1: Stocks with results expected TODAY (re-checked post-market close).
         - Priority 2: Symbols uncached / older than 45d (known dates) or 7d (missing dates).
-        - Off-peak serial rate-limiting: 1 worker, 1.5s delay, 100 batch limit.
+        - Off-peak serial rate-limiting: 1 worker, 3.5s delay, 100 batch limit.
         """
         from database import is_scanner_stopped
         if is_scanner_stopped("Earnings Calendar"):
@@ -144,14 +184,16 @@ class EarningsCalendarService:
             return 0
 
         updated_count = 0
-        logger.info(f"📅 [EARNINGS CALENDAR] Starting off-peak refresh for {len(uncached_symbols)} symbols (1 worker, 1.5s throttle)...")
+        total_pending = len(uncached_symbols)
+        logger.info(f"📊 [EARNINGS CALENDAR] Pending symbols to fetch today: {total_pending} (out of {len(symbols)} total universe)")
 
         results = {}
-        for s in uncached_symbols:
+        for idx, s in enumerate(uncached_symbols, start=1):
             if is_scanner_stopped("Earnings Calendar"):
                 logger.info("⏭️ Earnings Calendar PAUSED by Admin mid-run. Aborting refresh loop.")
                 break
-            time.sleep(1.5)  # Generous delay to avoid Yahoo Finance rate limits
+            time.sleep(3.5)  # Increased delay to 3.5s to avoid Yahoo Finance rate limits
+            logger.info(f"📅 [EARNINGS CALENDAR] [{idx}/{total_pending}] Fetching earnings date for {s}...")
             try:
                 ed, status = self.provider.fetch_earnings_date(s)
                 if ed:

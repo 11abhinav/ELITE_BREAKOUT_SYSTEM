@@ -113,7 +113,7 @@ def run_ai_worker_scan_once() -> dict:
             logger.debug(f"🤖 [AI WORKER] All {total_stocks} stocks already cached today. Nothing to do. ({elapsed}s)")
             return {"total_count": total_stocks, "processed_count": db_processed_count}
             
-        logger.info(f"🤖 [AI WORKER] {len(actual_pending)}/{total_stocks} stocks need analysis | {total_stocks - len(actual_pending)} already cached in DB")
+        logger.info(f"📊 [AI WORKER] Pending symbols to fetch today: {len(actual_pending)} (out of {total_stocks} universe) | {total_stocks - len(actual_pending)} already cached in DB")
         
         max_retries = 3
         global_penalty_idx = 0
@@ -136,7 +136,7 @@ def run_ai_worker_scan_once() -> dict:
                     sym = futures[future]
                     sym_start = time.time()
                     try:
-                        logger.info(f"🤖 [AI WORKER] Missing cache for {sym} ({i+1}/{len(actual_pending)} in batch). Fetching live...")
+                        logger.info(f"🤖 [AI WORKER] [{i+1}/{len(actual_pending)}] Fetching live concall for {sym}...")
                         result = future.result()
                         
                         if result and "error" not in result:

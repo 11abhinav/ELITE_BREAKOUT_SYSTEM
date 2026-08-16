@@ -299,7 +299,7 @@ def worker_loop():
                 logger.debug("⏰ Woke up from daily sleep! Starting fresh scan...")
                 continue
                 
-            logger.info(f"Found {len(stale_symbols)} symbols needing pledge updates (out of {total_watch} total).")
+            logger.info(f"📊 [PLEDGE WORKER] Pending symbols to fetch today: {len(stale_symbols)} (out of {total_watch} total universe)")
             from database import start_scanner_execution_run, complete_scanner_execution_run
             worker_run_ctx = start_scanner_execution_run(scanner_name="Pledge Worker", trigger_type="SCHEDULED", scheduler_name="WORKER", total_stocks=len(stale_symbols))
             upsert_scanner_health("Pledge Worker", "OK", today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg=f"Last: Starting... | Total stale: {len(stale_symbols)}")
@@ -468,7 +468,7 @@ def worker_loop():
                     sym_elapsed = round(time.time() - sym_start, 2)
                     processed = found_count + missing_count + fail_404_count + error_count
                     pending = total_stale - processed
-                    logger.info(f"📊 PROGRESS: {processed}/{total_stale} | ⏱️ {sym_elapsed}s for {sym} [{status_res}] | Pending={pending} | Found={found_count} | Missing={missing_count} | 404={fail_404_count} | Errors={error_count}")
+                    logger.info(f"🛡️ [PLEDGE WORKER] [{processed}/{total_stale}] Scraping pledge for {sym} [{status_res}] | Elapsed={sym_elapsed}s | Pending={pending} | Found={found_count} | Errors={error_count}")
                         
                     # [VERSION: PLEDGE_WORKER_PROGRESS_v1.5] Update upserts to write processed_base + successful_in_first_pass
                     now_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
