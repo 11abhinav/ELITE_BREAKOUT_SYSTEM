@@ -2253,17 +2253,22 @@ def get_all_alerts() -> list[dict]:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT
-                    id, symbol, breakout_type, alert_time, alert_date,
-                    scanner, category, entry_price, stop_loss, initial_stop_loss,
-                    target_price, target_1, target_2, target_3,
-                    signals, score, rsi, volume_ratio,
-                    status, exit_price, pnl_pct, closed_at, is_rejected,
-                    shadow_status, shadow_exit_price, shadow_pnl_pct, shadow_closed_at,
-                    capital_allocated, shares_bought, remaining_shares, exit_history, pnl_rs, context,
-                    model_version, data_partition, current_price,
-                    earnings_flag, days_to_earnings, earnings_date, earnings_severity, warning_msg
-                FROM alerts
-                ORDER BY alert_time DESC
+                    a.id, a.symbol, a.breakout_type, a.alert_time, a.alert_date,
+                    a.scanner, a.category, a.entry_price, a.stop_loss, a.initial_stop_loss,
+                    a.target_price, a.target_1, a.target_2, a.target_3,
+                    a.signals, a.score, a.rsi, a.volume_ratio,
+                    a.status, a.exit_price, a.pnl_pct, a.closed_at, a.is_rejected,
+                    a.shadow_status, a.shadow_exit_price, a.shadow_pnl_pct, a.shadow_closed_at,
+                    a.capital_allocated, a.shares_bought, a.remaining_shares, a.exit_history, a.pnl_rs, a.context,
+                    a.model_version, a.data_partition, a.current_price,
+                    COALESCE(ec.earnings_date IS NOT NULL, a.earnings_flag, FALSE)               AS earnings_flag,
+                    COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), a.days_to_earnings, 999) AS days_to_earnings,
+                    COALESCE(ec.earnings_date, a.earnings_date)                                 AS earnings_date,
+                    COALESCE(ec.date_status, a.earnings_severity, 'NONE')                        AS earnings_severity,
+                    COALESCE(a.warning_msg, '')                                                 AS warning_msg
+                FROM alerts a
+                LEFT JOIN earnings_calendar ec ON UPPER(ec.symbol) = UPPER(a.symbol)
+                ORDER BY a.alert_time DESC
             """)
             rows = []
             for row in cur.fetchall():
@@ -3750,9 +3755,15 @@ def get_manual_portfolio():
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                SELECT id, symbol, entry_date::TEXT, entry_price, quantity
-                FROM manual_portfolio
-                ORDER BY added_at DESC
+                SELECT mp.id, mp.symbol, mp.entry_date::TEXT, mp.entry_price, mp.quantity,
+                       COALESCE(ec.earnings_date IS NOT NULL, FALSE)                AS earnings_flag,
+                       COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)  AS days_to_earnings,
+                       ec.earnings_date                                              AS earnings_date,
+                       COALESCE(ec.date_status, 'NONE')                              AS earnings_severity,
+                       ''                                                            AS warning_msg
+                FROM manual_portfolio mp
+                LEFT JOIN earnings_calendar ec ON UPPER(ec.symbol) = UPPER(mp.symbol)
+                ORDER BY mp.added_at DESC
             """)
             return cur.fetchall()
 
@@ -5672,14 +5683,20 @@ def get_active_breakout_watchlist() -> list:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT symbol, category, current_state, h1_status, m30_status, m15_status, m5_status, 
-                        breakout_level, support_level, trigger_level, invalidation_level, max_extension_atr, buffer_pct, armed_at, 
-                        context_json, last_updated
-                    FROM breakout_watchlist
-                    WHERE current_state IN ('HOURLY_APPROVED', 'SETUP_ARMED', 'BREAKOUT_CONFIRMED', 'ENTRY_READY')
-                    AND (cooldown_until IS NULL OR cooldown_until < NOW())
-                    AND (invalidated_at IS NULL OR invalidated_at > NOW())
-                    AND (expires_at IS NULL OR expires_at > NOW())
+                    SELECT b.symbol, b.category, b.current_state, b.h1_status, b.m30_status, b.m15_status, b.m5_status, 
+                        b.breakout_level, b.support_level, b.trigger_level, b.invalidation_level, b.max_extension_atr, b.buffer_pct, b.armed_at, 
+                        b.context_json, b.last_updated,
+                        COALESCE(ec.earnings_date IS NOT NULL, FALSE)                AS earnings_flag,
+                        COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)  AS days_to_earnings,
+                        ec.earnings_date                                              AS earnings_date,
+                        COALESCE(ec.date_status, 'NONE')                              AS earnings_severity,
+                        ''                                                            AS warning_msg
+                    FROM breakout_watchlist b
+                    LEFT JOIN earnings_calendar ec ON UPPER(ec.symbol) = UPPER(b.symbol)
+                    WHERE b.current_state IN ('HOURLY_APPROVED', 'SETUP_ARMED', 'BREAKOUT_CONFIRMED', 'ENTRY_READY')
+                    AND (b.cooldown_until IS NULL OR b.cooldown_until < NOW())
+                    AND (b.invalidated_at IS NULL OR b.invalidated_at > NOW())
+                    AND (b.expires_at IS NULL OR b.expires_at > NOW())
                 """)
                 columns = [desc[0] for desc in cur.description]
                 return [dict(zip(columns, row)) for row in cur.fetchall()]

@@ -3127,14 +3127,13 @@ def get_multibagger_watchlist():
                         SELECT w.symbol, w.buy_zone_low, w.buy_zone_high, w.latest_price,
                                w.growth_score, w.value_score, w.trend_score, w.total_score,
                                w.bucket, w.status, w.notes, w.last_alert_price, w.last_alert_at, w.last_updated,
-                               -- [VERSION: EARNINGS_BADGE_v1.0] Earnings fields from earnings_calendar
                                COALESCE(ec.earnings_date IS NOT NULL, FALSE)                  AS earnings_flag,
                                COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)    AS days_to_earnings,
                                ec.earnings_date,
                                COALESCE(ec.date_status, 'NONE')                               AS earnings_severity,
                                ''                                                            AS warning_msg
                         FROM watchlist w
-                        LEFT JOIN earnings_calendar ec ON ec.symbol = w.symbol
+                        LEFT JOIN earnings_calendar ec ON UPPER(ec.symbol) = UPPER(w.symbol)
                         WHERE w.status = %s
                         ORDER BY w.total_score DESC NULLS LAST
                     """, (status_filter,))
@@ -3143,17 +3142,56 @@ def get_multibagger_watchlist():
                         SELECT w.symbol, w.buy_zone_low, w.buy_zone_high, w.latest_price,
                                w.growth_score, w.value_score, w.trend_score, w.total_score,
                                w.bucket, w.status, w.notes, w.last_alert_price, w.last_alert_at, w.last_updated,
-                               -- [VERSION: EARNINGS_BADGE_v1.0] Earnings fields from earnings_calendar
                                COALESCE(ec.earnings_date IS NOT NULL, FALSE)                  AS earnings_flag,
                                COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)    AS days_to_earnings,
                                ec.earnings_date,
                                COALESCE(ec.date_status, 'NONE')                               AS earnings_severity,
                                ''                                                            AS warning_msg
                         FROM watchlist w
-                        LEFT JOIN earnings_calendar ec ON ec.symbol = w.symbol
+                        LEFT JOIN earnings_calendar ec ON UPPER(ec.symbol) = UPPER(w.symbol)
                         ORDER BY w.total_score DESC NULLS LAST
                     """)
-                return cur.fetchall()
+                rows = cur.fetchall()
+
+                # Fallback Tier 1: If watchlist table has 0 rows, check candidates table for MULTIBAGGER candidates
+                if not rows:
+                    cur.execute("""
+                        SELECT c.symbol, c.entry_price AS buy_zone_low, c.entry_price * 1.1 AS buy_zone_high,
+                               c.entry_price AS latest_price, c.score AS total_score, c.score AS growth_score,
+                               'MULTIBAGGER' AS bucket, 'ACTIVE' AS status, c.notes, c.entry_price AS last_alert_price,
+                               c.alert_time AS last_alert_at, c.created_at AS last_updated,
+                               COALESCE(ec.earnings_date IS NOT NULL, FALSE)                  AS earnings_flag,
+                               COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)    AS days_to_earnings,
+                               ec.earnings_date,
+                               COALESCE(ec.date_status, 'NONE')                               AS earnings_severity,
+                               ''                                                            AS warning_msg
+                        FROM candidates c
+                        LEFT JOIN earnings_calendar ec ON UPPER(ec.symbol) = UPPER(c.symbol)
+                        WHERE c.scanner = 'MULTIBAGGER' OR c.breakout_type ILIKE '%%MULTIBAGGER%%'
+                        ORDER BY c.created_at DESC
+                    """)
+                    rows = cur.fetchall()
+
+                # Fallback Tier 2: If candidates table also has 0 rows, check alerts table for MULTIBAGGER alerts
+                if not rows:
+                    cur.execute("""
+                        SELECT a.symbol, a.entry_price AS buy_zone_low, a.target_price AS buy_zone_high,
+                               a.entry_price AS latest_price, a.score AS total_score, a.score AS growth_score,
+                               'MULTIBAGGER' AS bucket, 'ACTIVE' AS status, a.signals AS notes, a.entry_price AS last_alert_price,
+                               a.alert_time AS last_alert_at, a.alert_time AS last_updated,
+                               COALESCE(ec.earnings_date IS NOT NULL, FALSE)                  AS earnings_flag,
+                               COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)    AS days_to_earnings,
+                               ec.earnings_date,
+                               COALESCE(ec.date_status, 'NONE')                               AS earnings_severity,
+                               ''                                                            AS warning_msg
+                        FROM alerts a
+                        LEFT JOIN earnings_calendar ec ON UPPER(ec.symbol) = UPPER(a.symbol)
+                        WHERE a.scanner = 'MULTIBAGGER' OR a.breakout_type ILIKE '%%MULTIBAGGER%%'
+                        ORDER BY a.alert_time DESC
+                    """)
+                    rows = cur.fetchall()
+
+                return rows
 
     try:
         rows = _fetch_rows()
