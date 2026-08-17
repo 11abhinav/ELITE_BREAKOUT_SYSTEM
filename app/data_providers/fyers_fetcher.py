@@ -189,14 +189,24 @@ class FyersFetcher(DataFetcher):
         # Trim invisible characters first
         symbol = str(symbol).strip()
         sym = symbol.upper()
-        
-        # If already formatted with exchange prefix, return as is (prevents double-normalization)
+        is_bse = sym.endswith(".BO") or sym.startswith("BSE:")
+
+        # Check persistent learned mappings FIRST for all symbols (including BSE: prefixes)
+        try:
+            from data_providers.fyers_mapping_utils import load_fyers_mappings
+            f_map = load_fyers_mappings()
+            if symbol in f_map:
+                return f_map[symbol]
+            if sym in f_map:
+                return f_map[sym]
+        except Exception:
+            pass
+
+        # If already formatted with exchange prefix and no custom mapping exists, return as is
         if sym.startswith("NSE:") or sym.startswith("BSE:") or sym.startswith("MCX:"):
             if sym.startswith("BSE:") and not any(sym.endswith(sfx) for sfx in ("-EQ", "-BE", "-SM", "-ST", "-A", "-B", "-T", "-M", "-X", "-XC", "-XD", "-XT", "-INDEX")):
                 return f"{sym}-EQ"
             return sym
-            
-        is_bse = sym.endswith(".BO") or sym.startswith("BSE:")
         if sym.endswith(".NS") or sym.endswith(".BO"):
             sym = sym[:-3]
             
@@ -572,12 +582,15 @@ class FyersFetcher(DataFetcher):
                         df["Datetime"] = timestamps
                         df = df.drop(columns=["Timestamp"], errors="ignore")
                     
-                    # ── Save confirmed mapping only after a successful fetch ──────────────
-                    if cand_symbol != original_ns and not cand_symbol.endswith("-INDEX"):
+                    # ── Save confirmed mapping after a successful fetch ──────────────
+                    if not cand_symbol.endswith("-INDEX"):
                         try:
                             from data_providers.fyers_mapping_utils import save_fyers_mapping
                             save_fyers_mapping(orig_sym, cand_symbol)
                             save_fyers_mapping(symbol.strip().upper(), cand_symbol)
+                            from symbol_resolution_engine import get_symbol_resolver, ResolvedInstrument
+                            res_obj = ResolvedInstrument(f"EQ:{orig_sym}", orig_sym, "fyers", cand_symbol, cand_symbol.split(":")[0], "EQ", 100, "LEARNED")
+                            get_symbol_resolver()._cache_and_persist_mapping("fyers", orig_sym, res_obj)
                         except Exception:
                             pass
                         
