@@ -619,13 +619,17 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
     # to simultaneously calculate pandas technical indicators via ThreadPoolExecutor. 
     # This causes 96 threads to fight for the Python GIL, causing a 70+ second stall.
     # Sequential fetching completely eliminates GIL contention, making the scanner FASTER overall.
-    logger.info(f"⚡ [MULTI_TF] Sequential pre-fetching 30m, 15m, and 5m intraday timeframes for {len(ladder_symbols)} symbols...")
+    logger.info(f"⚡ [MULTI_TF] Parallel pre-fetching 30m, 15m, and 5m intraday timeframes for {len(ladder_symbols)} symbols...")
     import time
     
     _t_start_fetch = time.perf_counter()
-    data_30m = _fetch_tf("30m", "10d", "30m", needs_30m)
-    data_15m = _fetch_tf("15m", "5d", "15m", needs_15m)
-    data_5m  = _fetch_tf("5m", "5d", "5m", needs_5m)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3, thread_name_prefix="MTF_Fetch") as fetch_exec:
+        f_30m = fetch_exec.submit(_fetch_tf, "30m", "10d", "30m", needs_30m)
+        f_15m = fetch_exec.submit(_fetch_tf, "15m", "5d", "15m", needs_15m)
+        f_5m  = fetch_exec.submit(_fetch_tf, "5m", "5d", "5m", needs_5m)
+        data_30m = f_30m.result()
+        data_15m = f_15m.result()
+        data_5m  = f_5m.result()
     _t_fetch_intraday = time.perf_counter() - _t_start_fetch
     _t_30m = _t_fetch_intraday
     _t_15m = _t_fetch_intraday
@@ -762,7 +766,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                         if drift > 0.03:
                             if not is_test_mode:
                                 # [VERSION: MTF_FLAPPING_FIX] Apply a 2-hour cooldown on drift demotion to prevent choppy day flapping
-                                upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED", clear_context=True, force=True)
+                                with _batch_lock:
+                                    batch_upsert_list.append({'symbol': symbol, 'category': cat, 'current_state': "HOURLY_APPROVED", 'clear_context': True, 'force': True})
                                 mark_breakout_watchlist_cooldown(symbol, "HOURLY_APPROVED", hours=2)
                             state = "HOURLY_APPROVED"
                             with _batch_lock:
@@ -770,7 +775,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                             logger.info(f"⚠️ {symbol} fell >3% from resistance. Downgraded to HOURLY_APPROVED.")
                         elif is_expired:
                             if not is_test_mode:
-                                upsert_breakout_watchlist(symbol=symbol, category=cat, current_state="HOURLY_APPROVED", clear_context=True, force=True)
+                                with _batch_lock:
+                                    batch_upsert_list.append({'symbol': symbol, 'category': cat, 'current_state': "HOURLY_APPROVED", 'clear_context': True, 'force': True})
                             state = "HOURLY_APPROVED"
                             with _batch_lock:
                                 lower_funnel["demoted"] += 1
@@ -849,18 +855,19 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                         expires_iso = min(ist_now + timedelta(minutes=60), end_of_session).isoformat()
                 
                         if not is_test_mode:
-                            upsert_breakout_watchlist(
-                                symbol=symbol, category=cat, current_state="SETUP_ARMED", m30_status="PASSED",
-                                trigger_level=breakout_level,
-                                invalidation_level=min(swing_low, ema20),
-                                max_extension_atr=0.8,
-                                buffer_pct=0.0015,
-                                armed_at=ist_now.strftime('%Y-%m-%d %H:%M:%S'),
-                                context_json=ctx_json,
-                                signal_timestamp=now_iso,
-                                expires_at=expires_iso,
-                                timeframe="30m"
-                            )
+                            with _batch_lock:
+                                batch_upsert_list.append({
+                                    'symbol': symbol, 'category': cat, 'current_state': "SETUP_ARMED", 'm30_status': "PASSED",
+                                    'trigger_level': breakout_level,
+                                    'invalidation_level': min(swing_low, ema20),
+                                    'max_extension_atr': 0.8,
+                                    'buffer_pct': 0.0015,
+                                    'armed_at': ist_now.strftime('%Y-%m-%d %H:%M:%S'),
+                                    'context_json': ctx_json,
+                                    'signal_timestamp': now_iso,
+                                    'expires_at': expires_iso,
+                                    'timeframe': "30m"
+                                })
                         with _batch_lock:
                             lower_funnel["armed"] += 1
                         state = "SETUP_ARMED"
@@ -916,14 +923,15 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                         expires_iso = min(ist_now + timedelta(minutes=30), end_of_session).isoformat()
                 
                         if not is_test_mode:
-                            upsert_breakout_watchlist(
-                                symbol=symbol, category=cat, current_state="ENTRY_READY",
-                                m15_status="PASSED",
-                                context_json=ctx_json,
-                                signal_timestamp=now_iso,
-                                expires_at=expires_iso,
-                                timeframe="15m"
-                            )
+                            with _batch_lock:
+                                batch_upsert_list.append({
+                                    'symbol': symbol, 'category': cat, 'current_state': "ENTRY_READY",
+                                    'm15_status': "PASSED",
+                                    'context_json': ctx_json,
+                                    'signal_timestamp': now_iso,
+                                    'expires_at': expires_iso,
+                                    'timeframe': "15m"
+                                })
                         with _batch_lock:
                             lower_funnel["entry_ready"] += 1
                         state = "ENTRY_READY"
@@ -1268,10 +1276,11 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
 
                             if inserted or reason == "CANDIDATE_QUEUED":
                                 if not is_test_mode:
-                                    upsert_breakout_watchlist(
-                                        symbol=symbol, category=cat, current_state="TRADE_ACTIVE",
-                                        m5_status="PASSED"
-                                    )
+                                    with _batch_lock:
+                                        batch_upsert_list.append({
+                                            'symbol': symbol, 'category': cat, 'current_state': "TRADE_ACTIVE",
+                                            'm5_status': "PASSED"
+                                        })
                                     mark_breakout_watchlist_cooldown(symbol, "TRADE_ACTIVE", hours=24)
                                 with _batch_lock:
                                     lower_funnel["triggered"] += 1
@@ -1304,11 +1313,18 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
             return
 
     _eval_start_t = time.perf_counter()
+    batch_upsert_list = []
     with ThreadPoolExecutor(max_workers=10, thread_name_prefix="MTF_Worker") as executor:
         futures = [executor.submit(_process_item, item) for item in active_items]
         for f in as_completed(futures):
             f.result()
     _eval_dur = time.perf_counter() - _eval_start_t
+
+    if batch_upsert_list:
+        try:
+            batch_upsert_breakout_watchlist(batch_upsert_list)
+        except Exception as _b_err:
+            logger.warning(f"⚠️ Failed to batch upsert breakout watchlist in Phase B/C/D: {_b_err}")
     
     logger.info(
         f"⏱️ [MULTI_TF] Lower TF Phase Timing | "
