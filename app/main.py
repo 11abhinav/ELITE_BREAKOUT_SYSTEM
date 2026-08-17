@@ -2189,12 +2189,12 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
 
             # Perform post-lock background tasks outside the global execution lock
             time.sleep(5)
-                # Rebuild performance data on scan completion (debounced, async)
-                try:
-                    from performance_tracker import trigger_performance_rebuild
-                    trigger_performance_rebuild()
-                except Exception as pe:
-                    logger.error(f"Failed to trigger performance rebuild post-manual-scan for {scanner_key}: {pe}")
+            # Rebuild performance data on scan completion (debounced, async)
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception as pe:
+                logger.error(f"Failed to trigger performance rebuild post-manual-scan for {scanner_key}: {pe}")
                 
             logger.info(f"✅ ADMIN MANUAL TRIGGER | {scanner_key} completed successfully")
         except RuntimeError as e:
