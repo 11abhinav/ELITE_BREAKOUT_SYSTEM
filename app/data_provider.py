@@ -640,14 +640,14 @@ class AutoSwitchingFetcher(DataFetcher):
                 if fyers_only_symbols and fyers_fetcher:
                     futures.append(executor.submit(fetch_chunk, "fyers", fyers_fetcher, fyers_only_symbols))
                     
-                # Split LOAD_BALANCED bucket across all active premium providers
+                # [VERSION: PRIMARY_FIRST_ROUTING_v1.0] Route balanced_symbols to primary provider first.
+                # Previously split 50/50 across all active premium providers, forcing 50% of every batch
+                # onto Upstox REST HTTP calls which hit 429 rate limits and cause 10+ minute backoff stalls.
+                # Now primary provider (Fyers) handles the batch at high speed; any missing or failed
+                # symbols automatically fall through to Step 2.5 (Premium Fallback Phase) for Upstox.
                 if balanced_symbols:
-                    num_providers = len(active_premiums)
-                    chunk_size = (len(balanced_symbols) + num_providers - 1) // num_providers
-                    for i, (p_name, fetcher) in enumerate(active_premiums):
-                        chunk = balanced_symbols[i*chunk_size : (i+1)*chunk_size]
-                        if chunk:
-                            futures.append(executor.submit(fetch_chunk, p_name, fetcher, chunk))
+                    primary_name, primary_fetcher = active_premiums[0]
+                    futures.append(executor.submit(fetch_chunk, primary_name, primary_fetcher, balanced_symbols))
 
             for future in concurrent.futures.as_completed(futures):
                 try:
