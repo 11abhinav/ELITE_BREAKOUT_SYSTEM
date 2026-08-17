@@ -718,38 +718,39 @@ def classify_conviction(cqs: float, pas: float, trend: float, composite: float, 
 def entry_confirmed(price_data: StockPriceData) -> bool:
     """
     Ensures technical stabilization before entry.
-    [FIX MUL-12] Strengthened to require:
-    1. Price within 3% below SMA200 (deep-value band)
-    2. Bullish close (close > open) — confirms buyers are in control
-    3. Close near EMA20 (within 5%) — prevents chasing extended moves
-    4. Completed-bar daily volume >= 80% of 20-day average
-    Note: Volume check (completed_bar_volume_ok) evaluates daily completed-bar volume
-    confirmation from Phase 1 daily bar data, not intraday live volume.
+    Refined for Multibagger buy-zone pullbacks:
+    1. Price at/above SMA200 support band (>= 0.96 * SMA200)
+    2. Completed-bar volume >= 30% of 20-day average (allows quiet buy-zone pullbacks)
+    3. Stabilized close (close >= 0.995 * open, or fallback if EOD open unverified)
+    4. Near key support level (EMA20, SMA50, or SMA200)
     """
-    if price_data.price < price_data.sma_200 * 0.97:
+    if price_data.price < price_data.sma_200 * 0.96:
         return False
 
-    # [FIX MUL-13] Missing volume should not produce a confirmed alert.
     if price_data.volume_sma20 <= 0:
         return False
 
-    # [VERSION: MULTIBAGGER_LIVE_PRICE_GUARD_v1.1] Daily completed-bar volume confirmation check
-    completed_bar_volume_ok = price_data.latest_volume >= 0.8 * price_data.volume_sma20
+    # Completed-bar volume: Allow >= 30% of 20-day average volume during buy-zone pullbacks
+    completed_bar_volume_ok = price_data.latest_volume >= 0.30 * price_data.volume_sma20
 
-    # [FIX MUL-21 REVISED] Bullish close: close > open confirms buyers are present.
-    # When open/close data is unavailable, reject (default False) — never assume bullish.
-    if price_data.today_open is None or price_data.today_open <= 0 or price_data.today_close is None or price_data.today_close <= 0:
-        bullish_close = False  # Unverified => reject
+    # Stabilized close: Allow green, flat, or mild consolidation doji
+    if price_data.today_open and price_data.today_open > 0 and price_data.today_close and price_data.today_close > 0:
+        stabilized_close = price_data.today_close >= (price_data.today_open * 0.995)
     else:
-        bullish_close = price_data.today_close > price_data.today_open
+        stabilized_close = True  # EOD bar fallback when open is unverified
 
-    # Close near EMA20: volatility-aware band using max(5%, 0.8 * ATR) -> scales dynamically with stock behavior
+    # Support proximity: price is near EMA20, SMA50, or SMA200
     ema20 = price_data.ema_20 if price_data.ema_20 > 0 else price_data.price
-    atr_allowance = (0.8 * price_data.atr_14) if price_data.atr_14 > 0 else (price_data.price * 0.03)
-    max_upper_price = max(ema20 * 1.05, ema20 + atr_allowance)
-    near_ema = (price_data.price >= ema20 * 0.95) and (price_data.price <= max_upper_price)
+    sma50 = price_data.sma_50 if price_data.sma_50 > 0 else price_data.price
+    sma200 = price_data.sma_200 if price_data.sma_200 > 0 else price_data.price
 
-    return completed_bar_volume_ok and bullish_close and near_ema
+    atr_allowance = (1.2 * price_data.atr_14) if price_data.atr_14 > 0 else (price_data.price * 0.04)
+    max_upper_price = max(ema20 * 1.06, ema20 + atr_allowance)
+    min_lower_price = min(ema20 * 0.92, sma50 * 0.96, sma200 * 0.96)
+
+    near_support = (price_data.price >= min_lower_price) and (price_data.price <= max_upper_price)
+
+    return completed_bar_volume_ok and stabilized_close and near_support
 
 def _is_fundamental_cache_fresh(data: dict) -> bool:
     try:
@@ -1126,7 +1127,10 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
         "price": price,
         "is_financial": is_financial_sector(info.get("sector")),
         "data_freshness": "LIVE",
-        "total_equity": total_equity
+        "total_equity": total_equity,
+        "score": (lambda: (__import__('fundamentals_cache').compute_piotroski(info, fin, balance_sheet=bs) if (info and fin is not None and not fin.empty) else None))(),
+        "piotroski_score": (lambda: (__import__('fundamentals_cache').compute_piotroski(info, fin, balance_sheet=bs) if (info and fin is not None and not fin.empty) else None))(),
+        "piotroski_f_score": (lambda: (__import__('fundamentals_cache').compute_piotroski(info, fin, balance_sheet=bs) if (info and fin is not None and not fin.empty) else None))()
     }
     
     return fund
@@ -2043,12 +2047,11 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         tier, composite = classify_conviction(cqs, pas, trend, regime_adjusted_score, f_score=f_score_val, pledge_ratio=_pledge_ratio(raw_fundamentals.get("promoter_pledge_pct")))
 
         if market_regime == "BEAR":
-            # In BEAR regime, downgrade High Quality to Watchlist (only Prime survives)
-            if tier == "💎 High Quality":
+            # In BEAR regime, apply defensive score penalty (-5.0) but allow High Quality candidates with strong CQS (>= 65) to alert
+            total = total - 5.0
+            if tier == "💎 High Quality" and cqs < 65.0:
                 tier = "🟡 Watchlist"
                 alert_triggered = False
-            # Also adjust total for ranking/display
-            total = total - 5.0
         
         if tier not in ["🚀 Prime Multibagger", "💎 High Quality"]:
             status = "WAITING_BUY_ZONE"
