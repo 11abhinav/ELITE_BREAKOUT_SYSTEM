@@ -397,14 +397,14 @@ class TestPerUserWatchlistIsolation(unittest.TestCase):
         # 11 columns: symbol, company_name, added_at, last_scanned_at, health_score,
         #             status, notes, last_deep_analysis_at, deep_analysis_result, cmp, cmp_updated_at
         mock_cursor.fetchall.return_value = [
-            ("TATAMOTORS", "Tata Motors Ltd", datetime.now(), datetime.now(), 88.0, "MONITORING", "Notes", datetime.now(), None, None, None)
+            ("RELIANCE", "Reliance Industries Ltd", datetime.now(), datetime.now(), 88.0, "MONITORING", "Notes", datetime.now(), None, None, None)
         ]
 
         from database import get_user_watchlist
         items = get_user_watchlist("57880")
 
         self.assertEqual(len(items), 1)
-        self.assertEqual(items[0]["symbol"], "TATAMOTORS")
+        self.assertEqual(items[0]["symbol"], "RELIANCE")
         # Find the watchlist SELECT among all execute() calls
         # Must contain BOTH 'user_watchlists' AND 'user_id = %s' to skip CREATE TABLE DDL calls
         watchlist_sql_call = None
