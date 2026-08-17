@@ -7350,6 +7350,44 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
         logger.warning(f"Failed to cleanup orphaned scanner runs on boot: {e}")
 
 
+def cleanup_stale_scanner_runs(max_stale_minutes: int = 5):
+    """Automatically cleans up abandoned RUNNING or QUEUED scanner execution history records with stale heartbeats."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE scanner_execution_history
+                    SET completed_at = NOW(),
+                        lifecycle_status = 'TIMED_OUT',
+                        stop_reason = 'Stale heartbeat threshold exceeded (5m)'
+                    WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
+                      AND heartbeat_at < NOW() - INTERVAL '5 minutes';
+                """)
+                conn.commit()
+    except Exception as e:
+        logger.debug(f"Failed to cleanup stale scanner runs: {e}")
+
+
+def is_scanner_actively_running(scanner_name: str) -> bool:
+    """Check PostgreSQL execution history for an active (RUNNING/QUEUED) run of the specified scanner."""
+    if not scanner_name:
+        return False
+    try:
+        cleanup_stale_scanner_runs(max_stale_minutes=5)
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT run_id FROM scanner_execution_history
+                    WHERE LOWER(scanner_name) = LOWER(%s)
+                      AND lifecycle_status IN ('RUNNING', 'QUEUED')
+                      AND heartbeat_at >= NOW() - INTERVAL '5 minutes'
+                    LIMIT 1;
+                """, (scanner_name,))
+                return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
 def start_scanner_execution_run(
     scanner_name: str,
     trigger_type: str = "SCHEDULED",
@@ -7359,6 +7397,7 @@ def start_scanner_execution_run(
     total_stocks: int = 0
 ):
     """Creates a new RUNNING record in scanner_execution_history and returns a ScannerRunContext."""
+    cleanup_stale_scanner_runs(max_stale_minutes=5)
     from scanner_run_context import ScannerRunContext
     ctx = ScannerRunContext(
         scanner_name=scanner_name,
@@ -7423,13 +7462,17 @@ def update_scanner_run_lifecycle(run_id: str, lifecycle_status: str):
         logger.debug(f"Failed to update lifecycle_status for run {run_id}: {e}")
 
 
-def complete_scanner_execution_run(ctx, exception: Exception = None, stop_reason: str = None):
+def complete_scanner_execution_run(ctx, exception: Exception = None, stop_reason: str = None, status_override: str = None):
     """Finalizes a scanner execution record with completion stats, quality evaluation, and errors."""
     if not ctx or not getattr(ctx, 'run_id', None):
         return
 
     import traceback
-    if exception is not None:
+    if status_override is not None:
+        lifecycle_status = status_override.upper()
+        if stop_reason is not None:
+            ctx.set_stop_reason(stop_reason)
+    elif exception is not None:
         ctx.record_error(str(exception)[:255], traceback.format_exc())
         lifecycle_status = "FAILED"
     elif stop_reason is not None:

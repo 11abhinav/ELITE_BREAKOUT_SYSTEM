@@ -313,6 +313,9 @@ def start(force: bool = False, session=None, run_ctx=None):
             from database import update_scanner_run_lifecycle
             update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
         if not _global_lock.acquire(blocking=True):
+            if created_ctx and run_ctx:
+                from database import complete_scanner_execution_run
+                complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Global lock acquisition failed")
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [PULLBACK] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
         upsert_scanner_health("PULLBACK", "RUNNING")
@@ -322,7 +325,11 @@ def start(force: bool = False, session=None, run_ctx=None):
 
     if not _scan_lock.acquire(blocking=False):
         _global_lock.release()
-        raise RuntimeError("Pullback Scanner is already actively running!")
+        logger.warning("🛑 Pullback Scanner is ALREADY actively running. Skipping duplicate execution.")
+        if created_ctx and run_ctx:
+            from database import complete_scanner_execution_run
+            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
+        return 0
 
     _scan_start = print_scanner_start_banner("pullback_scanner", queued_at=queued_at)
 

@@ -1465,22 +1465,44 @@ _global_lock = ProcessLock("global_scanner_lock")
 def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON", session=None):
     from database import is_scanner_stopped, upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
+    import time
     if is_scanner_stopped("MULTI_TF"):
         logger.info("🛑 Multi-TF Scanner is STOPPED by Admin. Skipping execution.")
         return
 
-    if not _scan_lock.acquire(blocking=False):
-        logger.warning("🛑 Multi-TF Scanner is ALREADY actively running. Skipping duplicate execution.")
-        raise RuntimeError("Scanner is already actively running!")
-
-    queued_at = None
-
     own_ctx = False
     if run_ctx is None:
-        run_ctx = start_scanner_execution_run(scanner_name="MULTI_TF", trigger_type=trigger_type, scheduler_name=scheduler_name)
-        own_ctx = True
+        try:
+            run_ctx = start_scanner_execution_run(scanner_name="MULTI_TF", trigger_type=trigger_type, scheduler_name=scheduler_name)
+            own_ctx = True
+        except Exception:
+            pass
 
-    upsert_scanner_health("MULTI_TF", "RUNNING", error_msg="Multi-TF scan in progress...")
+    queued_at = None
+    if not _global_lock.acquire(blocking=False):
+        queued_at = time.monotonic()
+        logger.info("⏳ [MULTI_TF] Global lock busy — marking status QUEUED and waiting...")
+        upsert_scanner_health("MULTI_TF", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
+        if run_ctx and getattr(run_ctx, "run_id", None):
+            from database import update_scanner_run_lifecycle
+            update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
+        if not _global_lock.acquire(blocking=True):
+            if own_ctx and run_ctx:
+                complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Global lock acquisition failed")
+            raise RuntimeError("Failed to acquire global scanner lock.")
+        logger.info(f"✅ [MULTI_TF] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
+        upsert_scanner_health("MULTI_TF", "RUNNING")
+        if run_ctx and getattr(run_ctx, "run_id", None):
+            from database import update_scanner_run_lifecycle
+            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
+
+    if not _scan_lock.acquire(blocking=False):
+        _global_lock.release()
+        logger.warning("🛑 Multi-TF Scanner is ALREADY actively running. Skipping duplicate execution.")
+        if own_ctx and run_ctx:
+            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
+        return
+
     _scan_start = print_scanner_start_banner("multi_tf_scanner", queued_at=queued_at)
     try:
         stats = _start_wrapper(run_once, is_test_mode=is_test_mode, session=session, run_ctx=run_ctx)
@@ -1496,6 +1518,7 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
     finally:
         print_scanner_end_banner("multi_tf_scanner", _scan_start)
         _scan_lock.release()
+        _global_lock.release()
 
 def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=None):
     from datetime import time as dt_time

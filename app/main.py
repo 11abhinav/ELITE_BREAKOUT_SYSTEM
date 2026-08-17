@@ -1877,7 +1877,10 @@ def _run_multibagger_scanner_single():
     try:
         now = datetime.now(IST)
         logger.info(f"🚀 MULTIBAGGER SCAN | Starting daily scan at {now.strftime('%H:%M:%S IST')}...")
-        from database import upsert_scanner_health
+        from database import upsert_scanner_health, is_scanner_actively_running
+        if is_scanner_actively_running("MULTIBAGGER"):
+            logger.info("⏳ MULTIBAGGER scanner is already active (RUNNING/QUEUED). Skipping duplicate trigger...")
+            return
         upsert_scanner_health("MULTIBAGGER", status="QUEUED", error_msg="Waiting for global execution lock...")
         import multibagger
         from telemetry_manager import telemetry

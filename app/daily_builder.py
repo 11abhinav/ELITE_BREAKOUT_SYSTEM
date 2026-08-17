@@ -1108,6 +1108,9 @@ def main(force_rebuild: bool = False, run_ctx=None):
         except Exception:
             pass
         if not _global_lock.acquire(blocking=True):
+            if created_ctx and run_ctx:
+                from database import complete_scanner_execution_run
+                complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Global lock acquisition failed")
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [DAILY_BUILDER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
         try:
@@ -1123,7 +1126,11 @@ def main(force_rebuild: bool = False, run_ctx=None):
 
     if not _build_lock.acquire(blocking=False):
         _global_lock.release()
-        raise RuntimeError("Daily Builder is already actively running!")
+        logger.warning("🛑 Daily Builder is ALREADY actively running. Skipping duplicate execution.")
+        if created_ctx and run_ctx:
+            from database import complete_scanner_execution_run
+            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
+        return
 
     try:
         _main_wrapper(force_rebuild, run_ctx=run_ctx)

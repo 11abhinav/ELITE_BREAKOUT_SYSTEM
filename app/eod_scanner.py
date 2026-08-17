@@ -110,6 +110,9 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
             update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
         if not _global_lock.acquire(blocking=True):
             _scan_lock.release()
+            if own_ctx and run_ctx:
+                from database import complete_scanner_execution_run
+                complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Global lock acquisition failed")
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [EOD] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
         upsert_scanner_health("EOD", "RUNNING")
