@@ -129,8 +129,8 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
         checks.append("Invalid prior 20-day high level")
     else:
         dist_to_breakout = (prior_high - close_price) / prior_high
-        if not (-0.02 <= dist_to_breakout <= 0.05):
-            checks.append(f"Distance to breakout level {dist_to_breakout*100:.1f}% outside -2.0% to +5.0% window")
+        if not (-0.06 <= dist_to_breakout <= 0.08):
+            checks.append(f"Distance to breakout level {dist_to_breakout*100:.1f}% outside -6.0% to +8.0% window")
 
     if checks:
         return {
@@ -459,8 +459,8 @@ def run_hourly_phase(is_test_mode=False, run_once=False, session=None):
                         
                     from config import ADX_MIN_THRESHOLD
                     adx_ok = adx_val >= ADX_MIN_THRESHOLD
-                    # [VERSION: MTF_DIST_GATE_FIX] Widened distance gate to allow stocks up to 4% ABOVE the breakout level to catch live momentum
-                    dist_ok = -0.04 <= dist_to_breakout <= 0.05
+                    # Widened distance gate to allow stocks from -6% (above) to +8% (below) breakout level
+                    dist_ok = -0.06 <= dist_to_breakout <= 0.08
             
                     if ema_ok:
                         funnel["ema_only_pass"] += 1
@@ -570,6 +570,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
         logger.info("No active setups to track.")
         return {"fetched": 0, "total": 0, "stale": 0}
 
+    regime_str = regime_ctx.get("trend", "NEUTRAL") if regime_ctx else "NEUTRAL"
     # Fetch pledge map to pass to scoring engine
     try:
         from database import get_pledge_map, get_latest_weights
@@ -577,7 +578,6 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
         pledge_map = get_pledge_map(symbols)
         logger.info(f"🛡️ Fetched pledge data for {len(pledge_map)} symbols")
         
-        regime_str = regime_ctx.get("trend", "NEUTRAL") if regime_ctx else "NEUTRAL"
         latest_db_weights = get_latest_weights(regime_str)
         bayesian_weights = latest_db_weights.get("weights") if latest_db_weights else None
     except Exception as e:
@@ -840,8 +840,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                             bb_pctile_recent_squeeze = True
                             break
 
-                    is_consolidation = (bb_pctile_recent_squeeze or bb_pctile < 0.45) and (-0.03 <= dist_to_breakout <= 0.035)
-                    is_fast_breakout = dist_to_breakout < -0.015 and vol_ratio > 1.2
+                    is_consolidation = (bb_pctile_recent_squeeze or bb_pctile < 0.50) and (-0.05 <= dist_to_breakout <= 0.06)
+                    is_fast_breakout = dist_to_breakout < -0.005 and vol_ratio > 1.1
             
                     if is_consolidation or is_fast_breakout:
                         with _batch_lock:
@@ -908,8 +908,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
 
                     dist_to_breakout = (breakout_level - close) / breakout_level
 
-                    # 15m must show micro-alignment: EMA9 > EMA20, price near level (widened floors to allow coiling on resistance)
-                    if e9_15 > e20_15 and (-0.015 <= dist_to_breakout <= 0.025):
+                    # 15m micro-alignment: EMA9 >= EMA20 or Close >= EMA20, price near level (aligned with Phase A bounds)
+                    if (e9_15 >= (0.998 * e20_15) or close >= e20_15) and (-0.06 <= dist_to_breakout <= 0.06):
                         with _batch_lock:
                             lower_funnel["ema15_pass"] += 1
                         ctx_json = json.dumps({
