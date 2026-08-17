@@ -292,7 +292,8 @@ class InstrumentedLock:
       2. Excludes long non-mutating wait loops (e.g. Bhavcopy wait, cool-down sleeps).
     """
     def __init__(self, name="scanner_execution_lock"):
-        self.lock = threading.Lock()
+        from lock_utils import ProcessLock
+        self.lock = ProcessLock("global_scanner_lock") if name == "scanner_execution_lock" else ProcessLock(name)
         self.name = name
         self.acquisitions_count = 0
         self.total_wait_seconds = 0.0

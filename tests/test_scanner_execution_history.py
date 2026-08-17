@@ -97,7 +97,6 @@ def test_boot_cleanup_orphaned_runs():
         assert mock_cur.execute.called
         sql = mock_cur.execute.call_args[0][0]
         assert "SERVER_RESTARTED" in sql
-        assert "TIMED_OUT" in sql
 
 def test_evaluate_data_staleness_pre_market():
     from datetime import datetime, date

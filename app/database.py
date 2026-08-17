@@ -7279,9 +7279,8 @@ def log_resolution_event_db(provider: str, original_symbol: str, attempted_symbo
 
 def cleanup_orphaned_scanner_runs_on_boot(cur=None):
     """
-    On server boot, finds any scanner runs left in 'RUNNING' status.
-    - If heartbeat is older than 2 hours: marks 'TIMED_OUT'.
-    - Otherwise: marks 'SERVER_RESTARTED'.
+    On server boot, finds any scanner runs left in 'RUNNING' or 'QUEUED' status
+    and updates them to 'SERVER_RESTARTED'.
     """
     def _execute_cleanup(c):
         c.execute("""
@@ -7323,16 +7322,10 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
         c.execute("""
             UPDATE scanner_execution_history
             SET completed_at = NOW(),
-                lifecycle_status = CASE 
-                    WHEN heartbeat_at < NOW() - INTERVAL '2 hours' THEN 'TIMED_OUT'
-                    ELSE 'SERVER_RESTARTED'
-                END,
-                error_summary = CASE 
-                    WHEN heartbeat_at < NOW() - INTERVAL '2 hours' THEN 'Scan timed out due to heartbeat inactivity'
-                    ELSE 'Server restarted while scan was in progress'
-                END,
+                lifecycle_status = 'SERVER_RESTARTED',
+                error_summary = 'Server restarted while scan was in progress',
                 error_details = 'Automated boot cleanup detected unclosed RUNNING state'
-            WHERE lifecycle_status = 'RUNNING';
+            WHERE lifecycle_status IN ('RUNNING', 'QUEUED');
         """)
         return c.rowcount
 
@@ -7350,37 +7343,17 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
         logger.warning(f"Failed to cleanup orphaned scanner runs on boot: {e}")
 
 
-def cleanup_stale_scanner_runs(max_stale_minutes: int = 120):
-    """Automatically cleans up abandoned RUNNING or QUEUED scanner execution history records with stale heartbeats (> 2h)."""
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE scanner_execution_history
-                    SET completed_at = NOW(),
-                        lifecycle_status = 'TIMED_OUT',
-                        stop_reason = 'Stale heartbeat threshold exceeded (2h)'
-                    WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
-                      AND heartbeat_at < NOW() - INTERVAL '2 hours';
-                """)
-                conn.commit()
-    except Exception as e:
-        logger.debug(f"Failed to cleanup stale scanner runs: {e}")
-
-
 def is_scanner_actively_running(scanner_name: str) -> bool:
     """Check PostgreSQL execution history for an active (RUNNING/QUEUED) run of the specified scanner."""
     if not scanner_name:
         return False
     try:
-        cleanup_stale_scanner_runs(max_stale_minutes=120)
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT run_id FROM scanner_execution_history
                     WHERE LOWER(scanner_name) = LOWER(%s)
                       AND lifecycle_status IN ('RUNNING', 'QUEUED')
-                      AND heartbeat_at >= NOW() - INTERVAL '2 hours'
                     LIMIT 1;
                 """, (scanner_name,))
                 return cur.fetchone() is not None
@@ -7397,7 +7370,6 @@ def start_scanner_execution_run(
     total_stocks: int = 0
 ):
     """Creates a new RUNNING record in scanner_execution_history and returns a ScannerRunContext."""
-    cleanup_stale_scanner_runs(max_stale_minutes=5)
     from scanner_run_context import ScannerRunContext
     ctx = ScannerRunContext(
         scanner_name=scanner_name,
