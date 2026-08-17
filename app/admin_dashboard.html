@@ -3118,11 +3118,19 @@
               </div>`;
           } else if (ALLOWED_SCANNERS.includes(sc)) {
             if (isStopped) {
-              triggerBtnHtml = `<button onclick="toggleScannerStop(event, '${sc}', 'resume')" style="margin-left: 8px; background: rgba(0,212,161,0.15); color: var(--accent); border: 1px solid var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='var(--accent)'; this.style.color='#000';" onmouseout="this.style.background='rgba(0,212,161,0.15)'; this.style.color='var(--accent)';">▶ Start</button>`;
+              triggerBtnHtml = `<button onclick="toggleScannerStop(event, '${sc}', 'resume')" style="margin-left: 8px; background: rgba(0,212,161,0.15); color: var(--accent); border: 1px solid var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='var(--accent)'; this.style.color='#000';" onmouseout="this.style.background='rgba(0,212,161,0.15)'; this.style.color='var(--accent)';">▶ Resume Auto-Run</button>`;
             } else {
               triggerBtnHtml = `<button onclick="triggerScanner(event, '${sc}')" style="margin-left: 8px; background: rgba(0,212,161,0.1); color: var(--accent); border: 1px solid var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='var(--accent)'; this.style.color='#000';" onmouseout="this.style.background='rgba(0,212,161,0.1)'; this.style.color='var(--accent)';">▶ Run Now</button><button onclick="toggleScannerStop(event, '${sc}', 'pause')" style="margin-left: 4px; background: rgba(255,77,109,0.15); color: #ff4d6d; border: 1px solid #ff4d6d; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='#ff4d6d'; this.style.color='#fff';" onmouseout="this.style.background='rgba(255,77,109,0.15)'; this.style.color='#ff4d6d';">⏸️ Pause</button>`;
             }
           }
+
+          const modeBannerHtml = isStopped ? `
+        <div style="background:rgba(255,77,109,0.12); color:#ff4d6d; border:1px solid rgba(255,77,109,0.3); padding:4px 10px; border-radius:6px; font-size:11px; font-weight:700; margin:6px 0 8px 0; display:flex; align-items:center; gap:6px;">
+          🛑 PAUSED BY ADMIN · Auto-schedule is disabled
+        </div>` : `
+        <div style="background:rgba(0,212,161,0.08); color:#00d4a1; border:1px solid rgba(0,212,161,0.2); padding:4px 10px; border-radius:6px; font-size:11px; font-weight:600; margin:6px 0 8px 0; display:flex; align-items:center; gap:6px;">
+          🟢 AUTO-RUN ACTIVE · Operating as scheduled
+        </div>`;
 
           html_buffer += `
         <div class="scanner-card ${statusClass}" style="${cardStyle}">
@@ -3130,6 +3138,7 @@
             <div>
               <div class="scanner-name" style="display: flex; align-items: center;">${meta.label} ${triggerBtnHtml}</div>
               <div class="scanner-type">${meta.desc}</div>
+              ${modeBannerHtml}
             </div>
             <span class="scanner-badge ${badgeClass}">${badgeText}</span>
           </div>
@@ -3140,6 +3149,12 @@
               <div class="scanner-stat-sub">${alertSub}</div>
               ${tooltipHtml}
             </button>
+            <div class="scanner-stat-item">
+              <div class="scanner-stat-label">Execution Mode</div>
+              <div class="scanner-stat-value" style="font-size:12px; font-weight:700; color:${isStopped ? '#ff4d6d' : '#00d4a1'}">
+                ${isStopped ? '🛑 Stopped by Admin' : '⚡ Auto (Cron Active)'}
+              </div>
+            </div>
             <div class="scanner-stat-item">
               <div class="scanner-stat-label">Last Success</div>
               <div class="scanner-stat-value ${isDown ? 'red' : isIdle ? 'amber' : ''}" style="font-size:13px">${timeAgo(data.last_success)}</div>
