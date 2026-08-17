@@ -993,25 +993,29 @@ def _detect_build_timestamp() -> str:
         pass
     return datetime.now(IST).isoformat()
 
+_VERSION_PAYLOAD_CACHE = None
+
 @app.route("/version")
 @app.route("/api/version")
 def api_version():
     """Build metadata release engineering endpoint."""
-    git_commit = _detect_git_commit_hash()
-    build_time = _detect_build_timestamp()
-    env_name = os.getenv("DEPLOYMENT_ENV") or os.getenv("COOLIFY_ENV", "production")
-    
-    return jsonify({
-        "git_commit":                   git_commit,
-        "architecture_version":         "8.1",
-        "implementation_spec_version":  "8.1",
-        "deployment_spec_version":      "1.0",
-        "tests_passed":                 528,
-        "build_time":                   build_time,
-        "python_version":               sys.version.split()[0],
-        "deployment_environment":       env_name,
-        "status":                       "RELEASE_GATE_APPROVED"
-    })
+    global _VERSION_PAYLOAD_CACHE
+    if _VERSION_PAYLOAD_CACHE is None:
+        git_commit = _detect_git_commit_hash()
+        build_time = _detect_build_timestamp()
+        env_name = os.getenv("DEPLOYMENT_ENV") or os.getenv("COOLIFY_ENV", "production")
+        _VERSION_PAYLOAD_CACHE = {
+            "git_commit":                   git_commit,
+            "architecture_version":         "8.1",
+            "implementation_spec_version":  "8.1",
+            "deployment_spec_version":      "1.0",
+            "tests_passed":                 528,
+            "build_time":                   build_time,
+            "python_version":               sys.version.split()[0],
+            "deployment_environment":       env_name,
+            "status":                       "RELEASE_GATE_APPROVED"
+        }
+    return jsonify(_VERSION_PAYLOAD_CACHE)
 
 
 
@@ -1506,20 +1510,28 @@ def api_stream_alerts():
 
     return Response(event_stream(), mimetype="text/event-stream")
 
+_MACRO_STATE_RESPONSE_CACHE = {"timestamp": 0, "payload": None}
+
 @app.route("/api/macro_state")
 @login_required
 def api_macro_state():
     """Returns the current Macro Regime state (Nifty correction)."""
+    now = time.time()
+    if _MACRO_STATE_RESPONSE_CACHE["payload"] is not None and (now - _MACRO_STATE_RESPONSE_CACHE["timestamp"]) < 15:
+        return jsonify(_MACRO_STATE_RESPONSE_CACHE["payload"])
     try:
         from wealth_engine import fetch_nifty_macro_state
         ret_6m, dist_52w = fetch_nifty_macro_state()
         r_6m = round(float(ret_6m), 2) if ret_6m is not None else None
         d_52w = round(float(dist_52w), 2) if dist_52w is not None else None
-        return jsonify({
+        res = {
             "nifty_6m_return": r_6m,
             "nifty_dist_52w": d_52w,
             "bear_market_gate": bool(d_52w > 15.0) if d_52w is not None else False
-        })
+        }
+        _MACRO_STATE_RESPONSE_CACHE["timestamp"] = now
+        _MACRO_STATE_RESPONSE_CACHE["payload"] = res
+        return jsonify(res)
     except Exception as e:
         logger.exception(f"Failed to fetch macro state")
         return jsonify({"nifty_6m_return": 0, "nifty_dist_52w": 0, "bear_market_gate": False})
@@ -1789,14 +1801,20 @@ def api_advanced_outcome_analytics():
         return jsonify({"error": str(e), "is_preview_mode": True, "overall_confidence": "LOW"}), 500
 
 
-@app.route("/api/confluence_shortlist", methods=["GET"])
+_CONFLUENCE_RESPONSE_CACHE = {"timestamp": 0, "payload": None}
 
+@app.route("/api/confluence_shortlist", methods=["GET"])
 @login_required
 def api_confluence_shortlist():
     """Returns active Golden Confluence shortlist (FM_Score >= 75 + Signal + RS >= 80%)."""
+    now = time.time()
+    if _CONFLUENCE_RESPONSE_CACHE["payload"] is not None and (now - _CONFLUENCE_RESPONSE_CACHE["timestamp"]) < 15:
+        return jsonify(_CONFLUENCE_RESPONSE_CACHE["payload"])
     try:
         from confluence_engine import evaluate_confluence_shortlist
         matches = evaluate_confluence_shortlist()
+        _CONFLUENCE_RESPONSE_CACHE["timestamp"] = now
+        _CONFLUENCE_RESPONSE_CACHE["payload"] = matches
         return jsonify(matches)
     except Exception as e:
         logger.exception("❌ /api/confluence_shortlist failed")
@@ -2353,9 +2371,8 @@ def api_trigger_scanner(scanner_name):
 
                 
         from main import trigger_scanner_manual
-        result = trigger_scanner_manual(scanner_name)
-        status_code = 200 if result["status"] == "ok" else 400
-        return jsonify(result), status_code
+        threading.Thread(target=trigger_scanner_manual, args=(scanner_name,), daemon=True).start()
+        return jsonify({"status": "ok", "message": f"Scanner '{scanner_name}' execution initiated in background."}), 200
     except Exception as e:
         logger.exception(f"❌ /api/admin/trigger_scanner failed for {scanner_name}")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -2404,8 +2421,9 @@ def api_download_shortlist():
             return "No watchlist generated yet", 404
             
         csv_path = WATCHLIST_PATH.replace(".parquet", ".csv")
-        df = pd.read_parquet(WATCHLIST_PATH)
-        df.to_csv(csv_path, index=False)
+        if not os.path.exists(csv_path) or (os.path.getmtime(WATCHLIST_PATH) > os.path.getmtime(csv_path)):
+            df = pd.read_parquet(WATCHLIST_PATH)
+            df.to_csv(csv_path, index=False)
         
         return send_file(
             csv_path,
@@ -2791,10 +2809,18 @@ def api_news(symbol):
 import subprocess
 import json
 
+_NOTICES_RESPONSE_CACHE = {}
+
 @app.route("/api/notices/<symbol>")
 @login_required
 def api_notices(symbol):
     """Fetch recent corporate announcements from NSE via requests.Session to bypass WAF."""
+    clean_sym = symbol.strip().upper()
+    now = time.time()
+    cached = _NOTICES_RESPONSE_CACHE.get(clean_sym)
+    if cached and (now - cached["timestamp"]) < 900:
+        return jsonify(cached["data"])
+
     yf_symbol = symbol.replace('.NS', '').replace('_', '-')
     url = f"https://www.nseindia.com/api/corporate-announcements?index=equities&symbol={yf_symbol}"
     
@@ -2871,6 +2897,7 @@ def api_notices(symbol):
             mark_success('nse_announcements')
         except Exception:
             logger.exception('Failed to report nse_announcements success')
+        _NOTICES_RESPONSE_CACHE[clean_sym] = {"data": notices, "timestamp": now}
         return jsonify(notices)
     except Exception as e:
         msg = str(e).lower()
@@ -2885,17 +2912,18 @@ def api_notices(symbol):
         return jsonify([])
 
 _ALL_TICKERS_CACHE = None
+_ALL_TICKERS_JSON_BYTES = None
 _ALL_TICKERS_TS = 0
 
 @app.route('/api/all_tickers', methods=['GET'])
 @login_required
 def api_all_tickers():
     """Returns a list of all active NSE symbols for frontend autocomplete."""
-    global _ALL_TICKERS_CACHE, _ALL_TICKERS_TS
-    import time
+    global _ALL_TICKERS_CACHE, _ALL_TICKERS_JSON_BYTES, _ALL_TICKERS_TS
+    import time, json
     now_sec = time.time()
-    if _ALL_TICKERS_CACHE is not None and (now_sec - _ALL_TICKERS_TS) < 300:
-        return jsonify(_ALL_TICKERS_CACHE)
+    if _ALL_TICKERS_JSON_BYTES is not None and (now_sec - _ALL_TICKERS_TS) < 300:
+        return Response(_ALL_TICKERS_JSON_BYTES, mimetype="application/json")
 
     try:
         import pandas as pd
@@ -2910,8 +2938,9 @@ def api_all_tickers():
                 except Exception: pass
         result = sorted(list(tickers)) if tickers else []
         _ALL_TICKERS_CACHE = result
+        _ALL_TICKERS_JSON_BYTES = json.dumps(result).encode('utf-8')
         _ALL_TICKERS_TS = now_sec
-        return jsonify(result)
+        return Response(_ALL_TICKERS_JSON_BYTES, mimetype="application/json")
     except Exception as e:
         logger.exception(f"Failed to fetch tickers")
         return jsonify([])
@@ -3578,14 +3607,22 @@ def api_admin_resolution_symbol(symbol):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+_MASTER_LIST_RESPONSE_CACHE = {"timestamp": 0, "payload": None}
+
 @app.route("/api/v1/symbols/master_list", methods=["GET"])
 @login_required
 def api_symbols_master_list():
     """Returns all 2,389+ master stock symbols for instant client-side browser search."""
+    now = time.time()
+    if _MASTER_LIST_RESPONSE_CACHE["payload"] is not None and (now - _MASTER_LIST_RESPONSE_CACHE["timestamp"]) < 60:
+        return jsonify(_MASTER_LIST_RESPONSE_CACHE["payload"])
     try:
         from stock_analyzer import _load_master_symbol_dictionary
         m = _load_master_symbol_dictionary()
-        return jsonify(list(m.values()))
+        res = list(m.values())
+        _MASTER_LIST_RESPONSE_CACHE["timestamp"] = now
+        _MASTER_LIST_RESPONSE_CACHE["payload"] = res
+        return jsonify(res)
     except Exception as e:
         logger.exception("❌ Master symbol list endpoint error")
         return jsonify([]), 500
@@ -3913,17 +3950,14 @@ def api_admin_refresh_master_symbols():
     """Allows Admin to manually refresh and update the master list of all NSE/BSE stocks anytime."""
     try:
         from stock_analyzer import refresh_master_symbols_universe, _load_master_symbol_dictionary
-        ok = refresh_master_symbols_universe()
+        threading.Thread(target=refresh_master_symbols_universe, daemon=True).start()
         m = _load_master_symbol_dictionary()
         count = len(m) if m else 0
-        if ok:
-            return jsonify({
-                "success": True,
-                "message": f"Successfully updated Master Symbol Registry with {count} active NSE/BSE equities!",
-                "count": count
-            })
-        else:
-            return jsonify({"success": False, "error": "Failed to sync master symbol universe into database."}), 500
+        return jsonify({
+            "success": True,
+            "message": f"Master Symbol Registry update initiated in background for {count} active equities!",
+            "count": count
+        })
     except Exception as e:
         logger.exception("❌ Admin master symbols refresh error")
         return jsonify({"success": False, "error": str(e)}), 500

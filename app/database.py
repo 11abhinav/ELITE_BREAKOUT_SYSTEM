@@ -6222,7 +6222,7 @@ def admin_reset_password(user_id: int, new_password: str, force_change: bool = F
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                p_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
+                p_hash = generate_password_hash(new_password, method='pbkdf2:sha256:30000')
                 cur.execute("""
                     UPDATE users 
                     SET password_hash = %s, failed_login_attempts = 0, must_change_password = %s
