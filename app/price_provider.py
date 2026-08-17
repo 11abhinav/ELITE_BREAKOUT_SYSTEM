@@ -256,11 +256,11 @@ class PriceProvider:
         upper_sym = symbol.strip().upper()
         
         # Map index symbols to YFinance ticker format
-        if upper_sym in ("NIFTY 50", "NIFTY", "NIFTY-50", "^NSEI", "NSEI"):
+        if upper_sym in ("NIFTY 50", "NIFTY", "NIFTY-50", "NIFTY50", "^NSEI", "NSEI", "NIFTY 50.NS", "NIFTY 50.BO", "NIFTY-50.NS", "NIFTY-50.BO", "NIFTY50.NS", "NIFTY50.BO"):
             return "^NSEI"
-        if upper_sym in ("BANKNIFTY", "^NSEBANK", "NSEBANK"):
+        if upper_sym in ("BANKNIFTY", "BANK NIFTY", "BANK-NIFTY", "^NSEBANK", "NSEBANK", "BANKNIFTY.NS", "BANKNIFTY.BO", "BANK-NIFTY.NS", "BANK-NIFTY.BO"):
             return "^NSEBANK"
-        if upper_sym in ("SENSEX", "^BSESN", "BSESN", "BSE:SENSEX-INDEX"):
+        if upper_sym in ("SENSEX", "^BSESN", "BSESN", "BSE:SENSEX-INDEX", "SENSEX.BO", "SENSEX.NS"):
             return "^BSESN"
 
         # Check DB mappings first
