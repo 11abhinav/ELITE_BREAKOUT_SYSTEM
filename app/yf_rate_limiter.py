@@ -142,11 +142,11 @@ def is_circuit_open() -> bool:
 
 
 def get_backoff_delay(attempt: int) -> float:
-    """Return backoff delay for attempt index (0-based) using recommended schedule + jitter.
+    """Return backoff delay for attempt index (0-based) using fast schedule + jitter.
 
-    Schedule: 5s, 15s, 35s, 75s (then give up)
+    Schedule: 1.0s, 2.0s, 4.0s (then give up)
     """
-    schedule = [5.0, 15.0, 35.0, 75.0]
+    schedule = [1.0, 2.0, 4.0]
     if attempt < 0:
         attempt = 0
     if attempt >= len(schedule):

@@ -189,7 +189,7 @@ def fetch_single_piotroski(symbol: str) -> dict:
             return None, {}, pd.DataFrame(), pd.DataFrame()
         return res
 
-    max_retries = 3
+    max_retries = 1
     t, info, fin, bs = None, None, None, None
     success = False
     
