@@ -513,6 +513,9 @@ def _is_cache_long_enough(cached_df: pd.DataFrame, period: str, sym: str = "") -
     """Check if the cached dataframe has enough calendar days to satisfy the requested period."""
     if cached_df.empty:
         return False
+    # Intraday/partial data optimization: If cache already has >= 30 candles, allow DELTA updates
+    if len(cached_df) >= 30:
+        return True
     try:
         if 'Date' in cached_df.columns:
             first_ts = pd.to_datetime(cached_df['Date'].iloc[0])
