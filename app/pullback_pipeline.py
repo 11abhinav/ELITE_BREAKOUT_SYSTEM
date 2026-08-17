@@ -450,7 +450,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
 
     if watchlist.empty:
         logger.info("🛡️ Watchlist is empty. Exiting Pullback scan cleanly.")
-        upsert_scanner_health("PULLBACK", status="OK", today_alerts=0)
+        upsert_scanner_health("PULLBACK", status="OK", today_alerts=0, total_count=0, processed_count=0)
         return 0
 
     # Step 1: Check if today's dataset is already processed/available

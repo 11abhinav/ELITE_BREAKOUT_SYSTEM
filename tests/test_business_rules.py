@@ -11,8 +11,10 @@ def test_tax_hold_bonus_inversion():
     Test that holding stocks closer to the LTCG window (365 days) rewards them highly,
     and stocks far away (e.g., just bought) get minimal reward.
     """
-    from datetime import date, timedelta
-    today = date.today()
+    from datetime import datetime, timedelta
+    import pytz
+    IST = pytz.timezone("Asia/Kolkata")
+    today = datetime.now(IST).date()
     
     # 1 day remaining until LTCG (364 days held) -> High bonus (~10.0)
     res_close = wealth_engine.compute_tax_hold_bonus(entry_date=today - timedelta(days=364), unrealized_pnl_pct=10.0)
