@@ -1166,7 +1166,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
         pass
         
     try:
-        if requester != "multibagger":
+        if requester != "multibagger" and not (requester and requester.startswith("MULTI_TF")):
             def upload_history_job():
                 try:
                     from database import upload_history_bundle_to_db

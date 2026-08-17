@@ -619,18 +619,13 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
     # to simultaneously calculate pandas technical indicators via ThreadPoolExecutor. 
     # This causes 96 threads to fight for the Python GIL, causing a 70+ second stall.
     # Sequential fetching completely eliminates GIL contention, making the scanner FASTER overall.
-    logger.info(f"⚡ [MULTI_TF] Parallel pre-fetching 30m, 15m, and 5m intraday timeframes for {len(ladder_symbols)} symbols...")
+    logger.info(f"⚡ [MULTI_TF] Sequential pre-fetching 30m, 15m, and 5m intraday timeframes for {len(ladder_symbols)} symbols...")
     import time
     
     _t_start_fetch = time.perf_counter()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3, thread_name_prefix="MTFFetch") as fetch_executor:
-        fut_30m = fetch_executor.submit(_fetch_tf, "30m", "10d", "30m", needs_30m)
-        fut_15m = fetch_executor.submit(_fetch_tf, "15m", "5d", "15m", needs_15m)
-        fut_5m  = fetch_executor.submit(_fetch_tf, "5m", "5d", "5m", needs_5m)
-
-        data_30m = fut_30m.result()
-        data_15m = fut_15m.result()
-        data_5m  = fut_5m.result()
+    data_30m = _fetch_tf("30m", "10d", "30m", needs_30m)
+    data_15m = _fetch_tf("15m", "5d", "15m", needs_15m)
+    data_5m  = _fetch_tf("5m", "5d", "5m", needs_5m)
     _t_fetch_intraday = time.perf_counter() - _t_start_fetch
     _t_30m = _t_fetch_intraday
     _t_15m = _t_fetch_intraday

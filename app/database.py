@@ -3887,6 +3887,10 @@ def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 
     global _last_bundle_upload_time, _last_bundle_checksum
     now_ts = time.time()
 
+    # [OPTIMIZATION: FAST_PATH_THROTTLE_v1.0] Check time throttle before running heavy OS tar compression
+    if not force and (now_ts - _last_bundle_upload_time.get(interval, 0)) < min_interval_sec:
+        return True
+
     history_dir = os.path.join(DATA_DIR, "history", interval)
     if not os.path.exists(history_dir):
         logger.warning(f"⚠️ [HISTORY BUNDLE DB SYNC SKIPPED] Directory does not exist: {history_dir}")
