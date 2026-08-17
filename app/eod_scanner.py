@@ -711,10 +711,8 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
         except Exception as e:
             logger.warning(f"Failed to fetch REGIME_POLICIES: {e}")
 
-        # [FIX P1-4] Cap the regime-adjusted threshold at 87 to prevent over-rejection
-        # in sideways/bear regimes. Regime modifiers above +5 were pushing the threshold
-        # to 92-95, killing valid setups that the scoring engine already penalizes for weakness.
-        global_min_score = min(global_min_score, 87)
+        # Cap the regime-adjusted threshold at 82 to prevent over-rejection in neutral/bear regimes
+        global_min_score = min(global_min_score, 82)
         
         logger.info(f"📊 Score threshold for {market_regime} regime: {global_min_score}")
 

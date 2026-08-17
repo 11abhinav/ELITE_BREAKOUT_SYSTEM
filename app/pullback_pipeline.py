@@ -144,12 +144,13 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
         }
 
     historical_view = df.copy()
+    historical_view.attrs['adjusted'] = True
     if isinstance(historical_view.columns, pd.MultiIndex):
         historical_view.columns = historical_view.columns.get_level_values(0)
     historical_view = historical_view.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
 
-    if len(historical_view) < 200:
-        return {"status": "NO", "reasons": [f"Insufficient valid bars ({len(historical_view)} < 200)"], "score": 0.0, "qualified": False}
+    if len(historical_view) < 180:
+        return {"status": "NO", "reasons": [f"Insufficient valid bars ({len(historical_view)} < 180)"], "score": 0.0, "qualified": False}
 
     from indicator_manager import manager
     try:
@@ -162,7 +163,7 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
     sma50_val = float(bundle.sma_50.iloc[-1]) if hasattr(bundle, 'sma_50') and bundle.sma_50 is not None and not bundle.sma_50.empty and not pd.isna(bundle.sma_50.iloc[-1]) else None
     sma200_val = float(bundle.sma_200.iloc[-1]) if hasattr(bundle, 'sma_200') and bundle.sma_200 is not None and not bundle.sma_200.empty and not pd.isna(bundle.sma_200.iloc[-1]) else None
 
-    if not (sma50_val and sma200_val and close_price > sma50_val > sma200_val):
+    if not (sma50_val and sma200_val and sma50_val > sma200_val and close_price >= (sma50_val * 0.95)):
         return {
             "status": "NO",
             "reasons": [f"Trend Failure: Close ₹{close_price:.2f} is not aligned above SMA50 ₹{sma50_val if sma50_val else 0:.2f} > SMA200 ₹{sma200_val if sma200_val else 0:.2f}"],
@@ -624,7 +625,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                         sma50_val = bundle.sma_50.iloc[-1] if bundle.sma_50 is not None and not bundle.sma_50.empty else None
                         sma200_val = bundle.sma_200.iloc[-1] if bundle.sma_200 is not None and not bundle.sma_200.empty else None
 
-                        if not (sma50_val and sma200_val and last_bar['Close'] > sma50_val > sma200_val):
+                        if not (sma50_val and sma200_val and sma50_val > sma200_val and last_bar['Close'] >= (sma50_val * 0.95)):
                             return (None, "no_uptrend", "SUCCESS", fresh_val, sym)
 
                         pivots = swing_utils.detect_confirmed_pivots(historical_view, effective_config["LOOKBACK"], effective_config["CONFIRM"])

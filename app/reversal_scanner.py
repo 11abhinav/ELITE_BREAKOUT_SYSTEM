@@ -103,7 +103,7 @@ CLIMAX_MIN_RUNUP_PCT   = 0.10
 FUNDAMENTAL_REJECT_ALARM_PCT = 0.60
 REVERSAL_COOLDOWN_TRADING_DAYS = REVERSAL_CONFIG["REVERSAL_COOLDOWN_TRADING_DAYS"]
 
-REVERSAL_MIN_BARS = 250
+REVERSAL_MIN_BARS = 180
 DEFAULT_PLEDGE_PENALTY = 15.0
 STALE_DEGRADED_RATIO = 0.15
 MIN_FETCH_RATIO = 0.85
@@ -257,13 +257,16 @@ def _latest_bar_timestamp(df: pd.DataFrame) -> Optional[pd.Timestamp]:
 def _parse_robust_pct(fd: dict, ratio_key: str, percent_key: str) -> Optional[float]:
     """Safely extracts percentage points from either a V5 decimal ratio or raw Screener percent."""
     if not isinstance(fd, dict): return None
-    v_ratio = fd.get(ratio_key)
-    if v_ratio is not None and not pd.isna(v_ratio) and v_ratio != "":
-        try: return float(v_ratio) * 100.0
-        except: pass
     v_pct = fd.get(percent_key)
     if v_pct is not None and not pd.isna(v_pct) and v_pct != "":
         try: return float(v_pct)
+        except: pass
+    v_ratio = fd.get(ratio_key)
+    if v_ratio is not None and not pd.isna(v_ratio) and v_ratio != "":
+        try:
+            val = float(v_ratio)
+            if abs(val) > 5.0: return val
+            return val * 100.0
         except: pass
     return None
 
@@ -897,7 +900,7 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    ema_tol = 0.10 * atr_val if atr_val else 0.0
+    ema_tol = max(0.40 * atr_val, 0.04 * ema20) if atr_val else (0.04 * ema20)
     if close_price < (ema20 - ema_tol):
         return {
             "passed": False,
