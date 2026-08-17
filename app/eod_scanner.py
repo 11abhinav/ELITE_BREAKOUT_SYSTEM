@@ -95,20 +95,27 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
         logger.warning("🛑 EOD Scanner is ALREADY actively running. Skipping duplicate execution.")
         raise RuntimeError("Scanner is already actively running!")
 
+    own_ctx = False
+    if run_ctx is None:
+        run_ctx = start_scanner_execution_run(scanner_name="EOD", trigger_type=trigger_type, scheduler_name=scheduler_name)
+        own_ctx = True
+
     queued_at = None
     if not _global_lock.acquire(blocking=False):
         queued_at = time.monotonic()
         logger.info("⏳ [EOD] Global lock busy — marking status QUEUED and waiting...")
         upsert_scanner_health("EOD", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
+        if run_ctx and getattr(run_ctx, "run_id", None):
+            from database import update_scanner_run_lifecycle
+            update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
         if not _global_lock.acquire(blocking=True):
             _scan_lock.release()
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [EOD] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
-
-    own_ctx = False
-    if run_ctx is None:
-        run_ctx = start_scanner_execution_run(scanner_name="EOD", trigger_type=trigger_type, scheduler_name=scheduler_name)
-        own_ctx = True
+        upsert_scanner_health("EOD", "RUNNING")
+        if run_ctx and getattr(run_ctx, "run_id", None):
+            from database import update_scanner_run_lifecycle
+            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
 
     _scan_start = print_scanner_start_banner("eod_scanner", queued_at=queued_at)
     try:

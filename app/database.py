@@ -7374,6 +7374,23 @@ def update_scanner_run_heartbeat(run_id: str):
         logger.debug(f"Failed to update heartbeat for run {run_id}: {e}")
 
 
+def update_scanner_run_lifecycle(run_id: str, lifecycle_status: str):
+    """Updates lifecycle_status (e.g. 'QUEUED', 'RUNNING') for an active scanner execution run in scanner_execution_history."""
+    if not run_id:
+        return
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE scanner_execution_history
+                    SET lifecycle_status = %s, heartbeat_at = NOW()
+                    WHERE run_id = %s;
+                """, (lifecycle_status.upper(), run_id))
+                conn.commit()
+    except Exception as e:
+        logger.debug(f"Failed to update lifecycle_status for run {run_id}: {e}")
+
+
 def complete_scanner_execution_run(ctx, exception: Exception = None, stop_reason: str = None):
     """Finalizes a scanner execution record with completion stats, quality evaluation, and errors."""
     if not ctx or not getattr(ctx, 'run_id', None):

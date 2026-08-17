@@ -1087,21 +1087,6 @@ def main(force_rebuild: bool = False, run_ctx=None):
         logger.info("🛑 Daily Builder is STOPPED by Admin. Skipping execution.")
         return
 
-    queued_at = None
-    if not _global_lock.acquire(blocking=False):
-        queued_at = time.monotonic()
-        logger.info("⏳ [DAILY_BUILDER] Global lock busy — marking status QUEUED and waiting...")
-        try:
-            upsert_scanner_health("DAILY_BUILDER", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
-        except Exception:
-            pass
-        if not _global_lock.acquire(blocking=True):
-            raise RuntimeError("Failed to acquire global scanner lock.")
-        logger.info(f"✅ [DAILY_BUILDER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
-
-    from lock_utils import print_scanner_start_banner, print_scanner_end_banner
-    _scan_start = print_scanner_start_banner("daily_builder", queued_at=queued_at)
-    
     created_ctx = False
     if run_ctx is None:
         try:
@@ -1110,6 +1095,31 @@ def main(force_rebuild: bool = False, run_ctx=None):
             created_ctx = True
         except Exception:
             pass
+
+    queued_at = None
+    if not _global_lock.acquire(blocking=False):
+        queued_at = time.monotonic()
+        logger.info("⏳ [DAILY_BUILDER] Global lock busy — marking status QUEUED and waiting...")
+        try:
+            upsert_scanner_health("DAILY_BUILDER", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
+            if run_ctx and getattr(run_ctx, "run_id", None):
+                from database import update_scanner_run_lifecycle
+                update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
+        except Exception:
+            pass
+        if not _global_lock.acquire(blocking=True):
+            raise RuntimeError("Failed to acquire global scanner lock.")
+        logger.info(f"✅ [DAILY_BUILDER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
+        try:
+            upsert_scanner_health("DAILY_BUILDER", "RUNNING")
+            if run_ctx and getattr(run_ctx, "run_id", None):
+                from database import update_scanner_run_lifecycle
+                update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
+        except Exception:
+            pass
+
+    from lock_utils import print_scanner_start_banner, print_scanner_end_banner
+    _scan_start = print_scanner_start_banner("daily_builder", queued_at=queued_at)
 
     if not _build_lock.acquire(blocking=False):
         _global_lock.release()
