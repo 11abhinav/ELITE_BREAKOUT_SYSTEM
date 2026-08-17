@@ -98,5 +98,5 @@ def get_watchlist(require_fresh: bool = False) -> pd.DataFrame:
             logger.warning(f"Failed to restore watchlist from DB: {e}")
 
         # Fallback if missing: do NOT build here, let main.py watchdog handle it
-        logger.error("❌ Watchlist missing from both disk and DB. Scanners must wait for Watchdog to build it.")
+        logger.info("⏳ [WATCHLIST] Watchlist missing from disk/DB for today. Waiting for Watchdog / Daily Builder to complete...")
         return pd.DataFrame()
