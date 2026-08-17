@@ -1321,6 +1321,22 @@ def init_db():
                     END $$;
                 ''')
 
+                # [VERSION: ONE_TIME_MAPPING_RESET_v1.0]
+                # 1-Time Reset of symbol_mappings & symbol_router tables on 2026-08-17 to start fresh today.
+                # This runs ONCE and records completion in system_state table key "one_time_mapping_reset_2026_08_17".
+                # Future server restarts will skip this and preserve all learned mappings permanently across restarts.
+                try:
+                    cur.execute("SELECT value FROM system_state WHERE key = 'one_time_mapping_reset_2026_08_17'")
+                    reset_done = cur.fetchone()
+                    if not reset_done:
+                        logger.info("🧹 [MIGRATION] Running 1-time symbol mapping reset for fresh start today...")
+                        cur.execute("DELETE FROM symbol_mappings")
+                        cur.execute("DELETE FROM system_state WHERE key = 'symbol_router_routes_v1'")
+                        cur.execute("INSERT INTO system_state (key, value) VALUES ('one_time_mapping_reset_2026_08_17', 'DONE') ON CONFLICT (key) DO UPDATE SET value = 'DONE'")
+                        logger.info("✨ [MIGRATION] 1-time symbol mapping reset complete. All future server restarts will preserve mappings permanently.")
+                except Exception as reset_err:
+                    logger.warning(f"⚠️ 1-time symbol mapping reset warning: {reset_err}")
+
                 # 41. Validate schema integrity against PostgreSQL catalog
                 if not (hasattr(cur, "_mock_name") or type(cur).__name__ in ("MagicMock", "Mock") or "mock" in type(cur).__module__):
                     validate_schema(cur)
