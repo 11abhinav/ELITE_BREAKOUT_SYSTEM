@@ -1551,6 +1551,8 @@ def run_system_scheduler():
                                 f.result()
                             except Exception as e:
                                 logger.error(f"❌ SCHEDULER | Warmup fetch failed: {e}")
+                except Exception as e:
+                    logger.error(f"❌ SCHEDULER | Warmup sequence failed: {e}")
             elif now.hour == 9 and now.minute == 15 and not warmup_ran:
                 logger.error("🚨 CRITICAL: 09:15 reached but Warmup did not complete! Scans will suffer severe cache misses.")
                 # We do not set warmup_ran = True here so we know it failed, but we avoid re-triggering.
