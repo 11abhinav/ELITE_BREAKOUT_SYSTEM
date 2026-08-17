@@ -1082,7 +1082,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             duration_seconds=elapsed_time,
             error_msg=err_val
         )
-        if status_val == "OK":
+        if status_val == "OK" and alert_count > 0:
             try:
                 insert_notification("admin", f"🎯 Pullback Scanner ran successfully. Found {alert_count} pullback alerts.", f"Generated {alert_count} alerts from {total_symbols} scanned stocks. Outcome: SUCCESS")
                 from push_service import send_push_to_all

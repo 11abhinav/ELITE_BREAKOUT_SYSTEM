@@ -1622,8 +1622,8 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
             try:
                 from database import insert_notification
                 from push_service import send_push_to_all
-                if status == "OK" and run_once:
-                    insert_notification("admin", "🚀 MULTI_TF Scanner ran successfully.", f"Evaluated {total_scanned} setups across multiple timeframes.")
+                if status == "OK" and run_once and (metrics_b.get("triggered", 0) > 0):
+                    insert_notification("admin", f"🚀 MULTI_TF Scanner ran successfully. Found {metrics_b.get('triggered', 0)} alerts.", f"Evaluated {total_scanned} setups across multiple timeframes.")
                 elif status == "DEGRADED":
                     insert_notification("admin", f"⚠️ MULTI_TF Scanner finished with DEGRADED status", error_msg or f"Evaluated {total_scanned} setups but data was degraded.")
                     send_push_to_all("⚠️ MULTI_TF Scanner DEGRADED", error_msg or "Stale data exceeded limit.")
