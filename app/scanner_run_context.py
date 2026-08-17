@@ -97,21 +97,36 @@ class ScannerRunContext:
             pass
         return "unknown"
 
+    def heartbeat(self, force: bool = False):
+        """Pulse heartbeat to database if > 15s elapsed since last update."""
+        now = time.time()
+        if force or (now - self.last_heartbeat >= 15.0):
+            self.last_heartbeat = now
+            try:
+                from database import update_scanner_run_heartbeat
+                update_scanner_run_heartbeat(self.run_id)
+            except Exception:
+                pass
+
     def mark_fresh(self, count: int = 1):
         with self._lock:
             self.fresh_count += count
+            self.heartbeat()
 
     def mark_stale(self, count: int = 1):
         with self._lock:
             self.stale_count += count
+            self.heartbeat()
 
     def mark_incomplete(self, count: int = 1):
         with self._lock:
             self.incomplete_count += count
+            self.heartbeat()
 
     def add_alert(self, count: int = 1):
         with self._lock:
             self.alerts_generated += count
+            self.heartbeat()
 
     def record_api_call(self, count: int = 1):
         with self._lock:

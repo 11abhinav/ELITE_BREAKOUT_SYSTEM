@@ -7350,8 +7350,8 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
         logger.warning(f"Failed to cleanup orphaned scanner runs on boot: {e}")
 
 
-def cleanup_stale_scanner_runs(max_stale_minutes: int = 5):
-    """Automatically cleans up abandoned RUNNING or QUEUED scanner execution history records with stale heartbeats."""
+def cleanup_stale_scanner_runs(max_stale_minutes: int = 120):
+    """Automatically cleans up abandoned RUNNING or QUEUED scanner execution history records with stale heartbeats (> 2h)."""
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -7359,9 +7359,9 @@ def cleanup_stale_scanner_runs(max_stale_minutes: int = 5):
                     UPDATE scanner_execution_history
                     SET completed_at = NOW(),
                         lifecycle_status = 'TIMED_OUT',
-                        stop_reason = 'Stale heartbeat threshold exceeded (5m)'
+                        stop_reason = 'Stale heartbeat threshold exceeded (2h)'
                     WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
-                      AND heartbeat_at < NOW() - INTERVAL '5 minutes';
+                      AND heartbeat_at < NOW() - INTERVAL '2 hours';
                 """)
                 conn.commit()
     except Exception as e:
@@ -7373,14 +7373,14 @@ def is_scanner_actively_running(scanner_name: str) -> bool:
     if not scanner_name:
         return False
     try:
-        cleanup_stale_scanner_runs(max_stale_minutes=5)
+        cleanup_stale_scanner_runs(max_stale_minutes=120)
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT run_id FROM scanner_execution_history
                     WHERE LOWER(scanner_name) = LOWER(%s)
                       AND lifecycle_status IN ('RUNNING', 'QUEUED')
-                      AND heartbeat_at >= NOW() - INTERVAL '5 minutes'
+                      AND heartbeat_at >= NOW() - INTERVAL '2 hours'
                     LIMIT 1;
                 """, (scanner_name,))
                 return cur.fetchone() is not None
