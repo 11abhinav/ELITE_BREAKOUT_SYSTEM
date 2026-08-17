@@ -2154,21 +2154,19 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     # Run in background thread so the API returns immediately
     def _run():
         try:
-            logger.info(f"🔧 ADMIN MANUAL TRIGGER | Waiting for global lock for {scanner_key}...")
-            with scanner_execution_lock:
-                start_time = time.time()
-                logger.info(f"🔧 ADMIN MANUAL TRIGGER | Starting {scanner_key}...")
-                try:
-                    import inspect
-                    sig = inspect.signature(fn)
-                    if "trigger_type" in sig.parameters:
-                        stats = fn(trigger_type="MANUAL", scheduler_name="MANUAL") or {}
-                    else:
-                        stats = fn() or {}
-                    duration_sec = round(time.time() - start_time, 1)
-                    logger.info(f"✅ ADMIN MANUAL TRIGGER | {scanner_key} completed in {format_duration(duration_sec)}.")
-                except Exception as run_err:
-                    raise run_err
+            start_time = time.time()
+            logger.info(f"🔧 ADMIN MANUAL TRIGGER | Starting {scanner_key}...")
+            try:
+                import inspect
+                sig = inspect.signature(fn)
+                if "trigger_type" in sig.parameters:
+                    stats = fn(trigger_type="MANUAL", scheduler_name="MANUAL") or {}
+                else:
+                    stats = fn() or {}
+                duration_sec = round(time.time() - start_time, 1)
+                logger.info(f"✅ ADMIN MANUAL TRIGGER | {scanner_key} completed in {format_duration(duration_sec)}.")
+            except Exception as run_err:
+                raise run_err
 
                 now_str = datetime.now(IST).isoformat()
                 upsert_scanner_health(scanner_key, status="OK", last_success=now_str,

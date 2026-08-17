@@ -599,8 +599,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
     # This prevents downloading 5m data for 1,000s of 1H candidates, ensuring sub-60s scaling regardless of universe size.
     needs_30m = list({i["symbol"] for i in active_items if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")})
     needs_15m = list({i["symbol"] for i in active_items if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")})
-    # [VERSION: MTF_PROMOTION_BARRIER_FIX] Pre-fetch 5m data for ALL ladder candidates so Phase D is never starved when candidates promote in-run
-    needs_5m  = list({i["symbol"] for i in active_items if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")})
+    # 🚀 LATENCY OPTIMIZATION: 5m data is ONLY needed for candidates that have passed 30m squeeze (SETUP_ARMED or ENTRY_READY)
+    needs_5m  = list({i["symbol"] for i in active_items if i["current_state"] in ("SETUP_ARMED", "ENTRY_READY")})
     
     import concurrent.futures
     import pandas as pd
@@ -615,19 +615,14 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
             logger.warning(f"Parallel fetch warning for {tf_label}: {_e}")
             return {}
 
-    # [VERSION: GIL_STARVATION_FIX_v1.0] Fetch sequentially instead of parallel.
-    # While parallel fetching saves ~20s of network I/O, it forces the 4 timeframes 
-    # to simultaneously calculate pandas technical indicators via ThreadPoolExecutor. 
-    # This causes 96 threads to fight for the Python GIL, causing a 70+ second stall.
-    # Sequential fetching completely eliminates GIL contention, making the scanner FASTER overall.
-    logger.info(f"⚡ [MULTI_TF] Parallel pre-fetching 30m, 15m, and 5m intraday timeframes for {len(ladder_symbols)} symbols...")
+    logger.info(f"⚡ [MULTI_TF] Pre-fetching 30m ({len(needs_30m)}), 15m ({len(needs_15m)}), and 5m ({len(needs_5m)}) timeframes...")
     import time
     
     _t_start_fetch = time.perf_counter()
     with concurrent.futures.ThreadPoolExecutor(max_workers=3, thread_name_prefix="MTF_Fetch") as fetch_exec:
-        f_30m = fetch_exec.submit(_fetch_tf, "30m", "10d", "30m", needs_30m)
-        f_15m = fetch_exec.submit(_fetch_tf, "15m", "5d", "15m", needs_15m)
-        f_5m  = fetch_exec.submit(_fetch_tf, "5m", "5d", "5m", needs_5m)
+        f_30m = fetch_exec.submit(_fetch_tf, "30m", "5d", "30m", needs_30m)
+        f_15m = fetch_exec.submit(_fetch_tf, "15m", "3d", "15m", needs_15m)
+        f_5m  = fetch_exec.submit(_fetch_tf, "5m", "2d", "5m", needs_5m)
         data_30m = f_30m.result()
         data_15m = f_15m.result()
         data_5m  = f_5m.result()
@@ -950,10 +945,18 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                 logger.debug(f"⏳ Late-session cutoff (14:15 IST) reached — skipping new Phase D entry for {symbol}")
                 return
 
-            if state == "ENTRY_READY" and data_5m.get(symbol) is not None and ok_5m:
-                with _batch_lock:
-                    lower_funnel["trigger_candidates"] += 1
+            if state == "ENTRY_READY" and ok_5m:
                 df = data_5m.get(symbol)
+                if df is None:
+                    try:
+                        res_5m = fetch_watchlist_data(pd.DataFrame({"Stock": [symbol]}), period="2d", interval="5m", requester=f"MTF_ON_DEMAND_{symbol}")
+                        df = res_5m.get(symbol) if isinstance(res_5m, dict) else None
+                    except Exception:
+                        df = None
+
+                if df is not None:
+                    with _batch_lock:
+                        lower_funnel["trigger_candidates"] += 1
                 if df is None:
                     logger.debug(f"⏭️ {symbol} Phase D: no data returned from fetch")
                 if df is not None:
