@@ -149,8 +149,9 @@ def validate_nse_bse_ticker_fast(symbol: str) -> dict:
         return {"is_valid": False, "error": f"'{sym_clean}' is not recognized. Select a valid ticker from autocomplete."}
 
     try:
+        import threading
         from database import sync_master_symbols
-        sync_master_symbols([{"symbol": sym_clean, "company_name": company_name, "sector": sector_name}])
+        threading.Thread(target=sync_master_symbols, args=([{"symbol": sym_clean, "company_name": company_name, "sector": sector_name}],), daemon=True).start()
     except Exception:
         pass
 

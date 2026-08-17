@@ -802,20 +802,25 @@ def api_admin_users_search():
 @csrf.exempt
 def api_admin_reset_password():
     data = request.json or {}
-    user_id = data.get("user_id")
-    new_password = data.get("new_password")
+    user_id = data.get("user_id") or data.get("userId") or data.get("id")
+    new_password = data.get("new_password") or data.get("password") or data.get("newPassword")
     force_change = data.get("force_change", False)
     if not user_id or not new_password:
         return jsonify({"error": "Missing user_id or new_password"}), 400
         
     try:
         from database import admin_reset_password
-        success = admin_reset_password(user_id, new_password, force_change)
+        try:
+            user_id_int = int(user_id)
+        except (ValueError, TypeError):
+            return jsonify({"error": f"Invalid user_id '{user_id}' — must be an integer"}), 400
+            
+        success = admin_reset_password(user_id_int, str(new_password), force_change)
         if success:
             msg = "Password reset successfully. User must change it on next login." if force_change else "Password reset successfully."
             return jsonify({"success": True, "message": msg})
         else:
-            return jsonify({"error": "Failed to reset password."}), 400
+            return jsonify({"error": f"User ID {user_id} not found."}), 404
     except Exception as e:
         logger.exception(f"Error resetting password")
         return jsonify({"error": "Internal server error"}), 500
@@ -3361,12 +3366,17 @@ def start_dashboard_server():
 
 _BREAKOUT_CMP_CACHE = {}
 _BREAKOUT_CMP_LAST_FETCH = 0
+_BREAKOUT_RESPONSE_CACHE = {"ts": 0.0, "payload": None}
 
 @app.route("/api/breakout_watchlist", methods=["GET"])
 @login_required
 def api_breakout_watchlist():
-    """Returns the live multi-tf breakout watchlist from the database."""
-    global _BREAKOUT_CMP_CACHE, _BREAKOUT_CMP_LAST_FETCH
+    """Returns the live multi-tf breakout watchlist from the database (10s response cache for sub-5ms UI reads)."""
+    global _BREAKOUT_CMP_CACHE, _BREAKOUT_CMP_LAST_FETCH, _BREAKOUT_RESPONSE_CACHE
+    now_sec = time.time()
+    if _BREAKOUT_RESPONSE_CACHE["payload"] is not None and (now_sec - _BREAKOUT_RESPONSE_CACHE["ts"]) < 10.0:
+        return Response(_BREAKOUT_RESPONSE_CACHE["payload"], mimetype="application/json")
+
     try:
         from database import get_active_breakout_watchlist
         data = get_active_breakout_watchlist()
@@ -3374,7 +3384,7 @@ def api_breakout_watchlist():
         if data:
             try:
                 import pandas as pd
-                import os, time
+                import os
                 from datetime import datetime
                 from zoneinfo import ZoneInfo
                 from config import DATA_DIR
@@ -3382,7 +3392,6 @@ def api_breakout_watchlist():
                 
                 ist = ZoneInfo('Asia/Kolkata')
                 symbols = list(set([d["symbol"] for d in data]))
-                now_sec = time.time()
 
                 # Refresh live prices dictionary at most once every 15s to avoid blocking server WSGI threads
                 if (now_sec - _BREAKOUT_CMP_LAST_FETCH) > 15:
@@ -3428,7 +3437,9 @@ def api_breakout_watchlist():
             except Exception as e:
                 logger.warning(f"Failed to fetch live CMP for watchlist: {e}")
 
-        return jsonify({"status": "success", "data": serialize_datetimes(data)})
+        payload = json.dumps({"status": "success", "data": serialize_datetimes(data)}, default=str)
+        _BREAKOUT_RESPONSE_CACHE = {"ts": now_sec, "payload": payload}
+        return Response(payload, mimetype="application/json")
     except Exception as e:
         logger.exception("Failed to fetch breakout watchlist.")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -3682,20 +3693,17 @@ def api_analyze_stock():
 
             return jsonify(cached_master)
 
-        # 2. If no cache exists, return instant live CMP and spawn background deep analysis
+        # 2. If no cache exists, return instant response (< 5ms) and spawn background deep analysis
         from stock_analyzer import validate_nse_bse_ticker_fast
         val = validate_nse_bse_ticker_fast(symbol)
         if not val["is_valid"]:
             return jsonify({"success": False, "is_invalid_ticker": True, "error": val["error"]})
             
         sym_clean = val["symbol"]
-        from live_prices import get_live_prices
-        prices = get_live_prices([sym_clean])
-        cmp = prices.get(sym_clean, 0.0)
         
         # Automatically spawn background analysis so user/admin receives notification when scan completes!
         import threading
-        logger.info(f"⚡ First-time scan for {sym_clean}. Returning instant quote and spawning background deep analysis thread.")
+        logger.info(f"⚡ First-time scan for {sym_clean}. Returning instant response and spawning background deep analysis thread.")
         threading.Thread(target=_run_deep_analysis_bg, args=(sym_clean, user_id), daemon=True).start()
         
         return jsonify({
@@ -3706,7 +3714,7 @@ def api_analyze_stock():
             "is_in_watchlist": is_in_wl,
             "is_deep_analysis": False,
             "watchlist_status": "ANALYSIS PENDING",
-            "close_price": float(cmp),
+            "close_price": 0.0,
             "volume_ratio": 1.0,
             "rsi": 50.0,
             "overall_health_score": 0.0,

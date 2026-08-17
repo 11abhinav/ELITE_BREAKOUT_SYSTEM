@@ -20,6 +20,7 @@ from datetime import datetime, time as dt_time
 from zoneinfo import ZoneInfo
 import random
 from typing import Optional, Dict, Any, List
+import pandas as pd
 from memory_profiler import MemoryProfiler
 from forensics import forensics
 
@@ -1604,6 +1605,7 @@ def run_system_scheduler():
 
                 def _run_evening_batch_async():
                     import concurrent.futures
+                    import pandas as pd
                     wait_for_bhavcopy_or_fallback("EVENING_SCANNERS")
                     logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback with hard deadlines.")
                     today_str = datetime.now(IST).strftime("%Y-%m-%d")
