@@ -1898,11 +1898,14 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     unverified_pledge_count = 0
     
     _eval_start_t = time.perf_counter()
-    for f in fundamentals_list:
+    _eval_lock = threading.Lock()
+
+    def _eval_item(f):
+        nonlocal unverified_pledge_count
         sym = f.get("symbol")
         price_data = price_data_map.get(sym)
         if not price_data:
-            continue
+            return
             
         # 1. Pass the raw dictionary directly to the V5 Pipeline
         raw_fundamentals = f.copy()
@@ -2093,57 +2096,64 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             if not skip_alert:
                 logger.info(f"📍 PICKED [MULTIBAGGER: IN BETWEEN]: {sym} @ ₹{price_data.price:.2f} (Tier: {tier}, Score: {total:.1f}, CQS: {cqs:.1f})")
                 tier_val = 2 if "Prime" in tier else 1
-                alert_candidates.append({
-                    "symbol": sym,
-                    "price": price_data.price,
-                    "tier": tier,
-                    "tier_val": tier_val,
-                    "total_score": total,
-                    "cqs": cqs,
-                    "trend_score": trend,
-                    "pas": pas,
-                    "notes": notes,
-                    "pipeline_result": pipeline_result,
-                    "raw_fundamentals": raw_fundamentals,
-                    "_price_data": price_data  # [FIX MUL-24] Store for entry_confirmed recheck at live price
-                })
+                with _eval_lock:
+                    alert_candidates.append({
+                        "symbol": sym,
+                        "price": price_data.price,
+                        "tier": tier,
+                        "tier_val": tier_val,
+                        "total_score": total,
+                        "cqs": cqs,
+                        "trend_score": trend,
+                        "pas": pas,
+                        "notes": notes,
+                        "pipeline_result": pipeline_result,
+                        "raw_fundamentals": raw_fundamentals,
+                        "_price_data": price_data  # [FIX MUL-24] Store for entry_confirmed recheck at live price
+                    })
 
             if status != "INVALIDATED":
                 label = bucket
                 if skip_alert:
                     label = f"🛡️ {label} (Currently Held)"
                 
-                if label not in categorized_stocks:
-                    categorized_stocks[label] = []
-                    
-                categorized_stocks[label].append({
-                    'symbol': sym,
-                    'price': price_data.price,
-                    'cqs': cqs,
-                    'pas': pas,
-                    'total': total,
-                    'status': status
-                })
+                with _eval_lock:
+                    if label not in categorized_stocks:
+                        categorized_stocks[label] = []
+                    categorized_stocks[label].append({
+                        'symbol': sym,
+                        'price': price_data.price,
+                        'cqs': cqs,
+                        'pas': pas,
+                        'total': total,
+                        'status': status
+                    })
 
         # Assemble the display record
         bz_low = pipeline_result.buy_zone.buy_zone_low if pipeline_result.buy_zone else 0.0
         bz_high = pipeline_result.buy_zone.buy_zone_high if pipeline_result.buy_zone else 0.0
         
-        results.append(ScreenerResult(
-            symbol=sym,
-            price=round(price_data.price, 2),
-            cqs=round(cqs, 1),
-            pas=round(pas, 1),
-            trend_score=round(trend, 1),
-            total_score=round(total, 1),
-            buy_zone_low=round(bz_low, 2),
-            buy_zone_high=round(bz_high, 2),
-            bucket=bucket,
-            status=status,
-            notes=notes,
-            change_pct=0.0
-        ))
-        
+        with _eval_lock:
+            results.append(ScreenerResult(
+                symbol=sym,
+                price=round(price_data.price, 2),
+                cqs=round(cqs, 1),
+                pas=round(pas, 1),
+                trend_score=round(trend, 1),
+                total_score=round(total, 1),
+                buy_zone_low=round(bz_low, 2),
+                buy_zone_high=round(bz_high, 2),
+                bucket=bucket,
+                status=status,
+                notes=notes,
+                change_pct=0.0
+            ))
+
+    with ThreadPoolExecutor(max_workers=8, thread_name_prefix="MB_Eval") as eval_exec:
+        futures = [eval_exec.submit(_eval_item, f) for f in fundamentals_list]
+        for fut in as_completed(futures):
+            fut.result()
+
     # Process Top-N alerts
     if alert_candidates:
         # Sort by tier, total_score desc, cqs desc

@@ -891,7 +891,10 @@ def evaluate_candidates(wealth_df, sector_stats, nifty_dist_52w):
     else:
         wealth_df["RS_Rating"] = 0
 
-    scores_df = wealth_df.apply(lambda r: apply_core_engine_scores(r, sector_stats), axis=1)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="Wealth_Score") as score_exec:
+        rows = [row for _, row in wealth_df.iterrows()]
+        scores_list = list(score_exec.map(lambda r: apply_core_engine_scores(r, sector_stats), rows))
+    scores_df = pd.DataFrame(scores_list, index=wealth_df.index)
     wealth_df["FM_Score"] = scores_df["CIS"]
     
     unique_symbols = wealth_df["Stock"].astype(str).unique()
