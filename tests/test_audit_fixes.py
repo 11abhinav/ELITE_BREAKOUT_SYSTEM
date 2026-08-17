@@ -285,11 +285,11 @@ class TestAuditFixes(unittest.TestCase):
     @patch('pullback_pipeline.fetch_watchlist_data')
     @patch('pullback_pipeline.get_nifty_20d_return', return_value=0.02)
     @patch('pullback_pipeline.get_macro_regime', return_value="NEUTRAL")
-    def test_pullback_health_telemetry_counts(self, mock_regime, mock_ret, mock_fetch, mock_wl, mock_wl_cache, mock_health, mock_recent, mock_init_db):
+    def test_pullback_health_telemetry_counts(self, mock_regime, mock_ret, mock_fetch, mock_wl_pipeline, mock_wl_cache, mock_health, mock_recent, mock_init_db):
         """Verify pullback_pipeline passes total_count and processed_count to upsert_scanner_health."""
         import pandas as pd
         df = pd.DataFrame([{"Stock": "TCS", "Category": "LARGE", "Sector": "IT"}])
-        mock_wl.return_value = df
+        mock_wl_pipeline.return_value = df
         mock_wl_cache.return_value = df
         dates = pd.date_range(end=datetime.now().strftime("%Y-%m-%d"), periods=60, freq='B')
         sample_df = pd.DataFrame({

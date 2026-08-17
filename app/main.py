@@ -1681,6 +1681,8 @@ def run_system_scheduler():
                             logger.info("📅 SCHEDULER | [12:01 AM - 04:00 AM IST] Earnings Calendar off-peak refresh starting...")
                             from earnings_calendar import run_earnings_calendar_refresh
                             run_earnings_calendar_refresh()
+                        except RuntimeError as re:
+                            logger.info(f"⏭️ SCHEDULER | Earnings Calendar refresh skipped: {re}")
                         except Exception as e:
                             logger.error(f"❌ SCHEDULER | Earnings Calendar off-peak refresh failed: {e}")
                     import threading as _t
