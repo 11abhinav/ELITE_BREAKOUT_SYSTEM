@@ -599,7 +599,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
     # This prevents downloading 5m data for 1,000s of 1H candidates, ensuring sub-60s scaling regardless of universe size.
     needs_30m = list({i["symbol"] for i in active_items if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")})
     needs_15m = list({i["symbol"] for i in active_items if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")})
-    needs_5m  = list({i["symbol"] for i in active_items if i["current_state"] in ("SETUP_ARMED", "ENTRY_READY")})
+    # [VERSION: MTF_PROMOTION_BARRIER_FIX] Pre-fetch 5m data for ALL ladder candidates so Phase D is never starved when candidates promote in-run
+    needs_5m  = list({i["symbol"] for i in active_items if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")})
     
     import concurrent.futures
     import pandas as pd
@@ -1068,10 +1069,15 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                         else:
                             c_engulf = close > float(prev["Close"])
                         
-                        if close >= trigger_level and c_engulf and close > open_px and vol_ratio >= 0.80:
-                            if close_position >= 0.50:  # closes in upper half of 5m bounce candle
-                                is_ready = True
-                                trigger_type = "pullback"
+                        # Dual-Trigger OR Model:
+                        # 1. Normal Trigger: Volume ratio >= 0.80 AND Close position >= 0.50
+                        # 2. Strong Price Trigger: Volume ratio >= 0.65 AND Close position >= 0.60 (top 40% close) AND price holds trigger level
+                        c_std_trig = (vol_ratio >= 0.80 and close_position >= 0.50)
+                        c_strong_price_trig = (vol_ratio >= 0.65 and close_position >= 0.60 and close >= trigger_level)
+                        
+                        if close >= trigger_level and c_engulf and close > open_px and (c_std_trig or c_strong_price_trig):
+                            is_ready = True
+                            trigger_type = "pullback"
 
                     if not is_ready:
                         # Log reasons only if stock has touched/entered the trigger zone

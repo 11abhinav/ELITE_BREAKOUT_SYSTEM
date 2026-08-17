@@ -1216,13 +1216,11 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             base_score_val = int(score)
 
                             if score > 0:
-                                for pen_name, pen_val in technical_penalties.items():
-                                    score -= pen_val
-                        
-                                # [FINDING-8] Apply OBV divergence penalty (soft, not hard reject)
-                                score = max(0, score + obv_penalty)
-                                # [FIX P1-3] Apply candle quality penalty (body/wick/close position)
-                                score = max(0, score - candle_penalty)
+                                # [ARCHITECTURAL FIX] Penalty correlation cap: cap combined technical, OBV, and candle penalties
+                                # at max -15 points to prevent double-counting correlated base/volume weaknesses
+                                total_deductions = sum(technical_penalties.values()) + abs(obv_penalty) + candle_penalty
+                                capped_deduction = min(15, total_deductions)
+                                score = max(0, score - capped_deduction)
 
                                 base_score_val = int(score)
 

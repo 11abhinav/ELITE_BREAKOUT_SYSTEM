@@ -1021,13 +1021,31 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
             return pd.Series({"Signal_Code": "SUPPRESS", "Signal_Reason": suppression_reason})
             
         if bucket in ("REVIEW", "None", "", "nan") or pd.isna(r.get("Portfolio_Bucket")):
+            # [ARCHITECTURAL FIX] REVIEW is a state/watchlist, not an automatic hard rejection for high quality stocks
+            if score >= 65.0 and r.get("Valuation_Score", 0) >= 40.0:
+                return pd.Series({"Signal_Code": "WATCH", "Signal_Reason": f"High Quality ({score:.1f}) — Momentum Pending"})
             return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Failed Bucket Quality Gates"})
             
         symbol = r.get("Stock")
         if open_symbols and symbol in open_symbols:
-            return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": "Position Already Open"})
+            # [ARCHITECTURAL FIX] Position state separation: distinguish NEW_ENTRY vs ADD_ON vs PYRAMID vs HOLD
+            mom_score = r.get("momentum_score", 0)
+            ema20 = _safe_num(r.get("ema_20"))
+            dist_52w = _safe_num(r.get("dist_52w_high", 0))
+            is_near_support = (ema20 > 0 and cmp <= 1.03 * ema20)
+            is_breakout_high = (dist_52w >= -2.0)
+            
+            if score >= 65.0 and cmp > sma and sma > 0 and mom_score >= 25:
+                if is_breakout_high:
+                    return pd.Series({"Signal_Code": "PYRAMID", "Signal_Reason": f"Pyramid Setup: 52W High Breakout (Score {score:.1f})"})
+                elif is_near_support:
+                    return pd.Series({"Signal_Code": "ADD_ON", "Signal_Reason": f"Dip Add-On: EMA Support Retest (Score {score:.1f})"})
+            return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": "Position Already Open — Holding"})
             
         if symbol not in approved_symbols:
+            # [ARCHITECTURAL FIX] Preserve ranking quality for candidates capped by sector concentration
+            if score >= 55.0 and cmp > sma and sma > 0:
+                return pd.Series({"Signal_Code": "WATCH", "Signal_Reason": f"Ranked Out (Sector Cap — Quality Watch {score:.1f})"})
             return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Ranked Out (Top N / Sector Cap limit)"})
             
         # Baseline Active Entry Condition (V5 Thresholds)
