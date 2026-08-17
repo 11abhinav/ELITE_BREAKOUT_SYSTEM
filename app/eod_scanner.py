@@ -1182,7 +1182,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             )
 
 
-                            score, model_version, bayesian_weights = calculate_score(
+                            score, model_version, applied_bayesian_weights = calculate_score(
                                 category=category,
                                 breakout_count=len(signals),
                                 rsi=rsi_val,
@@ -1385,7 +1385,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                     "context": context,
                                     "model_version": model_version,
                                     "bayesian_regime": _bayesian_regime,
-                                    "bayesian_weights": bayesian_weights,
+                                    "bayesian_weights": applied_bayesian_weights,
                                     "structural_failure_stop": sl_result.get("structural_failure_stop"),
                                     "target_quality_score": sl_result.get("target_quality"),
                                     "base_score": base_score_val,
