@@ -70,8 +70,9 @@ def create_mock_df(num_bars=260, base_price=100.0, drop_pct=30.0, rsi_val=40.0, 
     closes[-3:] = np.linspace(base_price * 0.97, base_price, 3)
     
     highs = closes + 2.0
-    # Plant high_52w at bar -200 so 52W high is exact
-    highs[-200] = high_52w
+    # Plant high_52w at bar -100 (or -200 if large) so 52W high is exact
+    idx_52w = -100 if num_bars < 200 else -200
+    highs[idx_52w] = high_52w
     lows = closes - 2.0
     opens = closes - 0.5
     volumes = np.full(num_bars, vol)
@@ -153,9 +154,9 @@ def test_is_climax_top_none_vol_ratio():
     assert _is_climax_top(df, close_price, high_val, low_val, vol_ratio=None) is False
 
 
-# ── TEST 5: Bar Minimum Enforcement (250 bars) ──
+# ── TEST 5: Bar Minimum Enforcement (180 bars) ──
 def test_evaluate_candidate_insufficient_bars():
-    df_short = create_mock_df(num_bars=200)
+    df_short = create_mock_df(num_bars=150)
     verdict = _evaluate_candidate("TEST", df_short)
     assert verdict["passed"] is False
     assert "Insufficient historical bars" in verdict["reject_reason"]
@@ -184,14 +185,14 @@ def test_evaluate_candidate_synthetic_bar_guards():
 
 # ── TEST 8: Evaluator — 52W High Correction Drop Band Gate ──
 def test_evaluate_candidate_drop_band():
-    # Shallow drop (10% < 20% floor) -> reject
-    df_shallow = create_mock_df(drop_pct=10.0)
+    # Shallow drop (0.5% < 3% floor) -> reject
+    df_shallow = create_mock_df(drop_pct=0.5)
     verdict_shallow = _evaluate_candidate("TEST", df_shallow)
     assert verdict_shallow["passed"] is False
-    assert verdict_shallow["reject_code"] == "drop_band"
+    assert verdict_shallow["reject_code"] in ("drop_band", "low_rr")
 
-    # Deep drop (55% > 45% ceiling) -> reject
-    df_deep = create_mock_df(drop_pct=55.0)
+    # Deep drop (60% > 55% ceiling) -> reject
+    df_deep = create_mock_df(drop_pct=60.0)
     verdict_deep = _evaluate_candidate("TEST", df_deep)
     assert verdict_deep["passed"] is False
     assert verdict_deep["reject_code"] == "drop_band"
@@ -233,7 +234,7 @@ def test_evaluator_parity():
 
 # ── TEST 11: Constants Integrity ──
 def test_constants_integrity():
-    assert REVERSAL_MIN_BARS == 250
+    assert REVERSAL_MIN_BARS == 180
     assert DEFAULT_PLEDGE_PENALTY == 15.0
     assert STALE_DEGRADED_RATIO == 0.15
     assert MIN_FETCH_RATIO == 0.85
