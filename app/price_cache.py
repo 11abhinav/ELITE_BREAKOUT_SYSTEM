@@ -1108,6 +1108,11 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             }
                             with open(meta_path, "w") as f:
                                 json.dump(meta, f)
+                        except OSError as oe:
+                            if getattr(oe, 'errno', None) == 28 or 'No space left' in str(oe):
+                                logger.warning(f"⚠️ Disk full — skipped disk cache write for {sym} (in-memory data preserved)")
+                            else:
+                                logger.warning(f"Disk write error for {sym}: {oe}")
                         except Exception as e:
                             logger.exception(f"Failed to write disk cache for {sym}")
 
