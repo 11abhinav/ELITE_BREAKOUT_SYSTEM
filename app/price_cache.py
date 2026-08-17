@@ -108,12 +108,27 @@ _provider_locks = {
     "yahoo": threading.Lock(),
 }
 
+# [VERSION: PER_REQUESTER_LOCK_v1.0] Per-requester lock map for intraday multi-TF parallel fetching.
+# MULTI_TF_30m, MULTI_TF_15m, and MULTI_TF_5m all resolve to the same 'fyers' provider lock,
+# causing them to serialize instead of running in parallel. A per-requester lock gives each
+# caller its own mutex, enabling genuine concurrent fetch execution across timeframes.
+import collections
+_requester_locks: dict = collections.defaultdict(threading.Lock)
+
 def get_provider_fetch_lock(requester: str = None) -> threading.Lock:
-    """Returns provider-specific lock when FEATURE_PROVIDER_LOCK_SPLIT_V1 is True, else monolithic fallback."""
+    """Returns a per-requester lock (when FEATURE_PROVIDER_LOCK_SPLIT_V1 is True) so that
+    callers like MULTI_TF_30m, MULTI_TF_15m, and MULTI_TF_5m can fetch truly in parallel
+    without being serialized by a shared provider lock. Falls back to provider-level lock
+    for unknown/generic callers and monolithic lock when feature flag is off."""
     from config import FEATURE_PROVIDER_LOCK_SPLIT_V1, DATA_PROVIDER
     if not FEATURE_PROVIDER_LOCK_SPLIT_V1:
         return _fetch_lock
-    prov = str(requester or DATA_PROVIDER or "fyers").lower()
+    # Named callers (MULTI_TF_30m, MULTI_TF_15m, MULTI_TF_5m, macro_intraday, etc.) get
+    # their own dedicated lock so parallel fetches across timeframes are never serialized.
+    if requester:
+        return _requester_locks[requester]
+    # Generic/unnamed callers fall back to provider-level lock (original behaviour)
+    prov = str(DATA_PROVIDER or "fyers").lower()
     if "upstox" in prov: return _provider_locks["upstox"]
     if "fyers" in prov: return _provider_locks["fyers"]
     if "bse" in prov: return _provider_locks["bse"]
