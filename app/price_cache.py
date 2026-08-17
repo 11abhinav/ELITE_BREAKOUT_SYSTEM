@@ -1166,7 +1166,8 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
         pass
         
     try:
-        if requester != "multibagger" and not (requester and requester.startswith("MULTI_TF")):
+        scanner_requesters = ("multibagger", "EOD", "REVERSAL", "PULLBACK", "WEALTH", "STOCK_ANALYZER", "performance_tracker")
+        if requester not in scanner_requesters and not (requester and (requester.startswith("MULTI_TF") or requester.startswith("SCHEDULER"))):
             def upload_history_job():
                 try:
                     from database import upload_history_bundle_to_db
