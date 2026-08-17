@@ -2505,18 +2505,19 @@ def get_all_scanner_health() -> list[dict]:
     """Return all scanner health rows, auto-seeding any missing standard scanners so cards never disappear."""
     init_db()
     schedule_map = {
-        "DAILY_BUILDER": "01:00 AM IST",
-        "EOD": "18:00 IST",
-        "REVERSAL": "18:00 IST",
-        "PULLBACK": "18:00 IST",
-        "MULTIBAGGER": "19:00 IST",
-        "MULTI_TF": "Every 5min (9:15 AM - 2:55 PM)",
-        "Wealth Engine": "Every 15min (9:15 AM - 3:30 PM)",
-        "PERFORMANCE_TRACKER": "Every 5min (9:15 AM - 3:30 PM)",
-        "MULTIBAGGER_EXIT": "Every 15min (9:15 AM - 3:30 PM)",
-        "WEALTH_EXIT": "Every 5min (9:15 AM - 3:30 PM)",
-        "Pledge Worker": "Every 6h",
-        "AI Worker": "Every 1h"
+        "DAILY_BUILDER": "05:00 IST Daily",
+        "Wealth Engine": "06:00 IST (Initial) / Every 1h Market Hours (9:15 AM - 3:30 PM)",
+        "EOD": "18:00 IST (After Bhavcopy)",
+        "REVERSAL": "18:00 IST (After Bhavcopy)",
+        "PULLBACK": "18:00 IST (After Bhavcopy)",
+        "MULTIBAGGER": "19:00 IST Daily",
+        "MULTI_TF": "Every 5min (9:30 AM - 2:55 PM IST)",
+        "PERFORMANCE_TRACKER": "Every 5min Market Hours (9:15 AM - 3:30 PM)",
+        "MULTIBAGGER_EXIT": "Every 15min Market Hours (9:15 AM - 3:30 PM)",
+        "WEALTH_EXIT": "Every 5min Market Hours (9:15 AM - 3:30 PM)",
+        "Pledge Worker": "Whole Sat & Sun Only (00:00 - 23:59 IST)",
+        "AI Worker": "Whole Sat & Sun Only (00:00 - 23:59 IST)",
+        "Earnings Calendar": "12:01 AM - 04:00 AM IST Daily"
     }
 
     # Auto-seed any missing standard scanner records so DB table always has all 12 entries

@@ -11,25 +11,13 @@ IST_ZONE = ZoneInfo("Asia/Kolkata")
 from constituent_service import fetch_constituents
 
 def is_in_window(now: datetime = None) -> bool:
-    """Check if current time is within active worker window:
-    - Saturday & Sunday: 03:00 AM to 12:00 PM IST (3:00 to 12:00 IST)
-    - Working Days (Mon-Fri): 04:00 AM to 06:00 AM IST (4:00 to 6:00 IST)
-    """
+    """Check if current time is within active worker window: Whole Saturday & Sunday only."""
     if now is None:
         now = datetime.now(IST_ZONE)
-    is_weekend = now.weekday() >= 5
-    if is_weekend:
-        return 3 <= now.hour < 12
-    else:
-        return 4 <= now.hour < 6
+    return now.weekday() >= 5  # Saturday & Sunday
 
 def get_active_window_description(now: datetime = None) -> str:
-    if now is None:
-        now = datetime.now(IST_ZONE)
-    if now.weekday() >= 5:
-        return "03:00 - 12:00 IST (Sat-Sun)"
-    else:
-        return "04:00 - 06:00 IST (Mon-Fri)"
+    return "00:00 - 23:59 IST (Sat-Sun Only)"
 
 # [VERSION: AI_WORKER_MANUAL_v1.0] Extract run_ai_worker_scan_once and protect with _scan_lock
 _scan_lock = threading.Lock()

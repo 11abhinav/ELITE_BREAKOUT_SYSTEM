@@ -570,7 +570,7 @@ def verify_watchlist_is_pristine() -> bool:
                 return False
             logger.exception(f"❌ Daily Builder rebuild FAILED (full traceback above): {e}")
             from database import upsert_scanner_health, insert_notification
-            upsert_scanner_health("DAILY_BUILDER", status="DOWN", error_msg=str(e)[:500], scheduled_for="01:00 IST")
+            upsert_scanner_health("DAILY_BUILDER", status="DOWN", error_msg=str(e)[:500], scheduled_for="05:00 IST")
             try:
                 insert_notification(
                     notif_type="scanner_down",
@@ -1093,9 +1093,9 @@ def run_system_scheduler():
                     pass
             
             if already_fresh:
-                logger.info("🕒 SCHEDULER | [1:00 AM] Watchlist already fresh for today. Skipping redundant build.")
+                logger.info("🕒 SCHEDULER | [5:00 AM] Watchlist already fresh for today. Skipping redundant build.")
             else:
-                logger.info("🕒 SCHEDULER | [1:00 AM] Triggering Daily Builder")
+                logger.info("🕒 SCHEDULER | [5:00 AM] Triggering Daily Builder")
                 from telemetry_manager import telemetry
                 from database import start_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health
                 upsert_scanner_health("DAILY_BUILDER", status="QUEUED", error_msg="Waiting for global execution lock...")
@@ -1136,7 +1136,7 @@ def run_system_scheduler():
                     "DAILY_BUILDER",
                     status="OK",
                     last_success=now_str,
-                    scheduled_for="01:00 IST",
+                    scheduled_for="05:00 IST",
                     duration_seconds=dur_db
                 )
             except Exception:
@@ -1161,7 +1161,7 @@ def run_system_scheduler():
                     "DAILY_BUILDER",
                     status="DOWN",
                     error_msg=str(e)[:500],
-                    scheduled_for="01:00 IST"
+                    scheduled_for="05:00 IST"
                 )
             except Exception:
                 pass
@@ -1174,7 +1174,7 @@ def run_system_scheduler():
         upsert_scanner_health("Wealth Engine", status="QUEUED", error_msg="Waiting for global execution lock...")
         run_ctx = None
         try:
-            logger.info("🕒 SCHEDULER | [2:00 AM] Triggering Wealth Engine (initial setup)")
+            logger.info("🕒 SCHEDULER | [6:00 AM] Triggering Wealth Engine (initial setup)")
             from telemetry_manager import telemetry
             telemetry.log_scheduler_event("WEALTH_ENGINE_INIT", "CYCLE_START")
             telemetry.log_session_timeline("Started Wealth Engine Initial Setup Cycle")
@@ -1195,7 +1195,7 @@ def run_system_scheduler():
                 "Wealth Engine",
                 status="OK",
                 last_success=now_str,
-                scheduled_for="02:00 IST",
+                scheduled_for="06:00 IST",
                 duration_seconds=duration_sec
             )
             logger.info(f"✅ Wealth Engine (initial) completed successfully in {format_duration(duration_sec)}")
@@ -1218,7 +1218,7 @@ def run_system_scheduler():
                 "Wealth Engine",
                 status="DOWN",
                 error_msg=str(e)[:500],
-                scheduled_for="02:00 IST"
+                scheduled_for="06:00 IST"
             )
             return False
 
@@ -1233,14 +1233,14 @@ def run_system_scheduler():
             if last_wealth_market_run and (now - last_wealth_market_run).total_seconds() < 300:
                 return False
             
-            # Check if 15 minutes have elapsed since last full BUY alert scan
+            # Check if 1 hour (3600s) has elapsed since last full BUY alert scan
             should_run_full_scan = False
-            if last_wealth_full_scan_run is None or (now - last_wealth_full_scan_run).total_seconds() >= 900:
+            if last_wealth_full_scan_run is None or (now - last_wealth_full_scan_run).total_seconds() >= 3600:
                 should_run_full_scan = True
 
             if should_run_full_scan:
                 if not is_scanner_stopped("Wealth Engine"):
-                    logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering FULL Wealth Engine Scan (15-min BUY alert cycle)")
+                    logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering FULL Wealth Engine Scan (1-hour BUY alert cycle)")
                     from telemetry_manager import telemetry
                     from database import start_scanner_execution_run, complete_scanner_execution_run
                     upsert_scanner_health("Wealth Engine", status="QUEUED", error_msg="Waiting for global execution lock...")
@@ -1264,7 +1264,7 @@ def run_system_scheduler():
                             "Wealth Engine",
                             status="OK",
                             last_success=now_str,
-                            scheduled_for="Every 15m (9:15 AM - 3:30 PM)",
+                            scheduled_for="Every 1h (09:15 AM - 03:30 PM IST)",
                             duration_seconds=duration_sec
                         )
                         logger.info(f"✅ Wealth Engine (market hours) FULL SCAN completed in {format_duration(duration_sec)}")
@@ -1275,7 +1275,7 @@ def run_system_scheduler():
                         complete_scanner_execution_run(run_ctx, exception=run_err)
                         raise run_err
                 else:
-                    logger.info("⏭️ Wealth Engine BUY scan is PAUSED by Admin. Skipping 15-min BUY scan.")
+                    logger.info("⏭️ Wealth Engine BUY scan is PAUSED by Admin. Skipping 1-hour BUY scan.")
                 last_wealth_full_scan_run = now
 
             if not is_scanner_stopped("WEALTH_EXIT"):
@@ -1464,7 +1464,7 @@ def run_system_scheduler():
         # Weekdays only
         if now.weekday() < 5:  # Mon-Fri
             # 1:00 AM - Daily Builder → then create a fresh SessionContext
-            if now.hour == 1 and now.minute >= 0 and not daily_builder_ran:
+            if now.hour == 5 and now.minute >= 0 and not daily_builder_ran:
                 daily_builder_ran = True
                 if not is_scanner_stopped("DAILY_BUILDER"):
                     safe_run_daily_builder()
@@ -1477,33 +1477,26 @@ def run_system_scheduler():
                     ApplicationContext.get_instance().create_session()
                 except Exception as _se:
                     logger.warning(f"⚠️ [SESSION_ARCH] Failed to create SessionContext: {_se}")
-            elif now.hour != 1:
+            elif now.hour != 5:
                 daily_builder_ran = False
             
             # Refresh now in case daily builder blocked for a long time
             now = datetime.now(IST)
             
             # 2:00 AM - Wealth Engine (initial)
-            if now.hour == 2 and now.minute >= 0 and not wealth_initial_ran:
+            if now.hour == 6 and now.minute >= 0 and not wealth_initial_ran:
                 wealth_initial_ran = True
                 if not is_scanner_stopped("Wealth Engine"):
                     safe_run_wealth_scan_initial()
                 else:
-                    logger.info("⏭️ Wealth Engine is STOPPED by Admin. Skipping scheduled 2:00 AM run.")
-            elif now.hour != 2:
+                    logger.info("⏭️ Wealth Engine is STOPPED by Admin. Skipping scheduled 6:00 AM run.")
+            elif now.hour != 6:
                 wealth_initial_ran = False
             
             now = datetime.now(IST)
 
-            # 4:00 AM - Multibagger Scanner (initial cold start)
-            if now.hour == 4 and now.minute >= 0 and not multibagger_initial_ran:
-                multibagger_initial_ran = True
-                if not is_scanner_stopped("MULTIBAGGER"):
-                    safe_run_multibagger_scan_initial()
-                else:
-                    logger.info("⏭️ MULTIBAGGER is STOPPED by Admin. Skipping scheduled 4:00 AM run.")
-            elif now.hour != 4:
-                multibagger_initial_ran = False
+            # Multibagger cold start removed; runs at 7:00 PM (19:00 IST) Daily
+            pass
 
             # 7:00 AM - Master Symbols Universe Refresh (active NSE/BSE equities refresh)
             if now.hour == 7 and now.minute >= 0 and not verify_scans_ran:
@@ -1666,13 +1659,13 @@ def run_system_scheduler():
                 else:
                     logger.info("⏭️ MULTIBAGGER is STOPPED by Admin. Skipping 19:00 IST run.")
 
-            # 22:00 - 23:59 - Earnings Calendar Refresh (Off-peak evening window: 10:00 PM to 12:00 AM IST)
-            if now.hour in (22, 23) and last_earnings_date != now.date():
+            # 12:01 AM - 04:00 AM - Earnings Calendar Refresh (Daily off-peak window)
+            if 0 <= now.hour < 4 and last_earnings_date != now.date():
                 last_earnings_date = now.date()
                 if not is_scanner_stopped("Earnings Calendar"):
                     def _run_earnings_post_market():
                         try:
-                            logger.info("📅 SCHEDULER | [10:00 PM - 12:00 AM IST] Earnings Calendar off-peak refresh starting...")
+                            logger.info("📅 SCHEDULER | [12:01 AM - 04:00 AM IST] Earnings Calendar off-peak refresh starting...")
                             from earnings_calendar import run_earnings_calendar_refresh
                             run_earnings_calendar_refresh()
                         except Exception as e:
@@ -1680,7 +1673,7 @@ def run_system_scheduler():
                     import threading as _t
                     _t.Thread(target=_run_earnings_post_market, name="EarningsCalendar-PostMarket", daemon=True).start()
                 else:
-                    logger.info("⏭️ Earnings Calendar is STOPPED by Admin. Skipping 22:00 IST refresh.")
+                    logger.info("⏭️ Earnings Calendar is STOPPED by Admin. Skipping 12:01 AM refresh.")
 
             # Midnight session rotation — triggered once on date boundary
             if last_rotation_date != now.date():

@@ -404,25 +404,13 @@ def run_earnings_calendar_refresh() -> dict:
         _scan_lock.release()
 
 def is_earnings_active_window(now: Optional[datetime] = None) -> bool:
-    """Check if current time is within active worker window:
-    - Saturday & Sunday: 03:00 AM to 12:00 PM IST (3:00 to 12:00 IST)
-    - Working Days (Mon-Fri): 04:00 AM to 06:00 AM IST (4:00 to 6:00 IST)
-    """
+    """Check if current time is within active worker window: 12:01 AM to 04:00 AM IST Daily."""
     if now is None:
         now = datetime.now(IST)
-    is_weekend = now.weekday() >= 5
-    if is_weekend:
-        return 3 <= now.hour < 12
-    else:
-        return 4 <= now.hour < 6
+    return 0 <= now.hour < 4
 
 def get_earnings_window_desc(now: Optional[datetime] = None) -> str:
-    if now is None:
-        now = datetime.now(IST)
-    if now.weekday() >= 5:
-        return "03:00 - 12:00 IST (Sat-Sun)"
-    else:
-        return "04:00 - 06:00 IST (Mon-Fri)"
+    return "12:01 AM - 04:00 AM IST Daily"
 
 def run_worker_loop():
     """Background daemon loop for Earnings Calendar worker."""
