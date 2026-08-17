@@ -99,9 +99,14 @@ class ProcessLock:
         """
         return self.thread_lock.locked()
 
-    def acquire(self, blocking: bool = False) -> bool:
-        if not self.thread_lock.acquire(blocking=blocking):
-            return False
+    def acquire(self, blocking: bool = False, timeout: float = -1, **kwargs) -> bool:
+        timeout_val = float(timeout) if timeout is not None else -1.0
+        if blocking:
+            if not self.thread_lock.acquire(blocking=True, timeout=timeout_val if timeout_val > 0 else -1):
+                return False
+        else:
+            if not self.thread_lock.acquire(blocking=False):
+                return False
             
         try:
             # 1. Fallback local file lock for non-distributed edge cases
@@ -133,6 +138,10 @@ class ProcessLock:
                             if locked:
                                 break
                             elapsed = time.monotonic() - wait_start
+                            if timeout_val > 0 and elapsed >= timeout_val:
+                                fcntl.flock(self.lock_fd, fcntl.LOCK_UN)
+                                self.thread_lock.release()
+                                return False
                             if int(elapsed) >= last_logged_s + 15:
                                 last_logged_s = int(elapsed)
                                 logger.info(f"⏳ [{self.lock_name.upper()}] Lock busy — waiting for active scanner to release... (elapsed: {last_logged_s}s)")

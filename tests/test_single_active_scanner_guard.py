@@ -6,6 +6,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from database import is_scanner_actively_running
+from lock_utils import ProcessLock
 
 def test_is_scanner_actively_running():
     mock_conn = MagicMock()
@@ -20,3 +21,8 @@ def test_is_scanner_actively_running():
         assert mock_cur.execute.called
         sql = mock_cur.execute.call_args[0][0]
         assert "LOWER(scanner_name) = LOWER(%s)" in sql
+
+def test_process_lock_accepts_timeout_kwarg():
+    lock = ProcessLock("test_lock_kwarg")
+    assert lock.acquire(blocking=False, timeout=1.0) is True
+    lock.release()
