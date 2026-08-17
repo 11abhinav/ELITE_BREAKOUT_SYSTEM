@@ -1484,6 +1484,16 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
             complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Same scanner already actively running")
         return
 
+    queued_at = None
+    if not _global_lock.acquire(blocking=False):
+        queued_at = time.monotonic()
+        logger.info("⏳ [MULTI_TF] Global lock busy — marking status QUEUED and waiting...")
+        upsert_scanner_health("MULTI_TF", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
+        if not _global_lock.acquire(blocking=True):
+            raise RuntimeError("Failed to acquire global scanner lock.")
+        logger.info(f"✅ [MULTI_TF] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
+        upsert_scanner_health("MULTI_TF", "RUNNING")
+
     own_ctx = False
     if run_ctx is None:
         try:
@@ -1491,24 +1501,6 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
             own_ctx = True
         except Exception:
             pass
-
-    queued_at = None
-    if not _global_lock.acquire(blocking=False):
-        queued_at = time.monotonic()
-        logger.info("⏳ [MULTI_TF] Global lock busy — marking status QUEUED and waiting...")
-        upsert_scanner_health("MULTI_TF", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
-        if run_ctx and getattr(run_ctx, "run_id", None):
-            from database import update_scanner_run_lifecycle
-            update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
-        if not _global_lock.acquire(blocking=True):
-            if own_ctx and run_ctx:
-                complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Global lock acquisition failed")
-            raise RuntimeError("Failed to acquire global scanner lock.")
-        logger.info(f"✅ [MULTI_TF] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
-        upsert_scanner_health("MULTI_TF", "RUNNING")
-        if run_ctx and getattr(run_ctx, "run_id", None):
-            from database import update_scanner_run_lifecycle
-            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
 
     if not _scan_lock.acquire(blocking=False):
         _global_lock.release()
