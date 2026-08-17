@@ -1177,7 +1177,7 @@ def _main_wrapper(force_rebuild: bool = False, run_ctx=None):
                 error_msg=None,
                 processed_count=proc,
                 total_count=tot,
-                scheduled_for="01:00 IST",
+                scheduled_for="05:00 IST",
                 duration_seconds=duration_sec,
                 outcome=outcome
             )
