@@ -203,3 +203,34 @@ def clear_all_fyers_invalid():
         logger.info("✨ Cleared all Fyers invalid symbol blacklists from DB and RAM cache.")
     except Exception as e:
         logger.warning(f"Failed to clear all Fyers invalid mappings: {e}")
+
+def clear_all_symbol_mappings(provider: str = None):
+    """Wipes all stored symbol mappings from DB and RAM memory index so symbols are re-discovered fresh."""
+    global _fyers_mappings_cache, _fyers_invalid_cache
+    try:
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                if provider:
+                    cur.execute("DELETE FROM symbol_mappings WHERE UPPER(mapping_type) = %s OR UPPER(provider) = %s", (provider.upper(), provider.upper()))
+                else:
+                    cur.execute("DELETE FROM symbol_mappings")
+            conn.commit()
+            
+        _fyers_mappings_cache = {}
+        _fyers_invalid_cache = set()
+        
+        # Reset SymbolResolutionEngine RAM cache
+        try:
+            from symbol_resolution_engine import get_symbol_resolver
+            resolver = get_symbol_resolver()
+            resolver._store.clear()
+        except Exception:
+            pass
+            
+        logger.info(f"✨ Cleared all symbol mappings ({provider or 'ALL'}) from Database and RAM cache.")
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to clear symbol mappings: {e}")
+        return False
+
