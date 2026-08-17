@@ -509,12 +509,17 @@ def _is_cache_up_to_date(last_ts: pd.Timestamp, interval: str, now_dt: datetime 
     else:
         return _is_cache_up_to_date_legacy(last_ts, interval, now_dt)
 
-def _is_cache_long_enough(cached_df: pd.DataFrame, period: str, sym: str = "") -> bool:
+def _is_cache_long_enough(cached_df: pd.DataFrame, period: str, sym: str = "", interval: str = "") -> bool:
     """Check if the cached dataframe has enough calendar days to satisfy the requested period."""
     if cached_df.empty:
         return False
-    # Intraday/partial data optimization: If cache already has >= 30 candles, allow DELTA updates
-    if len(cached_df) >= 30:
+    # Intraday / short-period optimization: For intraday (1h, 30m, 15m, 5m) or short requests (15d, 10d, 5d),
+    # if cache already has >= 30 candles, allow DELTA updates without forcing full re-downloads.
+    is_intraday_or_short = (
+        interval.lower() in ("1h", "30m", "15m", "5m", "15min", "5min") or 
+        period.lower() in ("15d", "10d", "5d", "1d")
+    )
+    if is_intraday_or_short and len(cached_df) >= 30:
         return True
     try:
         if 'Date' in cached_df.columns:
@@ -646,7 +651,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         
                     # 🚀 OPTIMIZATION: If data is already up to the last market close, skip DELTA fetch completely!
                     is_up_to_date = _is_cache_up_to_date(last_ts, interval)
-                    is_long_enough = _is_cache_long_enough(cached_df, period, sym)
+                    is_long_enough = _is_cache_long_enough(cached_df, period, sym, interval=interval)
                     
                     if is_invalid:
                         is_up_to_date = False
