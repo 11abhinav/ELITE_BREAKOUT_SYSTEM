@@ -1525,25 +1525,32 @@ def run_system_scheduler():
                     from price_cache import fetch_watchlist_data
                     from config import WATCHLIST_PATH
                     import pandas as pd
+                    from concurrent.futures import ThreadPoolExecutor as _WarmupExec
                     wl_df = pd.read_parquet(WATCHLIST_PATH)
-                    # [VERSION: WARMUP_1H_v1.0] Pre-warm 15m cache for Multi-TF Phase B/C/D
-                    fetch_watchlist_data(wl_df, interval="15m", period="10d", requester="SCHEDULER_WARMUP_15M")
-                    logger.info("✅ SCHEDULER | 15m Warmup Complete")
-                except Exception as e:
-                    logger.error(f"❌ SCHEDULER | 15m Warmup Failed: {e}")
-                try:
-                    from price_cache import fetch_watchlist_data
-                    from config import WATCHLIST_PATH
-                    import pandas as pd
-                    wl_df = pd.read_parquet(WATCHLIST_PATH)
-                    # [VERSION: WARMUP_1H_v1.0] Pre-warm 1H cache for Multi-TF Phase A (1H Trend Scanner).
-                    # Phase A runs on first 15-min boundary at 09:30. Without this pre-warm,
-                    # the 1H cache is cold → evaluate_data_staleness() marks data stale →
-                    # symbols are silently skipped in the 09:30 Phase A cycle.
-                    fetch_watchlist_data(wl_df, interval="1h", period="15d", requester="SCHEDULER_WARMUP_1H")
-                    logger.info("✅ SCHEDULER | 1H Warmup Complete")
-                except Exception as e:
-                    logger.error(f"❌ SCHEDULER | 1H Warmup Failed: {e}")
+
+                    def _warmup_15m():
+                        # [VERSION: WARMUP_1H_v1.0] Pre-warm 15m cache for Multi-TF Phase B/C/D
+                        fetch_watchlist_data(wl_df, interval="15m", period="10d", requester="SCHEDULER_WARMUP_15M")
+                        logger.info("✅ SCHEDULER | 15m Warmup Complete")
+
+                    def _warmup_1h():
+                        # [VERSION: WARMUP_1H_v1.0] Pre-warm 1H cache for Multi-TF Phase A (1H Trend Scanner).
+                        # Phase A runs on first 15-min boundary at 09:30. Without this pre-warm,
+                        # the 1H cache is cold → evaluate_data_staleness() marks data stale →
+                        # symbols are silently skipped in the 09:30 Phase A cycle.
+                        fetch_watchlist_data(wl_df, interval="1h", period="15d", requester="SCHEDULER_WARMUP_1H")
+                        logger.info("✅ SCHEDULER | 1H Warmup Complete")
+
+                    # [VERSION: PARALLEL_WARMUP_v1.0] Run both warmups concurrently — each has its own
+                    # requester-scoped lock in price_cache so they do NOT serialize each other.
+                    with _WarmupExec(max_workers=2, thread_name_prefix="WarmupFetch") as wp:
+                        f15 = wp.submit(_warmup_15m)
+                        f1h = wp.submit(_warmup_1h)
+                        for f in (f15, f1h):
+                            try:
+                                f.result()
+                            except Exception as e:
+                                logger.error(f"❌ SCHEDULER | Warmup fetch failed: {e}")
             elif now.hour == 9 and now.minute == 15 and not warmup_ran:
                 logger.error("🚨 CRITICAL: 09:15 reached but Warmup did not complete! Scans will suffer severe cache misses.")
                 # We do not set warmup_ran = True here so we know it failed, but we avoid re-triggering.

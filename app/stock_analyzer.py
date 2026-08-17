@@ -1029,12 +1029,27 @@ def analyze_watchlist(symbols: list, user_id: str = "DEFAULT_USER", is_deep_anal
 
     # 1. Single Bulk Market Data Fetch for all symbols in the watchlist
     sample_df = pd.DataFrame([{"Stock": s, "Category": "MIDCAP", "Sector": "GENERAL"} for s in clean_syms])
-    logger.info(f"📥 [STOCK ANALYZER BATCH] Fetching 1Y daily OHLCV for {len(clean_syms)} symbols in 1 bulk request...")
-    fetched_map = fetch_watchlist_data(sample_df, interval="1d", period="1y", requester="STOCK_ANALYZER_BATCH")
-    logger.info(f"✅ [STOCK ANALYZER BATCH] Bulk fetch complete. {len(fetched_map)} datasets received.")
+    logger.info(f"📥 [STOCK ANALYZER BATCH] Parallel-fetching 1Y daily OHLCV + 1mo 1H OHLCV for {len(clean_syms)} symbols...")
 
-    logger.info(f"📥 [STOCK ANALYZER BATCH] Fetching 1mo 1H OHLCV for {len(clean_syms)} symbols in 1 bulk request for Multi-TF Evaluator...")
-    fetched_h1_map = fetch_watchlist_data(sample_df, interval="1h", period="1mo", requester="STOCK_ANALYZER_BATCH_H1")
+    from concurrent.futures import ThreadPoolExecutor as _BatchExec
+    fetched_map = {}
+    fetched_h1_map = {}
+
+    def _fetch_1d():
+        return fetch_watchlist_data(sample_df, interval="1d", period="1y", requester="STOCK_ANALYZER_BATCH")
+
+    def _fetch_1h():
+        # [VERSION: PARALLEL_BATCH_FETCH_v1.0] Parallel 1H fetch for Multi-TF Evaluator;
+        # requester-scoped lock in price_cache ensures no serialization with the 1d fetch.
+        return fetch_watchlist_data(sample_df, interval="1h", period="1mo", requester="STOCK_ANALYZER_BATCH_H1")
+
+    with _BatchExec(max_workers=2, thread_name_prefix="SABatchFetch") as bexec:
+        f1d = bexec.submit(_fetch_1d)
+        f1h = bexec.submit(_fetch_1h)
+        fetched_map = f1d.result()
+        fetched_h1_map = f1h.result()
+
+    logger.info(f"✅ [STOCK ANALYZER BATCH] Bulk fetch complete. 1d={len(fetched_map)}, 1h={len(fetched_h1_map)} datasets received.")
 
     results = {}
     for idx, sym in enumerate(clean_syms, 1):
