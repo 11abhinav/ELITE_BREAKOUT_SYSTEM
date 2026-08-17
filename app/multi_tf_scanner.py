@@ -1112,6 +1112,12 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                                     lower_funnel["pb_fail_vol"] += 1
                             if not c_close_pos:
                                 reasons.append("PD04")
+                            if not reasons:
+                                reasons.append("PD05")
+                            
+                            trace = f"Engulf={c_engulf} BullBody={c_bull_body} Defended={c_defended} AboveTrig={c_above_trig} Vol={c_vol} StrongClose={c_close_pos}"
+                            reason_str = f"{'|'.join(reasons)} [{trace}]"
+
                             dist_pct = ((trigger_level - close) / trigger_level) * 100.0 if close < trigger_level else 0.0
                             if 0.0 <= dist_pct <= 0.5:
                                 logger.info(f"👀 {symbol} ENTRY_NEAR_MISS | Distance to Trigger: {dist_pct:.2f}% | Close=₹{close:.2f} | Trigger=₹{trigger_level:.2f}")
