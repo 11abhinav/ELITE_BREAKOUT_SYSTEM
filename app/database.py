@@ -2506,12 +2506,12 @@ def get_all_scanner_health() -> list[dict]:
     init_db()
     schedule_map = {
         "DAILY_BUILDER": "05:00 IST Daily",
-        "Wealth Engine": "06:00 IST (Initial) / Every 1h Market Hours (9:15 AM - 3:30 PM)",
+        "Wealth Engine": "06:00 IST (Initial) / Hourly Market Scan",
         "EOD": "18:00 IST (After Bhavcopy)",
         "REVERSAL": "18:00 IST (After Bhavcopy)",
         "PULLBACK": "18:00 IST (After Bhavcopy)",
         "MULTIBAGGER": "19:00 IST Daily",
-        "MULTI_TF": "Every 5min (9:30 AM - 2:55 PM IST)",
+        "MULTI_TF": "Every 5min (09:30 - 14:55 IST)",
         "PERFORMANCE_TRACKER": "Every 5min Market Hours (9:15 AM - 3:30 PM)",
         "MULTIBAGGER_EXIT": "Every 15min Market Hours (9:15 AM - 3:30 PM)",
         "WEALTH_EXIT": "Every 5min Market Hours (9:15 AM - 3:30 PM)",
@@ -2520,24 +2520,20 @@ def get_all_scanner_health() -> list[dict]:
         "Earnings Calendar": "12:01 AM - 04:00 AM IST Daily"
     }
 
-    # Auto-seed any missing standard scanner records so DB table always has all 12 entries
+    # Auto-seed and synchronize scheduled_for for all scanners so old DB values are overwritten
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT scanner_name FROM scanner_health")
-                existing = {row[0] for row in cur.fetchall()}
-                missing = [s for s in ALL_KNOWN_SCANNERS if s not in existing]
-                if missing:
-                    now_str = datetime.now(IST).isoformat()
-                    for m_sc in missing:
-                        cur.execute("""
-                            INSERT INTO scanner_health (scanner_name, status, scheduled_for, updated_at)
-                            VALUES (%s, 'IDLE', %s, %s)
-                            ON CONFLICT (scanner_name) DO NOTHING
-                        """, (m_sc, schedule_map.get(m_sc, "Scheduled"), now_str))
-                    conn.commit()
+                now_str = datetime.now(IST).isoformat()
+                for sc_name, sched_str in schedule_map.items():
+                    cur.execute("""
+                        INSERT INTO scanner_health (scanner_name, status, scheduled_for, updated_at)
+                        VALUES (%s, 'IDLE', %s, %s)
+                        ON CONFLICT (scanner_name) DO UPDATE SET scheduled_for = EXCLUDED.scheduled_for
+                    """, (sc_name, sched_str, now_str))
+                conn.commit()
     except Exception as seed_err:
-        logger.warning(f"Scanner health auto-seed non-critical warning: {seed_err}")
+        logger.warning(f"Scanner health schedule sync warning: {seed_err}")
 
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
