@@ -1969,32 +1969,32 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         if price_data.sma_200 <= 0 or price_data.ema_20 <= 0 or price_data.sma_50 <= 0 or price_data.price <= 0:
             logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Ambiguous Technicals)")
             append_rejection(results, sym, "TECHNICAL_UNAVAILABLE", "Ambiguous Technicals", price=price_data.price)
-            continue
+            return
 
         # [FIX-2] Reject stale entries — if the last trade was >= 3 business days ago
         if _is_stale_trade_date(getattr(price_data, 'last_trade_date', '')):
             logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Stale price data — last trade: {getattr(price_data, 'last_trade_date', 'unknown')})")
             append_rejection(results, sym, "STALE_DATA", f"Stale trade date: {getattr(price_data, 'last_trade_date', 'unknown')}", price=price_data.price)
-            continue
+            return
             
         if raw_fundamentals.get("data_freshness") == "FALLBACK":
             logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Fallback Fundamentals)")
             append_rejection(results, sym, "FALLBACK_DATA", "Fallback Fundamentals", price=price_data.price)
-            continue
+            return
 
         # [FIX-6] Reject before scoring when volume is unavailable. None/0 volume
         # means the V5 pipeline will impute a neutral score, artificially inflating the result.
         if price_data.latest_volume <= 0 or price_data.volume_sma20 <= 0:
             logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Volume data unavailable)")
             append_rejection(results, sym, "VOLUME_UNAVAILABLE", "Volume data unavailable", price=price_data.price)
-            continue
+            return
             
         ok, reason = passes_multibagger_quality_gate(raw_fundamentals)
         if not ok:
             logger.debug(f"REJECTION: {sym} (Phase: QUALITY_GATE, Reason: {reason})")
             status_code = "UNSUPPORTED_FINANCIAL" if reason.startswith("UNSUPPORTED") else "QUALITY_REJECTED"
             append_rejection(results, sym, status_code, reason, price=price_data.price)
-            continue
+            return
 
         # 3. Run the V5 Pipeline
         # [VERSION: MULTIBAGGER_PIPELINE_GUARD_v1.1] Guard per-symbol pipeline execution with exception logging
@@ -2003,13 +2003,13 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         except Exception:
             logger.exception("%s: V5 pipeline failed", sym)
             append_rejection(results, sym, "PIPELINE_FAILED", "V5 pipeline execution error", price=price_data.price)
-            continue
+            return
         
         # Log rejection if invalidated by V5 gates
         if pipeline_result.is_invalidated:
             logger.debug(f"REJECTION: {sym} (Phase: V5_GATE, Reason: {pipeline_result.invalidation_reason})")
             append_rejection(results, sym, "QUALITY_REJECTED", f"V5 Gate: {pipeline_result.invalidation_reason}", price=price_data.price)
-            continue
+            return
                 
         # Extract scores from the V5 pipeline
         cqs = pipeline_result.quality.score
