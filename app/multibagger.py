@@ -2428,9 +2428,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             scheduled_for="19:00 IST",
             duration_seconds=duration_sec
         )
-        insert_notification("info", "✅ Multibagger Scan Completed", f"Generated {alerts_count} alerts from {len(fundamentals_list)} stocks in {duration_sec}s.")
-        from push_service import send_push_to_all
-        send_push_to_all("🚀 MULTIBAGGER Scanner OK", f"Found {alerts_count} new alerts.", bypass_throttle=True)
+        pass
     except Exception as e:
         logger.error(f"Could not update health/notification for Multibagger: {e}")
     # ── Memory Cleanup Phase ──────────────────────────────────────────────

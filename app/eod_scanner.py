@@ -1694,13 +1694,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
             except Exception:
                 logger.exception("❌ Failed to update scanner health for EOD")
             if status == "OK":
-                try:
-                    if total_alerts > 0:
-                        insert_notification("admin", f"🚀 EOD Scanner ran successfully. Found {total_alerts} new breakout alerts.", f"Generated {total_alerts} alerts from {len(watchlist)} scanned stocks. Outcome: {outcome}")
-                        from push_service import send_push_to_all
-                        send_push_to_all("🚀 EOD Scanner OK", f"Found {total_alerts} new breakout alerts.", bypass_throttle=True)
-                except Exception:
-                    pass
+                pass
             elif status == "DEGRADED":
                 try:
                     insert_notification("admin", f"⚠️ EOD Scanner finished with DEGRADED status", error_msg or f"Generated {total_alerts} alerts but data was degraded.")

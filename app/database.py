@@ -211,6 +211,18 @@ _INIT_LOCK = threading.Lock()
 
 
 def _insert_notification_sync(notif_type: str, title: str, message: str, symbol: str = None):
+    # [SUPPRESSION RULE] Do not create notifications for routine scanner completions per admin requirement
+    title_lower = (title or "").lower()
+    if any(k in title_lower for k in [
+        "scanner ran successfully",
+        "scan completed",
+        "scan complete",
+        "builder completed",
+        "watchlist generation successful"
+    ]):
+        logger.debug(f"🔇 Suppressed scanner completion notification: {title}")
+        return
+
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
