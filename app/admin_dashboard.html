@@ -1337,6 +1337,9 @@
         <!-- END NOTIFICATION BELL -->
 
 
+        <button onclick="triggerPWAInstall()" class="refresh-btn" style="color: var(--accent); font-weight: 700; border-color: rgba(5,150,105,0.3); background: var(--accent-dim);">
+          📲 Install App
+        </button>
         <button onclick="window.location.href='/logout'" class="refresh-btn"
           style="margin-right: 10px; color: var(--muted);">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -8197,6 +8200,116 @@ document.addEventListener('DOMContentLoaded', () => {
   loadNearMisses();
 });
   </script>
+
+<div id="pwa-install-banner" style="display:none; position:fixed; bottom:0; left:0; right:0; background:linear-gradient(135deg, #161b22, #0d1117); border-top:1px solid rgba(0,229,160,0.4); padding:14px 20px; z-index:99999; align-items:center; gap:14px; box-shadow:0 -8px 32px rgba(0,0,0,0.6);">
+  <img src="/static/icons/icon-192.png" alt="App Icon" style="width:44px; height:44px; border-radius:10px; flex-shrink:0;">
+  <div style="flex:1;">
+    <div style="font-size:14px; font-weight:700; color:#e8eaf0;">📲 Install Screener Admin App</div>
+    <div style="font-size:12px; color:#94a3b8;">Add to your home screen for instant system control & alerts</div>
+  </div>
+  <div style="display:flex; gap:8px;">
+    <button onclick="triggerPWAInstall()" style="background:#00e5a0; color:#0b0e14; border:none; padding:8px 16px; border-radius:8px; font-weight:700; font-size:13px; cursor:pointer;">Install</button>
+    <button onclick="document.getElementById('pwa-install-banner').style.display='none'; localStorage.setItem('pwa-dismissed','1');" style="background:transparent; color:#6b7280; border:1px solid rgba(255,255,255,0.1); padding:8px 12px; border-radius:8px; font-size:13px; cursor:pointer;">✕</button>
+  </div>
+</div>
+
+<div id="pwa-guide-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); backdrop-filter:blur(8px); justify-content:center; align-items:center; z-index:100000; padding:20px;">
+  <div style="background:var(--card, #1c2128); border:1px solid var(--border, rgba(255,255,255,0.15)); border-radius:16px; width:100%; max-width:440px; padding:24px; box-shadow:0 20px 50px rgba(0,0,0,0.8); position:relative; color:var(--text, #e6edf3);">
+    <button onclick="closePWAGuideModal()" style="position:absolute; top:16px; right:16px; background:var(--card2, #21262d); border:1px solid var(--border, rgba(255,255,255,0.1)); color:var(--text, #fff); width:32px; height:32px; border-radius:50%; font-size:14px; cursor:pointer;">✕</button>
+    <div id="pwa-guide-content"></div>
+  </div>
+</div>
+
+<script>
+// ── ENHANCED PWA INSTALLATION SYSTEM ─────────────────────────
+let deferredPrompt = null;
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  const banner = document.getElementById('pwa-install-banner');
+  setTimeout(() => {
+    if (deferredPrompt && !localStorage.getItem('pwa-dismissed')) {
+      if (banner) banner.style.display = 'flex';
+    }
+  }, 3000);
+});
+
+window.addEventListener('appinstalled', () => {
+  console.log('[PWA] App installed successfully!');
+  const banner = document.getElementById('pwa-install-banner');
+  if (banner) banner.style.display = 'none';
+  deferredPrompt = null;
+});
+
+function triggerPWAInstall() {
+  localStorage.removeItem('pwa-dismissed');
+  localStorage.removeItem('ios-hint-dismissed');
+
+  const banner = document.getElementById('pwa-install-banner');
+  if (banner) banner.style.display = 'none';
+
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(({ outcome }) => {
+      console.log('[PWA] Install choice outcome:', outcome);
+      deferredPrompt = null;
+    });
+  } else {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    showPWAGuideModal(isIOS ? 'ios' : 'android');
+  }
+}
+
+function showPWAGuideModal(platform) {
+  const modal = document.getElementById('pwa-guide-modal');
+  const content = document.getElementById('pwa-guide-content');
+  if (!modal || !content) return;
+
+  if (platform === 'ios') {
+    content.innerHTML = `
+      <div style="text-align:center; padding:10px 0;">
+        <div style="font-size:40px; margin-bottom:12px;">📲</div>
+        <h3 style="font-size:18px; font-weight:800; color:var(--accent, #00e5a0); margin-bottom:12px;">Install on iPhone / iPad</h3>
+        <div style="text-align:left; background:var(--card2, #21262d); border:1px solid var(--border, rgba(255,255,255,0.1)); border-radius:12px; padding:16px; font-size:13px; line-height:1.6; margin-bottom:20px; color:var(--text, #e6edf3);">
+          <p style="margin-bottom:10px;"><strong>Step 1:</strong> Tap the <strong>Share</strong> button <span style="font-size:18px;">⬆️</span> at the bottom of Safari.</p>
+          <p style="margin-bottom:10px;"><strong>Step 2:</strong> Scroll down in the options menu.</p>
+          <p style="margin-bottom:0;"><strong>Step 3:</strong> Tap <strong>"Add to Home Screen"</strong> 📲 and tap <strong>Add</strong>!</p>
+        </div>
+        <button onclick="closePWAGuideModal()" style="width:100%; padding:12px; background:var(--accent, #00e5a0); color:#0b0e14; border:none; border-radius:10px; font-weight:700; font-size:14px; cursor:pointer;">Got it!</button>
+      </div>
+    `;
+  } else {
+    content.innerHTML = `
+      <div style="text-align:center; padding:10px 0;">
+        <div style="font-size:40px; margin-bottom:12px;">📲</div>
+        <h3 style="font-size:18px; font-weight:800; color:var(--accent, #00e5a0); margin-bottom:12px;">Install App on Mobile / Chrome</h3>
+        <div style="text-align:left; background:var(--card2, #21262d); border:1px solid var(--border, rgba(255,255,255,0.1)); border-radius:12px; padding:16px; font-size:13px; line-height:1.6; margin-bottom:20px; color:var(--text, #e6edf3);">
+          <p style="margin-bottom:10px;"><strong>Step 1:</strong> Tap the <strong>3 Dots Menu (⋮)</strong> at the top right of Chrome.</p>
+          <p style="margin-bottom:10px;"><strong>Step 2:</strong> Tap <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong> 📲.</p>
+          <p style="margin-bottom:0;"><strong>Step 3:</strong> Tap <strong>Install</strong> to add the app icon to your phone!</p>
+        </div>
+        <button onclick="closePWAGuideModal()" style="width:100%; padding:12px; background:var(--accent, #00e5a0); color:#0b0e14; border:none; border-radius:10px; font-weight:700; font-size:14px; cursor:pointer;">Got it!</button>
+      </div>
+    `;
+  }
+  modal.style.display = 'flex';
+}
+
+function closePWAGuideModal() {
+  const modal = document.getElementById('pwa-guide-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+const isInStandaloneMode = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+if (isIOS && !isInStandaloneMode && !localStorage.getItem('ios-hint-dismissed')) {
+  setTimeout(() => {
+    showPWAGuideModal('ios');
+    localStorage.setItem('ios-hint-dismissed', '1');
+  }, 4000);
+}
+</script>
 
 <script>
   // ── PWA: Service Worker Registration ──

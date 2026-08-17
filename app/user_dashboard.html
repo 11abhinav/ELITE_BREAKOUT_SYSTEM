@@ -473,6 +473,9 @@ function playDing() {
       </div>
       <!-- END NOTIFICATION BELL -->
 
+      <button onclick="triggerPWAInstall()" class="refresh-btn" style="color: var(--accent); font-weight: 700; border-color: rgba(5,150,105,0.3); background: var(--accent-dim);">
+        📲 Install App
+      </button>
       <button onclick="window.location.href='/logout'" class="refresh-btn" style="margin-right: 10px; color: var(--muted);">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
         Logout
@@ -2782,72 +2785,107 @@ document.addEventListener('DOMContentLoaded', () => {
     <div class="banner-sub">Add to home screen for instant alerts</div>
   </div>
   <div class="banner-actions">
-    <button id="pwa-install-btn">Install</button>
-    <button id="pwa-dismiss-btn">✕</button>
+    <button onclick="triggerPWAInstall()" style="background:#00e5a0; color:#0b0e14; border:none; padding:8px 16px; border-radius:8px; font-weight:700; font-size:13px; cursor:pointer;">Install</button>
+    <button onclick="document.getElementById('pwa-install-banner').classList.remove('show'); localStorage.setItem('pwa-dismissed','1');" style="background:transparent; color:#6b7280; border:1px solid rgba(255,255,255,0.1); padding:8px 12px; border-radius:8px; font-size:13px; cursor:pointer;">✕</button>
   </div>
 </div>
 
-<div id="ios-install-hint">
-  <div class="hint-title">📲 Install on iPhone</div>
-  <div class="hint-text">
-    Tap <span class="hint-share">⬆️</span> <strong>Share</strong> in Safari,<br>
-    then <strong>"Add to Home Screen"</strong>
+<div id="pwa-guide-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); backdrop-filter:blur(8px); justify-content:center; align-items:center; z-index:100000; padding:20px;">
+  <div style="background:var(--card, #1c2128); border:1px solid var(--border, rgba(255,255,255,0.15)); border-radius:16px; width:100%; max-width:440px; padding:24px; box-shadow:0 20px 50px rgba(0,0,0,0.8); position:relative; color:var(--text, #e6edf3);">
+    <button onclick="closePWAGuideModal()" style="position:absolute; top:16px; right:16px; background:var(--card2, #21262d); border:1px solid var(--border, rgba(255,255,255,0.1)); color:var(--text, #fff); width:32px; height:32px; border-radius:50%; font-size:14px; cursor:pointer;">✕</button>
+    <div id="pwa-guide-content"></div>
   </div>
-  <button onclick="document.getElementById('ios-install-hint').classList.remove('show')">Got it</button>
 </div>
 
 <script>
-// ── PWA INSTALL BANNER (Android / Desktop) ───────────────────
+// ── ENHANCED PWA INSTALLATION SYSTEM ─────────────────────────
 let deferredPrompt = null;
-const installBanner = document.getElementById('pwa-install-banner');
-const installBtn    = document.getElementById('pwa-install-btn');
-const dismissBtn    = document.getElementById('pwa-dismiss-btn');
 
 window.addEventListener('beforeinstallprompt', e => {
   e.preventDefault();
   deferredPrompt = e;
-  // Show after 3 seconds so it doesn't immediately pop up on load
+  const banner = document.getElementById('pwa-install-banner');
   setTimeout(() => {
     if (deferredPrompt && !localStorage.getItem('pwa-dismissed')) {
-      installBanner.classList.add('show');
+      if (banner) banner.classList.add('show');
     }
   }, 3000);
 });
 
-installBtn.addEventListener('click', async () => {
-  if (!deferredPrompt) return;
-  installBanner.classList.remove('show');
-  deferredPrompt.prompt();
-  const { outcome } = await deferredPrompt.userChoice;
-  console.log('[PWA] Install outcome:', outcome);
-  deferredPrompt = null;
-});
-
-dismissBtn.addEventListener('click', () => {
-  installBanner.classList.remove('show');
-  localStorage.setItem('pwa-dismissed', '1');
-});
-
 window.addEventListener('appinstalled', () => {
   console.log('[PWA] App installed successfully!');
-  installBanner.classList.remove('show');
+  const banner = document.getElementById('pwa-install-banner');
+  if (banner) banner.classList.remove('show');
   deferredPrompt = null;
 });
 
-// ── iOS INSTALL HINT ─────────────────────────────────────────
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-const isInStandaloneMode = window.matchMedia('(display-mode: standalone)').matches ||
-                           window.navigator.standalone === true;
-const iosHintDismissed = localStorage.getItem('ios-hint-dismissed');
+function triggerPWAInstall() {
+  localStorage.removeItem('pwa-dismissed');
+  localStorage.removeItem('ios-hint-dismissed');
 
-if (isIOS && !isInStandaloneMode && !iosHintDismissed) {
+  const banner = document.getElementById('pwa-install-banner');
+  if (banner) banner.classList.remove('show');
+
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(({ outcome }) => {
+      console.log('[PWA] Install choice outcome:', outcome);
+      deferredPrompt = null;
+    });
+  } else {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    showPWAGuideModal(isIOS ? 'ios' : 'android');
+  }
+}
+
+function showPWAGuideModal(platform) {
+  const modal = document.getElementById('pwa-guide-modal');
+  const content = document.getElementById('pwa-guide-content');
+  if (!modal || !content) return;
+
+  if (platform === 'ios') {
+    content.innerHTML = `
+      <div style="text-align:center; padding:10px 0;">
+        <div style="font-size:40px; margin-bottom:12px;">📲</div>
+        <h3 style="font-size:18px; font-weight:800; color:var(--accent, #00e5a0); margin-bottom:12px;">Install on iPhone / iPad</h3>
+        <div style="text-align:left; background:var(--card2, #21262d); border:1px solid var(--border, rgba(255,255,255,0.1)); border-radius:12px; padding:16px; font-size:13px; line-height:1.6; margin-bottom:20px; color:var(--text, #e6edf3);">
+          <p style="margin-bottom:10px;"><strong>Step 1:</strong> Tap the <strong>Share</strong> button <span style="font-size:18px;">⬆️</span> at the bottom of Safari.</p>
+          <p style="margin-bottom:10px;"><strong>Step 2:</strong> Scroll down in the options menu.</p>
+          <p style="margin-bottom:0;"><strong>Step 3:</strong> Tap <strong>"Add to Home Screen"</strong> 📲 and tap <strong>Add</strong>!</p>
+        </div>
+        <button onclick="closePWAGuideModal()" style="width:100%; padding:12px; background:var(--accent, #00e5a0); color:#0b0e14; border:none; border-radius:10px; font-weight:700; font-size:14px; cursor:pointer;">Got it!</button>
+      </div>
+    `;
+  } else {
+    content.innerHTML = `
+      <div style="text-align:center; padding:10px 0;">
+        <div style="font-size:40px; margin-bottom:12px;">📲</div>
+        <h3 style="font-size:18px; font-weight:800; color:var(--accent, #00e5a0); margin-bottom:12px;">Install App on Mobile / Chrome</h3>
+        <div style="text-align:left; background:var(--card2, #21262d); border:1px solid var(--border, rgba(255,255,255,0.1)); border-radius:12px; padding:16px; font-size:13px; line-height:1.6; margin-bottom:20px; color:var(--text, #e6edf3);">
+          <p style="margin-bottom:10px;"><strong>Step 1:</strong> Tap the <strong>3 Dots Menu (⋮)</strong> at the top right of Chrome.</p>
+          <p style="margin-bottom:10px;"><strong>Step 2:</strong> Tap <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong> 📲.</p>
+          <p style="margin-bottom:0;"><strong>Step 3:</strong> Tap <strong>Install</strong> to add the app icon to your phone!</p>
+        </div>
+        <button onclick="closePWAGuideModal()" style="width:100%; padding:12px; background:var(--accent, #00e5a0); color:#0b0e14; border:none; border-radius:10px; font-weight:700; font-size:14px; cursor:pointer;">Got it!</button>
+      </div>
+    `;
+  }
+  modal.style.display = 'flex';
+}
+
+function closePWAGuideModal() {
+  const modal = document.getElementById('pwa-guide-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+const isInStandaloneMode = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+if (isIOS && !isInStandaloneMode && !localStorage.getItem('ios-hint-dismissed')) {
   setTimeout(() => {
-    document.getElementById('ios-install-hint').classList.add('show');
+    showPWAGuideModal('ios');
     localStorage.setItem('ios-hint-dismissed', '1');
   }, 4000);
 }
-
-// Include centralized Push Notifications Logic
 </script>
 <script>
 
