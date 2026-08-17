@@ -85,7 +85,7 @@ class YahooEarningsProvider(EarningsProvider):
             return t.earnings_dates
         
         try:
-            cal = safe_yf_call(_fetch_calendar, symbol=symbol, context="YahooEarningsProvider", max_retries=1)
+            cal = safe_yf_call(_fetch_calendar, symbol=symbol, context="YahooEarningsProvider", max_retries=5)
             if cal is not None and len(cal) > 0:
                 if isinstance(cal, dict) and "Earnings Date" in cal:
                     ed_list = cal["Earnings Date"]
@@ -101,7 +101,7 @@ class YahooEarningsProvider(EarningsProvider):
                         return dt_val.date(), DateStatus.ESTIMATED
 
             # If calendar fails, try earnings_dates
-            ed_df = safe_yf_call(_fetch_earnings_dates, symbol=symbol, context="YahooEarningsProvider", max_retries=1)
+            ed_df = safe_yf_call(_fetch_earnings_dates, symbol=symbol, context="YahooEarningsProvider", max_retries=5)
             if ed_df is not None and not ed_df.empty:
                 now_date = datetime.now(IST).date()
                 future_dates = [d.date() for d in ed_df.index if d.date() >= now_date]
@@ -185,7 +185,7 @@ class EarningsCalendarService:
             if is_scanner_stopped("Earnings Calendar"):
                 logger.info("⏭️ Earnings Calendar PAUSED by Admin mid-run. Aborting refresh loop.")
                 break
-            time.sleep(3.5)  # Increased delay to 3.5s to avoid Yahoo Finance rate limits
+            time.sleep(5.0)  # Increased delay to 3.5s to avoid Yahoo Finance rate limits
             logger.info(f"📅 [EARNINGS CALENDAR] [{idx}/{total_pending}] Fetching earnings date for {s}...")
             try:
                 ed, status = self.provider.fetch_earnings_date(s)

@@ -21,10 +21,10 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Concurrency & throttling tuning via env
-_MAX_CONCURRENCY = int(os.getenv("YF_CONCURRENCY", "6"))
-_MIN_INTERVAL_S = float(os.getenv("YF_MIN_INTERVAL_S", "1.25"))  # minimal spacing between calls
+_MAX_CONCURRENCY = int(os.getenv("YF_CONCURRENCY", "2"))
+_MIN_INTERVAL_S = float(os.getenv("YF_MIN_INTERVAL_S", "2.5"))  # minimal spacing between calls
 _RATE_WINDOW_S = int(os.getenv("YF_RATE_WINDOW_S", "60"))
-_RATE_THRESHOLD = int(os.getenv("YF_RATE_THRESHOLD", "3"))      # trip circuit if >= in window
+_RATE_THRESHOLD = int(os.getenv("YF_RATE_THRESHOLD", "8"))      # trip circuit if >= in window
 _COOLDOWN_SCHEDULE_S = [10, 20, 30, 45, 60]  # Capped at 60s max cooldown
 _current_cooldown_idx = 0
 
