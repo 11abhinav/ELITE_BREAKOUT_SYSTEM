@@ -548,7 +548,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False, session=None):
     except Exception as me:
         logger.debug(f"Phase A memory purge failed: {me}")
 
-    return {"fetched": fetched_count, "total": len(watchlist), "stale": stale_1h, "save_failures": 0}
+    return {"fetched": fetched_count, "total": len(watchlist), "stale": stale_1h, "approved": funnel.get("approved", 0), "save_failures": 0}
 
 # [VERSION: PERF_PROFILER_v1.0] Wrap Phase B/C/D so each sub-hourly ladder cycle
 # reports its own timing + memory profile separately from Phase A.
@@ -1112,14 +1112,12 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                                     lower_funnel["pb_fail_vol"] += 1
                             if not c_close_pos:
                                 reasons.append("PD04")
-                            if not reasons:
-                                reasons.append("PD05")
-                            
-                            trace = f"Engulf={c_engulf} BullBody={c_bull_body} Defended={c_defended} AboveTrig={c_above_trig} Vol={c_vol} StrongClose={c_close_pos}"
-                            reason_str = f"{'|'.join(reasons)} [{trace}]"
-                        
+                            dist_pct = ((trigger_level - close) / trigger_level) * 100.0 if close < trigger_level else 0.0
+                            if 0.0 <= dist_pct <= 0.5:
+                                logger.info(f"👀 {symbol} ENTRY_NEAR_MISS | Distance to Trigger: {dist_pct:.2f}% | Close=₹{close:.2f} | Trigger=₹{trigger_level:.2f}")
+
                             dist_atr = ((close - trigger_level) / atr20) if atr20 > 0 else 0.0
-                            logger.info(f"🚫 {symbol} PhaseD Reject | Reason={reason_str} | Trigger={trigger_level:.2f} Close={close:.2f} PrevHigh={float(prev['High']):.2f} ATR={atr20:.2f} ATR_Extension={dist_atr:.2f} VolRatio={vol_ratio:.2f} ClosePos={close_position:.2f} Pattern=EVAL")
+                            logger.info(f"🚫 {symbol} PhaseD Reject | Reason={reason_str} | Trigger={trigger_level:.2f} Close={close:.2f} PrevHigh={float(prev['High']):.2f} ATR={atr20:.2f} ATR_Extension={dist_atr:.2f} NearMiss={dist_pct:.2f}% VolRatio={vol_ratio:.2f} ClosePos={close_position:.2f} Pattern=EVAL")
             
                     if is_ready:
                         # [FIX MTF-19] Promote state to TRADE_ACTIVE immediately so
@@ -1579,7 +1577,7 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
             except Exception as e:
                 logger.warning(f"⚠️ Failed to compute macro regime: {e}. Defaulting to NEUTRAL.")
                 regime_ctx = {"trend": "NEUTRAL", "biases": {}}
-            stage_tracker.end_stage(f"Macro regime: {regime_ctx.get('trend', 'NEUTRAL')}")
+            stage_tracker.end_stage(f"Macro regime: {regime_ctx.get('regime', regime_ctx.get('trend', 'SIDEWAYS'))} | Policy: {policy.get('policy_name', 'NEUTRAL') if isinstance(policy, dict) else 'NEUTRAL'}")
             
             from memory_profiler import MemoryProfiler
             with MemoryProfiler("MULTI_TF_SCANNER", force_gc_cleanup=True):

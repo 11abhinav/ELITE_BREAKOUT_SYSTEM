@@ -2166,7 +2166,6 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
                     else:
                         stats = fn() or {}
                     duration_sec = round(time.time() - start_time, 1)
-                    time.sleep(15)
                     logger.info(f"✅ ADMIN MANUAL TRIGGER | {scanner_key} completed in {format_duration(duration_sec)}.")
                 except Exception as run_err:
                     raise run_err
@@ -2181,14 +2180,15 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
                 
                 try:
                     from database import insert_notification
-                    # We format a nice summary for the admin notification
                     dur_str = f"Time: {format_duration(duration_sec)}"
                     summary = f"Total Scanned: {stats.get('total_count', 'N/A')} | {dur_str}" if isinstance(stats, dict) else f"Completed in {dur_str}."
-                    # Skip duplicate notification for scanners that emit their own detailed completion notifications
                     if scanner_key not in ["DAILY_BUILDER", "EOD", "MULTIBAGGER", "REVERSAL", "MULTI_TF", "Wealth Engine", "PULLBACK"]:
                         insert_notification("info", f"✅ {scanner_key} Manual Scan Complete", summary)
                 except Exception:
                     pass
+
+            # Perform post-lock background tasks outside the global execution lock
+            time.sleep(5)
                 # Rebuild performance data on scan completion (debounced, async)
                 try:
                     from performance_tracker import trigger_performance_rebuild
