@@ -70,7 +70,16 @@ class YahooEarningsProvider(EarningsProvider):
         self._fallback_nse = NseEarningsProvider()
 
     def fetch_earnings_date(self, symbol: str) -> Tuple[Optional[date], str]:
-        """Fetches upcoming earnings date via yfinance with fallback to NSE."""
+        """Fetches upcoming earnings date via official NSE API first, with fallback to Yahoo Finance."""
+        # 1. Primary: Try official NSE India Corporate Announcements API (zero rate limiting)
+        try:
+            nse_date, nse_status = self._fallback_nse.fetch_earnings_date(symbol)
+            if nse_date is not None:
+                return nse_date, nse_status
+        except Exception as e:
+            logger.debug(f"NSE earnings pre-check failed for {symbol}: {e}")
+
+        # 2. Secondary Fallback: Yahoo Finance API
         import yfinance as yf
         from yf_rate_limiter import safe_yf_call
         clean_upper = symbol.strip().upper()
@@ -111,8 +120,7 @@ class YahooEarningsProvider(EarningsProvider):
         except Exception as e:
             logger.debug(f"Yahoo earnings fetch failed for {symbol}: {e}")
             
-        # Fallback to NSE API if Yahoo fails or returns unknown
-        return self._fallback_nse.fetch_earnings_date(symbol)
+        return None, DateStatus.UNKNOWN
 
 
 class EarningsCalendarService:
