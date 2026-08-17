@@ -136,60 +136,8 @@ class NseEarningsProvider(EarningsProvider):
         return None, DateStatus.UNKNOWN
 
 
-class YahooEarningsProvider(EarningsProvider):
-    _yf_circuit_breaker_open = False
-
-    def __init__(self):
-        self._fallback_nse = NseEarningsProvider()
-
-    def fetch_earnings_date(self, symbol: str) -> Tuple[Optional[date], str]:
-        """Fetches upcoming earnings date via official NSE API first, with circuit-broken Yahoo Finance fallback."""
-        # 1. Primary: Try official NSE India Corporate Announcements & Bulk Board Meetings API (zero rate limiting)
-        try:
-            nse_date, nse_status = self._fallback_nse.fetch_earnings_date(symbol)
-            if nse_date is not None:
-                return nse_date, nse_status
-        except Exception as e:
-            logger.debug(f"NSE earnings pre-check failed for {symbol}: {e}")
-
-        # 2. Secondary Fallback: Yahoo Finance API (guarded by Circuit Breaker)
-        if self._yf_circuit_breaker_open:
-            logger.debug(f"YF circuit breaker open — skipping Yahoo Finance for {symbol}")
-            return None, DateStatus.UNKNOWN
-
-        import yfinance as yf
-        from yf_rate_limiter import safe_yf_call
-        clean_upper = symbol.strip().upper()
-        ticker_str = clean_upper if clean_upper.endswith(".NS") or clean_upper.endswith(".BO") else f"{clean_upper}.NS"
-
-        def _fetch_calendar():
-            t = yf.Ticker(ticker_str)
-            return t.calendar
-
-        try:
-            # Single quick attempt with max_retries=1 to prevent rate limit spamming
-            cal = safe_yf_call(_fetch_calendar, symbol=symbol, context="YahooEarningsProvider", max_retries=1)
-            if cal is not None and len(cal) > 0:
-                if isinstance(cal, dict) and "Earnings Date" in cal:
-                    ed_list = cal["Earnings Date"]
-                    if ed_list and len(ed_list) > 0:
-                        first_ed = ed_list[0]
-                        if isinstance(first_ed, (datetime, date)):
-                            val_date = first_ed.date() if isinstance(first_ed, datetime) else first_ed
-                            return val_date, DateStatus.ESTIMATED
-                elif isinstance(cal, pd.DataFrame) and "Earnings Date" in cal.index:
-                    vals = cal.loc["Earnings Date"].values
-                    if len(vals) > 0 and pd.notnull(vals[0]):
-                        dt_val = pd.to_datetime(vals[0])
-                        return dt_val.date(), DateStatus.ESTIMATED
-        except Exception as e:
-            err_str = str(e).lower()
-            if "rate limit" in err_str or "too many requests" in err_str or "429" in err_str:
-                logger.info(f"⚡ [EARNINGS YF GUARD] Yahoo Finance rate limit reached on {symbol}. Activating circuit breaker for this run.")
-                YahooEarningsProvider._yf_circuit_breaker_open = True
-            logger.debug(f"Yahoo earnings fetch failed for {symbol}: {e}")
-            
-        return None, DateStatus.UNKNOWN
+# Alias for backward compatibility — NseEarningsProvider is now the authoritative zero-rate-limit provider
+YahooEarningsProvider = NseEarningsProvider
 
 
 class EarningsCalendarService:
@@ -198,7 +146,7 @@ class EarningsCalendarService:
     Scanners strictly read from DB cache at runtime for non-blocking execution.
     """
     def __init__(self, provider: Optional[EarningsProvider] = None):
-        self.provider = provider or YahooEarningsProvider()
+        self.provider = provider or NseEarningsProvider()
 
     def refresh_earnings_calendar(self, symbols: List[str]) -> int:
         """
@@ -262,7 +210,7 @@ class EarningsCalendarService:
             if is_scanner_stopped("Earnings Calendar"):
                 logger.info("⏭️ Earnings Calendar PAUSED by Admin mid-run. Aborting refresh loop.")
                 break
-            time.sleep(5.0)  # Increased delay to 3.5s to avoid Yahoo Finance rate limits
+            time.sleep(0.1)  # Ultra-fast 0.1s delay — official NSE API bulk pre-fetched with zero rate limiting
             logger.info(f"📅 [EARNINGS CALENDAR] [{idx}/{total_pending}] Fetching earnings date for {s}...")
             try:
                 ed, status = self.provider.fetch_earnings_date(s)
