@@ -132,7 +132,7 @@ def record_rate_limit(context: str = "Unknown") -> None:
             jitter = random.uniform(1.0, 5.0)
             cooldown = round(base_cooldown + jitter, 1)
             _circuit_tripped_until = now + cooldown
-            logger.error(f"YF circuit tripped for {cooldown}s due to {_rate_count} rate-limit events (Context: {context})")
+            logger.warning(f"YF circuit tripped for {cooldown}s due to {_rate_count} rate-limit events (Context: {context})")
             _current_cooldown_idx = min(_current_cooldown_idx + 1, len(_COOLDOWN_SCHEDULE_S) - 1)
             _rate_count = 0
 
@@ -191,7 +191,7 @@ def safe_yf_call(fetch_fn, symbol: str = "", context: str = "Unknown", max_retri
                     logger.warning(f"⚠️ [YF_GATEWAY] Rate limit event on {symbol} ({context}) [attempt {attempt+1}/{max_retries}]. Retrying in {delay:.1f}s...")
                     time.sleep(delay)
                 else:
-                    logger.error(f"❌ [YF_GATEWAY] Max retries reached for {symbol} ({context}) due to rate limit: {e}")
+                    logger.warning(f"⚠️ [YF_GATEWAY] Max retries reached for {symbol} ({context}) due to rate limit: {e}")
                     return None
             else:
                 logger.warning(f"⚠️ [YF_GATEWAY] Fetch error for {symbol} ({context}) [attempt {attempt+1}/{max_retries}]: {e}")
