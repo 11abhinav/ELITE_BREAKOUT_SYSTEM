@@ -7421,14 +7421,26 @@ def update_scanner_run_lifecycle(run_id: str, lifecycle_status: str):
     """Updates lifecycle_status (e.g. 'QUEUED', 'RUNNING') for an active scanner execution run in scanner_execution_history."""
     if not run_id:
         return
+    status_upper = lifecycle_status.upper()
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE scanner_execution_history
-                    SET lifecycle_status = %s, heartbeat_at = NOW()
-                    WHERE run_id = %s;
-                """, (lifecycle_status.upper(), run_id))
+                if status_upper == "RUNNING":
+                    # [VERSION: RUNTIME_DURATION_FIX_v1.0] Reset started_at to NOW() when transitioning from QUEUED -> RUNNING.
+                    # This ensures duration_seconds measures 100% exclusively the actual scanner runtime, excluding queue lock wait time.
+                    cur.execute("""
+                        UPDATE scanner_execution_history
+                        SET lifecycle_status = 'RUNNING',
+                            started_at = NOW(),
+                            heartbeat_at = NOW()
+                        WHERE run_id = %s;
+                    """, (run_id,))
+                else:
+                    cur.execute("""
+                        UPDATE scanner_execution_history
+                        SET lifecycle_status = %s, heartbeat_at = NOW()
+                        WHERE run_id = %s;
+                    """, (status_upper, run_id))
                 conn.commit()
     except Exception as e:
         logger.debug(f"Failed to update lifecycle_status for run {run_id}: {e}")
