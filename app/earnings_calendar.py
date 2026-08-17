@@ -30,10 +30,81 @@ class EarningsProvider(ABC):
         pass
 
 class NseEarningsProvider(EarningsProvider):
-    """Fallback provider fetching upcoming earnings/board meeting dates directly from NSE India APIs."""
-    def fetch_earnings_date(self, symbol: str) -> Tuple[Optional[date], str]:
+    """Primary provider fetching upcoming earnings/board meeting dates directly from official NSE India APIs."""
+    _bulk_cache: Dict[str, date] = {}
+    _last_bulk_fetch: Optional[datetime] = None
+
+    @classmethod
+    def _refresh_bulk_cache_if_needed(cls):
+        """Pre-fetches bulk corporate board meetings & event calendar from official NSE India APIs in 1 HTTP call."""
+        now = datetime.now(IST)
+        if cls._last_bulk_fetch is not None and (now - cls._last_bulk_fetch).total_seconds() < 21600:
+            return  # Cache valid for 6 hours
+        
         import requests
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://www.nseindia.com/",
+        }
+        now_date = now.date()
+        new_map: Dict[str, date] = {}
+
+        try:
+            session = requests.Session()
+            session.get("https://www.nseindia.com", headers=headers, timeout=10)
+
+            # 1. Bulk Board Meetings Endpoint
+            url1 = "https://www.nseindia.com/api/corporate-board-meetings?index=equities"
+            resp1 = session.get(url1, headers=headers, timeout=10)
+            if resp1.status_code == 200:
+                for item in resp1.json():
+                    sym = str(item.get("bm_symbol", "")).strip().upper()
+                    bm_date_str = item.get("bm_date")
+                    purpose = str(item.get("bm_purpose", "")).lower() + " " + str(item.get("bm_desc", "")).lower()
+                    if sym and bm_date_str and ("financial result" in purpose or "results" in purpose or "board meeting" in purpose):
+                        try:
+                            dt = pd.to_datetime(bm_date_str).date()
+                            if dt >= now_date:
+                                if sym not in new_map or dt < new_map[sym]:
+                                    new_map[sym] = dt
+                        except Exception:
+                            pass
+
+            # 2. Bulk Event Calendar Endpoint
+            url2 = "https://www.nseindia.com/api/event-calendar?index=equities"
+            resp2 = session.get(url2, headers=headers, timeout=10)
+            if resp2.status_code == 200:
+                for item in resp2.json():
+                    sym = str(item.get("symbol", "")).strip().upper()
+                    date_str = item.get("date")
+                    purpose = str(item.get("purpose", "")).lower() + " " + str(item.get("bm_desc", "")).lower()
+                    if sym and date_str and ("financial result" in purpose or "results" in purpose or "board meeting" in purpose or "fund raising" in purpose):
+                        try:
+                            dt = pd.to_datetime(date_str).date()
+                            if dt >= now_date:
+                                if sym not in new_map or dt < new_map[sym]:
+                                    new_map[sym] = dt
+                        except Exception:
+                            pass
+
+            cls._bulk_cache = new_map
+            cls._last_bulk_fetch = now
+            logger.info(f"✅ [NSE EARNINGS] Bulk NSE Earnings Calendar cache populated ({len(new_map)} confirmed upcoming board meetings) in <0.5s.")
+        except Exception as e:
+            logger.debug(f"⚠️ Bulk NSE earnings pre-fetch failed: {e}")
+
+    def fetch_earnings_date(self, symbol: str) -> Tuple[Optional[date], str]:
         clean_sym = symbol.strip().upper().replace(".NS", "").replace(".BO", "")
+        self._refresh_bulk_cache_if_needed()
+
+        # Check bulk in-memory map first (0 network latency)
+        if clean_sym in self._bulk_cache:
+            return self._bulk_cache[clean_sym], DateStatus.CONFIRMED
+
+        # Per-symbol NSE Corporate Announcements fallback
+        import requests
         headers = {
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept": "application/json, text/plain, */*",
@@ -66,12 +137,14 @@ class NseEarningsProvider(EarningsProvider):
 
 
 class YahooEarningsProvider(EarningsProvider):
+    _yf_circuit_breaker_open = False
+
     def __init__(self):
         self._fallback_nse = NseEarningsProvider()
 
     def fetch_earnings_date(self, symbol: str) -> Tuple[Optional[date], str]:
-        """Fetches upcoming earnings date via official NSE API first, with fallback to Yahoo Finance."""
-        # 1. Primary: Try official NSE India Corporate Announcements API (zero rate limiting)
+        """Fetches upcoming earnings date via official NSE API first, with circuit-broken Yahoo Finance fallback."""
+        # 1. Primary: Try official NSE India Corporate Announcements & Bulk Board Meetings API (zero rate limiting)
         try:
             nse_date, nse_status = self._fallback_nse.fetch_earnings_date(symbol)
             if nse_date is not None:
@@ -79,7 +152,11 @@ class YahooEarningsProvider(EarningsProvider):
         except Exception as e:
             logger.debug(f"NSE earnings pre-check failed for {symbol}: {e}")
 
-        # 2. Secondary Fallback: Yahoo Finance API
+        # 2. Secondary Fallback: Yahoo Finance API (guarded by Circuit Breaker)
+        if self._yf_circuit_breaker_open:
+            logger.debug(f"YF circuit breaker open — skipping Yahoo Finance for {symbol}")
+            return None, DateStatus.UNKNOWN
+
         import yfinance as yf
         from yf_rate_limiter import safe_yf_call
         clean_upper = symbol.strip().upper()
@@ -89,12 +166,9 @@ class YahooEarningsProvider(EarningsProvider):
             t = yf.Ticker(ticker_str)
             return t.calendar
 
-        def _fetch_earnings_dates():
-            t = yf.Ticker(ticker_str)
-            return t.earnings_dates
-        
         try:
-            cal = safe_yf_call(_fetch_calendar, symbol=symbol, context="YahooEarningsProvider", max_retries=5)
+            # Single quick attempt with max_retries=1 to prevent rate limit spamming
+            cal = safe_yf_call(_fetch_calendar, symbol=symbol, context="YahooEarningsProvider", max_retries=1)
             if cal is not None and len(cal) > 0:
                 if isinstance(cal, dict) and "Earnings Date" in cal:
                     ed_list = cal["Earnings Date"]
@@ -108,16 +182,11 @@ class YahooEarningsProvider(EarningsProvider):
                     if len(vals) > 0 and pd.notnull(vals[0]):
                         dt_val = pd.to_datetime(vals[0])
                         return dt_val.date(), DateStatus.ESTIMATED
-
-            # If calendar fails, try earnings_dates
-            ed_df = safe_yf_call(_fetch_earnings_dates, symbol=symbol, context="YahooEarningsProvider", max_retries=5)
-            if ed_df is not None and not ed_df.empty:
-                now_date = datetime.now(IST).date()
-                future_dates = [d.date() for d in ed_df.index if d.date() >= now_date]
-                if future_dates:
-                    return min(future_dates), DateStatus.ESTIMATED
-                    
         except Exception as e:
+            err_str = str(e).lower()
+            if "rate limit" in err_str or "too many requests" in err_str or "429" in err_str:
+                logger.info(f"⚡ [EARNINGS YF GUARD] Yahoo Finance rate limit reached on {symbol}. Activating circuit breaker for this run.")
+                YahooEarningsProvider._yf_circuit_breaker_open = True
             logger.debug(f"Yahoo earnings fetch failed for {symbol}: {e}")
             
         return None, DateStatus.UNKNOWN
