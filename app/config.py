@@ -343,7 +343,9 @@ USE_FYERS_PROVIDER = os.environ.get("USE_FYERS_PROVIDER", "True").lower() == "tr
 FEATURE_PARALLEL_SCANNERS_V1 = True
 FEATURE_ASYNC_SYMBOL_PROBING_V1 = True
 FEATURE_PROVIDER_LOCK_SPLIT_V1 = True
-SCAN_WORKER_THREADS = 4
+# [VERSION: PERF_THREAD_TUNE_v1.0] Raised from 4 → 8 to match server vCPU count.
+# Wealth Engine, Daily Builder, and Pullback all cap to min(cpu_count, this) — 4 was leaving 4 cores idle.
+SCAN_WORKER_THREADS = 8
 
 UPSTOX_ACCESS_TOKEN = os.environ.get("UPSTOX_ACCESS_TOKEN")
 TELEGRAM_TIMEOUT = 10

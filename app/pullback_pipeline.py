@@ -536,7 +536,13 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
 
 
                 from concurrent.futures import ThreadPoolExecutor, as_completed
-                
+
+                # [VERSION: IMPORT_HOIST_v1.0] Import shared modules ONCE outside the worker closure.
+                # Per-symbol imports inside a ThreadPoolExecutor acquire sys.modules lock on every call.
+                # Hoisting to the outer scope eliminates this per-worker lock contention.
+                from core_enums import ProviderResult as _ProviderResult
+                from indicator_manager import manager as _indicator_manager
+
                 # Convert chunk_df to records to avoid iterrows overhead
                 chunk_records = chunk_df.to_dict('records')
                 
@@ -546,7 +552,6 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                         category = row_dict.get("Category", "MIDCAP")
                         sector = row_dict.get("Sector", None)
 
-                        from core_enums import ProviderResult
 
                         ticker_data = all_ticker_data.get(sym)
                         if ticker_data is None: ticker_data = all_ticker_data.get(f"{sym}.NS")
@@ -556,7 +561,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                         if ticker_data is None:
                             return (None, "no_data", "EMPTY_DATA", None, sym)
 
-                        if isinstance(ticker_data, ProviderResult):
+                        if isinstance(ticker_data, _ProviderResult):
                             return (None, "provider_error", ticker_data.name, None, sym)
 
                         if (sym, "PULLBACK") in cooldown_alerts:
@@ -618,8 +623,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
 
                         fresh_val = sym
 
-                        from indicator_manager import manager
-                        bundle = manager.compute_base_indicators(historical_view, sym)
+                        bundle = _indicator_manager.compute_base_indicators(historical_view, sym)
                         last_bar = historical_view.iloc[-1]
                         
                         sma50_val = bundle.sma_50.iloc[-1] if bundle.sma_50 is not None and not bundle.sma_50.empty else None

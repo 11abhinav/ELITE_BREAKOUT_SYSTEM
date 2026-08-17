@@ -1616,34 +1616,45 @@ def run_system_scheduler():
                         logger.error(f"Failed to build MarketDataSession for Evening Batch: {e}")
                         session = None
 
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    # [VERSION: PARALLEL_EVENING_BATCH_v1.0] Submit EOD, Reversal, and Pullback concurrently.
+                    # All 3 scanners operate independently:
+                    #   - They share the read-only MarketDataSession (thread-safe reads)
+                    #   - They write to separate DB tables with no cross-scanner shared state
+                    #   - Each scanner has its own internal ThreadPoolExecutor for per-symbol evaluation
+                    # max_workers=1 was inadvertently serializing the entire evening pipeline (~3x slower).
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=3, thread_name_prefix="EveningBatch") as executor:
+                        batch_futures = {}
                         try:
                             if not is_scanner_stopped("EOD"):
-                                logger.info("Starting EOD Scanner (Timeout: 2h)...")
-                                future_eod = executor.submit(_run_eod_with_retries, today_str, session)
-                                future_eod.result(timeout=7200)
+                                logger.info("🚀 EOD Scanner — submitting (Timeout: 2h)...")
+                                batch_futures["EOD"] = executor.submit(_run_eod_with_retries, today_str, session)
                             else:
                                 logger.info("⏭️ EOD Scanner is STOPPED by Admin. Skipping.")
-                            
+
                             if not is_scanner_stopped("REVERSAL"):
-                                logger.info("Starting Reversal Scanner (Timeout: 2h)...")
-                                future_rev = executor.submit(_run_reversal_with_retries, today_str, session)
-                                future_rev.result(timeout=7200)
+                                logger.info("🚀 Reversal Scanner — submitting (Timeout: 2h)...")
+                                batch_futures["REVERSAL"] = executor.submit(_run_reversal_with_retries, today_str, session)
                             else:
                                 logger.info("⏭️ Reversal Scanner is STOPPED by Admin. Skipping.")
-                            
+
                             if not is_scanner_stopped("PULLBACK"):
-                                logger.info("Starting Pullback Pipeline (Timeout: 2h)...")
-                                future_pb = executor.submit(_run_pullback_with_retries, today_str, session)
-                                future_pb.result(timeout=7200)
+                                logger.info("🚀 Pullback Pipeline — submitting (Timeout: 2h)...")
+                                batch_futures["PULLBACK"] = executor.submit(_run_pullback_with_retries, today_str, session)
                             else:
                                 logger.info("⏭️ Pullback Pipeline is STOPPED by Admin. Skipping.")
-                            
-                        except concurrent.futures.TimeoutError:
-                            logger.error("🚨 CRITICAL: Evening Batch step exceeded 2-hour timeout! Aborting remaining batch.")
+
+                            for name, fut in batch_futures.items():
+                                try:
+                                    fut.result(timeout=7200)
+                                    logger.info(f"✅ EVENING BATCH | {name} completed.")
+                                except concurrent.futures.TimeoutError:
+                                    logger.error(f"🚨 CRITICAL: Evening Batch '{name}' exceeded 2-hour timeout!")
+                                except Exception as _e:
+                                    logger.error(f"🚨 CRITICAL: Evening Batch '{name}' crashed: {_e}")
+
                         except Exception as e:
-                            logger.error(f"🚨 CRITICAL: Evening Batch crashed: {e}")
-                    
+                            logger.error(f"🚨 CRITICAL: Evening Batch outer error: {e}")
+
                 import threading
                 threading.Thread(target=_run_evening_batch_async, name="EveningBatch", daemon=True).start()
             elif now.hour < 18:

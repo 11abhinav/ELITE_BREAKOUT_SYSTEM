@@ -766,9 +766,12 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                         if drift > 0.03:
                             if not is_test_mode:
                                 # [VERSION: MTF_FLAPPING_FIX] Apply a 2-hour cooldown on drift demotion to prevent choppy day flapping
+                                # [VERSION: BATCH_COOLDOWN_v1.0] Accumulate cooldown instead of calling DB inside parallel worker.
+                                # mark_breakout_watchlist_cooldown was issuing a live UPDATE+commit per symbol.
+                                # Now collected in cooldown_list and flushed post-loop to avoid per-worker DB round-trips.
                                 with _batch_lock:
                                     batch_upsert_list.append({'symbol': symbol, 'category': cat, 'current_state': "HOURLY_APPROVED", 'clear_context': True, 'force': True})
-                                mark_breakout_watchlist_cooldown(symbol, "HOURLY_APPROVED", hours=2)
+                                    cooldown_list.append((symbol, "HOURLY_APPROVED", 2))
                             state = "HOURLY_APPROVED"
                             with _batch_lock:
                                 lower_funnel["demoted"] += 1
@@ -1314,6 +1317,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
 
     _eval_start_t = time.perf_counter()
     batch_upsert_list = []
+    # [VERSION: BATCH_COOLDOWN_v1.0] Collect cooldown updates here; flushed post-loop to avoid per-worker DB calls.
+    cooldown_list = []  # List of (symbol, state, hours) tuples
     with ThreadPoolExecutor(max_workers=10, thread_name_prefix="MTF_Worker") as executor:
         futures = [executor.submit(_process_item, item) for item in active_items]
         for f in as_completed(futures):
@@ -1325,6 +1330,13 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
             batch_upsert_breakout_watchlist(batch_upsert_list)
         except Exception as _b_err:
             logger.warning(f"⚠️ Failed to batch upsert breakout watchlist in Phase B/C/D: {_b_err}")
+
+    # [VERSION: BATCH_COOLDOWN_v1.0] Flush accumulated cooldown updates post-loop (avoids live DB call inside parallel workers).
+    for _cd_sym, _cd_state, _cd_hours in cooldown_list:
+        try:
+            mark_breakout_watchlist_cooldown(_cd_sym, _cd_state, hours=_cd_hours)
+        except Exception as _cd_err:
+            logger.warning(f"⚠️ Failed to flush cooldown for {_cd_sym}: {_cd_err}")
     
     logger.info(
         f"⏱️ [MULTI_TF] Lower TF Phase Timing | "
