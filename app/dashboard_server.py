@@ -651,6 +651,11 @@ def get_notifications():
                     cur.execute('''
                         SELECT id, type, title, message, symbol, is_seen, created_at 
                         FROM global_notifications
+                        WHERE LOWER(title) NOT LIKE '%scan completed%'
+                          AND LOWER(title) NOT LIKE '%scanner ran successfully%'
+                          AND LOWER(title) NOT LIKE '%scan complete%'
+                          AND LOWER(title) NOT LIKE '%builder completed%'
+                          AND LOWER(title) NOT LIKE '%watchlist generation successful%'
                         ORDER BY created_at DESC
                         LIMIT 50
                     ''')

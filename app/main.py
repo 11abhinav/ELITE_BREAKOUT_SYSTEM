@@ -897,7 +897,8 @@ def _run_pullback_with_retries(today_str, session=None):
                     complete_scanner_execution_run(run_ctx, exception=run_err)
                     raise run_err
                 
-                upsert_scanner_health("PULLBACK", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=total, scheduled_for="18:00 IST (After Bhavcopy)", duration_seconds=duration_sec)
+                alerts_num = total.get("today_alerts", 0) if isinstance(total, dict) else (total if isinstance(total, int) else 0)
+                upsert_scanner_health("PULLBACK", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=alerts_num, scheduled_for="18:00 IST (After Bhavcopy)", duration_seconds=duration_sec)
                 logger.info("✅ PULLBACK SCANNER | Completed successfully for today.")
             return
         except Exception as exc:

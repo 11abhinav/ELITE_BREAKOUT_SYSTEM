@@ -2371,6 +2371,16 @@ def upsert_scanner_health(
     init_db()
     now_str = datetime.now(IST).isoformat()
 
+    # Sanitize dict inputs passed accidentally to numeric parameters
+    if isinstance(today_alerts, dict):
+        today_alerts = today_alerts.get("today_alerts", 0)
+    if isinstance(processed_count, dict):
+        processed_count = processed_count.get("processed_count", 0)
+    if isinstance(total_count, dict):
+        total_count = total_count.get("total_count", 0)
+    if isinstance(duration_seconds, dict):
+        duration_seconds = duration_seconds.get("duration_seconds", 0.0)
+
     # Normalize and sanitize status values to match DB CHECK constraint
     if status is not None:
         status = str(status).upper()
@@ -4169,6 +4179,16 @@ def save_funnel_telemetry(scanner: str, run_date: str, symbol: str, stage_result
     """
     if not stage_results:
         return
+
+    def _clean_val(v):
+        if v is None:
+            return None
+        if hasattr(v, 'item'):
+            return v.item()
+        if isinstance(v, (float, int, str, bool)):
+            return v
+        return str(v)
+
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -4183,9 +4203,9 @@ def save_funnel_telemetry(scanner: str, run_date: str, symbol: str, stage_result
                         getattr(res, 'stage', 'UNKNOWN'),
                         getattr(res, 'gate', 'UNKNOWN'),
                         getattr(res, 'passed', False),
-                        getattr(res, 'observed_value', None),
-                        getattr(res, 'threshold', None),
-                        getattr(res, 'comparator', None),
+                        _clean_val(getattr(res, 'observed_value', None)),
+                        _clean_val(getattr(res, 'threshold', None)),
+                        _clean_val(getattr(res, 'comparator', None)),
                         getattr(res, 'message', None)
                     ))
                 conn.commit()
