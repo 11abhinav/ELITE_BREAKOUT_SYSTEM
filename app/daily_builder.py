@@ -1087,6 +1087,14 @@ def main(force_rebuild: bool = False, run_ctx=None):
         logger.info("🛑 Daily Builder is STOPPED by Admin. Skipping execution.")
         return
 
+    from database import is_scanner_actively_running
+    if _build_lock.locked() or is_scanner_actively_running("DAILY_BUILDER"):
+        logger.warning("🛑 [DUPLICATE GUARD] Daily Builder is ALREADY actively running. Skipping duplicate trigger.")
+        if run_ctx:
+            from database import complete_scanner_execution_run
+            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Same scanner already actively running")
+        return
+
     created_ctx = False
     if run_ctx is None:
         try:

@@ -2115,6 +2115,14 @@ def start(force: bool = False, session=None, run_ctx=None) -> int:
         upsert_scanner_health("REVERSAL", "STOPPED", error_msg="REVERSAL scanner is explicitly disabled by admin.")
         return 0
 
+    from database import is_scanner_actively_running
+    if _scan_lock.locked() or is_scanner_actively_running("REVERSAL"):
+        logger.warning("🛑 [DUPLICATE GUARD] Reversal Scanner is ALREADY actively running. Skipping duplicate trigger.")
+        if run_ctx:
+            from database import complete_scanner_execution_run
+            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Same scanner already actively running")
+        return 0
+
     created_ctx = False
     if run_ctx is None:
         try:

@@ -828,6 +828,14 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None):
         logger.info("🛑 Wealth Engine is STOPPED by Admin. Skipping execution.")
         return None
 
+    from database import is_scanner_actively_running
+    if _scan_lock.locked() or is_scanner_actively_running("Wealth Engine"):
+        logger.warning("🛑 [DUPLICATE GUARD] Wealth Engine is ALREADY actively running. Skipping duplicate trigger.")
+        if run_ctx:
+            from database import complete_scanner_execution_run
+            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Same scanner already actively running")
+        return None
+
     created_ctx = False
     if run_ctx is None:
         try:

@@ -2115,11 +2115,15 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     }
     
     try:
-        from database import get_scanner_health
+        from database import is_scanner_actively_running, get_scanner_health
+        if is_scanner_actively_running(scanner_key):
+            logger.warning(f"🛑 [MANUAL TRIGGER] {scanner_key} is ALREADY actively running or queued. Trigger rejected.")
+            return {"status": "error", "message": f"{scanner_key} is ALREADY actively running or queued. Trigger rejected to prevent duplicate runs."}
+
         h_info = get_scanner_health(scanner_key)
         h_status = (h_info.get("status") if h_info else "OK") or "OK"
         if h_status in ("RUNNING", "QUEUED") or h_status.startswith("QUEUED"):
-            return {"status": "error", "message": f"{scanner_key} is already actively running or queued ({h_status}). Trigger rejected to prevent parallel runs."}
+            return {"status": "error", "message": f"{scanner_key} is already actively running or queued ({h_status}). Trigger rejected to prevent duplicate runs."}
     except Exception as e:
         logger.warning(f"Could not verify scanner health status: {e}")
 

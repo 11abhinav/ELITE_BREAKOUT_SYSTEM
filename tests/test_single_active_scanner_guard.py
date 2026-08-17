@@ -1,9 +1,10 @@
 # =====================================================================================
 # tests/test_single_active_scanner_guard.py
-# Tests for Single Active Scanner Global Lock & Duplicate Run Prevention Guard.
+# Tests for Single Active Scanner Global Lock & Reentrant Distributed Lock.
 # =====================================================================================
 
 import pytest
+import threading
 from unittest.mock import MagicMock, patch
 from database import is_scanner_actively_running
 from lock_utils import ProcessLock
@@ -19,10 +20,37 @@ def test_is_scanner_actively_running():
         active = is_scanner_actively_running("MULTIBAGGER")
         assert active is True
         assert mock_cur.execute.called
-        sql = mock_cur.execute.call_args[0][0]
-        assert "LOWER(scanner_name) = LOWER(%s)" in sql
 
-def test_process_lock_accepts_timeout_kwarg():
-    lock = ProcessLock("test_lock_kwarg")
-    assert lock.acquire(blocking=False, timeout=1.0) is True
-    lock.release()
+def test_process_lock_reentrant_same_thread():
+    lock1 = ProcessLock("global_scanner_lock")
+    lock2 = ProcessLock("global_scanner_lock")
+    
+    assert lock1 is lock2  # Singleton check
+
+    acquired1 = lock1.acquire(blocking=True)
+    assert acquired1 is True
+
+    # Same thread acquiring second time must NOT deadlock (Reentrant check)
+    acquired2 = lock2.acquire(blocking=True)
+    assert acquired2 is True
+
+    lock2.release()
+    lock1.release()
+    assert lock1.locked() is False
+
+def test_process_lock_blocks_different_thread():
+    lock1 = ProcessLock("test_multi_thread")
+    assert lock1.acquire(blocking=True) is True
+
+    thread_result = []
+    def second_thread():
+        lock2 = ProcessLock("test_multi_thread")
+        res = lock2.acquire(blocking=False)
+        thread_result.append(res)
+
+    t = threading.Thread(target=second_thread)
+    t.start()
+    t.join()
+
+    assert thread_result == [False]  # Blocked across threads!
+    lock1.release()

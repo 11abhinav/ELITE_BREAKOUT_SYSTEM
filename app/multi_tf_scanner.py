@@ -1470,6 +1470,13 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
         logger.info("🛑 Multi-TF Scanner is STOPPED by Admin. Skipping execution.")
         return
 
+    from database import is_scanner_actively_running
+    if _scan_lock.locked() or is_scanner_actively_running("MULTI_TF"):
+        logger.warning("🛑 [DUPLICATE GUARD] Multi-TF Scanner is ALREADY actively running. Skipping duplicate trigger.")
+        if run_ctx:
+            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Same scanner already actively running")
+        return
+
     own_ctx = False
     if run_ctx is None:
         try:

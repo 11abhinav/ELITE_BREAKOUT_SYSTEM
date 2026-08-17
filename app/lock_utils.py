@@ -76,30 +76,46 @@ def print_scanner_end_banner(scanner_key: str, start_mono: float) -> None:
     logger.info(f"##### {display} ENDED — {ts} | Runtime: {runtime:.0f}s #####")
     logger.info(bar)
 
-class ProcessLock:
+_process_locks = {}
+_process_locks_guard = threading.Lock()
+
+def ProcessLock(lock_name: str):
+    """Factory returning a reentrant Singleton ProcessLock per lock_name."""
+    with _process_locks_guard:
+        if lock_name not in _process_locks:
+            _process_locks[lock_name] = ProcessLockImpl(lock_name)
+        return _process_locks[lock_name]
+
+
+class ProcessLockImpl:
     """
-    True Distributed Lock using PostgreSQL Advisory Locks + local threading.Lock.
+    True Reentrant Distributed Lock using PostgreSQL Advisory Locks + local threading.RLock.
     Protects against BOTH multiple threads AND multiple distributed containers on Railway.
     """
     def __init__(self, lock_name: str):
         self.lock_name = lock_name
         self.lock_file = f"data/{lock_name}.lock"
         self.lock_fd = None
-        self.thread_lock = threading.Lock()
+        self.thread_lock = threading.RLock()
         self.db_conn = None
         # Generate a stable 32-bit integer for the Postgres lock key based on the name
         self.lock_key = zlib.crc32(lock_name.encode('utf-8'))
         self.is_acquired = False
+        self._owner_thread = None
+        self._recursion_depth = 0
+        self._internal_lock = threading.Lock()
 
     def locked(self) -> bool:
-        """
-        Check if the local thread lock is held. 
-        Note: This does not verify the Postgres distributed lock state, 
-        but is sufficient for UI rejection of duplicate manual triggers on the same server.
-        """
-        return self.thread_lock.locked()
+        """Check if the local thread lock is held."""
+        return self._recursion_depth > 0
 
     def acquire(self, blocking: bool = False, timeout: float = -1, **kwargs) -> bool:
+        current_thread = threading.current_thread().name
+        with self._internal_lock:
+            if self._owner_thread == current_thread and self._recursion_depth > 0:
+                self._recursion_depth += 1
+                return True
+
         timeout_val = float(timeout) if timeout is not None else -1.0
         if blocking:
             if not self.thread_lock.acquire(blocking=True, timeout=timeout_val if timeout_val > 0 else -1):
@@ -153,7 +169,10 @@ class ProcessLock:
                     if not locked:
                         raise BlockingIOError("Could not acquire Postgres distributed lock")
 
-            self.is_acquired = True
+            with self._internal_lock:
+                self.is_acquired = True
+                self._owner_thread = current_thread
+                self._recursion_depth = 1
             return True
         except (BlockingIOError, IOError):
             if self.db_conn:
@@ -180,8 +199,17 @@ class ProcessLock:
             return False
 
     def release(self):
-        if self.is_acquired:
+        with self._internal_lock:
+            current_thread = threading.current_thread().name
+            if self._owner_thread != current_thread:
+                return
+            
+            self._recursion_depth -= 1
+            if self._recursion_depth > 0:
+                return
+
             self.is_acquired = False
+            self._owner_thread = None
 
         # 1. Release Postgres lock by simply closing the dedicated connection
         if self.db_conn is not None:
@@ -195,11 +223,12 @@ class ProcessLock:
         if self.lock_fd is not None:
             try:
                 fcntl.flock(self.lock_fd, fcntl.LOCK_UN)
+                os.close(self.lock_fd)
+                self.lock_fd = None
             except Exception:
                 pass
-                
-        # 3. Release thread lock
+
         try:
             self.thread_lock.release()
-        except RuntimeError:
+        except Exception:
             pass

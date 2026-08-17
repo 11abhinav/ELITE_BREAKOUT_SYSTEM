@@ -91,9 +91,12 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
         logger.info("🛑 EOD Scanner is STOPPED by Admin. Skipping execution.")
         return 0
 
-    if not _scan_lock.acquire(blocking=False):
-        logger.warning("🛑 EOD Scanner is ALREADY actively running. Skipping duplicate execution.")
-        raise RuntimeError("Scanner is already actively running!")
+    from database import is_scanner_actively_running
+    if _scan_lock.locked() or is_scanner_actively_running("EOD"):
+        logger.warning("🛑 [DUPLICATE GUARD] EOD Scanner is ALREADY actively running. Skipping duplicate trigger.")
+        if run_ctx:
+            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Same scanner already actively running")
+        return 0
 
     own_ctx = False
     if run_ctx is None:
