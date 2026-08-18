@@ -450,7 +450,7 @@ def run_earnings_calendar_refresh() -> dict:
             )
             return {"total_count": 0, "updated_count": 0}
 
-        logger.info(f"📅 [EARNINGS CALENDAR] Refreshing for {total_count} symbols via Yahoo Finance...")
+        logger.info(f"📅 [EARNINGS CALENDAR] Refreshing for {total_count} symbols via Zero-Yahoo Provider...")
 
         # ── Run the refresh ─────────────────────────────────────────────────────
         updated_count = earnings_calendar_service.refresh_earnings_calendar(symbols)
@@ -494,11 +494,17 @@ def is_earnings_active_window(now: Optional[datetime] = None) -> bool:
     return True
 
 def get_earnings_window_desc(now: Optional[datetime] = None) -> str:
-    return "Continuous Off-Peak & Post-Market Active"
+    return "Once per calendar day (sleeping until next date boundary)"
 
 def run_worker_loop():
-    """Background daemon loop for Earnings Calendar worker."""
+    """
+    [VERSION: DAILY_EARNINGS_WORKER_SLEEP_v1.0]
+    Background daemon loop for Earnings Calendar worker: runs once per calendar day
+    then sleeps until the next date boundary.
+    """
     logger.info("📅 Earnings Calendar Worker Thread Started.")
+    last_processed_date: Optional[date] = None
+
     while True:
         try:
             now_ist = datetime.now(IST)
@@ -508,20 +514,25 @@ def run_worker_loop():
                 time.sleep(60)
                 continue
 
-            if not is_earnings_active_window(now_ist):
-                win_desc = get_earnings_window_desc(now_ist)
-                upsert_scanner_health("Earnings Calendar", "IDLE", error_msg=f"Outside active window ({win_desc})")
-                time.sleep(300)
+            # Once processed for today, sleep until next calendar day
+            if last_processed_date == now_ist.date():
+                upsert_scanner_health(
+                    "Earnings Calendar", "IDLE",
+                    error_msg=f"Completed daily refresh for {last_processed_date}. Next run tomorrow."
+                )
+                time.sleep(3600)  # Check hourly for date rollover
                 continue
 
             try:
                 run_earnings_calendar_refresh()
+                last_processed_date = now_ist.date()
+                logger.info(f"✅ [EARNINGS WORKER] Completed daily refresh cycle for {last_processed_date}. Worker sleeping until tomorrow.")
             except RuntimeError:
                 pass  # Lock contention / already running
             except Exception as e:
                 logger.exception(f"❌ [EARNINGS CALENDAR] Worker cycle failed: {e}")
 
-            time.sleep(300)
+            time.sleep(3600)
         except Exception as e:
             logger.exception("❌ [EARNINGS CALENDAR] Main worker loop crashed")
             time.sleep(300)
