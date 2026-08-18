@@ -3394,8 +3394,6 @@ function getEarningsBadgeHtml(item) {
             `<span title="Cannot recalculate long-term trades" style="color:var(--muted); font-size:10px;">—</span>` : 
             `<input type="checkbox" class="trade-checkbox" value="${t.id}" onchange="updateBulkActionsVisibility()">`;
 
-}
-
         let eventMarkHtml = getEarningsBadgeHtml(t);
 
         return `
