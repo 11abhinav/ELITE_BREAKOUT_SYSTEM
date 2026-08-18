@@ -230,7 +230,7 @@ class TestProductionDeploymentGates:
         assert hasattr(reversal_scanner, "start"), "Reversal scanner missing start entrypoint"
         # Verify strict status policy contract in eod_scanner source code
         import inspect
-        src = inspect.getsource(eod_scanner._start_wrapper)
+        src = inspect.getsource(inspect.unwrap(eod_scanner._start_wrapper))
         assert 'status = "DOWN"' in src or 'outcome = "FAILED"' in src, "EOD scanner missing DOWN status / FAILED outcome blocker policy"
 
     def test_gate18_realtime_symbol_canonicalization_gate(self):
