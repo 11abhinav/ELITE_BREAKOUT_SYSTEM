@@ -21,12 +21,12 @@ class EarningsSeverity:
     HIGH_SOON = "HIGH_SOON"        # 1-2 days 🟠
     MEDIUM_WEEK = "MEDIUM_WEEK"    # 3-5 days 🟡
     NONE = "NONE"                  # > 5 days 🟢 (Confirmed no earnings soon)
-    UNVERIFIED = "UNVERIFIED"      # Missing / Unverified date data ⚠️
+    UNVERIFIED = "UNVERIFIED"      # Missing / Unverified data
 
 class EarningsProvider(ABC):
     @abstractmethod
-    def fetch_earnings_date(self, symbol: str) -> Tuple[Optional[date], str]:
-        """Returns (earnings_date, date_status)."""
+    def fetch_earnings_date(self, symbol: str) -> Tuple[Optional[date], Optional[date], Optional[date], str]:
+        """Returns (active_earnings_date, last_declared_date, upcoming_date, date_status)."""
         pass
 
 def _get_quarter_estimated_date(target_date: date) -> date:
@@ -52,15 +52,15 @@ def _get_quarter_estimated_date(target_date: date) -> date:
 
 class NseEarningsProvider(EarningsProvider):
     """
-    [VERSION: ZERO_YAHOO_EARNINGS_PIPELINE_v1.0]
+    [VERSION: DUAL_EARNINGS_DATE_PIPELINE_v1.0]
     Authoritative Zero-Yahoo multi-tier earnings provider:
       - Tier 1: Official NSE India Bulk Board Meetings & Event Calendar (CONFIRMED)
-      - Tier 2: TradingView Screener Bulk API (ESTIMATED for 1000+ stocks in <2s)
+      - Tier 2: TradingView Screener Bulk API (Fetches BOTH last_declared_date & upcoming_date in <2s)
       - Tier 3: Per-symbol NSE/BSE API fallback
       - Tier 4: Quarter-based calendar estimation
     No reliance on yfinance.
     """
-    _bulk_cache: Dict[str, Tuple[date, str]] = {}
+    _bulk_cache: Dict[str, Tuple[Optional[date], Optional[date], Optional[date], str]] = {}
     _last_bulk_fetch: Optional[datetime] = None
 
     @classmethod
@@ -72,7 +72,7 @@ class NseEarningsProvider(EarningsProvider):
         
         import requests
         now_date = now.date()
-        new_map: Dict[str, Tuple[date, str]] = {}
+        new_map: Dict[str, Tuple[Optional[date], Optional[date], Optional[date], str]] = {}
 
         # ── 1. Tier 1: Official NSE India Bulk APIs (CONFIRMED) ──────────────────────
         headers = {
@@ -97,8 +97,14 @@ class NseEarningsProvider(EarningsProvider):
                         try:
                             dt = pd.to_datetime(bm_date_str).date()
                             if dt >= now_date:
-                                if sym not in new_map or dt < new_map[sym][0]:
-                                    new_map[sym] = (dt, DateStatus.CONFIRMED)
+                                prev_entry = new_map.get(sym)
+                                prev_last = prev_entry[1] if prev_entry else None
+                                new_map[sym] = (dt, prev_last, dt, DateStatus.CONFIRMED)
+                            else:
+                                prev_entry = new_map.get(sym)
+                                prev_ed = prev_entry[0] if prev_entry else None
+                                prev_upc = prev_entry[2] if prev_entry else None
+                                new_map[sym] = (prev_ed or dt, dt, prev_upc, DateStatus.CONFIRMED)
                         except Exception:
                             pass
 
@@ -114,14 +120,20 @@ class NseEarningsProvider(EarningsProvider):
                         try:
                             dt = pd.to_datetime(date_str).date()
                             if dt >= now_date:
-                                if sym not in new_map or dt < new_map[sym][0]:
-                                    new_map[sym] = (dt, DateStatus.CONFIRMED)
+                                prev_entry = new_map.get(sym)
+                                prev_last = prev_entry[1] if prev_entry else None
+                                new_map[sym] = (dt, prev_last, dt, DateStatus.CONFIRMED)
+                            else:
+                                prev_entry = new_map.get(sym)
+                                prev_ed = prev_entry[0] if prev_entry else None
+                                prev_upc = prev_entry[2] if prev_entry else None
+                                new_map[sym] = (prev_ed or dt, dt, prev_upc, DateStatus.CONFIRMED)
                         except Exception:
                             pass
         except Exception as e:
             logger.debug(f"⚠️ Bulk NSE earnings pre-fetch failed: {e}")
 
-        # ── 2. Tier 2: TradingView Screener Bulk API (ESTIMATED for 1000+ stocks) ──────
+        # ── 2. Tier 2: TradingView Screener Bulk API (Fetches BOTH declared & upcoming dates) ──────
         try:
             from tradingview_screener import Query
             q = Query().set_markets("india").select("name", "close", "earnings_release_date", "earnings_release_next_date").limit(3000)
@@ -131,25 +143,28 @@ class NseEarningsProvider(EarningsProvider):
                     ticker = str(row.get("ticker", "")).replace("NSE:", "").replace("BSE:", "").strip().upper()
                     if not ticker:
                         continue
-                    ed_ts = row.get("earnings_release_next_date")
-                    if pd.isna(ed_ts) or ed_ts is None:
-                        ed_ts = row.get("earnings_release_date")
-                    if pd.notnull(ed_ts) and not pd.isna(ed_ts):
-                        try:
-                            dt = datetime.fromtimestamp(float(ed_ts), tz=timezone.utc).date()
-                            if dt >= now_date:
-                                if ticker not in new_map:
-                                    new_map[ticker] = (dt, DateStatus.ESTIMATED)
-                        except Exception:
-                            pass
+                    last_ts = row.get("earnings_release_date")
+                    next_ts = row.get("earnings_release_next_date")
+
+                    last_dt = datetime.fromtimestamp(float(last_ts), tz=timezone.utc).date() if pd.notnull(last_ts) and float(last_ts) > 0 else None
+                    next_dt = datetime.fromtimestamp(float(next_ts), tz=timezone.utc).date() if pd.notnull(next_ts) and float(next_ts) > 0 else None
+
+                    active_ed = next_dt or last_dt
+                    if active_ed or last_dt or next_dt:
+                        prev_entry = new_map.get(ticker)
+                        if not prev_entry:
+                            new_map[ticker] = (active_ed, last_dt, next_dt, DateStatus.ESTIMATED)
+                        else:
+                            e_ed, e_last, e_upc, e_st = prev_entry
+                            new_map[ticker] = (e_ed or active_ed, e_last or last_dt, e_upc or next_dt, e_st)
         except Exception as tv_err:
             logger.debug(f"⚠️ Bulk TradingView earnings pre-fetch failed: {tv_err}")
 
         cls._bulk_cache = new_map
         cls._last_bulk_fetch = now
-        logger.info(f"✅ [EARNINGS PROVIDER] Zero-Yahoo bulk cache populated ({len(new_map)} stocks with upcoming earnings dates) in <2s.")
+        logger.info(f"✅ [EARNINGS PROVIDER] Zero-Yahoo bulk cache populated ({len(new_map)} stocks with dual declared & upcoming earnings dates) in <2s.")
 
-    def fetch_earnings_date(self, symbol: str) -> Tuple[Optional[date], str]:
+    def fetch_earnings_date(self, symbol: str) -> Tuple[Optional[date], Optional[date], Optional[date], str]:
         clean_sym = symbol.strip().upper().replace(".NS", "").replace(".BO", "")
         self._refresh_bulk_cache_if_needed()
 
@@ -182,7 +197,9 @@ class NseEarningsProvider(EarningsProvider):
                             try:
                                 dt = pd.to_datetime(an_date_str).date()
                                 if dt >= now_date:
-                                    return dt, DateStatus.CONFIRMED
+                                    return dt, None, dt, DateStatus.CONFIRMED
+                                else:
+                                    return dt, dt, None, DateStatus.CONFIRMED
                             except Exception:
                                 pass
         except Exception as e:
@@ -190,7 +207,7 @@ class NseEarningsProvider(EarningsProvider):
 
         # Tier 4: Quarter-based estimation fallback (Guarantees zero UNVERIFIED missing gaps)
         est_date = _get_quarter_estimated_date(datetime.now(IST).date())
-        return est_date, DateStatus.ESTIMATED
+        return est_date, None, est_date, DateStatus.ESTIMATED
 
 
 # Alias for backward compatibility — NseEarningsProvider is now the authoritative zero-rate-limit provider
@@ -199,7 +216,7 @@ YahooEarningsProvider = NseEarningsProvider
 
 class EarningsCalendarService:
     """
-    Service managing upcoming earnings dates cache in PostgreSQL with provider abstraction.
+    Service managing upcoming & declared earnings dates cache in PostgreSQL with provider abstraction.
     Scanners strictly read from DB cache at runtime for non-blocking execution.
     """
     def __init__(self, provider: Optional[EarningsProvider] = None):
@@ -210,70 +227,77 @@ class EarningsCalendarService:
         Refreshes earnings calendar for symbols and caches results in PostgreSQL.
         Intended to run daily during off-peak hours (22:00-23:59 IST).
         - Priority 1: Stocks with results expected TODAY (re-checked post-market close).
-        - Priority 2: Symbols uncached / older than 45d (known dates) or 7d (missing dates).
-        - Off-peak serial rate-limiting: 1 worker, 3.5s delay, 100 batch limit.
+        - Priority 2: Symbols uncached / older than 45d (known dates).
         """
         from database import is_scanner_stopped
         if is_scanner_stopped("Earnings Calendar"):
             logger.info("⏭️ Earnings Calendar is PAUSED by Admin. Skipping refresh cycle.")
             return 0
 
-        if not symbols:
-            return 0
+        symbols_set = set(s.strip().upper().replace(".NS", "").replace(".BO", "") for s in symbols if s)
+        symbols = sorted(list(symbols_set))
 
-        # ── 1. Priority-based Symbol Selection ──────────────────────────────
-        uncached_symbols = []
+        # Check DB to skip symbols already fresh in cache
+        today_date = datetime.now(IST).date()
+        skipped_count = 0
+        priority_symbols = []
+        pending_symbols = []
+
         try:
             from database import get_connection
-            today_date = datetime.now(IST).date()
             with get_connection() as conn:
                 with conn.cursor() as cur:
-                    # Priority 1: Stocks whose results were scheduled for TODAY
                     cur.execute("SELECT symbol FROM earnings_calendar WHERE earnings_date = %s", (today_date,))
-                    today_expected = {r[0].strip().upper() for r in cur.fetchall()}
+                    today_rows = cur.fetchall()
+                    today_syms = set(r[0] for r in today_rows if r[0])
 
-                    # Priority 2: Recently updated symbols to SKIP (45d for known dates != today, 7d for missing)
                     cur.execute("""
                         SELECT symbol FROM earnings_calendar 
-                        WHERE (earnings_date IS NOT NULL AND earnings_date != %s AND updated_at >= NOW() - INTERVAL '45 days')
-                           OR (earnings_date IS NULL AND updated_at >= NOW() - INTERVAL '7 days')
-                    """, (today_date,))
-                    recently_valid = {r[0].strip().upper() for r in cur.fetchall()}
+                        WHERE updated_at >= NOW() - INTERVAL '45 days' 
+                          AND (earnings_date IS NOT NULL OR last_declared_date IS NOT NULL OR upcoming_date IS NOT NULL)
+                    """)
+                    fresh_rows = cur.fetchall()
+                    fresh_syms = set(r[0] for r in fresh_rows if r[0])
 
-                    priority_symbols = [s for s in symbols if s.strip().upper() in today_expected]
-                    other_symbols = [s for s in symbols if s.strip().upper() not in recently_valid and s.strip().upper() not in today_expected]
+            for s in symbols:
+                if s in today_syms:
+                    priority_symbols.append(s)
+                elif s in fresh_syms:
+                    skipped_count += 1
+                else:
+                    pending_symbols.append(s)
 
-                    # [VERSION: ZERO_YAHOO_EARNINGS_PIPELINE_v1.0] Process up to 2000 symbols per run (bulk fetch completes in <2s)
-                    uncached_symbols = (priority_symbols + other_symbols)[:2000]
-                    skipped_count = len(symbols) - len(uncached_symbols)
+            if priority_symbols:
+                logger.info(f"🎯 [EARNINGS CALENDAR] Priority 1: Re-checking {len(priority_symbols)} stocks scheduled for results TODAY post-market.")
+            if skipped_count > 0:
+                logger.info(f"📅 [EARNINGS CALENDAR] Skipping {skipped_count}/{len(symbols)} symbols (cached within 45d for known dates).")
 
-                    if priority_symbols:
-                        logger.info(f"🎯 [EARNINGS CALENDAR] Priority 1: Re-checking {len(priority_symbols)} stocks scheduled for results TODAY post-market.")
-                    if skipped_count > 0:
-                        logger.info(f"📅 [EARNINGS CALENDAR] Skipping {skipped_count}/{len(symbols)} symbols (cached within 45d for known dates / 7d for missing).")
+            symbols_to_fetch = priority_symbols + pending_symbols
         except Exception as e:
             logger.warning(f"⚠️ DB pre-check failed for earnings_calendar: {e}. Processing all symbols.")
-            uncached_symbols = symbols[:2000]
+            symbols_to_fetch = symbols
 
-        if not uncached_symbols:
+        if not symbols_to_fetch:
             logger.info("✅ [EARNINGS CALENDAR] All symbols fresh in PostgreSQL cache (45d/7d TTL). Nothing to fetch!")
             return 0
 
         updated_count = 0
-        total_pending = len(uncached_symbols)
+        total_pending = len(symbols_to_fetch)
         logger.info(f"📊 [EARNINGS CALENDAR] Pending symbols to fetch today: {total_pending} (out of {len(symbols)} total universe)")
 
         batch_to_save = []
-        for idx, s in enumerate(uncached_symbols, start=1):
+
+        for idx, s in enumerate(symbols_to_fetch, 1):
             if is_scanner_stopped("Earnings Calendar"):
-                logger.info("⏭️ Earnings Calendar PAUSED by Admin mid-run. Aborting refresh loop.")
+                logger.info(f"⏹️ Earnings Calendar refresh stopped by Admin at symbol {idx}/{total_pending}.")
                 break
 
             try:
-                ed, status = self.provider.fetch_earnings_date(s)
-                if ed:
-                    batch_to_save.append((s, ed, status))
-                    logger.info(f"📅 [EARNINGS CALENDAR] [{idx}/{total_pending}] {s} -> {ed} ({status})")
+                ed, last_decl, upcoming, status = self.provider.fetch_earnings_date(s)
+                active_ed = ed or upcoming or last_decl
+                if active_ed or last_decl or upcoming:
+                    batch_to_save.append((s, active_ed, last_decl, upcoming, status))
+                    logger.info(f"📅 [EARNINGS CALENDAR] [{idx}/{total_pending}] {s} -> Last: {last_decl} | Upcoming: {upcoming} | Active: {active_ed} ({status})")
                 else:
                     logger.info(f"⚠️ [EARNINGS CALENDAR] [{idx}/{total_pending}] {s} -> Date unavailable")
             except Exception as e:
@@ -286,15 +310,17 @@ class EarningsCalendarService:
                         from database import get_connection
                         with get_connection() as conn:
                             with conn.cursor() as cur:
-                                for sym_item, ed_item, status_item in batch_to_save:
+                                for sym_item, ed_item, last_item, upc_item, status_item in batch_to_save:
                                     cur.execute("""
-                                        INSERT INTO earnings_calendar (symbol, earnings_date, date_status, updated_at)
-                                        VALUES (%s, %s, %s, NOW())
+                                        INSERT INTO earnings_calendar (symbol, earnings_date, last_declared_date, upcoming_date, date_status, updated_at)
+                                        VALUES (%s, %s, %s, %s, %s, NOW())
                                         ON CONFLICT (symbol) DO UPDATE SET
                                             earnings_date = EXCLUDED.earnings_date,
+                                            last_declared_date = COALESCE(EXCLUDED.last_declared_date, earnings_calendar.last_declared_date),
+                                            upcoming_date = COALESCE(EXCLUDED.upcoming_date, earnings_calendar.upcoming_date),
                                             date_status = EXCLUDED.date_status,
                                             updated_at = NOW()
-                                    """, (sym_item, ed_item, status_item))
+                                    """, (sym_item, ed_item, last_item, upc_item, status_item))
                                 conn.commit()
                                 updated_count += len(batch_to_save)
                                 logger.info(f"💾 [EARNINGS CALENDAR] Committed chunk of {len(batch_to_save)} records to DB (Total saved: {updated_count}/{total_pending})")
@@ -307,7 +333,7 @@ class EarningsCalendarService:
 
     def get_earnings_info(self, symbol: str, target_date: Optional[date] = None) -> Dict:
         """
-        Reads earnings info for a symbol from PostgreSQL cache and computes graded risk classification.
+        Reads dual earnings info (last declared & upcoming) for a symbol from PostgreSQL cache and computes graded risk classification.
         Non-blocking, fast DB lookup.
         """
         clean_upper = symbol.strip().upper()
@@ -319,14 +345,16 @@ class EarningsCalendarService:
         elif isinstance(target_date, datetime):
             target_date = target_date.date()
 
-        # [VERSION: PHASE2_EARNINGS_UNVERIFIED_v1.0] Default response for missing/unverified dates returns UNVERIFIED severity to prevent false green safety signals.
+        # Default response for missing/unverified dates
         default_response = {
             "earnings_flag": False,
             "days_to_earnings": 999,
             "earnings_date": None,
+            "last_declared_date": None,
+            "upcoming_date": None,
             "earnings_severity": EarningsSeverity.UNVERIFIED,
             "date_status": DateStatus.UNVERIFIED,
-            "warning_msg": "⚠️ UNVERIFIED EARNINGS: No reliable upcoming earnings date available in calendar."
+            "warning_msg": "⚠️ UNVERIFIED EARNINGS: No reliable upcoming or declared earnings date available in calendar."
         }
 
         try:
@@ -334,18 +362,34 @@ class EarningsCalendarService:
             with get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT earnings_date, date_status FROM earnings_calendar WHERE symbol = %s",
+                        "SELECT earnings_date, last_declared_date, upcoming_date, date_status FROM earnings_calendar WHERE symbol = %s",
                         (clean_upper,)
                     )
                     row = cur.fetchone()
                     if not row or not row[0]:
                         return default_response
                         
-                    ed_date = row[0]
-                    date_status = row[1] or DateStatus.ESTIMATED
-                    
-                    diff_days = (ed_date - target_date).days
-                    
+                    ed_date, last_decl_date, upc_date, date_status = row[0], row[1], row[2], (row[3] or DateStatus.ESTIMATED)
+
+                    days_to_upcoming = (upc_date - target_date).days if upc_date else None
+                    days_since_declared = (target_date - last_decl_date).days if last_decl_date else None
+
+                    diff_days = 999
+                    active_date = ed_date
+
+                    # 1. Upcoming result priority (0 to 15 days in future)
+                    if days_to_upcoming is not None and 0 <= days_to_upcoming <= 15:
+                        diff_days = days_to_upcoming
+                        active_date = upc_date
+                    # 2. Declared result priority (1 to 15 days in past)
+                    elif days_since_declared is not None and 0 <= days_since_declared <= 15:
+                        diff_days = -days_since_declared
+                        active_date = last_decl_date
+                    # 3. Standard fallback calculation using ed_date
+                    elif ed_date:
+                        diff_days = (ed_date - target_date).days
+                        active_date = ed_date
+
                     # Determine severity & warning
                     if diff_days == 0:
                         severity = EarningsSeverity.HIGH_TODAY
@@ -353,26 +397,27 @@ class EarningsCalendarService:
                         earnings_flag = True
                     elif 1 <= diff_days <= 3:
                         severity = EarningsSeverity.HIGH_SOON
-                        warning_msg = f"🟠 HIGH EARNINGS RISK: Results expected in {diff_days} day(s) ({ed_date}). Elevated overnight gap risk. Review position size and risk before entry."
+                        warning_msg = f"🟠 HIGH EARNINGS RISK: Results expected in {diff_days} day(s) ({active_date}). Elevated overnight gap risk. Review position size and risk before entry."
                         earnings_flag = True
                     elif 4 <= diff_days <= 15:
                         severity = EarningsSeverity.MEDIUM_WEEK
-                        warning_msg = f"🟡 MEDIUM EARNINGS RISK: Results expected in {diff_days} days ({ed_date}). Elevated gap risk. Review risk before entry."
+                        warning_msg = f"🟡 MEDIUM EARNINGS RISK: Results expected in {diff_days} days ({active_date}). Elevated gap risk. Review risk before entry."
                         earnings_flag = True
                     elif -15 <= diff_days < 0:
                         severity = EarningsSeverity.MEDIUM_WEEK
-                        warning_msg = f"🟢 RECENT EARNINGS: Results declared {abs(diff_days)} day(s) ago ({ed_date}). Watch for post-earnings volatility."
+                        warning_msg = f"🟢 RECENT EARNINGS: Results declared {abs(diff_days)} day(s) ago ({active_date}). Watch for post-earnings volatility."
                         earnings_flag = True
                     else:
                         severity = EarningsSeverity.NONE
                         warning_msg = ""
                         earnings_flag = False
 
-
                     return {
                         "earnings_flag": earnings_flag,
                         "days_to_earnings": diff_days,
-                        "earnings_date": ed_date.strftime("%Y-%m-%d"),
+                        "earnings_date": active_date.strftime("%Y-%m-%d") if active_date else None,
+                        "last_declared_date": last_decl_date.strftime("%Y-%m-%d") if last_decl_date else None,
+                        "upcoming_date": upc_date.strftime("%Y-%m-%d") if upc_date else None,
                         "earnings_severity": severity,
                         "date_status": date_status,
                         "warning_msg": warning_msg

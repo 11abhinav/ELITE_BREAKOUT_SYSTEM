@@ -925,10 +925,15 @@ def init_db():
                     CREATE TABLE IF NOT EXISTS earnings_calendar (
                         symbol TEXT PRIMARY KEY,
                         earnings_date DATE NOT NULL,
+                        last_declared_date DATE,
+                        upcoming_date DATE,
                         date_status VARCHAR(20) DEFAULT 'ESTIMATED',
                         updated_at TIMESTAMPTZ DEFAULT NOW()
                     )
                 """)
+                cur.execute("ALTER TABLE earnings_calendar ADD COLUMN IF NOT EXISTS last_declared_date DATE;")
+                cur.execute("ALTER TABLE earnings_calendar ADD COLUMN IF NOT EXISTS upcoming_date DATE;")
+
 
                 # 30. alert_outcomes
                 cur.execute("""
