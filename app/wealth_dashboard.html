@@ -684,7 +684,7 @@
           let bucketHtml = bucket ? `<span style="font-size:10px; padding:2px 6px; border-radius:4px; border:1px solid var(--${bClass}); color:var(--${bClass});">${bucket}</span>` : '-';
           
           return `<tr>
-            <td class="sym">${r.symbol}</td>
+            <td class="sym">${r.symbol}${getEarningsBadgeHtml(r)}</td>
             <td class="mono" style="color:var(--muted);">${r.entry_date}</td>
             <td class="mono">${qty}</td>
             <td class="mono">₹${entryP.toLocaleString('en-IN')}</td>
@@ -795,6 +795,34 @@
     const fmt = (v) => v !== null && v !== undefined ? parseFloat(v).toFixed(1) : '-';
     const getScoreCls = (s) => s >= 65 ? 'score-high' : (s >= 55 ? 'score-med' : 'score-low');
     const getRsCls = (rs) => rs > 0 ? 'rs-pos' : 'rs-neg';
+
+function getEarningsBadgeHtml(item) {
+  if (!item) return '';
+  const d = (item.days_to_earnings != null && item.days_to_earnings !== 999) ? parseInt(item.days_to_earnings, 10) : null;
+  const ed = item.earnings_date ? (String(item.earnings_date).split('T')[0] || item.earnings_date) : '';
+  const s = item.earnings_severity || (item.earnings_flag ? 'HIGH_SOON' : '');
+  const msg = item.warning_msg || (ed ? `Upcoming Earnings on ${ed}` : 'Earnings Announcement');
+
+  // 1. EARNINGS TODAY / HIGH TODAY (0 days or HIGH_TODAY)
+  if (d === 0 || s === 'HIGH_TODAY') {
+    return `<span class="badge" style="background:rgba(239,68,68,0.25); color:#f87171; border:1px solid rgba(239,68,68,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(239,68,68,0.3);" title="${msg}">🔴 RESULTS TODAY</span>`;
+  }
+  // 2. EARNINGS SOON (1 to 3 days or HIGH_SOON)
+  if ((d !== null && d >= 1 && d <= 3) || s === 'HIGH_SOON') {
+    const daysStr = d !== null ? `${d}D` : 'SOON';
+    return `<span class="badge" style="background:rgba(245,158,11,0.25); color:#fbbf24; border:1px solid rgba(245,158,11,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(245,158,11,0.3);" title="${msg}">🟠 RESULTS IN ${daysStr}</span>`;
+  }
+  // 3. EARNINGS THIS MONTH / UPCOMING (4 to 30 days or ed present or MEDIUM_WEEK / UPCOMING)
+  if ((d !== null && d >= 4 && d <= 30) || ed || s === 'MEDIUM_WEEK' || item.earnings_flag) {
+    const daysStr = (d !== null && d > 0 && d <= 30) ? `${d}D` : (ed || 'UPCOMING');
+    return `<span class="badge" style="background:rgba(59,130,246,0.25); color:#60a5fa; border:1px solid rgba(59,130,246,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="${msg}">📅 EARNINGS ${daysStr}</span>`;
+  }
+  // 4. UNVERIFIED
+  if (s === 'UNVERIFIED') {
+    return `<span class="badge" style="background:rgba(107,114,128,0.25); color:#9ca3af; border:1px solid rgba(107,114,128,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="Earnings date unverified">⚠️ UNVERIFIED</span>`;
+  }
+  return '';
+}
 
     const getSigHtml = (sig) => {
       if (!sig) return '-';

@@ -877,9 +877,14 @@ def api_get_near_misses():
                                nm.threshold_value, nm.delta_pct, nm.score,
                                COALESCE(nm.entry_price, m.cmp) AS entry_price,
                                nm.stop_loss, nm.target_1,
-                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
+                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r,
+                               COALESCE(ec.earnings_date IS NOT NULL, FALSE)                 AS earnings_flag,
+                               COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)   AS days_to_earnings,
+                               ec.earnings_date                                               AS earnings_date,
+                               COALESCE(ec.date_status, 'NONE')                              AS earnings_severity
                         FROM near_misses nm
                         LEFT JOIN stock_analysis_master m ON m.symbol = nm.symbol
+                        LEFT JOIN earnings_calendar ec ON UPPER(ec.symbol) = UPPER(nm.symbol)
                         WHERE nm.logged_date >= CURRENT_DATE - INTERVAL '%s days' AND nm.scanner = %s
                         ORDER BY nm.logged_at DESC
                         LIMIT 200
@@ -890,9 +895,14 @@ def api_get_near_misses():
                                nm.threshold_value, nm.delta_pct, nm.score,
                                COALESCE(nm.entry_price, m.cmp) AS entry_price,
                                nm.stop_loss, nm.target_1,
-                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
+                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r,
+                               COALESCE(ec.earnings_date IS NOT NULL, FALSE)                 AS earnings_flag,
+                               COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)   AS days_to_earnings,
+                               ec.earnings_date                                               AS earnings_date,
+                               COALESCE(ec.date_status, 'NONE')                              AS earnings_severity
                         FROM near_misses nm
                         LEFT JOIN stock_analysis_master m ON m.symbol = nm.symbol
+                        LEFT JOIN earnings_calendar ec ON UPPER(ec.symbol) = UPPER(nm.symbol)
                         WHERE nm.logged_date >= CURRENT_DATE - INTERVAL '%s days'
                         ORDER BY nm.logged_at DESC
                         LIMIT 200

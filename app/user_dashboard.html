@@ -1109,7 +1109,7 @@ window.renderSignalLadder = function() {
 
       
       return `<tr>
-          <td style="font-weight:700;">${d.symbol}</td>
+          <td style="font-weight:700;">${d.symbol}${getEarningsBadgeHtml(d)}</td>
           <td><span style="color:${color}; font-weight:600;">${d.current_state}</span></td>
           <td>${cmpStr}</td>
           <td style="color:var(--muted); font-size:11px;">${lastUpd}</td>
@@ -1129,20 +1129,35 @@ function buildTradeRows(trades, maxAbs, prefix) {
     const id = prefix + i;
     const barW = t.pnl_pct != null ? Math.min(100, Math.abs(t.pnl_pct) / maxAbs * 100).toFixed(1) : 0;
     const barColor = t.pnl_pct == null ? C.muted : t.pnl_pct >= 0 ? C.accent : C.warn;
-    let eventMarkHtml = '';
-    if (t.earnings_flag || (t.days_to_earnings != null && t.days_to_earnings <= 5) || t.earnings_severity === 'UNVERIFIED') {
-      const d = t.days_to_earnings;
-      const s = t.earnings_severity;
-      if (d === 0 || s === 'HIGH_TODAY') {
-        eventMarkHtml = `<span class="badge" style="background:rgba(220,38,38,0.18);color:#ef4444;border:1px solid rgba(220,38,38,0.35);font-size:9px;margin-left:5px;padding:2px 5px;" title="${t.warning_msg || 'Earnings Results Today'}">🔴 RESULTS TODAY</span>`;
-      } else if ((d >= 1 && d <= 2) || s === 'HIGH_SOON') {
-        eventMarkHtml = `<span class="badge" style="background:rgba(245,158,11,0.18);color:#f59e0b;border:1px solid rgba(245,158,11,0.35);font-size:9px;margin-left:5px;padding:2px 5px;" title="${t.warning_msg || 'Earnings Results in ' + d + ' days (' + (t.earnings_date||'') + ')'}">🟠 RESULTS IN ${d}D</span>`;
-      } else if ((d >= 3 && d <= 5) || s === 'MEDIUM_WEEK') {
-        eventMarkHtml = `<span class="badge" style="background:rgba(59,130,246,0.18);color:#3b82f6;border:1px solid rgba(59,130,246,0.35);font-size:9px;margin-left:5px;padding:2px 5px;" title="${t.warning_msg || 'Earnings Results in ' + d + ' days (' + (t.earnings_date||'') + ')'}">🟡 RESULTS IN ${d}D</span>`;
-      } else if (s === 'UNVERIFIED') {
-        eventMarkHtml = `<span class="badge" style="background:rgba(107,114,128,0.18);color:#9ca3af;border:1px solid rgba(107,114,128,0.35);font-size:9px;margin-left:5px;padding:2px 5px;" title="Earnings date unverified">⚠️ UNVERIFIED</span>`;
-      }
-    }
+function getEarningsBadgeHtml(item) {
+  if (!item) return '';
+  const d = (item.days_to_earnings != null && item.days_to_earnings !== 999) ? parseInt(item.days_to_earnings, 10) : null;
+  const ed = item.earnings_date ? (String(item.earnings_date).split('T')[0] || item.earnings_date) : '';
+  const s = item.earnings_severity || (item.earnings_flag ? 'HIGH_SOON' : '');
+  const msg = item.warning_msg || (ed ? `Upcoming Earnings on ${ed}` : 'Earnings Announcement');
+
+  // 1. EARNINGS TODAY / HIGH TODAY (0 days or HIGH_TODAY)
+  if (d === 0 || s === 'HIGH_TODAY') {
+    return `<span class="badge" style="background:rgba(239,68,68,0.25); color:#f87171; border:1px solid rgba(239,68,68,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(239,68,68,0.3);" title="${msg}">🔴 RESULTS TODAY</span>`;
+  }
+  // 2. EARNINGS SOON (1 to 3 days or HIGH_SOON)
+  if ((d !== null && d >= 1 && d <= 3) || s === 'HIGH_SOON') {
+    const daysStr = d !== null ? `${d}D` : 'SOON';
+    return `<span class="badge" style="background:rgba(245,158,11,0.25); color:#fbbf24; border:1px solid rgba(245,158,11,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(245,158,11,0.3);" title="${msg}">🟠 RESULTS IN ${daysStr}</span>`;
+  }
+  // 3. EARNINGS THIS MONTH / UPCOMING (4 to 30 days or ed present or MEDIUM_WEEK / UPCOMING)
+  if ((d !== null && d >= 4 && d <= 30) || ed || s === 'MEDIUM_WEEK' || item.earnings_flag) {
+    const daysStr = (d !== null && d > 0 && d <= 30) ? `${d}D` : (ed || 'UPCOMING');
+    return `<span class="badge" style="background:rgba(59,130,246,0.25); color:#60a5fa; border:1px solid rgba(59,130,246,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="${msg}">📅 EARNINGS ${daysStr}</span>`;
+  }
+  // 4. UNVERIFIED
+  if (s === 'UNVERIFIED') {
+    return `<span class="badge" style="background:rgba(107,114,128,0.25); color:#9ca3af; border:1px solid rgba(107,114,128,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="Earnings date unverified">⚠️ UNVERIFIED</span>`;
+  }
+  return '';
+}
+
+    let eventMarkHtml = getEarningsBadgeHtml(t);
     return `
     <tr class="main-row${isOpen?' open':''}" id="mr-${id}" onclick="toggleDetail('${id}', '${t.symbol}')">
       <td>${isOpen?'\u25bc':'\u25b6'}</td>
@@ -2993,7 +3008,7 @@ function renderMultibaggerWatchlist() {
     return `
       <tr class="${statusClass}">
         <td class="font-bold">
-          <a href="https://chartink.com/stocks/${sym}.html" target="_blank" class="symbol-link">${sym}</a>
+          <a href="https://chartink.com/stocks/${sym}.html" target="_blank" class="symbol-link">${sym}</a>${getEarningsBadgeHtml(item)}
           <div style="font-size:10px; color:var(--muted); margin-top:2px;">${status === 'INVALIDATED' ? 'Failed Checks' : bucketTag(bucket)}</div>
         </td>
         <td class="mono">₹${cmp > 0 ? cmp.toFixed(2) : '-'}</td>
