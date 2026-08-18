@@ -963,9 +963,10 @@ function getEarningsBadgeHtml(item) {
             console.error("Failed to parse today's alerts:", e);
         }
 
-        const buys = stocks.filter(s => (s.Signal || "").includes("BUY") && todayAlertSymbols.has(s.Stock)).sort((a,b) => (b.FM_Score || 0) - (a.FM_Score || 0));
-        document.getElementById('kpi-buys').textContent = todayAlertSymbols.size;
+        const buys = stocks.filter(s => (s.Signal || "").toUpperCase().includes("BUY")).sort((a,b) => (b.FM_Score || 0) - (a.FM_Score || 0));
+        document.getElementById('kpi-buys').textContent = buys.length;
         document.getElementById('buy-count').textContent = buys.length;
+
 
         document.querySelector('#tbl-buy tbody').innerHTML = buys.length ? buys.map(r => `
           <tr class="${newBuySignals.has(r.Stock) ? 'buy-signal-blink' : ''}">
