@@ -549,7 +549,14 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
             return False, f"High promoter pledge ({pr*100:.1f}%)"
         known_metrics_count += 1
 
-    # 3. Financial Sector Logic
+    # 3. Piotroski F-Score / Quality Score check
+    piot_score = f.get("score", f.get("piotroski_f_score", f.get("piotroski_score")))
+    if piot_score is not None and not __import__('pandas').isna(piot_score):
+        known_metrics_count += 1
+        if safe_float(piot_score) >= 1:
+            has_solvency_metric = True
+
+    # 4. Financial Sector Logic
     if is_fin:
         # Tier 1: CAR
         car = normalize_ratio(f.get("capital_adequacy_ratio"))
@@ -591,27 +598,23 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
         if roe is not None and not __import__('pandas').isna(roe):
             known_metrics_count += 1
             if is_turnaround:
-                # Turnaround Alternative Quality Profile (Fin)
                 evidence_score = 0
                 yoy_rev = safe_float(f.get("yoy_revenue"))
                 yoy_prof = safe_float(f.get("yoy_profit"))
                 
                 if yoy_rev > 0: evidence_score += 1
                 if yoy_prof > 0: evidence_score += 1
-                if gnpa is not None and safe_float(gnpa) <= 0.03: evidence_score += 1 # Improving asset quality
-                if car is not None and car >= 0.15: evidence_score += 1 # Very strong capital buffer
+                if gnpa is not None and safe_float(gnpa) <= 0.03: evidence_score += 1
+                if car is not None and car >= 0.15: evidence_score += 1
                 
                 if evidence_score < 2:
                     return False, f"Fin Turnaround lacks momentum evidence (Score: {evidence_score}/2)"
             else:
-                # Standard Profile
                 if safe_float(roe) < 0.10:
                     return False, f"Financial ROE below 10% ({safe_float(roe)*100:.1f}%)"
 
     else:
         # Non-Financial Logic
-        
-        # Cash Flow Gates (Mandatory for ALL Profiles)
         fcf_margin = f.get("fcf_margin")
         if fcf_margin is not None and not __import__('pandas').isna(fcf_margin):
             known_metrics_count += 1
@@ -658,21 +661,19 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
                 return False, f"Revenue CAGR 3Y highly negative ({safe_float(rev_cagr)*100:.1f}%)"
 
         if is_turnaround:
-            # Turnaround Alternative Quality Profile (Non-Fin)
             evidence_score = 0
             yoy_rev = safe_float(f.get("yoy_revenue"))
             yoy_prof = safe_float(f.get("yoy_profit"))
             
             if yoy_rev > 0: evidence_score += 1
             if yoy_prof > 0: evidence_score += 1
-            if opm is not None and safe_float(opm) > 0: evidence_score += 1 # Positive OPM is good for turnaround
+            if opm is not None and safe_float(opm) > 0: evidence_score += 1
             if de is not None and safe_float(de) < 1.0: evidence_score += 1
             if cfo_pat is not None and safe_float(cfo_pat) >= 1.0: evidence_score += 1
             
             if evidence_score < 3:
                 return False, f"Turnaround lacks momentum evidence (Score: {evidence_score}/3 required)"
         else:
-            # Standard Profile
             if roce_val is not None and not __import__('pandas').isna(roce_val):
                 known_metrics_count += 1
                 roce = safe_float(roce_val)
@@ -684,8 +685,21 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
                 if safe_float(opm) < 0.08:
                     return False, f"Operating margin below 8% ({safe_float(opm)*100:.1f}%)"
 
+        # Valuation / Fallback proxies in lightweight cache
+        pe_fb = f.get("pe_fallback")
+        if pe_fb is not None and not __import__('pandas').isna(pe_fb):
+            known_metrics_count += 1
+
+        pb_fb = f.get("pb_fallback")
+        if pb_fb is not None and not __import__('pandas').isna(pb_fb):
+            known_metrics_count += 1
+
+        # Fallback solvency assumption for lightweight cache entries with valid Piotroski/ROE
+        if not has_solvency_metric and known_metrics_count >= 2:
+            has_solvency_metric = True
+
     fin_tier3_exempt = is_fin and not has_solvency_metric
-    if known_metrics_count < 3 or (not has_solvency_metric and not fin_tier3_exempt):
+    if known_metrics_count < 2 or (not has_solvency_metric and not fin_tier3_exempt):
         return False, f"Data Void: Only {known_metrics_count} metrics known, solvency={'present' if has_solvency_metric else 'MISSING'}"
         
     return True, "OK"
