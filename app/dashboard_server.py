@@ -558,17 +558,17 @@ def api_viewers():
 def api_messages():
     """Get or send messages for a specific user."""
     if request.method == "GET":
-        user_name = request.args.get("user")
+        user_name = request.args.get("user") or session.get("username")
         if not user_name:
-            return jsonify({"error": "Missing user parameter"}), 400
+            return jsonify([])
         
         user_id = get_user_id_by_username(user_name)
         if not user_id:
-            # [VERSION: DASHBOARD_CHAT_BUG_FIX_v1.0] Return empty list instead of 404 to avoid breaking frontend chat polling
             return jsonify([])
             
         messages = get_user_messages(user_id)
         return jsonify(messages)
+
         
     elif request.method == "POST":
         data = request.json or {}
@@ -1572,17 +1572,17 @@ def api_stream_alerts():
 
     return Response(event_stream(), mimetype="text/event-stream")
 
-_MACRO_STATE_RESPONSE_CACHE = {"timestamp": 0, "payload": None}
+_MACRO_STATE_RESPONSE_CACHE = {
+    "timestamp": 0.0,
+    "payload": {"nifty_6m_return": 0.0, "nifty_dist_52w": 0.0, "bear_market_gate": False}
+}
 
 @app.route("/api/macro_state")
 @login_required
 def api_macro_state():
-    """Returns the current Macro Regime state (Nifty correction)."""
+    """Returns the current Macro Regime state (Nifty correction) with non-blocking async background refresh."""
     now = time.time()
-    if _MACRO_STATE_RESPONSE_CACHE["payload"] is not None and (now - _MACRO_STATE_RESPONSE_CACHE["timestamp"]) < 120:
-        return jsonify(_MACRO_STATE_RESPONSE_CACHE["payload"])
-
-    if _MACRO_STATE_RESPONSE_CACHE["payload"] is not None:
+    if (now - _MACRO_STATE_RESPONSE_CACHE["timestamp"]) > 120:
         import threading
         def _refresh():
             try:
@@ -1599,24 +1599,9 @@ def api_macro_state():
             except Exception:
                 pass
         threading.Thread(target=_refresh, daemon=True).start()
-        return jsonify(_MACRO_STATE_RESPONSE_CACHE["payload"])
 
-    try:
-        from wealth_engine import fetch_nifty_macro_state
-        ret_6m, dist_52w = fetch_nifty_macro_state()
-        r_6m = round(float(ret_6m), 2) if ret_6m is not None else None
-        d_52w = round(float(dist_52w), 2) if dist_52w is not None else None
-        res = {
-            "nifty_6m_return": r_6m,
-            "nifty_dist_52w": d_52w,
-            "bear_market_gate": bool(d_52w > 15.0) if d_52w is not None else False
-        }
-        _MACRO_STATE_RESPONSE_CACHE["timestamp"] = now
-        _MACRO_STATE_RESPONSE_CACHE["payload"] = res
-        return jsonify(res)
-    except Exception as e:
-        logger.debug("Failed to fetch macro state")
-        return jsonify({"nifty_6m_return": 0, "nifty_dist_52w": 0, "bear_market_gate": False})
+    return jsonify(_MACRO_STATE_RESPONSE_CACHE["payload"])
+
 
 
 # ── Fetch errors API (admin) ─────────────────────────────────────────────────────
