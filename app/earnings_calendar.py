@@ -462,9 +462,10 @@ def run_earnings_calendar_refresh() -> dict:
 
         logger.info("📅 [EARNINGS CALENDAR] Starting scheduled refresh...")
 
-        # ── Build symbol universe ────────────────────────────────────────────────
+        # ── Build comprehensive symbol universe (Manual, Wealth, Multibagger, Master, & Fundamental) ──
         symbols_set: set = set()
 
+        # 1. Fundamental Watchlist & Exclusions
         if os.path.exists(WATCHLIST_PATH):
             try:
                 df = pd.read_parquet(WATCHLIST_PATH)
@@ -487,6 +488,44 @@ def run_earnings_calendar_refresh() -> dict:
                     break
                 except Exception as e:
                     logger.warning(f"📅 Failed to read exclusion list {exc_path}: {e}")
+
+        # 2. Database Symbol Sources: Manual Watchlists, Multibagger Watchlist, Wealth Alerts, & Master Active Symbols
+        try:
+            from database import get_connection
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    # User personal / manual watchlists
+                    cur.execute("SELECT DISTINCT symbol FROM user_watchlists WHERE symbol IS NOT NULL AND TRIM(symbol) != ''")
+                    symbols_set.update(r[0].strip().upper() for r in cur.fetchall() if r[0])
+                    
+                    # Multibagger watchlist & candidates
+                    cur.execute("SELECT DISTINCT symbol FROM watchlist WHERE symbol IS NOT NULL AND TRIM(symbol) != ''")
+                    symbols_set.update(r[0].strip().upper() for r in cur.fetchall() if r[0])
+                    
+                    cur.execute("SELECT DISTINCT symbol FROM candidates WHERE symbol IS NOT NULL AND TRIM(symbol) != ''")
+                    symbols_set.update(r[0].strip().upper() for r in cur.fetchall() if r[0])
+
+                    # Wealth Engine portfolio & alerts
+                    cur.execute("SELECT DISTINCT symbol FROM wealth_buy_alert WHERE symbol IS NOT NULL AND TRIM(symbol) != ''")
+                    symbols_set.update(r[0].strip().upper() for r in cur.fetchall() if r[0])
+
+                    # Master active symbols
+                    cur.execute("SELECT DISTINCT symbol FROM master_symbols WHERE is_active = TRUE AND symbol IS NOT NULL AND TRIM(symbol) != ''")
+                    symbols_set.update(r[0].strip().upper() for r in cur.fetchall() if r[0])
+        except Exception as db_sym_err:
+            logger.warning(f"⚠️ Failed to query DB tables for earnings calendar symbols: {db_sym_err}")
+
+        # 3. Wealth System Parquet (if exists)
+        try:
+            from config import DATA_DIR
+            wealth_path = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
+            if os.path.exists(wealth_path):
+                wdf = pd.read_parquet(wealth_path)
+                if "Stock" in wdf.columns:
+                    symbols_set.update(wdf["Stock"].dropna().unique().tolist())
+        except Exception as w_err:
+            logger.warning(f"📅 Failed to read wealth parquet for earnings calendar: {w_err}")
+
 
         symbols = sorted(symbols_set)
         total_count = len(symbols)
