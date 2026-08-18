@@ -2717,9 +2717,70 @@ def _get_news_cache() -> dict:
     return get_session_cache_or_fallback("news", _news_cache_fallback, logger)
 
 @app.route("/api/news/<symbol>")
+def _fetch_google_news_rss(symbol: str) -> list:
+    """Fallback news fetcher via Google News RSS for Indian stocks."""
+    clean_sym = symbol.strip().upper().replace(".NS", "").replace(".BO", "")
+    url = f"https://news.google.com/rss/search?q={clean_sym}+stock+NSE+India&hl=en-IN&gl=IN&ceid=IN:en"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    try:
+        import requests, xml.etree.ElementTree as ET
+        resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code == 200:
+            root = ET.fromstring(resp.content)
+            items = []
+            for item in root.findall(".//item")[:4]:
+                title = item.findtext("title", "")
+                link = item.findtext("link", "")
+                pub_date = item.findtext("pubDate", "")
+                source = item.findtext("source", "") or "Google News"
+                if title:
+                    items.append({
+                        "title": title,
+                        "summary": "",
+                        "link": link,
+                        "provider": source,
+                        "date": pub_date
+                    })
+            return items
+    except Exception as e:
+        logger.debug(f"Google News RSS fetch failed for {symbol}: {e}")
+    return []
+
+def _fetch_google_notices_rss(symbol: str) -> list:
+    """Fallback corporate announcements fetcher via Google News RSS."""
+    clean_sym = symbol.strip().upper().replace(".NS", "").replace(".BO", "")
+    url = f"https://news.google.com/rss/search?q={clean_sym}+corporate+announcement+board+meeting+NSE+India&hl=en-IN&gl=IN&ceid=IN:en"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    try:
+        import requests, xml.etree.ElementTree as ET
+        resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code == 200:
+            root = ET.fromstring(resp.content)
+            items = []
+            for item in root.findall(".//item")[:4]:
+                title = item.findtext("title", "")
+                link = item.findtext("link", "")
+                pub_date = item.findtext("pubDate", "")
+                if title:
+                    desc = title[:50] + "..." if len(title) > 50 else title
+                    items.append({
+                        "date": pub_date.split(" ")[0] if pub_date else "RECENT",
+                        "desc": desc,
+                        "link": link
+                    })
+            return items
+    except Exception as e:
+        logger.debug(f"Google Notices RSS fallback failed for {symbol}: {e}")
+    return []
+
+@app.route("/api/news/<symbol>")
 @login_required
 def api_news(symbol):
-    """Fetch recent 3 news headlines for a symbol with 15-min caching."""
+    """Fetch recent news headlines for a symbol with 15-min caching and Google News fallback."""
     try:
         from bse_mapping_utils import load_bse_mappings
         mappings = load_bse_mappings()
@@ -2733,194 +2794,94 @@ def api_news(symbol):
     except Exception:
         yf_symbol = symbol.replace('_', '-') if "." in symbol else f"{symbol.replace('_', '-')}.NS"
 
-    
     with _news_lock:
         cache = _get_news_cache()
         cached = cache.get(yf_symbol)
         if cached and (time.time() - cached["timestamp"] < 900): # 15 min cache
             return jsonify(cached["data"])
             
+    news = []
     try:
+        from yf_rate_limiter import acquire as yf_acquire, release as yf_release, CircuitOpenError
+        yf_acquire(context=f"DashboardServer.api_news | {yf_symbol}")
         try:
-            from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, CircuitOpenError
-            yf_acquire(context=f"DashboardServer.api_fundamental_details | {yf_symbol}")
-            try:
-                ticker = yf.Ticker(yf_symbol)
-                raw_news = ticker.news[:3]
-            finally:
-                yf_release()
-        except CircuitOpenError as ce:
-            logger.error(f"YFinance circuit open; abort news fetch for {yf_symbol}: {ce}")
-            return jsonify([])
-        except Exception as e:
-            msg = str(e).lower()
-            if 'too many requests' in msg or 'rate limit' in msg:
-                from yf_rate_limiter import record_rate_limit
-                record_rate_limit(context=f"DashboardServer.api_fundamental_details | {yf_symbol}")
-            logger.exception(f"Failed to fetch news for {yf_symbol}")
-            try:
-                mark_failure('yfinance', f"{e} (Dashboard News: {yf_symbol})")
-            except Exception:
-                logger.exception('Failed to report yfinance failure from dashboard news')
-            return jsonify([])
-
-        news = []
-        for item in raw_news:
-            n = item.get("content", item)
-            
-            # Safely extract link, handling None values from provider dicts
-            click_url = (n.get("clickThroughUrl") or {}).get("url", "")
-            canon_url = (n.get("canonicalUrl") or {}).get("url", "")
-            link = n.get("link") or click_url or canon_url
-            
-            news.append({
-                "title": n.get("title", ""),
-                "summary": n.get("summary", ""),
-                "link": link,
-                "provider": (n.get("provider") or {}).get("displayName", ""),
-                "date": n.get("pubDate", "") or n.get("providerPublishTime", "")
-            })
-
-        with _news_lock:
-            cache = _get_news_cache()
-            # 1. Clean up expired entries (TTL 15 min / 900s)
-            now = time.time()
-            expired = [k for k, v in cache.items() if now - v["timestamp"] > 900]
-            for k in expired:
-                del cache[k]
-                
-            # 2. Add new entry
-            cache[yf_symbol] = {"data": news, "timestamp": now}
-            
-            # 3. If cache still too large (e.g., burst of 500 different queries in 15min), remove oldest
-            MAX_NEWS_CACHE_SIZE = 500
-            if len(cache) > MAX_NEWS_CACHE_SIZE:
-                excess = len(cache) - MAX_NEWS_CACHE_SIZE
-                oldest_keys = list(cache.keys())[:excess]
-                for k in oldest_keys:
-                    del cache[k]
-                logger.info(f"🧹 Evicted {len(expired)} expired and {len(oldest_keys)} oldest entries from news cache.")
-        try:
-            mark_success('yfinance')
-        except Exception:
-            logger.exception('Failed to report yfinance success from dashboard news')
-        return jsonify(news)
+            ticker = yf.Ticker(yf_symbol)
+            raw_news = getattr(ticker, 'news', []) or []
+            raw_news = raw_news[:3]
+            for item in raw_news:
+                n = item.get("content", item)
+                click_url = (n.get("clickThroughUrl") or {}).get("url", "")
+                canon_url = (n.get("canonicalUrl") or {}).get("url", "")
+                link = n.get("link") or click_url or canon_url
+                news.append({
+                    "title": n.get("title", ""),
+                    "summary": n.get("summary", ""),
+                    "link": link,
+                    "provider": (n.get("provider") or {}).get("displayName", ""),
+                    "date": n.get("pubDate", "") or n.get("providerPublishTime", "")
+                })
+        finally:
+            yf_release()
     except Exception as e:
-        msg = str(e).lower()
-        if 'too many requests' in msg or 'rate limit' in msg:
-            from yf_rate_limiter import record_rate_limit
-            record_rate_limit()
-        logger.exception(f"Failed to fetch news for {yf_symbol}")
-        try:
-            mark_failure('yfinance', f"{e} (Dashboard News: {yf_symbol})")
-        except Exception:
-            logger.exception('Failed to report yfinance failure from dashboard news')
-        return jsonify([])
+        logger.debug(f"YFinance news failed for {yf_symbol}: {e}")
 
-import subprocess
-import json
+    if not news:
+        news = _fetch_google_news_rss(symbol)
+
+    with _news_lock:
+        cache = _get_news_cache()
+        now = time.time()
+        cache[yf_symbol] = {"data": news, "timestamp": now}
+
+    return jsonify(news)
 
 _NOTICES_RESPONSE_CACHE = {}
 
 @app.route("/api/notices/<symbol>")
 @login_required
 def api_notices(symbol):
-    """Fetch recent corporate announcements from NSE via requests.Session to bypass WAF."""
-    clean_sym = symbol.strip().upper()
+    """Fetch recent corporate announcements from NSE with fast fallback to Google RSS."""
+    clean_sym = symbol.strip().upper().replace('.NS', '').replace('_', '-')
     now = time.time()
     cached = _NOTICES_RESPONSE_CACHE.get(clean_sym)
     if cached and (now - cached["timestamp"]) < 900:
         return jsonify(cached["data"])
 
-    yf_symbol = symbol.replace('.NS', '').replace('_', '-')
-    url = f"https://www.nseindia.com/api/corporate-announcements?index=equities&symbol={yf_symbol}"
-    
+    url = f"https://www.nseindia.com/api/corporate-announcements?index=equities&symbol={clean_sym}"
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': '*/*'
+        'Accept': 'application/json, text/plain, */*',
+        'Referer': 'https://www.nseindia.com/'
     }
     
+    notices = []
     try:
-        try:
-            from curl_cffi import requests as cffi_requests
-            s = cffi_requests.Session(impersonate="chrome120")
-        except ImportError:
-            import requests
-            s = requests.Session()
-        import time
-        max_retries = 3
-        r = None
-        for attempt in range(max_retries):
-            try:
-                if attempt == 0:
-                    s.get('https://www.nseindia.com', headers=headers, timeout=25)
-                    time.sleep(2.5)
-                r = s.get(url, headers=headers, timeout=30)
-                if r is not None and r.status_code == 200:
-                    break
-                else:
-                    from pledge_scraper import get_crawlora_api_key
-                    crawlora_key = get_crawlora_api_key()
-                    if crawlora_key:
-                        try:
-                            c_resp = requests.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': url}, timeout=30)
-                            if c_resp is not None and c_resp.status_code == 200:
-                                r = c_resp
-                                break
-                        except Exception: pass
-                    logger.warning(f"NSE returned {r.status_code if r else 'None'} for {symbol}, retrying...")
-                    time.sleep((attempt + 1) * 3)
-            except Exception as e:
-                from pledge_scraper import get_crawlora_api_key
-                crawlora_key = get_crawlora_api_key()
-                if crawlora_key:
-                    try:
-                        c_resp = requests.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': url}, timeout=30)
-                        if c_resp is not None and c_resp.status_code == 200:
-                            r = c_resp
-                            break
-                    except Exception: pass
-                if attempt == max_retries - 1 and r is None:
-                    raise
-                logger.warning(f"NSE timeout for {symbol} (attempt {attempt+1}): {e}, retrying...")
-                time.sleep((attempt + 1) * 3)
-        
-        if r.status_code != 200:
-            logger.error(f"NSE API returned {r.status_code} for {symbol}")
-            try:
-                mark_failure('nse_announcements', f'status_code={r.status_code}')
-            except Exception:
-                logger.exception('Failed to report nse_announcements failure')
-            return jsonify([])
-            
-        data = r.json()
-        notices = []
-        for n in data[:4]:
-            desc = str(n.get("desc", ""))
-            if len(desc) > 40:
-                desc = desc[:37] + "..."
-            notices.append({
-                "date": n.get("an_dt", "").split(" ")[0],
-                "desc": desc,
-                "link": n.get("attchmntFile", "")
-            })
-        try:
-            mark_success('nse_announcements')
-        except Exception:
-            logger.exception('Failed to report nse_announcements success')
-        _NOTICES_RESPONSE_CACHE[clean_sym] = {"data": notices, "timestamp": now}
-        return jsonify(notices)
+        import requests
+        s = requests.Session()
+        s.get('https://www.nseindia.com', headers=headers, timeout=5)
+        r = s.get(url, headers=headers, timeout=6)
+        if r.status_code == 200:
+            data = r.json()
+            for n in data[:4]:
+                desc = str(n.get("desc", ""))
+                if len(desc) > 50:
+                    desc = desc[:47] + "..."
+                link = n.get("attchmntFile", "")
+                if link and not link.startswith("http"):
+                    link = f"https://www.nseindia.com{link}"
+                notices.append({
+                    "date": str(n.get("an_dt", "")).split(" ")[0],
+                    "desc": desc,
+                    "link": link or f"https://www.nseindia.com/get-quotes/equity?symbol={clean_sym}"
+                })
     except Exception as e:
-        msg = str(e).lower()
-        if 'timeout' in msg or 'timed out' in msg:
-            logger.warning(f"⚠️ NSE API timeout fetching notices for {symbol}")
-        else:
-            logger.exception(f"Failed to fetch notices for {symbol}")
-        try:
-            mark_failure('nse_announcements', e)
-        except Exception:
-            pass
-        return jsonify([])
+        logger.debug(f"NSE direct announcements fetch failed for {symbol}: {e}")
+
+    if not notices:
+        notices = _fetch_google_notices_rss(symbol)
+
+    _NOTICES_RESPONSE_CACHE[clean_sym] = {"data": notices, "timestamp": now}
+    return jsonify(notices)
 
 _ALL_TICKERS_CACHE = None
 _ALL_TICKERS_JSON_BYTES = None
