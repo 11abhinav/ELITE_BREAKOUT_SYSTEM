@@ -291,10 +291,10 @@ class TestAuditFixes(unittest.TestCase):
         df = pd.DataFrame([{"Stock": "TCS", "Category": "LARGE", "Sector": "IT"}])
         mock_wl_pipeline.return_value = df
         mock_wl_cache.return_value = df
-        dates = pd.date_range(end=datetime.now().strftime("%Y-%m-%d"), periods=60, freq='B')
+        dates = pd.date_range(end=datetime.now().strftime("%Y-%m-%d"), periods=200, freq='B')
         sample_df = pd.DataFrame({
-            "Open": [100.0] * 60, "High": [105.0] * 60, "Low": [99.0] * 60,
-            "Close": [102.0] * 60, "Volume": [100000] * 60
+            "Open": [100.0] * 200, "High": [105.0] * 200, "Low": [99.0] * 200,
+            "Close": [102.0] * 200, "Volume": [100000] * 200
         }, index=dates)
         mock_fetch.return_value = {"TCS": sample_df}
 
