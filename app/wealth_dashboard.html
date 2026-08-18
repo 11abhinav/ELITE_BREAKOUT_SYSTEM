@@ -684,7 +684,7 @@
           let bucketHtml = bucket ? `<span style="font-size:10px; padding:2px 6px; border-radius:4px; border:1px solid var(--${bClass}); color:var(--${bClass});">${bucket}</span>` : '-';
           
           return `<tr>
-            <td class="sym">${r.symbol}${getEarningsBadgeHtml(r)}</td>
+            <td class="sym">${r.Stock || r.symbol || ''}${getEarningsBadgeHtml(r)}</td>
             <td class="mono" style="color:var(--muted);">${r.entry_date}</td>
             <td class="mono">${qty}</td>
             <td class="mono">₹${entryP.toLocaleString('en-IN')}</td>
@@ -955,7 +955,7 @@ function getEarningsBadgeHtml(item) {
 
         document.querySelector('#tbl-buy tbody').innerHTML = buys.length ? buys.map(r => `
           <tr class="${newBuySignals.has(r.Stock) ? 'buy-signal-blink' : ''}">
-            <td class="sym">${r.Stock}</td>
+            <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
             <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
               <span class="mono">₹${fmt(r.cmp)}</span>
               <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
@@ -1000,7 +1000,7 @@ function getEarningsBadgeHtml(item) {
         try {
             sellsHtml = sells.map(r => `
               <tr class="${newSellSignals.has(r.Stock) ? 'buy-signal-blink' : ''}">
-                <td class="sym">${r.Stock}</td>
+                <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
                 <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
                   <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
                   <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
@@ -1055,7 +1055,7 @@ function getEarningsBadgeHtml(item) {
         document.querySelector('#tbl-top20 tbody').innerHTML = top20.length ? top20.map((r, i) => `
           <tr>
             <td class="mono" style="color:var(--muted);">#${i+1}</td>
-            <td class="sym">${r.Stock}</td>
+            <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
             <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
               <span class="mono">₹${fmt(r.cmp)}</span>
               <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>

@@ -56,10 +56,12 @@ class DatasetRegistry:
         self.register_dataset(DatasetEntry(id="bhavcopy_delivery", owner="DeliveryDataManager", tier=StorageTier.EPHEMERAL, cadence=86400, preferred_provider="nse"))
         self.register_dataset(DatasetEntry(id="blacklist", owner="SurveillanceManager", tier=StorageTier.EPHEMERAL, cadence=3600, preferred_provider="nse"))
         
-        # Migrated caches
         self.register_dataset(DatasetEntry(id="watchlist", owner="DailyBuilder", tier=StorageTier.EPHEMERAL, cadence=86400))
         self.register_dataset(DatasetEntry(id="indices_cache", owner="DashboardServer", tier=StorageTier.EPHEMERAL, cadence=900, preferred_provider="fyers"))
         self.register_dataset(DatasetEntry(id="wealth_cache", owner="DashboardServer", tier=StorageTier.EPHEMERAL, cadence=900))
+        self.register_dataset(DatasetEntry(id="shortlist_cache", owner="DashboardServer", tier=StorageTier.EPHEMERAL, cadence=900))
+        self.register_dataset(DatasetEntry(id="shortlist_excluded_cache", owner="DashboardServer", tier=StorageTier.EPHEMERAL, cadence=900))
+        self.register_dataset(DatasetEntry(id="news", owner="DashboardServer", tier=StorageTier.EPHEMERAL, cadence=900))
         self.register_dataset(DatasetEntry(id="sector_rotation", owner="SectorRotationEngine", tier=StorageTier.EPHEMERAL, cadence=1800, preferred_provider="fyers"))
 
     def register_dataset(self, entry: DatasetEntry) -> None:

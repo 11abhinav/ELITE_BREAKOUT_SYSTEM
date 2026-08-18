@@ -2933,6 +2933,56 @@
       }
     }
 
+function getEarningsBadgeHtml(item) {
+  if (!item) return '';
+  const sym = (item.symbol || item.Stock || item.Symbol || '').toString().toUpperCase();
+  let d = (item.days_to_earnings != null && item.days_to_earnings !== 999) ? parseInt(item.days_to_earnings, 10) : null;
+  let ed = item.earnings_date ? (String(item.earnings_date).split('T')[0] || item.earnings_date) : '';
+  let s = item.earnings_severity || (item.earnings_flag ? 'HIGH_SOON' : '');
+  let msg = item.warning_msg || (ed ? `Earnings Date: ${ed}` : 'Earnings Announcement');
+
+  // Fallback to event_badges array if available
+  if (d === null && Array.isArray(item.event_badges) && item.event_badges.length > 0) {
+    for (const b of item.event_badges) {
+      if (b.type === 'earnings' && b.metadata) {
+        if (b.metadata.days != null) d = parseInt(b.metadata.days, 10);
+        if (b.metadata.date) ed = String(b.metadata.date).split('T')[0];
+        if (b.metadata.date_status) s = b.metadata.date_status;
+        break;
+      }
+    }
+  }
+
+  // 1. EARNINGS TODAY / HIGH TODAY (0 days or HIGH_TODAY)
+  if (d === 0 || s === 'HIGH_TODAY') {
+    return `<span class="badge" style="background:rgba(239,68,68,0.25); color:#f87171; border:1px solid rgba(239,68,68,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(239,68,68,0.3);" title="${msg}">🔴 RESULTS TODAY</span>`;
+  }
+  // 2. RECENTLY DECLARED (YESTERDAY / 1 to 2 DAYS AGO)
+  if (d !== null && (d === -1 || d === -2)) {
+    const dayLabel = d === -1 ? 'YESTERDAY' : `${Math.abs(d)}D AGO`;
+    return `<span class="badge" style="background:rgba(16,185,129,0.25); color:#34d399; border:1px solid rgba(16,185,129,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(16,185,129,0.3);" title="${msg}">🟢 RESULTS OUT (${dayLabel})</span>`;
+  }
+  // 3. DECLARED LAST WEEK (3 to 14 DAYS AGO)
+  if (d !== null && d >= -14 && d <= -3) {
+    return `<span class="badge" style="background:rgba(20,184,166,0.2); color:#2dd4bf; border:1px solid rgba(20,184,166,0.4); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="${msg}">✅ RESULTS OUT (${Math.abs(d)}D AGO)</span>`;
+  }
+  // 4. EARNINGS UPCOMING SOON (1 to 3 DAYS IN FUTURE)
+  if ((d !== null && d >= 1 && d <= 3) || s === 'HIGH_SOON') {
+    const daysStr = d !== null ? `${d}D` : 'SOON';
+    return `<span class="badge" style="background:rgba(245,158,11,0.25); color:#fbbf24; border:1px solid rgba(245,158,11,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(245,158,11,0.3);" title="${msg}">🟠 RESULTS IN ${daysStr}</span>`;
+  }
+  // 5. EARNINGS THIS MONTH (4 to 30 DAYS IN FUTURE or ed present)
+  if ((d !== null && d >= 4 && d <= 30) || (d === null && ed) || s === 'MEDIUM_WEEK' || item.earnings_flag) {
+    const daysStr = (d !== null && d > 0 && d <= 30) ? `${d}D` : (ed || 'UPCOMING');
+    return `<span class="badge" style="background:rgba(59,130,246,0.25); color:#60a5fa; border:1px solid rgba(59,130,246,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="${msg}">📅 EARNINGS ${daysStr}</span>`;
+  }
+  // 6. UNVERIFIED
+  if (s === 'UNVERIFIED') {
+    return `<span class="badge" style="background:rgba(107,114,128,0.25); color:#9ca3af; border:1px solid rgba(107,114,128,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="Earnings date unverified">⚠️ UNVERIFIED</span>`;
+  }
+  return '';
+}
+
     function renderScannerGrid(scanner_stats) {
       const el = document.getElementById('scannerGrid');
       if (!scanner_stats || !Object.keys(scanner_stats).length) {
@@ -3344,41 +3394,6 @@
             `<span title="Cannot recalculate long-term trades" style="color:var(--muted); font-size:10px;">—</span>` : 
             `<input type="checkbox" class="trade-checkbox" value="${t.id}" onchange="updateBulkActionsVisibility()">`;
 
-function getEarningsBadgeHtml(item) {
-  if (!item) return '';
-  const d = (item.days_to_earnings != null && item.days_to_earnings !== 999) ? parseInt(item.days_to_earnings, 10) : null;
-  const ed = item.earnings_date ? (String(item.earnings_date).split('T')[0] || item.earnings_date) : '';
-  const s = item.earnings_severity || (item.earnings_flag ? 'HIGH_SOON' : '');
-  const msg = item.warning_msg || (ed ? `Earnings Date: ${ed}` : 'Earnings Announcement');
-
-  // 1. EARNINGS TODAY / HIGH TODAY (0 days or HIGH_TODAY)
-  if (d === 0 || s === 'HIGH_TODAY') {
-    return `<span class="badge" style="background:rgba(239,68,68,0.25); color:#f87171; border:1px solid rgba(239,68,68,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(239,68,68,0.3);" title="${msg}">🔴 RESULTS TODAY</span>`;
-  }
-  // 2. RECENTLY DECLARED (YESTERDAY / 1 to 2 DAYS AGO)
-  if (d !== null && (d === -1 || d === -2)) {
-    const dayLabel = d === -1 ? 'YESTERDAY' : `${Math.abs(d)}D AGO`;
-    return `<span class="badge" style="background:rgba(16,185,129,0.25); color:#34d399; border:1px solid rgba(16,185,129,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(16,185,129,0.3);" title="${msg}">🟢 RESULTS OUT (${dayLabel})</span>`;
-  }
-  // 3. DECLARED LAST WEEK (3 to 14 DAYS AGO)
-  if (d !== null && d >= -14 && d <= -3) {
-    return `<span class="badge" style="background:rgba(20,184,166,0.2); color:#2dd4bf; border:1px solid rgba(20,184,166,0.4); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="${msg}">✅ RESULTS OUT (${Math.abs(d)}D AGO)</span>`;
-  }
-  // 4. EARNINGS UPCOMING SOON (1 to 3 DAYS IN FUTURE)
-  if ((d !== null && d >= 1 && d <= 3) || s === 'HIGH_SOON') {
-    const daysStr = d !== null ? `${d}D` : 'SOON';
-    return `<span class="badge" style="background:rgba(245,158,11,0.25); color:#fbbf24; border:1px solid rgba(245,158,11,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(245,158,11,0.3);" title="${msg}">🟠 RESULTS IN ${daysStr}</span>`;
-  }
-  // 5. EARNINGS THIS MONTH (4 to 30 DAYS IN FUTURE or ed present)
-  if ((d !== null && d >= 4 && d <= 30) || (d === null && ed) || s === 'MEDIUM_WEEK' || item.earnings_flag) {
-    const daysStr = (d !== null && d > 0 && d <= 30) ? `${d}D` : (ed || 'UPCOMING');
-    return `<span class="badge" style="background:rgba(59,130,246,0.25); color:#60a5fa; border:1px solid rgba(59,130,246,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="${msg}">📅 EARNINGS ${daysStr}</span>`;
-  }
-  // 6. UNVERIFIED
-  if (s === 'UNVERIFIED') {
-    return `<span class="badge" style="background:rgba(107,114,128,0.25); color:#9ca3af; border:1px solid rgba(107,114,128,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="Earnings date unverified">⚠️ UNVERIFIED</span>`;
-  }
-  return '';
 }
 
         let eventMarkHtml = getEarningsBadgeHtml(t);
@@ -7676,7 +7691,7 @@ function _renderManualWatchlist() {
         <td>
           <a href="#" onclick="openInTradingView('${it.symbol}'); return false;"
              style="color:var(--accent); font-family:var(--font-mono); font-weight:800; font-size:13px; text-decoration:none;"
-             title="Open on TradingView">${it.symbol} 📈</a>
+             title="Open on TradingView">${it.symbol} 📈</a>${getEarningsBadgeHtml(it)}
         </td>
         <td style="text-align:right; white-space:nowrap;">${cmpText}</td>
         <td style="text-align:center;">${scoreText}</td>

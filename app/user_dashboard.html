@@ -1124,17 +1124,25 @@ window.renderSignalLadder = function() {
 let expandedIds = new Set();
 let sortCol = 'status', sortDir = 1;
 
-function buildTradeRows(trades, maxAbs, prefix) {
-  return trades.map((t, i) => {
-    const id = prefix + i;
-    const barW = t.pnl_pct != null ? Math.min(100, Math.abs(t.pnl_pct) / maxAbs * 100).toFixed(1) : 0;
-    const barColor = t.pnl_pct == null ? C.muted : t.pnl_pct >= 0 ? C.accent : C.warn;
 function getEarningsBadgeHtml(item) {
   if (!item) return '';
-  const d = (item.days_to_earnings != null && item.days_to_earnings !== 999) ? parseInt(item.days_to_earnings, 10) : null;
-  const ed = item.earnings_date ? (String(item.earnings_date).split('T')[0] || item.earnings_date) : '';
-  const s = item.earnings_severity || (item.earnings_flag ? 'HIGH_SOON' : '');
-  const msg = item.warning_msg || (ed ? `Earnings Date: ${ed}` : 'Earnings Announcement');
+  const sym = (item.symbol || item.Stock || item.Symbol || '').toString().toUpperCase();
+  let d = (item.days_to_earnings != null && item.days_to_earnings !== 999) ? parseInt(item.days_to_earnings, 10) : null;
+  let ed = item.earnings_date ? (String(item.earnings_date).split('T')[0] || item.earnings_date) : '';
+  let s = item.earnings_severity || (item.earnings_flag ? 'HIGH_SOON' : '');
+  let msg = item.warning_msg || (ed ? `Earnings Date: ${ed}` : 'Earnings Announcement');
+
+  // Fallback to event_badges array if available
+  if (d === null && Array.isArray(item.event_badges) && item.event_badges.length > 0) {
+    for (const b of item.event_badges) {
+      if (b.type === 'earnings' && b.metadata) {
+        if (b.metadata.days != null) d = parseInt(b.metadata.days, 10);
+        if (b.metadata.date) ed = String(b.metadata.date).split('T')[0];
+        if (b.metadata.date_status) s = b.metadata.date_status;
+        break;
+      }
+    }
+  }
 
   // 1. EARNINGS TODAY / HIGH TODAY (0 days or HIGH_TODAY)
   if (d === 0 || s === 'HIGH_TODAY') {
@@ -1165,6 +1173,12 @@ function getEarningsBadgeHtml(item) {
   }
   return '';
 }
+
+function buildTradeRows(trades, maxAbs, prefix) {
+  return trades.map((t, i) => {
+    const id = prefix + i;
+    const barW = t.pnl_pct != null ? Math.min(100, Math.abs(t.pnl_pct) / maxAbs * 100).toFixed(1) : 0;
+    const barColor = t.pnl_pct == null ? C.muted : t.pnl_pct >= 0 ? C.accent : C.warn;
 
     let eventMarkHtml = getEarningsBadgeHtml(t);
     return `

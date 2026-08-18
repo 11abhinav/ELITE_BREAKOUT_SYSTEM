@@ -936,10 +936,16 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             logger.warning(f"⚠️ Could not update scanner_health for {sc}")
 
     # ── 10. Write DB State ───────────────────────────────────────────────────────────
+    try:
+        from corporate_events import decorate_events
+        trades = decorate_events(trades)
+    except Exception as _ce_err:
+        logger.debug(f"Corporate event decoration warning in performance tracker: {_ce_err}")
+
     payload = {
         "generated_at": datetime.now(IST).isoformat(),
         "summary":      summary,
-        "trades":       sorted(trades, key=lambda t: t["entry_date"], reverse=True),
+        "trades":       sorted(trades, key=lambda t: t.get("entry_date", ""), reverse=True),
         "equity_curve": equity_curve,
         "monthly":      monthly,
         "by_scanner":   by_scanner,

@@ -6632,7 +6632,7 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                            COALESCE(ec.date_status, 'NONE')                              AS earnings_severity
                     FROM user_watchlists w
                     LEFT JOIN stock_analysis_master m ON w.symbol = m.symbol
-                    LEFT JOIN earnings_calendar ec ON ec.symbol = w.symbol
+                    LEFT JOIN earnings_calendar ec ON REPLACE(REPLACE(UPPER(ec.symbol), '.NS', ''), '.BO', '') = REPLACE(REPLACE(UPPER(w.symbol), '.NS', ''), '.BO', '')
                     WHERE w.user_id = %s
                     ORDER BY w.added_at DESC
                 """, (user_id_str,))

@@ -54,7 +54,24 @@ class CorporateEventRepository:
                                 "date_status": status
                             }
         except Exception as e:
-            logger.warning(f"CorporateEventRepository fetch error: {e}")
+            logger.warning(f"CorporateEventRepository DB fetch error: {e}")
+
+        # Fallback / merge NseEarningsProvider bulk in-memory cache
+        try:
+            from earnings_calendar import NseEarningsProvider
+            NseEarningsProvider._refresh_bulk_cache_if_needed()
+            bulk = NseEarningsProvider._bulk_cache or {}
+            for sym, ed_dt in bulk.items():
+                clean_s = sym.strip().upper().replace('.NS', '').replace('.BO', '')
+                if clean_s not in events_map and ed_dt:
+                    ed_str = ed_dt.strftime("%Y-%m-%d") if hasattr(ed_dt, 'strftime') else str(ed_dt)
+                    events_map[clean_s] = {
+                        "earnings_date": ed_str,
+                        "date_status": "CONFIRMED"
+                    }
+        except Exception as _nse_err:
+            logger.debug(f"NseEarningsProvider bulk merge warning: {_nse_err}")
+
         return events_map
 
 
