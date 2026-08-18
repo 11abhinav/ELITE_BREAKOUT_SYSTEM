@@ -60,46 +60,83 @@ class TestCorporateEventFramework(unittest.TestCase):
         self.curr_d = date(2026, 8, 3)  # Monday
 
     def test_upcoming_earnings_boundary(self):
-        """Verify days_to_earnings = 7 is included as UPCOMING, but 8 is omitted."""
-        # 7 trading sessions after Mon Aug 3 is Wed Aug 12
-        date_7d = date(2026, 8, 12)
-        # 8 trading sessions after Mon Aug 3 is Thu Aug 13
-        date_8d = date(2026, 8, 13)
+        """Verify that day +120 is UPCOMING (included) and day +121 is excluded.
+
+        The badge window was expanded from ±7 to -60/+120 trading sessions in
+        commit 33a45a27 to cover current + next quarter earnings for all tracked
+        symbols. This test validates the upper boundary of that window.
+        """
+        # 120 trading sessions after Mon Aug 3: approx Wed Jan 21 2027 (skipping weekends)
+        # 121 trading sessions after Mon Aug 3: approx Thu Jan 22 2027
+        # We derive these by walking the TradingCalendar forward.
+        from datetime import timedelta
+
+        def nth_trading_day(start: date, n: int) -> date:
+            """Returns the date exactly n trading sessions after start."""
+            d = start
+            count = 0
+            while count < n:
+                d += timedelta(days=1)
+                if self.cal.is_trading_day(d):
+                    count += 1
+            return d
+
+        date_120 = nth_trading_day(self.curr_d, 120)
+        date_121 = nth_trading_day(self.curr_d, 121)
 
         mock_map = {
-            "STOCK7": {"earnings_date": date_7d.strftime("%Y-%m-%d"), "date_status": "CONFIRMED"},
-            "STOCK8": {"earnings_date": date_8d.strftime("%Y-%m-%d"), "date_status": "ESTIMATED"}
+            "STOCK120": {"earnings_date": date_120.strftime("%Y-%m-%d"), "date_status": "ESTIMATED"},
+            "STOCK121": {"earnings_date": date_121.strftime("%Y-%m-%d"), "date_status": "ESTIMATED"},
         }
 
-        badges7 = self.pipeline.evaluate_symbol("STOCK7", mock_map, self.cal, self.curr_d)
-        badges8 = self.pipeline.evaluate_symbol("STOCK8", mock_map, self.cal, self.curr_d)
+        badges120 = self.pipeline.evaluate_symbol("STOCK120", mock_map, self.cal, self.curr_d)
+        badges121 = self.pipeline.evaluate_symbol("STOCK121", mock_map, self.cal, self.curr_d)
 
-        self.assertEqual(len(badges7), 1)
-        self.assertEqual(badges7[0]["status"], "UPCOMING")
-        self.assertEqual(badges7[0]["metadata"]["days"], 7)
+        # Day +120 is at the boundary — must be included as UPCOMING
+        self.assertEqual(len(badges120), 1)
+        self.assertEqual(badges120[0]["status"], "UPCOMING")
+        self.assertEqual(badges120[0]["metadata"]["days"], 120)
 
-        self.assertEqual(len(badges8), 0)
+        # Day +121 is just outside the window — must produce no badge
+        self.assertEqual(len(badges121), 0)
 
     def test_recent_earnings_boundary(self):
-        """Verify days_to_earnings = -7 is included as RECENT, but -8 is omitted."""
-        # 7 trading sessions before Mon Aug 3 is Thu Jul 23
-        date_neg7 = date(2026, 7, 23)
-        # 8 trading sessions before Mon Aug 3 is Wed Jul 22
-        date_neg8 = date(2026, 7, 22)
+        """Verify that day -60 is RECENT (included) and day -61 is excluded.
+
+        The badge window was expanded from ±7 to -60/+120 trading sessions in
+        commit 33a45a27 to cover ~3 months of post-earnings context. This test
+        validates the lower (past) boundary of that window.
+        """
+        from datetime import timedelta
+
+        def nth_trading_day_before(start: date, n: int) -> date:
+            """Returns the date exactly n trading sessions before start."""
+            d = start
+            count = 0
+            while count < n:
+                d -= timedelta(days=1)
+                if self.cal.is_trading_day(d):
+                    count += 1
+            return d
+
+        date_neg60 = nth_trading_day_before(self.curr_d, 60)
+        date_neg61 = nth_trading_day_before(self.curr_d, 61)
 
         mock_map = {
-            "REC7": {"earnings_date": date_neg7.strftime("%Y-%m-%d"), "date_status": "CONFIRMED"},
-            "REC8": {"earnings_date": date_neg8.strftime("%Y-%m-%d"), "date_status": "CONFIRMED"}
+            "REC60": {"earnings_date": date_neg60.strftime("%Y-%m-%d"), "date_status": "CONFIRMED"},
+            "REC61": {"earnings_date": date_neg61.strftime("%Y-%m-%d"), "date_status": "CONFIRMED"},
         }
 
-        badges7 = self.pipeline.evaluate_symbol("REC7", mock_map, self.cal, self.curr_d)
-        badges8 = self.pipeline.evaluate_symbol("REC8", mock_map, self.cal, self.curr_d)
+        badges60 = self.pipeline.evaluate_symbol("REC60", mock_map, self.cal, self.curr_d)
+        badges61 = self.pipeline.evaluate_symbol("REC61", mock_map, self.cal, self.curr_d)
 
-        self.assertEqual(len(badges7), 1)
-        self.assertEqual(badges7[0]["status"], "RECENT")
-        self.assertEqual(badges7[0]["metadata"]["days"], -7)
+        # Day -60 is at the boundary — must be included as RECENT
+        self.assertEqual(len(badges60), 1)
+        self.assertEqual(badges60[0]["status"], "RECENT")
+        self.assertEqual(badges60[0]["metadata"]["days"], -60)
 
-        self.assertEqual(len(badges8), 0)
+        # Day -61 is just outside the window — must produce no badge
+        self.assertEqual(len(badges61), 0)
 
     def test_stateless_decorator_immutability(self):
         """Verify decorate_events produces new immutable objects without mutating original input."""

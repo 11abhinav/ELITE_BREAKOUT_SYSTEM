@@ -179,7 +179,12 @@ class EventContributor:
 
 
 class EarningsContributor(EventContributor):
-    """Evaluates earnings dates and produces semantic earnings badges for ±7 trading day window."""
+    """Evaluates earnings dates and produces semantic earnings badges.
+
+    Window: -60 to +120 trading sessions from current_date.
+      UPCOMING: 0 to +120 sessions (covers current + next quarter)
+      RECENT:   -60 to -1 sessions (covers ~3 months post-event)
+    """
 
     def contribute(self, symbol: str, symbol_events: Dict[str, Any], calendar: TradingCalendar, current_date: date) -> List[Dict[str, Any]]:
         badges = []
