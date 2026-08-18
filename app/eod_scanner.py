@@ -558,9 +558,12 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
 
             # [VERSION: MARKET_DATA_SESSION_v1.0] Load pledge & delivery from session when available.
             # Session already fetched these in parallel during build(); skip independent fetches.
+            delivery_days_back = 0
+            delivery_found = False
+            symbols = [str(s) for s in watchlist["Stock"].tolist() if s]
+
             if session is not None:
                 logger.info("📦 [EOD] Loading pledge & delivery from MarketDataSession (pre-fetched)")
-                symbols = [str(s) for s in watchlist["Stock"].tolist() if s]
                 pledge_map = {
                     sym: session.get(sym).pledge_pct
                     for sym in symbols
@@ -576,6 +579,8 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                     for sym in symbols
                     if session.get(sym) is not None
                 )
+                delivery_found = bool(delivery_map)
+                delivery_days_back = 1 if _delivery_stale else 0
                 if _delivery_stale:
                     logger.info("⚠️ [EOD] Session delivery data is STALE (previous trading day's Bhavcopy)")
                 logger.info(f"🛡️ Session pledge data: {len(pledge_map)} symbols | delivery: {len(delivery_map)} symbols")
@@ -583,7 +588,6 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                 # Fetch pledge map to pass to scoring engine
                 try:
                     from database import get_pledge_map
-                    symbols = [str(s) for s in watchlist["Stock"].tolist() if s]
                     pledge_map = get_pledge_map(symbols)
                     logger.info(f"🛡️ Fetched pledge data for {len(pledge_map)} symbols")
                 except Exception as e:
@@ -594,8 +598,6 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
             # [VERSION: MARKET_DATA_SESSION_v1.0] Skip this loop if session already provided delivery data above.
             if session is None:
                 delivery_map = {}
-                delivery_days_back = 0
-                delivery_found = False
                 seen_delivery_dates = set()
 
                 for days_back in range(0, 5):
