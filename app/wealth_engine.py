@@ -1156,27 +1156,35 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         cmp = _safe_num(r.get("cmp"))
         entry_price = _safe_num(r.get("entry_price"))
         prev_close = _safe_num(r.get("prev_close"))
-        if (prev_close is None or prev_close <= 0) and math.isfinite(cmp) and cmp > 0:
-            prev_close = cmp
-
         used_fallback = r.get("used_fallback_data", False)
         data_quality = str(r.get("data_quality", ""))
         
         # 1. Strict Live Price & Genuine Prev Close Validation
+        # [VERSION: WEALTH_STALE_STATE_v1.0] DATA_STALE is checked FIRST — before any hard-stop logic.
+        # This ensures that missing prev_close / stale intraday data never accidentally triggers an automated SELL.
         has_genuine_prev_close = prev_close is not None and prev_close > 0
         is_live_valid = (
             math.isfinite(cmp) and 
             cmp > 0 and 
+            not used_fallback and 
+            data_quality != "STALE_INTRADAY" and 
             has_genuine_prev_close and 
             (abs(cmp - prev_close) / prev_close <= 0.50)
         )
+        
+        # [SAFETY GATE] If data is stale or incomplete, defer evaluation immediately — no SELL on bad data.
+        if not is_live_valid:
+            r["Hold_Score"] = base_hold_score
+            r["Exit_Code"] = "DATA_STALE"
+            r["Exit_Reason"] = "Stale/Missing price data — exit evaluation deferred until fresh quote"
+            return r
         
         # 2. Hard Risk Stop (Calculated BEFORE Tax Bonus)
         drawdown_pct = 0.0
         if entry_price > 0 and cmp > 0:
             drawdown_pct = ((entry_price - cmp) / entry_price) * 100.0
 
-        if entry_price > 0 and is_live_valid and drawdown_pct >= 20.0:
+        if entry_price > 0 and drawdown_pct >= 20.0:
             r["Hold_Score"] = 0
             r["Exit_Code"] = "SELL"
             r["Exit_Reason"] = f"Hard Drawdown Stop Triggered: -{drawdown_pct:.1f}% (>= 20.0% max loss threshold)"
@@ -1201,16 +1209,6 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         r["hold_trend"] = hold_trend
 
         # 4. Soft Exits & Review Signals
-        # [VERSION: WEALTH_STALE_STATE_v1.0] Expose DATA_STALE as an explicit exit state.
-        # Previously returned Exit_Code="" making two very different situations indistinguishable:
-        # (a) all checks passed → no exit needed  (b) price data too stale to evaluate.
-        # Operators and dashboards can now filter/alert on DATA_STALE rather than seeing silence.
-        # Per design intent: no automatic SELL or SELL_REVIEW is triggered on stale data —
-        # only the state is surfaced. The exit decision is deferred until fresh data arrives.
-        if not is_live_valid:
-            r["Exit_Code"] = "DATA_STALE"
-            r["Exit_Reason"] = "Stale/Missing price data — exit evaluation deferred until fresh quote"
-            return r
 
         from macro_utils import get_macro_regime
         macro_regime = get_macro_regime()

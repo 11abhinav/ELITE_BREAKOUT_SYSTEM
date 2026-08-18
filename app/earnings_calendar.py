@@ -133,6 +133,24 @@ class NseEarningsProvider(EarningsProvider):
                                 pass
         except Exception as e:
             logger.debug(f"NSE earnings fetch failed for {clean_sym}: {e}")
+
+        # Tier 2: Yahoo Finance Calendar Fallback
+        try:
+            import yfinance as yf
+            t = yf.Ticker(f"{clean_sym}.NS")
+            cal = t.calendar
+            if isinstance(cal, dict) and "Earnings Date" in cal:
+                ed_list = cal["Earnings Date"]
+                if isinstance(ed_list, list) and len(ed_list) > 0:
+                    first_ed = ed_list[0]
+                    if isinstance(first_ed, (date, datetime)):
+                        ed_dt = first_ed.date() if isinstance(first_ed, datetime) else first_ed
+                        now_date = datetime.now(IST).date()
+                        if ed_dt >= now_date:
+                            return ed_dt, DateStatus.ESTIMATED
+        except Exception as e:
+            logger.debug(f"yfinance earnings fallback failed for {clean_sym}: {e}")
+
         return None, DateStatus.UNKNOWN
 
 
