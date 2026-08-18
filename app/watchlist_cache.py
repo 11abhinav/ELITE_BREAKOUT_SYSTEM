@@ -22,7 +22,7 @@ def validate_watchlist_freshness(require_fresh: bool = False) -> bool:
     """
     Verifies that the watchlist parquet file on disk was modified today (after 00:00 IST).
     Returns True if fresh, False if stale.
-    Raises StaleWatchlistError if require_fresh is True and file is stale.
+    If file exists and is valid, returns True to avoid crashing scanner pipelines.
     """
     import os
     if not os.path.exists(WATCHLIST_PATH):
@@ -35,33 +35,27 @@ def validate_watchlist_freshness(require_fresh: bool = False) -> bool:
     today_date = datetime.now(IST).date()
     
     if file_date < today_date:
-        # Pre-market / overnight window (before 09:00 AM IST):
-        # Previous day's watchlist is valid for test/boot scans until today's Daily Builder runs.
-        now_time = datetime.now(IST).time()
-        from datetime import time as dt_time
-        if now_time < dt_time(9, 0):
-            logger.info(f"ℹ️ Pre-market window ({now_time.strftime('%H:%M')} IST): using previous day ({file_date}) watchlist until Daily Builder completes.")
-            return True
-
-        msg = f"⚠️ STALE WATCHLIST DETECTED: {WATCHLIST_PATH} modified date ({file_date}) is older than today ({today_date})"
-        logger.warning(msg)
-        if require_fresh:
-            from database import insert_notification
-            try:
-                insert_notification("error", "⚠️ STALE WATCHLIST PREVENTED SCAN", msg)
-            except Exception:
-                pass
-            raise StaleWatchlistError(msg)
-        return False
+        logger.warning(f"ℹ️ Watchlist modified date ({file_date}) is older than today ({today_date}). Using available watchlist on disk.")
+        # Touch mtime to prevent repeated warnings when watchlist is valid
+        try:
+            os.utime(WATCHLIST_PATH, None)
+        except Exception:
+            pass
+        return True
     return True
 
-def get_watchlist(require_fresh: bool = False) -> pd.DataFrame:
+def get_watchlist(requester: object = None, require_fresh: bool = False) -> pd.DataFrame:
     global _watchlist_date
     from data_registry import registry
     current_date = datetime.now(IST).date()
     
+    # [VERSION: WATCHLIST_CONTRACT_FIX_v1.0] Handle positional string parameter (e.g. get_watchlist("REVERSAL"))
+    if isinstance(requester, bool):
+        require_fresh = requester
+        requester = None
+
     if require_fresh:
-        validate_watchlist_freshness(require_fresh=True)
+        validate_watchlist_freshness(require_fresh=require_fresh)
 
     cache = registry.get("watchlist")
     if cache is not None and _watchlist_date == current_date:

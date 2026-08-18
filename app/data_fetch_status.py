@@ -58,21 +58,15 @@ INTERVAL_TO_SCANNER = {
 
 
 def mark_success(source_name: str) -> None:
+    import os
+    if not os.getenv("DATABASE_URL"):
+        return
     try:
         upsert_data_fetch_health(source_name, last_success=_now_iso(), consecutive_failures=0)
-        # Clear the external data source status but DO NOT touch scanner status
-        # Scanners should only be marked DOWN/OK by their own main loop, not by data source status
         try:
             from database import upsert_scanner_health
             base, scope = _split_source(source_name)
-            # Clear the generic external health row for the base provider as well
             upsert_scanner_health(f"External:{base}", status="OK", last_success=_now_iso(), today_alerts=0, error_msg=None)
-
-            # REMOVED: Marking dependent scanners OK
-            # Reason: We no longer mark scanners DOWN for data source failures,
-            # so we shouldn't mark them OK either. Scanners manage their own status based on
-            # whether their main loop is running (critical), not based on temporary API failures.
-            
         except Exception:
             logger.debug(f"Could not update external data source status for {source_name}")
     except Exception:
@@ -80,29 +74,21 @@ def mark_success(source_name: str) -> None:
 
 
 def mark_failure(source_name: str, error: Optional[Union[Exception, str]] = None) -> None:
+    import os
+    if not os.getenv("DATABASE_URL"):
+        return
     try:
-        # Fetch current failures and increment is handled inside DB helper; simply pass a new failure record
         if isinstance(error, Exception):
             msg = "".join(traceback.format_exception(type(error), error, error.__traceback__))
         else:
             msg = str(error) if error is not None else None
         upsert_data_fetch_health(source_name, last_failure=_now_iso(), consecutive_failures=None, error_msg=msg)
 
-        # Mark the external data source as DOWN but DO NOT propagate to scanners
-        # Individual stock failures should NOT turn scanner RED - they go to fetch_errors table only
         try:
-            from database import upsert_scanner_health, upsert_fetch_error
+            from database import upsert_scanner_health
             base, scope = _split_source(source_name)
-            # Mark the generic external row for the exact key (include scope if present)
             external_name = f"External:{source_name}" if scope else f"External:{base}"
             upsert_scanner_health(external_name, status="DOWN", last_success=None, today_alerts=0, error_msg=(msg or 'External data source failure'))
-
-            # Log to fetch_errors for detailed tracking, but DO NOT mark scanner DOWN
-            # The theory: if yfinance fails for one stock, we log it but scanner keeps running
-            # Only CRITICAL (scanner loop crash) should turn scanner RED
-            # REMOVED: Propagating impact to known dependent scanners
-            # This was incorrectly turning scanners RED for temporary API failures
-            
         except Exception:
             logger.debug(f"Could not update external data source status for {source_name}")
     except Exception:

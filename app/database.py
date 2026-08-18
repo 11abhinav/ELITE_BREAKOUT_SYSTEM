@@ -3960,6 +3960,10 @@ def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 
         logger.warning(f"⚠️ [HISTORY BUNDLE DB SYNC SKIPPED] No files to compress in {history_dir}")
         return False
 
+    if not os.getenv("DATABASE_URL"):
+        logger.debug("DATABASE_URL is not set. Skipping history bundle DB upload.")
+        return False
+
     init_db()
     today = datetime.now(IST).strftime("%Y-%m-%d")
     try:
