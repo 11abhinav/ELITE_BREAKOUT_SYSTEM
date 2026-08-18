@@ -2124,6 +2124,8 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 row["cmp"] = realtime_metrics[sym]
                 row["used_fallback_data"] = False
                 row["data_quality"] = DataQuality.LIVE.value
+                row["is_stale"] = False
+
 
             # [VERSION: WEALTH_PREV_CLOSE_RESOLVE_v1.0] Resolve genuine previous completed close.
             #
@@ -2220,6 +2222,12 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                     wealth_df = wealth_df.assign(**new_cols)
                     
                 wealth_df.to_parquet(WEALTH_PATH)
+                try:
+                    from snapshot_manager import get_snapshot_manager
+                    get_snapshot_manager().publish_snapshot("wealth", wealth_df.to_dict(orient="records"), metadata={"source": "wealth_scan_full"})
+                    logger.info("✅ [WEALTH ENGINE] Published full memory snapshot to SnapshotManager.")
+                except Exception as _sn_err:
+                    logger.warning(f"Failed to publish wealth snapshot to SnapshotManager: {_sn_err}")
                 
                 def bg_db_sync():
                     global _last_parquet_upload
@@ -2431,6 +2439,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                 row["cmp"] = realtime_metrics[sym]
                 row["used_fallback_data"] = False
                 row["data_quality"] = DataQuality.LIVE.value
+                row["is_stale"] = False
                 row["last_updated"] = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
             portfolio_rows.append(row)
 
@@ -2470,6 +2479,13 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
         # Save updated parquet and DB cache
         if not is_test_mode and not getattr(database, "DONT_SAVE_WEALTH", False):
             wealth_df.to_parquet(WEALTH_PATH)
+            try:
+                from snapshot_manager import get_snapshot_manager
+                get_snapshot_manager().publish_snapshot("wealth", wealth_df.to_dict(orient="records"), metadata={"source": "wealth_intraday_5m"})
+                logger.info("✅ [WEALTH ENGINE 5M] Published intraday memory snapshot to SnapshotManager.")
+            except Exception as _sn_err:
+                logger.warning(f"Failed to publish intraday wealth snapshot to SnapshotManager: {_sn_err}")
+
             
             def bg_db_sync_intraday():
                 global _last_parquet_upload
