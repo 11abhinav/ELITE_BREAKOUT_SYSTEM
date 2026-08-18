@@ -3874,7 +3874,7 @@ function _renderUserWatchlistTable() {
         <td class="font-bold">
           <a href="#" onclick="openInTradingView('${item.symbol}'); return false;"
              style="color:var(--accent); font-family:var(--font-mono); font-weight:800; font-size:13px; text-decoration:none;"
-             title="Open ${item.symbol} on TradingView">${item.symbol} 📈</a>${typeof renderEventBadges === 'function' ? renderEventBadges(item.event_badges) : ''}
+             title="Open ${item.symbol} on TradingView">${item.symbol} 📈</a>${getEarningsBadgeHtml(item)}
           <div style="font-size:10px; color:var(--muted);">${item.company_name || item.symbol}</div>
         </td>
         <td style="text-align:right; white-space:nowrap;">${cmpText}</td>
