@@ -8271,9 +8271,11 @@ function loadNearMisses() {
 // Initial watchlist & database summary load
 document.addEventListener('DOMContentLoaded', () => {
   loadUserWatchlist();
+  loadManualWatchlist();
   fetchDatabaseTablesSummary();
   loadNearMisses();
 });
+
   </script>
 
 <div id="pwa-install-banner" style="display:none; position:fixed; bottom:0; left:0; right:0; background:linear-gradient(135deg, #161b22, #0d1117); border-top:1px solid rgba(0,229,160,0.4); padding:14px 20px; z-index:99999; align-items:center; gap:14px; box-shadow:0 -8px 32px rgba(0,0,0,0.6);">
