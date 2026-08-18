@@ -4665,34 +4665,47 @@ function getEarningsBadgeHtml(item) {
 
     async function doRefresh(isAuto = false) {
       const btn = document.getElementById('refreshBtn');
-      btn.classList.add('spinning');
+      if (btn) btn.classList.add('spinning');
 
-      // Trigger data load and background updates in parallel
+      // Trigger primary data load
       const dataPromise = loadData();
-      Promise.all([
-        searchUsers(),
-        fetchSystemLogs(),
-        loadNonCriticalErrors(),
-        loadCapitalInfo(),
-        fetchSignalLadder(),
-        loadMultibaggerWatchlist(),
-        loadPendingUsers(),
-        loadUserWatchlist(),
+
+      // Tab-Aware Lazy Background Updates (only fetch endpoint components relevant to active tab)
+      const promises = [
         loadScannerStatus().then(live => {
           if (live) {
             window._scannerStats = {...(window._scannerStats||{}), ...live};
             if (typeof renderScannerGrid === 'function') renderScannerGrid(window._scannerStats);
           }
         }),
-        fetchDatabaseTablesSummary(),
-        loadAdvancedOutcomeAnalytics(),
-        loadValidationHealth(),
-        loadApiHealth(),
-        fetchFetchErrors(),
-        fetchScannerExecutionHistory(currentSehPage)
-      ]).catch(e => console.error("Error refreshing background components:", e));
+        loadCapitalInfo()
+      ];
+
+      const tab = activeAdminTab || 'signals-trades';
+      if (tab === 'signals-trades') {
+        promises.push(fetchSignalLadder());
+      } else if (tab === 'watchlist-users') {
+        promises.push(loadUserWatchlist());
+        promises.push(loadMultibaggerWatchlist());
+        promises.push(loadPendingUsers());
+        promises.push(searchUsers());
+        promises.push(loadManualWatchlist());
+      } else if (tab === 'health-errors') {
+        promises.push(fetchSystemLogs());
+        promises.push(loadNonCriticalErrors());
+        promises.push(loadValidationHealth());
+        promises.push(loadApiHealth());
+        promises.push(fetchFetchErrors());
+        promises.push(fetchScannerExecutionHistory(currentSehPage));
+      } else if (tab === 'db-explorer') {
+        promises.push(fetchDatabaseTablesSummary());
+        promises.push(loadAdvancedOutcomeAnalytics());
+      }
+
+      Promise.all(promises).catch(e => console.error("Error refreshing background components:", e));
 
       const data = await dataPromise;
+
 
       // Alert Diffing Logic
       if (isAuto && data.trades && ALL_TRADES.length > 0) {

@@ -152,6 +152,5 @@ const TableSorter = {
 document.addEventListener('DOMContentLoaded', () => {
     // Initial wait to allow frameworks to inject the first render
     setTimeout(() => TableSorter.init(), 1000);
-    // Periodically search for new tables (in case of dynamic tab loading)
-    setInterval(() => TableSorter.init(), 3000);
 });
+
