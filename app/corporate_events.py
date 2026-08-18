@@ -56,7 +56,7 @@ class CorporateEventRepository:
         except Exception as e:
             logger.warning(f"CorporateEventRepository DB fetch error: {e}")
 
-        # Fallback / merge NseEarningsProvider bulk in-memory cache
+        # Tier-2: Merge NseEarningsProvider bulk in-memory cache (SME/NSE board meetings)
         try:
             from earnings_calendar import NseEarningsProvider
             NseEarningsProvider._refresh_bulk_cache_if_needed()
@@ -72,7 +72,80 @@ class CorporateEventRepository:
         except Exception as _nse_err:
             logger.debug(f"NseEarningsProvider bulk merge warning: {_nse_err}")
 
+        # Tier-3: yfinance bulk pre-fetch for all tracked symbols missing from events_map
+        # This ensures major NSE 500 stocks (RELIANCE, TCS, INFY etc) always get earnings dates
+        # even when DB is unavailable or earnings_calendar table is empty.
+        try:
+            CorporateEventRepository._yfinance_bulk_fill(events_map)
+        except Exception as _yf_err:
+            logger.debug(f"yfinance bulk fill warning: {_yf_err}")
+
         return events_map
+
+    @staticmethod
+    def _get_tracked_symbols() -> list:
+        """Returns all symbols currently tracked by the system (from DB + watchlist parquet)."""
+        symbols = set()
+        # From DB: watchlist, candidates, alerts tables
+        try:
+            from database import get_connection
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    for table, col in [("watchlist", "symbol"), ("candidates", "symbol"), ("alerts", "symbol")]:
+                        try:
+                            cur.execute(f'SELECT DISTINCT {col} FROM {table} WHERE {col} IS NOT NULL')
+                            for r in cur.fetchall():
+                                symbols.add(str(r[0]).strip().upper())
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+        # From watchlist parquet file
+        try:
+            from config import WATCHLIST_PATH
+            import os, pandas as _pd
+            if os.path.exists(WATCHLIST_PATH):
+                df = _pd.read_parquet(WATCHLIST_PATH)
+                if "Stock" in df.columns:
+                    symbols.update(df["Stock"].dropna().unique().tolist())
+        except Exception:
+            pass
+        return sorted(symbols)
+
+    @staticmethod
+    def _yfinance_bulk_fill(events_map: Dict[str, Dict[str, Any]]) -> None:
+        """
+        Tier-3 fallback: for all tracked symbols NOT yet in events_map,
+        fetch earnings date via yfinance and populate both events_map and
+        NseEarningsProvider._bulk_cache so subsequent calls are instant.
+        Rate-limited to 30 symbols max per call to keep latency acceptable.
+        """
+        import time as _time
+        from datetime import datetime as _dt
+        from earnings_calendar import NseEarningsProvider
+
+        tracked = CorporateEventRepository._get_tracked_symbols()
+        missing = [s for s in tracked if s not in events_map][:30]
+        if not missing:
+            return
+
+        logger.info(f"[CorporateEvents Tier-3] yfinance pre-fetch for {len(missing)} symbols missing from cache")
+        provider = NseEarningsProvider()
+        filled = 0
+        for sym in missing:
+            try:
+                ed, status = provider.fetch_earnings_date(sym)
+                if ed:
+                    ed_str = ed.strftime("%Y-%m-%d") if hasattr(ed, 'strftime') else str(ed)
+                    events_map[sym] = {"earnings_date": ed_str, "date_status": status}
+                    # Write back to bulk_cache for future cache hits
+                    NseEarningsProvider._bulk_cache[sym] = ed
+                    filled += 1
+                _time.sleep(0.05)  # 50ms between requests — gentle on yfinance
+            except Exception as e:
+                logger.debug(f"yfinance Tier-3 fetch failed for {sym}: {e}")
+        if filled:
+            logger.info(f"[CorporateEvents Tier-3] Populated {filled}/{len(missing)} symbols via yfinance")
 
 
 class CorporateEventCache:
@@ -120,8 +193,8 @@ class EarningsContributor(EventContributor):
 
         trading_days = calendar.days_between(current_date, d_ed)
 
-        # ±7 trading sessions window
-        if -7 <= trading_days <= 7:
+        # ±120 trading sessions window — covers current quarter + next quarter earnings
+        if -60 <= trading_days <= 120:
             if trading_days >= 0:
                 status = "UPCOMING"
                 label = f"E in {trading_days}d" if trading_days > 0 else "E Today"

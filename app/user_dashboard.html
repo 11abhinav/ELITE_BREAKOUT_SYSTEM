@@ -1153,8 +1153,8 @@ function getEarningsBadgeHtml(item) {
     const dayLabel = d === -1 ? 'YESTERDAY' : `${Math.abs(d)}D AGO`;
     return `<span class="badge" style="background:rgba(16,185,129,0.25); color:#34d399; border:1px solid rgba(16,185,129,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(16,185,129,0.3);" title="${msg}">🟢 RESULTS OUT (${dayLabel})</span>`;
   }
-  // 3. DECLARED LAST WEEK (3 to 14 DAYS AGO)
-  if (d !== null && d >= -14 && d <= -3) {
+  // 3. DECLARED RECENTLY (3 to 60 DAYS AGO)
+  if (d !== null && d >= -60 && d <= -3) {
     return `<span class="badge" style="background:rgba(20,184,166,0.2); color:#2dd4bf; border:1px solid rgba(20,184,166,0.4); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="${msg}">✅ RESULTS OUT (${Math.abs(d)}D AGO)</span>`;
   }
   // 4. EARNINGS UPCOMING SOON (1 to 3 DAYS IN FUTURE)
@@ -1162,16 +1162,13 @@ function getEarningsBadgeHtml(item) {
     const daysStr = d !== null ? `${d}D` : 'SOON';
     return `<span class="badge" style="background:rgba(245,158,11,0.25); color:#fbbf24; border:1px solid rgba(245,158,11,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(245,158,11,0.3);" title="${msg}">🟠 RESULTS IN ${daysStr}</span>`;
   }
-  // 5. EARNINGS THIS MONTH (4 to 30 DAYS IN FUTURE or ed present)
-  if ((d !== null && d >= 4 && d <= 30) || (d === null && ed) || s === 'MEDIUM_WEEK' || item.earnings_flag) {
-    const daysStr = (d !== null && d > 0 && d <= 30) ? `${d}D` : (ed || 'UPCOMING');
+  // 5. EARNINGS UPCOMING (4+ DAYS IN FUTURE or ed date present)
+  if ((d !== null && d >= 4) || ed || s === 'MEDIUM_WEEK' || item.earnings_flag) {
+    const daysStr = (d !== null && d > 0) ? `${d}D` : (ed || 'UPCOMING');
     return `<span class="badge" style="background:rgba(59,130,246,0.25); color:#60a5fa; border:1px solid rgba(59,130,246,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="${msg}">📅 EARNINGS ${daysStr}</span>`;
   }
-  // 6. UNVERIFIED
-  if (s === 'UNVERIFIED') {
-    return `<span class="badge" style="background:rgba(107,114,128,0.25); color:#9ca3af; border:1px solid rgba(107,114,128,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="Earnings date unverified">⚠️ UNVERIFIED</span>`;
-  }
-  return '';
+  // 6. UNVERIFIED — unconditional fallback so every stock shows a badge
+  return `<span class="badge" style="background:rgba(107,114,128,0.2); color:#9ca3af; border:1px solid rgba(107,114,128,0.4); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="Earnings date unverified / pending announcement">⚠️ UNVERIFIED</span>`;
 }
 
 function buildTradeRows(trades, maxAbs, prefix) {
