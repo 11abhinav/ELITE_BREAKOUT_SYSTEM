@@ -857,6 +857,12 @@ def _evaluate_candidate(
     REQUIRE_FUNDAMENTALS = REVERSAL_CONFIG.get("REQUIRE_FUNDAMENTALS", True)
     roe_val = _parse_robust_pct(fund_data, "roe", "ROE %") if fund_data else None
     rev_growth = _parse_robust_pct(fund_data, "yoy_revenue", "YOY Revenue %") if fund_data else None
+    if rev_growth is None and fund_data:
+        rev_growth = _parse_robust_pct(fund_data, "revenue_cagr_3y", "Revenue CAGR 3Y")
+    if rev_growth is None and fund_data:
+        rev_growth = _parse_robust_pct(fund_data, "yoy_profit", "YOY Profit %")
+    if rev_growth is None and fund_data and (roe_val is not None or fund_data.get("score") is not None):
+        rev_growth = 0.0  # Fallback for lightweight production cache entries
 
     if REQUIRE_FUNDAMENTALS and (roe_val is None or rev_growth is None):
         return {
@@ -1694,6 +1700,12 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                         fund_dict = row.to_dict() if hasattr(row, "to_dict") else row
                         roe_val = _parse_robust_pct(fund_dict, "roe", "ROE %") if fund_dict else None
                         rev_growth = _parse_robust_pct(fund_dict, "yoy_revenue", "YOY Revenue %") if fund_dict else None
+                        if rev_growth is None and fund_dict:
+                            rev_growth = _parse_robust_pct(fund_dict, "revenue_cagr_3y", "Revenue CAGR 3Y")
+                        if rev_growth is None and fund_dict:
+                            rev_growth = _parse_robust_pct(fund_dict, "yoy_profit", "YOY Profit %")
+                        if rev_growth is None and fund_dict and (roe_val is not None or fund_dict.get("score") is not None):
+                            rev_growth = 0.0  # Fallback for lightweight production cache entries
                         
                         if roe_val is None or rev_growth is None:
                             fundamental_missing += 1
