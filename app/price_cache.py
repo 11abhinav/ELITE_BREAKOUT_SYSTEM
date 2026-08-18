@@ -1521,5 +1521,28 @@ def get_cached_df(symbol: str, interval: str = "1d", period: str = "1y") -> pd.D
     return None
 
 
+def get_cached_price(symbol: str) -> Optional[float]:
+    """Fast in-memory or cached price lookup for a single symbol."""
+    try:
+        from live_prices import get_live_prices
+        live_map = get_live_prices([symbol])
+        if live_map and symbol in live_map:
+            p = live_map[symbol]
+            if p is not None and float(p) > 0:
+                return float(p)
+    except Exception:
+        pass
+    try:
+        df = get_cached_df(symbol, interval="1d", period="10d")
+        if df is not None and not df.empty and "Close" in df.columns:
+            valid_df = df.dropna(subset=["Close"])
+            if not valid_df.empty:
+                return float(valid_df["Close"].iloc[-1])
+    except Exception:
+        pass
+    return None
+
+
+
 
 
