@@ -870,6 +870,12 @@ def api_get_near_misses():
     try:
         from database import get_connection
         from psycopg2.extras import RealDictCursor
+        from datetime import datetime, timedelta, timezone
+        from corporate_events import decorate_events
+        
+        IST = timezone(timedelta(hours=5, minutes=30))
+        cutoff_date = (datetime.now(IST) - timedelta(days=days)).date()
+
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 if scanner:
@@ -878,40 +884,36 @@ def api_get_near_misses():
                                nm.threshold_value, nm.delta_pct, nm.score,
                                COALESCE(nm.entry_price, m.cmp) AS entry_price,
                                nm.stop_loss, nm.target_1,
-                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r,
-                               COALESCE(ec.earnings_date IS NOT NULL, FALSE)                 AS earnings_flag,
-                               COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)   AS days_to_earnings,
-                               ec.earnings_date                                               AS earnings_date,
-                               COALESCE(ec.date_status, 'NONE')                              AS earnings_severity
+                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
                         FROM near_misses nm
                         LEFT JOIN stock_analysis_master m ON m.symbol = nm.symbol
-                        LEFT JOIN earnings_calendar ec ON UPPER(ec.symbol) = UPPER(nm.symbol)
-                        WHERE nm.logged_date >= CURRENT_DATE - INTERVAL '%s days' AND nm.scanner = %s
+                        WHERE nm.logged_date >= %s AND nm.scanner = %s
                         ORDER BY nm.logged_at DESC
                         LIMIT 200
-                    """, (days, scanner))
+                    """, (cutoff_date, scanner))
                 else:
                     cur.execute("""
                         SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
                                nm.threshold_value, nm.delta_pct, nm.score,
                                COALESCE(nm.entry_price, m.cmp) AS entry_price,
                                nm.stop_loss, nm.target_1,
-                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r,
-                               COALESCE(ec.earnings_date IS NOT NULL, FALSE)                 AS earnings_flag,
-                               COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)   AS days_to_earnings,
-                               ec.earnings_date                                               AS earnings_date,
-                               COALESCE(ec.date_status, 'NONE')                              AS earnings_severity
+                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
                         FROM near_misses nm
                         LEFT JOIN stock_analysis_master m ON m.symbol = nm.symbol
-                        LEFT JOIN earnings_calendar ec ON UPPER(ec.symbol) = UPPER(nm.symbol)
-                        WHERE nm.logged_date >= CURRENT_DATE - INTERVAL '%s days'
+                        WHERE nm.logged_date >= %s
                         ORDER BY nm.logged_at DESC
                         LIMIT 200
-                    """, (days,))
+                    """, (cutoff_date,))
                 rows = [dict(r) for r in cur.fetchall()]
-                return jsonify(serialize_datetimes(rows))
+
+        try:
+            rows = decorate_events(rows)
+        except Exception as _ce_err:
+            pass
+
+        return jsonify(serialize_datetimes(rows))
     except Exception as e:
-        logger.debug(f"Error fetching near_misses from DB: {e}")
+        logger.error(f"Error fetching near_misses from DB: {e}")
         return jsonify([])
 
 
@@ -3092,14 +3094,8 @@ def get_multibagger_watchlist():
                     cur.execute("""
                         SELECT w.symbol, w.buy_zone_low, w.buy_zone_high, w.latest_price,
                                w.growth_score, w.value_score, w.trend_score, w.total_score,
-                               w.bucket, w.status, w.notes, w.last_alert_price, w.last_alert_at, w.last_updated,
-                               COALESCE(ec.earnings_date IS NOT NULL, FALSE)                  AS earnings_flag,
-                               COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)    AS days_to_earnings,
-                               ec.earnings_date,
-                               COALESCE(ec.date_status, 'NONE')                               AS earnings_severity,
-                               ''                                                            AS warning_msg
+                               w.bucket, w.status, w.notes, w.last_alert_price, w.last_alert_at, w.last_updated
                         FROM watchlist w
-                        LEFT JOIN earnings_calendar ec ON UPPER(ec.symbol) = UPPER(w.symbol)
                         WHERE w.status = %s
                         ORDER BY w.total_score DESC NULLS LAST
                     """, (status_filter,))
@@ -3107,17 +3103,11 @@ def get_multibagger_watchlist():
                     cur.execute("""
                         SELECT w.symbol, w.buy_zone_low, w.buy_zone_high, w.latest_price,
                                w.growth_score, w.value_score, w.trend_score, w.total_score,
-                               w.bucket, w.status, w.notes, w.last_alert_price, w.last_alert_at, w.last_updated,
-                               COALESCE(ec.earnings_date IS NOT NULL, FALSE)                  AS earnings_flag,
-                               COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)    AS days_to_earnings,
-                               ec.earnings_date,
-                               COALESCE(ec.date_status, 'NONE')                               AS earnings_severity,
-                               ''                                                            AS warning_msg
+                               w.bucket, w.status, w.notes, w.last_alert_price, w.last_alert_at, w.last_updated
                         FROM watchlist w
-                        LEFT JOIN earnings_calendar ec ON UPPER(ec.symbol) = UPPER(w.symbol)
                         ORDER BY w.total_score DESC NULLS LAST
                     """)
-                rows = cur.fetchall()
+                rows = [dict(r) for r in cur.fetchall()]
 
                 # Fallback Tier 1: If watchlist table has 0 rows, check candidates table for MULTIBAGGER candidates
                 if not rows:
@@ -3125,18 +3115,13 @@ def get_multibagger_watchlist():
                         SELECT c.symbol, c.entry_price AS buy_zone_low, c.entry_price * 1.1 AS buy_zone_high,
                                c.entry_price AS latest_price, c.score AS total_score, c.score AS growth_score,
                                'MULTIBAGGER' AS bucket, 'ACTIVE' AS status, c.notes, c.entry_price AS last_alert_price,
-                               c.alert_time AS last_alert_at, c.created_at AS last_updated,
-                               COALESCE(ec.earnings_date IS NOT NULL, FALSE)                  AS earnings_flag,
-                               COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)    AS days_to_earnings,
-                               ec.earnings_date,
-                               COALESCE(ec.date_status, 'NONE')                               AS earnings_severity,
-                               ''                                                            AS warning_msg
+                               c.alert_time AS last_alert_at, c.created_at AS last_updated
                         FROM candidates c
-                        LEFT JOIN earnings_calendar ec ON UPPER(ec.symbol) = UPPER(c.symbol)
                         WHERE c.scanner = 'MULTIBAGGER' OR c.breakout_type ILIKE '%%MULTIBAGGER%%'
                         ORDER BY c.created_at DESC
+                        LIMIT 200
                     """)
-                    rows = cur.fetchall()
+                    rows = [dict(r) for r in cur.fetchall()]
 
                 # Fallback Tier 2: If candidates table also has 0 rows, check alerts table for MULTIBAGGER alerts
                 if not rows:
@@ -3144,18 +3129,19 @@ def get_multibagger_watchlist():
                         SELECT a.symbol, a.entry_price AS buy_zone_low, a.target_price AS buy_zone_high,
                                a.entry_price AS latest_price, a.score AS total_score, a.score AS growth_score,
                                'MULTIBAGGER' AS bucket, 'ACTIVE' AS status, a.signals AS notes, a.entry_price AS last_alert_price,
-                               a.alert_time AS last_alert_at, a.alert_time AS last_updated,
-                               COALESCE(ec.earnings_date IS NOT NULL, FALSE)                  AS earnings_flag,
-                               COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)    AS days_to_earnings,
-                               ec.earnings_date,
-                               COALESCE(ec.date_status, 'NONE')                               AS earnings_severity,
-                               ''                                                            AS warning_msg
+                               a.alert_time AS last_alert_at, a.alert_time AS last_updated
                         FROM alerts a
-                        LEFT JOIN earnings_calendar ec ON UPPER(ec.symbol) = UPPER(a.symbol)
                         WHERE a.scanner = 'MULTIBAGGER' OR a.breakout_type ILIKE '%%MULTIBAGGER%%'
                         ORDER BY a.alert_time DESC
+                        LIMIT 200
                     """)
-                    rows = cur.fetchall()
+                    rows = [dict(r) for r in cur.fetchall()]
+
+                try:
+                    from corporate_events import decorate_events
+                    rows = decorate_events(rows)
+                except Exception as _ce_err:
+                    pass
 
                 return rows
 
