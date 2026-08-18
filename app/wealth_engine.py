@@ -1260,6 +1260,98 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
 # MAIN PIPELINE WRAPPERS
 # =====================================================================================
 
+# -------------------------------------------------------------------------------------
+# PREV_CLOSE RESOLUTION HELPERS (used by Layer-3 portfolio assembly)
+# -------------------------------------------------------------------------------------
+
+def _valid_prev_close(val) -> bool:
+    """
+    [VERSION: WEALTH_PREV_CLOSE_RESOLVE_v1.0]
+    Returns True if val is a finite, positive float suitable as a genuine prev_close.
+    This is the mirror of has_genuine_prev_close inside _generate_exit_signal(), kept
+    separate so the assembly loop can gate the resolution attempt before overwriting a
+    valid existing value.
+    """
+    import math
+    try:
+        v = float(val)
+        return math.isfinite(v) and v > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _resolve_previous_completed_close(hist_df) -> "float | None":
+    """
+    [VERSION: WEALTH_PREV_CLOSE_RESOLVE_v1.0]
+    Resolves the last genuinely completed daily close from a pre-fetched historical
+    DataFrame, correctly handling two distinct dataset states:
+
+      Case A — today's live-stitched candle is the last row:
+               2026-08-17   5400   ← previous completed close   → iloc[-2]
+               2026-08-18   5570   ← today's incomplete candle
+
+      Case B — historical data ends before today (no live stitching yet):
+               2026-08-16   5300
+               2026-08-17   5400   ← last completed close        → iloc[-1]
+
+    Detection strategy: compare the timestamp of the last row against today (IST).
+    We read the 'Date' column (1D Fyers/Yahoo data), 'Datetime' column (intraday), or
+    the DataFrame index — matching the candle-stitching logic already in the engine.
+
+    Returns None (not a fabricated value) if the DataFrame is missing, empty, or has
+    insufficient rows, so the has_genuine_prev_close safety gate inside
+    _generate_exit_signal() remains intact for genuinely unavailable data.
+    """
+    import pandas as pd
+    import math
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    if hist_df is None or not isinstance(hist_df, pd.DataFrame):
+        return None
+    if "Close" not in hist_df.columns or hist_df.empty:
+        return None
+
+    df = hist_df.dropna(subset=["Close"])
+    if df.empty:
+        return None
+
+    # Resolve today's date in IST — same timezone the live stitching uses
+    IST = ZoneInfo("Asia/Kolkata")
+    today = datetime.now(IST).date()
+
+    # Determine the date of the last row using the same column-priority order
+    # that the live-stitching block in _run_wealth_scan_wrapper uses.
+    last_date = None
+    try:
+        if "Date" in df.columns:
+            last_date = pd.to_datetime(df["Date"].iloc[-1]).date()
+        elif "Datetime" in df.columns:
+            last_date = pd.to_datetime(df["Datetime"].iloc[-1]).date()
+        else:
+            # Fall back to index (some Yahoo downloads use DatetimeIndex)
+            last_date = pd.to_datetime(df.index[-1]).date()
+    except Exception:
+        # Cannot determine candle date — conservatively treat as Case B
+        # (use the last available row as the completed close).
+        last_date = None
+
+    # Case A: today's candle is present → go one row back for the completed close
+    if last_date == today:
+        if len(df) < 2:
+            # Only one row and it's today's partial candle — no completed close available
+            return None
+        val = df["Close"].iloc[-2]
+    else:
+        # Case B: data ends before today → last row IS the completed close
+        val = df["Close"].iloc[-1]
+
+    try:
+        result = float(val)
+        return result if (math.isfinite(result) and result > 0) else None
+    except (TypeError, ValueError):
+        return None
+
 
 def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
     import time
@@ -2018,15 +2110,53 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
             elif sym in tech_df["Stock"].values:
                 row = tech_df[tech_df["Stock"] == sym].iloc[0].to_dict()
             else:
+                # [VERSION: WEALTH_PREV_CLOSE_RESOLVE_v1.0] Orphan holding — no watchlist row.
+                # Row starts with only the symbol; all technical metadata (including prev_close)
+                # is absent. The prev_close resolution block below will populate it from
+                # all_historical_data so _generate_exit_signal() can evaluate the exit correctly.
                 row = {"Stock": sym}
             row["entry_price"] = p_info["entry_price"]
             row["entry_date"] = p_info["entry_date"]
-            
+
             # INJECT REAL-TIME PRICE SO EXIT MONITOR SEES LIVE CRASHES
             if sym in realtime_metrics:
                 row["cmp"] = realtime_metrics[sym]
                 row["used_fallback_data"] = False
-                
+
+            # [VERSION: WEALTH_PREV_CLOSE_RESOLVE_v1.0] Resolve genuine previous completed close.
+            #
+            # WHY: _generate_exit_signal() requires has_genuine_prev_close (prev_close > 0) before
+            # it will evaluate any exit logic.  Without this block, two classes of holdings always
+            # produced a false DATA_STALE signal even with a valid live CMP:
+            #
+            #   (a) Orphan positions (symbol removed from watchlist): row = {"Stock": sym},
+            #       so prev_close is entirely absent.
+            #   (b) Non-orphan positions whose technical row was built before today's live
+            #       candle was stitched, leaving prev_close at the wrong historical value.
+            #
+            # FIX: resolve from all_historical_data (already in memory, covers all symbols
+            # including orphans via the union fetch at L1378).  Use _resolve_previous_completed_close
+            # which applies session-aware candle semantics:
+            #   - If today's stitched candle is the last row → use iloc[-2]
+            #   - If data ends before today              → use iloc[-1]
+            #
+            # SAFETY: we only overwrite if the existing value is invalid (missing/zero/NaN).
+            # We NEVER fabricate a value (e.g. CMP itself) — if genuine historical data is
+            # unavailable, prev_close stays None and DATA_STALE is correctly retained.
+            if not _valid_prev_close(row.get("prev_close")):
+                resolved_pc = _resolve_previous_completed_close(all_historical_data.get(sym))
+                if resolved_pc is not None:
+                    row["prev_close"] = resolved_pc
+                    logger.debug(
+                        f"[WEALTH L3] prev_close resolved for {sym}: ₹{resolved_pc:.2f} "
+                        f"(source=all_historical_data)"
+                    )
+                else:
+                    logger.debug(
+                        f"[WEALTH L3] prev_close unavailable for {sym} — "
+                        f"DATA_STALE gate will remain active (no genuine historical data)"
+                    )
+
             portfolio_rows.append(row)
             
         portfolio_df = pd.DataFrame(portfolio_rows)
