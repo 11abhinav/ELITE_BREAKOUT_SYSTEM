@@ -263,41 +263,46 @@ class EarningsCalendarService:
         total_pending = len(uncached_symbols)
         logger.info(f"📊 [EARNINGS CALENDAR] Pending symbols to fetch today: {total_pending} (out of {len(symbols)} total universe)")
 
-        results = {}
+        batch_to_save = []
         for idx, s in enumerate(uncached_symbols, start=1):
             if is_scanner_stopped("Earnings Calendar"):
                 logger.info("⏭️ Earnings Calendar PAUSED by Admin mid-run. Aborting refresh loop.")
                 break
-            time.sleep(0.1)  # Ultra-fast 0.1s delay — official NSE API bulk pre-fetched with zero rate limiting
-            logger.info(f"📅 [EARNINGS CALENDAR] [{idx}/{total_pending}] Fetching earnings date for {s}...")
+
             try:
                 ed, status = self.provider.fetch_earnings_date(s)
                 if ed:
-                    results[s] = (ed, status)
+                    batch_to_save.append((s, ed, status))
+                    logger.info(f"📅 [EARNINGS CALENDAR] [{idx}/{total_pending}] {s} -> {ed} ({status})")
+                else:
+                    logger.info(f"⚠️ [EARNINGS CALENDAR] [{idx}/{total_pending}] {s} -> Date unavailable")
             except Exception as e:
                 logger.debug(f"Error fetching earnings date for {s}: {e}")
 
-        # Batch insert/upsert into PostgreSQL
-        if results:
-            try:
-                from database import get_connection
-                with get_connection() as conn:
-                    with conn.cursor() as cur:
-                        for sym, (ed, status) in results.items():
-                            cur.execute("""
-                                INSERT INTO earnings_calendar (symbol, earnings_date, date_status, updated_at)
-                                VALUES (%s, %s, %s, NOW())
-                                ON CONFLICT (symbol) DO UPDATE SET
-                                    earnings_date = EXCLUDED.earnings_date,
-                                    date_status = EXCLUDED.date_status,
-                                    updated_at = NOW()
-                            """, (sym, ed, status))
-                        conn.commit()
-                        updated_count = len(results)
-                        logger.info(f"✅ [EARNINGS CALENDAR] Cached earnings dates for {updated_count} symbols in PostgreSQL.")
-            except Exception as e:
-                logger.error(f"❌ Failed to persist earnings_calendar to DB: {e}")
+            # Flush to PostgreSQL in chunks of 50 (or at the end of the loop) for real-time DB persistence
+            if len(batch_to_save) >= 50 or idx == total_pending:
+                if batch_to_save:
+                    try:
+                        from database import get_connection
+                        with get_connection() as conn:
+                            with conn.cursor() as cur:
+                                for sym_item, ed_item, status_item in batch_to_save:
+                                    cur.execute("""
+                                        INSERT INTO earnings_calendar (symbol, earnings_date, date_status, updated_at)
+                                        VALUES (%s, %s, %s, NOW())
+                                        ON CONFLICT (symbol) DO UPDATE SET
+                                            earnings_date = EXCLUDED.earnings_date,
+                                            date_status = EXCLUDED.date_status,
+                                            updated_at = NOW()
+                                    """, (sym_item, ed_item, status_item))
+                                conn.commit()
+                                updated_count += len(batch_to_save)
+                                logger.info(f"💾 [EARNINGS CALENDAR] Committed chunk of {len(batch_to_save)} records to DB (Total saved: {updated_count}/{total_pending})")
+                                batch_to_save.clear()
+                    except Exception as e:
+                        logger.error(f"❌ Failed to persist earnings_calendar chunk to DB: {e}")
 
+        logger.info(f"✅ [EARNINGS CALENDAR] Completed refresh cycle. Successfully cached earnings dates for {updated_count}/{total_pending} symbols in PostgreSQL.")
         return updated_count
 
     def get_earnings_info(self, symbol: str, target_date: Optional[date] = None) -> Dict:
