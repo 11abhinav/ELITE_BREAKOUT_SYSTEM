@@ -72,13 +72,13 @@ class CorporateEventRepository:
         except Exception as _nse_err:
             logger.debug(f"NseEarningsProvider bulk merge warning: {_nse_err}")
 
-        # Tier-3: yfinance bulk pre-fetch for all tracked symbols missing from events_map
+        # Tier-3: Zero-Yahoo bulk pre-fill for all tracked symbols missing from events_map
         # This ensures major NSE 500 stocks (RELIANCE, TCS, INFY etc) always get earnings dates
         # even when DB is unavailable or earnings_calendar table is empty.
         try:
-            CorporateEventRepository._yfinance_bulk_fill(events_map)
-        except Exception as _yf_err:
-            logger.debug(f"yfinance bulk fill warning: {_yf_err}")
+            CorporateEventRepository._bulk_fill_non_yahoo(events_map)
+        except Exception as _fill_err:
+            logger.debug(f"Zero-Yahoo bulk fill warning: {_fill_err}")
 
         return events_map
 
@@ -113,23 +113,19 @@ class CorporateEventRepository:
         return sorted(symbols)
 
     @staticmethod
-    def _yfinance_bulk_fill(events_map: Dict[str, Dict[str, Any]]) -> None:
+    def _bulk_fill_non_yahoo(events_map: Dict[str, Dict[str, Any]]) -> None:
         """
-        Tier-3 fallback: for all tracked symbols NOT yet in events_map,
-        fetch earnings date via yfinance and populate both events_map and
-        NseEarningsProvider._bulk_cache so subsequent calls are instant.
-        Rate-limited to 30 symbols max per call to keep latency acceptable.
+        [VERSION: ZERO_YAHOO_EARNINGS_PIPELINE_v1.0]
+        Tier-3 Zero-Yahoo fallback: for all tracked symbols NOT yet in events_map,
+        fetch earnings date via NseEarningsProvider (NSE + TradingView bulk) and populate
+        both events_map and NseEarningsProvider._bulk_cache instantly with ZERO yfinance calls.
         """
-        import time as _time
-        from datetime import datetime as _dt
         from earnings_calendar import NseEarningsProvider
-
         tracked = CorporateEventRepository._get_tracked_symbols()
-        missing = [s for s in tracked if s not in events_map][:30]
+        missing = [s for s in tracked if s not in events_map]
         if not missing:
             return
 
-        logger.info(f"[CorporateEvents Tier-3] yfinance pre-fetch for {len(missing)} symbols missing from cache")
         provider = NseEarningsProvider()
         filled = 0
         for sym in missing:
@@ -138,14 +134,12 @@ class CorporateEventRepository:
                 if ed:
                     ed_str = ed.strftime("%Y-%m-%d") if hasattr(ed, 'strftime') else str(ed)
                     events_map[sym] = {"earnings_date": ed_str, "date_status": status}
-                    # Write back to bulk_cache for future cache hits
-                    NseEarningsProvider._bulk_cache[sym] = ed
+                    NseEarningsProvider._bulk_cache[sym] = (ed, status)
                     filled += 1
-                _time.sleep(0.05)  # 50ms between requests — gentle on yfinance
             except Exception as e:
-                logger.debug(f"yfinance Tier-3 fetch failed for {sym}: {e}")
+                logger.debug(f"Zero-Yahoo Tier-3 fetch failed for {sym}: {e}")
         if filled:
-            logger.info(f"[CorporateEvents Tier-3] Populated {filled}/{len(missing)} symbols via yfinance")
+            logger.info(f"[CorporateEvents Tier-3] Populated {filled}/{len(missing)} missing symbols via Zero-Yahoo provider")
 
 
 class CorporateEventCache:
