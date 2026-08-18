@@ -329,7 +329,8 @@ DELIVERY_CONVICTION_THRESHOLDS = {
     "intraday_churn": 0,
 }
 
-BATCH_DOWNLOAD_SIZE = 150
+# [VERSION: RATE_LIMIT_PROTECTION_v1.0] Lower batch size from 150 to 40 to prevent YFinance HTTP 429 rate limit block
+BATCH_DOWNLOAD_SIZE = 40
 YAHOO_TIMEOUT = 30
 PRICE_CACHE_TTL_SECONDS = 60  # Changed from 180s: Intraday runs every 5min (need fresh cache hit)
 
