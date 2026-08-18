@@ -2954,15 +2954,15 @@ function getEarningsBadgeHtml(item) {
     }
   }
 
-  // Restrict display: ONLY show badge if earnings are within NEXT 1 WEEK (0 to 7 days) or PREVIOUS 1 WEEK (-1 to -7 days)
+  // Restrict display: ONLY show badge if earnings are within NEXT 15 DAYS (0 to 15 days) or LAST 15 DAYS (-1 to -15 days)
   if (d === null || isNaN(d)) return '';
 
   // 1. EARNINGS TODAY / HIGH TODAY (0 days)
   if (d === 0 || s === 'HIGH_TODAY') {
     return `<span class="badge" style="background:rgba(239,68,68,0.25); color:#f87171; border:1px solid rgba(239,68,68,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(239,68,68,0.3);" title="${msg}">🔴 RESULTS TODAY</span>`;
   }
-  // 2. RECENTLY DECLARED (PREVIOUS 1 WEEK: -1 to -7 DAYS AGO)
-  if (d >= -7 && d <= -1) {
+  // 2. RECENTLY DECLARED (LAST 15 DAYS: -1 to -15 DAYS AGO)
+  if (d >= -15 && d <= -1) {
     const dayLabel = d === -1 ? 'YESTERDAY' : `${Math.abs(d)}D AGO`;
     return `<span class="badge" style="background:rgba(16,185,129,0.25); color:#34d399; border:1px solid rgba(16,185,129,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(16,185,129,0.3);" title="${msg}">🟢 RESULTS OUT (${dayLabel})</span>`;
   }
@@ -2971,14 +2971,15 @@ function getEarningsBadgeHtml(item) {
     const daysStr = `${d}D`;
     return `<span class="badge" style="background:rgba(245,158,11,0.25); color:#fbbf24; border:1px solid rgba(245,158,11,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(245,158,11,0.3);" title="${msg}">🟠 RESULTS IN ${daysStr}</span>`;
   }
-  // 4. UPCOMING EARNINGS IN NEXT 1 WEEK (4 to 7 DAYS)
-  if (d >= 4 && d <= 7) {
+  // 4. UPCOMING EARNINGS IN NEXT 15 DAYS (4 to 15 DAYS)
+  if (d >= 4 && d <= 15) {
     return `<span class="badge" style="background:rgba(59,130,246,0.25); color:#60a5fa; border:1px solid rgba(59,130,246,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="${msg}">📅 EARNINGS ${d}D</span>`;
   }
 
-  // Outside +/- 7 days window: Hide badge to keep UI clean
+  // Outside +/- 15 days window: Hide badge to keep UI clean
   return '';
 }
+
 
 
     function renderScannerGrid(scanner_stats) {

@@ -351,22 +351,23 @@ class EarningsCalendarService:
                         severity = EarningsSeverity.HIGH_TODAY
                         warning_msg = "🔴 HIGH EARNINGS RISK: Results expected today. Technical stop-loss may not protect against overnight gaps."
                         earnings_flag = True
-                    elif 1 <= diff_days <= 2:
+                    elif 1 <= diff_days <= 3:
                         severity = EarningsSeverity.HIGH_SOON
                         warning_msg = f"🟠 HIGH EARNINGS RISK: Results expected in {diff_days} day(s) ({ed_date}). Elevated overnight gap risk. Review position size and risk before entry."
                         earnings_flag = True
-                    elif 3 <= diff_days <= 5:
+                    elif 4 <= diff_days <= 15:
                         severity = EarningsSeverity.MEDIUM_WEEK
                         warning_msg = f"🟡 MEDIUM EARNINGS RISK: Results expected in {diff_days} days ({ed_date}). Elevated gap risk. Review risk before entry."
                         earnings_flag = True
-                    elif -1 <= diff_days < 0:
+                    elif -15 <= diff_days < 0:
                         severity = EarningsSeverity.MEDIUM_WEEK
-                        warning_msg = f"🟡 RECENT EARNINGS: Results declared {abs(diff_days)} day ago ({ed_date}). Watch for post-earnings volatility."
+                        warning_msg = f"🟢 RECENT EARNINGS: Results declared {abs(diff_days)} day(s) ago ({ed_date}). Watch for post-earnings volatility."
                         earnings_flag = True
                     else:
                         severity = EarningsSeverity.NONE
                         warning_msg = ""
                         earnings_flag = False
+
 
                     return {
                         "earnings_flag": earnings_flag,
