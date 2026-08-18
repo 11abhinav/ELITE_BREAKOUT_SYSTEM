@@ -80,8 +80,8 @@ def get_expected_latest_closed_daily_bar(now_dt: datetime = None) -> date:
 def evaluate_data_staleness(latest_bar_dt, now_dt: datetime = None) -> dict:
     """
     Evaluates whether latest_bar_dt is stale based on current time context.
-    - Pre-market (e.g. 08:25 AM IST): Data up to last trading day's closure is 100% FRESH (is_stale=False).
-    - Post-market (e.g. 18:00 PM IST): Expected bar is today's closure.
+    - During market hours or pre-market: expected closed daily bar is from the previous completed trading day.
+    - Post-market (after 15:30 IST): expected closed daily bar is today's completed session.
     """
     if now_dt is None:
         now_dt = datetime.now(IST)
@@ -90,13 +90,13 @@ def evaluate_data_staleness(latest_bar_dt, now_dt: datetime = None) -> dict:
         return {
             "is_stale": True,
             "latest_available": "NONE",
-            "expected_date": str(get_expected_latest_trading_date(now_dt)),
+            "expected_date": str(get_expected_latest_closed_daily_bar(now_dt)),
             "stale_age_days": 999,
             "message": "Data timestamp is missing or invalid"
         }
     
     latest_date = latest_bar_dt.date() if hasattr(latest_bar_dt, 'date') else latest_bar_dt
-    expected_date = get_expected_latest_trading_date(now_dt)
+    expected_date = get_expected_latest_closed_daily_bar(now_dt)
     
     if latest_date >= expected_date:
         is_stale = False

@@ -2123,6 +2123,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
             if sym in realtime_metrics:
                 row["cmp"] = realtime_metrics[sym]
                 row["used_fallback_data"] = False
+                row["data_quality"] = DataQuality.LIVE.value
 
             # [VERSION: WEALTH_PREV_CLOSE_RESOLVE_v1.0] Resolve genuine previous completed close.
             #
@@ -2429,6 +2430,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
             if sym in realtime_metrics:
                 row["cmp"] = realtime_metrics[sym]
                 row["used_fallback_data"] = False
+                row["data_quality"] = DataQuality.LIVE.value
                 row["last_updated"] = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
             portfolio_rows.append(row)
 
