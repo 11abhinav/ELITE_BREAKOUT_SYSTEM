@@ -3164,8 +3164,75 @@ function selectAutocompleteSymbol(sym, companyName) {
   if (input) input.value = sym;
   const dropdown = document.getElementById('stock-autocomplete-dropdown');
   if (dropdown) dropdown.style.display = 'none';
+  showCustomToast(`⏳ Adding #${sym} to Watchlist... Deep analysis launching in background.`, 'info');
   saveToUserWatchlist(sym, companyName || sym, 0);
 }
+
+function saveToUserWatchlist(sym, company, score) {
+  const btnContainer = document.getElementById(`watchlist-btn-container-${sym}`);
+  const btn = document.getElementById(`add-to-watchlist-btn-${sym}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span>⏳</span> Saving...`;
+  }
+
+  showCustomToast(`⏳ Adding #${sym} to Watchlist... Deep analysis launching in background.`, 'info');
+
+  fetch('/api/v1/user_watchlist/add', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ symbol: sym, company_name: company, health_score: score, status: 'MONITORING' })
+  })
+  .then(res => res.json())
+  .then(res => {
+    if (res.success) {
+      const searchInput = document.getElementById('stock-search-input');
+      if (searchInput) searchInput.value = '';
+      closeDiagnosticModal();
+      showCustomToast(`⭐ #${sym} saved to Watchlist! Deep analysis scanning in background. <a href="#" onclick="openSavedWatchlistAnalysis('${sym}'); return false;" style="color:#3b82f6; font-weight:800; text-decoration:underline; margin-left:6px;">View Analysis ➔</a>`, 'success');
+      if (btnContainer) {
+        btnContainer.innerHTML = `
+          <button disabled style="padding:9px 14px; background:rgba(5,150,105,0.15); color:var(--win); border:1px solid rgba(5,150,105,0.3); border-radius:8px; font-weight:700; font-size:12px; cursor:not-allowed; opacity:0.85; display:flex; align-items:center; gap:6px;">
+            <span>✓</span> Added to Watchlist
+          </button>
+        `;
+      }
+      if (currentDiagnosticData && currentDiagnosticData.symbol === sym) {
+        currentDiagnosticData.is_in_watchlist = true;
+      }
+      _watchlistFetchCacheUser = null; // Invalidate on write
+      _watchlistFetchCacheUser_ts = 0;
+      loadUserWatchlist();
+      if (typeof fetchNotifications === 'function') fetchNotifications();
+
+      // Auto-poll after 5s and 12s to capture completed background deep analysis without manual reload
+      setTimeout(() => {
+        _watchlistFetchCacheUser = null;
+        _watchlistFetchCacheUser_ts = 0;
+        loadUserWatchlist();
+      }, 5000);
+      setTimeout(() => {
+        _watchlistFetchCacheUser = null;
+        _watchlistFetchCacheUser_ts = 0;
+        loadUserWatchlist();
+      }, 12000);
+    } else {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<span>⭐</span> Add to Watchlist`;
+      }
+      showCustomToast(`Failed to add #${sym} to watchlist: ${res.error}`, 'error');
+    }
+  })
+  .catch(err => {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<span>⭐</span> Add to Watchlist`;
+    }
+    showCustomToast(`Failed to add to watchlist: ${err.message}`, 'error');
+  });
+}
+
 
 document.addEventListener('click', function(e) {
   const dropdown = document.getElementById('stock-autocomplete-dropdown');
@@ -3891,8 +3958,11 @@ function _renderUserWatchlistTable() {
         </td>
         <td style="text-align:right; white-space:nowrap;">${cmpText}</td>
         <td class="mono font-bold" style="color:var(--text); text-align:center;">
-          ${item.last_health_score !== null && item.last_health_score !== undefined && Number(item.last_health_score) > 0 ? Number(item.last_health_score).toFixed(1) : '<span style="color:var(--muted); font-size:12px;">—</span>'}
+          ${item.last_health_score !== null && item.last_health_score !== undefined && Number(item.last_health_score) > 0 
+            ? Number(item.last_health_score).toFixed(1) 
+            : '<span style="color:#60a5fa; font-size:11px; font-weight:700; display:inline-flex; align-items:center; gap:4px;" title="7-Stage Deep Diagnostic Scan processing in background..."><span style="display:inline-block; animation:spin 1s infinite linear;">⏳</span> Scanning...</span>'}
         </td>
+
         <td style="text-align:center;">${statusBadge}</td>
         <td style="font-size:11px; color:var(--muted); text-align:center;">${formatISTDate(item.added_at)}</td>
         <td style="font-size:11px; color:var(--muted); font-family:var(--font-mono); text-align:center;">
