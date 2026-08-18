@@ -872,6 +872,11 @@ def init_db():
                         created_at TIMESTAMPTZ DEFAULT NOW()
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_global_notif_created ON global_notifications(created_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_global_notif_type ON global_notifications(type, created_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_date ON near_misses(logged_date DESC, scanner)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_user_messages_user_created ON user_messages(user_id, created_at DESC)")
+
 
                 # 26. system_checkpoints
                 cur.execute("""

@@ -515,12 +515,13 @@ from database import (
 )
 
 _viewers_cache = {"timestamp": 0, "payload": None}
+_last_session_cleanup_ts = 0.0
 
 @app.route("/api/viewers", methods=["POST", "GET"])
 @login_required
 def api_viewers():
     """Tracks active viewers by IP and Name using DB. Cleans up inactive ones (>120s)."""
-    global _viewers_cache
+    global _viewers_cache, _last_session_cleanup_ts
     now_ts = time.time()
     
     if request.method == "POST":
@@ -532,8 +533,12 @@ def api_viewers():
     elif _viewers_cache["payload"] is not None and (now_ts - _viewers_cache["timestamp"]) < 3.0:
         return Response(_viewers_cache["payload"], mimetype="application/json")
 
-    cleanup_stale_sessions()
+    if (now_ts - _last_session_cleanup_ts) > 60.0:
+        cleanup_stale_sessions()
+        _last_session_cleanup_ts = now_ts
+
     stats = get_online_users_and_history()
+
     unread = get_unread_message_counts()
     
     res = {
@@ -638,13 +643,26 @@ def api_user_info():
 # =====================================================================================
 # NOTIFICATIONS API
 # =====================================================================================
+_notifications_cache = {"ts": 0.0, "admin_payload": None, "user_payload": None}
+
+def invalidate_notifications_cache():
+    global _notifications_cache
+    _notifications_cache["ts"] = 0.0
+
 @app.route('/api/notifications', methods=['GET'])
 @login_required
 def get_notifications():
+    global _notifications_cache
+    now_ts = time.time()
+    user_role = session.get('role', 'user')
+    cache_key = "admin_payload" if user_role == 'admin' else "user_payload"
+    
+    if _notifications_cache[cache_key] is not None and (now_ts - _notifications_cache["ts"]) < 5.0:
+        return Response(_notifications_cache[cache_key], mimetype="application/json")
+
     try:
         from database import get_connection
         from psycopg2.extras import RealDictCursor
-        user_role = session.get('role', 'user')
 
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -681,7 +699,11 @@ def get_notifications():
                             dt = dt.astimezone(ZoneInfo("Asia/Kolkata"))
                         n['created_at'] = dt.strftime('%Y-%m-%d %H:%M:%S')
                 
-                return jsonify(notifications)
+                payload = json.dumps(notifications)
+                _notifications_cache["ts"] = now_ts
+                _notifications_cache[cache_key] = payload
+                return Response(payload, mimetype="application/json")
+
     except Exception as e:
         logger.debug(f"Error fetching notifications: {e}")
         return jsonify([])
@@ -917,19 +939,26 @@ def api_get_near_misses():
         return jsonify([])
 
 
+_PERFORMANCE_JSON_CACHE = {"ts": 0.0, "payload": None}
+
 @app.route("/data/performance_data.json")
 @login_required
 def performance_json():
-    """Serve the latest performance JSON for the dashboard to fetch, loaded from DB."""
+    """Serve the latest performance JSON for the dashboard to fetch, loaded from DB with 10s memory cache."""
+    global _PERFORMANCE_JSON_CACHE
+    now_ts = time.time()
+    if _PERFORMANCE_JSON_CACHE["payload"] is not None and (now_ts - _PERFORMANCE_JSON_CACHE["ts"]) < 10.0:
+        return Response(_PERFORMANCE_JSON_CACHE["payload"], mimetype="application/json")
+
     try:
         from database import get_system_state
         val = get_system_state("performance_data")
         if val:
-            # We trust the background worker that writes this data. 
-            # Skipping json.loads() here avoids massive CPU blocking on a 10MB string.
+            _PERFORMANCE_JSON_CACHE = {"ts": now_ts, "payload": val}
             return Response(val, mimetype="application/json")
     except Exception as e:
         logger.exception(f"❌ Failed to load performance data from DB: {e}")
+
 
     # Return empty-but-valid structure so dashboard doesn't fall back to demo data
     empty = {
@@ -1132,10 +1161,17 @@ def fyers_callback():
 # [VERSION: ADMIN_DB_EXPORT_APIS_v1.0] EXHAUSTIVE ADMIN DATABASE EXPORT & INSPECTION APIS
 # =====================================================================================
 
+_TABLES_SUMMARY_CACHE = {"ts": 0.0, "payload": None}
+
 @app.route("/api/admin/db/tables_summary")
 @admin_required
 def api_admin_db_tables_summary():
-    """Returns JSON summary of all PostgreSQL database tables, row counts, and metadata."""
+    """Returns JSON summary of all PostgreSQL database tables, row counts, and metadata with 30s cache."""
+    global _TABLES_SUMMARY_CACHE
+    now_ts = time.time()
+    if _TABLES_SUMMARY_CACHE["payload"] is not None and (now_ts - _TABLES_SUMMARY_CACHE["ts"]) < 30.0:
+        return Response(_TABLES_SUMMARY_CACHE["payload"], mimetype="application/json")
+
     try:
         from database import get_all_database_tables_summary
         summary = get_all_database_tables_summary()
@@ -3435,31 +3471,36 @@ def api_breakout_watchlist():
                         d["cmp"] = _BREAKOUT_CMP_CACHE[sym]["price"]
                         d["last_updated"] = _BREAKOUT_CMP_CACHE[sym]["ts"]
                     else:
-                        # Fallback to local parquet history
                         try:
-                            sym_clean = sym.replace(':', '_')
-                            latest_mtime = 0
-                            best_file = None
-                            for interval in ["1m", "5m", "15m", "30m", "1h", "1d"]:
-                                file_path = os.path.join(DATA_DIR, "history", interval, f"{sym_clean}.parquet")
-                                if os.path.exists(file_path):
-                                    mtime = os.path.getmtime(file_path)
-                                    if mtime > latest_mtime:
-                                        latest_mtime = mtime
-                                        best_file = file_path
-                            if best_file:
-                                df = pd.read_parquet(best_file)
-                                if not df.empty and "Close" in df.columns:
-                                    df_valid = df.dropna(subset=["Close"])
-                                    if not df_valid.empty:
-                                        dt_utc = datetime.utcfromtimestamp(latest_mtime).replace(tzinfo=ZoneInfo('UTC'))
-                                        d["cmp"] = float(df_valid["Close"].iloc[-1])
-                                        d["last_updated"] = dt_utc.astimezone(ist).isoformat()
+                            from price_cache import get_cached_price
+                            fast_p = get_cached_price(sym)
+                            if fast_p is not None and float(fast_p or 0) > 0:
+                                d["cmp"] = float(fast_p)
+                                d["last_updated"] = datetime.now(ist).isoformat()
+                            else:
+                                sym_clean = sym.replace(':', '_')
+                                latest_mtime = 0
+                                best_file = None
+                                for interval in ["1m", "5m", "15m", "30m", "1h", "1d"]:
+                                    file_path = os.path.join(DATA_DIR, "history", interval, f"{sym_clean}.parquet")
+                                    if os.path.exists(file_path):
+                                        mtime = os.path.getmtime(file_path)
+                                        if mtime > latest_mtime:
+                                            latest_mtime = mtime
+                                            best_file = file_path
+                                if best_file:
+                                    df = pd.read_parquet(best_file)
+                                    if not df.empty and "Close" in df.columns:
+                                        df_valid = df.dropna(subset=["Close"])
+                                        if not df_valid.empty:
+                                            dt_utc = datetime.utcfromtimestamp(latest_mtime).replace(tzinfo=ZoneInfo('UTC'))
+                                            d["cmp"] = float(df_valid["Close"].iloc[-1])
+                                            d["last_updated"] = dt_utc.astimezone(ist).isoformat()
                         except Exception:
                             pass
-                            
             except Exception as e:
                 logger.warning(f"Failed to fetch live CMP for watchlist: {e}")
+
 
         payload = json.dumps({"status": "success", "data": serialize_datetimes(data)}, default=str)
         _BREAKOUT_RESPONSE_CACHE = {"ts": now_sec, "payload": payload}
