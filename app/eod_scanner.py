@@ -1250,7 +1250,21 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                 logger.debug(f"REJECTION: {symbol} (Phase: SCORE_GATE, Reason: Score {score:.1f} < threshold {global_min_score})")
                                 try:
                                     from near_miss_tracker import log_near_miss
-                                    log_near_miss(symbol, "EOD", signal_str, "score_threshold", score, global_min_score, score=score)
+                                    entry_px = float(candle_close) if "candle_close" in locals() and candle_close else None
+                                    sl_px = float(candle_low) if "candle_low" in locals() and candle_low else (entry_px * 0.95 if entry_px else None)
+                                    tgt_px = float(prior_high) if "prior_high" in locals() and prior_high and prior_high > (entry_px or 0) else (entry_px * 1.10 if entry_px else None)
+                                    log_near_miss(
+                                        symbol=symbol,
+                                        scanner="EOD",
+                                        breakout_type=signal_str,
+                                        gate_name="score_threshold",
+                                        observed_value=float(score),
+                                        threshold_value=float(global_min_score),
+                                        score=int(score),
+                                        entry_price=entry_px,
+                                        stop_loss=sl_px,
+                                        target_1=tgt_px
+                                    )
                                 except Exception:
                                     pass
                                 return

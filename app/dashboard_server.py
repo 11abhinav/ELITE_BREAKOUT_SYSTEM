@@ -873,22 +873,28 @@ def api_get_near_misses():
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 if scanner:
                     cur.execute("""
-                        SELECT id, symbol, scanner, breakout_type, gate_name, observed_value,
-                               threshold_value, delta_pct, score, entry_price, stop_loss, target_1,
-                               logged_at, logged_date, status, realized_rr, max_mfe_r
-                        FROM near_misses
-                        WHERE logged_date >= CURRENT_DATE - INTERVAL '%s days' AND scanner = %s
-                        ORDER BY logged_at DESC
+                        SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
+                               nm.threshold_value, nm.delta_pct, nm.score,
+                               COALESCE(nm.entry_price, m.cmp) AS entry_price,
+                               nm.stop_loss, nm.target_1,
+                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
+                        FROM near_misses nm
+                        LEFT JOIN stock_analysis_master m ON m.symbol = nm.symbol
+                        WHERE nm.logged_date >= CURRENT_DATE - INTERVAL '%s days' AND nm.scanner = %s
+                        ORDER BY nm.logged_at DESC
                         LIMIT 200
                     """, (days, scanner))
                 else:
                     cur.execute("""
-                        SELECT id, symbol, scanner, breakout_type, gate_name, observed_value,
-                               threshold_value, delta_pct, score, entry_price, stop_loss, target_1,
-                               logged_at, logged_date, status, realized_rr, max_mfe_r
-                        FROM near_misses
-                        WHERE logged_date >= CURRENT_DATE - INTERVAL '%s days'
-                        ORDER BY logged_at DESC
+                        SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
+                               nm.threshold_value, nm.delta_pct, nm.score,
+                               COALESCE(nm.entry_price, m.cmp) AS entry_price,
+                               nm.stop_loss, nm.target_1,
+                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
+                        FROM near_misses nm
+                        LEFT JOIN stock_analysis_master m ON m.symbol = nm.symbol
+                        WHERE nm.logged_date >= CURRENT_DATE - INTERVAL '%s days'
+                        ORDER BY nm.logged_at DESC
                         LIMIT 200
                     """, (days,))
                 rows = [dict(r) for r in cur.fetchall()]

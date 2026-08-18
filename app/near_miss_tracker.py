@@ -46,6 +46,12 @@ def init_near_miss_schema() -> None:
                     ALTER TABLE near_misses ALTER COLUMN gate_name TYPE TEXT;
                     ALTER TABLE near_misses ALTER COLUMN status TYPE TEXT;
                 """)
+                # Cleanup existing duplicate rows before creating UNIQUE index
+                cur.execute("""
+                    DELETE FROM near_misses a USING near_misses b
+                    WHERE a.id < b.id AND a.symbol = b.symbol AND a.scanner = b.scanner AND a.logged_date = b.logged_date;
+                """)
+                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_near_misses_sym_scanner_date ON near_misses (symbol, scanner, logged_date)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_date ON near_misses (logged_date, scanner)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_symbol ON near_misses (symbol)")
                 conn.commit()
@@ -66,6 +72,7 @@ def log_near_miss(
 ) -> None:
     """
     Logs a near-miss candidate rejected within 10% of a gate threshold into PostgreSQL.
+    Enforces 1 entry per scanner per symbol per date.
     """
     if not observed_value or not threshold_value or threshold_value == 0:
         return
@@ -82,6 +89,18 @@ def log_near_miss(
     clean_breakout_type = str(breakout_type).strip()[:150]
     clean_gate_name = str(gate_name).strip()[:150]
 
+    # Auto-resolve entry_price if missing
+    if entry_price is None or entry_price <= 0:
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT cmp FROM stock_analysis_master WHERE symbol = %s", (clean_symbol,))
+                    row = cur.fetchone()
+                    if row and row[0] and row[0] > 0:
+                        entry_price = float(row[0])
+        except Exception:
+            pass
+
     try:
         init_near_miss_schema()
         with get_connection() as conn:
@@ -93,12 +112,23 @@ def log_near_miss(
                         target_1, logged_at, logged_date
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (symbol, scanner, logged_date) DO UPDATE SET
+                        breakout_type = EXCLUDED.breakout_type,
+                        gate_name = EXCLUDED.gate_name,
+                        observed_value = EXCLUDED.observed_value,
+                        threshold_value = EXCLUDED.threshold_value,
+                        delta_pct = EXCLUDED.delta_pct,
+                        score = COALESCE(EXCLUDED.score, near_misses.score),
+                        entry_price = COALESCE(EXCLUDED.entry_price, near_misses.entry_price),
+                        stop_loss = COALESCE(EXCLUDED.stop_loss, near_misses.stop_loss),
+                        target_1 = COALESCE(EXCLUDED.target_1, near_misses.target_1),
+                        logged_at = EXCLUDED.logged_at
                 """, (
                     clean_symbol, clean_scanner, clean_breakout_type, clean_gate_name, observed_value,
                     threshold_value, round(delta_pct, 2), score, entry_price,
                     stop_loss, target_1, now_ist, today_date
                 ))
                 conn.commit()
-                logger.info(f"🎯 [NEAR-MISS LOGGED] {clean_symbol} ({clean_scanner}) gate '{clean_gate_name}': obs={observed_value:.2f} vs thresh={threshold_value:.2f} (delta: {delta_pct:.1f}%)")
+                logger.info(f"🎯 [NEAR-MISS LOGGED] {clean_symbol} ({clean_scanner}) gate '{clean_gate_name}': obs={observed_value:.2f} vs thresh={threshold_value:.2f} (delta: {delta_pct:.1f}%) | entry=₹{entry_price}")
     except Exception as e:
         logger.exception(f"Failed to log near-miss for {symbol}: {e}")
