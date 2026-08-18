@@ -1598,7 +1598,8 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
         return {}
 
     from database import is_scanner_actively_running, complete_scanner_execution_run
-    if _scan_lock.locked() or is_scanner_actively_running("MULTIBAGGER"):
+    current_run_id = getattr(run_ctx, "run_id", None) if run_ctx else None
+    if _scan_lock.locked() or is_scanner_actively_running("MULTIBAGGER", exclude_run_id=current_run_id):
         logger.warning("🛑 [DUPLICATE GUARD] Multibagger Scanner is ALREADY actively running. Skipping duplicate trigger.")
         if run_ctx:
             complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Same scanner already actively running")

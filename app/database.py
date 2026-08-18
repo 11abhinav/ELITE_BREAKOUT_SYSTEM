@@ -7360,19 +7360,32 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
         logger.warning(f"Failed to cleanup orphaned scanner runs on boot: {e}")
 
 
-def is_scanner_actively_running(scanner_name: str) -> bool:
-    """Check PostgreSQL execution history for an active (RUNNING/QUEUED) run of the specified scanner."""
+def is_scanner_actively_running(scanner_name: str, exclude_run_id: str = None) -> bool:
+    """
+    [VERSION: SCANNER_DUPLICATE_GUARD_FIX_v1.0]
+    Check PostgreSQL execution history for an active (RUNNING/QUEUED) run of the specified scanner.
+    If exclude_run_id is provided, ignores that specific run_id (preventing self-deadlock).
+    """
     if not scanner_name:
         return False
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT run_id FROM scanner_execution_history
-                    WHERE LOWER(scanner_name) = LOWER(%s)
-                      AND lifecycle_status IN ('RUNNING', 'QUEUED')
-                    LIMIT 1;
-                """, (scanner_name,))
+                if exclude_run_id:
+                    cur.execute("""
+                        SELECT run_id FROM scanner_execution_history
+                        WHERE LOWER(scanner_name) = LOWER(%s)
+                          AND lifecycle_status IN ('RUNNING', 'QUEUED')
+                          AND run_id != %s
+                        LIMIT 1;
+                    """, (scanner_name, exclude_run_id))
+                else:
+                    cur.execute("""
+                        SELECT run_id FROM scanner_execution_history
+                        WHERE LOWER(scanner_name) = LOWER(%s)
+                          AND lifecycle_status IN ('RUNNING', 'QUEUED')
+                        LIMIT 1;
+                    """, (scanner_name,))
                 return cur.fetchone() is not None
     except Exception:
         return False

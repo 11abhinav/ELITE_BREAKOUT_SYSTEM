@@ -831,7 +831,8 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None):
         return None
 
     from database import is_scanner_actively_running
-    if _scan_lock.locked() or is_scanner_actively_running("Wealth Engine"):
+    current_run_id = getattr(run_ctx, "run_id", None) if run_ctx else None
+    if _scan_lock.locked() or is_scanner_actively_running("Wealth Engine", exclude_run_id=current_run_id):
         logger.warning("🛑 [DUPLICATE GUARD] Wealth Engine is ALREADY actively running. Skipping duplicate trigger.")
         if run_ctx:
             from database import complete_scanner_execution_run
@@ -2428,6 +2429,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
             if sym in realtime_metrics:
                 row["cmp"] = realtime_metrics[sym]
                 row["used_fallback_data"] = False
+                row["last_updated"] = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
             portfolio_rows.append(row)
 
         sell_signal_count = 0

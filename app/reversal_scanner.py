@@ -2116,7 +2116,8 @@ def start(force: bool = False, session=None, run_ctx=None) -> int:
         return 0
 
     from database import is_scanner_actively_running
-    if _scan_lock.locked() or is_scanner_actively_running("REVERSAL"):
+    current_run_id = getattr(run_ctx, "run_id", None) if run_ctx else None
+    if _scan_lock.locked() or is_scanner_actively_running("REVERSAL", exclude_run_id=current_run_id):
         logger.warning("🛑 [DUPLICATE GUARD] Reversal Scanner is ALREADY actively running. Skipping duplicate trigger.")
         if run_ctx:
             from database import complete_scanner_execution_run

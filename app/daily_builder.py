@@ -1088,7 +1088,8 @@ def main(force_rebuild: bool = False, run_ctx=None):
         return
 
     from database import is_scanner_actively_running
-    if _build_lock.locked() or is_scanner_actively_running("DAILY_BUILDER"):
+    current_run_id = getattr(run_ctx, "run_id", None) if run_ctx else None
+    if _build_lock.locked() or is_scanner_actively_running("DAILY_BUILDER", exclude_run_id=current_run_id):
         logger.warning("🛑 [DUPLICATE GUARD] Daily Builder is ALREADY actively running. Skipping duplicate trigger.")
         if run_ctx:
             from database import complete_scanner_execution_run
