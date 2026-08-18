@@ -50,6 +50,39 @@ def _get_quarter_estimated_date(target_date: date) -> date:
         return date(y, 11, 14) if target_date < date(y, 11, 14) else date(y + 1, 2, 14)
 
 
+def _sanitize_earnings_dates(ed: Optional[date], last_decl: Optional[date], upcoming: Optional[date], status: str, today_date: Optional[date] = None) -> Tuple[Optional[date], Optional[date], Optional[date], str]:
+    """
+    [VERSION: EARNINGS_SANITY_GUARD_v1.0]
+    Sanitizes earnings dates to guarantee zero obsolete/historical artifacts:
+      1. Discards last_declared_date if older than 180 days (6 months).
+      2. Discards upcoming_date if in the past (< today).
+      3. If upcoming_date is missing or past, computes standard estimated next quarter date.
+      4. Sets active_earnings_date = upcoming_date (always >= today).
+    """
+    if today_date is None:
+        today_date = datetime.now(IST).date()
+    cutoff_180d = today_date - timedelta(days=180)
+
+    clean_last = last_decl
+    if clean_last is not None and clean_last < cutoff_180d:
+        clean_last = None
+
+    clean_upc = upcoming
+    if clean_upc is not None and clean_upc < today_date:
+        clean_upc = None
+
+    final_status = status
+    if clean_upc is None:
+        clean_upc = _get_quarter_estimated_date(today_date)
+        if final_status != DateStatus.CONFIRMED:
+            final_status = DateStatus.ESTIMATED
+
+    clean_ed = clean_upc
+
+    return clean_ed, clean_last, clean_upc, final_status
+
+
+
 class NseEarningsProvider(EarningsProvider):
     """
     [VERSION: DUAL_EARNINGS_DATE_PIPELINE_v1.0]
@@ -151,12 +184,14 @@ class NseEarningsProvider(EarningsProvider):
 
                     active_ed = next_dt or last_dt
                     if active_ed or last_dt or next_dt:
+                        san_tuple = _sanitize_earnings_dates(active_ed, last_dt, next_dt, DateStatus.ESTIMATED, today_date=now_date)
                         prev_entry = new_map.get(ticker)
                         if not prev_entry:
-                            new_map[ticker] = (active_ed, last_dt, next_dt, DateStatus.ESTIMATED)
+                            new_map[ticker] = san_tuple
                         else:
                             e_ed, e_last, e_upc, e_st = prev_entry
-                            new_map[ticker] = (e_ed or active_ed, e_last or last_dt, e_upc or next_dt, e_st)
+                            merged_tuple = (e_ed or san_tuple[0], e_last or san_tuple[1], e_upc or san_tuple[2], e_st)
+                            new_map[ticker] = _sanitize_earnings_dates(*merged_tuple, today_date=now_date)
         except Exception as tv_err:
             logger.debug(f"⚠️ Bulk TradingView earnings pre-fetch failed: {tv_err}")
 
@@ -168,46 +203,51 @@ class NseEarningsProvider(EarningsProvider):
         clean_sym = symbol.strip().upper().replace(".NS", "").replace(".BO", "")
         self._refresh_bulk_cache_if_needed()
 
+        raw_res = None
         # Check bulk in-memory map first (0 network latency)
         if clean_sym in self._bulk_cache:
-            return self._bulk_cache[clean_sym]
+            raw_res = self._bulk_cache[clean_sym]
+        else:
+            # Per-symbol NSE Corporate Announcements fallback
+            import requests
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://www.nseindia.com/",
+            }
+            try:
+                session = requests.Session()
+                session.get("https://www.nseindia.com", headers=headers, timeout=10)
+                url = f"https://www.nseindia.com/api/corporate-announcements?index=equities&symbol={clean_sym}"
+                resp = session.get(url, headers=headers, timeout=10)
+                if resp.status_code == 200:
+                    items = resp.json()
+                    now_date = datetime.now(IST).date()
+                    for item in items:
+                        purpose = str(item.get("purpose", "")).lower()
+                        desc = str(item.get("desc", "")).lower()
+                        if "financial result" in purpose or "board meeting" in purpose or "results" in desc:
+                            an_date_str = item.get("an_dt") or item.get("bm_date")
+                            if an_date_str:
+                                try:
+                                    dt = pd.to_datetime(an_date_str).date()
+                                    if dt >= now_date:
+                                        raw_res = (dt, None, dt, DateStatus.CONFIRMED)
+                                    else:
+                                        raw_res = (dt, dt, None, DateStatus.CONFIRMED)
+                                    break
+                                except Exception:
+                                    pass
+            except Exception as e:
+                logger.debug(f"NSE earnings fetch failed for {clean_sym}: {e}")
 
-        # Per-symbol NSE Corporate Announcements fallback
-        import requests
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Referer": "https://www.nseindia.com/",
-        }
-        try:
-            session = requests.Session()
-            session.get("https://www.nseindia.com", headers=headers, timeout=10)
-            url = f"https://www.nseindia.com/api/corporate-announcements?index=equities&symbol={clean_sym}"
-            resp = session.get(url, headers=headers, timeout=10)
-            if resp.status_code == 200:
-                items = resp.json()
-                now_date = datetime.now(IST).date()
-                for item in items:
-                    purpose = str(item.get("purpose", "")).lower()
-                    desc = str(item.get("desc", "")).lower()
-                    if "financial result" in purpose or "board meeting" in purpose or "results" in desc:
-                        an_date_str = item.get("an_dt") or item.get("bm_date")
-                        if an_date_str:
-                            try:
-                                dt = pd.to_datetime(an_date_str).date()
-                                if dt >= now_date:
-                                    return dt, None, dt, DateStatus.CONFIRMED
-                                else:
-                                    return dt, dt, None, DateStatus.CONFIRMED
-                            except Exception:
-                                pass
-        except Exception as e:
-            logger.debug(f"NSE earnings fetch failed for {clean_sym}: {e}")
+        if not raw_res:
+            est_date = _get_quarter_estimated_date(datetime.now(IST).date())
+            raw_res = (est_date, None, est_date, DateStatus.ESTIMATED)
 
-        # Tier 4: Quarter-based estimation fallback (Guarantees zero UNVERIFIED missing gaps)
-        est_date = _get_quarter_estimated_date(datetime.now(IST).date())
-        return est_date, None, est_date, DateStatus.ESTIMATED
+        return _sanitize_earnings_dates(*raw_res)
+
 
 
 # Alias for backward compatibility — NseEarningsProvider is now the authoritative zero-rate-limit provider
@@ -316,8 +356,8 @@ class EarningsCalendarService:
                                         VALUES (%s, %s, %s, %s, %s, NOW())
                                         ON CONFLICT (symbol) DO UPDATE SET
                                             earnings_date = EXCLUDED.earnings_date,
-                                            last_declared_date = COALESCE(EXCLUDED.last_declared_date, earnings_calendar.last_declared_date),
-                                            upcoming_date = COALESCE(EXCLUDED.upcoming_date, earnings_calendar.upcoming_date),
+                                            last_declared_date = EXCLUDED.last_declared_date,
+                                            upcoming_date = EXCLUDED.upcoming_date,
                                             date_status = EXCLUDED.date_status,
                                             updated_at = NOW()
                                     """, (sym_item, ed_item, last_item, upc_item, status_item))
@@ -328,8 +368,10 @@ class EarningsCalendarService:
                     except Exception as e:
                         logger.error(f"❌ Failed to persist earnings_calendar chunk to DB: {e}")
 
+        clean_earnings_calendar_db()
         logger.info(f"✅ [EARNINGS CALENDAR] Completed refresh cycle. Successfully cached earnings dates for {updated_count}/{total_pending} symbols in PostgreSQL.")
         return updated_count
+
 
     def get_earnings_info(self, symbol: str, target_date: Optional[date] = None) -> Dict:
         """
@@ -626,6 +668,47 @@ def run_worker_loop():
         except Exception as e:
             logger.exception("❌ [EARNINGS CALENDAR] Main worker loop crashed")
             time.sleep(300)
+
+
+def clean_earnings_calendar_db() -> int:
+    """
+    [VERSION: EARNINGS_SANITY_GUARD_v1.0]
+    Database cleanup function to purge ancient/obsolete historical dates (>180d old)
+    and update past upcoming_dates to valid current quarter estimated dates in PostgreSQL.
+    """
+    try:
+        from database import get_connection
+        today_date = datetime.now(IST).date()
+        est_upcoming = _get_quarter_estimated_date(today_date)
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # 1. Clear last_declared_date if older than 180 days
+                cur.execute("""
+                    UPDATE earnings_calendar 
+                    SET last_declared_date = NULL 
+                    WHERE last_declared_date < CURRENT_DATE - INTERVAL '180 days'
+                """)
+                c1 = cur.rowcount
+
+                # 2. Update obsolete/past upcoming_date and earnings_date to current quarter estimated date
+                cur.execute("""
+                    UPDATE earnings_calendar 
+                    SET upcoming_date = %s,
+                        earnings_date = %s,
+                        date_status = CASE WHEN date_status = 'CONFIRMED' THEN 'ESTIMATED' ELSE date_status END,
+                        updated_at = NOW()
+                    WHERE upcoming_date IS NULL OR upcoming_date < CURRENT_DATE OR earnings_date < CURRENT_DATE
+                """, (est_upcoming, est_upcoming))
+                c2 = cur.rowcount
+
+                conn.commit()
+                if c1 > 0 or c2 > 0:
+                    logger.info(f"🧹 [EARNINGS SANITY] DB Cleanup complete: cleared {c1} obsolete last_declared_dates, updated {c2} past upcoming_dates to {est_upcoming}.")
+                return c1 + c2
+    except Exception as e:
+        logger.error(f"❌ Earnings calendar DB cleanup failed: {e}")
+        return 0
+
 
 def start_worker():
     t = threading.Thread(target=run_worker_loop, name="EarningsCalendarWorker", daemon=True)
