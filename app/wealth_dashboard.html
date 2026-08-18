@@ -1080,7 +1080,7 @@ function getEarningsBadgeHtml(item) {
         document.getElementById('core-count').textContent = `${core.length} / 15 max`;
         document.querySelector('#tbl-core tbody').innerHTML = core.length ? core.map(r => `
           <tr>
-            <td class="sym">${r.Stock}</td>
+            <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
             <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
               <span class="mono">₹${fmt(r.cmp)}</span>
               <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
@@ -1104,7 +1104,7 @@ function getEarningsBadgeHtml(item) {
         document.getElementById('growth-count').textContent = growth.length;
         document.querySelector('#tbl-growth tbody').innerHTML = growth.length ? growth.map(r => `
           <tr>
-            <td class="sym">${r.Stock}</td>
+            <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
             <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
               <span class="mono">₹${fmt(r.cmp)}</span>
               <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
@@ -1127,7 +1127,7 @@ function getEarningsBadgeHtml(item) {
         document.getElementById('sale-count').textContent = sale.length;
         document.querySelector('#tbl-sale tbody').innerHTML = sale.length ? sale.map(r => `
           <tr>
-            <td class="sym">${r.Stock}</td>
+            <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
             <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
               <span class="mono">₹${fmt(r.cmp)}</span>
               <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
@@ -1149,7 +1149,7 @@ function getEarningsBadgeHtml(item) {
         document.getElementById('opp-count').textContent = opp.length;
         document.querySelector('#tbl-opp tbody').innerHTML = opp.length ? opp.map(r => `
           <tr>
-            <td class="sym">${r.Stock}</td>
+            <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
             <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
               <span class="mono">₹${fmt(r.cmp)}</span>
               <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
@@ -1255,7 +1255,7 @@ function getEarningsBadgeHtml(item) {
 
         return `
           <tr>
-            <td class="sym"><strong>${symbol}</strong></td>
+            <td class="sym"><strong>${symbol}</strong>${getEarningsBadgeHtml(alert)}</td>
             <td class="mono">${alertDateStr}</td>
             <td class="mono">₹${alertPrice.toFixed(2)}</td>
             <td class="mono">₹${currentPrice > 0 ? currentPrice.toFixed(2) : '-'}</td>
@@ -1325,7 +1325,7 @@ function getEarningsBadgeHtml(item) {
         
         return `
           <tr>
-            <td class="sym"><strong>${symbol}</strong></td>
+            <td class="sym"><strong>${symbol}</strong>${getEarningsBadgeHtml(pos)}</td>
             <td class="mono">${entryDate}</td>
             <td class="mono">₹${entryPrice.toFixed(2)}</td>
             <td class="mono">${exitDate}</td>

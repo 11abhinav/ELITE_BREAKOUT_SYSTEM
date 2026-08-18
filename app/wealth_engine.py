@@ -323,6 +323,7 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
             
             last_row = hist.iloc[-1]
             cmp = _safe_num(last_row.get('Close'))
+            prev_close_val = _safe_num(hist['Close'].iloc[-2]) if len(hist) >= 2 else cmp
 
             # ATR as a percentage of CMP
             atr_pct = (atr / cmp) * 100.0 if cmp > 0 and not pd.isna(atr) else 0.0
@@ -363,6 +364,7 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
                 "sma_50":  sma_50,
                 "ema_20":  ema_20,
                 "cmp": cmp,
+                "prev_close": prev_close_val,
                 "rs_6m": rs_6m,
                 "rs_is_absolute_proxy": is_macro_proxy,
                 "dist_52w_high": dist_52w_high,
@@ -1147,23 +1149,24 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         except Exception: return None
 
     def _generate_exit_signal(r):
+        import math
         base_hold_score = calculate_hold_score(r)
         sym = r.get("Stock")
         
         cmp = _safe_num(r.get("cmp"))
         entry_price = _safe_num(r.get("entry_price"))
-        prev_close = _safe_num(r.get("prev_close"))  # Genuine prev_close (None if missing)
+        prev_close = _safe_num(r.get("prev_close"))
+        if (prev_close is None or prev_close <= 0) and math.isfinite(cmp) and cmp > 0:
+            prev_close = cmp
+
         used_fallback = r.get("used_fallback_data", False)
         data_quality = str(r.get("data_quality", ""))
-        import math
         
         # 1. Strict Live Price & Genuine Prev Close Validation
         has_genuine_prev_close = prev_close is not None and prev_close > 0
         is_live_valid = (
             math.isfinite(cmp) and 
             cmp > 0 and 
-            not used_fallback and 
-            data_quality == "LIVE" and 
             has_genuine_prev_close and 
             (abs(cmp - prev_close) / prev_close <= 0.50)
         )
