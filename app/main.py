@@ -1449,7 +1449,9 @@ def run_system_scheduler():
     last_multibagger_date = None
     last_rotation_date = None
     evening_scanners_ran = False
+    evening_batch_deadline_logged = False
     warmup_ran = False
+
     last_earnings_date = None
     saturday_mb_refresh_ran = False
     
@@ -1654,15 +1656,18 @@ def run_system_scheduler():
                 threading.Thread(target=_run_evening_batch_async, name="EveningBatch", daemon=True).start()
             elif now.hour < 18:
                 evening_scanners_ran = False
+                evening_batch_deadline_logged = False
                 
-            # 18:55 - Hard Release for Evening Batch Lock
-            if now.hour == 18 and now.minute >= 55:
+            # 18:55 - Hard Release for Evening Batch Lock (runs ONCE per day at 18:55)
+            if now.hour == 18 and now.minute >= 55 and not evening_batch_deadline_logged:
+                evening_batch_deadline_logged = True
                 if scanner_execution_lock.locked():
                     logger.error("🚨 CRITICAL: [18:55] Evening Batch exceeded absolute deadline! Forcing scanner lock release.")
                     try:
                         scanner_execution_lock.release()
                     except Exception as e:
                         pass
+
                 
             # 19:00 - Multibagger Scanner (Independent top-level branch)
             if now.hour >= 19 and last_multibagger_date != now.date():
