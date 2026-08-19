@@ -722,9 +722,24 @@ class AutoSwitchingFetcher(DataFetcher):
                             succeeded_count += 1
                             symbol_router.record_fallback_event()
                             symbol_router.record_result(s, interval, prov_name, is_success=True)
+                            
+                            # [VERSION: STICKY_RECOVERY_v1.0] Mark symbol sticky to working broker for all future runs
+                            from symbol_router import RoutingState, ProviderErrorCode, RouteEntry
+                            target_state = RoutingState.FYERS_ONLY if prov_name == "fyers" else RoutingState.UPSTOX_ONLY
+                            key = symbol_router._normalize_key(s, interval)
+                            with symbol_router._lock:
+                                symbol_router._routes[key] = RouteEntry(
+                                    state=target_state,
+                                    reason=ProviderErrorCode.UNSUPPORTED_SYMBOL,
+                                    confidence="HIGH",
+                                    learned_at=time.monotonic(),
+                                    session_date=datetime.now(IST).strftime("%Y-%m-%d")
+                                )
+                            symbol_router._persist_routes_async()
+                            
                             if prov_name in provider_telemetry:
                                 provider_telemetry[prov_name]["succeeded"] += 1
-                            logger.info(f"✅ [Premium Fallback] {prov_name.upper()} successfully recovered data for missing symbol: {s}")
+                            logger.info(f"✅ [Premium Fallback & Sticky Learner] {prov_name.upper()} successfully recovered data for {s} — Set sticky route to {target_state.value}")
                         elif prov_name in provider_telemetry:
                             provider_telemetry[prov_name]["failed"] += 1
                             err_msg = str(getattr(res, 'error', '') or '').lower() if res else "Fallback missing"
