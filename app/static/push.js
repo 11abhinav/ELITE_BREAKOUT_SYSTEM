@@ -137,27 +137,106 @@
     }
   }
 
-  // ── Auto-subscribe if already granted ──
-  // Only auto-subscribe when already granted (user previously accepted).
-  // Never auto-request permission — that must come from explicit user gesture.
-  if ('Notification' in window && Notification.permission === 'granted') {
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        // Small delay to let SW registration settle
-        setTimeout(() => {
-          navigator.serviceWorker.ready.then(() => {
-            subscribeToPush();
-          }).catch(err => {
-            console.warn('[PWA] SW not ready for auto-subscribe:', err);
-          });
-        }, 1000);
+  function showPushPromptBanner() {
+    if (document.getElementById('push-prompt-banner')) return;
+    if (sessionStorage.getItem('dismissed_push_banner')) return;
+
+    const banner = document.createElement('div');
+    banner.id = 'push-prompt-banner';
+    banner.style.cssText = `
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      width: calc(100% - 32px); max-width: 460px; z-index: 99999;
+      background: linear-gradient(135deg, #131b26 0%, #0d131d 100%);
+      border: 1px solid rgba(0, 229, 160, 0.4); border-radius: 16px;
+      padding: 12px 16px; box-shadow: 0 12px 32px rgba(0,0,0,0.7);
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      animation: pushSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    `;
+
+    let contentHTML = '';
+    if (isIOS && !isStandalone) {
+      contentHTML = `
+        <div style="display:flex; align-items:center; gap:10px; flex:1;">
+          <span style="font-size:22px;">📲</span>
+          <div style="font-size:12px; color:#e2e8f0; line-height:1.4;">
+            <strong>Enable iPhone Push Notifications:</strong><br>
+            Tap <span style="color:#00e5a0; font-weight:700;">Share ➔ Add to Home Screen</span>
+          </div>
+        </div>
+        <button id="close-push-banner" style="background:transparent; border:none; color:#94a3b8; font-size:18px; cursor:pointer; padding:4px;">✕</button>
+      `;
+    } else {
+      contentHTML = `
+        <div style="display:flex; align-items:center; gap:10px; flex:1;">
+          <span style="font-size:22px;">🔔</span>
+          <div style="font-size:12px; color:#e2e8f0; line-height:1.3;">
+            <strong style="color:#00e5a0;">Get Live Push Alerts</strong><br>
+            Receive instant signals on your phone
+          </div>
+        </div>
+        <button id="enable-push-btn" style="background:#00e5a0; color:#0b0e14; border:none; padding:8px 14px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer; white-space:nowrap;">Enable Now</button>
+        <button id="close-push-banner" style="background:transparent; border:none; color:#94a3b8; font-size:16px; cursor:pointer; padding:4px;">✕</button>
+      `;
+    }
+
+    banner.innerHTML = contentHTML;
+
+    if (!document.getElementById('push-banner-style')) {
+      const style = document.createElement('style');
+      style.id = 'push-banner-style';
+      style.textContent = `@keyframes pushSlideUp { from { transform: translate(-50%, 100%); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }`;
+      document.head.appendChild(style);
+    }
+
+    document.body.appendChild(banner);
+
+    const enableBtn = document.getElementById('enable-push-btn');
+    if (enableBtn) {
+      enableBtn.addEventListener('click', async () => {
+        banner.remove();
+        await requestPushPermission();
+      });
+    }
+
+    const closeBtn = document.getElementById('close-push-banner');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        banner.remove();
+        sessionStorage.setItem('dismissed_push_banner', 'true');
       });
     }
   }
 
+  // ── Auto-subscribe if already granted, or show prompt banner if default ──
+  if ('Notification' in window) {
+    if (Notification.permission === 'granted') {
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          setTimeout(() => {
+            navigator.serviceWorker.ready.then(() => {
+              subscribeToPush();
+            }).catch(err => {
+              console.warn('[PWA] SW not ready for auto-subscribe:', err);
+            });
+          }, 1000);
+        });
+      }
+    } else if (Notification.permission === 'default') {
+      if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        setTimeout(showPushPromptBanner, 2000);
+      } else {
+        window.addEventListener('DOMContentLoaded', () => {
+          setTimeout(showPushPromptBanner, 2000);
+        });
+      }
+    }
+  }
+
   // ── Expose global handle for UI buttons ──
-  // Pages should call window.enablePushNotifications() from a direct
-  // click handler (onclick) to preserve the user gesture context for iOS.
   window.enablePushNotifications = requestPushPermission;
+  window.showPushPromptBanner = showPushPromptBanner;
 
 })();
+
