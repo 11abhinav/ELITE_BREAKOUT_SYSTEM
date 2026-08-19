@@ -2385,175 +2385,179 @@ def upsert_scanner_health(
     Canonicalizes scanner names and auto-recovers.
     """
     scanner_name = normalize_scanner_name(scanner_name)
-    init_db()
-    now_str = datetime.now(IST).isoformat()
+    try:
+        init_db()
+        now_str = datetime.now(IST).isoformat()
 
-    # Sanitize dict inputs passed accidentally to numeric parameters
-    if isinstance(today_alerts, dict):
-        today_alerts = today_alerts.get("today_alerts", 0)
-    if isinstance(processed_count, dict):
-        processed_count = processed_count.get("processed_count", 0)
-    if isinstance(total_count, dict):
-        total_count = total_count.get("total_count", 0)
-    if isinstance(duration_seconds, dict):
-        duration_seconds = duration_seconds.get("duration_seconds", 0.0)
+        # Sanitize dict inputs passed accidentally to numeric parameters
+        if isinstance(today_alerts, dict):
+            today_alerts = today_alerts.get("today_alerts", 0)
+        if isinstance(processed_count, dict):
+            processed_count = processed_count.get("processed_count", 0)
+        if isinstance(total_count, dict):
+            total_count = total_count.get("total_count", 0)
+        if isinstance(duration_seconds, dict):
+            duration_seconds = duration_seconds.get("duration_seconds", 0.0)
 
-    # Normalize and sanitize status values to match DB CHECK constraint
-    if status is not None:
-        status = str(status).upper()
-    allowed_statuses = {'OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'STOPPED', 'PAUSED'}
-    if status is not None and status not in allowed_statuses and not status.startswith('QUEUED'):
-        logger.warning(f"upsert_scanner_health: unknown status '{status}' provided — mapping to 'IDLE'")
-        status = 'IDLE'
+        # Normalize and sanitize status values to match DB CHECK constraint
+        if status is not None:
+            status = str(status).upper()
+        allowed_statuses = {'OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'STOPPED', 'PAUSED'}
+        if status is not None and status not in allowed_statuses and not status.startswith('QUEUED'):
+            logger.warning(f"upsert_scanner_health: unknown status '{status}' provided — mapping to 'IDLE'")
+            status = 'IDLE'
 
-    error_severity = None
-    is_ack = None
-
-    # Classify error severity and set acknowledgement status
-    if status == 'DOWN' and error_msg:
-        error_severity = classify_error_severity(error_msg)
-        is_ack = False  # NEW ERROR: mark unacknowledged
-    elif status == 'OK':
         error_severity = None
-        is_ack = True
-        if last_success is None:
-            last_success = now_str
+        is_ack = None
 
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            try:
-                # Build the update/insert query
-                set_clauses = []
-                params = []
-                
-                if status is not None:
-                    set_clauses.append("status = %s")
-                    params.append(status)
-                if last_success is not None:
-                    set_clauses.append("last_success = %s")
-                    params.append(last_success)
-                if today_alerts is not None:
-                    set_clauses.append("today_alerts = %s")
-                    params.append(today_alerts)
-                if error_msg is not None:
-                    set_clauses.append("error_msg = %s")
-                    params.append(error_msg)
-                elif error_msg is None and status == 'OK':
-                    set_clauses.append("error_msg = NULL")
-                if error_severity is not None:
-                    set_clauses.append("error_severity = %s")
-                    params.append(error_severity)
-                elif status == 'OK':
-                    set_clauses.append("error_severity = NULL")
-                if is_ack is not None:
-                    set_clauses.append("is_acknowledged = %s")
-                    params.append(is_ack)
-                if scheduled_for is not None:
-                    set_clauses.append("scheduled_for = %s")
-                    params.append(scheduled_for)
-                if processed_count is not None:
-                    set_clauses.append("processed_count = %s")
-                    params.append(processed_count)
-                if total_count is not None:
-                    set_clauses.append("total_count = %s")
-                    params.append(total_count)
-                import json
-                if outcome is not None:
-                    outcome_str = json.dumps(outcome) if isinstance(outcome, (dict, list)) else str(outcome)
-                    set_clauses.append("outcome = %s")
-                    params.append(outcome_str)
-                if provider_stats is not None:
-                    provider_stats_str = json.dumps(provider_stats) if isinstance(provider_stats, (dict, list)) else str(provider_stats)
-                    set_clauses.append("provider_stats = %s")
-                    params.append(provider_stats_str)
-                if duration_seconds is not None:
-                    set_clauses.append("duration_seconds = %s")
-                    params.append(duration_seconds)
-                if retry_count is not None:
-                    set_clauses.append("retry_count = %s")
-                    params.append(retry_count)
-                
-                set_clauses.append("updated_at = %s")
-                params.append(now_str)
-                
-                insert_cols = ["scanner_name", "status", "updated_at"]
-                if status is None:
-                    status = 'IDLE'
-                insert_vals = [scanner_name, status, now_str]
-                
-                if last_success is not None:
-                    insert_cols.append("last_success")
-                    insert_vals.append(last_success)
-                if today_alerts is not None:
-                    insert_cols.append("today_alerts")
-                    insert_vals.append(today_alerts)
-                if error_msg is not None:
-                    insert_cols.append("error_msg")
-                    insert_vals.append(error_msg)
-                if is_ack is not None:
-                    insert_cols.append("is_acknowledged")
-                    insert_vals.append(is_ack)
-                if error_severity is not None:
-                    insert_cols.append("error_severity")
-                    insert_vals.append(error_severity)
-                if scheduled_for is not None:
-                    insert_cols.append("scheduled_for")
-                    insert_vals.append(scheduled_for)
-                if processed_count is not None:
-                    insert_cols.append("processed_count")
-                    insert_vals.append(processed_count)
-                if total_count is not None:
-                    insert_cols.append("total_count")
-                    insert_vals.append(total_count)
-                if outcome is not None:
-                    outcome_str = json.dumps(outcome) if isinstance(outcome, (dict, list)) else str(outcome)
-                    insert_cols.append("outcome")
-                    insert_vals.append(outcome_str)
-                if provider_stats is not None:
-                    provider_stats_str = json.dumps(provider_stats) if isinstance(provider_stats, (dict, list)) else str(provider_stats)
-                    insert_cols.append("provider_stats")
-                    insert_vals.append(provider_stats_str)
-                if duration_seconds is not None:
-                    insert_cols.append("duration_seconds")
-                    insert_vals.append(duration_seconds)
-                if retry_count is not None:
-                    insert_cols.append("retry_count")
-                    insert_vals.append(retry_count)
-                
-                insert_placeholders = ", ".join(["%s"] * len(insert_cols))
-                insert_cols_str = ", ".join(insert_cols)
-                final_params = insert_vals + params
-                set_sql = ", ".join(set_clauses)
-                
-                cur.execute(f"""
-                    INSERT INTO scanner_health
-                        ({insert_cols_str})
-                    VALUES ({insert_placeholders})
-                    ON CONFLICT (scanner_name) DO UPDATE
-                        SET {set_sql}
-                """, final_params)
-                conn.commit()
-            except Exception as exc:
-                conn.rollback()
-                if "chk_scanner_status" in str(exc) or "violates check constraint" in str(exc):
-                    try:
-                        with conn.cursor() as fix_cur:
-                            fix_cur.execute("ALTER TABLE scanner_health DROP CONSTRAINT IF EXISTS chk_scanner_status;")
-                            fix_cur.execute("ALTER TABLE scanner_health ADD CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'PAUSED', 'STOPPED') OR status LIKE 'QUEUED%') NOT VALID;")
-                            fix_cur.execute(f"""
-                                INSERT INTO scanner_health
-                                    ({insert_cols_str})
-                                VALUES ({insert_placeholders})
-                                ON CONFLICT (scanner_name) DO UPDATE
-                                    SET {set_sql}
-                            """, final_params)
-                        conn.commit()
-                        return
-                    except Exception as retry_exc:
-                        conn.rollback()
-                        logger.exception(f"❌ Retry upsert_scanner_health failed for {scanner_name}: {retry_exc}")
-                        return
-                logger.exception(f"❌ upsert_scanner_health failed for {scanner_name}")
+        # Classify error severity and set acknowledgement status
+        if status == 'DOWN' and error_msg:
+            error_severity = classify_error_severity(error_msg)
+            is_ack = False  # NEW ERROR: mark unacknowledged
+        elif status == 'OK':
+            error_severity = None
+            is_ack = True
+            if last_success is None:
+                last_success = now_str
+
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                try:
+                    # Build the update/insert query
+                    set_clauses = []
+                    params = []
+                    
+                    if status is not None:
+                        set_clauses.append("status = %s")
+                        params.append(status)
+                    if last_success is not None:
+                        set_clauses.append("last_success = %s")
+                        params.append(last_success)
+                    if today_alerts is not None:
+                        set_clauses.append("today_alerts = %s")
+                        params.append(today_alerts)
+                    if error_msg is not None:
+                        set_clauses.append("error_msg = %s")
+                        params.append(error_msg)
+                    elif error_msg is None and status == 'OK':
+                        set_clauses.append("error_msg = NULL")
+                    if error_severity is not None:
+                        set_clauses.append("error_severity = %s")
+                        params.append(error_severity)
+                    elif status == 'OK':
+                        set_clauses.append("error_severity = NULL")
+                    if is_ack is not None:
+                        set_clauses.append("is_acknowledged = %s")
+                        params.append(is_ack)
+                    if scheduled_for is not None:
+                        set_clauses.append("scheduled_for = %s")
+                        params.append(scheduled_for)
+                    if processed_count is not None:
+                        set_clauses.append("processed_count = %s")
+                        params.append(processed_count)
+                    if total_count is not None:
+                        set_clauses.append("total_count = %s")
+                        params.append(total_count)
+                    import json
+                    if outcome is not None:
+                        outcome_str = json.dumps(outcome) if isinstance(outcome, (dict, list)) else str(outcome)
+                        set_clauses.append("outcome = %s")
+                        params.append(outcome_str)
+                    if provider_stats is not None:
+                        provider_stats_str = json.dumps(provider_stats) if isinstance(provider_stats, (dict, list)) else str(provider_stats)
+                        set_clauses.append("provider_stats = %s")
+                        params.append(provider_stats_str)
+                    if duration_seconds is not None:
+                        set_clauses.append("duration_seconds = %s")
+                        params.append(duration_seconds)
+                    if retry_count is not None:
+                        set_clauses.append("retry_count = %s")
+                        params.append(retry_count)
+                    
+                    set_clauses.append("updated_at = %s")
+                    params.append(now_str)
+                    
+                    insert_cols = ["scanner_name", "status", "updated_at"]
+                    if status is None:
+                        status = 'IDLE'
+                    insert_vals = [scanner_name, status, now_str]
+                    
+                    if last_success is not None:
+                        insert_cols.append("last_success")
+                        insert_vals.append(last_success)
+                    if today_alerts is not None:
+                        insert_cols.append("today_alerts")
+                        insert_vals.append(today_alerts)
+                    if error_msg is not None:
+                        insert_cols.append("error_msg")
+                        insert_vals.append(error_msg)
+                    if is_ack is not None:
+                        insert_cols.append("is_acknowledged")
+                        insert_vals.append(is_ack)
+                    if error_severity is not None:
+                        insert_cols.append("error_severity")
+                        insert_vals.append(error_severity)
+                    if scheduled_for is not None:
+                        insert_cols.append("scheduled_for")
+                        insert_vals.append(scheduled_for)
+                    if processed_count is not None:
+                        insert_cols.append("processed_count")
+                        insert_vals.append(processed_count)
+                    if total_count is not None:
+                        insert_cols.append("total_count")
+                        insert_vals.append(total_count)
+                    if outcome is not None:
+                        outcome_str = json.dumps(outcome) if isinstance(outcome, (dict, list)) else str(outcome)
+                        insert_cols.append("outcome")
+                        insert_vals.append(outcome_str)
+                    if provider_stats is not None:
+                        provider_stats_str = json.dumps(provider_stats) if isinstance(provider_stats, (dict, list)) else str(provider_stats)
+                        insert_cols.append("provider_stats")
+                        insert_vals.append(provider_stats_str)
+                    if duration_seconds is not None:
+                        insert_cols.append("duration_seconds")
+                        insert_vals.append(duration_seconds)
+                    if retry_count is not None:
+                        insert_cols.append("retry_count")
+                        insert_vals.append(retry_count)
+                    
+                    insert_placeholders = ", ".join(["%s"] * len(insert_cols))
+                    insert_cols_str = ", ".join(insert_cols)
+                    final_params = insert_vals + params
+                    set_sql = ", ".join(set_clauses)
+                    
+                    cur.execute(f"""
+                        INSERT INTO scanner_health
+                            ({insert_cols_str})
+                        VALUES ({insert_placeholders})
+                        ON CONFLICT (scanner_name) DO UPDATE
+                            SET {set_sql}
+                    """, final_params)
+                    conn.commit()
+                except Exception as exc:
+                    conn.rollback()
+                    if "chk_scanner_status" in str(exc) or "violates check constraint" in str(exc):
+                        try:
+                            with conn.cursor() as fix_cur:
+                                fix_cur.execute("ALTER TABLE scanner_health DROP CONSTRAINT IF EXISTS chk_scanner_status;")
+                                fix_cur.execute("ALTER TABLE scanner_health ADD CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'PAUSED', 'STOPPED') OR status LIKE 'QUEUED%') NOT VALID;")
+                                fix_cur.execute(f"""
+                                    INSERT INTO scanner_health
+                                        ({insert_cols_str})
+                                    VALUES ({insert_placeholders})
+                                    ON CONFLICT (scanner_name) DO UPDATE
+                                        SET {set_sql}
+                                """, final_params)
+                            conn.commit()
+                            return
+                        except Exception as retry_exc:
+                            conn.rollback()
+                            logger.exception(f"❌ Retry upsert_scanner_health failed for {scanner_name}: {retry_exc}")
+                            return
+                    logger.exception(f"❌ upsert_scanner_health failed for {scanner_name}")
+    except Exception as exc:
+        logger.warning(f"upsert_scanner_health skipped (DB unavailable): {exc}")
+        return
 
 
 def get_all_scanner_health() -> list[dict]:
