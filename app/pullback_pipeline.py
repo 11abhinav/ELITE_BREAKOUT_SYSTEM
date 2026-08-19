@@ -340,7 +340,7 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
         if not _global_lock.acquire(blocking=True):
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [PULLBACK] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
-        upsert_scanner_health("PULLBACK", "RUNNING")
+    upsert_scanner_health("PULLBACK", "RUNNING", error_msg="Pullback scan in progress...")
 
     created_ctx = False
     if run_ctx is None:

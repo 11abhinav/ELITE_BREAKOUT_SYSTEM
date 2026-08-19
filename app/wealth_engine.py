@@ -867,7 +867,7 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
         if not _global_lock.acquire(blocking=True):
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [WEALTH ENGINE] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
-        upsert_scanner_health("Wealth Engine", "RUNNING")
+    upsert_scanner_health("Wealth Engine", "RUNNING", error_msg="Wealth Engine scan in progress...")
 
     created_ctx = False
     if run_ctx is None:

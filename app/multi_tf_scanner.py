@@ -1529,7 +1529,7 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
         if not _global_lock.acquire(blocking=True):
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [MULTI_TF] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
-        upsert_scanner_health("MULTI_TF", "RUNNING")
+    upsert_scanner_health("MULTI_TF", "RUNNING", error_msg="Multi-TF scan in progress...")
 
     own_ctx = False
     if run_ctx is None:

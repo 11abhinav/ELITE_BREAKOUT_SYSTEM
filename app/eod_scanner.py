@@ -108,7 +108,7 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
             _scan_lock.release()
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [EOD] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
-        upsert_scanner_health("EOD", "RUNNING")
+    upsert_scanner_health("EOD", "RUNNING", error_msg="EOD scan in progress...")
 
     own_ctx = False
     if run_ctx is None:

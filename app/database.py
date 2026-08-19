@@ -7619,8 +7619,8 @@ def get_scanner_execution_history(
                 params = []
 
                 if scanner_name and scanner_name.upper() != "ALL":
-                    where_clauses.append("scanner_name = %s")
-                    params.append(scanner_name)
+                    where_clauses.append("UPPER(scanner_name) = UPPER(%s)")
+                    params.append(normalize_scanner_name(scanner_name))
 
                 if lifecycle_status and lifecycle_status.upper() != "ALL":
                     where_clauses.append("lifecycle_status = %s")
