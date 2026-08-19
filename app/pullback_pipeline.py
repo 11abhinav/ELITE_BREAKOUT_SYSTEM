@@ -285,7 +285,7 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
         "atr_14": float(bundle.atr_14.iloc[-1]) if hasattr(bundle, 'atr_14') and bundle.atr_14 is not None and not bundle.atr_14.empty and not pd.isna(bundle.atr_14.iloc[-1]) else float(entry_val * 0.025)
     }
 
-def start(force: bool = False, session=None, run_ctx=None):
+def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON"):
     """
     Main entry point for Pullback Scanner. Acquires process lock and delegates to pipeline.
     """
@@ -319,7 +319,7 @@ def start(force: bool = False, session=None, run_ctx=None):
     if run_ctx is None:
         try:
             from database import start_scanner_execution_run
-            run_ctx = start_scanner_execution_run(scanner_name="PULLBACK", trigger_type="MANUAL", scheduler_name="CLI")
+            run_ctx = start_scanner_execution_run(scanner_name="PULLBACK", trigger_type=trigger_type, scheduler_name=scheduler_name)
             created_ctx = True
         except Exception: pass
 

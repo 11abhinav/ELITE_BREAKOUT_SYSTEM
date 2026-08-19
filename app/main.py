@@ -669,29 +669,18 @@ def _run_eod_with_retries(today_str, session=None):
         
         try:
             logger.info(f"📊 EOD SCAN | Starting scan for {today_str}...")
-            from database import upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run
+            from database import upsert_scanner_health
             upsert_scanner_health("EOD", status="QUEUED", error_msg="Waiting for global execution lock...")
             import eod_scanner
-            with scanner_execution_lock:
-                start_time = time.time()
-                run_ctx = start_scanner_execution_run(scanner_name="EOD", trigger_type="SCHEDULED", scheduler_name="CRON", retry_attempt=retry_count)
-                upsert_scanner_health("EOD", status="RUNNING", error_msg="EOD Scan in progress...")
-                try:
-                    with MemoryProfiler("EOD_SCANNER", force_gc_cleanup=True):
-                        total = eod_scanner.start(force=True, session=session, run_ctx=run_ctx)   # returns int
-                    duration_sec = round(time.time() - start_time, 1)
-                    if isinstance(total, int):
-                        run_ctx.add_alert(total)
-                    time.sleep(15)
-                    if total == 0:
-                        logger.info(f"📊 EOD | Completed in {format_duration(duration_sec)} — Zero alerts")
-                    else:
-                        logger.info(f"📊 EOD | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
-                    
-                    complete_scanner_execution_run(run_ctx)
-                except Exception as run_err:
-                    complete_scanner_execution_run(run_ctx, exception=run_err)
-                    raise run_err
+            start_time = time.time()
+            with MemoryProfiler("EOD_SCANNER", force_gc_cleanup=True):
+                total = eod_scanner.start(force=True, session=session, trigger_type="SCHEDULED", scheduler_name="CRON")
+            duration_sec = round(time.time() - start_time, 1)
+            time.sleep(15)
+            if total == 0:
+                logger.info(f"📊 EOD | Completed in {format_duration(duration_sec)} — Zero alerts")
+            else:
+                logger.info(f"📊 EOD | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
                 
                 upsert_scanner_health(
                     "EOD",
@@ -774,29 +763,18 @@ def _run_reversal_with_retries(today_str, session=None):
         
         try:
             logger.info(f"🔄 REVERSAL SCAN | Starting scan for {today_str}...")
-            from database import upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run
+            from database import upsert_scanner_health
             upsert_scanner_health("REVERSAL", status="QUEUED", error_msg="Waiting for global execution lock...")
             import reversal_scanner
-            with scanner_execution_lock:
-                start_time = time.time()
-                run_ctx = start_scanner_execution_run(scanner_name="REVERSAL", trigger_type="SCHEDULED", scheduler_name="CRON", retry_attempt=retry_count)
-                upsert_scanner_health("REVERSAL", status="RUNNING", error_msg="Reversal Scan in progress...")
-                try:
-                    with MemoryProfiler("REVERSAL", force_gc_cleanup=True):
-                        total = reversal_scanner.start(force=True, session=session, run_ctx=run_ctx)   # returns int
-                    duration_sec = round(time.time() - start_time, 1)
-                    if isinstance(total, int):
-                        run_ctx.add_alert(total)
-                    time.sleep(15)
-                    if total == 0:
-                        logger.info(f"🔄 REVERSAL | Completed in {format_duration(duration_sec)} — Zero alerts")
-                    else:
-                        logger.info(f"🔄 REVERSAL | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
-                    
-                    complete_scanner_execution_run(run_ctx)
-                except Exception as run_err:
-                    complete_scanner_execution_run(run_ctx, exception=run_err)
-                    raise run_err
+            start_time = time.time()
+            with MemoryProfiler("REVERSAL", force_gc_cleanup=True):
+                total = reversal_scanner.start(force=True, session=session, trigger_type="SCHEDULED", scheduler_name="CRON")
+            duration_sec = round(time.time() - start_time, 1)
+            time.sleep(15)
+            if total == 0:
+                logger.info(f"🔄 REVERSAL | Completed in {format_duration(duration_sec)} — Zero alerts")
+            else:
+                logger.info(f"🔄 REVERSAL | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
                 
                 upsert_scanner_health(
                     "REVERSAL",
@@ -878,28 +856,17 @@ def _run_pullback_with_retries(today_str, session=None):
         
         try:
             logger.info(f"📊 PULLBACK SCAN | Starting scan for {today_str}...")
-            from database import upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run
+            from database import upsert_scanner_health
             upsert_scanner_health("PULLBACK", status="QUEUED", error_msg="Waiting for global execution lock...")
             import pullback_pipeline
-            with scanner_execution_lock:
-                start_time = time.time()
-                run_ctx = start_scanner_execution_run(scanner_name="PULLBACK", trigger_type="SCHEDULED", scheduler_name="CRON", retry_attempt=retry_count)
-                upsert_scanner_health("PULLBACK", status="RUNNING", error_msg="Pullback Scan in progress...")
-                try:
-                    with MemoryProfiler("PULLBACK_SCANNER", force_gc_cleanup=True):
-                        total = pullback_pipeline.start(force=True, session=session)
-                    duration_sec = round(time.time() - start_time, 1)
-                    if isinstance(total, int):
-                        run_ctx.add_alert(total)
-                    time.sleep(5)
-                    logger.info(f"📊 PULLBACK | Completed in {format_duration(duration_sec)} — {total} alert(s) generated")
-                    complete_scanner_execution_run(run_ctx)
-                except Exception as run_err:
-                    complete_scanner_execution_run(run_ctx, exception=run_err)
-                    raise run_err
-                
-                alerts_num = total.get("today_alerts", 0) if isinstance(total, dict) else (total if isinstance(total, int) else 0)
-                upsert_scanner_health("PULLBACK", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=alerts_num, scheduled_for="18:00 IST (After Bhavcopy)", duration_seconds=duration_sec)
+            start_time = time.time()
+            with MemoryProfiler("PULLBACK_SCANNER", force_gc_cleanup=True):
+                total = pullback_pipeline.start(force=True, session=session, trigger_type="SCHEDULED", scheduler_name="CRON")
+            duration_sec = round(time.time() - start_time, 1)
+            time.sleep(5)
+            logger.info(f"📊 PULLBACK | Completed in {format_duration(duration_sec)} — {total} alert(s) generated")
+            alerts_num = total.get("today_alerts", 0) if isinstance(total, dict) else (total if isinstance(total, int) else 0)
+            upsert_scanner_health("PULLBACK", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=alerts_num, scheduled_for="18:00 IST (After Bhavcopy)", duration_seconds=duration_sec)
                 logger.info("✅ PULLBACK SCANNER | Completed successfully for today.")
             return
         except Exception as exc:
@@ -1893,10 +1860,8 @@ def _run_multibagger_scanner_single():
             raise RuntimeError(f"Could not acquire scanner_execution_lock after {max_retries} minutes. Evening batch might be stuck.")
             
         try:
-            from database import start_scanner_execution_run, complete_scanner_execution_run
-            run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER", trigger_type="SCHEDULED", scheduler_name="CRON")
             start_mb_single = time.time()
-            upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Multibagger Scan in progress...")
+            upsert_scanner_health("MULTIBAGGER", status="QUEUED", error_msg="Waiting for global execution lock...")
             try:
                 from market_data_session import MarketDataSession
                 from watchlist_cache import get_watchlist
@@ -1908,18 +1873,10 @@ def _run_multibagger_scanner_single():
                 logger.error(f"Failed to build MarketDataSession for MULTIBAGGER: {e}")
                 session = None
 
-            try:
-                with MemoryProfiler("MULTIBAGGER", force_gc_cleanup=True):
-                    stats = multibagger.start(session=session) or {}
-                dur_mb_single = round(time.time() - start_mb_single, 1)
-                if isinstance(stats, dict) and "today_alerts" in stats:
-                    run_ctx.add_alert(stats.get("today_alerts", 0))
-                time.sleep(15)
-
-                complete_scanner_execution_run(run_ctx)
-            except Exception as run_err:
-                complete_scanner_execution_run(run_ctx, exception=run_err)
-                raise run_err
+            with MemoryProfiler("MULTIBAGGER", force_gc_cleanup=True):
+                stats = multibagger.start(session=session, trigger_type="SCHEDULED", scheduler_name="CRON") or {}
+            dur_mb_single = round(time.time() - start_mb_single, 1)
+            time.sleep(15)
 
             # Mark success in health table INSIDE the lock
             upsert_scanner_health(

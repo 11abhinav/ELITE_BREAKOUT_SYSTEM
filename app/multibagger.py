@@ -1603,7 +1603,7 @@ from lock_utils import ProcessLock
 _scan_lock = ProcessLock("multibagger")
 _global_lock = ProcessLock("global_scanner_lock")
 
-def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run_ctx=None):
+def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON"):
     from database import is_scanner_stopped, upsert_scanner_health
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     import time
@@ -1633,7 +1633,7 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
     if run_ctx is None:
         try:
             from database import start_scanner_execution_run
-            run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER", trigger_type="MANUAL", scheduler_name="CLI")
+            run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER", trigger_type=trigger_type, scheduler_name=scheduler_name)
             created_ctx = True
         except Exception: pass
 

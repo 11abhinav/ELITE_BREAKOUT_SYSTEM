@@ -2118,7 +2118,7 @@ _scan_lock = ProcessLock("reversal_scanner")
 _global_lock = ProcessLock("global_scanner_lock")
 
 
-def start(force: bool = False, session=None, run_ctx=None) -> int:
+def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON") -> int:
     from database import is_scanner_stopped, upsert_scanner_health
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     import time
@@ -2150,7 +2150,7 @@ def start(force: bool = False, session=None, run_ctx=None) -> int:
     if run_ctx is None:
         try:
             from database import start_scanner_execution_run
-            run_ctx = start_scanner_execution_run(scanner_name="REVERSAL", trigger_type="MANUAL", scheduler_name="CLI")
+            run_ctx = start_scanner_execution_run(scanner_name="REVERSAL", trigger_type=trigger_type, scheduler_name=scheduler_name)
             created_ctx = True
         except Exception: pass
 
