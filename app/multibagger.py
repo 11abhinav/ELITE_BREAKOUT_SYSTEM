@@ -350,6 +350,7 @@ def batch_download_market_data(symbols: list, session=None) -> dict:
     """
     from price_cache import fetch_unified_historical
     from market_utils import is_market_open
+    from database import is_scanner_stopped
     import os, psutil, gc, time
 
     BATCH_SIZE = int(os.environ.get("MULTIBAGGER_FETCH_BATCH_SIZE", "200"))
