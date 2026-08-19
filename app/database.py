@@ -7366,6 +7366,13 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
                 error_details = 'Automated boot cleanup detected unclosed RUNNING state'
             WHERE lifecycle_status IN ('RUNNING', 'QUEUED');
         """)
+        c.execute("""
+            UPDATE scanner_health
+            SET status = 'IDLE',
+                error_msg = 'Server restarted — health status reset to IDLE',
+                updated_at = NOW()
+            WHERE status IN ('RUNNING', 'QUEUED') OR status LIKE 'QUEUED%';
+        """)
         return c.rowcount
 
     try:
