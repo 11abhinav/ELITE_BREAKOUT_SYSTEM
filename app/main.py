@@ -1864,6 +1864,7 @@ def _run_multibagger_scanner_single():
             start_mb_single = time.time()
             upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Multibagger scan in progress...")
             try:
+                from market_data_session import MarketDataSession
                 from constituent_service import fetch_constituents
                 from watchlist_cache import get_watchlist
                 import pandas as pd
