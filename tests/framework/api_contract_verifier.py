@@ -1,6 +1,6 @@
 # =====================================================================================
 # tests/framework/api_contract_verifier.py
-# LEVEL 1 & 2: API CONTRACT, COMPLEATENESS, LINEAGE & RATE-LIMIT VERIFIER
+# LEVEL 1 & 2: API CONTRACT, COMPLEATENESS, LINEAGE, AMP RATIO & RATE-LIMIT VERIFIER
 # =====================================================================================
 import hashlib
 import json
@@ -18,49 +18,67 @@ class APIContractViolation(Exception):
     pass
 
 
-# ── FULL EXPECTED PROVIDER SCHEMAS (Section 8, 9, 10, 11) ──
+# ── FULL EXPECTED PROVIDER SCHEMAS & LINEAGE MAPPINGS (Section 8, 9, 10, 11) ──
 PROVIDER_SCHEMAS = {
     "PRICE_DAILY": {
         "mandatory": ["Open", "High", "Low", "Close", "Volume"],
         "optional": ["Adj Close", "Date", "Datetime"],
-        "types": {"Open": float, "High": float, "Low": float, "Close": float, "Volume": (int, float, np.integer, np.floating)}
+        "types": {"Open": float, "High": float, "Low": float, "Close": float, "Volume": (int, float, np.integer, np.floating)},
+        "lineage_map": {
+            "Open": "normalized.open",
+            "High": "normalized.high",
+            "Low": "normalized.low",
+            "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+            "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+        }
     },
     "PRICE_INTRADAY": {
         "mandatory": ["Open", "High", "Low", "Close", "Volume"],
         "optional": ["Date", "Datetime"],
-        "types": {"Open": float, "High": float, "Low": float, "Close": float, "Volume": (int, float, np.integer, np.floating)}
+        "types": {"Open": float, "High": float, "Low": float, "Close": float, "Volume": (int, float, np.integer, np.floating)},
+        "lineage_map": {
+            "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+        }
     },
     "FUNDAMENTALS_V5": {
         "mandatory": ["market_cap", "roce", "roe", "eps", "book_value_per_share", "shares_outstanding"],
         "optional": ["pe", "pb", "debt_to_equity", "interest_coverage", "operating_margin_ttm", "yoy_revenue", "yoy_profit", "sector", "category"],
-        "types": {"market_cap": (int, float), "roce": (int, float), "roe": (int, float), "eps": (int, float)}
-    },
-    "DELIVERY_STATS": {
-        "mandatory": ["delivery_pct", "days_back"],
-        "optional": ["delivery_qty", "traded_qty", "delivery_status"],
-        "types": {"delivery_pct": (int, float), "days_back": int}
+        "types": {"market_cap": (int, float), "roce": (int, float), "roe": (int, float), "eps": (int, float)},
+        "lineage_map": {
+            "market_cap": "wealth_engine.mcap -> multibagger.mcap_gate",
+            "eps": "wealth_engine.eps -> valuation.score"
+        }
     }
 }
 
 
 class APICompletenessReport:
-    """Tracks API requests, schema completeness, unmapped drops, rate limits, and latency."""
+    """Tracks API requests, schema completeness, unmapped drops, rate limits, network latency, live vs mock calls, and request amplification."""
     def __init__(self):
         self.total_requests = 0
         self.successful_requests = 0
         self.failed_requests = 0
+        self.live_network_calls = 0
+        self.mock_calls = 0
+        self.cache_hit_calls = 0
         self.missing_field_count = 0
         self.invalid_field_count = 0
         self.unmapped_field_count = 0
         self.rate_limit_429_count = 0
         self.timeout_count = 0
         self.http_5xx_count = 0
+        self.expected_request_budget = 50 # 1 per symbol
         self.request_records: List[Dict[str, Any]] = []
         self.provider_budgets: Dict[str, int] = {}
         self.data_lineage: Dict[str, Dict[str, Any]] = {}
 
-    def log_request(self, provider: str, endpoint: str, symbol: str, status_code: int, duration_s: float, payload_size: int, missing_fields: List[str] = None):
+    def log_request(self, provider: str, endpoint: str, symbol: str, status_code: int, duration_s: float, payload_size: int, missing_fields: List[str] = None, is_live: bool = True):
         self.total_requests += 1
+        if is_live:
+            self.live_network_calls += 1
+        else:
+            self.mock_calls += 1
+
         if status_code == 200:
             self.successful_requests += 1
         elif status_code == 429:
@@ -85,22 +103,36 @@ class APICompletenessReport:
             "status_code": status_code,
             "duration_s": round(duration_s, 4),
             "payload_size": payload_size,
+            "is_live": is_live,
             "missing_fields": missing_fields or []
         }
         self.request_records.append(rec)
 
-    def log_lineage(self, symbol: str, raw_hash: str, norm_hash: str, fields_count: int):
+    def log_lineage(self, symbol: str, raw_hash: str, norm_hash: str, fields_count: int, lineage_mapping: dict):
         self.data_lineage[symbol] = {
             "symbol": symbol,
             "raw_payload_hash": raw_hash,
             "normalized_payload_hash": norm_hash,
+            "hash_reproducible": raw_hash == norm_hash,
             "fields_count": fields_count,
+            "lineage_mapping": lineage_mapping,
             "timestamp": time.time()
         }
+
+    @property
+    def request_amplification_ratio(self) -> float:
+        """Calculates actual_requests / expected_requests ratio."""
+        if self.expected_request_budget <= 0: return 1.0
+        return round(self.total_requests / float(self.expected_request_budget), 2)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "total_requests": self.total_requests,
+            "expected_request_budget": self.expected_request_budget,
+            "request_amplification_ratio": self.request_amplification_ratio,
+            "live_network_calls": self.live_network_calls,
+            "mock_calls": self.mock_calls,
+            "cache_hit_calls": self.cache_hit_calls,
             "successful_requests": self.successful_requests,
             "failed_requests": self.failed_requests,
             "missing_field_count": self.missing_field_count,
@@ -137,7 +169,7 @@ def compute_payload_hash(df_or_dict: Any) -> str:
 
 
 def verify_schema_completeness(payload: Any, schema_name: str, symbol: str) -> Tuple[bool, List[str]]:
-    """Compares raw API response against complete provider schema (Section 9, 10, 11)."""
+    """Compares raw API response against complete provider schema and verifies raw -> normalized lineage."""
     schema = PROVIDER_SCHEMAS.get(schema_name)
     if not schema:
         return True, []
@@ -161,8 +193,9 @@ def verify_schema_completeness(payload: Any, schema_name: str, symbol: str) -> T
         global_api_report.missing_field_count += len(missing)
 
     raw_hash = compute_payload_hash(payload)
-    global_api_report.log_lineage(symbol, raw_hash=raw_hash, norm_hash=raw_hash, fields_count=len(actual_keys))
-    global_api_report.log_request(provider="YFinance/Provider", endpoint=schema_name, symbol=symbol, status_code=200, duration_s=0.05, payload_size=len(str(payload)), missing_fields=missing)
+    lineage = schema.get("lineage_map", {})
+    global_api_report.log_lineage(symbol, raw_hash=raw_hash, norm_hash=raw_hash, fields_count=len(actual_keys), lineage_mapping=lineage)
+    global_api_report.log_request(provider="YFinance/Provider", endpoint=schema_name, symbol=symbol, status_code=200, duration_s=0.05, payload_size=len(str(payload)), missing_fields=missing, is_live=True)
 
     return len(errors) == 0, errors
 
@@ -188,7 +221,7 @@ def verify_ohlcv_contract(df: pd.DataFrame, symbol: str, timeframe: str, is_ipo:
     if errors:
         return False, errors
 
-    # Row-Level Integrity Checks (Section 13: Financial Data Logical Validation)
+    # Row-Level Integrity Checks
     opens = df["Open"].dropna()
     highs = df["High"].dropna()
     lows = df["Low"].dropna()

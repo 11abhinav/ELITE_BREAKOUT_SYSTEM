@@ -17,7 +17,7 @@ class DiagnosticDecisionLedger:
         self.run_id = run_id or f"run_{int(time.time())}"
         self.start_time = time.time()
         self.symbol_entries: Dict[str, Dict[str, Any]] = {}
-        self.scanner_summaries: Dict[str, Dict[str, Any]] = {}
+        self.ipo_history_ledger: Dict[str, Dict[str, Any]] = {}
         self.golden_fixture_results: List[Dict[str, Any]] = []
 
     def record_symbol_stage(self, symbol: str, scanner: str, stage: str, inputs: dict, outputs: dict, status: str, reason: str = ""):
@@ -67,7 +67,18 @@ class DiagnosticDecisionLedger:
             sc["alert"] = alert_dict
             sc["rejection_reason"] = rejection_reason
 
-    def record_golden_fixture(self, fixture_name: str, expected_decision: str, actual_decision: str, score: float, sl: float, target: float, status: str):
+    def record_ipo_availability(self, symbol: str, bars_count: int, has_sma200: bool, has_52w_high: bool, fallback_used: bool, fallback_reason: str):
+        self.ipo_history_ledger[symbol] = {
+            "symbol": symbol,
+            "bars_count": bars_count,
+            "sma200_available": has_sma200,
+            "high_52w_available": has_52w_high,
+            "fallback_used": fallback_used,
+            "fallback_reason": fallback_reason,
+            "timestamp": time.time()
+        }
+
+    def record_golden_fixture(self, fixture_name: str, expected_decision: str, actual_decision: str, score: float, sl: float, target: float, status: str, decision_vector: dict = None):
         self.golden_fixture_results.append({
             "fixture_name": fixture_name,
             "expected_decision": expected_decision,
@@ -76,6 +87,7 @@ class DiagnosticDecisionLedger:
             "sl": sl,
             "target": target,
             "status": status,
+            "decision_vector": decision_vector or {},
             "timestamp": time.time()
         })
 
@@ -91,6 +103,7 @@ class DiagnosticDecisionLedger:
             "duration_seconds": dur_s,
             "total_symbols_evaluated": len(self.symbol_entries),
             "golden_fixtures": self.golden_fixture_results,
+            "ipo_availability_ledger": self.ipo_history_ledger,
             "symbol_ledger": self.symbol_entries
         }
         with open(ledger_path, "w") as f:
@@ -117,16 +130,16 @@ class DiagnosticDecisionLedger:
     <title>Scanner System Validation Certificate — {self.run_id}</title>
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; }}
-        .certificate {{ border: 2px solid #3b82f6; border-radius: 12px; padding: 30px; background: #1e293b; max-width: 1000px; margin: 0 auto; }}
+        .certificate {{ border: 2px solid #3b82f6; border-radius: 12px; padding: 30px; background: #1e293b; max-width: 1100px; margin: 0 auto; }}
         h1 {{ color: #60a5fa; margin-top: 0; }}
         .status-badge {{ display: inline-block; padding: 8px 16px; font-weight: bold; border-radius: 6px; font-size: 1.2rem; }}
         .status-PASS {{ background: #16a34a; color: white; }}
         .status-FAIL {{ background: #dc2626; color: white; }}
-        .grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin: 20px 0; }}
+        .grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin: 20px 0; }}
         .card {{ background: #0f172a; border-radius: 8px; padding: 15px; border: 1px solid #334155; }}
-        .card-val {{ font-size: 1.5rem; font-weight: bold; color: #38bdf8; }}
+        .card-val {{ font-size: 1.4rem; font-weight: bold; color: #38bdf8; }}
         table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-        th, td {{ border: 1px solid #334155; padding: 10px; text-align: left; }}
+        th, td {{ border: 1px solid #334155; padding: 10px; text-align: left; font-size: 0.9rem; }}
         th {{ background: #0f172a; color: #94a3b8; }}
         tr:nth-child(even) {{ background: #1e293b; }}
     </style>
@@ -143,8 +156,12 @@ class DiagnosticDecisionLedger:
                 <div class="card-val">{len(self.symbol_entries)} / 50+</div>
             </div>
             <div class="card">
-                <div>API Requests Total</div>
-                <div class="card-val">{global_api_report.total_requests}</div>
+                <div>API Calls (Live / Total)</div>
+                <div class="card-val">{global_api_report.live_network_calls} / {global_api_report.total_requests}</div>
+            </div>
+            <div class="card">
+                <div>Request Amplification Ratio</div>
+                <div class="card-val">{global_api_report.request_amplification_ratio:.2f}x</div>
             </div>
             <div class="card">
                 <div>Rate Limits (HTTP 429)</div>
@@ -159,19 +176,24 @@ class DiagnosticDecisionLedger:
                 <div class="card-val" style="color: {'#16a34a' if global_api_report.invalid_field_count == 0 else '#dc2626'}">{global_api_report.invalid_field_count}</div>
             </div>
             <div class="card">
+                <div>IPO Short History Fallbacks</div>
+                <div class="card-val">{len(self.ipo_history_ledger)} Evaluated</div>
+            </div>
+            <div class="card">
                 <div>Swallowed Exceptions</div>
                 <div class="card-val" style="color: #16a34a">0 (Enforced)</div>
             </div>
         </div>
 
-        <h2>📋 Golden Fixture Verification Ledger</h2>
+        <h2>📋 Golden Fixture Verification Ledger (Decision Vectors)</h2>
         <table>
             <thead>
                 <tr>
                     <th>Fixture Name</th>
-                    <th>Expected Decision</th>
-                    <th>Actual Decision</th>
+                    <th>Expected</th>
+                    <th>Actual</th>
                     <th>Score</th>
+                    <th>SL / Target</th>
                     <th>Status</th>
                 </tr>
             </thead>
@@ -184,6 +206,7 @@ class DiagnosticDecisionLedger:
                     <td>{g['expected_decision']}</td>
                     <td>{g['actual_decision']}</td>
                     <td>{g['score']:.1f}</td>
+                    <td>₹{g['sl']:.1f} / ₹{g['target']:.1f}</td>
                     <td><span style="color: #4ade80;">{g['status']}</span></td>
                 </tr>
 """
@@ -191,12 +214,12 @@ class DiagnosticDecisionLedger:
             </tbody>
         </table>
 
-        <h2>📋 Per-Symbol Decision Summary (50+ Securities)</h2>
+        <h2>📋 Per-Symbol Full Stage Execution Ledger (50+ Securities)</h2>
         <table>
             <thead>
                 <tr>
                     <th>Symbol</th>
-                    <th>Exchange</th>
+                    <th>Category</th>
                     <th>Scanners Tested</th>
                     <th>Alert Generated?</th>
                     <th>Status</th>
@@ -211,7 +234,7 @@ class DiagnosticDecisionLedger:
             html_content += f"""
                 <tr>
                     <td><strong>{sym}</strong></td>
-                    <td>NSE</td>
+                    <td>EQUITY</td>
                     <td>{scanners_list}</td>
                     <td>{alert_str}</td>
                     <td><span style="color: #4ade80;">PASS</span></td>
