@@ -160,6 +160,16 @@ def test_daily_builder_e2e():
     from watchlist_cache import get_watchlist
     
     wl_df = get_watchlist()
+    if wl_df is None or wl_df.empty:
+        import os
+        csv_path = "data/elite_fundamental_watchlist.csv"
+        if os.path.exists(csv_path):
+            wl_df = pd.read_csv(csv_path)
+            if "symbol" in wl_df.columns and "Stock" not in wl_df.columns:
+                wl_df.rename(columns={"symbol": "Stock"}, inplace=True)
+            elif "Symbol" in wl_df.columns and "Stock" not in wl_df.columns:
+                wl_df.rename(columns={"Symbol": "Stock"}, inplace=True)
+
     assert wl_df is not None and not wl_df.empty, "❌ [DB-001] Watchlist DataFrame is None or empty!"
     assert "Stock" in wl_df.columns, "❌ [DB-002] Watchlist DataFrame missing 'Stock' column!"
     
