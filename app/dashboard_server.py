@@ -968,20 +968,30 @@ def performance_json():
     """Serve the latest performance JSON for the dashboard to fetch, loaded from DB with 10s memory cache."""
     global _PERFORMANCE_JSON_CACHE
     now_ts = time.time()
-    if _PERFORMANCE_JSON_CACHE["payload"] is not None and (now_ts - _PERFORMANCE_JSON_CACHE["ts"]) < 10.0:
+    force_rebuild = request.args.get("rebuild", "").lower() == "true"
+    
+    if not force_rebuild and _PERFORMANCE_JSON_CACHE["payload"] is not None and (now_ts - _PERFORMANCE_JSON_CACHE["ts"]) < 10.0:
         return Response(_PERFORMANCE_JSON_CACHE["payload"], mimetype="application/json")
 
     try:
         from database import get_system_state
-        val = get_system_state("performance_data")
+        val = get_system_state("performance_data") if not force_rebuild else None
+        
+        if not val or force_rebuild:
+            try:
+                from performance_tracker import build_performance_data
+                build_performance_data(fast_mode=True, force_live_fetch=force_rebuild)
+                val = get_system_state("performance_data")
+            except Exception as _b_err:
+                logger.warning(f"On-the-fly performance rebuild warning: {_b_err}")
+
         if val:
             _PERFORMANCE_JSON_CACHE = {"ts": now_ts, "payload": val}
             return Response(val, mimetype="application/json")
     except Exception as e:
         logger.exception(f"❌ Failed to load performance data from DB: {e}")
 
-
-    # Return empty-but-valid structure so dashboard doesn't fall back to demo data
+    # Fallback Tier 4: Direct alerts query if system_state performance_data is unavailable
     empty = {
         "generated_at": datetime.now(IST).isoformat(),
         "trades": [],
@@ -1003,6 +1013,42 @@ def performance_json():
         "by_scanner":   {},
         "by_category":  {},
     }
+    
+    try:
+        from database import get_all_alerts
+        raw_alerts = get_all_alerts()
+        if raw_alerts:
+            trades_fallback = []
+            for r in raw_alerts:
+                def _safe_f(val_in):
+                    return float(val_in) if val_in is not None else None
+                trades_fallback.append({
+                    "id": r.get("id"),
+                    "symbol": r.get("symbol"),
+                    "scanner": r.get("scanner", "EOD"),
+                    "category": r.get("category", "BREAKOUT"),
+                    "signals": r.get("signals", ""),
+                    "entry_date": r.get("alert_date") or (r.get("alert_time", "")[:10] if r.get("alert_time") else ""),
+                    "alert_time": r.get("alert_time", ""),
+                    "entry_price": _safe_f(r.get("entry_price")),
+                    "stop_loss": _safe_f(r.get("stop_loss")),
+                    "initial_stop_loss": _safe_f(r.get("initial_stop_loss")),
+                    "target_price": _safe_f(r.get("target_price")),
+                    "target_1": _safe_f(r.get("target_1")),
+                    "target_2": _safe_f(r.get("target_2")),
+                    "target_3": _safe_f(r.get("target_3")),
+                    "current_price": _safe_f(r.get("current_price")),
+                    "exit_price": _safe_f(r.get("exit_price")),
+                    "pnl_pct": _safe_f(r.get("pnl_pct")),
+                    "status": r.get("status") or "OPEN",
+                    "score": r.get("score"),
+                })
+            empty["trades"] = trades_fallback
+            empty["summary"]["total_alerts"] = len(trades_fallback)
+            empty["summary"]["open_positions"] = len([t for t in trades_fallback if t["status"] == "OPEN"])
+    except Exception as _fa_err:
+        logger.warning(f"Direct alerts fallback warning: {_fa_err}")
+
     return jsonify(empty), 200
 
 

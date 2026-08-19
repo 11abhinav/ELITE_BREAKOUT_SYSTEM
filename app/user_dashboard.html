@@ -982,7 +982,7 @@ async function loadData(forceRebuild = false) {
 let ALL_TRADES = [], activeKpi = null;
 
 function renderKPIs(s) {
-  const filteredTrades = window._currentFilteredTrades || ALL_TRADES;
+  const filteredTrades = ALL_TRADES;
   const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
   const todayStr = formatter.format(new Date());
 
@@ -1002,7 +1002,7 @@ function renderKPIs(s) {
 
   const defs = [
     { id: 'today', label: "Today's Alerts", value: todaysCount, cls: 'blue', sub: 'new today', filter: t => (t.alert_time || t.entry_date || '').startsWith(todayStr) },
-    { id: 'total', label: 'Total Alerts', value: filteredTrades.length, cls: '', sub: 'filtered', filter: t => true },
+    { id: 'total', label: 'Total Alerts', value: filteredTrades.length, cls: '', sub: 'all alerts', filter: t => true },
     { id: 'judged', label: 'Judged', value: judged.length, cls: '', sub: `${judged.filter(t => t.status === 'LOSS').length} SL · ${judged.filter(t => t.status === 'WIN').length} target`, filter: t => ['WIN', 'LOSS', 'NEUTRAL'].includes(t.status) },
     { id: 'winrate', label: 'Win Rate', value: winRate + '%', cls: winRate >= 55 ? 'green' : winRate >= 45 ? 'amber' : 'red', sub: `${winners.length}W / ${losers.length}L`, filter: t => t.status === 'WIN' || t.status === 'LOSS' },
     { id: 'avgret', label: 'Avg Return', value: pct(avgReturn), cls: avgReturn >= 0 ? 'green' : 'red', sub: 'per judged trade', filter: t => ['WIN', 'LOSS', 'NEUTRAL'].includes(t.status) && t.pnl_pct != null },
@@ -1025,16 +1025,21 @@ function renderKPIs(s) {
 }
 
 window.drillKpi = function(kpiId, element) {
+  if (activeKpi === kpiId) {
+    activeKpi = null;
+    window._currentFilteredTrades = null;
+    document.querySelectorAll('.kpi').forEach(el => el.classList.remove('active'));
+    renderTradeTable();
+    renderCategoryStats();
+    return;
+  }
   activeKpi = kpiId;
   const def = window._kpiDefs ? window._kpiDefs.find(d => d.id === kpiId) : null;
   if (def) {
     window._currentFilteredTrades = ALL_TRADES.filter(def.filter);
-    // Remove active class from all KPIs
     document.querySelectorAll('.kpi').forEach(el => el.classList.remove('active'));
-    // Add active class to clicked element
     if (element) element.classList.add('active');
     
-    // Re-render table and stats
     renderTradeTable();
     renderCategoryStats();
   }
