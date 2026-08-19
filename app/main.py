@@ -1863,6 +1863,8 @@ def _run_multibagger_scanner_single():
         try:
             start_mb_single = time.time()
             upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Multibagger scan in progress...")
+            from database import start_scanner_execution_run, complete_scanner_execution_run
+            run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER", trigger_type="SCHEDULED", scheduler_name="CRON")
             try:
                 from market_data_session import MarketDataSession
                 from constituent_service import fetch_constituents
@@ -1878,7 +1880,7 @@ def _run_multibagger_scanner_single():
                 session = None
 
             with MemoryProfiler("MULTIBAGGER", force_gc_cleanup=True):
-                stats = multibagger.start(session=session, trigger_type="SCHEDULED", scheduler_name="CRON") or {}
+                stats = multibagger.start(session=session, run_ctx=run_ctx, trigger_type="SCHEDULED", scheduler_name="CRON") or {}
             dur_mb_single = round(time.time() - start_mb_single, 1)
             time.sleep(15)
 
