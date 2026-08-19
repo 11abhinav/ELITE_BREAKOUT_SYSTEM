@@ -18,6 +18,7 @@ class DiagnosticDecisionLedger:
         self.start_time = time.time()
         self.symbol_entries: Dict[str, Dict[str, Any]] = {}
         self.scanner_summaries: Dict[str, Dict[str, Any]] = {}
+        self.golden_fixture_results: List[Dict[str, Any]] = []
 
     def record_symbol_stage(self, symbol: str, scanner: str, stage: str, inputs: dict, outputs: dict, status: str, reason: str = ""):
         if symbol not in self.symbol_entries:
@@ -32,7 +33,8 @@ class DiagnosticDecisionLedger:
                 "stages": [],
                 "final_decision": "PENDING",
                 "score": 0.0,
-                "alert": None
+                "alert": None,
+                "rejection_reason": ""
             }
             
         stage_entry = {
@@ -46,12 +48,36 @@ class DiagnosticDecisionLedger:
         self.symbol_entries[symbol]["scanners"][scanner]["stages"].append(stage_entry)
 
     def record_final_decision(self, symbol: str, scanner: str, decision: str, score: float = 0.0, alert_dict: dict = None, rejection_reason: str = ""):
-        if symbol in self.symbol_entries and scanner in self.symbol_entries[symbol]["scanners"]:
+        if symbol not in self.symbol_entries:
+            self.symbol_entries[symbol] = {"symbol": symbol, "scanners": {}}
+            
+        if scanner not in self.symbol_entries[symbol]["scanners"]:
+            self.symbol_entries[symbol]["scanners"][scanner] = {
+                "scanner_name": scanner,
+                "stages": [],
+                "final_decision": decision,
+                "score": score,
+                "alert": alert_dict,
+                "rejection_reason": rejection_reason
+            }
+        else:
             sc = self.symbol_entries[symbol]["scanners"][scanner]
             sc["final_decision"] = decision
             sc["score"] = score
             sc["alert"] = alert_dict
             sc["rejection_reason"] = rejection_reason
+
+    def record_golden_fixture(self, fixture_name: str, expected_decision: str, actual_decision: str, score: float, sl: float, target: float, status: str):
+        self.golden_fixture_results.append({
+            "fixture_name": fixture_name,
+            "expected_decision": expected_decision,
+            "actual_decision": actual_decision,
+            "score": score,
+            "sl": sl,
+            "target": target,
+            "status": status,
+            "timestamp": time.time()
+        })
 
     def generate_artifacts(self, output_dir: str = "./artifacts/reports"):
         os.makedirs(output_dir, exist_ok=True)
@@ -64,6 +90,7 @@ class DiagnosticDecisionLedger:
             "run_id": self.run_id,
             "duration_seconds": dur_s,
             "total_symbols_evaluated": len(self.symbol_entries),
+            "golden_fixtures": self.golden_fixture_results,
             "symbol_ledger": self.symbol_entries
         }
         with open(ledger_path, "w") as f:
@@ -137,12 +164,39 @@ class DiagnosticDecisionLedger:
             </div>
         </div>
 
-        <h2>📋 Per-Symbol Decision Summary</h2>
+        <h2>📋 Golden Fixture Verification Ledger</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Fixture Name</th>
+                    <th>Expected Decision</th>
+                    <th>Actual Decision</th>
+                    <th>Score</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+"""
+        for g in self.golden_fixture_results:
+            html_content += f"""
+                <tr>
+                    <td><strong>{g['fixture_name']}</strong></td>
+                    <td>{g['expected_decision']}</td>
+                    <td>{g['actual_decision']}</td>
+                    <td>{g['score']:.1f}</td>
+                    <td><span style="color: #4ade80;">{g['status']}</span></td>
+                </tr>
+"""
+        html_content += """
+            </tbody>
+        </table>
+
+        <h2>📋 Per-Symbol Decision Summary (50+ Securities)</h2>
         <table>
             <thead>
                 <tr>
                     <th>Symbol</th>
-                    <th>Category</th>
+                    <th>Exchange</th>
                     <th>Scanners Tested</th>
                     <th>Alert Generated?</th>
                     <th>Status</th>
@@ -157,7 +211,7 @@ class DiagnosticDecisionLedger:
             html_content += f"""
                 <tr>
                     <td><strong>{sym}</strong></td>
-                    <td>EQUITY</td>
+                    <td>NSE</td>
                     <td>{scanners_list}</td>
                     <td>{alert_str}</td>
                     <td><span style="color: #4ade80;">PASS</span></td>
