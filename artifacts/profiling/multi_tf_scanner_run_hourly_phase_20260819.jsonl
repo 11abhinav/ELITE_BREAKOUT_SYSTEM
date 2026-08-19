@@ -12,3 +12,4 @@
 {"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-19T17:04:20.716657+05:30", "duration_s": 0.001, "rss_before_mb": 432.9, "rss_after_mb": 432.9, "rss_delta_mb": 0.0, "error": "Simulated crash in Multi TF"}
 {"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-19T17:08:16.665085+05:30", "duration_s": 0.002, "rss_before_mb": 382.6, "rss_after_mb": 382.6, "rss_delta_mb": 0.0, "error": "Simulated crash in Multi TF"}
 {"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-19T17:09:13.285771+05:30", "duration_s": 0.001, "rss_before_mb": 381.7, "rss_after_mb": 381.7, "rss_delta_mb": 0.0, "error": "Simulated crash in Multi TF"}
+{"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-19T17:59:38.551576+05:30", "duration_s": 0.0, "rss_before_mb": 199.4, "rss_after_mb": 199.5, "rss_delta_mb": 0.0, "error": "DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically."}
