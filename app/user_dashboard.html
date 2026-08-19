@@ -1024,26 +1024,48 @@ function renderKPIs(s) {
   window._kpiDefs = defs;
 }
 
+window.openDrill = function(title, trades) {
+  const panel = document.getElementById('drill-panel');
+  const titleEl = document.getElementById('drill-title');
+  const bodyEl = document.getElementById('drill-body');
+  if (!panel || !bodyEl) return;
+  
+  if (titleEl) titleEl.textContent = `${title} — ${trades.length} Trade${trades.length !== 1 ? 's' : ''}`;
+  bodyEl.innerHTML = renderMiniTable(trades);
+  panel.classList.add('open');
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+};
+
+window.closeDrill = function() {
+  const panel = document.getElementById('drill-panel');
+  if (panel) panel.classList.remove('open');
+  activeKpi = null;
+  window._currentFilteredTrades = null;
+  document.querySelectorAll('.kpi').forEach(el => el.classList.remove('active'));
+  renderTradeTable();
+  renderCategoryStats();
+};
+
 window.drillKpi = function(kpiId, element) {
   if (activeKpi === kpiId) {
-    activeKpi = null;
-    window._currentFilteredTrades = null;
-    document.querySelectorAll('.kpi').forEach(el => el.classList.remove('active'));
-    renderTradeTable();
-    renderCategoryStats();
+    closeDrill();
     return;
   }
   activeKpi = kpiId;
   const def = window._kpiDefs ? window._kpiDefs.find(d => d.id === kpiId) : null;
   if (def) {
-    window._currentFilteredTrades = ALL_TRADES.filter(def.filter);
+    const matchingTrades = ALL_TRADES.filter(def.filter);
+    window._currentFilteredTrades = matchingTrades;
     document.querySelectorAll('.kpi').forEach(el => el.classList.remove('active'));
     if (element) element.classList.add('active');
+    
+    // Open drilldown panel right under KPIs with full trade list
+    openDrill(def.label, matchingTrades);
     
     renderTradeTable();
     renderCategoryStats();
   }
-}
+};
 
 window._signalLadderData = [];
 window.fetchSignalLadder = async function() {
@@ -1185,6 +1207,8 @@ function buildTradeRows(trades, maxAbs, prefix) {
     const id = prefix + i;
     const barW = t.pnl_pct != null ? Math.min(100, Math.abs(t.pnl_pct) / maxAbs * 100).toFixed(1) : 0;
     const barColor = t.pnl_pct == null ? C.muted : t.pnl_pct >= 0 ? C.accent : C.warn;
+    const isOpen = expandedIds.has(id);
+    const sc = t.score != null ? `<span class="score-pill ${scoreClass(t.score)}">${t.score}</span>` : '—';
 
     let eventMarkHtml = getEarningsBadgeHtml(t);
     return `
