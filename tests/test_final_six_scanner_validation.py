@@ -490,23 +490,23 @@ def _provider_name(provider: Any) -> str:
 
 
 def _call_provider_fetch(provider: Any, symbols: Sequence[str], interval: str, period: str) -> Dict[str, pd.DataFrame]:
-    batch = getattr(provider, "fetch_batch", None)
-    if callable(batch):
-        try:
-            result = batch(list(symbols), interval=interval, period=period)
-        except Exception:
-            result = {}
-    else:
-        single = getattr(provider, "fetch_single", None)
-        if callable(single):
-            result = {}
-            for s in symbols:
-                try:
-                    result[s] = single(s, interval=interval, period=period)
-                except Exception:
-                    pass
+    allow_network = os.getenv("SIX_SCANNER_ALLOW_NETWORK", "0") == "1"
+    result: Dict[str, Any] = {}
+    if allow_network:
+        batch = getattr(provider, "fetch_batch", None)
+        if callable(batch):
+            try:
+                result = batch(list(symbols), interval=interval, period=period)
+            except Exception:
+                result = {}
         else:
-            result = {}
+            single = getattr(provider, "fetch_single", None)
+            if callable(single):
+                for s in symbols:
+                    try:
+                        result[s] = single(s, interval=interval, period=period)
+                    except Exception:
+                        pass
 
     out: Dict[str, pd.DataFrame] = {}
     for symbol in symbols:
@@ -515,6 +515,8 @@ def _call_provider_fetch(provider: Any, symbols: Sequence[str], interval: str, p
         if not isinstance(df, pd.DataFrame) or df.empty:
             candles = 450 if interval == "1d" else 50
             df = generate_synthetic_ohlcv(norm, candles=candles, interval=interval)
+        else:
+            df = enrich_ohlcv_with_indicators(df, norm)
         out[norm] = df
     return out
 
@@ -898,6 +900,55 @@ def _patch_shared_provider(modules: Sequence[types.ModuleType], shared: Mapping[
                     out[norm] = df
                 return out if not isinstance(symbols, str) else out.get(_normalize_symbol(symbols))
             setattr(price_cache_mod, "fetch_unified_historical", mock_fetch_unified_historical)
+    except Exception:
+        pass
+
+    try:
+        import yfinance as yf
+        if hasattr(yf, "Ticker"):
+            originals.append((yf, "Ticker", getattr(yf, "Ticker")))
+            class MockYFTicker:
+                def __init__(self, ticker_str: str) -> None:
+                    self.ticker_str = _normalize_symbol(ticker_str)
+
+                @property
+                def info(self) -> Dict[str, Any]:
+                    return {
+                        "symbol": self.ticker_str,
+                        "shortName": self.ticker_str,
+                        "returnOnEquity": 0.18,
+                        "returnOnAssets": 0.12,
+                        "debtToEquity": 35.0,
+                        "revenueGrowth": 0.15,
+                        "earningsGrowth": 0.20,
+                        "piotroskiScore": 6,
+                        "payoutRatio": 0.25,
+                        "currentPrice": 1500.0,
+                        "fiftyTwoWeekHigh": 1800.0,
+                        "fiftyTwoWeekLow": 1200.0,
+                        "heldPercentInsiders": 0.55,
+                        "heldPercentInstitutions": 0.25,
+                    }
+
+                def history(self, period: str = "1y", interval: str = "1d", **kwargs: Any) -> pd.DataFrame:
+                    norm = self.ticker_str
+                    df = shared.get((norm, interval))
+                    if not isinstance(df, pd.DataFrame):
+                        df = generate_synthetic_ohlcv(norm, candles=450 if interval == "1d" else 50, interval=interval)
+                    return df
+
+            setattr(yf, "Ticker", MockYFTicker)
+
+        if hasattr(yf, "download"):
+            originals.append((yf, "download", getattr(yf, "download")))
+            def mock_yf_download(tickers: Any, period: str = "1y", interval: str = "1d", **kwargs: Any) -> pd.DataFrame:
+                sym_list = [tickers] if isinstance(tickers, str) else list(tickers)
+                norm = _normalize_symbol(sym_list[0]) if sym_list else "RELIANCE"
+                df = shared.get((norm, interval))
+                if not isinstance(df, pd.DataFrame):
+                    df = generate_synthetic_ohlcv(norm, candles=450 if interval == "1d" else 50, interval=interval)
+                return df
+            setattr(yf, "download", mock_yf_download)
     except Exception:
         pass
 
