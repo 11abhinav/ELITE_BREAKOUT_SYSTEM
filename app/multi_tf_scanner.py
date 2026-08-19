@@ -378,9 +378,9 @@ def run_hourly_phase(is_test_mode=False, run_once=False, session=None):
 
     # [VERSION: BULK_PREFETCH_OPT_v1.0] Single-pass bulk fetch for all watchlist symbols.
     # PriceCache handles provider-level batching internally while populating per-symbol RAM cache.
-    # Requesting 15d (75+ 1H bars) is sufficient for 50-bar indicator calculation while reducing network payload by 80%.
-    logger.info(f"📥 [MULTI_TF] Bulk pre-fetching 1H data (15d) for {len(watchlist)} symbols...")
-    all_1h_ticker_data = fetch_watchlist_data(watchlist, period="15d", interval="1h", requester="MULTI_TF_1H")
+    # Requesting 10d (50+ 1H bars) is sufficient for 50-bar indicator calculation while reducing network payload by 80%.
+    logger.info(f"📥 [MULTI_TF] Bulk pre-fetching 1H data (10d) for {len(watchlist)} symbols...")
+    all_1h_ticker_data = fetch_watchlist_data(watchlist, period="10d", interval="1h", requester="MULTI_TF_1H")
 
     for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
         with BatchMemoryTracker(SCANNER_MULTI_TF, batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
@@ -631,7 +631,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
     #    automatically fetches 5m data ON-DEMAND for that single candidate in ~0.5s, maintaining 0-delay triggers!
     needs_30m = list({i["symbol"] for i in active_items if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")})
     needs_15m = list({i["symbol"] for i in active_items if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")})
-    needs_5m  = list({i["symbol"] for i in active_items if i["current_state"] in ("SETUP_ARMED", "ENTRY_READY")})
+    needs_5m  = list({i["symbol"] for i in active_items if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")})
 
     
     import concurrent.futures
