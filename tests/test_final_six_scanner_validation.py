@@ -261,8 +261,8 @@ def discover_ast_dependencies(filepath: str) -> Dict[str, set]:
 def _string_literal(node: ast.AST) -> Optional[str]:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    if isinstance(node, ast.Index):
-        return _string_literal(node.value)
+    if hasattr(ast, "Index") and isinstance(node, getattr(ast, "Index")):
+        return _string_literal(getattr(node, "value"))
     return None
 
 
