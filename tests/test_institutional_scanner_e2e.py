@@ -501,6 +501,16 @@ def test_per_stock_decision_context_telemetry_dump_completeness():
     global_decision_ledger.record_decision_context(ctx_selected)
     global_decision_ledger.record_decision_context(ctx_rejected)
     
+    # 3. Verify Global Scanner Telemetry Engine JSONL emission (Section 21)
+    from scanner_telemetry import telemetry_engine, TELEMETRY_JSONL_PATH
+    telemetry_engine.emit_terminal(ctx_selected)
+    telemetry_engine.emit_terminal(ctx_rejected)
+    
+    assert os.path.exists(TELEMETRY_JSONL_PATH), "❌ scanner_telemetry.jsonl stream file was not created!"
+    with open(TELEMETRY_JSONL_PATH, "r") as f:
+        lines = f.readlines()
+    assert len(lines) >= 2, f"❌ scanner_telemetry.jsonl has fewer than 2 records: {len(lines)}"
+    
     logger.info("✅ PER-STOCK DECISION CONTEXT TELEMETRY DUMP ASSERTION PASSED!\n")
 
 

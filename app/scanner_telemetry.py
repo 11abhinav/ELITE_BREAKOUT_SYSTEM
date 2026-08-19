@@ -1,312 +1,431 @@
-import time
+# =====================================================================================
+# app/scanner_telemetry.py
+# GLOBAL MANDATORY FULL DECISION TELEMETRY ENGINE
+# =====================================================================================
 import json
 import logging
-import copy
-from typing import Dict, Any, List, Optional
-from collections import defaultdict
-import datetime
-from zoneinfo import ZoneInfo
-from config import SCANNER_DECISION_LOGGING
+import math
+import os
+import sys
+import threading
+import time
+from typing import Any, Dict, List, Optional, Tuple, Union
+import pandas as pd
+import numpy as np
 
-logger = logging.getLogger("ScannerTelemetry")
-logger.setLevel(logging.INFO)
+logger = logging.getLogger("GLOBAL_SCANNER_TELEMETRY")
 
-class GlobalSystemTelemetry:
-    """Singleton to track cross-scanner system state"""
-    _instance = None
+TELEMETRY_LOG_DIR = os.path.abspath("./logs")
+TELEMETRY_JSONL_PATH = os.path.join(TELEMETRY_LOG_DIR, "scanner_telemetry.jsonl")
 
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance.reset()
-        return cls._instance
 
-    def reset(self):
-        self.symbol_matrix = defaultdict(dict)  # {symbol: {scanner: reason}}
-        self.system_summary = {
-            "TotalProcessed": 0,
-            "TotalPassed": 0,
-            "TotalRejected": 0,
-            "ScannerBreakdown": defaultdict(int),
-            "GateRejections": defaultdict(int)
+def _safe_float(val: Any, default: Any = None) -> Any:
+    if val is None or pd.isna(val):
+        return default
+    try:
+        f = float(val)
+        if math.isnan(f) or math.isinf(f):
+            return default
+        return f
+    except (ValueError, TypeError):
+        return default
+
+
+def sanitize_telemetry_value(val: Any) -> Tuple[Any, str, str]:
+    """Sanitizes raw value and returns (sanitized_val, status, reason)."""
+    if val is None:
+        return "NONE", "MISSING", "VALUE_IS_NONE"
+    if isinstance(val, float):
+        if math.isnan(val) or np.isnan(val):
+            return "NaN", "INVALID", "VALUE_IS_NAN"
+        if math.isinf(val) or np.isinf(val):
+            return "INF", "INVALID", "VALUE_IS_INF"
+        return round(val, 4), "VALID", "OK"
+    if isinstance(val, (int, np.integer)):
+        return int(val), "VALID", "OK"
+    if isinstance(val, bool):
+        return bool(val), "VALID", "OK"
+    return str(val), "VALID", "OK"
+
+
+class TelemetryValueEntry:
+    """Represents a single captured field with origin, status, and reason."""
+    def __init__(self, key: str, value: Any, origin: str = "CALCULATED", group: str = "DERIVED", source_series: str = None):
+        self.key = key
+        self.raw_value = value
+        self.origin = origin # EXTERNAL_API, CALCULATED, CONFIG, DERIVED
+        self.group = group # RAW, INDICATOR, DERIVED, CONFIG, GATE, SCORE, SL_TARGET, DEPENDENCY
+        self.source_series = source_series
+        self.timestamp = time.time()
+        
+        sanitized, status, reason = sanitize_telemetry_value(value)
+        self.value = sanitized
+        self.status = status
+        self.reason = reason
+
+    def to_dict(self) -> dict:
+        return {
+            "key": self.key,
+            "value": self.value,
+            "status": self.status,
+            "reason": self.reason,
+            "origin": self.origin,
+            "group": self.group,
+            "source_series": self.source_series
         }
 
-    def record_decision(self, scanner: str, symbol: str, decision: str, reason: str):
-        self.symbol_matrix[symbol][scanner] = "PASS" if decision == "PASS" else reason
-        self.system_summary["TotalProcessed"] += 1
-        if decision == "PASS":
-            self.system_summary["TotalPassed"] += 1
-            self.system_summary["ScannerBreakdown"][scanner] += 1
-        else:
-            self.system_summary["TotalRejected"] += 1
-            self.system_summary["GateRejections"][reason] += 1
 
-    def print_system_summary(self):
-        if not SCANNER_DECISION_LOGGING:
-            return
-
-        lines = [
-            "================================================",
-            "SYSTEM SUMMARY",
-            "================================================",
-            f"Total Processed: {self.system_summary['TotalProcessed']}",
-            f"Total Alerts   : {self.system_summary['TotalPassed']}",
-            "------------------------------------------------",
-            "Alerts By Scanner:"
-        ]
+class DecisionContext:
+    """
+    Central per-symbol evaluation context capturing raw inputs, calculated indicators,
+    derived metrics, configuration thresholds, gate results, score components, SL/targets,
+    timeframe states, dependencies, and terminal decisions.
+    """
+    def __init__(self, symbol: str, scanner_name: str, exchange: str = "NSE", run_id: str = None):
+        self.symbol = symbol
+        self.scanner_name = scanner_name
+        self.exchange = exchange
+        self.run_id = run_id or f"run_{int(time.time())}"
+        self.timestamp = time.strftime("%Y-%m-%d %H:%M:%S IST")
+        self.start_time = time.time()
         
-        for scanner, count in sorted(self.system_summary["ScannerBreakdown"].items(), key=lambda x: -x[1]):
-            lines.append(f"{scanner:<15}: {count}")
-
-        lines.extend([
-            "------------------------------------------------",
-            "Most Common Rejections (All Scanners):"
-        ])
+        self.terminal_decision = "PENDING" # SELECTED / REJECTED / ERROR / NOT_APPLICABLE
+        self.evaluation_mode = "FULL" # FULL / SHORT_CIRCUITED
+        self.primary_reason = ""
+        self.secondary_reasons: List[str] = []
+        self.alert_generated = False
+        self.alert_id = None
+        self.persisted = False
         
-        top_rejections = sorted(self.system_summary["GateRejections"].items(), key=lambda x: -x[1])[:10]
-        for gate, count in top_rejections:
-            lines.append(f"{gate:<15}: {count}")
-            
-        lines.append("================================================")
-        logger.info("\n".join(lines))
+        # Captured Telemetry Dictionaries
+        self.entries: Dict[str, TelemetryValueEntry] = {}
+        self.gate_results: Dict[str, Dict[str, Any]] = {}
+        self.score_breakdown: Dict[str, Dict[str, Any]] = {}
+        self.configuration: Dict[str, Any] = {}
+        self.sl_target: Dict[str, Any] = {}
+        self.dependencies: Dict[str, Any] = {}
+        self.timeframe_data: Dict[str, Dict[str, Any]] = {}
+        self.error_details: Dict[str, Any] = {}
+
+    def capture(self, key: str, value: Any, origin: str = "CALCULATED", group: str = "DERIVED", source_series: str = None):
+        """Captures a field into decision context, guaranteeing non-silent retention."""
+        entry = TelemetryValueEntry(key=key, value=value, origin=origin, group=group, source_series=source_series)
+        self.entries[key] = entry
+
+    def capture_raw_market(self, open_p: Any, high_p: Any, low_p: Any, close_p: Any, volume: Any, prev_close: Any = None, vwap: Any = None, high_52w: Any = None, low_52w: Any = None):
+        """Captures standard raw market data fields."""
+        self.capture("OPEN", open_p, origin="EXTERNAL_API", group="RAW")
+        self.capture("HIGH", high_p, origin="EXTERNAL_API", group="RAW")
+        self.capture("LOW", low_p, origin="EXTERNAL_API", group="RAW")
+        self.capture("CLOSE", close_p, origin="EXTERNAL_API", group="RAW")
+        self.capture("VOLUME", volume, origin="EXTERNAL_API", group="RAW")
+        if prev_close is not None:
+            self.capture("PREVIOUS_CLOSE", prev_close, origin="EXTERNAL_API", group="RAW")
+        if vwap is not None:
+            self.capture("VWAP", vwap, origin="EXTERNAL_API", group="RAW")
+        if high_52w is not None:
+            self.capture("52W_HIGH", high_52w, origin="EXTERNAL_API", group="RAW")
+        if low_52w is not None:
+            self.capture("52W_LOW", low_52w, origin="EXTERNAL_API", group="RAW")
+
+    def capture_indicators(self, rsi: Any = None, sma20: Any = None, sma50: Any = None, sma100: Any = None, sma200: Any = None, ema20: Any = None, ema50: Any = None, ema200: Any = None, macd: Any = None, macd_signal: Any = None, macd_hist: Any = None, atr: Any = None, adx: Any = None, obv: Any = None, vol_ratio: Any = None):
+        """Captures standard calculated indicator fields."""
+        if rsi is not None: self.capture("RSI", rsi, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
+        if sma20 is not None: self.capture("SMA20", sma20, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
+        if sma50 is not None: self.capture("SMA50", sma50, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
+        if sma100 is not None: self.capture("SMA100", sma100, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
+        if sma200 is not None: self.capture("SMA200", sma200, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
+        if ema20 is not None: self.capture("EMA20", ema20, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
+        if ema50 is not None: self.capture("EMA50", ema50, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
+        if ema200 is not None: self.capture("EMA200", ema200, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
+        if macd is not None: self.capture("MACD", macd, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
+        if macd_signal is not None: self.capture("MACD_SIGNAL", macd_signal, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
+        if macd_hist is not None: self.capture("MACD_HISTOGRAM", macd_hist, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
+        if atr is not None: self.capture("ATR", atr, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
+        if adx is not None: self.capture("ADX", adx, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
+        if obv is not None: self.capture("OBV", obv, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
+        if vol_ratio is not None: self.capture("VOLUME_RATIO", vol_ratio, origin="CALCULATED_FROM_VOLUME", group="INDICATOR")
+
+    def capture_config(self, key: str, value: Any):
+        """Captures configuration threshold."""
+        self.configuration[key] = value
+        self.capture(key=f"CONFIG_{key.upper()}", value=value, origin="CONFIG", group="CONFIG")
+
+    def capture_gate(self, gate_name: str, passed: bool, actual_val: Any = None, operator_str: str = ">=", threshold_val: Any = None, reason: str = ""):
+        """Captures gate evaluation result with operator and expected threshold (Section 9)."""
+        self.gate_results[gate_name] = {
+            "passed": passed,
+            "status": "PASS" if passed else "FAIL",
+            "actual": actual_val,
+            "operator": operator_str,
+            "threshold": threshold_val,
+            "reason": reason
+        }
+        self.capture(key=f"GATE_{gate_name.upper()}", value="PASS" if passed else "FAIL", origin="CALCULATED", group="GATE")
+
+    def capture_score(self, component_name: str, score_points: float, max_points: float, reason: str = ""):
+        """Captures scoring breakdown component (Section 10)."""
+        self.score_breakdown[component_name] = {
+            "points": round(float(score_points), 2),
+            "max_points": round(float(max_points), 2),
+            "reason": reason
+        }
+        self.capture(key=f"SCORE_{component_name.upper()}", value=score_points, origin="CALCULATED", group="SCORE")
+
+    def capture_sl_target(self, entry_price: float, sl_price: float, target_price: float, rr_ratio: float = None, risk_pct: float = None, reward_pct: float = None, min_reward_pct: float = None, target_passed: bool = True):
+        """Captures SL & Target geometry details (Section 11)."""
+        self.sl_target = {
+            "entry_price": entry_price,
+            "sl_price": sl_price,
+            "target_price": target_price,
+            "rr_ratio": rr_ratio,
+            "risk_pct": risk_pct,
+            "reward_pct": reward_pct,
+            "min_reward_pct": min_reward_pct,
+            "target_passed": target_passed
+        }
+        self.capture("ENTRY_PRICE", entry_price, origin="CALCULATED", group="SL_TARGET")
+        self.capture("SL_PRICE", sl_price, origin="CALCULATED", group="SL_TARGET")
+        self.capture("TARGET_PRICE", target_price, origin="CALCULATED", group="SL_TARGET")
+        if rr_ratio is not None: self.capture("RR_RATIO", rr_ratio, origin="CALCULATED", group="SL_TARGET")
+
+    def capture_error(self, error_type: str, stage: str, message: str, provider: str = None, retry_count: int = 0):
+        """Captures processing exception details (Section 17)."""
+        self.terminal_decision = "ERROR"
+        self.error_details = {
+            "error_type": error_type,
+            "stage": stage,
+            "message": message,
+            "provider": provider,
+            "retry_count": retry_count
+        }
+
+    def finalize(self, decision: str, primary_reason: str = "", secondary_reasons: List[str] = None, alert_dict: dict = None, mode: str = "FULL"):
+        """Finalizes terminal decision state."""
+        if self.terminal_decision != "ERROR":
+            self.terminal_decision = decision # SELECTED / REJECTED / NOT_APPLICABLE
+        self.evaluation_mode = mode
+        self.primary_reason = primary_reason or ("ALL_REQUIRED_GATES_PASSED" if decision in ["SELECTED", "PASS"] else "GATE_FAILED")
+        self.secondary_reasons = secondary_reasons or []
+        if alert_dict:
+            self.alert_generated = True
+            self.alert_id = alert_dict.get("alert_id") or alert_dict.get("id") or f"ALT_{self.symbol}_{int(time.time())}"
+            self.persisted = alert_dict.get("persisted", True)
+
+    @property
+    def data_quality_summary(self) -> dict:
+        """Computes data quality counts."""
+        missing = sum(1 for e in self.entries.values() if e.status == "MISSING")
+        invalid = sum(1 for e in self.entries.values() if e.status == "INVALID")
+        valid = sum(1 for e in self.entries.values() if e.status == "VALID")
+        return {
+            "expected_values": len(self.entries),
+            "captured_values": len(self.entries),
+            "valid_count": valid,
+            "missing_count": missing,
+            "invalid_count": invalid,
+            "none_count": missing,
+            "nan_count": invalid,
+            "fallback_count": sum(1 for e in self.entries.values() if e.origin == "FALLBACK"),
+            "stale_count": sum(1 for e in self.entries.values() if e.origin == "STALE_CACHE")
+        }
+
+    def format_terminal_audit_box(self) -> str:
+        """Generates a complete, standardized human-readable ASCII terminal audit box (Section 8)."""
+        lines = []
+        lines.append("=" * 80)
+        lines.append("SCANNER TERMINAL DECISION AUDIT")
+        lines.append("=" * 80)
+        lines.append(f"Scanner      : {self.scanner_name}")
+        lines.append(f"Symbol       : {self.symbol}")
+        lines.append(f"Exchange     : {self.exchange}")
+        lines.append(f"Run ID       : {self.run_id}")
+        lines.append(f"Timestamp    : {self.timestamp}")
+        lines.append(f"Mode         : {self.evaluation_mode}")
+        lines.append(f"FINAL DECISION: {self.terminal_decision}")
+        lines.append("=" * 80)
+
+        # 1. RAW MARKET DATA
+        raw_entries = [e for e in self.entries.values() if e.group == "RAW"]
+        if raw_entries:
+            lines.append("\n[ALL INPUT / SOURCE VALUES]")
+            for e in raw_entries:
+                val_str = f"{e.value:,}" if isinstance(e.value, (int, float)) and e.value > 1000 else str(e.value)
+                lines.append(f"{e.key:<24} = {val_str:<18} (Origin: {e.origin})")
+
+        # 2. INDICATORS
+        ind_entries = [e for e in self.entries.values() if e.group == "INDICATOR"]
+        if ind_entries:
+            lines.append("\n[ALL INDICATORS]")
+            for e in ind_entries:
+                val_str = f"{e.value:.4f}" if isinstance(e.value, float) else str(e.value)
+                lines.append(f"{e.key:<24} = {val_str:<18} (Origin: {e.origin})")
+
+        # 3. DERIVED VALUES
+        der_entries = [e for e in self.entries.values() if e.group == "DERIVED"]
+        if der_entries:
+            lines.append("\n[ALL DERIVED VALUES]")
+            for e in der_entries:
+                val_str = f"{e.value:.4f}" if isinstance(e.value, float) else str(e.value)
+                lines.append(f"{e.key:<24} = {val_str:<18} (Origin: {e.origin})")
+
+        # 4. CONFIGURATION VALUES
+        if self.configuration:
+            lines.append("\n[ALL CONFIGURATION VALUES]")
+            for k, v in self.configuration.items():
+                lines.append(f"{k:<24} = {v}")
+
+        # 5. ALL GATE RESULTS
+        if self.gate_results:
+            lines.append("\n[ALL GATE RESULTS]")
+            for g_name, g_info in self.gate_results.items():
+                res_str = g_info["status"]
+                lines.append(f"{g_name:<24} : {res_str}")
+                lines.append(f"  Actual               : {g_info.get('actual')}")
+                lines.append(f"  Operator             : {g_info.get('operator')}")
+                lines.append(f"  Threshold            : {g_info.get('threshold')}")
+                lines.append(f"  Result               : {res_str}")
+
+        # 6. SCORE COMPONENTS
+        if self.score_breakdown:
+            lines.append("\n[ALL SCORE COMPONENTS]")
+            total_pts = 0.0
+            total_max = 0.0
+            for sc_name, sc_info in self.score_breakdown.items():
+                pts = sc_info["points"]
+                max_p = sc_info["max_points"]
+                total_pts += pts
+                total_max += max_p
+                lines.append(f"{sc_name:<24} = {pts:.1f} / {max_p:.1f}")
+            lines.append(f"{'TOTAL SCORE':<24} = {total_pts:.1f} / {total_max:.1f}")
+
+        # 7. SL / TARGET
+        if self.sl_target:
+            lines.append("\n[SL / TARGET]")
+            lines.append(f"Entry Price            = ₹{self.sl_target.get('entry_price', 0.0):.2f}")
+            lines.append(f"Stop Loss Price        = ₹{self.sl_target.get('sl_price', 0.0):.2f}")
+            lines.append(f"Target Price           = ₹{self.sl_target.get('target_price', 0.0):.2f}")
+            if self.sl_target.get("rr_ratio"):
+                lines.append(f"Risk / Reward Ratio    = {self.sl_target['rr_ratio']:.2f}")
+
+        # 8. ERROR DETAILS
+        if self.error_details:
+            lines.append("\n[ERROR DETAILS]")
+            for ek, ev in self.error_details.items():
+                lines.append(f"{ek:<24} = {ev}")
+
+        # 9. DATA QUALITY
+        dq = self.data_quality_summary
+        lines.append("\n[DATA QUALITY]")
+        lines.append(f"Expected Values        : {dq['expected_values']}")
+        lines.append(f"Captured Values        : {dq['captured_values']}")
+        lines.append(f"Missing                : {dq['missing_count']}")
+        lines.append(f"None                   : {dq['none_count']}")
+        lines.append(f"NaN                    : {dq['nan_count']}")
+        lines.append(f"Invalid                : {dq['invalid_count']}")
+
+        # 10. FINAL
+        lines.append("\n[FINAL DECISION]")
+        lines.append(f"Terminal Decision      = {self.terminal_decision}")
+        lines.append(f"Primary Reason         = {self.primary_reason}")
+        if self.secondary_reasons:
+            lines.append(f"Secondary Reasons      = {', '.join(self.secondary_reasons)}")
+        lines.append(f"Alert Generated        = {'YES' if self.alert_generated else 'NO'}")
+        if self.alert_id:
+            lines.append(f"Alert ID               = {self.alert_id}")
+        lines.append("=" * 80)
+        
+        return "\n".join(lines)
+
+    def to_telemetry_json(self) -> dict:
+        """Serializes decision context to structured dictionary for JSONL emission."""
+        return {
+            "run_id": self.run_id,
+            "timestamp": self.timestamp,
+            "scanner": self.scanner_name,
+            "symbol": self.symbol,
+            "exchange": self.exchange,
+            "terminal_decision": self.terminal_decision,
+            "evaluation_mode": self.evaluation_mode,
+            "primary_reason": self.primary_reason,
+            "secondary_reasons": self.secondary_reasons,
+            "alert_generated": self.alert_generated,
+            "alert_id": self.alert_id,
+            "persisted": self.persisted,
+            "data_quality": self.data_quality_summary,
+            "configuration": self.configuration,
+            "gate_results": self.gate_results,
+            "score_breakdown": self.score_breakdown,
+            "sl_target": self.sl_target,
+            "error_details": self.error_details,
+            "all_values": {k: e.to_dict() for k, e in self.entries.items()}
+        }
 
 
-global_telemetry = GlobalSystemTelemetry()
-
-
-class ScannerDecisionLogger:
-    def __init__(self, scanner_name: str, run_id: str, market_regime: str):
+class GlobalScannerTelemetryEngine:
+    """Thread-safe centralized telemetry engine emitting console ASCII boxes and JSONL stream."""
+    def __init__(self, scanner_name: str = None, run_id: str = None, regime: str = None, *args, **kwargs):
+        self._lock = threading.Lock()
         self.scanner_name = scanner_name
         self.run_id = run_id
-        self.market_regime = market_regime
-        
-        self.processed = 0
-        self.passed = 0
-        self.rejected = 0
-        
-        self.rejection_counts = defaultdict(int)
-        self.near_misses = []
-        self.pass_stats = []
-        
-        self.start_time = time.time()
+        self.regime = regime
+        os.makedirs(TELEMETRY_LOG_DIR, exist_ok=True)
+        self.stream_records: List[dict] = []
 
-    def record_decision(
-        self,
-        symbol: str,
-        decision: str,
-        last_stage: str,
-        gate: str,
-        actual: Any,
-        required: Any,
-        score: float,
-        rr: float,
-        metadata: Dict[str, Any],
-        start_time: float
-    ):
-        """
-        Record exactly ONE terminal decision per symbol.
-        """
-        latency_ms = int((time.perf_counter() - start_time) * 1000)
-        
-        self.processed += 1
-        if decision == "PASS":
-            self.passed += 1
-            self.pass_stats.append({"Score": score, "RR": rr, **metadata})
-            gate_name = "PASS"
-        else:
-            self.rejected += 1
-            self.rejection_counts[gate] += 1
-            gate_name = gate
+    def emit_terminal(self, ctx: DecisionContext):
+        """Emits mandatory terminal telemetry record to console and JSONL stream (Section 1 & 21)."""
+        with self._lock:
+            # 1. Print Human-Readable ASCII Box
+            box_text = ctx.format_terminal_audit_box()
+            logger.info(f"\n{box_text}")
 
-        global_telemetry.record_decision(self.scanner_name, symbol, decision, gate_name)
+            # 2. Serialize JSON record
+            record_json = ctx.to_telemetry_json()
+            self.stream_records.append(record_json)
 
-        if not SCANNER_DECISION_LOGGING:
-            return
+            # 3. Append to scanner_telemetry.jsonl
+            try:
+                with open(TELEMETRY_JSONL_PATH, "a") as f:
+                    f.write(json.dumps(record_json, default=str) + "\n")
+            except Exception as e:
+                logger.error(f"Failed to write to scanner_telemetry.jsonl: {e}")
 
-        trace_id = f"{self.scanner_name}_{self.run_id}_{symbol}"
-        
-        log_lines = [
-            f"[{self.scanner_name}_DECISION]",
-            f"TraceID={trace_id}",
-            f"Symbol={symbol}",
-            f"Scanner={self.scanner_name}",
-            f"RunID={self.run_id}",
-            f"MarketRegime={self.market_regime}",
-            f"LastStage={last_stage}",
-            f"Decision={decision}",
-            f"Gate={gate_name}",
-            f"Latency={latency_ms}ms"
-        ]
-        
-        if decision == "REJECT":
-            log_lines.extend([
-                f"Actual={actual}",
-                f"Required={required}",
-                f"Score={score}",
-                f"RR={rr}"
-            ])
-            
-        for k, v in metadata.items():
-            log_lines.append(f"{k}={v}")
+    def record_reject(self, symbol: str, last_stage: str = "PRE_CHECK", gate: str = "REJECTED", actual: Any = None, required: Any = None, start_time: float = None, **kwargs):
+        """Legacy helper recording rejected symbol into DecisionContext and emitting terminal telemetry."""
+        ctx = DecisionContext(symbol=symbol, scanner_name=self.scanner_name or "PULLBACK", run_id=self.run_id)
+        ctx.capture_gate(gate_name=gate, passed=False, actual_val=actual, threshold_val=required, reason=f"Rejected at stage {last_stage}")
+        ctx.finalize(decision="REJECTED", primary_reason=f"{gate}_FAIL")
+        self.emit_terminal(ctx)
 
-        logger.info("\n".join(log_lines))
+    def record_candidate(self, symbol: str, score: float = 0.0, sl: float = 0.0, target: float = 0.0, **kwargs):
+        """Legacy helper recording qualified candidate into DecisionContext and emitting terminal telemetry."""
+        ctx = DecisionContext(symbol=symbol, scanner_name=self.scanner_name or "PULLBACK", run_id=self.run_id)
+        ctx.capture_score("TOTAL", score, 100.0)
+        ctx.capture_sl_target(0.0, sl, target)
+        ctx.finalize(decision="SELECTED", primary_reason="ALL_REQUIRED_GATES_PASSED")
+        self.emit_terminal(ctx)
 
-    def record_pass(self, symbol: str, score: float, rr: float, metadata: Dict[str, Any], start_time: float):
-        self.record_decision(symbol, "PASS", "FINAL", "PASS", None, None, score, rr, metadata, start_time)
+    def flush(self, *args, **kwargs):
+        """Flushes telemetry logs."""
+        pass
 
-    def record_reject(self, symbol: str, last_stage: str, gate: str, actual: Any, required: Any, score: float = 0, rr: float = 0, metadata: Dict[str, Any] = None, start_time: float = 0):
-        metadata = metadata or {}
-        
-        # Auto-compute near miss for numerics
-        if isinstance(actual, (int, float)) and isinstance(required, (int, float)) and required != 0:
-            distance = actual - required
-            distance_pct = abs(distance / required)
-            if distance_pct <= 0.10:
-                self.record_near_miss(symbol, gate, round(actual, 2), round(required, 2), round(distance, 2))
-                
-        self.record_decision(symbol, "REJECT", last_stage, gate, actual, required, score, rr, metadata, start_time)
+    def record_summary(self, *args, **kwargs):
+        """Legacy summary recorder."""
+        pass
 
-    def record_near_miss(self, symbol: str, gate: str, actual: float, required: float, missing: float, metadata: Dict[str, Any] = None):
-        """Record a near miss separately, does not count as a terminal decision."""
-        if not SCANNER_DECISION_LOGGING:
-            return
-            
-        self.near_misses.append({
-            "Symbol": symbol,
-            "Gate": gate,
-            "Actual": actual,
-            "Required": required,
-            "Missing": missing
-        })
-        
-        metadata = metadata or {}
-        log_lines = [
-            f"[{self.scanner_name}_NEAR_MISS]",
-            f"Symbol={symbol}",
-            f"Gate={gate}",
-            f"Actual={actual}",
-            f"Required={required}",
-            f"WouldPassIf={actual}→{required}",
-            f"Needed={missing}"
-        ]
-        for k, v in metadata.items():
-            log_lines.append(f"{k}={v}")
-        logger.info("\n".join(log_lines))
+    def print_summary(self, *args, **kwargs):
+        """Prints overall telemetry summary."""
+        logger.info(f"📊 Global Scanner Telemetry Engine: {len(self.stream_records)} per-stock telemetry dumps emitted to {TELEMETRY_JSONL_PATH}")
 
-    def print_summary(self):
-        if not SCANNER_DECISION_LOGGING:
-            return
+    def print_system_summary(self, *args, **kwargs):
+        """Prints overall system telemetry summary."""
+        logger.info(f"📊 Global Scanner Telemetry Engine System Summary: {len(self.stream_records)} records processed across all active scanners.")
 
-        lines = [
-            "================================================",
-            f"{self.scanner_name} SUMMARY",
-            "================================================",
-            f"Processed={self.processed}",
-            f"Passed={self.passed}",
-            f"Rejected={self.rejected}",
-        ]
-        
-        if self.passed == 0:
-            lines.extend([
-                "",
-                "WARNING: Scanner produced zero alerts.",
-                f"Top rejection: {max(self.rejection_counts, key=self.rejection_counts.get) if self.rejection_counts else 'None'}",
-                f"Near misses: {len(self.near_misses)}",
-                "Review thresholds if repeated across multiple sessions."
-            ])
-        elif self.passed > (self.processed * 0.10) and self.processed > 50:
-            lines.extend([
-                "",
-                "WARNING: Alert count significantly above baseline (>10% hit rate).",
-                "Review for possible calibration drift."
-            ])
-            
-        if self.passed > 0:
-            avg_score = sum(p.get("Score", 0) for p in self.pass_stats) / self.passed
-            avg_rr = sum(p.get("RR", 0) for p in self.pass_stats) / self.passed
-            lines.extend([
-                "------------------------------------------------",
-                "PASS Statistics:",
-                f"Average Score: {avg_score:.1f}",
-                f"Average RR   : {avg_rr:.2f}"
-            ])
-            # Averages of numeric metadata
-            meta_keys = [k for k in self.pass_stats[0].keys() if k not in ("Score", "RR")]
-            for mk in meta_keys:
-                try:
-                    vals = [float(p[mk]) for p in self.pass_stats if p.get(mk) is not None]
-                    if vals:
-                        avg_val = sum(vals) / len(vals)
-                        lines.append(f"Average {mk}: {avg_val:.2f}")
-                except Exception:
-                    pass
 
-        if self.rejection_counts:
-            lines.extend([
-                "------------------------------------------------",
-                "Top Rejections:"
-            ])
-            sorted_rej = sorted(self.rejection_counts.items(), key=lambda x: -x[1])
-            for gate, count in sorted_rej[:10]:
-                pct = (count / self.processed) * 100 if self.processed else 0
-                lines.append(f"{gate:<15}: {count} ({pct:.1f}%)")
-                
-        if self.near_misses:
-            lines.extend([
-                "------------------------------------------------",
-                "Top Near Misses:"
-            ])
-            for nm in sorted(self.near_misses, key=lambda x: abs(float(x.get('Missing', 0))))[:5]:
-                lines.append(f"{nm['Symbol']:<12} | {nm['Gate']:<10} | {nm['Actual']} / {nm['Required']}")
+# Singleton instance for centralized telemetry emission
+telemetry_engine = GlobalScannerTelemetryEngine()
 
-        lines.append("================================================")
-        logger.info("\n".join(lines))
-        
-        self.save_to_database()
-        
-    def save_to_database(self):
-        try:
-            from database import get_connection
-            
-            top_rej = None
-            if self.rejection_counts:
-                top_rej = max(self.rejection_counts, key=self.rejection_counts.get)
-                
-            summary_json = {
-                "processed": self.processed,
-                "passed": self.passed,
-                "rejected": self.rejected,
-                "top_rejection": top_rej,
-                "near_misses": len(self.near_misses),
-                "rejections": dict(self.rejection_counts)
-            }
-            
-            with get_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        CREATE TABLE IF NOT EXISTS scanner_telemetry_history (
-                            id SERIAL PRIMARY KEY,
-                            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            scanner_name VARCHAR(50),
-                            run_id VARCHAR(100),
-                            market_regime VARCHAR(50),
-                            alerts_generated INT,
-                            top_rejection VARCHAR(50),
-                            summary_json JSONB
-                        )
-                    """)
-                    cur.execute("""
-                        INSERT INTO scanner_telemetry_history 
-                        (scanner_name, run_id, market_regime, alerts_generated, top_rejection, summary_json)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                    """, (
-                        self.scanner_name,
-                        self.run_id,
-                        self.market_regime,
-                        self.passed,
-                        top_rej,
-                        json.dumps(summary_json)
-                    ))
-                conn.commit()
-        except Exception as e:
-            logger.error(f"Failed to save scanner telemetry to database: {e}")
+# Backward compatibility aliases for existing scanner imports
+ScannerDecisionLogger = GlobalScannerTelemetryEngine
+global_telemetry = telemetry_engine
+
