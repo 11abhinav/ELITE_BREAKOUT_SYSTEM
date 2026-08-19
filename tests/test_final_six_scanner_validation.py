@@ -952,6 +952,16 @@ def _patch_shared_provider(modules: Sequence[types.ModuleType], shared: Mapping[
     except Exception:
         pass
 
+    try:
+        mb_mod = _import_app_module("multibagger")
+        if hasattr(mb_mod, "fetch_ticker_fundamentals"):
+            originals.append((mb_mod, "fetch_ticker_fundamentals", getattr(mb_mod, "fetch_ticker_fundamentals")))
+            def mock_fetch_ticker_fundamentals(symbol, **kwargs):
+                return generate_synthetic_fundamentals(_normalize_symbol(symbol))
+            setattr(mb_mod, "fetch_ticker_fundamentals", mock_fetch_ticker_fundamentals)
+    except Exception:
+        pass
+
     return originals
 
 
