@@ -1864,11 +1864,13 @@ def _run_multibagger_scanner_single():
             start_mb_single = time.time()
             upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Multibagger scan in progress...")
             try:
-                from market_data_session import MarketDataSession
+                from constituent_service import fetch_constituents
                 from watchlist_cache import get_watchlist
                 import pandas as pd
-                wl_df = get_watchlist()
-                symbols = wl_df["Stock"].dropna().tolist() if isinstance(wl_df, pd.DataFrame) and "Stock" in wl_df.columns else list(wl_df)
+                symbols = fetch_constituents()
+                if not symbols:
+                    wl_df = get_watchlist()
+                    symbols = wl_df["Stock"].dropna().tolist() if isinstance(wl_df, pd.DataFrame) and "Stock" in wl_df.columns else list(wl_df)
                 session = MarketDataSession.build(symbols=symbols, ist_date=datetime.now(IST).date(), requester="MULTIBAGGER")
             except Exception as e:
                 logger.error(f"Failed to build MarketDataSession for MULTIBAGGER: {e}")
