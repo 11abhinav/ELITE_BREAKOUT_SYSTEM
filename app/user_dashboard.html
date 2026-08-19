@@ -473,6 +473,9 @@ function playDing() {
       </div>
       <!-- END NOTIFICATION BELL -->
 
+      <button id="admin-nav-btn" onclick="window.location.href='/admin'" class="refresh-btn" style="display:none; color: #b266ff; font-weight: 700; border-color: rgba(178,102,255,0.4); background: rgba(178,102,255,0.1);">
+        ⚡ Admin Panel ↗
+      </button>
       <button onclick="triggerPWAInstall()" class="refresh-btn" style="color: var(--accent); font-weight: 700; border-color: rgba(5,150,105,0.3); background: var(--accent-dim);">
         📲 Install App
       </button>
@@ -2588,6 +2591,10 @@ async function fetchUserInfo() {
                 const el = document.getElementById('user-display-name');
                 if (el) el.textContent = data.first_name;
                 document.title = `${data.first_name}'s Screener Dashboard`;
+            }
+            if (data.role === 'admin' || data.role === 'superuser') {
+                const adminBtn = document.getElementById('admin-nav-btn');
+                if (adminBtn) adminBtn.style.display = 'inline-flex';
             }
         }
     } catch(e) {}

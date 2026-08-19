@@ -781,7 +781,28 @@ def add_headers(response):
 @app.route("/")
 @login_required
 def index():
-    """Serve the user dashboard HTML."""
+    """Serve the dashboard HTML. If user has admin role, redirect to /admin."""
+    role = session.get('role', 'user')
+    if role in ('admin', 'superuser'):
+        return redirect('/admin')
+
+    if USER_DASHBOARD_PATH and os.path.exists(USER_DASHBOARD_PATH):
+        r = make_response(send_file(USER_DASHBOARD_PATH))
+        r.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        r.headers['Pragma'] = 'no-cache'
+        r.headers['Expires'] = '0'
+        return r
+    return Response(
+        "<h2 style='font-family:monospace;color:#00e5a0;background:#0b0e14;margin:0;padding:40px'>"
+        "⚠️ user_dashboard.html not found.</h2>",
+        mimetype="text/html",
+    )
+
+@app.route("/user")
+@app.route("/user_dashboard")
+@login_required
+def user_index():
+    """Serve the user dashboard HTML directly."""
     if USER_DASHBOARD_PATH and os.path.exists(USER_DASHBOARD_PATH):
         r = make_response(send_file(USER_DASHBOARD_PATH))
         r.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
