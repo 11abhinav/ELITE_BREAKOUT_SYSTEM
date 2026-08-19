@@ -12,6 +12,7 @@ import numpy as np
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+_orig_db_url = os.environ.get("DATABASE_URL")
 os.environ.setdefault("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/test_db")
 sys.path.insert(0, os.path.abspath("./app"))
 
@@ -388,5 +389,10 @@ def test_daily_builder_live_e2e_50_stocks():
 
 
 def teardown_module(module):
-    """Clean up module-level patches to prevent test pollution."""
+    """Clean up module-level patches and environment variables to prevent test pollution."""
     patch.stopall()
+    if _orig_db_url is None:
+        os.environ.pop("DATABASE_URL", None)
+    else:
+        os.environ["DATABASE_URL"] = _orig_db_url
+

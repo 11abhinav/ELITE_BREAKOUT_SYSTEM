@@ -15,6 +15,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import List, Dict, Any, Set
 
+_orig_db_url = os.environ.get("DATABASE_URL")
 os.environ.setdefault("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/test_db")
 
 sys.path.insert(0, os.path.abspath("./app"))
@@ -554,3 +555,12 @@ def test_report_and_ledger_integrity():
     assert api_data.get("rate_limit_429_count") == 0, f"❌ Rate limit HTTP 429 errors detected: {api_data.get('rate_limit_429_count')}"
     
     logger.info(f"✅ REPORT & LEDGER INTEGRITY ASSERTION PASSED! ({len(symbol_ledger)}/50 symbols verified in ledger)\n")
+
+
+def teardown_module(module):
+    """Clean up module-level environment variables."""
+    if _orig_db_url is None:
+        os.environ.pop("DATABASE_URL", None)
+    else:
+        os.environ["DATABASE_URL"] = _orig_db_url
+

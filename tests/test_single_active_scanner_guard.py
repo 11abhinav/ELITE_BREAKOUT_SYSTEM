@@ -22,35 +22,38 @@ def test_is_scanner_actively_running():
         assert mock_cur.execute.called
 
 def test_process_lock_reentrant_same_thread():
-    lock1 = ProcessLock("global_scanner_lock")
-    lock2 = ProcessLock("global_scanner_lock")
-    
-    assert lock1 is lock2  # Singleton check
+    with patch.dict("os.environ", {"DATABASE_URL": ""}, clear=False):
+        lock1 = ProcessLock("test_reentrant_lock")
+        lock2 = ProcessLock("test_reentrant_lock")
+        
+        assert lock1 is lock2  # Singleton check
 
-    acquired1 = lock1.acquire(blocking=True)
-    assert acquired1 is True
+        acquired1 = lock1.acquire(blocking=True)
+        assert acquired1 is True
 
-    # Same thread acquiring second time must NOT deadlock (Reentrant check)
-    acquired2 = lock2.acquire(blocking=True)
-    assert acquired2 is True
+        # Same thread acquiring second time must NOT deadlock (Reentrant check)
+        acquired2 = lock2.acquire(blocking=True)
+        assert acquired2 is True
 
-    lock2.release()
-    lock1.release()
-    assert lock1.locked() is False
+        lock2.release()
+        lock1.release()
+        assert lock1.locked() is False
 
 def test_process_lock_blocks_different_thread():
-    lock1 = ProcessLock("test_multi_thread")
-    assert lock1.acquire(blocking=True) is True
+    with patch.dict("os.environ", {"DATABASE_URL": ""}, clear=False):
+        lock1 = ProcessLock("test_multi_thread")
+        assert lock1.acquire(blocking=True) is True
 
-    thread_result = []
-    def second_thread():
-        lock2 = ProcessLock("test_multi_thread")
-        res = lock2.acquire(blocking=False)
-        thread_result.append(res)
+        thread_result = []
+        def second_thread():
+            lock2 = ProcessLock("test_multi_thread")
+            res = lock2.acquire(blocking=False)
+            thread_result.append(res)
 
-    t = threading.Thread(target=second_thread)
-    t.start()
-    t.join()
+        t = threading.Thread(target=second_thread)
+        t.start()
+        t.join()
 
-    assert thread_result == [False]  # Blocked across threads!
-    lock1.release()
+        assert thread_result == [False]  # Blocked across threads!
+        lock1.release()
+

@@ -1,6 +1,11 @@
 import unittest
 from unittest.mock import patch, MagicMock
 import os
+
+_orig_db_url = os.environ.get("DATABASE_URL")
+_orig_railway = os.environ.get("RAILWAY_ENVIRONMENT")
+_orig_dont_save = os.environ.get("DONT_SAVE_ALERTS")
+
 os.environ["DATABASE_URL"] = "postgres://fake:fake@fake:5432/fake"
 os.environ["RAILWAY_ENVIRONMENT"] = "test"
 os.environ["DONT_SAVE_ALERTS"] = "1"
@@ -89,5 +94,25 @@ class TestScannerRuntimeFailures(unittest.TestCase):
         with self.assertRaises(Exception):
             mtf_start(run_once=True, is_test_mode=True)
 
+def teardown_module(module):
+    """Clean up module-level patches and restore environment variables."""
+    patch.stopall()
+    if _orig_db_url is None:
+        os.environ.pop("DATABASE_URL", None)
+    else:
+        os.environ["DATABASE_URL"] = _orig_db_url
+
+    if _orig_railway is None:
+        os.environ.pop("RAILWAY_ENVIRONMENT", None)
+    else:
+        os.environ["RAILWAY_ENVIRONMENT"] = _orig_railway
+
+    if _orig_dont_save is None:
+        os.environ.pop("DONT_SAVE_ALERTS", None)
+    else:
+        os.environ["DONT_SAVE_ALERTS"] = _orig_dont_save
+
+
 if __name__ == '__main__':
     unittest.main()
+
