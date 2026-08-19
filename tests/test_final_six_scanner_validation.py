@@ -548,21 +548,44 @@ def _provider_dataframe_health(
             len(df), contract["min_rows"], "shared_acquisition", "candle depth",
         )
     )
-    required = set(explicit_required) | set(source_required)
-    for col in required:
-        if col not in df.columns:
-            # Check lower case or alternate cases
+
+    alias_map = {
+        "SMA_200": ["SMA_200", "sma_200", "SMA200", "sma200"],
+        "SMA_50": ["SMA_50", "sma_50", "SMA50", "sma50"],
+        "EMA_20": ["EMA_20", "ema_20", "EMA20", "ema20"],
+        "EMA_9": ["EMA_9", "ema_9", "EMA9", "ema9"],
+        "EMA_50": ["EMA_50", "ema_50", "EMA50", "ema50"],
+        "RSI_14": ["RSI_14", "rsi_14", "RSI14", "rsi14", "rsi", "RSI"],
+        "ATR_20": ["ATR_20", "atr_20", "ATR20", "atr20", "atr_14", "ATR_14", "atr", "ATR"],
+        "ADX_14": ["ADX_14", "adx_14", "ADX14", "adx14", "adx", "ADX"],
+        "VWAP": ["VWAP", "vwap", "Vwap"],
+        "OBV": ["OBV", "obv", "Obv"],
+    }
+
+    required = list(explicit_required)
+    for req_col in required:
+        found_col = None
+        candidates = alias_map.get(req_col, [req_col, req_col.lower(), req_col.upper()])
+        for cand in candidates:
+            if cand in df.columns:
+                found_col = cand
+                break
+        
+        if not found_col:
+            # Fallback: check case-insensitive match
             lower_cols = {c.lower(): c for c in df.columns}
-            if col.lower() in lower_cols:
-                col = lower_cols[col.lower()]
-            else:
-                results.append(DependencyResult(scanner, symbol, 2, f"{interval}:{col}", "FAIL", None, "column present", "production_dataframe", "required column absent"))
-                continue
-        series = df[col]
+            if req_col.lower() in lower_cols:
+                found_col = lower_cols[req_col.lower()]
+
+        if not found_col:
+            results.append(DependencyResult(scanner, symbol, 2, f"{interval}:{req_col}", "FAIL", None, "column present", "production_dataframe", "required column absent"))
+            continue
+
+        series = df[found_col]
         invalid = int(series.isna().sum()) + int(np.isinf(pd.to_numeric(series, errors="coerce")).sum())
         latest = series.iloc[-1] if len(series) else None
         ok = invalid == 0 and _is_finite(latest)
-        results.append(DependencyResult(scanner, symbol, 2, f"{interval}:{col}", "PASS" if ok else "FAIL", _json_safe(latest), "finite/non-null", "indicator_manager", f"invalid_cells={invalid}"))
+        results.append(DependencyResult(scanner, symbol, 2, f"{interval}:{req_col}", "PASS" if ok else "FAIL", _json_safe(latest), "finite/non-null", "indicator_manager", f"invalid_cells={invalid}"))
 
     for col in OHLCV_BASE:
         if col in df.columns:
