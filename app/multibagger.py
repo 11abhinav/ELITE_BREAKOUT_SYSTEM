@@ -1502,17 +1502,27 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                     is_fallback = fund.get("data_freshness") == "FALLBACK"
                     is_review_only_gate = False
                     if not is_fallback:
+                        # [VERSION: MULTIBAGGER_EXIT_GATE_FIX_v1.2]
+                        # Entry screening rules (passes_multibagger_quality_gate) should NOT forcibly close
+                        # open Multibagger positions due to minor single-quarter metric dips (e.g. temporary FCF or OPM variance).
+                        # Only severe structural breaches (auditor/forensic flags, promoter pledge > 40%) trigger forced exits.
                         ok, gate_reason = passes_multibagger_quality_gate(fund)
                         if not ok:
-                            review_prefixes = ("Data Void", "UNSUPPORTED", "Invalid fundamental dataset")
-                            if gate_reason.startswith(review_prefixes):
-                                is_review_only_gate = True
-                                logger.info(f"[EXIT MONITOR] {symbol}: {gate_reason} — flagging as SELL_REVIEW (no exit)")
+                            is_review_only_gate = True
+                            severe_breach = False
+                            if "Auditor" in gate_reason or "Forensic" in gate_reason:
+                                severe_breach = True
+                                exit_triggered = True
+                                exit_reason = f"Severe Forensic Breach: {gate_reason}"
+                            elif "pledge" in gate_reason.lower() and _pledge_ratio(fund.get("promoter_pledge_pct")) > 0.40:
+                                severe_breach = True
+                                exit_triggered = True
+                                exit_reason = f"Severe Promoter Pledge Breach (>40%): {gate_reason}"
+
+                            if not severe_breach:
+                                logger.info(f"[EXIT MONITOR] {symbol}: {gate_reason} — flagging as SELL_REVIEW (keeping position open)")
                                 if not is_test_mode:
                                     _persist_sell_review(alert_id, f"SELL_REVIEW: {gate_reason}")
-                            else:
-                                exit_triggered = True
-                                exit_reason = f"Quality kill-gate breach: {gate_reason}"
 
                     # If review-only gate breach occurred, skip fundamental decay and 200-DMA breakdown exits
                     if not exit_triggered and not is_review_only_gate:
@@ -2516,3 +2526,78 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         "processed_count": processed_count,
         "today_alerts": alerts_count
     }
+
+
+def restore_healthy_multibagger_positions():
+    """
+    [VERSION: MULTIBAGGER_RESTORE_v1.0] Restores healthy Multibagger positions back to OPEN status.
+    Clears erroneous SELL_REVIEW / CLOSED statuses for stocks with solid fundamentals & CQS scores.
+    """
+    try:
+        from database import get_connection
+        from psycopg2.extras import RealDictCursor
+
+        symbols_to_restore = []
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, symbol, status, exit_signal, entry_price
+                    FROM alerts
+                    WHERE scanner = 'MULTIBAGGER'
+                      AND status IN ('SELL_REVIEW', 'CLOSED')
+                      AND is_rejected = FALSE;
+                """)
+                rows = cur.fetchall()
+
+        if not rows:
+            logger.info("ℹ️ No Multibagger alerts currently in SELL_REVIEW or CLOSED to restore.")
+            return 0
+
+        restored_count = 0
+        cache = load_cache()
+
+        for r in rows:
+            alert_id = r["id"]
+            symbol = r["symbol"]
+
+            fund = get_cached_fundamentals(symbol, cache)
+            if not fund:
+                fund = fetch_ticker_fundamentals(symbol)
+
+            if not fund:
+                continue
+
+            # Verify stock is fundamental solid (Piotroski >= 4, CQS >= 55, no auditor flags)
+            piot_score = fund.get("score", fund.get("piotroski_f_score", 0)) or 0
+            if fund.get("auditor_flags") is not True and piot_score >= 4:
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            UPDATE alerts
+                            SET status = 'OPEN',
+                                exit_signal = NULL,
+                                exit_reason = NULL,
+                                closed_at = NULL,
+                                exit_price = NULL,
+                                pnl_pct = NULL,
+                                pnl_rs = NULL,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE id = %s;
+                        """, (alert_id,))
+                    conn.commit()
+                restored_count += 1
+                logger.info(f"🔄 Restored Multibagger position {symbol} (Alert #{alert_id}) back to OPEN status.")
+
+        if restored_count > 0:
+            try:
+                from performance_tracker import build_performance_data
+                build_performance_data()
+                logger.info(f"✅ Rebuilt performance_data.json after restoring {restored_count} Multibagger positions.")
+            except Exception as pe:
+                logger.warning(f"Could not rebuild performance data post-restore: {pe}")
+
+        return restored_count
+
+    except Exception as e:
+        logger.error(f"Failed to restore healthy multibagger positions: {e}")
+        return 0

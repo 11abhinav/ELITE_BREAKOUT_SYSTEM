@@ -2519,6 +2519,18 @@ def api_trigger_scanner(scanner_name):
         logger.exception(f"❌ /api/admin/trigger_scanner failed for {scanner_name}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route("/api/admin/restore_multibagger_positions", methods=["POST"])
+@admin_required
+def api_restore_multibagger_positions():
+    """Admin endpoint to restore healthy Multibagger positions back to OPEN status."""
+    try:
+        from multibagger import restore_healthy_multibagger_positions
+        count = restore_healthy_multibagger_positions()
+        return jsonify({"status": "ok", "message": f"Restored {count} Multibagger position(s) back to OPEN status.", "count": count}), 200
+    except Exception as e:
+        logger.exception("❌ /api/admin/restore_multibagger_positions failed")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route("/api/admin/pledge_worker/mode", methods=["GET", "POST"])
 @admin_required
 def api_pledge_worker_mode():
