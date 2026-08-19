@@ -1,0 +1,1529 @@
+{
+  "total_requests": 73,
+  "expected_request_budget": 50,
+  "request_amplification_ratio": 1.46,
+  "live_network_calls": 73,
+  "mock_calls": 0,
+  "cache_hit_calls": 0,
+  "successful_requests": 73,
+  "failed_requests": 0,
+  "missing_field_count": 0,
+  "invalid_field_count": "1",
+  "unmapped_field_count": 0,
+  "rate_limit_429_count": 0,
+  "timeout_count": 0,
+  "http_5xx_count": 0,
+  "provider_budgets": {
+    "YFinance/Provider": 73
+  },
+  "data_lineage": {
+    "MUTATION_A": {
+      "symbol": "MUTATION_A",
+      "raw_payload_hash": "80a7be7fbe40752a",
+      "normalized_payload_hash": "80a7be7fbe40752a",
+      "hash_reproducible": true,
+      "fields_count": 5,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139195.200149
+    },
+    "MUTATION_B": {
+      "symbol": "MUTATION_B",
+      "raw_payload_hash": "06967ab1f0dc65e3",
+      "normalized_payload_hash": "06967ab1f0dc65e3",
+      "hash_reproducible": true,
+      "fields_count": 4,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139195.304592
+    },
+    "RELIANCE": {
+      "symbol": "RELIANCE",
+      "raw_payload_hash": "8bd3630fb58a0d22",
+      "normalized_payload_hash": "8bd3630fb58a0d22",
+      "hash_reproducible": true,
+      "fields_count": 33,
+      "lineage_mapping": {
+        "market_cap": "wealth_engine.mcap -> multibagger.mcap_gate",
+        "eps": "wealth_engine.eps -> valuation.score"
+      },
+      "timestamp": 1787139384.742434
+    },
+    "TCS": {
+      "symbol": "TCS",
+      "raw_payload_hash": "175c91c3955ca225",
+      "normalized_payload_hash": "175c91c3955ca225",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139370.617056
+    },
+    "INFY": {
+      "symbol": "INFY",
+      "raw_payload_hash": "1a686588216d4675",
+      "normalized_payload_hash": "1a686588216d4675",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139370.9435909
+    },
+    "ICICIBANK": {
+      "symbol": "ICICIBANK",
+      "raw_payload_hash": "9f10a2294be011ee",
+      "normalized_payload_hash": "9f10a2294be011ee",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139371.268078
+    },
+    "HDFCBANK": {
+      "symbol": "HDFCBANK",
+      "raw_payload_hash": "5f96180e1cdfe731",
+      "normalized_payload_hash": "5f96180e1cdfe731",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139371.641943
+    },
+    "BHARTIARTL": {
+      "symbol": "BHARTIARTL",
+      "raw_payload_hash": "bee66969e28aec8d",
+      "normalized_payload_hash": "bee66969e28aec8d",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139371.9576519
+    },
+    "LT": {
+      "symbol": "LT",
+      "raw_payload_hash": "226c6e68f2ed73e5",
+      "normalized_payload_hash": "226c6e68f2ed73e5",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139372.2868
+    },
+    "ITC": {
+      "symbol": "ITC",
+      "raw_payload_hash": "d876b2a97428a6a6",
+      "normalized_payload_hash": "d876b2a97428a6a6",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139372.686332
+    },
+    "SBIN": {
+      "symbol": "SBIN",
+      "raw_payload_hash": "ebd90538cbc9855f",
+      "normalized_payload_hash": "ebd90538cbc9855f",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139373.108596
+    },
+    "AXISBANK": {
+      "symbol": "AXISBANK",
+      "raw_payload_hash": "fba106c95d63a06b",
+      "normalized_payload_hash": "fba106c95d63a06b",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139373.4805849
+    },
+    "POLYCAB": {
+      "symbol": "POLYCAB",
+      "raw_payload_hash": "f64737a86b3789af",
+      "normalized_payload_hash": "f64737a86b3789af",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139373.83109
+    },
+    "DIXON": {
+      "symbol": "DIXON",
+      "raw_payload_hash": "d9ff46ea11c4fe1a",
+      "normalized_payload_hash": "d9ff46ea11c4fe1a",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139374.22544
+    },
+    "BEL": {
+      "symbol": "BEL",
+      "raw_payload_hash": "67cacb82ac48eeac",
+      "normalized_payload_hash": "67cacb82ac48eeac",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139374.631561
+    },
+    "MCX": {
+      "symbol": "MCX",
+      "raw_payload_hash": "1e256130a953f8c9",
+      "normalized_payload_hash": "1e256130a953f8c9",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139374.997571
+    },
+    "PERSISTENT": {
+      "symbol": "PERSISTENT",
+      "raw_payload_hash": "5546d9d03693c931",
+      "normalized_payload_hash": "5546d9d03693c931",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139375.361502
+    },
+    "COFORGE": {
+      "symbol": "COFORGE",
+      "raw_payload_hash": "3dcce3eeaa658df9",
+      "normalized_payload_hash": "3dcce3eeaa658df9",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139375.790603
+    },
+    "TRENT": {
+      "symbol": "TRENT",
+      "raw_payload_hash": "c2e1a938a1aae412",
+      "normalized_payload_hash": "c2e1a938a1aae412",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139376.294812
+    },
+    "HAL": {
+      "symbol": "HAL",
+      "raw_payload_hash": "4350177cf8935139",
+      "normalized_payload_hash": "4350177cf8935139",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139376.659164
+    },
+    "SOLARINDS": {
+      "symbol": "SOLARINDS",
+      "raw_payload_hash": "ff253d54bfdded42",
+      "normalized_payload_hash": "ff253d54bfdded42",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139377.029529
+    },
+    "SUPREMEIND": {
+      "symbol": "SUPREMEIND",
+      "raw_payload_hash": "574cf7720ec5bd1b",
+      "normalized_payload_hash": "574cf7720ec5bd1b",
+      "hash_reproducible": true,
+      "fields_count": 50,
+      "lineage_mapping": {
+        "Close": "normalized.close -> indicator.ema20 -> scanner.intraday_trigger"
+      },
+      "timestamp": 1787139377.4315362
+    },
+    "BALUFORGE": {
+      "symbol": "BALUFORGE",
+      "raw_payload_hash": "05209f9f88f00018",
+      "normalized_payload_hash": "05209f9f88f00018",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139228.7440991
+    },
+    "ICIL": {
+      "symbol": "ICIL",
+      "raw_payload_hash": "3d9d03191ba8962e",
+      "normalized_payload_hash": "3d9d03191ba8962e",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139230.201452
+    },
+    "LOTUSDEV": {
+      "symbol": "LOTUSDEV",
+      "raw_payload_hash": "4b82d0bcd0c0a1d0",
+      "normalized_payload_hash": "4b82d0bcd0c0a1d0",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139231.5727181
+    },
+    "MAPMYINDIA": {
+      "symbol": "MAPMYINDIA",
+      "raw_payload_hash": "fa2d7ba7d0721018",
+      "normalized_payload_hash": "fa2d7ba7d0721018",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139233.1807292
+    },
+    "KAYNES": {
+      "symbol": "KAYNES",
+      "raw_payload_hash": "20da5215a5835ee6",
+      "normalized_payload_hash": "20da5215a5835ee6",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139234.4961002
+    },
+    "DATAPATTNS": {
+      "symbol": "DATAPATTNS",
+      "raw_payload_hash": "afb52b9f91ec8263",
+      "normalized_payload_hash": "afb52b9f91ec8263",
+      "hash_reproducible": true,
+      "fields_count": 49,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139235.704407
+    },
+    "AARTIDRUGS": {
+      "symbol": "AARTIDRUGS",
+      "raw_payload_hash": "411b47be5aa287d9",
+      "normalized_payload_hash": "411b47be5aa287d9",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139237.1751199
+    },
+    "ECLERX": {
+      "symbol": "ECLERX",
+      "raw_payload_hash": "1eff53c466f86147",
+      "normalized_payload_hash": "1eff53c466f86147",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139238.5810041
+    },
+    "CIPLA": {
+      "symbol": "CIPLA",
+      "raw_payload_hash": "921acabced408d5f",
+      "normalized_payload_hash": "921acabced408d5f",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139239.734859
+    },
+    "GRAVITA": {
+      "symbol": "GRAVITA",
+      "raw_payload_hash": "8b54d2149e926925",
+      "normalized_payload_hash": "8b54d2149e926925",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139241.121342
+    },
+    "DCMSHRIRAM": {
+      "symbol": "DCMSHRIRAM",
+      "raw_payload_hash": "9f4b88c7f7b24e19",
+      "normalized_payload_hash": "9f4b88c7f7b24e19",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139242.845261
+    },
+    "NEULANDLAB": {
+      "symbol": "NEULANDLAB",
+      "raw_payload_hash": "80171bc532446229",
+      "normalized_payload_hash": "80171bc532446229",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139244.287759
+    },
+    "ORIANA": {
+      "symbol": "ORIANA",
+      "raw_payload_hash": "0a276f0511b7c4f5",
+      "normalized_payload_hash": "0a276f0511b7c4f5",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139246.020254
+    },
+    "SULA": {
+      "symbol": "SULA",
+      "raw_payload_hash": "439e1cc59e8cb01b",
+      "normalized_payload_hash": "439e1cc59e8cb01b",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139248.524288
+    },
+    "LANDMARK": {
+      "symbol": "LANDMARK",
+      "raw_payload_hash": "85cbf6a9fde04cd6",
+      "normalized_payload_hash": "85cbf6a9fde04cd6",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139250.3520372
+    },
+    "SIGACHI": {
+      "symbol": "SIGACHI",
+      "raw_payload_hash": "6df1709fd73a2505",
+      "normalized_payload_hash": "6df1709fd73a2505",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139253.300718
+    },
+    "ROLEXRINGS": {
+      "symbol": "ROLEXRINGS",
+      "raw_payload_hash": "359ed4da6c3e55c3",
+      "normalized_payload_hash": "359ed4da6c3e55c3",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139254.786464
+    },
+    "RATEGAIN": {
+      "symbol": "RATEGAIN",
+      "raw_payload_hash": "7e68f6471a8e0d26",
+      "normalized_payload_hash": "7e68f6471a8e0d26",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139256.896214
+    },
+    "KPRMILL": {
+      "symbol": "KPRMILL",
+      "raw_payload_hash": "889f24cae3133a1c",
+      "normalized_payload_hash": "889f24cae3133a1c",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139258.3746
+    },
+    "HINDWAREAP": {
+      "symbol": "HINDWAREAP",
+      "raw_payload_hash": "0379f9522db9a16c",
+      "normalized_payload_hash": "0379f9522db9a16c",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139259.793524
+    },
+    "NTPCGREEN": {
+      "symbol": "NTPCGREEN",
+      "raw_payload_hash": "cb0e5e7b42b63476",
+      "normalized_payload_hash": "cb0e5e7b42b63476",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139261.8342972
+    },
+    "SWIGGY": {
+      "symbol": "SWIGGY",
+      "raw_payload_hash": "a9db9819aab5ef52",
+      "normalized_payload_hash": "a9db9819aab5ef52",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139263.2372532
+    },
+    "HYUNDAI": {
+      "symbol": "HYUNDAI",
+      "raw_payload_hash": "272f99d2a4f33764",
+      "normalized_payload_hash": "272f99d2a4f33764",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139265.222817
+    },
+    "BHARTIHEXA": {
+      "symbol": "BHARTIHEXA",
+      "raw_payload_hash": "49243cbe9957f03c",
+      "normalized_payload_hash": "49243cbe9957f03c",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139267.6876411
+    },
+    "BAJAJHFL": {
+      "symbol": "BAJAJHFL",
+      "raw_payload_hash": "2d0fcf4baedc69aa",
+      "normalized_payload_hash": "2d0fcf4baedc69aa",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139270.1771631
+    },
+    "FIRSTCRY": {
+      "symbol": "FIRSTCRY",
+      "raw_payload_hash": "9cb0af0493dbded9",
+      "normalized_payload_hash": "9cb0af0493dbded9",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139271.893006
+    },
+    "OLAELEC": {
+      "symbol": "OLAELEC",
+      "raw_payload_hash": "e54661a3210b279b",
+      "normalized_payload_hash": "e54661a3210b279b",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139273.074753
+    },
+    "SANSTAR": {
+      "symbol": "SANSTAR",
+      "raw_payload_hash": "f8d61e1e6a57796c",
+      "normalized_payload_hash": "f8d61e1e6a57796c",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139274.702515
+    },
+    "DEEPINDS": {
+      "symbol": "DEEPINDS",
+      "raw_payload_hash": "ba8cd2f253f2b13b",
+      "normalized_payload_hash": "ba8cd2f253f2b13b",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139276.5857542
+    },
+    "AKUMS": {
+      "symbol": "AKUMS",
+      "raw_payload_hash": "0f4d30df4df92a28",
+      "normalized_payload_hash": "0f4d30df4df92a28",
+      "hash_reproducible": true,
+      "fields_count": 48,
+      "lineage_mapping": {
+        "Open": "normalized.open",
+        "High": "normalized.high",
+        "Low": "normalized.low",
+        "Close": "normalized.close -> indicator.rsi_14 -> scanner.entry_price",
+        "Volume": "normalized.volume -> indicator.volume_ratio -> scanner.volume_gate"
+      },
+      "timestamp": 1787139278.891228
+    }
+  },
+  "request_records": [
+    {
+      "timestamp": 1787139195.2885802,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "MUTATION_A",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 113,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139195.353148,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "MUTATION_B",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 57,
+      "is_live": true,
+      "missing_fields": [
+        "Volume"
+      ]
+    },
+    {
+      "timestamp": 1787139199.8101702,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "RELIANCE",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139201.096156,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "TCS",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139203.690613,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "INFY",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139204.8969758,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "ICICIBANK",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139206.1277251,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "HDFCBANK",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139207.653184,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "BHARTIARTL",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139208.7593868,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "LT",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139209.995488,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "ITC",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139211.123416,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "SBIN",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139212.36375,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "AXISBANK",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139213.8593369,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "POLYCAB",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139215.4778922,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "DIXON",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 817,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139217.089622,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "BEL",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 948,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139218.900372,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "MCX",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139220.319411,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "PERSISTENT",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139221.888726,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "COFORGE",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139223.476594,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "TRENT",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139224.9580832,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "HAL",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139226.553586,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "SOLARINDS",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1025,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139228.1526132,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "SUPREMEIND",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139229.563112,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "BALUFORGE",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139230.978994,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "ICIL",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139232.4301372,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "LOTUSDEV",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139233.914934,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "MAPMYINDIA",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139235.076908,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "KAYNES",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139236.432748,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "DATAPATTNS",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 960,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139237.970381,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "AARTIDRUGS",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139239.2136478,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "ECLERX",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139240.381114,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "CIPLA",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139241.955793,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "GRAVITA",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139243.6415029,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "DCMSHRIRAM",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139245.121069,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "NEULANDLAB",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1025,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139247.256325,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "ORIANA",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139249.4557629,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "SULA",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139252.5033112,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "LANDMARK",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139254.209783,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "SIGACHI",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1077,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139255.84103,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "ROLEXRINGS",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139257.765568,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "RATEGAIN",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139259.130143,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "KPRMILL",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139260.9766421,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "HINDWAREAP",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139262.625082,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "NTPCGREEN",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139264.4553752,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "SWIGGY",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139266.3614552,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "HYUNDAI",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139268.898725,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "BHARTIHEXA",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139271.282503,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "BAJAJHFL",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139272.59231,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "FIRSTCRY",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139273.949904,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "OLAELEC",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1077,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139275.665725,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "SANSTAR",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139277.792656,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "DEEPINDS",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139280.676068,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_DAILY",
+      "symbol": "AKUMS",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139370.586727,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "RELIANCE",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139370.927378,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "TCS",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139371.250797,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "INFY",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139371.624972,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "ICICIBANK",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139371.94459,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "HDFCBANK",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1103,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139372.273864,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "BHARTIARTL",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1128,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139372.6705768,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "LT",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139373.093183,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "ITC",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1102,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139373.465796,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "SBIN",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1129,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139373.817418,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "AXISBANK",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1128,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139374.2106209,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "POLYCAB",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 999,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139374.617847,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "DIXON",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1024,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139374.984542,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "BEL",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1102,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139375.348861,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "MCX",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1128,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139375.777086,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "PERSISTENT",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 999,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139376.280908,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "COFORGE",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1128,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139376.637954,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "TRENT",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1128,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139377.018304,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "HAL",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1128,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139377.417832,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "SOLARINDS",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1025,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139377.865247,
+      "provider": "YFinance/Provider",
+      "endpoint": "PRICE_INTRADAY",
+      "symbol": "SUPREMEIND",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 1128,
+      "is_live": true,
+      "missing_fields": []
+    },
+    {
+      "timestamp": 1787139384.742683,
+      "provider": "YFinance/Provider",
+      "endpoint": "FUNDAMENTALS_V5",
+      "symbol": "RELIANCE",
+      "status_code": 200,
+      "duration_s": 0.05,
+      "payload_size": 954,
+      "is_live": true,
+      "missing_fields": []
+    }
+  ]
+}

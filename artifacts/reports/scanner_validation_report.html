@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Scanner System Validation Certificate — run_1787138804</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 20px; }
+        .certificate { border: 2px solid #3b82f6; border-radius: 12px; padding: 30px; background: #1e293b; max-width: 1100px; margin: 0 auto; }
+        h1 { color: #60a5fa; margin-top: 0; }
+        .status-badge { display: inline-block; padding: 8px 16px; font-weight: bold; border-radius: 6px; font-size: 1.2rem; }
+        .status-PASS { background: #16a34a; color: white; }
+        .status-FAIL { background: #dc2626; color: white; }
+        .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin: 20px 0; }
+        .card { background: #0f172a; border-radius: 8px; padding: 15px; border: 1px solid #334155; }
+        .card-val { font-size: 1.4rem; font-weight: bold; color: #38bdf8; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #334155; padding: 10px; text-align: left; font-size: 0.9rem; }
+        th { background: #0f172a; color: #94a3b8; }
+        tr:nth-child(even) { background: #1e293b; }
+    </style>
+</head>
+<body>
+    <div class="certificate">
+        <h1>🛡️ Institutional Scanner System Validation Certificate</h1>
+        <p><strong>Run ID:</strong> run_1787138804 | <strong>Duration:</strong> 580.91s | <strong>Date:</strong> 2026-08-19 17:06:25 IST</p>
+        <p><strong>Final System Status:</strong> <span class="status-badge status-FAIL">FAIL</span></p>
+
+        <div class="grid">
+            <div class="card">
+                <div>Symbols Evaluated</div>
+                <div class="card-val">53 / 50+</div>
+            </div>
+            <div class="card">
+                <div>API Calls (Live / Total)</div>
+                <div class="card-val">73 / 73</div>
+            </div>
+            <div class="card">
+                <div>Request Amplification Ratio</div>
+                <div class="card-val">1.46x</div>
+            </div>
+            <div class="card">
+                <div>Rate Limits (HTTP 429)</div>
+                <div class="card-val" style="color: #16a34a">0</div>
+            </div>
+            <div class="card">
+                <div>Missing Mandatory Fields</div>
+                <div class="card-val" style="color: #16a34a">0</div>
+            </div>
+            <div class="card">
+                <div>Invalid Field Values</div>
+                <div class="card-val" style="color: #dc2626">1</div>
+            </div>
+            <div class="card">
+                <div>IPO Short History Fallbacks</div>
+                <div class="card-val">50 Evaluated</div>
+            </div>
+            <div class="card">
+                <div>Swallowed Exceptions</div>
+                <div class="card-val" style="color: #16a34a">0 (Enforced)</div>
+            </div>
+        </div>
+
+        <h2>📋 Golden Fixture Verification Ledger (Decision Vectors)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Fixture Name</th>
+                    <th>Expected</th>
+                    <th>Actual</th>
+                    <th>Score</th>
+                    <th>SL / Target</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+
+                <tr>
+                    <td><strong>RELIANCE_QUALIFIED_FIXTURE</strong></td>
+                    <td>ALERT</td>
+                    <td>ALERT</td>
+                    <td>75.0</td>
+                    <td>₹475.0 / ₹550.0</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>ILLIQUID_REJECT_FIXTURE</strong></td>
+                    <td>REJECT</td>
+                    <td>REJECT</td>
+                    <td>15.0</td>
+                    <td>₹0.0 / ₹0.0</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+            </tbody>
+        </table>
+
+        <h2>📋 Per-Symbol Full Stage Execution Ledger (50+ Securities)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Symbol</th>
+                    <th>Category</th>
+                    <th>Scanners Tested</th>
+                    <th>Alert Generated?</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+
+                <tr>
+                    <td><strong>RELIANCE</strong></td>
+                    <td>EQUITY</td>
+                    <td>WEALTH_ENGINE, EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>TCS</strong></td>
+                    <td>EQUITY</td>
+                    <td>WEALTH_ENGINE, EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>BALUFORGE</strong></td>
+                    <td>EQUITY</td>
+                    <td>WEALTH_ENGINE, EOD, REVERSAL, PULLBACK, MULTIBAGGER</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>NEULANDLAB</strong></td>
+                    <td>EQUITY</td>
+                    <td>WEALTH_ENGINE, EOD, REVERSAL, MULTIBAGGER</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>UNKNOWN</strong></td>
+                    <td>EQUITY</td>
+                    <td>WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>RELIANCE_QUALIFIED_FIXTURE</strong></td>
+                    <td>EQUITY</td>
+                    <td>WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>DAILY_BUILDER_UNIVERSE</strong></td>
+                    <td>EQUITY</td>
+                    <td>Daily Builder</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>INFY</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>ICICIBANK</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>HDFCBANK</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>BHARTIARTL</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>LT</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>ITC</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>SBIN</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>AXISBANK</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>POLYCAB</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>DIXON</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>BEL</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>MCX</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>PERSISTENT</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>COFORGE</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>TRENT</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>HAL</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>SOLARINDS</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>SUPREMEIND</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTI_TF, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>ICIL</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>LOTUSDEV</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>MAPMYINDIA</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>KAYNES</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>DATAPATTNS</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>AARTIDRUGS</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>ECLERX</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>CIPLA</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>GRAVITA</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, PULLBACK, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>DCMSHRIRAM</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>ORIANA</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>SULA</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>LANDMARK</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>SIGACHI</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>ROLEXRINGS</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>RATEGAIN</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>KPRMILL</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>HINDWAREAP</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>NTPCGREEN</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>SWIGGY</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>HYUNDAI</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>BHARTIHEXA</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>BAJAJHFL</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>FIRSTCRY</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>OLAELEC</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>SANSTAR</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>DEEPINDS</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+                <tr>
+                    <td><strong>AKUMS</strong></td>
+                    <td>EQUITY</td>
+                    <td>EOD, REVERSAL, MULTIBAGGER, WEALTH_ENGINE</td>
+                    <td>NO (Clean Reject)</td>
+                    <td><span style="color: #4ade80;">PASS</span></td>
+                </tr>
+
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
