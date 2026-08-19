@@ -405,6 +405,18 @@ class GlobalScannerTelemetryEngine:
         ctx.finalize(decision="SELECTED", primary_reason="ALL_REQUIRED_GATES_PASSED")
         self.emit_terminal(ctx)
 
+    def record_pass(self, symbol: str, score: float = 0.0, rr_ratio: float = 0.0, metrics: Dict[str, Any] = None, start_time: float = None, **kwargs):
+        """Legacy helper recording passed candidate into DecisionContext and emitting terminal telemetry."""
+        ctx = DecisionContext(symbol=symbol, scanner_name=self.scanner_name or "EOD", run_id=self.run_id)
+        ctx.capture_score("TOTAL", float(score), 100.0)
+        if metrics and isinstance(metrics, dict):
+            for k, v in metrics.items():
+                ctx.capture(k, v, origin="CALCULATED", group="DERIVED")
+        if rr_ratio:
+            ctx.capture("RR_RATIO", float(rr_ratio), origin="CALCULATED", group="SL_TARGET")
+        ctx.finalize(decision="SELECTED", primary_reason="ALL_REQUIRED_GATES_PASSED")
+        self.emit_terminal(ctx)
+
     def flush(self, *args, **kwargs):
         """Flushes telemetry logs."""
         pass

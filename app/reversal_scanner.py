@@ -1766,8 +1766,17 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                         )
 
                         if not verdict["passed"]:
+                            rej_code = verdict.get("reject_code", "failed_pattern")
                             with _batch_lock:
-                                rejected[verdict.get("reject_code", "failed_pattern")] += 1
+                                rejected[rej_code] += 1
+                            telemetry_logger.record_reject(
+                                symbol=symbol,
+                                last_stage="REVERSAL_GATE",
+                                gate=rej_code.upper(),
+                                actual=verdict.get("actual", verdict.get("score")),
+                                required=verdict.get("threshold"),
+                                start_time=_row_start_time
+                            )
                             try:
                                 from near_miss_tracker import log_near_miss
                                 ev_score = verdict.get("score") or verdict.get("raw_score") or 0
@@ -2007,11 +2016,24 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                 outcome="SUCCESS"
             )
             pass
-            logger.info("✅ [REVERSAL] Scan completed cleanly — scanner health marked OK.")
-            try:
-                stage_tracker.print_summary(alerts_found=total_alerts)
-            except Exception:
-                pass
+            fired_rev = {k: v for k, v in rejected.items() if v > 0}
+            summary_rev_lines = [
+                "======================================================================",
+                "=== [REVERSAL SCANNER PIPELINE SUMMARY] ===",
+                "======================================================================",
+                f"  • Total Watchlist Requested : {total_symbols}",
+                f"  • Provider Resolved Symbols : {total_fetched_count}",
+                f"  • Shortlisted Candidates    : {len(shortlisted_alerts)}",
+                f"  • Alerts Generated          : {total_alerts}",
+                "",
+                "🎯 CRITERIA & FILTER BREAKDOWN:"
+            ]
+            for k, v in fired_rev.items():
+                summary_rev_lines.append(f"  • {k:<35}: {v}")
+            summary_rev_lines.append("======================================================================")
+            logger.info("\n".join(summary_rev_lines))
+            telemetry_logger.print_summary()
+            global_telemetry.print_system_summary()
             # [VERSION: PERF_PHASE0_v1.0] Human-readable stage summary for log-based verification
             try:
                 _scan_total_ms = (_time_mod.perf_counter() - _scan_start) * 1000

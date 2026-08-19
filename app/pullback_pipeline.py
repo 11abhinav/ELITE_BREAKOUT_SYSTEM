@@ -674,25 +674,32 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                         sma200_val = bundle.sma_200.iloc[-1] if bundle.sma_200 is not None and not bundle.sma_200.empty else None
 
                         if not (sma50_val and sma200_val and sma50_val > sma200_val and last_bar['Close'] >= (sma50_val * 0.95)):
-                            return (None, "no_uptrend", "SUCCESS", fresh_val, sym)
+                            act_u = {"Close": round(float(last_bar['Close']), 2), "SMA50": round(float(sma50_val), 2) if sma50_val else None, "SMA200": round(float(sma200_val), 2) if sma200_val else None}
+                            req_u = {"Close >= 0.95*SMA50": round(float(sma50_val * 0.95), 2) if sma50_val else None, "SMA50 > SMA200": True}
+                            return (None, "no_uptrend", "SUCCESS", fresh_val, sym, act_u, req_u)
 
                         pivots = swing_utils.detect_confirmed_pivots(historical_view, effective_config["LOOKBACK"], effective_config["CONFIRM"])
                         if not pivots:
-                            return (None, "no_pivots", "SUCCESS", fresh_val, sym)
+                            return (None, "no_pivots", "SUCCESS", fresh_val, sym, {"Pivots": 0}, {"Min Pivots": 1})
 
                         impulse = swing_utils.select_pullback_origin(pivots, historical_view, effective_config)
                         if not impulse:
-                            return (None, "no_impulse", "SUCCESS", fresh_val, sym)
+                            return (None, "no_impulse", "SUCCESS", fresh_val, sym, {"Impulse": "None"}, {"Valid Impulse": True})
 
                         ps = swing_utils.measure_pullback(historical_view, impulse, effective_config, debug=effective_config.get("DEBUG_SWINGS", False))
                         save_funnel_telemetry("PULLBACK", run_date, sym, ps.stage_results)
                     
                         if not ps.valid:
-                            return (None, "pullback_invalid", "SUCCESS", fresh_val, sym)
+                            v_ratio = round(float(ps.volume_ratio), 2) if hasattr(ps, 'volume_ratio') and ps.volume_ratio is not None else None
+                            act_pb = {"Retracement %": round(float(ps.depth_pct), 1), "Volume Ratio": v_ratio, "Duration Bars": getattr(ps, 'duration_bars', None)}
+                            req_pb = {"Max Retracement %": 50.0, "Min Retracement %": 15.0, "Valid Structure": True}
+                            return (None, "pullback_invalid", "SUCCESS", fresh_val, sym, act_pb, req_pb)
 
                         trig = swing_utils.detect_resumption_trigger(historical_view, ps, effective_config)
                         if not trig.valid:
-                            return (None, "no_trigger", "SUCCESS", fresh_val, sym)
+                            act_tr = {"Entry Price": round(float(trig.entry_price), 2), "Reason": getattr(trig, 'reason', 'No trigger condition met')}
+                            req_tr = {"Valid Trigger": True}
+                            return (None, "no_trigger", "SUCCESS", fresh_val, sym, act_tr, req_tr)
 
                         logger.info(f"📍 PICKED [PULLBACK: IN BETWEEN]: {sym} @ ₹{trig.entry_price:.2f} (Retracement: {ps.depth_pct:.1f}%, Vol Ratio: {ps.volume_ratio:.2f}x)")
                         
@@ -713,10 +720,10 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                         cand.trigger_close_position = close_position
                         cand.atr_val = atr_val
                         
-                        return (cand, None, "SUCCESS", fresh_val, sym)
+                        return (cand, None, "SUCCESS", fresh_val, sym, None, None)
                     except Exception as sym_err:
                         logger.error(f"❌ Error processing symbol {sym} in Pullback Scanner: {sym_err}")
-                        return (None, "processing_error", "SUCCESS", None, sym)
+                        return (None, "processing_error", "SUCCESS", None, sym, {"Error": str(sym_err)[:100]}, None)
 
                 try:
                     from config import SCAN_WORKER_THREADS
@@ -735,7 +742,14 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                         sym = future_to_sym[future]
                         symbols_processed += 1
                         try:
-                            cand, rej_reason, prov_stat, fresh_val, _ = future.result()
+                            future_res = future.result()
+                            cand = future_res[0]
+                            rej_reason = future_res[1]
+                            prov_stat = future_res[2]
+                            fresh_val = future_res[3]
+                            act_data = future_res[5] if len(future_res) > 5 else None
+                            req_data = future_res[6] if len(future_res) > 6 else None
+
                             if prov_stat != "EMPTY_DATA" and prov_stat != "SUCCESS":
                                 provider_stats_counts[prov_stat] = provider_stats_counts.get(prov_stat, 0) + 1
                                 provider_resolved_symbols.add(sym)
@@ -754,8 +768,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                                     symbol=sym,
                                     last_stage="PRE_CHECK",
                                     gate=rej_reason.upper(),
-                                    actual=None,
-                                    required=None,
+                                    actual=act_data,
+                                    required=req_data,
                                     start_time=_batch_start_t
                                 )
                             if cand:
@@ -767,7 +781,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                                 symbol=sym,
                                 last_stage="PRE_CHECK",
                                 gate="PROCESSING_ERROR",
-                                actual=None,
+                                actual=str(e)[:100],
                                 required=None,
                                 start_time=_batch_start_t
                             )
@@ -977,12 +991,34 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             logger.debug(f"REJECTION: {c.symbol} (Phase: SL_TARGET_ENGINE, Reason: {sl_result.get('rejection_reason')})")
             c.status = CandidateState.REJECTED
             rejected["risk_rejected"] += 1
+
+            sl_val = float(sl_result.get("stop_loss", 0.0))
+            t1_val = float(sl_result.get("target_1", 0.0))
+            nat_rr = float(sl_result.get("natural_rr", 0.0))
+            risk_pct = round(((entry_val - sl_val) / entry_val) * 100.0, 2) if entry_val > 0 and sl_val > 0 else 0.0
+            reward_pct = round(((t1_val - entry_val) / entry_val) * 100.0, 2) if entry_val > 0 and t1_val > 0 else 0.0
+
+            actual_risk_metrics = {
+                "Entry": round(entry_val, 2),
+                "Stop Loss": round(sl_val, 2),
+                "Target 1": round(t1_val, 2),
+                "Natural RR": round(nat_rr, 2),
+                "Risk %": risk_pct,
+                "Reward %": reward_pct,
+                "SL Method": sl_result.get("sl_method", "UNKNOWN"),
+                "Target Method": sl_result.get("target_method", "UNKNOWN")
+            }
+            required_risk_metrics = {
+                "Min RR": sl_result.get("min_rr_threshold", 2.0),
+                "Reason": sl_result.get("rejection_reason", "RISK_REJECTED")
+            }
+
             telemetry_logger.record_reject(
                 symbol=c.symbol,
                 last_stage="RISK_ENGINE",
                 gate="RISK_REJECTED",
-                actual=None,
-                required=None
+                actual=actual_risk_metrics,
+                required=required_risk_metrics
             )
         else:
             c.sl_result = sl_result
