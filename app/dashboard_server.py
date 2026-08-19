@@ -1412,12 +1412,15 @@ def _get_shortlist_cache():
 @login_required
 def api_shortlist():
     """Returns the elite fundamental watchlist data as JSON. Cached in-memory by file mtime."""
-    from config import WATCHLIST_PATH
+    from config import WATCHLIST_PATH, DATA_DIR
     try:
-        if not os.path.exists(WATCHLIST_PATH):
-            return jsonify([])
-            
-        mtime = os.path.getmtime(WATCHLIST_PATH)
+        target_path = WATCHLIST_PATH
+        if not os.path.exists(target_path):
+            target_path = os.path.join(DATA_DIR, "elite_fundamental_watchlist.csv")
+            if not os.path.exists(target_path):
+                return jsonify([])
+
+        mtime = os.path.getmtime(target_path)
         cache = _get_shortlist_cache()
         if cache["mtime"] == mtime and cache["payload"] is not None:
             return Response(cache["payload"], mimetype="application/json")
@@ -1436,7 +1439,11 @@ def api_shortlist():
                 return obj.isoformat()
             return obj
 
-        df = pd.read_parquet(WATCHLIST_PATH)
+        if target_path.endswith('.csv'):
+            df = pd.read_csv(target_path)
+        else:
+            df = pd.read_parquet(target_path)
+            
         df = df.replace([float('inf'), float('-inf')], float('nan'))
         df = df.where(pd.notnull(df), None)
         records = sanitize_nans(df.to_dict(orient="records"))
@@ -1873,6 +1880,7 @@ def api_expectancy_matrix():
                 })
     except Exception as e:
         logger.exception("❌ /api/analytics/expectancy_matrix failed")
+        return jsonify({"matrix": [], "ambiguous_collision_pct": 0.0, "ambiguous_warning_triggered": False})
 @app.route("/api/v1/analytics/outcomes/advanced", methods=["GET"])
 @login_required
 def api_advanced_outcome_analytics():
@@ -2139,7 +2147,7 @@ def api_todays_alerts():
     """Return alerts fired today (includes seen flags)."""
     global _todays_alerts_cache
     now_ts = time.time()
-    is_admin = session.get('role') == 'admin'
+    is_admin = session.get('role') in ('admin', 'superuser')
     cache_key = "admin_payload" if is_admin else "user_payload"
     
     if _todays_alerts_cache[cache_key] is not None and (now_ts - _todays_alerts_cache["ts"]) < 3.0:
@@ -2805,9 +2813,13 @@ def api_indices():
             cache = _get_indices_cache() # This gets the reference to the dict
             cache["timestamp"] = time.time()
             cache["data"] = data
-            # If using session context, make sure to save it back
             from data_registry import registry
             registry.put("indices_cache", cache)
+    else:
+        with _indices_lock:
+            cache = _get_indices_cache()
+            if cache.get("data"):
+                data = cache["data"]
 
     return jsonify(data)
 
@@ -3861,7 +3873,7 @@ def api_analyze_stock():
 
 @app.route("/api/v1/create_manual_alert", methods=["POST"])
 @csrf.exempt
-@admin_required
+@login_required
 def api_create_manual_alert():
     """Promotes a qualified setup to an ACTIVE BUY alert."""
     try:
