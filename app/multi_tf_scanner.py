@@ -1,3 +1,4 @@
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union
 from scanner_telemetry import ScannerDecisionLogger, global_telemetry
 import time as _time
 import logging

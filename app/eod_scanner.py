@@ -814,7 +814,29 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                         symbol = "UNKNOWN"
                         _row_start_time = _time.perf_counter()
                         try:
-                            row = row_tuple._asdict() if hasattr(row_tuple, '_asdict') else (row_tuple if isinstance(row_tuple, dict) else {})
+                            if isinstance(row_tuple, dict):
+                                row = row_tuple
+                            elif hasattr(row_tuple, '_asdict'):
+                                try:
+                                    row = row_tuple._asdict()
+                                except Exception:
+                                    row = {}
+                            elif hasattr(row_tuple, '_fields'):
+                                try:
+                                    row = dict(zip(row_tuple._fields, row_tuple))
+                                except Exception:
+                                    row = {}
+                            elif hasattr(row_tuple, 'to_dict'):
+                                try:
+                                    row = row_tuple.to_dict()
+                                except Exception:
+                                    row = {}
+                            else:
+                                row = {}
+
+                            if not isinstance(row, dict):
+                                row = {}
+
                             symbol   = row.get("Stock", "UNKNOWN")
                             category = row.get("Category", "MIDCAP")
                             sector   = row.get("Sector", None)
@@ -1473,7 +1495,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                         # [VERSION: EOD_PATCH_v1.0] [BUG FIX 4] Catch general Exceptions rather than specific errors to prevent ZeroDivisionError/AttributeError from crashing the entire scan loop
                         except Exception as e:
                             error_type = type(e).__name__
-                            logger.warning(f"⚠️ Exception ({error_type}) processing {symbol}: {str(e)[:100]}")
+                            logger.exception(f"⚠️ Exception ({error_type}) processing {symbol}: {e}")
                             with _batch_lock:
                                 rejection_counts["indicator_fail"] = rejection_counts.get("indicator_fail", 0) + 1
                             if not is_test_mode:

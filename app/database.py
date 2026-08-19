@@ -29,6 +29,7 @@ import time
 import json
 import logging
 import threading
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 # [VERSION: DB_UPLOAD_THREAD_POOL_v1.0] Background ThreadPoolExecutor for DB uploads
 # RATIONALE: ProcessPoolExecutor requires target functions and arguments to be picklable.
@@ -1684,6 +1685,47 @@ def update_candidate_status(candidate_id: int, status: str, metadata: dict = Non
         logger.error(f"Failed to update candidate {candidate_id}: {e}")
         return False
 
+def _sanitize_for_json(obj: Any) -> Any:
+    """Sanitize objects for PostgreSQL JSON/JSONB fields, converting NumPy types, NaNs, and Enums into serializable Python types."""
+    import math
+    from enum import Enum
+    if obj is None:
+        return None
+    try:
+        import numpy as np
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            val = float(obj)
+            return None if (math.isnan(val) or math.isinf(val)) else val
+        if isinstance(obj, (np.bool_,)):
+            return bool(obj)
+        if isinstance(obj, (np.ndarray,)):
+            return [_sanitize_for_json(x) for x in obj.tolist()]
+    except Exception:
+        pass
+
+    if isinstance(obj, dict):
+        return {str(k): _sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple, set)):
+        return [_sanitize_for_json(x) for x in obj]
+    elif isinstance(obj, Enum):
+        return obj.value
+    elif isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return float(obj)
+    elif isinstance(obj, (int, str, bool)):
+        return obj
+    try:
+        import pandas as pd
+        if pd.isna(obj):
+            return None
+    except Exception:
+        pass
+    return str(obj)
+
+
 def save_alert_if_new(
 
     symbol: str,
@@ -1722,32 +1764,10 @@ def save_alert_if_new(
     - bayesian_weights: Actual weights used for scoring
     """
 
-    # [VERSION: DB_ALERT_JSON_NAN_FIX] Sanitize NaN, Inf, and NA values to prevent PostgreSQL JSON syntax errors
-    def sanitize(obj):
-        import math
-        from enum import Enum
-        if isinstance(obj, dict):
-            return {k: sanitize(v) for k, v in obj.items()}
-        elif isinstance(obj, (list, tuple)):
-            return [sanitize(x) for x in obj]
-        elif isinstance(obj, Enum):
-            return obj.value
-        elif isinstance(obj, float):
-            if math.isnan(obj) or math.isinf(obj):
-                return None
-            return obj
-        try:
-            import pandas as pd
-            if pd.isna(obj):
-                return None
-        except ImportError:
-            pass
-        return obj
-
-    sanitized_context = sanitize(context) if context is not None else None
-    context_str = json.dumps(sanitized_context) if sanitized_context is not None else None
-    sanitized_weights = sanitize(bayesian_weights) if bayesian_weights is not None else None
-    weights_str = json.dumps(sanitized_weights) if sanitized_weights is not None else None
+    sanitized_context = _sanitize_for_json(context) if context is not None else None
+    context_str = json.dumps(sanitized_context, default=str) if sanitized_context is not None else None
+    sanitized_weights = _sanitize_for_json(bayesian_weights) if bayesian_weights is not None else None
+    weights_str = json.dumps(sanitized_weights, default=str) if sanitized_weights is not None else None
 
 
     # [FIX] Force fetch live price for accurate entry price across all scanners
@@ -1912,27 +1932,9 @@ def save_rejected_alert(
     """Save an alert that was rejected by the V6 execution engine gates (e.g. Natural RR, Target Quality)."""
     if DONT_SAVE_ALERTS:
         return
-        
-    def sanitize(obj):
-        import math
-        if isinstance(obj, dict):
-            return {k: sanitize(v) for k, v in obj.items()}
-        elif isinstance(obj, (list, tuple)):
-            return [sanitize(x) for x in obj]
-        elif isinstance(obj, float):
-            if math.isnan(obj) or math.isinf(obj):
-                return None
-            return obj
-        try:
-            import pandas as pd
-            if pd.isna(obj):
-                return None
-        except ImportError:
-            pass
-        return obj
 
-    sanitized_context = sanitize(context) if context is not None else None
-    context_str = json.dumps(sanitized_context) if sanitized_context is not None else None
+    sanitized_context = _sanitize_for_json(context) if context is not None else None
+    context_str = json.dumps(sanitized_context, default=str) if sanitized_context is not None else None
 
     with _DB_WRITE_LOCK:
         with get_connection() as conn:
