@@ -640,14 +640,22 @@ class AutoSwitchingFetcher(DataFetcher):
                 if fyers_only_symbols and fyers_fetcher:
                     futures.append(executor.submit(fetch_chunk, "fyers", fyers_fetcher, fyers_only_symbols))
                     
-                # [VERSION: PRIMARY_FIRST_ROUTING_v1.0] Route balanced_symbols to primary provider first.
-                # Previously split 50/50 across all active premium providers, forcing 50% of every batch
-                # onto Upstox REST HTTP calls which hit 429 rate limits and cause 10+ minute backoff stalls.
-                # Now primary provider (Fyers) handles the batch at high speed; any missing or failed
-                # symbols automatically fall through to Step 2.5 (Premium Fallback Phase) for Upstox.
+                # [VERSION: DUAL_BROKER_LOAD_BALANCER_v2.0] Concurrently load-balance 50/50 across Fyers and Upstox
+                # RATIONALE: User directive - fetch using Fyers + Upstox in parallel to maximize speed.
                 if balanced_symbols:
-                    primary_name, primary_fetcher = active_premiums[0]
-                    futures.append(executor.submit(fetch_chunk, primary_name, primary_fetcher, balanced_symbols))
+                    if len(active_premiums) > 1:
+                        mid = (len(balanced_symbols) + 1) // 2
+                        chunk1 = balanced_symbols[:mid]
+                        chunk2 = balanced_symbols[mid:]
+                        p1_name, p1_fetcher = active_premiums[0]
+                        p2_name, p2_fetcher = active_premiums[1]
+                        if chunk1:
+                            futures.append(executor.submit(fetch_chunk, p1_name, p1_fetcher, chunk1))
+                        if chunk2:
+                            futures.append(executor.submit(fetch_chunk, p2_name, p2_fetcher, chunk2))
+                    else:
+                        primary_name, primary_fetcher = active_premiums[0]
+                        futures.append(executor.submit(fetch_chunk, primary_name, primary_fetcher, balanced_symbols))
 
             for future in concurrent.futures.as_completed(futures):
                 try:
