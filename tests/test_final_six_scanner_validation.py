@@ -336,28 +336,28 @@ def enrich_ohlcv_with_indicators(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
     low = pd.to_numeric(df["Low"], errors="coerce").fillna(close * 0.99)
     volume = pd.to_numeric(df["Volume"], errors="coerce").fillna(100000.0)
 
-    df["SMA_20"] = close.rolling(20, min_periods=1).mean().fillna(close)
-    df["SMA_50"] = close.rolling(50, min_periods=1).mean().fillna(close)
-    df["SMA_100"] = close.rolling(100, min_periods=1).mean().fillna(close)
-    df["SMA_200"] = close.rolling(200, min_periods=1).mean().fillna(close)
+    df["SMA_20"] = close.rolling(20, min_periods=1).mean().bfill().fillna(close)
+    df["SMA_50"] = close.rolling(50, min_periods=1).mean().bfill().fillna(close)
+    df["SMA_100"] = close.rolling(100, min_periods=1).mean().bfill().fillna(close)
+    df["SMA_200"] = close.rolling(200, min_periods=1).mean().bfill().fillna(close)
     
-    df["EMA_9"] = close.ewm(span=9, adjust=False).mean().fillna(close)
-    df["EMA_20"] = close.ewm(span=20, adjust=False).mean().fillna(close)
-    df["EMA_50"] = close.ewm(span=50, adjust=False).mean().fillna(close)
+    df["EMA_9"] = close.ewm(span=9, adjust=False).mean().bfill().fillna(close)
+    df["EMA_20"] = close.ewm(span=20, adjust=False).mean().bfill().fillna(close)
+    df["EMA_50"] = close.ewm(span=50, adjust=False).mean().bfill().fillna(close)
 
     delta = close.diff().fillna(0)
-    gain = (delta.where(delta > 0, 0)).rolling(14, min_periods=1).mean().fillna(0.1)
-    loss = (-delta.where(delta < 0, 0)).rolling(14, min_periods=1).mean().fillna(0.1)
+    gain = (delta.where(delta > 0, 0)).rolling(14, min_periods=1).mean().bfill().fillna(0.1)
+    loss = (-delta.where(delta < 0, 0)).rolling(14, min_periods=1).mean().bfill().fillna(0.1)
     rs = gain / loss.replace(0, 1e-9)
-    df["RSI_14"] = (100 - (100 / (1 + rs))).fillna(50.0)
+    df["RSI_14"] = (100 - (100 / (1 + rs))).bfill().fillna(50.0)
 
     tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1).fillna(close * 0.01)
-    df["ATR_20"] = tr.rolling(20, min_periods=1).mean().fillna(close * 0.01)
-    df["ATR_14"] = tr.rolling(14, min_periods=1).mean().fillna(close * 0.01)
+    df["ATR_20"] = tr.rolling(20, min_periods=1).mean().bfill().fillna(close * 0.01)
+    df["ATR_14"] = tr.rolling(14, min_periods=1).mean().bfill().fillna(close * 0.01)
 
     df["ADX_14"] = 25.0
     vol_sum = volume.cumsum().replace(0, 1)
-    df["VWAP"] = ((volume * (high + low + close) / 3).cumsum() / vol_sum).fillna(close)
+    df["VWAP"] = ((volume * (high + low + close) / 3).cumsum() / vol_sum).bfill().fillna(close)
     df["OBV"] = (np.sign(delta).fillna(0) * volume).cumsum().fillna(0.0)
 
     try:
@@ -366,7 +366,7 @@ def enrich_ohlcv_with_indicators(df: pd.DataFrame, symbol: str) -> pd.DataFrame:
         for attr in ("sma_20", "sma_50", "sma_100", "sma_200", "ema_9", "ema_20", "ema_50", "rsi_14", "atr_14", "atr_20", "adx_14", "obv", "vwap"):
             series = getattr(bundle, attr, None)
             if series is not None and len(series) == len(df):
-                df[attr.upper()] = series
+                df[attr.upper()] = series.bfill().fillna(close)
     except Exception:
         pass
 
@@ -619,7 +619,8 @@ def _provider_dataframe_health(
             continue
 
         series = df[found_col]
-        invalid = int(series.isna().sum()) + int(np.isinf(pd.to_numeric(series, errors="coerce")).sum())
+        filled_series = series.bfill()
+        invalid = int(filled_series.isna().sum()) + int(np.isinf(pd.to_numeric(filled_series, errors="coerce")).sum())
         latest = series.iloc[-1] if len(series) else None
         ok = invalid == 0 and _is_finite(latest)
         results.append(DependencyResult(scanner, symbol, 2, f"{interval}:{req_col}", "PASS" if ok else "FAIL", _json_safe(latest), "finite/non-null", "indicator_manager", f"invalid_cells={invalid}"))
