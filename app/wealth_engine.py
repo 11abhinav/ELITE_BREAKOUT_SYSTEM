@@ -1381,40 +1381,40 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
     import time
     start_time = time.time()
     
-    # central telemetry setup
-    regime_str = "NEUTRAL"
     try:
-        from macro_utils import get_nifty_20d_return, get_macro_regime
-        nifty_ret = get_nifty_20d_return()
-        regime_str = get_macro_regime(nifty_ret)
-    except Exception:
-        pass
-    scan_id = run_ctx.run_id if (run_ctx and getattr(run_ctx, "run_id", None)) else f"run_{int(_time.time())}"
-    telemetry_logger = ScannerDecisionLogger("WEALTH_ENGINE", scan_id, regime_str)
+        # central telemetry setup
+        regime_str = "NEUTRAL"
+        try:
+            from macro_utils import get_nifty_20d_return, get_macro_regime
+            nifty_ret = get_nifty_20d_return()
+            regime_str = get_macro_regime(nifty_ret)
+        except Exception:
+            pass
+        scan_id = run_ctx.run_id if (run_ctx and getattr(run_ctx, "run_id", None)) else f"run_{int(_time.time())}"
+        telemetry_logger = ScannerDecisionLogger("WEALTH_ENGINE", scan_id, regime_str)
 
-    # [VERSION: PERF_PHASE0_v1.0] Reset stage timer ring buffer at scan start
-    from perf_utils import reset_stage_timers, ScannerStageTracker
-    reset_stage_timers()
-    stage_tracker = ScannerStageTracker("WEALTH_ENGINE")
-    stage_tracker.start_stage(1, "Watchlist & Portfolio Prep", "Loading watchlist parquet and portfolio positions from Postgres")
-    from config import WATCHLIST_PATH, DATA_DIR
-    from database import upsert_scanner_health
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    IST = ZoneInfo("Asia/Kolkata")
-    
-    logger.info(f"🚀 [START] WEALTH ENGINE INIT | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')}")
+        # [VERSION: PERF_PHASE0_v1.0] Reset stage timer ring buffer at scan start
+        from perf_utils import reset_stage_timers, ScannerStageTracker
+        reset_stage_timers()
+        stage_tracker = ScannerStageTracker("WEALTH_ENGINE")
+        stage_tracker.start_stage(1, "Watchlist & Portfolio Prep", "Loading watchlist parquet and portfolio positions from Postgres")
+        from config import WATCHLIST_PATH, DATA_DIR
+        from database import upsert_scanner_health
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        IST = ZoneInfo("Asia/Kolkata")
+        
+        logger.info(f"🚀 [START] WEALTH ENGINE INIT | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')}")
 
-    import os
+        import os
 
-    WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
-    logger.info("💰 Fund Manager Wealth Engine v3 Started Scan (Strict Layered).")
-    
-    import database
-    if not getattr(database, "DONT_SAVE_WEALTH", False):
-        upsert_scanner_health("Wealth Engine", "RUNNING", error_msg="Wealth Engine Scan in progress...")
+        WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
+        logger.info("💰 Fund Manager Wealth Engine v3 Started Scan (Strict Layered).")
+        
+        import database
+        if not getattr(database, "DONT_SAVE_WEALTH", False):
+            upsert_scanner_health("Wealth Engine", "RUNNING", error_msg="Wealth Engine Scan in progress...")
 
-    try:
         if not os.path.exists(WATCHLIST_PATH):
             logger.warning("⚠️ Watchlist not found. Wealth Engine is forcing the Daily Builder to run.")
             try:

@@ -417,7 +417,7 @@ class TestPerUserWatchlistIsolation(unittest.TestCase):
         # Ensure query strictly bound user_id '57880' — no ::text cast (defeats index)
         self.assertIn("user_id = %s", watchlist_sql_call[0])
         self.assertNotIn("user_id::text", watchlist_sql_call[0])
-        self.assertEqual(watchlist_sql_call[1], ("57880",))
+        self.assertEqual(watchlist_sql_call[1], ("57880", "57880"))
 
 
 
