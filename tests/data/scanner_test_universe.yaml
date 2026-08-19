@@ -1,0 +1,458 @@
+# Institutional Scanner Test Universe Manifest (50+ Securities)
+# Schema: symbol, exchange, segment, category, listing_age, liquidity_class, volatility_class, expected_data_sources
+
+symbols:
+  # ── 1. NIFTY LARGE-CAP (10) ──
+  - symbol: RELIANCE
+    exchange: NSE
+    segment: EQUITY
+    category: LARGECAP
+    listing_age: LONG_HISTORY
+    liquidity_class: VERY_LIQUID
+    volatility_class: MEDIUM
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS, CORPORATE_ACTION]
+
+  - symbol: TCS
+    exchange: NSE
+    segment: EQUITY
+    category: LARGECAP
+    listing_age: LONG_HISTORY
+    liquidity_class: VERY_LIQUID
+    volatility_class: LOW
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: INFY
+    exchange: NSE
+    segment: EQUITY
+    category: LARGECAP
+    listing_age: LONG_HISTORY
+    liquidity_class: VERY_LIQUID
+    volatility_class: MEDIUM
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: ICICIBANK
+    exchange: NSE
+    segment: EQUITY
+    category: LARGECAP
+    listing_age: LONG_HISTORY
+    liquidity_class: VERY_LIQUID
+    volatility_class: MEDIUM
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: HDFCBANK
+    exchange: NSE
+    segment: EQUITY
+    category: LARGECAP
+    listing_age: LONG_HISTORY
+    liquidity_class: VERY_LIQUID
+    volatility_class: LOW
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: BHARTIARTL
+    exchange: NSE
+    segment: EQUITY
+    category: LARGECAP
+    listing_age: LONG_HISTORY
+    liquidity_class: VERY_LIQUID
+    volatility_class: MEDIUM
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: LT
+    exchange: NSE
+    segment: EQUITY
+    category: LARGECAP
+    listing_age: LONG_HISTORY
+    liquidity_class: VERY_LIQUID
+    volatility_class: MEDIUM
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: ITC
+    exchange: NSE
+    segment: EQUITY
+    category: LARGECAP
+    listing_age: LONG_HISTORY
+    liquidity_class: VERY_LIQUID
+    volatility_class: LOW
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: SBIN
+    exchange: NSE
+    segment: EQUITY
+    category: LARGECAP
+    listing_age: LONG_HISTORY
+    liquidity_class: VERY_LIQUID
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: AXISBANK
+    exchange: NSE
+    segment: EQUITY
+    category: LARGECAP
+    listing_age: LONG_HISTORY
+    liquidity_class: VERY_LIQUID
+    volatility_class: MEDIUM
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  # ── 2. NIFTY MID-CAP (10) ──
+  - symbol: POLYCAB
+    exchange: NSE
+    segment: EQUITY
+    category: MIDCAP
+    listing_age: MEDIUM_HISTORY
+    liquidity_class: LIQUID
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: DIXON
+    exchange: NSE
+    segment: EQUITY
+    category: MIDCAP
+    listing_age: MEDIUM_HISTORY
+    liquidity_class: LIQUID
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: BEL
+    exchange: NSE
+    segment: EQUITY
+    category: MIDCAP
+    listing_age: LONG_HISTORY
+    liquidity_class: LIQUID
+    volatility_class: MEDIUM
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: MCX
+    exchange: NSE
+    segment: EQUITY
+    category: MIDCAP
+    listing_age: LONG_HISTORY
+    liquidity_class: LIQUID
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: PERSISTENT
+    exchange: NSE
+    segment: EQUITY
+    category: MIDCAP
+    listing_age: LONG_HISTORY
+    liquidity_class: LIQUID
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: COFORGE
+    exchange: NSE
+    segment: EQUITY
+    category: MIDCAP
+    listing_age: LONG_HISTORY
+    liquidity_class: LIQUID
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: TRENT
+    exchange: NSE
+    segment: EQUITY
+    category: MIDCAP
+    listing_age: LONG_HISTORY
+    liquidity_class: LIQUID
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: HAL
+    exchange: NSE
+    segment: EQUITY
+    category: MIDCAP
+    listing_age: MEDIUM_HISTORY
+    liquidity_class: LIQUID
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: SOLARINDS
+    exchange: NSE
+    segment: EQUITY
+    category: MIDCAP
+    listing_age: LONG_HISTORY
+    liquidity_class: LIQUID
+    volatility_class: MEDIUM
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: SUPREMEIND
+    exchange: NSE
+    segment: EQUITY
+    category: MIDCAP
+    listing_age: LONG_HISTORY
+    liquidity_class: LIQUID
+    volatility_class: MEDIUM
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  # ── 3. SMALL-CAP (10) ──
+  - symbol: BALUFORGE
+    exchange: NSE
+    segment: EQUITY
+    category: SMALLCAP
+    listing_age: MEDIUM_HISTORY
+    liquidity_class: NORMAL
+    volatility_class: EXTREME
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: ICIL
+    exchange: NSE
+    segment: EQUITY
+    category: SMALLCAP
+    listing_age: LONG_HISTORY
+    liquidity_class: NORMAL
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: LOTUSDEV
+    exchange: NSE
+    segment: EQUITY
+    category: SMALLCAP
+    listing_age: LONG_HISTORY
+    liquidity_class: NORMAL
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: MAPMYINDIA
+    exchange: NSE
+    segment: EQUITY
+    category: SMALLCAP
+    listing_age: RECENT_LISTING
+    liquidity_class: NORMAL
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: KAYNES
+    exchange: NSE
+    segment: EQUITY
+    category: SMALLCAP
+    listing_age: RECENT_LISTING
+    liquidity_class: NORMAL
+    volatility_class: EXTREME
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: DATAPATTNS
+    exchange: NSE
+    segment: EQUITY
+    category: SMALLCAP
+    listing_age: RECENT_LISTING
+    liquidity_class: NORMAL
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: AARTIDRUGS
+    exchange: NSE
+    segment: EQUITY
+    category: SMALLCAP
+    listing_age: LONG_HISTORY
+    liquidity_class: NORMAL
+    volatility_class: MEDIUM
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: ECLERX
+    exchange: NSE
+    segment: EQUITY
+    category: SMALLCAP
+    listing_age: LONG_HISTORY
+    liquidity_class: NORMAL
+    volatility_class: MEDIUM
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: CIPLA
+    exchange: NSE
+    segment: EQUITY
+    category: SMALLCAP
+    listing_age: LONG_HISTORY
+    liquidity_class: NORMAL
+    volatility_class: MEDIUM
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: GRAVITA
+    exchange: NSE
+    segment: EQUITY
+    category: SMALLCAP
+    listing_age: LONG_HISTORY
+    liquidity_class: NORMAL
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  # ── 4. MICRO / SME / NICHE (10) ──
+  - symbol: DCMSHRIRAM
+    exchange: NSE
+    segment: EQUITY
+    category: MICROCAP
+    listing_age: LONG_HISTORY
+    liquidity_class: LOW_LIQUIDITY
+    volatility_class: MEDIUM
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: NEULANDLAB
+    exchange: NSE
+    segment: EQUITY
+    category: MICROCAP
+    listing_age: LONG_HISTORY
+    liquidity_class: LOW_LIQUIDITY
+    volatility_class: EXTREME
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: ORIANA
+    exchange: NSE
+    segment: SME
+    category: SME
+    listing_age: RECENT_LISTING
+    liquidity_class: LOW_LIQUIDITY
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY]
+
+  - symbol: SULA
+    exchange: NSE
+    segment: EQUITY
+    category: MICROCAP
+    listing_age: RECENT_LISTING
+    liquidity_class: NORMAL
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: LANDMARK
+    exchange: NSE
+    segment: EQUITY
+    category: MICROCAP
+    listing_age: RECENT_LISTING
+    liquidity_class: NORMAL
+    volatility_class: MEDIUM
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: SIGACHI
+    exchange: NSE
+    segment: EQUITY
+    category: MICROCAP
+    listing_age: RECENT_LISTING
+    liquidity_class: NORMAL
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: ROLEXRINGS
+    exchange: NSE
+    segment: EQUITY
+    category: MICROCAP
+    listing_age: RECENT_LISTING
+    liquidity_class: LOW_LIQUIDITY
+    volatility_class: MEDIUM
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: RATEGAIN
+    exchange: NSE
+    segment: EQUITY
+    category: MICROCAP
+    listing_age: RECENT_LISTING
+    liquidity_class: NORMAL
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: KPRMILL
+    exchange: NSE
+    segment: EQUITY
+    category: MICROCAP
+    listing_age: LONG_HISTORY
+    liquidity_class: NORMAL
+    volatility_class: LOW
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  - symbol: HINDWAREAP
+    exchange: NSE
+    segment: EQUITY
+    category: MICROCAP
+    listing_age: RECENT_LISTING
+    liquidity_class: LOW_LIQUIDITY
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY, FUNDAMENTALS]
+
+  # ── 5. RECENT IPOS / SHORT HISTORY (10) ──
+  - symbol: NTPCGREEN
+    exchange: NSE
+    segment: EQUITY
+    category: IPO
+    listing_age: UNDER_1_MONTH
+    liquidity_class: LIQUID
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY]
+
+  - symbol: SWIGGY
+    exchange: NSE
+    segment: EQUITY
+    category: IPO
+    listing_age: UNDER_1_MONTH
+    liquidity_class: VERY_LIQUID
+    volatility_class: EXTREME
+    expected_data_sources: [PRICE, DELIVERY]
+
+  - symbol: HYUNDAI
+    exchange: NSE
+    segment: EQUITY
+    category: IPO
+    listing_age: UNDER_1_MONTH
+    liquidity_class: VERY_LIQUID
+    volatility_class: MEDIUM
+    expected_data_sources: [PRICE, DELIVERY]
+
+  - symbol: BHARTIHEXA
+    exchange: NSE
+    segment: EQUITY
+    category: IPO
+    listing_age: UNDER_3_MONTHS
+    liquidity_class: LIQUID
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY]
+
+  - symbol: BAJAJHFL
+    exchange: NSE
+    segment: EQUITY
+    category: IPO
+    listing_age: UNDER_3_MONTHS
+    liquidity_class: VERY_LIQUID
+    volatility_class: EXTREME
+    expected_data_sources: [PRICE, DELIVERY]
+
+  - symbol: FIRSTCRY
+    exchange: NSE
+    segment: EQUITY
+    category: IPO
+    listing_age: UNDER_3_MONTHS
+    liquidity_class: LIQUID
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY]
+
+  - symbol: OLAELEC
+    exchange: NSE
+    segment: EQUITY
+    category: IPO
+    listing_age: UNDER_3_MONTHS
+    liquidity_class: VERY_LIQUID
+    volatility_class: EXTREME
+    expected_data_sources: [PRICE, DELIVERY]
+
+  - symbol: SANSTAR
+    exchange: NSE
+    segment: EQUITY
+    category: IPO
+    listing_age: UNDER_6_MONTHS
+    liquidity_class: NORMAL
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY]
+
+  - symbol: DEEPINDS
+    exchange: NSE
+    segment: EQUITY
+    category: IPO
+    listing_age: UNDER_6_MONTHS
+    liquidity_class: NORMAL
+    volatility_class: HIGH
+    expected_data_sources: [PRICE, DELIVERY]
+
+  - symbol: AKUMS
+    exchange: NSE
+    segment: EQUITY
+    category: IPO
+    listing_age: UNDER_6_MONTHS
+    liquidity_class: NORMAL
+    volatility_class: MEDIUM
+    expected_data_sources: [PRICE, DELIVERY]
