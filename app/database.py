@@ -6618,9 +6618,10 @@ def remove_from_user_watchlist(symbol_or_symbols=None, user_id: str = "DEFAULT_U
         logger.error(f"Failed to remove watchlist items for user {user_id_str}: {e}")
         return False
 
-def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
+def get_user_watchlist(user_id: str = "DEFAULT_USER", username: str = None) -> list:
     """Fetch all stocks in user's personal watchlist ordered by added_at DESC, with master scan report LEFT JOIN."""
     user_id_str = str(user_id) if user_id is not None else "DEFAULT_USER"
+    username_str = str(username) if username is not None else user_id_str
     try:
         init_db()
         with get_connection() as conn:
@@ -6647,10 +6648,10 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER") -> list:
                     FROM user_watchlists w
                     LEFT JOIN stock_analysis_master m ON w.symbol = m.symbol
                     LEFT JOIN earnings_calendar ec ON ec.symbol = w.symbol
-                    WHERE w.user_id = %s
+                    WHERE w.user_id = %s OR w.user_id = %s OR w.user_id = 'DEFAULT_USER'
                     ORDER BY w.added_at DESC
 
-                """, (user_id_str,))
+                """, (user_id_str, username_str))
                 rows = cur.fetchall()
                 results = []
                 seen_symbols = set()

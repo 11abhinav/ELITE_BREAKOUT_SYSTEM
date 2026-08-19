@@ -3179,6 +3179,38 @@ def get_multibagger_watchlist():
                     """)
                     rows = [dict(r) for r in cur.fetchall()]
 
+                # Fallback Tier 3: If DB tables have 0 rows, check elite_fundamental_watchlist.csv
+                if not rows:
+                    import os, pandas as pd
+                    from config import DATA_DIR
+                    csv_path = os.path.join(DATA_DIR, "elite_fundamental_watchlist.csv")
+                    if os.path.exists(csv_path):
+                        try:
+                            df = pd.read_csv(csv_path)
+                            csv_rows = []
+                            for _, r in df.iterrows():
+                                cmp_val = float(r.get("cmp", 0)) if pd.notna(r.get("cmp")) else None
+                                fm_score = float(r.get("FM_Score", 80)) if pd.notna(r.get("FM_Score")) else 80.0
+                                csv_rows.append({
+                                    "symbol": str(r.get("Stock", "")).strip().upper(),
+                                    "buy_zone_low": cmp_val,
+                                    "buy_zone_high": round(cmp_val * 1.1, 2) if cmp_val else None,
+                                    "latest_price": cmp_val,
+                                    "total_score": fm_score,
+                                    "growth_score": fm_score,
+                                    "value_score": fm_score,
+                                    "trend_score": fm_score,
+                                    "bucket": str(r.get("Portfolio_Bucket", "MULTIBAGGER")),
+                                    "status": "ACTIVE",
+                                    "notes": str(r.get("Signal", "Fundamental Compounder")),
+                                    "last_alert_price": cmp_val,
+                                    "last_alert_at": str(r.get("build_date", "")),
+                                    "last_updated": str(r.get("build_date", ""))
+                                })
+                            rows = csv_rows
+                        except Exception as csv_err:
+                            logger.warning(f"Failed to read elite_fundamental_watchlist.csv fallback: {csv_err}")
+
                 try:
                     from corporate_events import decorate_events
                     rows = decorate_events(rows)
@@ -3447,6 +3479,28 @@ def api_breakout_watchlist():
         from database import get_active_breakout_watchlist
         data = get_active_breakout_watchlist()
         
+        if not data:
+            try:
+                from database import get_connection
+                from psycopg2.extras import RealDictCursor
+                with get_connection() as conn:
+                    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                        cur.execute("""
+                            SELECT a.symbol, 'MULTI_TF' AS category, 'HOURLY_APPROVED' AS current_state,
+                                   'APPROVED' AS h1_status, 'PENDING' AS m30_status, 'PENDING' AS m15_status, 'PENDING' AS m5_status,
+                                   a.entry_price AS breakout_level, a.stop_loss AS support_level, a.target_price AS trigger_level,
+                                   a.stop_loss AS invalidation_level, 2.0 AS max_extension_atr, 0.5 AS buffer_pct, a.alert_time AS armed_at,
+                                   a.signals AS context_json, a.alert_time AS last_updated,
+                                   FALSE AS earnings_flag, 999 AS days_to_earnings, NULL AS earnings_date, 'NONE' AS earnings_severity, '' AS warning_msg
+                            FROM alerts a
+                            WHERE a.scanner = 'MULTI_TF' OR a.breakout_type ILIKE '%%MULTI_TF%%'
+                            ORDER BY a.alert_time DESC
+                            LIMIT 100
+                        """)
+                        data = [dict(r) for r in cur.fetchall()]
+            except Exception as _fb_err:
+                logger.warning(f"Multi-TF alert fallback query warning: {_fb_err}")
+
         if data:
             try:
                 import pandas as pd
@@ -3839,13 +3893,15 @@ def api_get_user_watchlist():
     try:
         from database import get_user_watchlist
         user_id = str(session.get("user_id", "DEFAULT_USER"))
+        username = str(session.get("username", ""))
         now_ts = time.time()
-        cached = _user_watchlist_cache.get(user_id)
+        cache_key = f"{user_id}:{username}"
+        cached = _user_watchlist_cache.get(cache_key)
         if cached and (now_ts - cached["ts"]) < 10.0:
             return Response(cached["payload"], mimetype="application/json")
-        items = get_user_watchlist(user_id=user_id)
+        items = get_user_watchlist(user_id=user_id, username=username)
         payload = json.dumps(items, default=str)
-        _user_watchlist_cache[user_id] = {"ts": now_ts, "payload": payload}
+        _user_watchlist_cache[cache_key] = {"ts": now_ts, "payload": payload}
         return Response(payload, mimetype="application/json")
     except Exception as e:
         logger.exception("❌ Fetch user watchlist error")
