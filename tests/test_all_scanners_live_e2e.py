@@ -385,3 +385,8 @@ def test_daily_builder_live_e2e_50_stocks():
     
     logger.info(f"  ✓ Watchlist total constituents: {len(symbols)} stocks")
     logger.info(f"✅ DAILY BUILDER 50-STOCK LIVE E2E PASSED CLEANLY!\n")
+
+
+def teardown_module(module):
+    """Clean up module-level patches to prevent test pollution."""
+    patch.stopall()
