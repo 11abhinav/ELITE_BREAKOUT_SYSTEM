@@ -2679,10 +2679,25 @@ def is_scanner_stopped(scanner_name: str) -> bool:
 
 
 def stop_scanner(scanner_name: str) -> bool:
-    """Set scanner health status to PAUSED by Admin."""
+    """Set scanner health status to PAUSED by Admin and update active history runs."""
     norm_name = normalize_scanner_name(scanner_name)
-    upsert_scanner_health(norm_name, status="PAUSED", error_msg="Paused by Admin")
-    logger.info(f"🛑 Scanner '{norm_name}' has been PAUSED by Admin.")
+    upsert_scanner_health(norm_name, status="PAUSED", error_msg="Stopped by Admin")
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE scanner_execution_history
+                    SET completed_at = NOW(),
+                        lifecycle_status = 'STOPPED',
+                        stop_reason = 'Stopped by Admin',
+                        error_summary = 'Stopped by Admin via Health Dashboard'
+                    WHERE UPPER(scanner_name) = UPPER(%s)
+                      AND lifecycle_status IN ('RUNNING', 'QUEUED');
+                """, (norm_name,))
+                conn.commit()
+    except Exception as e:
+        logger.warning(f"Failed to update execution history stop state for {norm_name}: {e}")
+    logger.info(f"🛑 Scanner '{norm_name}' has been PAUSED/STOPPED by Admin.")
     return True
 
 
@@ -7400,17 +7415,17 @@ def is_scanner_actively_running(scanner_name: str, exclude_run_id: str = None) -
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # 🧹 WATCHDOG HEALING: Auto-mark any stale RUNNING/QUEUED records older than 15m as TIMEOUT_STALE
+                # 🧹 WATCHDOG HEALING: Auto-mark any stale RUNNING/QUEUED records older than 4 hours as TIMEOUT_STALE
                 cur.execute("""
                     UPDATE scanner_execution_history
                     SET completed_at = NOW(),
                         lifecycle_status = 'TIMEOUT_STALE',
-                        error_summary = 'Execution timed out after 15 minutes of inactivity',
+                        error_summary = 'Execution timed out after 4 hours of inactivity',
                         error_details = 'Watchdog auto-cleaned stale RUNNING state without recent heartbeat'
                     WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                       AND (
-                          heartbeat_at < NOW() - INTERVAL '15 minutes'
-                          OR (started_at < NOW() - INTERVAL '15 minutes' AND (heartbeat_at IS NULL OR heartbeat_at = started_at))
+                          heartbeat_at < NOW() - INTERVAL '4 hours'
+                          OR (started_at < NOW() - INTERVAL '4 hours' AND (heartbeat_at IS NULL OR heartbeat_at = started_at))
                       );
                 """)
                 conn.commit()
@@ -7597,18 +7612,18 @@ def get_scanner_execution_history(
     try:
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 🧹 WATCHDOG AUTO-CLEANUP: Clean any orphaned RUNNING/QUEUED records older than 15 minutes before rendering history
+                # 🧹 WATCHDOG AUTO-CLEANUP: Clean any orphaned RUNNING/QUEUED records older than 4 hours before rendering history
                 try:
                     cur.execute("""
                         UPDATE scanner_execution_history
                         SET completed_at = NOW(),
                             lifecycle_status = 'TIMEOUT_STALE',
-                            error_summary = 'Execution timed out after 15 minutes of inactivity',
+                            error_summary = 'Execution timed out after 4 hours of inactivity',
                             error_details = 'Watchdog auto-cleaned stale RUNNING state without recent heartbeat'
                         WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                           AND (
-                              heartbeat_at < NOW() - INTERVAL '15 minutes'
-                              OR (started_at < NOW() - INTERVAL '15 minutes' AND (heartbeat_at IS NULL OR heartbeat_at = started_at))
+                              heartbeat_at < NOW() - INTERVAL '4 hours'
+                              OR (started_at < NOW() - INTERVAL '4 hours' AND (heartbeat_at IS NULL OR heartbeat_at = started_at))
                           );
                     """)
                     conn.commit()

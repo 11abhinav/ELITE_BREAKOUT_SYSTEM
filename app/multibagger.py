@@ -365,6 +365,9 @@ def batch_download_market_data(symbols: list, session=None) -> dict:
 
     # Process symbols in chunks to flatten Peak Memory (O(BATCH_SIZE) instead of O(N))
     for batch_num, chunk in enumerate(chunk_iterable(symbols, BATCH_SIZE), start=1):
+        if is_scanner_stopped("MULTIBAGGER"):
+            logger.warning("🛑 [MULTIBAGGER] Stop requested by Admin. Aborting market data download batch loop.")
+            break
         with BatchMemoryTracker("MULTIBAGGER", batch_num, total_batches, len(chunk), collect_gc=True) as tracker:
 
             # 1. Fetch chunk DataFrames via session or price_cache
