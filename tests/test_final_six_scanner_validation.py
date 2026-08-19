@@ -1098,11 +1098,13 @@ def test_final_six_scanner_validation_suite():
     assert ledger.duplicate_fetches == 0, f"Duplicate fetch assertion failed: {ledger.duplicate_fetches} duplicate fetches detected"
 
     records_by_symbol = {}
-    if isinstance(watchlist, pd.DataFrame) and "Stock" in watchlist.columns:
-        for _, row in watchlist.iterrows():
-            records_by_symbol[_normalize_symbol(row["Stock"])] = row
-    else:
-        records_by_symbol = {symbol: generate_synthetic_fundamentals(symbol) for symbol in symbols}
+    for symbol in symbols:
+        fund_dict = generate_synthetic_fundamentals(symbol)
+        if isinstance(watchlist, pd.DataFrame) and "Stock" in watchlist.columns:
+            matching_rows = watchlist[watchlist["Stock"].apply(_normalize_symbol) == symbol]
+            if not matching_rows.empty:
+                fund_dict.update(matching_rows.iloc[0].to_dict())
+        records_by_symbol[symbol] = fund_dict
 
     certs: List[SymbolCertification] = []
     patch_state = _patch_shared_provider(modules, shared, ledger)
