@@ -54,6 +54,7 @@ if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
 REPORT_DIR = ROOT / "artifacts" / "reports"
+IDE_ARTIFACTS_DIR = Path("/Users/abhinavmaheshwari/.gemini/antigravity-ide/brain/559ddcae-f5e1-4d4d-be1e-2ec6b0fa8043")
 JSON_REPORT = REPORT_DIR / "final_six_scanner_validation_report.json"
 TEXT_REPORT = REPORT_DIR / "final_six_scanner_validation_report.txt"
 
