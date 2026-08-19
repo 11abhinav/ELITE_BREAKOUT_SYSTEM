@@ -1666,7 +1666,7 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
         if not _global_lock.acquire(blocking=True):
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [MULTIBAGGER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
-        upsert_scanner_health("MULTIBAGGER", "RUNNING")
+    upsert_scanner_health("MULTIBAGGER", "RUNNING", error_msg="Multibagger scan in progress...")
 
     created_ctx = False
     if run_ctx is None:

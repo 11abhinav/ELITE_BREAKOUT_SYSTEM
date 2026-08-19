@@ -1862,7 +1862,7 @@ def _run_multibagger_scanner_single():
             
         try:
             start_mb_single = time.time()
-            upsert_scanner_health("MULTIBAGGER", status="QUEUED", error_msg="Waiting for global execution lock...")
+            upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Multibagger scan in progress...")
             try:
                 from market_data_session import MarketDataSession
                 from watchlist_cache import get_watchlist
