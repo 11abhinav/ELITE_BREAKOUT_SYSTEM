@@ -30,7 +30,7 @@ def _mock_db_conn():
 patch("database.get_connection", side_effect=_mock_db_conn).start()
 patch("database.init_db", return_value=None).start()
 patch("database.upsert_scanner_health", return_value=None).start()
-patch("database.save_alert_if_new", return_value=None).start()
+patch("database.save_alert_if_new", return_value=(True, "Mocked Alert", 100.0, 10)).start()
 patch("database.insert_notification", return_value=None).start()
 patch("database.upsert_data_fetch_health", return_value=None).start()
 patch("database.upload_history_bundle_to_db", return_value=None).start()

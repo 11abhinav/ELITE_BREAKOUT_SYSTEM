@@ -227,7 +227,12 @@ class PriceProvider:
                             
                     if f is None or f.empty:
                         err_msg = str(errors_dict.get(t, '')).lower()
-                        if 'delisted' in err_msg or 'not found' in err_msg or 'no timezone' in err_msg:
+                        if 'too many requests' in err_msg or 'rate limit' in err_msg or '429' in err_msg or 'yfratelimiterror' in err_msg:
+                            result[t] = ProviderResult.RATE_LIMIT
+                            if self.cooldown_until < time.time():
+                                self.cooldown_until = time.time() + self.cooldown_seconds
+                                logger.warning(f"🚫 Yahoo Finance rate limit detected for {t}. Tripping circuit breaker for {self.cooldown_seconds}s.")
+                        elif 'delisted' in err_msg or 'not found' in err_msg or 'no timezone' in err_msg:
                             result[t] = ProviderResult.NOT_FOUND
                         else:
                             result[t] = ProviderResult.EMPTY_DATA
@@ -242,7 +247,12 @@ class PriceProvider:
             if isinstance(df, type(None)) or (hasattr(df, 'empty') and df.empty):
                 for t in tickers:
                     err_msg = str(errors_dict.get(t, '')).lower()
-                    if 'delisted' in err_msg or 'not found' in err_msg or 'no timezone' in err_msg:
+                    if 'too many requests' in err_msg or 'rate limit' in err_msg or '429' in err_msg or 'yfratelimiterror' in err_msg:
+                        result[t] = ProviderResult.RATE_LIMIT
+                        if self.cooldown_until < time.time():
+                            self.cooldown_until = time.time() + self.cooldown_seconds
+                            logger.warning(f"🚫 Yahoo Finance rate limit detected for {t}. Tripping circuit breaker for {self.cooldown_seconds}s.")
+                    elif 'delisted' in err_msg or 'not found' in err_msg or 'no timezone' in err_msg:
                         result[t] = ProviderResult.NOT_FOUND
                     else:
                         result[t] = ProviderResult.EMPTY_DATA
