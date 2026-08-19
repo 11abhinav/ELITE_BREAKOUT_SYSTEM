@@ -43,6 +43,7 @@ from datetime import date, datetime, time as dtime, timedelta
 from typing import Any, Optional
 
 from technical_indicators import apply_indicators
+apply_reversal_indicators = apply_indicators
 from memory_profiler import MemoryProfiler, chunk_iterable
 from database import (
     init_db,

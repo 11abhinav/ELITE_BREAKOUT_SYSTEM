@@ -3873,11 +3873,11 @@ def download_parquet_from_db(name: str, file_path: str) -> bool:
             with conn.cursor() as cur:
                 cur.execute("SELECT data, date FROM parquet_cache WHERE name = %s ORDER BY date DESC LIMIT 1", (name,))
                 row = cur.fetchone()
-                if row and row[0]:
+                if row and row[0] and isinstance(row[0], (bytes, bytearray, memoryview)):
                     import os
                     os.makedirs(os.path.dirname(file_path), exist_ok=True)
                     with open(file_path, "wb") as f:
-                        f.write(row[0])
+                        f.write(bytes(row[0]))
                     logger.info(f"⚡ Downloaded {name} from DB parquet_cache (from date: {row[1]})")
                     return True
         return False
@@ -3894,11 +3894,11 @@ def download_parquet_from_db_today(name: str, file_path: str) -> bool:
             with conn.cursor() as cur:
                 cur.execute("SELECT data, date FROM parquet_cache WHERE name = %s AND date = %s", (name, today))
                 row = cur.fetchone()
-                if row and row[0]:
+                if row and row[0] and isinstance(row[0], (bytes, bytearray, memoryview)):
                     import os
                     os.makedirs(os.path.dirname(file_path), exist_ok=True)
                     with open(file_path, "wb") as f:
-                        f.write(row[0])
+                        f.write(bytes(row[0]))
                     logger.info(f"✅ Downloaded {name} from DB parquet_cache (TODAY's data: {row[1]})")
                     return True
                 else:
@@ -4030,8 +4030,8 @@ def restore_history_bundle_from_db(interval: str = "1d") -> bool:
             with conn.cursor() as cur:
                 cur.execute("SELECT data, date FROM parquet_cache WHERE name = %s ORDER BY date DESC LIMIT 1", (name,))
                 row = cur.fetchone()
-                if not row or not row[0]:
-                    logger.info(f"ℹ️ No DB history bundle found for {name}")
+                if not row or not row[0] or not isinstance(row[0], (bytes, bytearray, memoryview)):
+                    logger.info(f"ℹ️ No valid DB history bundle found for {name}")
                     return False
                 
                 binary_data, bundle_date = row[0], row[1]
