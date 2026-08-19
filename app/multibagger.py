@@ -1635,7 +1635,8 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
             from database import start_scanner_execution_run
             run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER", trigger_type=trigger_type, scheduler_name=scheduler_name)
             created_ctx = True
-        except Exception: pass
+        except Exception as exc:
+            logger.warning(f"⚠️ [MULTIBAGGER] Could not create execution run context: {exc}")
 
     if not _scan_lock.acquire(blocking=False):
         _global_lock.release()
@@ -1655,7 +1656,8 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
                 from database import complete_scanner_execution_run
                 complete_scanner_execution_run(run_ctx, exception=e)
                 created_ctx = False
-            except Exception: pass
+            except Exception as exc:
+                logger.warning(f"⚠️ [MULTIBAGGER] Could not mark run complete on exception: {exc}")
         raise
     finally:
         print_scanner_end_banner("multibagger", _scan_start)
@@ -1665,7 +1667,8 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
             try:
                 from database import complete_scanner_execution_run
                 complete_scanner_execution_run(run_ctx)
-            except Exception: pass
+            except Exception as exc:
+                logger.warning(f"⚠️ [MULTIBAGGER] Could not mark run complete in finally: {exc}")
 
 def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=None):
     """Main scanning wrapper."""

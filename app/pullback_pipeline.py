@@ -321,7 +321,8 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
             from database import start_scanner_execution_run
             run_ctx = start_scanner_execution_run(scanner_name="PULLBACK", trigger_type=trigger_type, scheduler_name=scheduler_name)
             created_ctx = True
-        except Exception: pass
+        except Exception as exc:
+            logger.warning(f"⚠️ [PULLBACK] Could not create execution run context: {exc}")
 
     if not _scan_lock.acquire(blocking=False):
         _global_lock.release()
@@ -347,7 +348,8 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
                 from database import complete_scanner_execution_run
                 complete_scanner_execution_run(run_ctx, exception=e)
                 created_ctx = False
-            except Exception: pass
+            except Exception as exc:
+                logger.warning(f"⚠️ [PULLBACK] Could not mark run complete on exception: {exc}")
         raise
     finally:
         print_scanner_end_banner("pullback_scanner", _scan_start)
@@ -357,7 +359,8 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
             try:
                 from database import complete_scanner_execution_run
                 complete_scanner_execution_run(run_ctx)
-            except Exception: pass
+            except Exception as exc:
+                logger.warning(f"⚠️ [PULLBACK] Could not mark run complete in finally: {exc}")
 
 def _determine_dataset_date(sample_data: dict) -> Optional[str]:
     if not sample_data:

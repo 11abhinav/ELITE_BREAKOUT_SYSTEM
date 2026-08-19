@@ -855,7 +855,8 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
             from database import start_scanner_execution_run
             run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type=trigger_type, scheduler_name=scheduler_name)
             created_ctx = True
-        except Exception: pass
+        except Exception as exc:
+            logger.warning(f"⚠️ [WEALTH_ENGINE] Could not create execution run context: {exc}")
 
     if not _scan_lock.acquire(blocking=False):
         _global_lock.release()
@@ -875,7 +876,8 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
                 from database import complete_scanner_execution_run
                 complete_scanner_execution_run(run_ctx, exception=e)
                 created_ctx = False
-            except Exception: pass
+            except Exception as exc:
+                logger.warning(f"⚠️ [WEALTH_ENGINE] Could not mark run complete on exception: {exc}")
         raise
     finally:
         print_scanner_end_banner("wealth_engine", _scan_start)
@@ -885,7 +887,8 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
             try:
                 from database import complete_scanner_execution_run
                 complete_scanner_execution_run(run_ctx)
-            except Exception: pass
+            except Exception as exc:
+                logger.warning(f"⚠️ [WEALTH_ENGINE] Could not mark run complete in finally: {exc}")
 
 import pandas as pd
 from datetime import datetime
