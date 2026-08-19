@@ -150,8 +150,23 @@ class ConstituentService:
                 if cls._cached_symbols is not None:
                     logger.warning("⚠️ Retaining previous constituent RAM cache due to complete network failure.")
                     return list(cls._cached_symbols)
-                # [VERSION: CONSTITUENT_DISK_CACHE_v1.0] RAM cache empty (e.g. pod restart).
-                # Attempt to load from the on-disk JSON cache written after the last successful download.
+                
+                # Attempt PostgreSQL DB restore first
+                try:
+                    from database import get_system_state
+                    db_state_str = get_system_state("constituent_cache")
+                    if db_state_str:
+                        _dc = json.loads(db_state_str)
+                        _dc_symbols = _dc.get("symbols", [])
+                        if _dc_symbols:
+                            logger.info(f"⚡ [CONSTITUENT DB CACHE HIT] Restored {len(_dc_symbols)} symbols from PostgreSQL DB system_state!")
+                            cls._cached_symbols = _dc_symbols
+                            cls._cache_trading_date = current_market_date
+                            return list(_dc_symbols)
+                except Exception as _db_err:
+                    logger.warning(f"⚠️ [CONSTITUENT DB CACHE] DB restore fallback failed: {_db_err}")
+
+                # RAM & DB cache empty. Attempt to load from the on-disk JSON cache.
                 try:
                     from config import CONSTITUENT_CACHE_PATH, CONSTITUENT_DISK_CACHE_MAX_DAYS
                     if os.path.exists(CONSTITUENT_CACHE_PATH):
@@ -200,7 +215,7 @@ class ConstituentService:
             cls._cached_symbols = sorted_symbols
             cls._cache_trading_date = current_market_date
 
-            # [VERSION: CONSTITUENT_DISK_CACHE_v1.0] Persist to disk after every successful
+            # [VERSION: CONSTITUENT_DISK_CACHE_v1.0] Persist to disk & DB after every successful
             # live download so pod restarts have a fallback without needing to hit NSE again.
             try:
                 from config import CONSTITUENT_CACHE_PATH
@@ -212,8 +227,12 @@ class ConstituentService:
                 with open(CONSTITUENT_CACHE_PATH, 'w') as _dcf:
                     json.dump(_disk_payload, _dcf)
                 logger.debug(f"💾 [CONSTITUENT DISK CACHE] Saved {len(sorted_symbols)} symbols to {CONSTITUENT_CACHE_PATH}")
+                
+                from database import save_system_state
+                save_system_state("constituent_cache", _disk_payload)
+                logger.info(f"⚡ [CONSTITUENT DB CACHE] Backed up {len(sorted_symbols)} constituent symbols to PostgreSQL DB system_state")
             except Exception as _dc_write_err:
-                logger.warning(f"⚠️ [CONSTITUENT DISK CACHE] Failed to persist disk cache: {_dc_write_err}")
+                logger.warning(f"⚠️ [CONSTITUENT DISK CACHE] Failed to persist disk/DB cache: {_dc_write_err}")
 
             return list(cls._cached_symbols)
 
