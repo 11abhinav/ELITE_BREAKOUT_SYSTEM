@@ -36,3 +36,4 @@
 {"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-19T17:08:12.467965+05:30", "duration_s": 3.097, "rss_before_mb": 394.4, "rss_after_mb": 393.7, "rss_delta_mb": -0.7, "error": null}
 {"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-19T17:09:09.495334+05:30", "duration_s": 2.979, "rss_before_mb": 380.8, "rss_after_mb": 382.7, "rss_delta_mb": 1.9, "error": null}
 {"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-19T19:00:35.369617+05:30", "duration_s": 0.001, "rss_before_mb": 198.1, "rss_after_mb": 198.1, "rss_delta_mb": 0.0, "error": "DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically."}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-19T19:04:57.458817+05:30", "duration_s": 0.0, "rss_before_mb": 287.2, "rss_after_mb": 287.2, "rss_delta_mb": 0.0, "error": "DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically."}

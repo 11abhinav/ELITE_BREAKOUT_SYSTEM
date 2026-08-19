@@ -1271,7 +1271,7 @@ def test_final_six_scanner_validation_suite():
             event = events[-1]
             gate = str(event.get("gate") or "").upper()
             decision = str(event.get("decision") or "").upper()
-            data_failure = any(token in gate for token in ("INCOMPLETE_DATA", "MISSING_DATA", "STALE_DATA", "DATA_ERROR", "PIPELINE_ERROR", "EXCEPTION", "NAN", "NONE"))
+            data_failure = any(token in gate for token in ("INCOMPLETE_DATA", "MISSING_DATA", "STALE_DATA", "DATA_ERROR", "PIPELINE_ERROR", "EXCEPTION")) or gate in {"NAN", "NONE", "DATA_FAILURE", "NO_DATA"}
             if data_failure:
                 cert.exception = f"Production decision telemetry reports data/pipeline failure: {event.get('gate')}"
                 cert.level3 = "FAIL"
