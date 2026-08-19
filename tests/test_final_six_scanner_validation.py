@@ -870,7 +870,6 @@ def _patch_shared_provider(modules: Sequence[types.ModuleType], shared: Mapping[
                     out = {s: shared.get((_normalize_symbol(s), interval)) for s in _symbols}
                     missing = [s for s, df in out.items() if not isinstance(df, pd.DataFrame)]
                     if missing:
-                        # Fallback for missing symbols
                         for m in missing:
                             out[m] = generate_synthetic_ohlcv(m, candles=450 if interval == "1d" else 50, interval=interval)
                     return out
@@ -882,6 +881,25 @@ def _patch_shared_provider(modules: Sequence[types.ModuleType], shared: Mapping[
                         df = generate_synthetic_ohlcv(symbol, candles=450 if interval == "1d" else 50, interval=interval)
                     return df
                 setattr(provider, method_name, fetch_single)
+
+    try:
+        price_cache_mod = _import_app_module("price_cache")
+        if hasattr(price_cache_mod, "fetch_unified_historical"):
+            originals.append((price_cache_mod, "fetch_unified_historical", getattr(price_cache_mod, "fetch_unified_historical")))
+            def mock_fetch_unified_historical(symbols, period="2y", interval="1d", requester="", **kwargs):
+                sym_list = [symbols] if isinstance(symbols, str) else list(symbols)
+                out = {}
+                for s in sym_list:
+                    norm = _normalize_symbol(s)
+                    df = shared.get((norm, interval))
+                    if not isinstance(df, pd.DataFrame):
+                        df = generate_synthetic_ohlcv(norm, candles=450 if interval == "1d" else 50, interval=interval)
+                    out[norm] = df
+                return out if not isinstance(symbols, str) else out.get(_normalize_symbol(symbols))
+            setattr(price_cache_mod, "fetch_unified_historical", mock_fetch_unified_historical)
+    except Exception:
+        pass
+
     return originals
 
 
