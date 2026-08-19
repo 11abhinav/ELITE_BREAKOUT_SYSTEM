@@ -447,7 +447,64 @@ def test_request_amplification_and_live_telemetry():
     logger.info(f"✅ LIVE TELEMETRY ASSERTED! Live Network Calls: {global_api_report.live_network_calls}, Amplification Ratio: {amp_ratio}x\n")
 
 
-# ── TEST 11: REPORT & LEDGER INTEGRITY ASSERTION (Section 70, 76) ──
+# ── TEST 11: PER-STOCK DECISION CONTEXT TELEMETRY DUMP VALIDATION ──
+
+def test_per_stock_decision_context_telemetry_dump_completeness():
+    """Asserts that every stock evaluated produces a complete, non-silent DecisionContext telemetry dump (Section 4, 8, 19, 20)."""
+    logger.info("==================================================")
+    logger.info("🧪 [TELEMETRY DUMP ASSERTION] PER-STOCK VALUE DUMP")
+    logger.info("==================================================")
+    
+    from decision_context import DecisionContext
+    from decision_ledger import global_decision_ledger
+    
+    # 1. Synthesize a complete DecisionContext for selected stock
+    ctx_selected = DecisionContext(symbol="RELIANCE", scanner_name="EOD")
+    ctx_selected.capture("Open", 1240.50, origin="EXTERNAL_API", group="RAW")
+    ctx_selected.capture("High", 1262.00, origin="EXTERNAL_API", group="RAW")
+    ctx_selected.capture("Low", 1234.20, origin="EXTERNAL_API", group="RAW")
+    ctx_selected.capture("Close", 1254.80, origin="EXTERNAL_API", group="RAW")
+    ctx_selected.capture("Volume", 1523400, origin="EXTERNAL_API", group="RAW")
+    
+    ctx_selected.capture("RSI", 64.31, origin="CALCULATED", group="INDICATOR")
+    ctx_selected.capture("SMA50", 1198.43, origin="CALCULATED", group="INDICATOR")
+    ctx_selected.capture("SMA200", 1094.27, origin="CALCULATED", group="INDICATOR")
+    
+    ctx_selected.capture_config("MIN_SCORE", 75.0)
+    ctx_selected.capture_gate("BreakoutCloseGate", True, actual_val=1254.80, required_val=1230.00)
+    ctx_selected.capture_score("BreakoutStrength", 89.5, 100.0)
+    ctx_selected.capture_sl_target(1254.80, 1214.00, 1378.00, rr_ratio=3.02)
+    ctx_selected.finalize("SELECTED", primary_reason="ALL_GATES_PASSED")
+    
+    box_sel = ctx_selected.format_terminal_audit_box()
+    assert "SCANNER TERMINAL AUDIT" in box_sel, "❌ ASCII Terminal Audit box missing header!"
+    assert "RAW MARKET DATA" in box_sel, "❌ ASCII Terminal Audit box missing raw section!"
+    assert "TECHNICAL INDICATORS" in box_sel, "❌ ASCII Terminal Audit box missing indicators section!"
+    assert "Terminal Decision      = SELECTED" in box_sel, "❌ ASCII Terminal Audit box missing decision!"
+
+    # 2. Synthesize a complete DecisionContext for rejected stock (Section 9)
+    ctx_rejected = DecisionContext(symbol="XYZ_REJECT", scanner_name="REVERSAL")
+    ctx_rejected.capture("Open", 248.20, origin="EXTERNAL_API", group="RAW")
+    ctx_rejected.capture("Close", 245.30, origin="EXTERNAL_API", group="RAW")
+    ctx_rejected.capture("SMA200", None, origin="CALCULATED", group="INDICATOR") # Explicit None!
+    
+    ctx_rejected.capture_gate("TrendGate", False, actual_val=245.30, required_val=255.80, reason="Close < SMA50")
+    ctx_rejected.finalize("REJECTED", primary_reason="TREND001_FAIL")
+    
+    box_rej = ctx_rejected.format_terminal_audit_box()
+    assert "Terminal Decision      = REJECTED" in box_rej, "❌ Rejected stock terminal audit box failed!"
+    
+    json_dump = ctx_selected.to_telemetry_json()
+    assert "all_values" in json_dump, "❌ Telemetry JSON missing all_values!"
+    assert json_dump["data_quality"]["missing_count"] == 0, "❌ Unexpected missing fields in selected stock context!"
+
+    global_decision_ledger.record_decision_context(ctx_selected)
+    global_decision_ledger.record_decision_context(ctx_rejected)
+    
+    logger.info("✅ PER-STOCK DECISION CONTEXT TELEMETRY DUMP ASSERTION PASSED!\n")
+
+
+# ── TEST 12: REPORT & LEDGER INTEGRITY ASSERTION (Section 70, 76) ──
 
 def test_report_and_ledger_integrity():
     """Asserts completeness and internal consistency of all 3 generated reports."""

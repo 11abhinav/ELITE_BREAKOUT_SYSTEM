@@ -1271,6 +1271,34 @@ def evaluate_reversal_symbol(symbol: str, ticker: pd.DataFrame, fund_data: dict 
         delivery_map=delivery_map,
         resolved_date=resolved_date,
     )
+    # ── PER-STOCK TERMINAL TELEMETRY DUMP (Section 4 & 8) ──
+    try:
+        from decision_context import DecisionContext
+        from decision_ledger import global_decision_ledger
+        ctx = DecisionContext(symbol=symbol, scanner_name="REVERSAL")
+        latest = ticker.iloc[-1]
+        ctx.capture("Open", _safe_float(latest.get("Open")), origin="EXTERNAL_API", group="RAW")
+        ctx.capture("High", _safe_float(latest.get("High")), origin="EXTERNAL_API", group="RAW")
+        ctx.capture("Low", _safe_float(latest.get("Low")), origin="EXTERNAL_API", group="RAW")
+        ctx.capture("Close", _safe_float(latest.get("Close")), origin="EXTERNAL_API", group="RAW")
+        ctx.capture("Volume", _safe_float(latest.get("Volume")), origin="EXTERNAL_API", group="RAW")
+        
+        ctx.capture("RSI", _safe_float(latest.get("RSI")), origin="CALCULATED", group="INDICATOR")
+        ctx.capture("EMA20", _safe_float(latest.get("EMA20")), origin="CALCULATED", group="INDICATOR")
+        ctx.capture("SMA50", _safe_float(latest.get("SMA50")), origin="CALCULATED", group="INDICATOR")
+        ctx.capture("SMA200", _safe_float(latest.get("SMA200")), origin="CALCULATED", group="INDICATOR")
+        ctx.capture("MACD", _safe_float(latest.get("MACD")), origin="CALCULATED", group="INDICATOR")
+        
+        ctx.capture_score("TOTAL", verdict.get("score", 0.0), 100.0)
+        if verdict.get("sl_result"):
+            sl_res = verdict["sl_result"]
+            ctx.capture_sl_target(_safe_float(latest.get("Close")), sl_res.get("stop_loss", 0.0), sl_res.get("target_1", 0.0))
+            
+        ctx.finalize(decision="SELECTED" if verdict["passed"] else "REJECTED", primary_reason=verdict.get("reject_reason", ""))
+        global_decision_ledger.record_decision_context(ctx)
+    except Exception as telemetry_err:
+        logger.debug(f"Telemetry recording skipped: {telemetry_err}")
+
     if verdict["passed"]:
         return {
             "status": "CORE MET",

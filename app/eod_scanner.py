@@ -445,6 +445,34 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
     status_str = "CORE MET" if is_qualified else "NO"
     reasons = [f"Clean Breakout Close (₹{candle_close:.2f} > ₹{prior_high:.2f}) | Volume Surge {vol_ratio:.2f}x ≥ 1.8x | EOD Score {score:.1f}/100"] if is_qualified else [f"Score {score:.1f} < {score_threshold} minimum threshold"]
 
+    # ── PER-STOCK TERMINAL TELEMETRY DUMP (Section 4 & 8) ──
+    try:
+        from decision_context import DecisionContext
+        from decision_ledger import global_decision_ledger
+        ctx = DecisionContext(symbol=symbol, scanner_name="EOD")
+        ctx.capture("Open", _safe_float(latest.get("Open")), origin="EXTERNAL_API", group="RAW")
+        ctx.capture("High", _safe_float(latest.get("High")), origin="EXTERNAL_API", group="RAW")
+        ctx.capture("Low", _safe_float(latest.get("Low")), origin="EXTERNAL_API", group="RAW")
+        ctx.capture("Close", _safe_float(latest.get("Close")), origin="EXTERNAL_API", group="RAW")
+        ctx.capture("Volume", _safe_float(latest.get("Volume")), origin="EXTERNAL_API", group="RAW")
+        
+        ctx.capture("RSI", rsi_val, origin="CALCULATED", group="INDICATOR")
+        ctx.capture("Volume_Ratio", vol_ratio, origin="CALCULATED", group="INDICATOR")
+        ctx.capture("ATR20", atr20, origin="CALCULATED", group="INDICATOR")
+        ctx.capture("SMA20", _safe_float(latest.get("SMA20")), origin="CALCULATED", group="INDICATOR")
+        ctx.capture("SMA50", _safe_float(latest.get("SMA50")), origin="CALCULATED", group="INDICATOR")
+        ctx.capture("SMA200", _safe_float(latest.get("SMA200")), origin="CALCULATED", group="INDICATOR")
+        
+        ctx.capture_config("SCORE_THRESHOLD", score_threshold)
+        ctx.capture_gate("ConditionCheck", cond.get("passed", False), actual_val=candle_close, required_val=prior_high)
+        ctx.capture_score("TOTAL", score, 100.0)
+        ctx.capture_sl_target(candle_close, sl_result.get("stop_loss", 0.0), sl_result.get("target_1", 0.0))
+        
+        ctx.finalize(decision="SELECTED" if is_qualified else "REJECTED", primary_reason=reasons[0])
+        global_decision_ledger.record_decision_context(ctx)
+    except Exception as telemetry_err:
+        logger.debug(f"Telemetry recording skipped: {telemetry_err}")
+
     return {
         "status": status_str,
         "reasons": reasons,

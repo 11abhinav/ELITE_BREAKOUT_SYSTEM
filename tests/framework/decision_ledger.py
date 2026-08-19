@@ -1,12 +1,16 @@
 # =====================================================================================
 # tests/framework/decision_ledger.py
-# LEVEL 4 & 5: DECISION LEDGER & REPORT GENERATOR (JSON + HTML)
+# LEVEL 4 & 5: DECISION LEDGER, PER-STOCK TELEMETRY & REPORT GENERATOR (JSON + HTML)
 # =====================================================================================
 import json
 import logging
 import os
+import sys
 import time
 from typing import Any, Dict, List
+
+sys.path.insert(0, os.path.abspath("./app"))
+from decision_context import DecisionContext
 
 logger = logging.getLogger("DECISION_LEDGER")
 
@@ -19,6 +23,29 @@ class DiagnosticDecisionLedger:
         self.symbol_entries: Dict[str, Dict[str, Any]] = {}
         self.ipo_history_ledger: Dict[str, Dict[str, Any]] = {}
         self.golden_fixture_results: List[Dict[str, Any]] = []
+        self.decision_contexts: Dict[str, Dict[str, DecisionContext]] = {}
+
+    def record_decision_context(self, ctx: DecisionContext):
+        """Stores complete DecisionContext object and logs full terminal audit box."""
+        symbol = ctx.symbol
+        scanner = ctx.scanner_name
+        
+        if symbol not in self.decision_contexts:
+            self.decision_contexts[symbol] = {}
+        self.decision_contexts[symbol][scanner] = ctx
+
+        # Log full ASCII terminal audit box (Section 8 & 9)
+        logger.info(f"\n{ctx.format_terminal_audit_box()}")
+
+        # Record final decision into symbol_entries
+        self.record_final_decision(
+            symbol=symbol,
+            scanner=scanner,
+            decision=ctx.terminal_decision,
+            score=ctx.score_breakdown.get("TOTAL", {}).get("points", 0.0),
+            alert_dict={"alert_id": ctx.alert_id} if ctx.alert_generated else None,
+            rejection_reason=ctx.primary_reason
+        )
 
     def record_symbol_stage(self, symbol: str, scanner: str, stage: str, inputs: dict, outputs: dict, status: str, reason: str = ""):
         if symbol not in self.symbol_entries:
@@ -96,14 +123,19 @@ class DiagnosticDecisionLedger:
         end_time = time.time()
         dur_s = round(end_time - self.start_time, 2)
 
-        # 1. Generate scanner_decision_ledger.json
+        # 1. Generate scanner_decision_ledger.json (including full DecisionContext telemetry)
         ledger_path = os.path.join(output_dir, "scanner_decision_ledger.json")
+        serialized_contexts = {}
+        for sym, sc_map in self.decision_contexts.items():
+            serialized_contexts[sym] = {s_name: ctx.to_telemetry_json() for s_name, ctx in sc_map.items()}
+
         ledger_data = {
             "run_id": self.run_id,
             "duration_seconds": dur_s,
             "total_symbols_evaluated": len(self.symbol_entries),
             "golden_fixtures": self.golden_fixture_results,
             "ipo_availability_ledger": self.ipo_history_ledger,
+            "per_stock_telemetry_dump": serialized_contexts,
             "symbol_ledger": self.symbol_entries
         }
         with open(ledger_path, "w") as f:
