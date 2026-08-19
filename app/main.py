@@ -867,7 +867,7 @@ def _run_pullback_with_retries(today_str, session=None):
             logger.info(f"📊 PULLBACK | Completed in {format_duration(duration_sec)} — {total} alert(s) generated")
             alerts_num = total.get("today_alerts", 0) if isinstance(total, dict) else (total if isinstance(total, int) else 0)
             upsert_scanner_health("PULLBACK", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=alerts_num, scheduled_for="18:00 IST (After Bhavcopy)", duration_seconds=duration_sec)
-                logger.info("✅ PULLBACK SCANNER | Completed successfully for today.")
+            logger.info("✅ PULLBACK SCANNER | Completed successfully for today.")
             return
         except Exception as exc:
             if "actively running" in str(exc).lower():
@@ -1206,11 +1206,12 @@ def run_system_scheduler():
                     upsert_scanner_health("Wealth Engine", status="QUEUED", error_msg="Waiting for global execution lock...")
                     telemetry.log_scheduler_event("WEALTH_ENGINE_15M", "CYCLE_START")
                     _scan_start_t = time.time()
-                    with MemoryProfiler("WEALTH_ENGINE_15M", force_gc_cleanup=True):
-                        from wealth_engine import run_wealth_scan
-                        run_wealth_scan(trigger_type="SCHEDULED", scheduler_name="CRON")
-                        duration_sec = round(time.time() - _scan_start_t, 1)
-                    now_str = datetime.now(IST).isoformat()
+                    try:
+                        with MemoryProfiler("WEALTH_ENGINE_15M", force_gc_cleanup=True):
+                            from wealth_engine import run_wealth_scan
+                            run_wealth_scan(trigger_type="SCHEDULED", scheduler_name="CRON")
+                            duration_sec = round(time.time() - _scan_start_t, 1)
+                        now_str = datetime.now(IST).isoformat()
                         upsert_scanner_health(
                             "Wealth Engine",
                             status="OK",
