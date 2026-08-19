@@ -844,10 +844,16 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None):
         queued_at = time.monotonic()
         logger.info("⏳ [WEALTH ENGINE] Global lock busy — marking status QUEUED and waiting...")
         upsert_scanner_health("Wealth Engine", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
+        if run_ctx and getattr(run_ctx, "run_id", None):
+            from database import update_scanner_run_lifecycle
+            update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
         if not _global_lock.acquire(blocking=True):
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [WEALTH ENGINE] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
         upsert_scanner_health("Wealth Engine", "RUNNING")
+        if run_ctx and getattr(run_ctx, "run_id", None):
+            from database import update_scanner_run_lifecycle
+            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
 
     created_ctx = False
     if run_ctx is None:
