@@ -911,12 +911,12 @@ def _restore(originals: Sequence[Tuple[Any, str, Any]]) -> None:
 
 def _scanner_entrypoints() -> Dict[str, Tuple[types.ModuleType, Callable[..., Any]]]:
     specs = {
-        "MULTI_TF": ("multi_tf_scanner", ("run_multi_tf_scanner", "evaluate_multi_tf_symbol")),
-        "WEALTH_ENGINE": ("wealth_engine", ("run_wealth_scan", "evaluate_wealth_symbol")),
-        "REVERSAL": ("reversal_scanner", ("run_reversal_scanner", "evaluate_reversal_symbol")),
-        "PULLBACK": ("pullback_pipeline", ("run_pullback_pipeline", "run_pullback_scanner", "run_pullback", "evaluate_pullback_symbol")),
-        "EOD": ("eod_scanner", ("run_eod_scanner", "evaluate_eod_symbol")),
-        "MULTIBAGGER": ("multibagger", ("run_multibagger_scanner", "evaluate_multibagger_symbol")),
+        "MULTI_TF": ("multi_tf_scanner", ("run_hourly_phase", "run_lower_tf_phase")),
+        "WEALTH_ENGINE": ("wealth_engine", ("run_wealth_scan",)),
+        "REVERSAL": ("reversal_scanner", ("start", "_run_scan")),
+        "PULLBACK": ("pullback_pipeline", ("run_pullback_pipeline", "run_pullback_scanner", "run_pullback")),
+        "EOD": ("eod_scanner", ("start", "_start_wrapper")),
+        "MULTIBAGGER": ("multibagger", ("run_scanner",)),
     }
     resolved: Dict[str, Tuple[types.ModuleType, Callable[..., Any]]] = {}
     for scanner, (module_name, names) in specs.items():
@@ -958,35 +958,39 @@ def _parse_decision_line(line: str, scanner: str) -> Optional[Dict[str, Any]]:
         "actual": actual.group(1) if actual else None,
         "required": required.group(1) if required else None,
         "reason": reason.group(1).strip() if reason else None,
-        "line": line,
     }
 
 
-def _execute_scanner(fn: Callable[..., Any], scanner: str) -> Dict[str, Any]:
+def _execute_scanner(entrypoint: Callable[..., Any], scanner: str) -> Dict[str, Any]:
+    captured: Dict[str, Any] = {"scanner": scanner, "decision_events": []}
     started = time.perf_counter()
-    captured: Dict[str, Any] = {"return": None, "exception": None, "elapsed_ms": None, "decision_events": []}
     handler = _DecisionCapture()
-    root = logging.getLogger()
-    root.addHandler(handler)
+    root_logger = logging.getLogger()
+    root_logger.addHandler(handler)
     try:
-        sig = inspect.signature(fn)
-        kwargs: Dict[str, Any] = {}
+        sig = inspect.signature(entrypoint)
+        kwargs = {}
+        if "is_test_mode" in sig.parameters:
+            kwargs["is_test_mode"] = True
         if "run_once" in sig.parameters:
             kwargs["run_once"] = True
         if "force" in sig.parameters:
             kwargs["force"] = True
-        captured["return"] = _json_safe(fn(**kwargs))
+        ret = entrypoint(**kwargs)
+        captured["return"] = ret
+        captured["exception"] = None
     except Exception as exc:
-        captured["exception"] = f"{type(exc).__name__}: {exc}"
+        captured["return"] = None
+        captured["exception"] = str(exc)
     finally:
-        root.removeHandler(handler)
-        captured["log_lines"] = handler.lines[-5000:]
-        parsed = []
-        for line in handler.lines:
-            event = _parse_decision_line(line, scanner)
-            if event:
-                parsed.append(event)
-        captured["decision_events"] = parsed
+        root_logger.removeHandler(handler)
+
+    events: List[Dict[str, Any]] = []
+    for line in handler.lines:
+        parsed = _parse_decision_line(line, scanner)
+        if parsed:
+            events.append(parsed)
+    captured["decision_events"] = events
     captured["elapsed_ms"] = round((time.perf_counter() - started) * 1000.0, 2)
     return captured
 
@@ -1005,7 +1009,12 @@ def _classify(cert: SymbolCertification) -> None:
         cert.status = "DATA / PIPELINE FAILURE"
         if not cert.rejection_reason:
             bad = next((x for x in cert.dependencies if x.status == "FAIL"), None)
-            cert.rejection_reason = bad.dependency + (f": {bad.note}" if bad else ": scanner exception")
+            if bad:
+                cert.rejection_reason = f"{bad.dependency}: {bad.note}"
+            elif cert.exception:
+                cert.rejection_reason = f"scanner exception: {cert.exception}"
+            else:
+                cert.rejection_reason = "DATA_PIPELINE_FAILURE"
         return
 
     failed_gates = [g for g in cert.gates if not g.passed]
