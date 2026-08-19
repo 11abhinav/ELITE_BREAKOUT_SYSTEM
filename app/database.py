@@ -2661,8 +2661,8 @@ def normalize_scanner_name(scanner_name: str) -> str:
 def is_scanner_stopped(scanner_name: str) -> bool:
     """Return True if scanner is currently STOPPED by Admin."""
     norm_name = normalize_scanner_name(scanner_name)
-    init_db()
     try:
+        init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT status FROM scanner_health WHERE UPPER(scanner_name) = UPPER(%s) LIMIT 1", (norm_name,))
