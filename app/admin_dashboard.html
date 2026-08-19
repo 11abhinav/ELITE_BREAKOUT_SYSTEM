@@ -3458,8 +3458,8 @@ function getEarningsBadgeHtml(item) {
             </div>
           </div>
           <div class="detail-item">
-            <div class="detail-label">Exit Price</div>
-            <div class="detail-val">${fmt(t.exit_price)}</div>
+            <div class="detail-label">${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED') ? 'Exit Price' : 'Current Market Price (CMP)'}</div>
+            <div class="detail-val">${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED') ? fmt(t.exit_price) : fmt(t.current_price || t.entry_price)}</div>
           </div>
           <div class="detail-item">
             <div class="detail-label">RSI</div>

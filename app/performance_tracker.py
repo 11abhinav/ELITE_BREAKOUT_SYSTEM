@@ -687,6 +687,14 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         sl         = t["stop_loss"]
         tp         = t["target_price"]
         alert_time = t["alert_time"]
+        scanner    = t.get("scanner", "")
+
+        # Long-term compounder positions (MULTIBAGGER, WEALTH) are managed exclusively
+        # by their own fundamental exit monitors (e.g. evaluate_multibagger_exits).
+        # Skip swing SL / target processing for them in performance_tracker.
+        if scanner in ("MULTIBAGGER", "WEALTH", "Wealth Engine"):
+            continue
+
         cur_p = current_prices.get(sym)
         if cur_p is not None and cur_p > 0:
             t["current_price"] = round(cur_p, 2)

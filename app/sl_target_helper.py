@@ -1231,6 +1231,49 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     }
 
 
+def _compute_multibagger(entry: float, eff_atr: float, ticker=None, **kwargs) -> dict:
+    """
+    Computes Stop Loss & Multibagger Compounder Targets (T1: 1.5x, T2: 2.0x, T3: 3.0x, T4: 5.0x).
+    For long-term fundamental positions, SL is set to max(entry * 0.85, entry - 3.0 * eff_atr).
+    """
+    mode = kwargs.get("mode", "MULTIBAGGER")
+    sl_atr = entry - (3.0 * eff_atr)
+    sl_pct = entry * 0.85  # 15% structural stop
+    
+    # If 200 SMA is available and below entry, use max of 200 SMA and 15% SL
+    sma200 = None
+    if ticker is not None and "Close" in ticker.columns and len(ticker) >= 200:
+        sma200 = float(ticker["Close"].tail(200).mean())
+
+    stop_loss = round(max(sl_pct, sl_atr), 2)
+    if sma200 and 0 < sma200 < entry and sma200 > stop_loss:
+        stop_loss = round(sma200, 2)
+
+    risk = entry - stop_loss
+    t1 = round(entry * 1.50, 2)  # 50% target
+    t2 = round(entry * 2.00, 2)  # 100% target (2x)
+    t3 = round(entry * 3.00, 2)  # 200% target (3x)
+    t4 = round(entry * 5.00, 2)  # 400% target (5x)
+
+    natural_rr = round((t1 - entry) / risk, 2) if risk > 0 else 3.33
+
+    return {
+        "engine_version": "SL_ENGINE_V7_MULTIBAGGER",
+        "is_rejected": False,
+        "stop_loss": stop_loss,
+        "initial_stop_loss": stop_loss,
+        "target_1": t1,
+        "target_2": t2,
+        "target_3": t3,
+        "target_4": t4,
+        "target_price": t1,
+        "natural_rr": natural_rr,
+        "sl_method": "Multibagger Fundamental Stop (15% / 3x ATR)",
+        "t_method": "Multibagger Compounder Targets (1.5x / 2.0x / 3.0x)",
+        "sl_result": {}
+    }
+
+
 def _legacy_compute_sl_and_target(
     entry_price:    float,
     atr:            Optional[float],
@@ -1269,28 +1312,14 @@ def _legacy_compute_sl_and_target(
 ) -> dict:
     """
     Mode-dispatching SL/Target engine.
-
-    Returns dict with:
-        stop_loss   — placement respects structure + anti-trap buffer
-        target_1    — primary target (mean reversion for REVERSAL, resistance for others)
-        target_2    — secondary target (None for REVERSAL if overbought)
-        target_3    — extended target (EOD + REVERSAL only, on strong confluence)
-        rr_ratio    — R:R of target_1
-        risk        — ₹ risk per share
-        sl_method   — explanation of how SL was placed
-        t_method    — explanation of how targets were set
-        rsi_zone    — overbought / bullish / neutral / oversold
-        trail_note  — plain-English trailing instruction for the Telegram alert
-
-    Backward compatibility: if `mode` is not recognized, falls back to `timeframe`.
     """
-    # Resolve effective mode — support both mode= (new) and timeframe= (old alias)
-    # Priority: mode > timeframe > "EOD" default
     _TIMEFRAME_MAP = {
         "EOD": "EOD", "1d": "EOD",
         "REVERSAL": "REVERSAL",
         "MULTI_TF": "MULTI_TF",
         "PULLBACK": "PULLBACK",
+        "MULTIBAGGER": "MULTIBAGGER",
+        "WEALTH": "MULTIBAGGER",
     }
     effective_mode = (
         _TIMEFRAME_MAP.get(mode or "", "")
@@ -1331,7 +1360,8 @@ def _legacy_compute_sl_and_target(
         return _compute_multi_tf(**kwargs)
     elif effective_mode == "REVERSAL":
         return _compute_reversal(**kwargs, ema20=ema20, bb_mid=bb_mid, sma50=sma50)
-
+    elif effective_mode == "MULTIBAGGER":
+        return _compute_multibagger(**kwargs)
     else:
         return _compute_eod(**kwargs)  # safe default
 
