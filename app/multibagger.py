@@ -140,6 +140,35 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
     # [FIX MUL-19] Guard composite_score comparison against None
     status_str = "CORE MET (Prime)" if is_prime else ("CORE MET (High Quality)" if is_high_quality else ("WATCHLIST" if (composite_score is not None and composite_score >= 50.0) else "NO"))
 
+    # ── PER-STOCK TERMINAL TELEMETRY DUMP (Section 4 & 8) ──
+    try:
+        from scanner_telemetry import DecisionContext, telemetry_engine
+        from decision_ledger import global_decision_ledger
+        ctx = DecisionContext(symbol=symbol, scanner_name="MULTIBAGGER")
+        ctx.capture_raw_market(
+            open_p=_safe_float(latest.get("Open")),
+            high_p=_safe_float(latest.get("High")),
+            low_p=_safe_float(latest.get("Low")),
+            close_p=_safe_float(latest.get("Close")),
+            volume=_safe_float(latest.get("Volume"))
+        )
+        ctx.capture_indicators(
+            rsi=_safe_float(latest.get("RSI")),
+            sma50=sma50,
+            sma200=sma200,
+            atr=atr_val
+        )
+        ctx.capture("Piotroski_Score", f_score, origin="EXTERNAL_API", group="INDICATOR")
+        ctx.capture("Promoter_Pledge", pledge_ratio, origin="EXTERNAL_API", group="INDICATOR")
+        ctx.capture_score("TOTAL", composite_score if composite_score is not None else 0.0, 100.0)
+        ctx.capture_sl_target(close_price, sl_result.get("stop_loss", 0.0), sl_result.get("target_1", 0.0))
+        
+        ctx.finalize(decision="SELECTED" if is_qualified else "REJECTED", primary_reason=reasons[0] if reasons else "NO_QUALIFY")
+        telemetry_engine.emit_terminal(ctx)
+        global_decision_ledger.record_decision_context(ctx)
+    except Exception as telemetry_err:
+        logger.debug(f"Telemetry recording skipped: {telemetry_err}")
+
     return {
         "status": status_str,
         "reasons": reasons,

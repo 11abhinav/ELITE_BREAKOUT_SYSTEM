@@ -271,6 +271,33 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
         if sl_result.get("is_rejected"):
             reasons.append(f"Risk Rejected: {sl_result.get('rejection_reason')}")
 
+    # ── PER-STOCK TERMINAL TELEMETRY DUMP (Section 4 & 8) ──
+    try:
+        from scanner_telemetry import DecisionContext, telemetry_engine
+        from decision_ledger import global_decision_ledger
+        ctx = DecisionContext(symbol=symbol, scanner_name="PULLBACK")
+        ctx.capture_raw_market(
+            open_p=_safe_float(last_bar.get("Open")),
+            high_p=_safe_float(last_bar.get("High")),
+            low_p=_safe_float(last_bar.get("Low")),
+            close_p=close_price,
+            volume=_safe_float(last_bar.get("Volume"))
+        )
+        ctx.capture_indicators(
+            sma50=sma50_val,
+            sma200=sma200_val,
+            vol_ratio=vol_ratio,
+            atr=sl_result.get("atr_14", close_price * 0.025)
+        )
+        ctx.capture_score("TOTAL", final_score, 100.0)
+        ctx.capture_sl_target(entry_val, sl_result.get("stop_loss", 0.0), sl_result.get("target_1", 0.0))
+        
+        ctx.finalize(decision="SELECTED" if is_qualified else "REJECTED", primary_reason=reasons[0] if reasons else "NO_QUALIFY")
+        telemetry_engine.emit_terminal(ctx)
+        global_decision_ledger.record_decision_context(ctx)
+    except Exception as telemetry_err:
+        logger.debug(f"Telemetry recording skipped: {telemetry_err}")
+
     return {
         "status": status_str,
         "reasons": reasons,

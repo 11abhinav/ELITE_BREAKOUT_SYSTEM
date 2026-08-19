@@ -183,14 +183,42 @@ def evaluate_daily_builder_symbol(symbol: str, df: pd.DataFrame, fund_data: dict
         if opm_val < 0:
             checks.append(f"JUNK BLOCKED: Negative Operating Margin {opm_val:.1f}%")
 
+    is_qualified = len(checks) == 0
+    price_msg = f"Price ₹{close_price:.2f} ≥ ₹{MIN_PRICE:.0f}" if not ignore_min_price else f"Price ₹{close_price:.2f} (<₹100 allowed for Stock Analyzer)"
+    reasons_list = checks if checks else [f"{price_msg} | 20D Avg Turnover ₹{avg_turnover_20d:.1f}Cr ≥ ₹1.0Cr | Bars {len(ticker)} ≥ 50"]
+
+    # ── PER-STOCK TERMINAL TELEMETRY DUMP (Section 4 & 8) ──
+    try:
+        from scanner_telemetry import DecisionContext, telemetry_engine
+        from decision_ledger import global_decision_ledger
+        ctx = DecisionContext(symbol=symbol, scanner_name="DAILY_BUILDER")
+        ctx.capture_raw_market(
+            open_p=_fval(latest, "Open"),
+            high_p=_fval(latest, "High"),
+            low_p=_fval(latest, "Low"),
+            close_p=close_price,
+            volume=_fval(latest, "Volume")
+        )
+        ctx.capture("Turnover_20D_Cr", avg_turnover_20d, origin="CALCULATED", group="INDICATOR")
+        if debt_equity is not None:
+            ctx.capture("DebtToEquity", debt_equity, origin="EXTERNAL_API", group="INDICATOR")
+        if opm is not None:
+            ctx.capture("OPM", opm, origin="EXTERNAL_API", group="INDICATOR")
+        
+        ctx.capture_gate("DailyBuilderEligibility", is_qualified, actual_val=close_price, threshold_val=MIN_PRICE, reason="; ".join(reasons_list))
+        ctx.finalize(decision="SELECTED" if is_qualified else "REJECTED", primary_reason=reasons_list[0])
+        telemetry_engine.emit_terminal(ctx)
+        global_decision_ledger.record_decision_context(ctx)
+    except Exception as telemetry_err:
+        pass
+
     if checks:
         return {"status": "NO", "qualified": False, "reasons": checks}
 
-    price_msg = f"Price ₹{close_price:.2f} ≥ ₹{MIN_PRICE:.0f}" if not ignore_min_price else f"Price ₹{close_price:.2f} (<₹100 allowed for Stock Analyzer)"
     return {
         "status": "CORE MET",
         "qualified": True,
-        "reasons": [f"{price_msg} | 20D Avg Turnover ₹{avg_turnover_20d:.1f}Cr ≥ ₹1.0Cr | Bars {len(ticker)} ≥ 50"]
+        "reasons": reasons_list
     }
 
 # =====================================================================================

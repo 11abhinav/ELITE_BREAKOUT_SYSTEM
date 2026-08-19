@@ -241,6 +241,35 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
     from sl_target_helper import compute_sl_and_target
     sl_result = compute_sl_and_target(entry_price=close_price, atr=atr_val, mode="MULTI_TF", ticker=ticker)
 
+    # ── PER-STOCK TERMINAL TELEMETRY DUMP (Section 4 & 8) ──
+    try:
+        from scanner_telemetry import DecisionContext, telemetry_engine
+        from decision_ledger import global_decision_ledger
+        ctx = DecisionContext(symbol=symbol, scanner_name="MULTI_TF")
+        ctx.capture_raw_market(
+            open_p=_safe_float(latest.get("Open")),
+            high_p=_safe_float(latest.get("High")),
+            low_p=_safe_float(latest.get("Low")),
+            close_p=_safe_float(latest.get("Close")),
+            volume=_safe_float(latest.get("Volume"))
+        )
+        ctx.capture_indicators(
+            rsi=_safe_float(latest.get("RSI")),
+            ema20=e20,
+            sma50=s50,
+            sma200=s200,
+            adx=adx_val,
+            atr=atr_val
+        )
+        ctx.capture_score("TOTAL", score, 100.0)
+        ctx.capture_sl_target(close_price, sl_result.get("stop_loss", 0.0), sl_result.get("target_1", 0.0))
+        
+        ctx.finalize(decision="SELECTED", primary_reason="ALL_MULTI_TF_PHASES_PASSED")
+        telemetry_engine.emit_terminal(ctx)
+        global_decision_ledger.record_decision_context(ctx)
+    except Exception as telemetry_err:
+        logger.debug(f"Telemetry recording skipped: {telemetry_err}")
+
     return {
         "status": status_tag,
         "reasons": phase_details,

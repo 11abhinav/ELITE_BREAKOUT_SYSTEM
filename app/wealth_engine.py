@@ -686,10 +686,30 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
     if check_quality_on_sale_rules(score, roce, roe, dist_52w, de, is_fin):
         buckets.append("Quality-On-Sale")
 
-    if check_opportunistic_rules(score, yoy_profit, rs_6m, cats):
-        buckets.append("Opportunistic")
+    res_bucket = ", ".join(buckets) if buckets else "REVIEW"
 
-    return ", ".join(buckets) if buckets else "REVIEW"
+    # ── PER-STOCK TERMINAL TELEMETRY DUMP (Section 4 & 8) ──
+    try:
+        from scanner_telemetry import DecisionContext, telemetry_engine
+        from decision_ledger import global_decision_ledger
+        sym = r.get("Stock", r.get("Symbol", "UNKNOWN"))
+        ctx = DecisionContext(symbol=str(sym), scanner_name="WEALTH_ENGINE")
+        ctx.capture("FM_Score", score, origin="CALCULATED", group="SCORE")
+        ctx.capture("MarketCapCr", mcap, origin="EXTERNAL_API", group="RAW")
+        ctx.capture("ROCE", roce, origin="EXTERNAL_API", group="INDICATOR")
+        ctx.capture("ROE", roe, origin="EXTERNAL_API", group="INDICATOR")
+        ctx.capture("DebtToEquity", de, origin="EXTERNAL_API", group="INDICATOR")
+        ctx.capture("YOY_Revenue", yoy_sales, origin="EXTERNAL_API", group="INDICATOR")
+        ctx.capture("YOY_Profit", yoy_profit, origin="EXTERNAL_API", group="INDICATOR")
+        ctx.capture_score("TOTAL", score, 100.0)
+        
+        ctx.finalize(decision="SELECTED" if buckets else "REJECTED", primary_reason=f"BUCKETS_{res_bucket}")
+        telemetry_engine.emit_terminal(ctx)
+        global_decision_ledger.record_decision_context(ctx)
+    except Exception as telemetry_err:
+        pass
+
+    return res_bucket
 
 
 
