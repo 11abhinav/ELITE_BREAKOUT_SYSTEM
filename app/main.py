@@ -1173,24 +1173,17 @@ def run_system_scheduler():
     def safe_run_wealth_scan_initial():
         """Run Wealth Engine at 2:00 AM with fresh watchlist."""
         start_time = time.time()
-        from database import start_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health
+        from database import upsert_scanner_health
         upsert_scanner_health("Wealth Engine", status="QUEUED", error_msg="Waiting for global execution lock...")
-        run_ctx = None
         try:
             logger.info("🕒 SCHEDULER | [6:00 AM] Triggering Wealth Engine (initial setup)")
             from telemetry_manager import telemetry
             telemetry.log_scheduler_event("WEALTH_ENGINE_INIT", "CYCLE_START")
             telemetry.log_session_timeline("Started Wealth Engine Initial Setup Cycle")
             with MemoryProfiler("WEALTH_ENGINE_INIT", force_gc_cleanup=True):
-                with wealth_execution_lock:
-                    run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type="SCHEDULED", scheduler_name="CRON")
-                    try:
-                        run_wealth_scan(run_ctx=run_ctx)
-                        duration_sec = round(time.time() - start_time, 1)
-                        complete_scanner_execution_run(run_ctx)
-                    except Exception as run_err:
-                        complete_scanner_execution_run(run_ctx, exception=run_err)
-                        raise run_err
+                from wealth_engine import run_wealth_scan
+                run_wealth_scan(trigger_type="SCHEDULED", scheduler_name="CRON")
+                duration_sec = round(time.time() - start_time, 1)
             
             # Mark success
             now_str = datetime.now(IST).isoformat()
@@ -1208,8 +1201,6 @@ def run_system_scheduler():
                 pass
             return True
         except Exception as e:
-            if run_ctx:
-                complete_scanner_execution_run(run_ctx, exception=e)
             if "actively running" in str(e).lower():
                 logger.info("⏳ Wealth Engine is actively running.")
                 return False
@@ -1245,24 +1236,14 @@ def run_system_scheduler():
                 if not is_scanner_stopped("Wealth Engine"):
                     logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering FULL Wealth Engine Scan (1-hour BUY alert cycle)")
                     from telemetry_manager import telemetry
-                    from database import start_scanner_execution_run, complete_scanner_execution_run
                     upsert_scanner_health("Wealth Engine", status="QUEUED", error_msg="Waiting for global execution lock...")
                     telemetry.log_scheduler_event("WEALTH_ENGINE_15M", "CYCLE_START")
                     _scan_start_t = time.time()
-                    run_ctx = None
-                    try:
-                        with MemoryProfiler("WEALTH_ENGINE_15M", force_gc_cleanup=True):
-                            with wealth_execution_lock:
-                                run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type="SCHEDULED", scheduler_name="CRON")
-                                try:
-                                    from wealth_engine import run_wealth_scan
-                                    run_wealth_scan(run_ctx=run_ctx)
-                                    duration_sec = round(time.time() - _scan_start_t, 1)
-                                    complete_scanner_execution_run(run_ctx)
-                                except Exception as run_err:
-                                    complete_scanner_execution_run(run_ctx, exception=run_err)
-                                    raise run_err
-                        now_str = datetime.now(IST).isoformat()
+                    with MemoryProfiler("WEALTH_ENGINE_15M", force_gc_cleanup=True):
+                        from wealth_engine import run_wealth_scan
+                        run_wealth_scan(trigger_type="SCHEDULED", scheduler_name="CRON")
+                        duration_sec = round(time.time() - _scan_start_t, 1)
+                    now_str = datetime.now(IST).isoformat()
                         upsert_scanner_health(
                             "Wealth Engine",
                             status="OK",

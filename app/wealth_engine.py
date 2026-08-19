@@ -823,7 +823,7 @@ _global_lock = ProcessLock("global_scanner_lock")
 # =====================================================================================
 # MAIN PIPELINE WRAPPERS
 # =====================================================================================
-def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None):
+def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type="SCHEDULED", scheduler_name="CRON"):
     from database import is_scanner_stopped, upsert_scanner_health
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("Wealth Engine"):
@@ -844,22 +844,16 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None):
         queued_at = time.monotonic()
         logger.info("⏳ [WEALTH ENGINE] Global lock busy — marking status QUEUED and waiting...")
         upsert_scanner_health("Wealth Engine", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
-        if run_ctx and getattr(run_ctx, "run_id", None):
-            from database import update_scanner_run_lifecycle
-            update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
         if not _global_lock.acquire(blocking=True):
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [WEALTH ENGINE] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
         upsert_scanner_health("Wealth Engine", "RUNNING")
-        if run_ctx and getattr(run_ctx, "run_id", None):
-            from database import update_scanner_run_lifecycle
-            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
 
     created_ctx = False
     if run_ctx is None:
         try:
             from database import start_scanner_execution_run
-            run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type="MANUAL", scheduler_name="CLI")
+            run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type=trigger_type, scheduler_name=scheduler_name)
             created_ctx = True
         except Exception: pass
 
