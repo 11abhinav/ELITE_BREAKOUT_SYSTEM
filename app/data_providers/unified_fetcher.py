@@ -296,7 +296,7 @@ class UnifiedFetcher:
                     logger.info(f"🔄 [Yahoo] Fetching live quotes for {len(pending)} symbols...")
                     import yfinance as yf
                     pending_list = list(pending)
-                    chunk_size = 100
+                    chunk_size = 40
                     
                     INDEX_YF_MAP = {
                         "NIFTY 50": "^NSEI", "NIFTY": "^NSEI", "^NSEI": "^NSEI",
@@ -363,7 +363,7 @@ class UnifiedFetcher:
                         logger.info(f"🔄 [BSE] Fetching live quotes for {len(pending)} symbols...")
                         import yfinance as yf
                         pending_list = list(pending)
-                        chunk_size = 100
+                        chunk_size = 40
 
                         INDEX_BSE_MAP = {
                             "NIFTY 50": "^NSEI", "NIFTY": "^NSEI", "^NSEI": "^NSEI",
