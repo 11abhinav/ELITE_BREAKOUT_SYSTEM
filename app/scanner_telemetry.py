@@ -378,6 +378,7 @@ class GlobalScannerTelemetryEngine:
             # 1. Print Human-Readable ASCII Box
             box_text = ctx.format_terminal_audit_box()
             logger.info(f"\n{box_text}")
+            logger.info(f"Scanner={ctx.scanner_name} Symbol={ctx.symbol} Decision={ctx.terminal_decision} Gate={ctx.primary_reason} Reason={ctx.primary_reason}")
 
             # 2. Serialize JSON record
             record_json = ctx.to_telemetry_json()
