@@ -2065,20 +2065,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         except Exception:
             pass
 
-    # Clean any stale DB status left over from pre-restart runs
-    try:
-        from database import get_connection
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("UPDATE scanner_health SET status = 'IDLE', error_msg = NULL WHERE (UPPER(scanner_name) = UPPER(%s) OR UPPER(scanner_name) = UPPER(%s)) AND (status = 'RUNNING' OR status LIKE 'QUEUED%%')", (scanner_key, scanner_key.replace(" ", "_")))
-                conn.commit()
-    except Exception as _ce:
-        logger.warning(f"Could not clear stale scanner status for {scanner_key}: {_ce}")
-
-    # Immediately set status to RUNNING (never trap manual triggers in QUEUED state)
-    upsert_scanner_health(scanner_key, status="RUNNING", error_msg="⏳ Manual scan in progress...")
-    
-    # Run in background thread so the API returns immediately
+    # Run in background thread so the API returns immediately (scanner start() manages QUEUED -> RUNNING -> OK lifecycle)
     def _run():
         try:
             start_time = time.time()
