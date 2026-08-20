@@ -7437,50 +7437,71 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
         logger.warning(f"Failed to cleanup orphaned scanner runs on boot: {e}")
 
 
-def is_scanner_actively_running(scanner_name: str, exclude_run_id: str = None) -> bool:
+def is_scanner_actively_running(scanner_name: str, exclude_run_id: str = None, check_system_wide: bool = False) -> bool:
     """
-    [VERSION: SCANNER_DUPLICATE_GUARD_FIX_v1.1]
-    Check PostgreSQL execution history for an active (RUNNING/QUEUED) run of the specified scanner.
+    [VERSION: SCANNER_DUPLICATE_GUARD_FIX_v2.0]
+    Check PostgreSQL execution history for an active (RUNNING/QUEUED) run of the specified scanner
+    or any heavy system scanner if check_system_wide=True.
     Auto-cleans any abandoned/stale runs older than 15 minutes before checking active status.
     """
-    if not scanner_name:
+    if not scanner_name and not check_system_wide:
         return False
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # 🧹 WATCHDOG HEALING: Auto-mark any stale RUNNING/QUEUED records older than 4 hours as TIMEOUT_STALE
+                # 🧹 WATCHDOG HEALING: Auto-mark any stale RUNNING/QUEUED records older than 15 minutes as TIMEOUT_STALE
                 cur.execute("""
                     UPDATE scanner_execution_history
                     SET completed_at = NOW(),
                         lifecycle_status = 'TIMEOUT_STALE',
-                        error_summary = 'Execution timed out after 4 hours of inactivity',
+                        error_summary = 'Execution timed out after 15 minutes of inactivity',
                         error_details = 'Watchdog auto-cleaned stale RUNNING state without recent heartbeat'
                     WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                       AND (
-                          heartbeat_at < NOW() - INTERVAL '4 hours'
-                          OR (started_at < NOW() - INTERVAL '4 hours' AND (heartbeat_at IS NULL OR heartbeat_at = started_at))
+                          heartbeat_at < NOW() - INTERVAL '15 minutes'
+                          OR (started_at < NOW() - INTERVAL '15 minutes' AND (heartbeat_at IS NULL OR heartbeat_at = started_at))
                       );
                 """)
                 conn.commit()
 
-                if exclude_run_id:
-                    cur.execute("""
-                        SELECT run_id FROM scanner_execution_history
-                        WHERE LOWER(scanner_name) = LOWER(%s)
-                          AND lifecycle_status IN ('RUNNING', 'QUEUED')
-                          AND run_id != %s
-                        LIMIT 1;
-                    """, (scanner_name, exclude_run_id))
+                if check_system_wide:
+                    if exclude_run_id:
+                        cur.execute("""
+                            SELECT run_id FROM scanner_execution_history
+                            WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
+                              AND run_id != %s
+                            LIMIT 1;
+                        """, (exclude_run_id,))
+                    else:
+                        cur.execute("""
+                            SELECT run_id FROM scanner_execution_history
+                            WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
+                            LIMIT 1;
+                        """)
                 else:
-                    cur.execute("""
-                        SELECT run_id FROM scanner_execution_history
-                        WHERE LOWER(scanner_name) = LOWER(%s)
-                          AND lifecycle_status IN ('RUNNING', 'QUEUED')
-                        LIMIT 1;
-                    """, (scanner_name,))
+                    if exclude_run_id:
+                        cur.execute("""
+                            SELECT run_id FROM scanner_execution_history
+                            WHERE LOWER(scanner_name) = LOWER(%s)
+                              AND lifecycle_status IN ('RUNNING', 'QUEUED')
+                              AND run_id != %s
+                            LIMIT 1;
+                        """, (scanner_name, exclude_run_id))
+                    else:
+                        cur.execute("""
+                            SELECT run_id FROM scanner_execution_history
+                            WHERE LOWER(scanner_name) = LOWER(%s)
+                              AND lifecycle_status IN ('RUNNING', 'QUEUED')
+                            LIMIT 1;
+                        """, (scanner_name,))
                 return cur.fetchone() is not None
     except Exception:
         return False
+
+
+def is_any_heavy_scanner_running(exclude_run_id: str = None) -> bool:
+    """Returns True if ANY heavy scanner is actively RUNNING or QUEUED in PostgreSQL DB."""
+    return is_scanner_actively_running(scanner_name="ANY", exclude_run_id=exclude_run_id, check_system_wide=True)
 
 
 def start_scanner_execution_run(

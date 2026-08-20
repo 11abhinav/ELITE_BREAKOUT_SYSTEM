@@ -1559,45 +1559,46 @@ def run_system_scheduler():
                 def _run_evening_batch_async():
                     import concurrent.futures
                     import pandas as pd
-                    wait_for_bhavcopy_or_fallback("EVENING_SCANNERS")
-                    logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback with hard deadlines.")
-                    today_str = datetime.now(IST).strftime("%Y-%m-%d")
-                    
-                    try:
-                        from market_data_session import MarketDataSession
-                        from watchlist_cache import get_watchlist
-                        wl_df = get_watchlist()
-                        symbols = wl_df["Stock"].dropna().tolist() if isinstance(wl_df, pd.DataFrame) and "Stock" in wl_df.columns else list(wl_df)
-                        session = MarketDataSession.build(symbols=symbols, ist_date=datetime.now(IST).date(), requester="EVENING_BATCH")
-                    except Exception as e:
-                        logger.error(f"Failed to build MarketDataSession for Evening Batch: {e}")
-                        session = None
-
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    with scanner_execution_lock:
+                        wait_for_bhavcopy_or_fallback("EVENING_SCANNERS")
+                        logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback sequentially under scanner_execution_lock.")
+                        today_str = datetime.now(IST).strftime("%Y-%m-%d")
+                        
                         try:
-                            if not is_scanner_stopped("EOD"):
-                                logger.info("Starting EOD Scanner...")
-                                future_eod = executor.submit(_run_eod_with_retries, today_str, session)
-                                future_eod.result()
-                            else:
-                                logger.info("⏭️ EOD Scanner is STOPPED by Admin. Skipping.")
-
-                            if not is_scanner_stopped("REVERSAL"):
-                                logger.info("Starting Reversal Scanner...")
-                                future_rev = executor.submit(_run_reversal_with_retries, today_str, session)
-                                future_rev.result()
-                            else:
-                                logger.info("⏭️ Reversal Scanner is STOPPED by Admin. Skipping.")
-
-                            if not is_scanner_stopped("PULLBACK"):
-                                logger.info("Starting Pullback Pipeline...")
-                                future_pb = executor.submit(_run_pullback_with_retries, today_str, session)
-                                future_pb.result()
-                            else:
-                                logger.info("⏭️ Pullback Pipeline is STOPPED by Admin. Skipping.")
-
+                            from market_data_session import MarketDataSession
+                            from watchlist_cache import get_watchlist
+                            wl_df = get_watchlist()
+                            symbols = wl_df["Stock"].dropna().tolist() if isinstance(wl_df, pd.DataFrame) and "Stock" in wl_df.columns else list(wl_df)
+                            session = MarketDataSession.build(symbols=symbols, ist_date=datetime.now(IST).date(), requester="EVENING_BATCH")
                         except Exception as e:
-                            logger.error(f"🚨 CRITICAL: Evening Batch error: {e}")
+                            logger.error(f"Failed to build MarketDataSession for Evening Batch: {e}")
+                            session = None
+
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                            try:
+                                if not is_scanner_stopped("EOD"):
+                                    logger.info("Starting EOD Scanner...")
+                                    future_eod = executor.submit(_run_eod_with_retries, today_str, session)
+                                    future_eod.result()
+                                else:
+                                    logger.info("⏭️ EOD Scanner is STOPPED by Admin. Skipping.")
+
+                                if not is_scanner_stopped("REVERSAL"):
+                                    logger.info("Starting Reversal Scanner...")
+                                    future_rev = executor.submit(_run_reversal_with_retries, today_str, session)
+                                    future_rev.result()
+                                else:
+                                    logger.info("⏭️ Reversal Scanner is STOPPED by Admin. Skipping.")
+
+                                if not is_scanner_stopped("PULLBACK"):
+                                    logger.info("Starting Pullback Pipeline...")
+                                    future_pb = executor.submit(_run_pullback_with_retries, today_str, session)
+                                    future_pb.result()
+                                else:
+                                    logger.info("⏭️ Pullback Pipeline is STOPPED by Admin. Skipping.")
+
+                            except Exception as e:
+                                logger.error(f"🚨 CRITICAL: Evening Batch error: {e}")
 
                 import threading
                 threading.Thread(target=_run_evening_batch_async, name="EveningBatch", daemon=True).start()
@@ -1822,9 +1823,9 @@ def _run_multibagger_scanner_single():
     try:
         now = datetime.now(IST)
         logger.info(f"🚀 MULTIBAGGER SCAN | Starting daily scan at {now.strftime('%H:%M:%S IST')}...")
-        from database import upsert_scanner_health, is_scanner_actively_running
-        if is_scanner_actively_running("MULTIBAGGER"):
-            logger.info("⏳ MULTIBAGGER scanner is already active (RUNNING/QUEUED). Skipping duplicate trigger...")
+        from database import upsert_scanner_health, is_scanner_actively_running, is_any_heavy_scanner_running
+        if is_any_heavy_scanner_running():
+            logger.info("⏳ Another system scanner is currently active (RUNNING/QUEUED). Skipping duplicate trigger...")
             return
         upsert_scanner_health("MULTIBAGGER", status="QUEUED", error_msg="Waiting for global execution lock...")
         import multibagger
