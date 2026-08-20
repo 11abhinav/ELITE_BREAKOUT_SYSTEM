@@ -1377,7 +1377,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                                             'symbol': symbol, 'category': cat, 'current_state': "TRADE_ACTIVE",
                                             'm5_status': "PASSED"
                                         })
-                                    mark_breakout_watchlist_cooldown(symbol, "TRADE_ACTIVE", hours=24)
+                                    with _batch_lock:
+                                        cooldown_list.append((symbol, "TRADE_ACTIVE", 24))
                                 with _batch_lock:
                                     lower_funnel["triggered"] += 1
                                 # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every triggered trade
