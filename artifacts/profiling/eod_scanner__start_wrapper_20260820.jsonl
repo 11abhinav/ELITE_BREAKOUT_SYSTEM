@@ -1,0 +1,1 @@
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-20T08:23:00.245010+05:30", "duration_s": 0.001, "rss_before_mb": 287.8, "rss_after_mb": 287.8, "rss_delta_mb": 0.0, "error": "DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically."}

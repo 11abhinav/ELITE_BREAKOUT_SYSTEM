@@ -1,0 +1,1 @@
+{"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-20T08:22:01.647771+05:30", "duration_s": 0.0, "rss_before_mb": 190.2, "rss_after_mb": 190.2, "rss_delta_mb": 0.0, "error": "DATABASE_URL env var is not set. Add the Railway Postgres addon and it will be injected automatically."}
