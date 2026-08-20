@@ -2513,7 +2513,9 @@ def api_trigger_scanner(scanner_name):
 
                 
         from main import trigger_scanner_manual
-        threading.Thread(target=trigger_scanner_manual, args=(scanner_name,), daemon=True).start()
+        res = trigger_scanner_manual(scanner_name)
+        if isinstance(res, dict) and res.get("status") == "error":
+            return jsonify(res), 400
         return jsonify({"status": "ok", "message": f"Scanner '{scanner_name}' execution initiated in background."}), 200
     except Exception as e:
         logger.exception(f"❌ /api/admin/trigger_scanner failed for {scanner_name}")
