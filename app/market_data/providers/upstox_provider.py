@@ -377,10 +377,23 @@ class UpstoxProvider(ProviderInterface):
             
         except requests.HTTPError as e:
             self._health_score = max(0, self._health_score - 2)
+            status_code = e.response.status_code if e.response is not None else 0
+            if status_code == 400:
+                logger.warning(f"⚠️ [UPSTOX HTTP 400] Stale or invalid instrument key for {symbol}. Invalidating cached key and refreshing master CSV...")
+                try:
+                    from market_data.providers.upstox_instrument_mapper import mapper
+                    clean_sym = str(symbol).strip().upper()
+                    for sfx in (".NS", ".BO", ".BSE"):
+                        if clean_sym.endswith(sfx):
+                            clean_sym = clean_sym[:-len(sfx)]
+                    mapper._symbol_map.pop(clean_sym, None)
+                    mapper.trigger_background_download()
+                except Exception as _inv_err:
+                    logger.debug(f"Failed to invalidate stale key for {symbol}: {_inv_err}")
             logger.error(f"Upstox fetch HTTP error for {symbol}: {e}")
             latency = (datetime.now() - start_time).total_seconds() * 1000
             prov = DataProvenance(self.provider_name, start_time, latency, 0.0)
-            return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error=f"HTTP {e.response.status_code if e.response is not None else 'Error'}")
+            return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error=f"HTTP {status_code}")
         except Exception as e:
             self._health_score = max(0, self._health_score - 2)
             logger.exception(f"Upstox fetch error for {symbol}: {e}")
