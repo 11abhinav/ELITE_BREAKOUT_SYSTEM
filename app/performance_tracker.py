@@ -585,7 +585,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             "is_rejected":   row.get("is_rejected", False),
             "execution_state": row.get("execution_state"),
             "structural_failure_stop": _f(row.get("structural_failure_stop")),
-            "_db_closed":    row.get("status") in ("WIN", "LOSS"),  # internal flag
+            "_db_closed":    row.get("status") in ("WIN", "LOSS", "CLOSED"),  # internal flag
         })
 
     # ── 2. Fetch current prices ──────────────────────────────────────────────────────
@@ -811,10 +811,10 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     stage_tracker.end_stage(f"Processed {len(trades)} trades")
     # ── 4. Summary stats ────────────────────────────────────────────────────────────
     stage_tracker.start_stage(4, "Summary Stats & Aggregation", "Computing win rate, P&L stats, scanner/category breakdowns")
-    judged  = [t for t in trades if t["status"] in ("WIN", "LOSS", "NEUTRAL")]
-    winners = [t for t in judged if t["status"] == "WIN"]
-    losers  = [t for t in judged if t["status"] == "LOSS"]
-    open_p  = [t for t in trades if t["status"] == "OPEN"]
+    judged  = [t for t in trades if t["status"] in ("WIN", "LOSS", "NEUTRAL", "CLOSED")]
+    winners = [t for t in judged if t["status"] == "WIN" or (t["status"] == "CLOSED" and (t.get("pnl_pct") or 0.0) > 0)]
+    losers  = [t for t in judged if t["status"] == "LOSS" or (t["status"] == "CLOSED" and (t.get("pnl_pct") or 0.0) <= 0)]
+    open_p  = [t for t in trades if t["status"] in ("OPEN", "SELL_REVIEW", "TRAILING")]
 
     pnls    = [t["pnl_pct"] for t in judged if t["pnl_pct"] is not None]
     win_pnl = [t["pnl_pct"] for t in winners if t["pnl_pct"] is not None]

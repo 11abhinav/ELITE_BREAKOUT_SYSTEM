@@ -3837,14 +3837,14 @@ def get_sector_momentum(days=7):
                         FROM alerts a
                         LEFT JOIN daily_watchlist dw ON a.symbol = dw."Stock"
                         WHERE a.created_at >= CURRENT_TIMESTAMP - INTERVAL '%d days'
-                        AND a.status IN ('WIN', 'LOSS')
+                        AND a.status IN ('WIN', 'LOSS', 'CLOSED')
                     )
                     SELECT 
                         COALESCE(sector, 'Unknown') as sector,
                         COUNT(*) as total_trades,
-                        SUM(CASE WHEN status = 'WIN' THEN 1 ELSE 0 END) as wins,
-                        SUM(CASE WHEN status = 'LOSS' THEN 1 ELSE 0 END) as losses,
-                        ROUND(100.0 * SUM(CASE WHEN status = 'WIN' THEN 1 ELSE 0 END) / COUNT(*), 1) as win_rate_pct,
+                        SUM(CASE WHEN status = 'WIN' OR (status = 'CLOSED' AND pnl_rs > 0) THEN 1 ELSE 0 END) as wins,
+                        SUM(CASE WHEN status = 'LOSS' OR (status = 'CLOSED' AND pnl_rs <= 0) THEN 1 ELSE 0 END) as losses,
+                        ROUND(100.0 * SUM(CASE WHEN status = 'WIN' OR (status = 'CLOSED' AND pnl_rs > 0) THEN 1 ELSE 0 END) / COUNT(*), 1) as win_rate_pct,
                         ROUND(COALESCE(SUM(pnl_rs), 0)::NUMERIC, 0)::INTEGER as total_pnl,
                         ROUND((COALESCE(SUM(pnl_rs), 0) / NULLIF(COUNT(*), 0))::NUMERIC, 0)::INTEGER as avg_pnl_per_trade
                     FROM sector_trades
