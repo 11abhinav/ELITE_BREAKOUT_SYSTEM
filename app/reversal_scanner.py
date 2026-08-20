@@ -1972,7 +1972,11 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                             # Sort primarily by clamped normalized score, then by risk-reward ratio
                             shortlisted_alerts.sort(key=lambda x: (x["score"], x.get("context", {}).get("risk_reward") or 0.0), reverse=True)
                             from config import SCANNER_MAX_ALERTS
-                            shortlisted_alerts = shortlisted_alerts[:SCANNER_MAX_ALERTS.get("REVERSAL", 10)]
+                            max_alerts = SCANNER_MAX_ALERTS.get("REVERSAL", 10)
+                            if len(shortlisted_alerts) > max_alerts:
+                                for s_cand in shortlisted_alerts[max_alerts:]:
+                                    logger.info(f"🚫 [REVERSAL] {s_cand['symbol']} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit ({max_alerts}) (Score: {s_cand['score']:.1f})")
+                                shortlisted_alerts = shortlisted_alerts[:max_alerts]
 
                         for alert in shortlisted_alerts:
                             inserted, _, _, _ = save_alert_if_new(

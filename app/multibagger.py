@@ -2133,15 +2133,18 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             status = "WAITING_BUY_ZONE"
             notes = f"Conviction: {tier} | CQS: {cqs:.1f}"
             alert_triggered = False
+            logger.debug(f"ℹ️ [MULTIBAGGER] {sym} not triggered — Conviction Tier '{tier}' below Prime/High Quality threshold")
         else:
             if not pipeline_result.buy_zone.in_buy_zone:
                 status = "WAITING_BUY_ZONE"
                 notes = f"Conviction: {tier} | Waiting for Pullback"
                 alert_triggered = False
+                logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED from Alert — Price ₹{price_data.price:.2f} not in Buy Zone [₹{buy_low:.2f} - ₹{buy_high:.2f}]")
             elif not entry_confirmed(price_data):
                 status = "WAITING_BUY_ZONE"
                 notes = f"Conviction: {tier} | In Zone, Awaiting Technical Stabilization"
                 alert_triggered = False
+                logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED from Alert — In Buy Zone but entry_confirmed technical stabilization check failed")
             else:
                 status = "ALERT_TRIGGERED"
                 reclaim_ema = price_data.price > price_data.ema_20
@@ -2162,7 +2165,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         if alert_triggered:
             skip_alert = False
             if sym in open_symbols:
-                logger.debug(f"REJECTION: {sym} (Phase: OPEN_POSITION_SUPPRESSION, Reason: Already an open MULTIBAGGER position)")
+                logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED after picking — Reason: ALREADY_OPEN_POSITION in database")
                 skip_alert = True
                 status = "WAITING_BUY_ZONE" # Already held, so don't fire an alert again
                 
