@@ -51,6 +51,8 @@ def get_git_info() -> dict:
 
 def get_test_results() -> dict:
     """Run pytest and capture pass/fail counts."""
+    if not os.path.exists(os.path.join(PROJECT_ROOT, "tests")):
+        return {"status": "NO_TESTS_DIRECTORY", "passed": 0, "failed": 0, "total": 0}
     start = time.perf_counter()
     try:
         result = subprocess.run(
