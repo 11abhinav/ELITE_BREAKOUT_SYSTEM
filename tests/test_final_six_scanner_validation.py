@@ -966,6 +966,28 @@ def _patch_shared_provider(modules: Sequence[types.ModuleType], shared: Mapping[
     except Exception:
         pass
 
+    try:
+        db_mod = _import_app_module("database")
+        db_fn_names = (
+            "save_symbol_mapping_db", "save_symbol_mapping", "save_alert_if_new", "upsert_scanner_health",
+            "start_scanner_execution_run", "complete_scanner_execution_run", "is_scanner_stopped",
+            "is_scanner_actively_running", "submit_background_upload", "upload_history_bundle_to_db",
+            "delete_todays_alerts_for_scanner", "get_connection", "save_rejected_alert"
+        )
+        for fn_name in db_fn_names:
+            if hasattr(db_mod, fn_name):
+                originals.append((db_mod, fn_name, getattr(db_mod, fn_name)))
+                if fn_name == "save_alert_if_new":
+                    setattr(db_mod, fn_name, lambda *a, **kw: (True, "Mock Saved", 0.0, 1))
+                elif fn_name == "is_scanner_stopped":
+                    setattr(db_mod, fn_name, lambda *a, **kw: False)
+                elif fn_name == "is_scanner_actively_running":
+                    setattr(db_mod, fn_name, lambda *a, **kw: False)
+                else:
+                    setattr(db_mod, fn_name, lambda *a, **kw: None)
+    except Exception:
+        pass
+
     return originals
 
 
