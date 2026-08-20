@@ -111,9 +111,13 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
         queued_at = time.monotonic()
         logger.info("⏳ [EOD] Global lock busy — waiting for lock to release...")
         if not _global_lock.acquire(blocking=True):
-            _scan_lock.release()
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [EOD] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
+
+    if not _scan_lock.acquire(blocking=False):
+        _global_lock.release()
+        logger.warning("🛑 EOD Scanner is ALREADY actively running. Skipping duplicate execution.")
+        return 0
 
     own_ctx = False
     if run_ctx is None:
