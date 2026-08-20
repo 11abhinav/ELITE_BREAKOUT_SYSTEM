@@ -936,6 +936,35 @@ def _patch_shared_provider(modules: Sequence[types.ModuleType], shared: Mapping[
         pass
 
     try:
+        data_prov_mod = _import_app_module("data_provider")
+        if hasattr(data_prov_mod, "get_fetcher"):
+            originals.append((data_prov_mod, "get_fetcher", getattr(data_prov_mod, "get_fetcher")))
+            class MockFetcher:
+                def get_ohlcv(self, symbol, interval="1d", period="1y", **kwargs):
+                    norm = _normalize_symbol(symbol)
+                    df = shared.get((norm, interval))
+                    if not isinstance(df, pd.DataFrame):
+                        df = generate_synthetic_ohlcv(norm, candles=450 if interval == "1d" else 50, interval=interval)
+                    return df
+                def get_batch_ohlcv(self, symbols, interval="1d", period="1y", **kwargs):
+                    sym_list = [symbols] if isinstance(symbols, str) else list(symbols)
+                    out = {}
+                    for s in sym_list:
+                        norm = _normalize_symbol(s)
+                        df = shared.get((norm, interval))
+                        if not isinstance(df, pd.DataFrame):
+                            df = generate_synthetic_ohlcv(norm, candles=450 if interval == "1d" else 50, interval=interval)
+                        out[norm] = df
+                    return out
+                def get_quote(self, symbol):
+                    return {"price": 100.0, "volume": 10000}
+            
+            mock_inst = MockFetcher()
+            setattr(data_prov_mod, "get_fetcher", lambda: mock_inst)
+    except Exception:
+        pass
+
+    try:
         import yfinance as yf
         if hasattr(yf, "Ticker"):
             originals.append((yf, "Ticker", getattr(yf, "Ticker")))
