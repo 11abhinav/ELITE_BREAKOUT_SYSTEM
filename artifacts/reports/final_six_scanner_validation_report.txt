@@ -1,21 +1,21 @@
 ============================================================
 SIX-SCANNER DATA DEPENDENCY & DECISION CERTIFICATION REPORT
-Generated At: 2026-08-20 03:19:44 UTC
+Generated At: 2026-08-20 03:25:53 UTC
 ============================================================
 
 Total Symbols Certified       : 50
 Total Scanner Evaluations     : 300
-Valid Alerts Generated        : 33
-Valid Strategy Rejections     : 16
-Data / Pipeline Failures       : 251
+Valid Alerts Generated        : 54
+Valid Strategy Rejections     : 195
+Data / Pipeline Failures       : 51
 Duplicate Network Fetches     : 0
 
 PER-SCANNER SUMMARY:
-  • MULTI_TF       : Alerts=0   | Valid Rejections=0   | Data Failures=50 
-  • WEALTH_ENGINE  : Alerts=33  | Valid Rejections=16  | Data Failures=1  
-  • REVERSAL       : Alerts=0   | Valid Rejections=0   | Data Failures=50 
-  • PULLBACK       : Alerts=0   | Valid Rejections=0   | Data Failures=50 
+  • MULTI_TF       : Alerts=2   | Valid Rejections=48  | Data Failures=0  
+  • WEALTH_ENGINE  : Alerts=29  | Valid Rejections=20  | Data Failures=1  
+  • REVERSAL       : Alerts=2   | Valid Rejections=48  | Data Failures=0  
+  • PULLBACK       : Alerts=0   | Valid Rejections=50  | Data Failures=0  
   • EOD            : Alerts=0   | Valid Rejections=0   | Data Failures=50 
-  • MULTIBAGGER    : Alerts=0   | Valid Rejections=0   | Data Failures=50 
+  • MULTIBAGGER    : Alerts=21  | Valid Rejections=29  | Data Failures=0  
 
 ============================================================

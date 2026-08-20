@@ -4,6 +4,10 @@ import yfinance as yf
 import time
 import random
 import logging
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
 
 from yf_rate_limiter import acquire as yf_acquire, release as yf_release, record_rate_limit, get_backoff_delay, CircuitOpenError
 
