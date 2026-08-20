@@ -1861,22 +1861,19 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     # Check if any shortlisted stocks are missing from cache. If so, run instant TradingView bulk fetch (<3s)
     missing_shortlist_syms = [p.symbol for p in shortlist if not get_cached_fundamentals(p.symbol, cache)]
     if missing_shortlist_syms:
-        logger.info(f"⚡ [MULTIBAGGER BULK ENRICHMENT] {len(missing_shortlist_syms)}/{len(shortlist)} stocks missing from cache. Running TradingView bulk fetch (<3s)...")
+        logger.info(f"⚡ [MULTIBAGGER BULK ENRICHMENT] {len(missing_shortlist_syms)}/{len(shortlist)} stocks missing from cache. Running TradingView bulk fetch for entire universe (<3s)...")
         try:
             from fundamentals_cache import fetch_tradingview_fundamentals_bulk
             tv_data = fetch_tradingview_fundamentals_bulk()
             if tv_data:
                 enriched_count = 0
-                for p in shortlist:
-                    sym = p.symbol
-                    clean_sym = sym.replace("-", "_").upper().strip()
-                    tv_entry = tv_data.get(clean_sym) or tv_data.get(sym)
-                    if tv_entry and not get_cached_fundamentals(sym, cache):
-                        tv_entry["symbol"] = sym
-                        cache[sym] = tv_entry
+                for sym_name, tv_entry in tv_data.items():
+                    if sym_name not in cache:
+                        tv_entry["symbol"] = sym_name
+                        cache[sym_name] = tv_entry
                         enriched_count += 1
                 if enriched_count > 0:
-                    logger.info(f"✅ [MULTIBAGGER BULK ENRICHMENT] Enriched {enriched_count} stocks instantly via TradingView.")
+                    logger.info(f"✅ [MULTIBAGGER BULK ENRICHMENT] Saved all {len(cache)} market universe symbols to DB cache.")
                     save_fundamentals_cache(cache, sync_to_db=True)
         except Exception as _tv_err:
             logger.warning(f"⚠️ TradingView bulk enrichment failed: {_tv_err}")
