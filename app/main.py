@@ -2065,18 +2065,8 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         except Exception:
             pass
 
-    # Synchronously check if global scanner lock is held by another active scanner
-    try:
-        from lock_utils import ProcessLock
-        from database import upsert_scanner_health
-        _global_lock = ProcessLock("global_scanner_lock")
-        if _global_lock.locked():
-            logger.info(f"⏳ [MANUAL TRIGGER] Global scanner lock busy. Marking {scanner_key} as QUEUED in DB.")
-            upsert_scanner_health(scanner_key, status="QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-        else:
-            upsert_scanner_health(scanner_key, status="RUNNING", error_msg="Scan in progress...")
-    except Exception as _qerr:
-        logger.warning(f"Could not set initial trigger health for {scanner_key}: {_qerr}")
+    # Let the individual scanner thread handle its own global lock acquisition
+    # and database status updates (QUEUED vs RUNNING). This prevents race conditions.
 
     # Invalidate dashboard status cache so next poll returns fresh DB state immediately
     try:
