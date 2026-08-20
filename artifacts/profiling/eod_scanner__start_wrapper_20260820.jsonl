@@ -18,3 +18,5 @@
 {"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-20T10:19:08.772443+05:30", "duration_s": 11.793, "rss_before_mb": 378.8, "rss_after_mb": 425.3, "rss_delta_mb": 46.5, "error": null}
 {"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-20T11:20:26.386937+05:30", "duration_s": 13.8, "rss_before_mb": 364.6, "rss_after_mb": 402.2, "rss_delta_mb": 37.5, "error": null}
 {"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-20T11:20:42.074659+05:30", "duration_s": 13.65, "rss_before_mb": 401.8, "rss_after_mb": 395.3, "rss_delta_mb": -6.5, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-20T11:59:18.619633+05:30", "duration_s": 13.188, "rss_before_mb": 260.0, "rss_after_mb": 410.1, "rss_delta_mb": 150.0, "error": null}
+{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-20T11:59:32.540496+05:30", "duration_s": 11.159, "rss_before_mb": 407.1, "rss_after_mb": 455.0, "rss_delta_mb": 47.9, "error": null}
