@@ -631,8 +631,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
     # 3. IF a candidate in HOURLY_APPROVED reaches ENTRY_READY during this single scan cycle, Phase D (lines 950-955)
     #    automatically fetches 5m data ON-DEMAND for that single candidate in ~0.5s, maintaining 0-delay triggers!
     needs_30m = list({i["symbol"] for i in active_items if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")})
-    needs_15m = list({i["symbol"] for i in active_items if i["current_state"] in ("SETUP_ARMED", "ENTRY_READY")})
-    needs_5m  = list({i["symbol"] for i in active_items if i["current_state"] in ("ENTRY_READY",)})
+    needs_15m = list({i["symbol"] for i in active_items if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")})
+    needs_5m  = list({i["symbol"] for i in active_items if i["current_state"] in ("SETUP_ARMED", "ENTRY_READY")})
 
     
     import concurrent.futures
@@ -907,10 +907,18 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                         logger.info(f"🎯 {symbol} upgraded to SETUP_ARMED (bb_pctile={bb_pctile:.2f}, dist={dist_to_breakout*100:.2f}%).")
 
             # ── Phase C (15m): SETUP_ARMED → ENTRY_READY ─────────────────────
-            if state == "SETUP_ARMED" and data_15m.get(symbol) is not None and ok_15m:
-                with _batch_lock:
-                    lower_funnel["entry_candidates"] += 1
+            if state == "SETUP_ARMED" and ok_15m:
                 df = data_15m.get(symbol)
+                if df is None:
+                    # Single-stock 15m fallback if candidate reached SETUP_ARMED during this cycle
+                    try:
+                        res_15m = fetch_watchlist_data(pd.DataFrame({"Stock": [symbol]}), period="3d", interval="15m", requester=f"MTF_ON_DEMAND_15M_{symbol}")
+                        df = res_15m.get(symbol) if isinstance(res_15m, dict) else None
+                    except Exception:
+                        df = None
+                if df is not None:
+                    with _batch_lock:
+                        lower_funnel["entry_candidates"] += 1
                 if df is None:
                     logger.debug(f"⏭️ {symbol} Phase C: no data returned from fetch")
                 if df is not None:
