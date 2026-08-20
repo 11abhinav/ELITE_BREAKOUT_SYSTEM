@@ -27,10 +27,11 @@ def mock_get_fetcher():
         print(f"range_from: {range_from}, range_to: {range_to}")
         res = original_get_batch(symbols, interval, period, retries, range_from, range_to, caller)
         for k, v in res.items():
-            if v is None or v.empty:
+            df_val = v.df if (v is not None and hasattr(v, 'df')) else v
+            if df_val is None or getattr(df_val, 'empty', True):
                 print(f"RESULT {k}: Empty")
             else:
-                print(f"RESULT {k}: Success {v.shape}")
+                print(f"RESULT {k}: Success {getattr(df_val, 'shape', len(df_val))}")
         return res
     
     fetcher.get_batch_ohlcv = mock_get_batch

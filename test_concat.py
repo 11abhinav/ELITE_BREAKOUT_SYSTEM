@@ -17,8 +17,9 @@ print("Cached index:", cached_df.index.name)
 
 fetcher = get_fetcher()
 # simulate DELTA fetch
-new_df = fetcher.get_ohlcv("BPCL", interval="1d", period="1y", range_from="2026-07-13", range_to="2026-07-19")
-if new_df is not None:
+new_df_res = fetcher.get_ohlcv("BPCL", interval="1d", period="1y", range_from="2026-07-13", range_to="2026-07-19")
+new_df = new_df_res.df if (new_df_res is not None and hasattr(new_df_res, 'df')) else new_df_res
+if new_df is not None and hasattr(new_df, 'columns'):
     print("New columns:", new_df.columns)
     print("New index:", new_df.index.name)
     

@@ -11,7 +11,8 @@ fetcher = get_fetcher()
 res = fetcher.get_batch_ohlcv(['MARSONS', 'SIKA', 'TIMEX', 'AYE'], '1d', '1mo')
 print('Keys in res:', res.keys())
 for k, v in res.items():
-    if v is None or (hasattr(v, 'empty') and v.empty):
+    df_val = v.df if (v is not None and hasattr(v, 'df')) else v
+    if df_val is None or (hasattr(df_val, 'empty') and df_val.empty):
         print(f'{k}: Empty')
     else:
-        print(f'{k}: Success, shape {v.shape}')
+        print(f'{k}: Success, shape {df_val.shape}')
