@@ -1047,13 +1047,13 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                     if df is None or df.empty or len(df) < 2:
                         logger.debug(f"⏭️ {symbol} phase D: insufficient 5m data")
                         return
+                    daily_df = data_daily.get(symbol)
                     # =====================================================================================
                     # RULE 67 MANDATORY CHANGE-RATIONALE:
                     # - Guarded apply_indicators(5m) call so pre-computed indicators from price_cache.py are reused.
                     # - Rationale: Eliminates 181s (3 min) of redundant pandas rolling indicator calculations during lower TF evaluation loop.
                     # =====================================================================================
                     if "EMA9" not in df.columns or "ATR20" not in df.columns:
-                        daily_df = data_daily.get(symbol)
                         df = apply_indicators(df, timeframe="5m", daily_ohlc=daily_df)
                     if df.empty or "EMA9" not in df.columns or "ATR20" not in df.columns or "Volume" not in df.columns:
                         logger.debug(f"⏭️ {symbol} phase D: missing required 5m indicators")

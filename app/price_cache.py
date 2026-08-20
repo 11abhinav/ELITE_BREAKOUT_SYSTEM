@@ -518,6 +518,32 @@ def _is_cache_up_to_date_legacy(last_ts: pd.Timestamp, interval: str, now_dt: da
     return last_ts >= cutoff_time
 
 
+class OneHourPolicy(CacheFreshnessPolicy):
+    """1-Hour Intraday Cache Freshness Policy."""
+    def is_fresh(self, last_ts: pd.Timestamp, now_dt: datetime = None) -> bool:
+        if now_dt is None:
+            now_dt = datetime.now(IST)
+        from market_utils import is_market_open
+        if is_market_open(now_dt):
+            if last_ts.date() == now_dt.date() or (now_dt - last_ts).total_seconds() <= (240 * 60):
+                return True
+            return (now_dt - last_ts).total_seconds() <= (90 * 60)
+        return _is_cache_up_to_date_legacy(last_ts, "1h", now_dt)
+
+
+class ThirtyMinutePolicy(CacheFreshnessPolicy):
+    """30-Minute Intraday Cache Freshness Policy."""
+    def is_fresh(self, last_ts: pd.Timestamp, now_dt: datetime = None) -> bool:
+        if now_dt is None:
+            now_dt = datetime.now(IST)
+        from market_utils import is_market_open
+        if is_market_open(now_dt):
+            if last_ts.date() == now_dt.date() or (now_dt - last_ts).total_seconds() <= (180 * 60):
+                return True
+            return (now_dt - last_ts).total_seconds() <= (45 * 60)
+        return _is_cache_up_to_date_legacy(last_ts, "30m", now_dt)
+
+
 def _is_cache_up_to_date(last_ts: pd.Timestamp, interval: str, now_dt: datetime = None) -> bool:
     """
     Checks if the cached data contains up-to-date data for the given interval
@@ -529,6 +555,10 @@ def _is_cache_up_to_date(last_ts: pd.Timestamp, interval: str, now_dt: datetime 
 
     if inv_lower in ('1d', 'daily', '1wk', '1mo'):
         return DailyPolicy().is_fresh(last_ts, now_dt)
+    elif inv_lower in ('1h', '60m'):
+        return OneHourPolicy().is_fresh(last_ts, now_dt)
+    elif inv_lower in ('30m', '30min'):
+        return ThirtyMinutePolicy().is_fresh(last_ts, now_dt)
     elif inv_lower in ('15m', '15min'):
         return FifteenMinutePolicy().is_fresh(last_ts, now_dt)
     elif inv_lower in ('5m', '5min'):
