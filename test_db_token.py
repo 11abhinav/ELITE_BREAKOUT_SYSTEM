@@ -20,4 +20,5 @@ fetcher = get_fetcher()
 res = fetcher.get_batch_ohlcv(["RELIANCE", "TCS"], "1d", "1y", caller="test")
 print(f"Got {len(res)} results from AutoSwitchingFetcher.")
 for k,v in res.items():
-    print(f"{k}: {'None' if v is None else len(v)}")
+    df_val = v.df if (v is not None and hasattr(v, 'df')) else v
+    print(f"{k}: {'None' if df_val is None else len(df_val)}")

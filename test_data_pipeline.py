@@ -7,10 +7,17 @@ import pandas as pd
 import json
 
 # Setup environment
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "app")))
-from app.live_prices import get_live_prices
-from app.price_provider import PriceProvider
-from app.intraday import normalize_index
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "app")))
+from live_prices import get_live_prices
+from price_provider import PriceProvider
+
+def normalize_index(df):
+    if df is not None and not df.empty:
+        if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is None:
+            df.index = df.index.tz_localize("Asia/Kolkata")
+        elif isinstance(df.index, pd.DatetimeIndex):
+            df.index = df.index.tz_convert("Asia/Kolkata")
+    return df
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)

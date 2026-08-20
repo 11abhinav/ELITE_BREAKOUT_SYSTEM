@@ -17,3 +17,5 @@
 {"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-20T10:06:04.111085+05:30", "duration_s": 0.002, "rss_before_mb": 215.1, "rss_after_mb": 215.1, "rss_delta_mb": 0.0, "error": null}
 {"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-20T10:15:52.042707+05:30", "duration_s": 0.002, "rss_before_mb": 196.2, "rss_after_mb": 196.4, "rss_delta_mb": 0.1, "error": null}
 {"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-20T11:15:40.093405+05:30", "duration_s": 0.002, "rss_before_mb": 211.3, "rss_after_mb": 211.3, "rss_delta_mb": 0.0, "error": null}
+{"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-20T11:35:19.318283+05:30", "duration_s": 0.005, "rss_before_mb": 104.7, "rss_after_mb": 105.5, "rss_delta_mb": 0.8, "error": null}
+{"stage": "multi_tf_scanner.run_hourly_phase", "timestamp": "2026-08-20T11:38:41.778152+05:30", "duration_s": 0.283, "rss_before_mb": 78.1, "rss_after_mb": 92.5, "rss_delta_mb": 14.4, "error": null}
