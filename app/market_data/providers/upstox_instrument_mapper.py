@@ -70,7 +70,7 @@ _STATIC_SYMBOL_MAP = {
     "SBIN": "NSE_EQ|INE062A01020",
     "LTIM": "NSE_EQ|INE214T01019",
     "ITC": "NSE_EQ|INE154A01025",
-    "KOTAKBANK": "NSE_EQ|INE237A01028",
+    "KOTAKBANK": "NSE_EQ|INE237A01036",
     "LT": "NSE_EQ|INE018A01030",
     "AXISBANK": "NSE_EQ|INE238A01034",
     "HINDUNILVR": "NSE_EQ|INE030A01027",
@@ -211,8 +211,9 @@ class UpstoxInstrumentMapper:
                             new_map[name] = inst_key
                             new_map[f"^{name}"] = inst_key
 
-            # Ensure static index mappings (e.g. NSE_INDEX|Nifty 50) always take top priority
-            new_map.update(_STATIC_SYMBOL_MAP)
+            # Ensure static index mappings (e.g. NSE_INDEX|Nifty 50) take top priority for indices
+            index_static = {k: v for k, v in _STATIC_SYMBOL_MAP.items() if "INDEX" in v}
+            new_map.update(index_static)
 
             with self._lock:
                 self._symbol_map.update(new_map)

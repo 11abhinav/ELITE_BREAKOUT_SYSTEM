@@ -1576,46 +1576,34 @@ def run_system_scheduler():
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                         try:
                             if not is_scanner_stopped("EOD"):
-                                logger.info("Starting EOD Scanner (Timeout: 2h)...")
+                                logger.info("Starting EOD Scanner...")
                                 future_eod = executor.submit(_run_eod_with_retries, today_str, session)
-                                future_eod.result(timeout=7200)
+                                future_eod.result()
                             else:
                                 logger.info("⏭️ EOD Scanner is STOPPED by Admin. Skipping.")
 
                             if not is_scanner_stopped("REVERSAL"):
-                                logger.info("Starting Reversal Scanner (Timeout: 2h)...")
+                                logger.info("Starting Reversal Scanner...")
                                 future_rev = executor.submit(_run_reversal_with_retries, today_str, session)
-                                future_rev.result(timeout=7200)
+                                future_rev.result()
                             else:
                                 logger.info("⏭️ Reversal Scanner is STOPPED by Admin. Skipping.")
 
                             if not is_scanner_stopped("PULLBACK"):
-                                logger.info("Starting Pullback Pipeline (Timeout: 2h)...")
+                                logger.info("Starting Pullback Pipeline...")
                                 future_pb = executor.submit(_run_pullback_with_retries, today_str, session)
-                                future_pb.result(timeout=7200)
+                                future_pb.result()
                             else:
                                 logger.info("⏭️ Pullback Pipeline is STOPPED by Admin. Skipping.")
 
-                        except concurrent.futures.TimeoutError:
-                            logger.error("🚨 CRITICAL: Evening Batch step exceeded 2-hour timeout! Aborting remaining batch.")
                         except Exception as e:
-                            logger.error(f"🚨 CRITICAL: Evening Batch crashed: {e}")
+                            logger.error(f"🚨 CRITICAL: Evening Batch error: {e}")
 
                 import threading
                 threading.Thread(target=_run_evening_batch_async, name="EveningBatch", daemon=True).start()
             elif now.hour < 18:
                 evening_scanners_ran = False
                 evening_batch_deadline_logged = False
-                
-            # 18:55 - Hard Release for Evening Batch Lock (runs ONCE per day at 18:55)
-            if now.hour == 18 and now.minute >= 55 and not evening_batch_deadline_logged:
-                evening_batch_deadline_logged = True
-                if scanner_execution_lock.locked():
-                    logger.error("🚨 CRITICAL: [18:55] Evening Batch exceeded absolute deadline! Forcing scanner lock release.")
-                    try:
-                        scanner_execution_lock.release()
-                    except Exception as e:
-                        pass
 
                 
             # 19:00 - Multibagger Scanner (Independent top-level branch)
