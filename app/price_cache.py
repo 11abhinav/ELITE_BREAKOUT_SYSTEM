@@ -578,6 +578,10 @@ def _is_cache_long_enough(cached_df: pd.DataFrame, period: str, sym: str = "", i
     )
     if is_intraday_or_short and len(cached_df) >= 30:
         return True
+        
+    # Daily (1d) optimization: If cached daily dataframe already has >= 100 candles, allow DELTA updates without forcing full re-downloads
+    if interval.lower() in ("1d", "daily") and len(cached_df) >= 100:
+        return True
     try:
         if 'Date' in cached_df.columns:
             first_ts = pd.to_datetime(cached_df['Date'].iloc[0])
