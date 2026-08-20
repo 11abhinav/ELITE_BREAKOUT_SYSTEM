@@ -449,7 +449,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             
         status = t["status"]
         # 4. Evaluate T3 (Final Target)
-        if status == "PARTIAL_WIN_2" and high >= t3:
+        if t3 and status == "PARTIAL_WIN_2" and high >= t3:
             exit_p = open_p if open_p > t3 else t3
             shares_to_sell = rem_shares
             
