@@ -934,6 +934,30 @@ def _patch_shared_provider(modules: Sequence[types.ModuleType], shared: Mapping[
                         "heldPercentInstitutions": 0.25,
                     }
 
+                @property
+                def financials(self) -> pd.DataFrame:
+                    return pd.DataFrame({"2024-03-31": [1000.0, 200.0]}, index=["Total Revenue", "Net Income"])
+
+                @property
+                def quarterly_financials(self) -> pd.DataFrame:
+                    return pd.DataFrame({"2024-03-31": [1000.0, 200.0]}, index=["Total Revenue", "Net Income"])
+
+                @property
+                def balance_sheet(self) -> pd.DataFrame:
+                    return pd.DataFrame({"2024-03-31": [5000.0, 1000.0]}, index=["Total Assets", "Total Debt"])
+
+                @property
+                def quarterly_balance_sheet(self) -> pd.DataFrame:
+                    return pd.DataFrame({"2024-03-31": [5000.0, 1000.0]}, index=["Total Assets", "Total Debt"])
+
+                @property
+                def cashflow(self) -> pd.DataFrame:
+                    return pd.DataFrame({"2024-03-31": [300.0]}, index=["Operating Cash Flow"])
+
+                @property
+                def quarterly_cashflow(self) -> pd.DataFrame:
+                    return pd.DataFrame({"2024-03-31": [300.0]}, index=["Operating Cash Flow"])
+
                 def history(self, period: str = "1y", interval: str = "1d", **kwargs: Any) -> pd.DataFrame:
                     norm = self.ticker_str
                     df = shared.get((norm, interval))

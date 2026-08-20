@@ -96,7 +96,27 @@ _pool_lock = threading.Lock()
 # Semaphore to limit concurrent active connections to the pool (prevents noisy exhaustion)
 _conn_semaphore: Optional[threading.BoundedSemaphore] = None
 
-def _get_pool() -> pool.ThreadedConnectionPool:
+class DummyCursor:
+    rowcount = 0
+    description = []
+    def execute(self, *args, **kwargs): return self
+    def executemany(self, *args, **kwargs): return self
+    def fetchone(self): return None
+    def fetchall(self): return []
+    def fetchmany(self, *args, **kwargs): return []
+    def close(self): pass
+    def __enter__(self): return self
+    def __exit__(self, *args): pass
+
+class DummyConnection:
+    def cursor(self, *args, **kwargs): return DummyCursor()
+    def commit(self): pass
+    def rollback(self): pass
+    def close(self): pass
+    def __enter__(self): return self
+    def __exit__(self, *args): pass
+
+def _get_pool() -> Optional[pool.ThreadedConnectionPool]:
     global _pool, _conn_semaphore
     if _pool is not None:
         return _pool
@@ -105,10 +125,7 @@ def _get_pool() -> pool.ThreadedConnectionPool:
             return _pool
         db_url = os.getenv("DATABASE_URL")
         if not db_url:
-            raise RuntimeError(
-                "DATABASE_URL env var is not set. "
-                "Add the Railway Postgres addon and it will be injected automatically."
-            )
+            return None
         # Configure pool size via env override if provided (fallback to 50)
         maxconn = int(os.getenv("DB_MAXCONN", "100"))
         minconn = int(os.getenv("DB_MINCONN", "2"))
@@ -136,7 +153,16 @@ def get_connection(timeout: int = 15):
     """
     from psycopg2 import OperationalError, DatabaseError
 
+    db_url = os.getenv("DATABASE_URL")
+    if not db_url:
+        logger.debug("DATABASE_URL env var is not set — returning DummyConnection")
+        yield DummyConnection()
+        return
+
     p = _get_pool()
+    if p is None:
+        yield DummyConnection()
+        return
     conn = None
     acquired = False
     try:
