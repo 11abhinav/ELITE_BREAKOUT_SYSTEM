@@ -390,6 +390,13 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
         raise
     finally:
         print_scanner_end_banner("pullback_scanner", _scan_start)
+        try:
+            from database import get_scanner_health, upsert_scanner_health
+            h = get_scanner_health("PULLBACK")
+            if h and (h.get("status", "").startswith("QUEUED") or h.get("status") == "RUNNING"):
+                upsert_scanner_health("PULLBACK", status="OK", error_msg=None)
+        except Exception:
+            pass
         _scan_lock.release()
         _global_lock.release()
         if created_ctx:
@@ -1162,31 +1169,30 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                 required=None
             )
 
-    if not is_historical_fallback:
-        upsert_scanner_health(
-            "PULLBACK",
-            status=status_val,
-            last_success=ist_now.isoformat(),
-            today_alerts=alert_count,
-            total_count=total_symbols,
-            processed_count=symbols_processed,
-            duration_seconds=elapsed_time,
-            error_msg=err_val
-        )
-        if status_val == "OK" and alert_count > 0:
-            try:
-                insert_notification("admin", f"🎯 Pullback Scanner ran successfully. Found {alert_count} pullback alerts.", f"Generated {alert_count} alerts from {total_symbols} scanned stocks. Outcome: SUCCESS")
-                from push_service import send_push_to_all
-                send_push_to_all("🎯 Pullback Scanner OK", f"Found {alert_count} pullback alerts.", bypass_throttle=True)
-            except Exception:
-                pass
-        elif status_val == "DEGRADED":
-            try:
-                insert_notification("admin", f"⚠️ Pullback Scanner finished with DEGRADED status", err_val or f"Generated {alert_count} alerts but data was degraded.")
-                from push_service import send_push_to_all
-                send_push_to_all("⚠️ Pullback Scanner DEGRADED", err_val or "Stale data exceeded limit.")
-            except Exception:
-                pass
+    upsert_scanner_health(
+        "PULLBACK",
+        status=status_val,
+        last_success=ist_now.isoformat(),
+        today_alerts=alert_count,
+        total_count=total_symbols,
+        processed_count=symbols_processed,
+        duration_seconds=elapsed_time,
+        error_msg=err_val
+    )
+    if status_val == "OK" and alert_count > 0:
+        try:
+            insert_notification("admin", f"🎯 Pullback Scanner ran successfully. Found {alert_count} pullback alerts.", f"Generated {alert_count} alerts from {total_symbols} scanned stocks. Outcome: SUCCESS")
+            from push_service import send_push_to_all
+            send_push_to_all("🎯 Pullback Scanner OK", f"Found {alert_count} pullback alerts.", bypass_throttle=True)
+        except Exception:
+            pass
+    elif status_val == "DEGRADED":
+        try:
+            insert_notification("admin", f"⚠️ Pullback Scanner finished with DEGRADED status", err_val or f"Generated {alert_count} alerts but data was degraded.")
+            from push_service import send_push_to_all
+            send_push_to_all("⚠️ Pullback Scanner DEGRADED", err_val or "Stale data exceeded limit.")
+        except Exception:
+            pass
     fired_pb = {k: v for k, v in rejected.items() if v > 0}
     stale_count = rejected.get("stale_data", 0)
     no_data_count = rejected.get("no_data", 0)
