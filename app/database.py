@@ -1843,7 +1843,6 @@ def save_alert_if_new(
                 model_version, bayesian_regime, bayesian_weights, data_partition, cash_in_hand, current_price,
                 structural_failure_stop, target_quality_score, execution_state)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING_ENTRY')
-            ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO NOTHING
             RETURNING id;
         """, (symbol, breakout_type, alert_time, datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d'), scanner, category,
             entry_price, stop_loss, stop_loss, target_price, target_1, target_2, target_3, target_4,
@@ -3759,7 +3758,8 @@ def get_capital_info() -> dict:
                     SELECT COALESCE(SUM(amount), 0) FROM capital_history
                     WHERE transaction_type = 'BASE_CAPITAL'
                 """)
-                base = cur.fetchone()[0]
+                row1 = cur.fetchone()
+                base = float((row1[0] if row1 else 0.0) or 0.0)
                 
                 if base == 0:
                     # Initialize with default base capital
@@ -3768,21 +3768,23 @@ def get_capital_info() -> dict:
                         VALUES ('BASE_CAPITAL', 500000, NOW())
                     """)
                     conn.commit()
-                    base = 500000
+                    base = 500000.0
                 
                 # Get total deposits (excluding base)
                 cur.execute("""
                     SELECT COALESCE(SUM(amount), 0) FROM capital_history
                     WHERE transaction_type = 'DEPOSIT'
                 """)
-                deposited = cur.fetchone()[0]
+                row2 = cur.fetchone()
+                deposited = float((row2[0] if row2 else 0.0) or 0.0)
                 
                 # Get total capital
                 cur.execute("""
                     SELECT COALESCE(SUM(amount), 0) FROM capital_history
                     WHERE transaction_type IN ('BASE_CAPITAL', 'DEPOSIT')
                 """)
-                total = cur.fetchone()[0]
+                row3 = cur.fetchone()
+                total = float((row3[0] if row3 else 0.0) or 0.0)
                 
                 return {
                     "base_capital": base,

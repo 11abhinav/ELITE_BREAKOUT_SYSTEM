@@ -122,11 +122,13 @@ def get_portfolio_state() -> dict:
         with conn.cursor() as cur:
             # 1. Total realized PnL
             cur.execute("SELECT COALESCE(SUM(pnl_rs), 0) FROM alerts WHERE status IN ('WIN', 'LOSS') AND is_rejected = FALSE")
-            realized_pnl = float(cur.fetchone()[0] or 0.0)
+            r1 = cur.fetchone()
+            realized_pnl = float((r1[0] if r1 else 0.0) or 0.0)
             
             # 2. Total allocated capital in open trades
             cur.execute("SELECT COALESCE(SUM(capital_allocated), 0) FROM alerts WHERE status = 'OPEN' AND is_rejected = FALSE")
-            deployed_margin = float(cur.fetchone()[0] or 0.0)
+            r2 = cur.fetchone()
+            deployed_margin = float((r2[0] if r2 else 0.0) or 0.0)
             
     cap_info = get_capital_info()
     base_capital = cap_info.get("total_capital", BASE_CAPITAL)
