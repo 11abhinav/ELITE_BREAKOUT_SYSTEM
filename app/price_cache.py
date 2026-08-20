@@ -114,6 +114,7 @@ _provider_locks = {
 # caller its own mutex, enabling genuine concurrent fetch execution across timeframes.
 import collections
 _requester_locks: dict = collections.defaultdict(threading.Lock)
+_interval_locks: dict = collections.defaultdict(threading.Lock)
 
 def get_provider_fetch_lock(requester: str = None) -> threading.Lock:
     """Returns a per-requester lock (when FEATURE_PROVIDER_LOCK_SPLIT_V1 is True) so that
@@ -327,8 +328,9 @@ def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval:
             _cache_misses += len(missing_symbols)
             logger.debug(f"📦 Price cache partial/miss | {interval} | {period} | Cached: {len(cached_result)}, Fetching: {len(missing_symbols)}")
 
-    # [PHASE4_ISOLATION_v1.0] Provider lock isolation to serialize per-provider API fetches
-    fetch_lock = get_provider_fetch_lock(requester)
+    # [VERSION: CONCURRENT_FETCH_COALESCING_v1.0] Serialize per (interval, period) key so concurrent callers
+    # (e.g. PULLBACK, REVERSAL, MULTIBAGGER) wait and reuse freshly cached RAM data via double-check (lines 338-351).
+    fetch_lock = _interval_locks[cache_key]
     logger.debug(f"🔒 Attempting to acquire fetch lock for {interval}|{period}...")
     with fetch_lock:
         logger.debug(f"🔓 Fetch lock acquired for {interval}|{period}")

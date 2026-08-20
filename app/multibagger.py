@@ -1435,12 +1435,13 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
             
         logger.info(f"🔄 Evaluating exits for {len(open_positions)} open MULTIBAGGER positions...")
         
-        # [VERSION: MULTIBAGGER_EXIT_BATCH_v1.0] Pre-fetch price data for all open positions in batch to avoid loop network latency
+        # [VERSION: MULTIBAGGER_EXIT_BATCH_v1.1] Only fetch open positions missing from price_data_map
         open_symbols = [pos["symbol"] for pos in open_positions]
         exit_prices = {}
-        if open_symbols:
+        missing_open_symbols = [s for s in open_symbols if s not in price_data_map]
+        if missing_open_symbols:
             try:
-                exit_prices = batch_download_market_data(open_symbols)
+                exit_prices = batch_download_market_data(missing_open_symbols)
             except Exception as e:
                 logger.warning(f"Failed to batch download exit prices: {e}")
 
