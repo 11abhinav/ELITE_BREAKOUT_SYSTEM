@@ -1720,23 +1720,22 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
         logger.info("🛑 Multibagger Scanner is STOPPED by Admin. Skipping execution.")
         return {}
 
-    from database import is_scanner_actively_running, complete_scanner_execution_run
-    current_run_id = getattr(run_ctx, "run_id", None) if run_ctx else None
-    if _scan_lock.locked() or is_scanner_actively_running("MULTIBAGGER", exclude_run_id=current_run_id):
-        logger.warning("🛑 [DUPLICATE GUARD] Multibagger Scanner is ALREADY actively running. Skipping duplicate trigger.")
+    if _scan_lock.locked():
+        logger.warning("🛑 [DUPLICATE GUARD] Multibagger Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
         if run_ctx:
+            from database import complete_scanner_execution_run
             complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Same scanner already actively running")
         return {}
+
+    upsert_scanner_health("MULTIBAGGER", "RUNNING", error_msg="Multibagger scan in progress...")
 
     queued_at = None
     if not _global_lock.acquire(blocking=False):
         queued_at = time.monotonic()
-        logger.info("⏳ [MULTIBAGGER] Global lock busy — marking status QUEUED and waiting...")
-        upsert_scanner_health("MULTIBAGGER", "QUEUED", error_msg="Waiting in queue for active scanner to complete...")
+        logger.info("⏳ [MULTIBAGGER] Global lock busy — waiting for lock to release...")
         if not _global_lock.acquire(blocking=True):
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [MULTIBAGGER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
-    upsert_scanner_health("MULTIBAGGER", "RUNNING", error_msg="Multibagger scan in progress...")
 
     created_ctx = False
     if run_ctx is None:

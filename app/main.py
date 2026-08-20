@@ -670,7 +670,7 @@ def _run_eod_with_retries(today_str, session=None):
         try:
             logger.info(f"📊 EOD SCAN | Starting scan for {today_str}...")
             from database import upsert_scanner_health
-            upsert_scanner_health("EOD", status="QUEUED", error_msg="Waiting for global execution lock...")
+            upsert_scanner_health("EOD", status="RUNNING", error_msg="EOD scan in progress...")
             import eod_scanner
             start_time = time.time()
             with MemoryProfiler("EOD_SCANNER", force_gc_cleanup=True):
@@ -764,7 +764,7 @@ def _run_reversal_with_retries(today_str, session=None):
         try:
             logger.info(f"🔄 REVERSAL SCAN | Starting scan for {today_str}...")
             from database import upsert_scanner_health
-            upsert_scanner_health("REVERSAL", status="QUEUED", error_msg="Waiting for global execution lock...")
+            upsert_scanner_health("REVERSAL", status="RUNNING", error_msg="Reversal scan in progress...")
             import reversal_scanner
             start_time = time.time()
             with MemoryProfiler("REVERSAL", force_gc_cleanup=True):
@@ -857,7 +857,7 @@ def _run_pullback_with_retries(today_str, session=None):
         try:
             logger.info(f"📊 PULLBACK SCAN | Starting scan for {today_str}...")
             from database import upsert_scanner_health
-            upsert_scanner_health("PULLBACK", status="QUEUED", error_msg="Waiting for global execution lock...")
+            upsert_scanner_health("PULLBACK", status="RUNNING", error_msg="Pullback scan in progress...")
             import pullback_pipeline
             start_time = time.time()
             with MemoryProfiler("PULLBACK_SCANNER", force_gc_cleanup=True):
@@ -1068,7 +1068,7 @@ def run_system_scheduler():
                 logger.info("🕒 SCHEDULER | [5:00 AM] Triggering Daily Builder")
                 from telemetry_manager import telemetry
                 from database import start_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health
-                upsert_scanner_health("DAILY_BUILDER", status="QUEUED", error_msg="Waiting for global execution lock...")
+                upsert_scanner_health("DAILY_BUILDER", status="RUNNING", error_msg="Building watchlist...")
                 telemetry.log_scheduler_event("DAILY_BUILDER", "CYCLE_START")
                 # Pre-Daily Builder 4-step defensive memory purge
                 try:
@@ -1141,7 +1141,7 @@ def run_system_scheduler():
         """Run Wealth Engine at 2:00 AM with fresh watchlist."""
         start_time = time.time()
         from database import upsert_scanner_health
-        upsert_scanner_health("Wealth Engine", status="QUEUED", error_msg="Waiting for global execution lock...")
+        upsert_scanner_health("Wealth Engine", status="RUNNING", error_msg="Wealth Engine scan in progress...")
         try:
             logger.info("🕒 SCHEDULER | [6:00 AM] Triggering Wealth Engine (initial setup)")
             from telemetry_manager import telemetry
@@ -1203,7 +1203,7 @@ def run_system_scheduler():
                 if not is_scanner_stopped("Wealth Engine"):
                     logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering FULL Wealth Engine Scan (1-hour BUY alert cycle)")
                     from telemetry_manager import telemetry
-                    upsert_scanner_health("Wealth Engine", status="QUEUED", error_msg="Waiting for global execution lock...")
+                    upsert_scanner_health("Wealth Engine", status="RUNNING", error_msg="Wealth Engine scan in progress...")
                     telemetry.log_scheduler_event("WEALTH_ENGINE_15M", "CYCLE_START")
                     _scan_start_t = time.time()
                     try:
@@ -1823,11 +1823,12 @@ def _run_multibagger_scanner_single():
     try:
         now = datetime.now(IST)
         logger.info(f"🚀 MULTIBAGGER SCAN | Starting daily scan at {now.strftime('%H:%M:%S IST')}...")
-        from database import upsert_scanner_health, is_scanner_actively_running, is_any_heavy_scanner_running
-        if is_any_heavy_scanner_running():
-            logger.info("⏳ Another system scanner is currently active (RUNNING/QUEUED). Skipping duplicate trigger...")
+        from database import upsert_scanner_health
+        import multibagger
+        if multibagger._scan_lock.locked():
+            logger.info("🛑 Multibagger scanner is already running in thread lock. Skipping duplicate trigger...")
             return
-        upsert_scanner_health("MULTIBAGGER", status="QUEUED", error_msg="Waiting for global execution lock...")
+        upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Multibagger scan in progress...")
         import multibagger
         from telemetry_manager import telemetry
         telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_START")
@@ -2054,42 +2055,28 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "Earnings Calendar": lambda: __import__('earnings_calendar')._scan_lock,
     }
     
-    try:
-        from database import is_scanner_actively_running, get_scanner_health
-        if is_scanner_actively_running(scanner_key):
-            logger.warning(f"🛑 [MANUAL TRIGGER] {scanner_key} is ALREADY actively running or queued. Trigger rejected.")
-            return {"status": "error", "message": f"{scanner_key} is ALREADY actively running or queued. Trigger rejected to prevent duplicate runs."}
-
-        h_info = get_scanner_health(scanner_key)
-        h_status = (h_info.get("status") if h_info else "OK") or "OK"
-        if h_status in ("RUNNING", "QUEUED") or h_status.startswith("QUEUED"):
-            return {"status": "error", "message": f"{scanner_key} is already actively running or queued ({h_status}). Trigger rejected to prevent duplicate runs."}
-    except Exception as e:
-        logger.warning(f"Could not verify scanner health status: {e}")
-
+    # Check in-memory thread lock first — if not locked, no scan is running in this process
     lock_fn = LOCK_MAP.get(scanner_key)
     if lock_fn:
         try:
             lock = lock_fn()
             if lock.locked():
-                return {"status": "error", "message": f"{scanner_key} is already actively running!"}
+                return {"status": "error", "message": f"❌ {scanner_key} is already actively running!"}
         except Exception:
             pass
-    
-    # Compute Queue Position dynamically
-    queued_status = "QUEUED-1"
+
+    # Clean any stale DB status left over from pre-restart runs
     try:
         from database import get_connection
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) FROM scanner_health WHERE status LIKE 'QUEUED%'")
-                q_count = cur.fetchone()[0]
-                queued_status = f"QUEUED-{q_count + 1}"
-    except Exception as e:
-        logger.warning(f"Could not compute queue position: {e}")
-        
-    # Mark as queued (will change to RUNNING once lock is acquired)
-    upsert_scanner_health(scanner_key, status=queued_status, error_msg="⏳ Manual trigger in progress... (Waiting for lock)")
+                cur.execute("UPDATE scanner_health SET status = 'IDLE', error_msg = NULL WHERE (UPPER(scanner_name) = UPPER(%s) OR UPPER(scanner_name) = UPPER(%s)) AND (status = 'RUNNING' OR status LIKE 'QUEUED%%')", (scanner_key, scanner_key.replace(" ", "_")))
+                conn.commit()
+    except Exception as _ce:
+        logger.warning(f"Could not clear stale scanner status for {scanner_key}: {_ce}")
+
+    # Immediately set status to RUNNING (never trap manual triggers in QUEUED state)
+    upsert_scanner_health(scanner_key, status="RUNNING", error_msg="⏳ Manual scan in progress...")
     
     # Run in background thread so the API returns immediately
     def _run():

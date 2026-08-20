@@ -1345,12 +1345,14 @@ def init_db():
                 except Exception as mig_err:
                     logger.warning(f"[MIGRATION] scanner_health schema synchronization warning (non-critical): {mig_err}")
 
-                # Reset any stuck RUNNING/QUEUED scanner statuses on boot.
+                # [VERSION: CLEAN_BOOT_RESET_v1.0] Complete boot reset of all scanner statuses & advisory locks on startup
                 try:
-                    cur.execute("UPDATE scanner_health SET status = 'IDLE', error_msg = NULL, updated_at = NOW() WHERE status = 'RUNNING' OR status LIKE 'QUEUED%'")
+                    cur.execute("SELECT pg_advisory_unlock_all();")
+                    cur.execute("UPDATE scanner_health SET status = 'IDLE', error_msg = NULL, processed_count = 0, updated_at = NOW()")
                     cleanup_orphaned_scanner_runs_on_boot(cur=cur)
+                    logger.info("🧹 [BOOT RESET] All scanner health statuses and advisory locks reset to clean IDLE state.")
                 except Exception as t_err:
-                    logger.warning(f"[STARTUP] Scanner state reset non-critical failure: {t_err}")
+                    logger.warning(f"[STARTUP] Scanner state reset warning: {t_err}")
 
                 # 100. Auto-migrate targeted VARCHAR columns to TEXT to prevent StringDataRightTruncation
                 cur.execute('''
