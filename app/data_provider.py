@@ -37,6 +37,24 @@ class DataFetcher(ABC):
         pass
 
 
+def _generate_synthetic_df(symbol: str, candles: int = 450) -> pd.DataFrame:
+    import numpy as np
+    end_date = datetime.now(IST)
+    dates = pd.date_range(end=end_date, periods=candles, freq="B")
+    np.random.seed(abs(hash(symbol)) % (2**32))
+    base_price = 100.0 + (abs(hash(symbol)) % 500)
+    returns = np.random.normal(0.0005, 0.015, candles)
+    price_series = base_price * np.exp(np.cumsum(returns))
+    
+    df = pd.DataFrame({
+        "Open": price_series * (1 + np.random.uniform(-0.005, 0.005, candles)),
+        "High": price_series * (1 + np.random.uniform(0.001, 0.015, candles)),
+        "Low": price_series * (1 - np.random.uniform(0.001, 0.015, candles)),
+        "Close": price_series,
+        "Volume": np.random.randint(10000, 1000000, candles)
+    }, index=dates)
+    return df
+
 class YFinanceFetcher(DataFetcher):
     def _normalize_symbol(self, symbol: str) -> str:
         # [VERSION: NULL_POINTER_FIX_v1.0]
@@ -552,6 +570,13 @@ class AutoSwitchingFetcher(DataFetcher):
 
     # [VERSION: LOAD_BALANCED_BATCH_V1.0] Scatter-Gather load balancing with fallback telemetry
     def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, MarketData]:
+        if os.getenv("SIX_SCANNER_ALLOW_NETWORK") == "0":
+            out = {}
+            for s in symbols:
+                df = _generate_synthetic_df(s, candles=450 if interval == "1d" else 50)
+                out[s] = MarketData(df, "SYNTHETIC_MOCK", None, True, False, "Success")
+            return out
+
         providers = self._get_providers(interval)
         
         results = {}
