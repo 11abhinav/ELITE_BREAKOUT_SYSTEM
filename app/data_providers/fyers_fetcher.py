@@ -676,8 +676,8 @@ class FyersFetcher(DataFetcher):
         ns_symbols = list(normalized_map.keys())
         results = {}
         
-        # [VERSION: FYERS_CONCURRENCY_ACCELERATION_v2.0] Cap max workers to 3 for Fyers rate limits
-        max_workers = min(3, len(ns_symbols) if ns_symbols else 1)
+        # [VERSION: FYERS_CONCURRENCY_ACCELERATION_v3.0] Increased max workers to 8 for fast parallel historical fetches
+        max_workers = min(8, len(ns_symbols) if ns_symbols else 1)
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_ns = {
                 executor.submit(self.get_ohlcv, normalized_map[ns_sym][0], interval, period, retries, range_from, range_to): ns_sym

@@ -449,6 +449,12 @@ class DailyPolicy(CacheFreshnessPolicy):
         return last_ts.date() >= expected_closed_bar
 
 
+# =====================================================================================
+# RULE 67 MANDATORY CHANGE-RATIONALE:
+# - Updated FifteenMinutePolicy & FiveMinutePolicy to treat same-day intraday cache as fresh during market hours.
+# - Rationale: Prevents invalidating disk cache and triggering 5-7 minute redundant network downloads on every scan cycle
+#   when live CMP ticks are already stitched into forming bars.
+# =====================================================================================
 class FifteenMinutePolicy(CacheFreshnessPolicy):
     """15-Minute Intraday Cache Freshness Policy."""
     def is_fresh(self, last_ts: pd.Timestamp, now_dt: datetime = None) -> bool:
@@ -456,6 +462,9 @@ class FifteenMinutePolicy(CacheFreshnessPolicy):
             now_dt = datetime.now(IST)
         from market_utils import is_market_open
         if is_market_open(now_dt):
+            # Same-day session or within 2 hours is considered fresh (live CMP is stitched into forming bar)
+            if last_ts.date() == now_dt.date() or (now_dt - last_ts).total_seconds() <= (120 * 60):
+                return True
             return (now_dt - last_ts).total_seconds() <= (20 * 60)
         return _is_cache_up_to_date_legacy(last_ts, "15m", now_dt)
 
@@ -467,6 +476,9 @@ class FiveMinutePolicy(CacheFreshnessPolicy):
             now_dt = datetime.now(IST)
         from market_utils import is_market_open
         if is_market_open(now_dt):
+            # Same-day session or within 2 hours is considered fresh (live CMP is stitched into forming bar)
+            if last_ts.date() == now_dt.date() or (now_dt - last_ts).total_seconds() <= (120 * 60):
+                return True
             return (now_dt - last_ts).total_seconds() <= (10 * 60)
         return _is_cache_up_to_date_legacy(last_ts, "5m", now_dt)
 
