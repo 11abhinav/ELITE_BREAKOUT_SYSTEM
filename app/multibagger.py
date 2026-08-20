@@ -872,23 +872,40 @@ def _is_fundamental_cache_fresh(data: dict) -> bool:
         return False
 
 def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]]:
-    if symbol in cache:
-        try:
-            data = cache[symbol]
-            if _is_fundamental_cache_fresh(data):
-                return {k: v for k, v in data.items() if k not in ("fetched_at", "date")}
-        except Exception as e:
-            logger.debug(f"Failed to parse cache entry for {symbol}: {e}")
+    clean_sym = symbol.strip().upper()
+    variants = [
+        clean_sym,
+        clean_sym.replace("&", "_"),
+        clean_sym.replace("-", "_"),
+        clean_sym.replace("&", "AND"),
+        clean_sym.replace("_", "&"),
+        clean_sym.replace("_", "-"),
+        clean_sym.replace(".NS", ""),
+        clean_sym.replace(".BO", "")
+    ]
+    for v in variants:
+        if v in cache:
+            try:
+                data = cache[v]
+                if _is_fundamental_cache_fresh(data):
+                    res = {k: val for k, val in data.items() if k not in ("fetched_at", "date")}
+                    res["symbol"] = clean_sym
+                    return res
+            except Exception as e:
+                logger.debug(f"Failed to parse cache entry for {v}: {e}")
         
     # Fallback to shared global fundamentals_cache (from Postgres DB)
     try:
         from fundamentals_cache import get_fundamentals
-        g_fund = get_fundamentals(symbol)
-        if g_fund and not g_fund.get("failed", False):
-            if _is_fundamental_cache_fresh(g_fund):
-                return {k: v for k, v in g_fund.items() if k not in ("fetched_at", "date")}
-            else:
-                logger.debug(f"Global cache for {symbol} is stale.")
+        for v in variants:
+            g_fund = get_fundamentals(v)
+            if g_fund and not g_fund.get("failed", False):
+                if _is_fundamental_cache_fresh(g_fund):
+                    res = {k: val for k, val in g_fund.items() if k not in ("fetched_at", "date")}
+                    res["symbol"] = clean_sym
+                    return res
+                else:
+                    logger.debug(f"Global cache for {v} is stale.")
     except Exception as _g_err:
         logger.debug(f"Global fundamentals_cache fallback failed for {symbol}: {_g_err}")
 
@@ -1868,10 +1885,14 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             if tv_data:
                 enriched_count = 0
                 for sym_name, tv_entry in tv_data.items():
-                    if sym_name not in cache:
-                        tv_entry["symbol"] = sym_name
-                        cache[sym_name] = tv_entry
-                        enriched_count += 1
+                    clean_s = sym_name.strip().upper()
+                    variants = [clean_s, clean_s.replace("&", "_"), clean_s.replace("-", "_"), clean_s.replace("_", "&"), clean_s.replace("_", "-")]
+                    for v in variants:
+                        if v not in cache:
+                            tv_c = dict(tv_entry)
+                            tv_c["symbol"] = v
+                            cache[v] = tv_c
+                            enriched_count += 1
                 if enriched_count > 0:
                     logger.info(f"✅ [MULTIBAGGER BULK ENRICHMENT] Saved all {len(cache)} market universe symbols to DB cache.")
                     save_fundamentals_cache(cache, sync_to_db=True)
