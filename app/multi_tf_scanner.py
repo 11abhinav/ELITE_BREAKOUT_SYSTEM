@@ -631,8 +631,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
     # 3. IF a candidate in HOURLY_APPROVED reaches ENTRY_READY during this single scan cycle, Phase D (lines 950-955)
     #    automatically fetches 5m data ON-DEMAND for that single candidate in ~0.5s, maintaining 0-delay triggers!
     needs_30m = list({i["symbol"] for i in active_items if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")})
-    needs_15m = list({i["symbol"] for i in active_items if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")})
-    needs_5m  = list({i["symbol"] for i in active_items if i["current_state"] in ("HOURLY_APPROVED", "SETUP_ARMED", "ENTRY_READY")})
+    needs_15m = list({i["symbol"] for i in active_items if i["current_state"] in ("SETUP_ARMED", "ENTRY_READY")})
+    needs_5m  = list({i["symbol"] for i in active_items if i["current_state"] in ("ENTRY_READY",)})
 
     
     import concurrent.futures
