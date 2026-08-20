@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "phase": "Phase0_Baseline",
+  "run_timestamp": "2026-08-20T11:15:41.248340+05:30",
+  "run_type": "cold_start",
+  "feature_flags_active": [],
+  "environment": {
+    "rss_mb": 279.4,
+    "thread_count": 16,
+    "open_fds": 9,
+    "gc_gen0_count": 12,
+    "gc_gen1_count": 10,
+    "gc_gen2_count": 4,
+    "socket_count": 0
+  },
+  "stages": {},
+  "http": {
+    "live_quotes": {
+      "calls": 1,
+      "cache_hits": 0,
+      "hit_ratio_pct": 0.0
+    }
+  },
+  "total_scan_wall_clock_ms": 0,
+  "scanner": "WealthEngine",
+  "symbols_processed": 314,
+  "stage_live_quote_ms": 18429.7,
+  "stage_concall_prefetch_ms": 0.2,
+  "stage_historical_fetch_ms": 35995.2,
+  "stage_indicator_calc_ms": 0.0,
+  "total_scan_s": 68.18
+}
