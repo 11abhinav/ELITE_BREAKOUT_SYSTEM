@@ -1172,6 +1172,13 @@ def main(force_rebuild: bool = False, run_ctx=None):
         raise
     finally:
         print_scanner_end_banner("daily_builder", _scan_start)
+        try:
+            from database import get_scanner_health, upsert_scanner_health
+            h = get_scanner_health("DAILY_BUILDER")
+            if h and (h.get("status", "").startswith("QUEUED") or h.get("status") == "RUNNING"):
+                upsert_scanner_health("DAILY_BUILDER", status="OK", error_msg=None)
+        except Exception:
+            pass
         _build_lock.release()
         _global_lock.release()
         if created_ctx:

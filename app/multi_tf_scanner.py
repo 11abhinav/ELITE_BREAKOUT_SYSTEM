@@ -1605,6 +1605,13 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
         raise e
     finally:
         print_scanner_end_banner("multi_tf_scanner", _scan_start)
+        try:
+            from database import get_scanner_health, upsert_scanner_health
+            h = get_scanner_health("MULTI_TF")
+            if h and (h.get("status", "").startswith("QUEUED") or h.get("status") == "RUNNING"):
+                upsert_scanner_health("MULTI_TF", status="OK", error_msg=None)
+        except Exception:
+            pass
         _scan_lock.release()
         _global_lock.release()
 

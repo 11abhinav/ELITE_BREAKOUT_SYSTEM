@@ -909,6 +909,13 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
         raise
     finally:
         print_scanner_end_banner("wealth_engine", _scan_start)
+        try:
+            from database import get_scanner_health, upsert_scanner_health
+            h = get_scanner_health("Wealth Engine")
+            if h and (h.get("status", "").startswith("QUEUED") or h.get("status") == "RUNNING"):
+                upsert_scanner_health("Wealth Engine", status="OK", error_msg=None)
+        except Exception:
+            pass
         _scan_lock.release()
         _global_lock.release()
         if created_ctx:
