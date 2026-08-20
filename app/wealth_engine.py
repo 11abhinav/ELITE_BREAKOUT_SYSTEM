@@ -702,16 +702,15 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
         from scanner_telemetry import DecisionContext, telemetry_engine
         from decision_ledger import global_decision_ledger
         sym = r.get("Stock", r.get("Symbol", "UNKNOWN"))
+        cmp_val = _safe_num(r.get("cmp", r.get("CMP", 0.0)))
         ctx = DecisionContext(symbol=str(sym), scanner_name="WEALTH_ENGINE")
-        ctx.capture("FM_Score", score, origin="CALCULATED", group="SCORE")
-        ctx.capture("MarketCapCr", mcap, origin="EXTERNAL_API", group="RAW")
-        ctx.capture("ROCE", roce, origin="EXTERNAL_API", group="INDICATOR")
-        ctx.capture("ROE", roe, origin="EXTERNAL_API", group="INDICATOR")
-        ctx.capture("DebtToEquity", de, origin="EXTERNAL_API", group="INDICATOR")
-        ctx.capture("YOY_Revenue", yoy_sales, origin="EXTERNAL_API", group="INDICATOR")
-        ctx.capture("YOY_Profit", yoy_profit, origin="EXTERNAL_API", group="INDICATOR")
-        ctx.capture_score("TOTAL", score, 100.0)
-        
+        ctx.capture_raw_market(open_p=cmp_val, high_p=cmp_val, low_p=cmp_val, close_p=cmp_val, volume=0.0)
+        ctx.capture_fundamentals(
+            roce=roce, roe=roe, debt_equity=de,
+            yoy_revenue=yoy_sales, yoy_profit=yoy_profit, mcap=mcap
+        )
+        ctx.capture_score("FM_SCORE", score, 100.0)
+        ctx.capture_gate("BucketQualification", bool(buckets), actual_val=res_bucket, reason=f"Buckets: {res_bucket}")
         ctx.finalize(decision="SELECTED" if buckets else "REJECTED", primary_reason=f"BUCKETS_{res_bucket}")
         telemetry_engine.emit_terminal(ctx)
         global_decision_ledger.record_decision_context(ctx)

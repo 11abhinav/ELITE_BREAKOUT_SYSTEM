@@ -1305,7 +1305,22 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             if score < global_min_score:
                                 with _batch_lock:
                                     rejection_counts["low_score"] += 1
-                                    telemetry_logger.record_reject(symbol, "SCORE", "LOW_SCORE", score if "score" in locals() else 0, global_min_score if "global_min_score" in locals() else 0, start_time=_row_start_time)
+                                    telemetry_logger.record_reject(
+                                        symbol, "SCORE", "LOW_SCORE",
+                                        actual=score if "score" in locals() else 0,
+                                        required=global_min_score if "global_min_score" in locals() else 0,
+                                        start_time=_row_start_time,
+                                        raw_market={
+                                            "open_p": candle_open, "high_p": candle_high, "low_p": candle_low,
+                                            "close_p": candle_close, "volume": _safe_float(latest.get("Volume")),
+                                            "high_52w": _safe_float(latest.get("HIGH_52W"))
+                                        },
+                                        indicators={
+                                            "rsi": rsi_val, "sma50": _safe_float(latest.get("SMA50")),
+                                            "sma200": _safe_float(latest.get("SMA200")), "ema20": _safe_float(latest.get("EMA20")),
+                                            "vol_ratio": volume_ratio, "atr": atr20, "adx": _safe_float(latest.get("ADX"))
+                                        }
+                                    )
                                 logger.debug(f"REJECTION: {symbol} (Phase: SCORE_GATE, Reason: Score {score:.1f} < threshold {global_min_score})")
                                 try:
                                     from near_miss_tracker import log_near_miss

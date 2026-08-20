@@ -143,6 +143,29 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
             checks.append(f"Distance to breakout level {dist_to_breakout*100:.1f}% outside -6.0% to +8.0% window")
 
     if checks:
+        try:
+            from scanner_telemetry import DecisionContext, telemetry_engine
+            ctx = DecisionContext(symbol=symbol, scanner_name="MULTI_TF")
+            ctx.capture_raw_market(
+                open_p=_safe_float(latest.get("Open")),
+                high_p=_safe_float(latest.get("High")),
+                low_p=_safe_float(latest.get("Low")),
+                close_p=_safe_float(latest.get("Close")),
+                volume=_safe_float(latest.get("Volume"))
+            )
+            ctx.capture_indicators(
+                rsi=_safe_float(latest.get("RSI")),
+                ema20=e20,
+                sma50=s50,
+                sma200=s200,
+                adx=adx_val,
+                prior_20d_high=prior_high
+            )
+            ctx.capture_gate("1H_PermissionGate", False, actual_val=close_price, reason="; ".join(checks))
+            ctx.finalize(decision="REJECTED", primary_reason=checks[0])
+            telemetry_engine.emit_terminal(ctx)
+        except Exception:
+            pass
         return {
             "status": "NO",
             "reasons": checks,

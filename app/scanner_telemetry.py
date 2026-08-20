@@ -128,23 +128,43 @@ class DecisionContext:
         if low_52w is not None:
             self.capture("52W_LOW", low_52w, origin="EXTERNAL_API", group="RAW")
 
-    def capture_indicators(self, rsi: Any = None, sma20: Any = None, sma50: Any = None, sma100: Any = None, sma200: Any = None, ema20: Any = None, ema50: Any = None, ema200: Any = None, macd: Any = None, macd_signal: Any = None, macd_hist: Any = None, atr: Any = None, adx: Any = None, obv: Any = None, vol_ratio: Any = None):
+    def capture_indicators(self, rsi: Any = None, sma20: Any = None, sma50: Any = None, sma100: Any = None, sma200: Any = None, ema9: Any = None, ema15: Any = None, ema20: Any = None, ema50: Any = None, ema200: Any = None, macd: Any = None, macd_signal: Any = None, macd_hist: Any = None, atr: Any = None, adx: Any = None, obv: Any = None, vol_ratio: Any = None, prior_20d_high: Any = None, bb_width_pctile: Any = None, retracement_pct: Any = None):
         """Captures standard calculated indicator fields."""
-        if rsi is not None: self.capture("RSI", rsi, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
-        if sma20 is not None: self.capture("SMA20", sma20, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
-        if sma50 is not None: self.capture("SMA50", sma50, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
-        if sma100 is not None: self.capture("SMA100", sma100, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
-        if sma200 is not None: self.capture("SMA200", sma200, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
-        if ema20 is not None: self.capture("EMA20", ema20, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
-        if ema50 is not None: self.capture("EMA50", ema50, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
-        if ema200 is not None: self.capture("EMA200", ema200, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
-        if macd is not None: self.capture("MACD", macd, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
-        if macd_signal is not None: self.capture("MACD_SIGNAL", macd_signal, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
-        if macd_hist is not None: self.capture("MACD_HISTOGRAM", macd_hist, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
-        if atr is not None: self.capture("ATR", atr, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
-        if adx is not None: self.capture("ADX", adx, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
-        if obv is not None: self.capture("OBV", obv, origin="CALCULATED_FROM_PRICE_DAILY_CLOSE", group="INDICATOR")
+        if rsi is not None: self.capture("RSI", rsi, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        if sma20 is not None: self.capture("SMA20", sma20, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        if sma50 is not None: self.capture("SMA50", sma50, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        if sma100 is not None: self.capture("SMA100", sma100, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        if sma200 is not None: self.capture("SMA200", sma200, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        if ema9 is not None: self.capture("EMA9", ema9, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        if ema15 is not None: self.capture("EMA15", ema15, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        if ema20 is not None: self.capture("EMA20", ema20, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        if ema50 is not None: self.capture("EMA50", ema50, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        if ema200 is not None: self.capture("EMA200", ema200, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        if macd is not None: self.capture("MACD", macd, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        if macd_signal is not None: self.capture("MACD_SIGNAL", macd_signal, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        if macd_hist is not None: self.capture("MACD_HISTOGRAM", macd_hist, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        if atr is not None: self.capture("ATR", atr, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        if adx is not None: self.capture("ADX", adx, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        if obv is not None: self.capture("OBV", obv, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
         if vol_ratio is not None: self.capture("VOLUME_RATIO", vol_ratio, origin="CALCULATED_FROM_VOLUME", group="INDICATOR")
+        if prior_20d_high is not None: self.capture("PRIOR_20D_HIGH", prior_20d_high, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        if bb_width_pctile is not None: self.capture("BB_WIDTH_PCTILE", bb_width_pctile, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        if retracement_pct is not None: self.capture("RETRACEMENT_PCT", retracement_pct, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+
+    def capture_fundamentals(self, roce: Any = None, roe: Any = None, debt_equity: Any = None, peg: Any = None, yoy_revenue: Any = None, yoy_profit: Any = None, piotroski_score: Any = None, promoter_pledge: Any = None, mcap: Any = None, altman_z: Any = None, category: Any = None, sector: Any = None):
+        """Captures fundamental evaluation metrics."""
+        if roce is not None: self.capture("ROCE_PCT", roce, origin="EXTERNAL_API", group="FUNDAMENTAL")
+        if roe is not None: self.capture("ROE_PCT", roe, origin="EXTERNAL_API", group="FUNDAMENTAL")
+        if debt_equity is not None: self.capture("DEBT_EQUITY", debt_equity, origin="EXTERNAL_API", group="FUNDAMENTAL")
+        if peg is not None: self.capture("PEG_RATIO", peg, origin="EXTERNAL_API", group="FUNDAMENTAL")
+        if yoy_revenue is not None: self.capture("YOY_REVENUE_PCT", yoy_revenue, origin="EXTERNAL_API", group="FUNDAMENTAL")
+        if yoy_profit is not None: self.capture("YOY_PROFIT_PCT", yoy_profit, origin="EXTERNAL_API", group="FUNDAMENTAL")
+        if piotroski_score is not None: self.capture("PIOTROSKI_F_SCORE", piotroski_score, origin="EXTERNAL_API", group="FUNDAMENTAL")
+        if promoter_pledge is not None: self.capture("PROMOTER_PLEDGE_PCT", promoter_pledge, origin="EXTERNAL_API", group="FUNDAMENTAL")
+        if mcap is not None: self.capture("MARKET_CAP_CR", mcap, origin="EXTERNAL_API", group="FUNDAMENTAL")
+        if altman_z is not None: self.capture("ALTMAN_Z", altman_z, origin="EXTERNAL_API", group="FUNDAMENTAL")
+        if category is not None: self.capture("CATEGORY", category, origin="EXTERNAL_API", group="FUNDAMENTAL")
+        if sector is not None: self.capture("SECTOR", sector, origin="EXTERNAL_API", group="FUNDAMENTAL")
 
     def capture_config(self, key: str, value: Any):
         """Captures configuration threshold."""
@@ -258,6 +278,14 @@ class DecisionContext:
         if ind_entries:
             lines.append("\n[ALL INDICATORS]")
             for e in ind_entries:
+                val_str = f"{e.value:.4f}" if isinstance(e.value, float) else str(e.value)
+                lines.append(f"{e.key:<24} = {val_str:<18} (Origin: {e.origin})")
+
+        # 2b. FUNDAMENTALS
+        fund_entries = [e for e in self.entries.values() if e.group == "FUNDAMENTAL"]
+        if fund_entries:
+            lines.append("\n[ALL FUNDAMENTAL METRICS]")
+            for e in fund_entries:
                 val_str = f"{e.value:.4f}" if isinstance(e.value, float) else str(e.value)
                 lines.append(f"{e.key:<24} = {val_str:<18} (Origin: {e.origin})")
 
@@ -392,23 +420,43 @@ class GlobalScannerTelemetryEngine:
                 logger.error(f"Failed to write to scanner_telemetry.jsonl: {e}")
 
     def record_reject(self, symbol: str, last_stage: str = "PRE_CHECK", gate: str = "REJECTED", actual: Any = None, required: Any = None, start_time: float = None, **kwargs):
-        """Legacy helper recording rejected symbol into DecisionContext and emitting terminal telemetry."""
+        """Helper recording rejected symbol into DecisionContext and emitting full terminal telemetry."""
         ctx = DecisionContext(symbol=symbol, scanner_name=self.scanner_name or "PULLBACK", run_id=self.run_id)
+        if "raw_market" in kwargs and isinstance(kwargs["raw_market"], dict):
+            ctx.capture_raw_market(**kwargs["raw_market"])
+        if "indicators" in kwargs and isinstance(kwargs["indicators"], dict):
+            ctx.capture_indicators(**kwargs["indicators"])
+        if "fundamentals" in kwargs and isinstance(kwargs["fundamentals"], dict):
+            ctx.capture_fundamentals(**kwargs["fundamentals"])
+        if "sl_target" in kwargs and isinstance(kwargs["sl_target"], dict):
+            ctx.capture_sl_target(**kwargs["sl_target"])
         ctx.capture_gate(gate_name=gate, passed=False, actual_val=actual, threshold_val=required, reason=f"Rejected at stage {last_stage}")
         ctx.finalize(decision="REJECTED", primary_reason=f"{gate}_FAIL")
         self.emit_terminal(ctx)
 
     def record_candidate(self, symbol: str, score: float = 0.0, sl: float = 0.0, target: float = 0.0, **kwargs):
-        """Legacy helper recording qualified candidate into DecisionContext and emitting terminal telemetry."""
+        """Helper recording qualified candidate into DecisionContext and emitting full terminal telemetry."""
         ctx = DecisionContext(symbol=symbol, scanner_name=self.scanner_name or "PULLBACK", run_id=self.run_id)
+        if "raw_market" in kwargs and isinstance(kwargs["raw_market"], dict):
+            ctx.capture_raw_market(**kwargs["raw_market"])
+        if "indicators" in kwargs and isinstance(kwargs["indicators"], dict):
+            ctx.capture_indicators(**kwargs["indicators"])
+        if "fundamentals" in kwargs and isinstance(kwargs["fundamentals"], dict):
+            ctx.capture_fundamentals(**kwargs["fundamentals"])
         ctx.capture_score("TOTAL", score, 100.0)
         ctx.capture_sl_target(0.0, sl, target)
         ctx.finalize(decision="SELECTED", primary_reason="ALL_REQUIRED_GATES_PASSED")
         self.emit_terminal(ctx)
 
     def record_pass(self, symbol: str, score: float = 0.0, rr_ratio: float = 0.0, metrics: Dict[str, Any] = None, start_time: float = None, **kwargs):
-        """Legacy helper recording passed candidate into DecisionContext and emitting terminal telemetry."""
+        """Helper recording passed candidate into DecisionContext and emitting full terminal telemetry."""
         ctx = DecisionContext(symbol=symbol, scanner_name=self.scanner_name or "EOD", run_id=self.run_id)
+        if "raw_market" in kwargs and isinstance(kwargs["raw_market"], dict):
+            ctx.capture_raw_market(**kwargs["raw_market"])
+        if "indicators" in kwargs and isinstance(kwargs["indicators"], dict):
+            ctx.capture_indicators(**kwargs["indicators"])
+        if "fundamentals" in kwargs and isinstance(kwargs["fundamentals"], dict):
+            ctx.capture_fundamentals(**kwargs["fundamentals"])
         ctx.capture_score("TOTAL", float(score), 100.0)
         if metrics and isinstance(metrics, dict):
             for k, v in metrics.items():

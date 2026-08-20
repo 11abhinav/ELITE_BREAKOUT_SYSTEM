@@ -276,6 +276,20 @@ def append_rejection(results: list, symbol: str, status: str, notes: str, price:
         alert_inserted=False
     ))
     try:
+        from scanner_telemetry import DecisionContext, telemetry_engine
+        ctx = DecisionContext(symbol=symbol, scanner_name="MULTIBAGGER")
+        if price:
+            ctx.capture_raw_market(open_p=price, high_p=price, low_p=price, close_p=price, volume=0.0)
+        ctx.capture_score("CQS_QUALITY", cqs, 30.0)
+        ctx.capture_score("PAS_VALUATION", pas, 35.0)
+        ctx.capture_score("TREND_STRUCTURE", trend_score, 35.0)
+        ctx.capture_score("TOTAL", total_score, 100.0)
+        ctx.capture_gate(gate_name=status, passed=False, actual_val=total_score, threshold_val=65.0, reason=notes)
+        ctx.finalize(decision="REJECTED", primary_reason=f"{status}: {notes}")
+        telemetry_engine.emit_terminal(ctx)
+    except Exception:
+        pass
+    try:
         eff_score = total_score or cqs or 0.0
         if eff_score > 0:
             from near_miss_tracker import log_near_miss
