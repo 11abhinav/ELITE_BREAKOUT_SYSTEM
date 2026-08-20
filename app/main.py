@@ -2065,8 +2065,15 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         except Exception:
             pass
 
-    # Let the individual scanner thread handle its own global lock acquisition
-    # and database status updates (QUEUED vs RUNNING). This prevents race conditions.
+    # Synchronously write an initial QUEUED state to the database so the UI immediately
+    # reacts to the button click while the background thread potentially spends 30s
+    # initializing the MarketDataSession. The actual scanner thread will then
+    # overwrite this with RUNNING or a "Waiting for lock" QUEUED message.
+    try:
+        from database import upsert_scanner_health
+        upsert_scanner_health(scanner_key, status="QUEUED", error_msg="Initializing scanner environment (fetching market data)...")
+    except Exception as _qerr:
+        pass
 
     # Invalidate dashboard status cache so next poll returns fresh DB state immediately
     try:
@@ -2168,7 +2175,7 @@ def _trigger_multi_tf(trigger_type="SCHEDULED", scheduler_name="CRON"):
     return multi_tf_scanner.start(run_once=True, trigger_type=trigger_type, scheduler_name=scheduler_name)
 
 
-def _trigger_eod():
+def _trigger_eod(trigger_type="MANUAL", scheduler_name="MANUAL"):
     import eod_scanner
     from watchlist_cache import get_watchlist
     import pandas as pd
@@ -2185,9 +2192,9 @@ def _trigger_eod():
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"Failed to build session for manual EOD: {e}")
-    eod_scanner.start(force=True, trigger_type="MANUAL", scheduler_name="MANUAL", session=session)
+    eod_scanner.start(force=True, trigger_type=trigger_type, scheduler_name=scheduler_name, session=session)
 
-def _trigger_reversal():
+def _trigger_reversal(trigger_type="MANUAL", scheduler_name="MANUAL"):
     import reversal_scanner
     from watchlist_cache import get_watchlist
     import pandas as pd
@@ -2204,15 +2211,34 @@ def _trigger_reversal():
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"Failed to build session for manual Reversal: {e}")
-    reversal_scanner.start(force=True, session=session)
+    reversal_scanner.start(force=True, trigger_type=trigger_type, scheduler_name=scheduler_name, session=session)
 
-def _trigger_wealth_engine():
+def _trigger_pullback(trigger_type="MANUAL", scheduler_name="MANUAL"):
+    import pullback_pipeline
+    from watchlist_cache import get_watchlist
+    import pandas as pd
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    IST = ZoneInfo("Asia/Kolkata")
+    wl = get_watchlist()
+    all_symbols = wl["Stock"].tolist() if wl is not None and not wl.empty else []
+    session = None
+    if all_symbols:
+        from market_data_session import MarketDataSession
+        try:
+            session = MarketDataSession.build(all_symbols, ist_date=datetime.now(IST).date(), requester="ManualPullback")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Failed to build session for manual Pullback: {e}")
+    pullback_pipeline.start(force=True, trigger_type=trigger_type, scheduler_name=scheduler_name, session=session)
+
+def _trigger_wealth_engine(trigger_type="MANUAL", scheduler_name="MANUAL"):
     from wealth_engine import run_wealth_scan
-    run_wealth_scan()
+    run_wealth_scan(trigger_type=trigger_type, scheduler_name=scheduler_name)
 
-def _trigger_multibagger():
+def _trigger_multibagger(trigger_type="MANUAL", scheduler_name="MANUAL"):
     import multibagger
-    return multibagger.start()
+    return multibagger.start(trigger_type=trigger_type, scheduler_name=scheduler_name)
 
 # [VERSION: TRIGGER_AI_WORKER_v1.1] Define _trigger_ai_worker
 def _trigger_ai_worker():
