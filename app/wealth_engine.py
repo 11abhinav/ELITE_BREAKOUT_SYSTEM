@@ -858,20 +858,8 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
         logger.info("🛑 Wealth Engine is STOPPED by Admin. Skipping execution.")
         return None
 
-    created_ctx = False
-    if run_ctx is None:
-        try:
-            from database import start_scanner_execution_run
-            run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type=trigger_type, scheduler_name=scheduler_name)
-            created_ctx = True
-        except Exception as exc:
-            logger.warning(f"⚠️ [WEALTH_ENGINE] Could not create execution run context: {exc}")
-
     if _scan_lock.locked():
         logger.warning("🛑 [DUPLICATE GUARD] Wealth Engine is ALREADY actively running in thread lock. Skipping duplicate trigger.")
-        if created_ctx and run_ctx:
-            from database import complete_scanner_execution_run
-            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Same scanner already actively running")
         return None
 
     queued_at = None
@@ -879,24 +867,21 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
         queued_at = time.monotonic()
         logger.info("⏳ [WEALTH ENGINE] Global scanner lock busy — marking QUEUED and waiting in queue...")
         upsert_scanner_health("Wealth Engine", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-        if run_ctx:
-            try:
-                from database import update_scanner_run_lifecycle
-                update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
-            except Exception:
-                pass
         if not _global_lock.acquire(blocking=True):
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [WEALTH ENGINE] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
-    # Lock acquired! Transition health & execution history to RUNNING
-    upsert_scanner_health("Wealth Engine", "RUNNING", error_msg="Wealth Engine scan in progress...")
-    if run_ctx:
+    # Lock acquired! NOW create the execution history to strictly show RUNNING
+    created_ctx = False
+    if run_ctx is None:
         try:
-            from database import update_scanner_run_lifecycle
-            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
-        except Exception:
+            from database import start_scanner_execution_run
+            run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type=trigger_type, scheduler_name=scheduler_name)
+            created_ctx = True
+        except Exception as exc:
             pass
+            
+    upsert_scanner_health("Wealth Engine", "RUNNING", error_msg="Wealth Engine scan in progress...")
 
     if not _scan_lock.acquire(blocking=False):
         _global_lock.release()

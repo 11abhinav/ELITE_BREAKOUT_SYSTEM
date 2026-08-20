@@ -1117,58 +1117,34 @@ def main(force_rebuild: bool = False, run_ctx=None):
 
     from database import is_scanner_actively_running
     current_run_id = getattr(run_ctx, "run_id", None) if run_ctx else None
-    created_ctx = False
-    if run_ctx is None:
-        try:
-            from database import start_scanner_execution_run
-            run_ctx = start_scanner_execution_run(scanner_name="DAILY_BUILDER", trigger_type="MANUAL", scheduler_name="CLI")
-            created_ctx = True
-        except Exception:
-            pass
-
     if _build_lock.locked():
-        logger.warning("🛑 [DUPLICATE GUARD] Daily Builder is ALREADY actively running in thread lock. Skipping duplicate trigger.")
-        if created_ctx and run_ctx:
-            from database import complete_scanner_execution_run
-            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Same scanner already actively running")
+        logger.warning("🛑 [DUPLICATE GUARD] DAILY_BUILDER Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
         return
 
     queued_at = None
     if not _global_lock.acquire(blocking=False):
         queued_at = time.monotonic()
         logger.info("⏳ [DAILY_BUILDER] Global scanner lock busy — marking QUEUED and waiting in queue...")
-        try:
-            upsert_scanner_health("DAILY_BUILDER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-        except Exception:
-            pass
-        if run_ctx:
-            try:
-                from database import update_scanner_run_lifecycle
-                update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
-            except Exception:
-                pass
+        upsert_scanner_health("DAILY_BUILDER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
         if not _global_lock.acquire(blocking=True):
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [DAILY_BUILDER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
-    # Lock acquired! Transition health & execution history to RUNNING
-    try:
-        upsert_scanner_health("DAILY_BUILDER", "RUNNING", error_msg="Building watchlist...")
-    except Exception:
-        pass
-    if run_ctx:
+    # Lock acquired! NOW create the execution history to strictly show RUNNING
+    created_ctx = False
+    if run_ctx is None:
         try:
-            from database import update_scanner_run_lifecycle
-            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
-        except Exception:
+            from database import start_scanner_execution_run
+            run_ctx = start_scanner_execution_run(scanner_name="DAILY_BUILDER", trigger_type="SCHEDULED", scheduler_name="CRON")
+            created_ctx = True
+        except Exception as exc:
             pass
-
-    from lock_utils import print_scanner_start_banner, print_scanner_end_banner
-    _scan_start = print_scanner_start_banner("daily_builder", queued_at=queued_at)
+            
+    upsert_scanner_health("DAILY_BUILDER", "RUNNING", error_msg="DAILY_BUILDER scan in progress...")
 
     if not _build_lock.acquire(blocking=False):
         _global_lock.release()
-        logger.warning("🛑 Daily Builder is ALREADY actively running. Skipping duplicate execution.")
+        logger.warning("🛑 DAILY_BUILDER Scanner is ALREADY actively running. Skipping duplicate execution.")
         if created_ctx and run_ctx:
             from database import complete_scanner_execution_run
             complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
