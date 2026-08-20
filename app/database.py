@@ -6119,7 +6119,10 @@ def bootstrap_admin(cur=None):
     try:
         def _execute_bootstrap(active_cur):
             active_cur.execute("SELECT COUNT(*) FROM users")
-            user_count = active_cur.fetchone()[0]
+            res = active_cur.fetchone()
+            if not res:
+                return
+            user_count = res[0]
 
             active_cur.execute("SELECT user_id FROM users WHERE username = 'admin'")
             admin_exists = active_cur.fetchone() is not None

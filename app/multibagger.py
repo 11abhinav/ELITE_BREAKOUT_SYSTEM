@@ -322,21 +322,40 @@ def safe_float(val, default=0.0):
 
 def load_cache() -> dict:
     """Load local fundamentals JSON cache file."""
+    cache = {}
     if not os.path.exists(CACHE_PATH):
         try:
             from database import download_parquet_from_db
             if download_parquet_from_db("multibagger_cache", CACHE_PATH):
                 logger.info("☁️ [CACHE] Restored multibagger fundamentals cache from Postgres DB")
+            elif download_parquet_from_db("fundamentals_cache", CACHE_PATH):
+                logger.info("☁️ [CACHE] Restored shared fundamentals_cache from Postgres DB")
         except Exception as e:
             logger.warning(f"⚠️ Failed to restore multibagger cache from DB: {e}")
             
     if os.path.exists(CACHE_PATH):
         try:
             with open(CACHE_PATH, "r") as f:
-                return json.load(f)
+                cache = json.load(f)
         except Exception as e:
             logger.warning(f"⚠️ Failed to load fundamentals cache: {e}")
-    return {}
+
+    # If cache is missing or small (< 100 entries), instantly enrich via TradingView Screener API (<3s)
+    if len(cache) < 100:
+        try:
+            from fundamentals_cache import fetch_tradingview_fundamentals_bulk
+            logger.info("⚡ [LIGHTNING CACHE BUILD] Initializing bulk fundamentals via TradingView Screener API (<3s)...")
+            tv_data = fetch_tradingview_fundamentals_bulk()
+            if tv_data:
+                for sym, entry in tv_data.items():
+                    if sym not in cache:
+                        cache[sym] = entry
+                save_fundamentals_cache(cache, sync_to_db=True)
+                logger.info(f"⚡ [LIGHTNING CACHE BUILD] Complete! Loaded {len(cache)} fundamental entries in <3 seconds.")
+        except Exception as tv_err:
+            logger.warning(f"⚠️ TradingView bulk cache initialization failed: {tv_err}")
+
+    return cache
 
 def save_fundamentals_cache(cache_data: dict, sync_to_db: bool = True):
     """Write current fundamentals to local JSON cache file."""
@@ -1839,6 +1858,28 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     stage_tracker.start_stage(2, "Fundamentals DB Cache Validation & Fetch", f"Target: {len(shortlist)} stocks")
     fundamentals_list = []
 
+    # Check if any shortlisted stocks are missing from cache. If so, run instant TradingView bulk fetch (<3s)
+    missing_shortlist_syms = [p.symbol for p in shortlist if not get_cached_fundamentals(p.symbol, cache)]
+    if missing_shortlist_syms:
+        logger.info(f"⚡ [MULTIBAGGER BULK ENRICHMENT] {len(missing_shortlist_syms)}/{len(shortlist)} stocks missing from cache. Running TradingView bulk fetch (<3s)...")
+        try:
+            from fundamentals_cache import fetch_tradingview_fundamentals_bulk
+            tv_data = fetch_tradingview_fundamentals_bulk()
+            if tv_data:
+                enriched_count = 0
+                for p in shortlist:
+                    sym = p.symbol
+                    clean_sym = sym.replace("-", "_").upper().strip()
+                    tv_entry = tv_data.get(clean_sym) or tv_data.get(sym)
+                    if tv_entry and not get_cached_fundamentals(sym, cache):
+                        tv_entry["symbol"] = sym
+                        cache[sym] = tv_entry
+                        enriched_count += 1
+                if enriched_count > 0:
+                    logger.info(f"✅ [MULTIBAGGER BULK ENRICHMENT] Enriched {enriched_count} stocks instantly via TradingView.")
+                    save_fundamentals_cache(cache, sync_to_db=True)
+        except Exception as _tv_err:
+            logger.warning(f"⚠️ TradingView bulk enrichment failed: {_tv_err}")
     
     with ThreadPoolExecutor(max_workers=6) as executor:
         futures = {}
@@ -1949,16 +1990,9 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     # Default to BEAR (conservative fail-direction for quality-over-quantity)
     market_regime = "BEAR"
     try:
-        from data_provider import get_fetcher
-        nifty_md = get_fetcher().get_ohlcv("NIFTY 50", period="1y", interval="1d")
-        if nifty_md:
-            import pandas as pd
-            nifty_df = nifty_md.dataframe if hasattr(nifty_md, "dataframe") else nifty_md
-        else:
-            import pandas as pd
-            nifty_df = pd.DataFrame()
-            
-        if not nifty_df.empty and len(nifty_df) >= 200:
+        from macro_utils import _get_daily_nifty
+        nifty_df = _get_daily_nifty()
+        if nifty_df is not None and not nifty_df.empty and len(nifty_df) >= 200:
             close_col = nifty_df["Close"]
             if isinstance(close_col, pd.DataFrame):
                 close_col = close_col.iloc[:, 0]
