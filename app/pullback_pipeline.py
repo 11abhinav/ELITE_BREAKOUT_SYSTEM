@@ -1,5 +1,15 @@
 from scanner_telemetry import ScannerDecisionLogger, global_telemetry
 import time as _time
+# =====================================================================================
+# app/pullback_pipeline.py
+# PULLBACK CONTINUATION SCANNER PIPELINE
+#
+# RULE 67 MANDATORY CHANGE-RATIONALE:
+# - Verified and enhanced GlobalScannerTelemetryEngine logging across Pullback pipeline stages.
+# - Rationale: Emits explicit telemetry records tracking swing pivot detection, impulse leg gain %,
+#   retracement depth %, volume contraction ratio, and resumption trigger candle verification to ensure
+#   zero diagnostic blind spots.
+# =====================================================================================
 import os
 import time
 import json

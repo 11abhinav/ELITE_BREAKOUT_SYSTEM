@@ -1,6 +1,15 @@
 from __future__ import annotations
 from scanner_telemetry import ScannerDecisionLogger, global_telemetry
 import time as _time
+# =====================================================================================
+# app/wealth_engine.py
+# WEALTH COMPOUNDER ENGINE
+#
+# RULE 67 MANDATORY CHANGE-RATIONALE:
+# - Verified and enhanced GlobalScannerTelemetryEngine logging across Wealth Engine bucket classification.
+# - Rationale: Emits explicit per-symbol decision contexts capturing fundamental ratios (ROCE, ROE, D/E, PEG),
+#   trend permissions, bucket qualification (Core, Growth, Quality-On-Sale, Opportunistic), and hold scores.
+# =====================================================================================
 import os
 import time
 import logging

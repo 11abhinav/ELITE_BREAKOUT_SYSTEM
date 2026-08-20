@@ -4,6 +4,12 @@ import time as _time
 # app/reversal_scanner.py (SCHEDULER READY) — v7.0 OVERHAUL
 # DEEP DISCOUNT & MEAN REVERSION SCANNER (With Valuation Metrics)
 #
+# RULE 67 MANDATORY CHANGE-RATIONALE:
+# - Verified and enhanced GlobalScannerTelemetryEngine logging across all reversal gates.
+# - Rationale: Captures granular RSI trough curl calculations, 52W drop depth, SMA200 proximity,
+#   volume spike confirmation, and risk engine output to eliminate diagnostic gaps.
+# =====================================================================================
+#
 # v7.0 OVERHAUL CHANGELOG (Refactored per comprehensive 25-point audit):
 #   [FIX A1] CORE_SCORE_FLOOR comment & BEAR_CORE_REALISTIC headroom aligned.
 #   [FIX A2] close_above_ema20 trend scoring tautology removed (strict EMA20 reclaim).

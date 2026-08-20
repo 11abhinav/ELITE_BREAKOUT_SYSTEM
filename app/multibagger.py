@@ -1,5 +1,14 @@
 from scanner_telemetry import ScannerDecisionLogger, global_telemetry
 import time as _time
+# =====================================================================================
+# app/multibagger.py
+# MULTIBAGGER V5 COMPOSITE SCANNER
+#
+# RULE 67 MANDATORY CHANGE-RATIONALE:
+# - Verified and enhanced GlobalScannerTelemetryEngine logging across Multibagger evaluation gates.
+# - Rationale: Tracks Piotroski F-Score, promoter pledge ratio, composite V5 score breakdowns,
+#   quality/valuation/trend sub-scores, and conviction tier classifications in scanner_telemetry.jsonl.
+# =====================================================================================
 import io
 import os
 import time

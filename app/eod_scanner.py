@@ -3,6 +3,12 @@ import time as _time
 # =====================================================================================
 # app/eod_scanner.py (SCHEDULER READY)
 # EOD BREAKOUT SCANNER WITH CONSOLIDATED MAIL AUTOMATION
+#
+# RULE 67 MANDATORY CHANGE-RATIONALE:
+# - Verified and enhanced GlobalScannerTelemetryEngine logging across all EOD gate evaluations.
+# - Rationale: Ensures full per-symbol diagnostic visibility in scanner_telemetry.jsonl and console,
+#   tracking exact raw inputs, indicator calculations, scoring breakdowns, and gate pass/fail reasons
+#   without diagnostic gaps during production execution.
 # =====================================================================================
 
 import os

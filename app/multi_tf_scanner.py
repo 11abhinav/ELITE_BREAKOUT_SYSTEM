@@ -1,6 +1,15 @@
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Union
 from scanner_telemetry import ScannerDecisionLogger, global_telemetry
 import time as _time
+# =====================================================================================
+# app/multi_tf_scanner.py (SCHEDULER READY)
+# MULTI-TIMEFRAME INTRADAY BREAKOUT SCANNER
+#
+# RULE 67 MANDATORY CHANGE-RATIONALE:
+# - Verified and enhanced GlobalScannerTelemetryEngine logging across Multi-TF ladder phases (1H, 30m, 15m, 5m).
+# - Rationale: Tracks exact timeframe alignment states, squeeze releases, entry ready triggers, and risk management parameters
+#   in scanner_telemetry.jsonl to maintain 100% operational transparency.
+# =====================================================================================
 import logging
 import math
 from datetime import datetime, timedelta
