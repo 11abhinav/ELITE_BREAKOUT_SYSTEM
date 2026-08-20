@@ -2331,59 +2331,55 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 pos_shares = int(alloc / price) if price > 0 else 0
                 
                 inserted = False
-                if not is_test_mode:
-                    context_dict = {
-                        "multibagger_meta": {
-                            "valuation_score": c_pas,
-                            "momentum_score": int(c_trend),
-                            "momentum_confidence": "HIGH" if c_cqs >= 75.0 else "MEDIUM",
-                            "data_quality": "LIVE",
-                            "pipeline_tier": c_tier
-                        }
+                context_dict = {
+                    "multibagger_meta": {
+                        "valuation_score": c_pas,
+                        "momentum_score": int(c_trend),
+                        "momentum_confidence": "HIGH" if c_cqs >= 75.0 else "MEDIUM",
+                        "data_quality": "LIVE",
+                        "pipeline_tier": c_tier
                     }
-                    
-                    # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every triggered trade
-                    _last_bar_date = "unknown"
-                    try:
-                        _price_data = price_data_map.get(sym)
-                        if _price_data and hasattr(_price_data, 'timestamp'):
-                            _last_bar_date = str(_price_data.timestamp)[:10]
-                    except Exception:
-                        pass
-                    logger.info(
-                        f"✅ [MULTIBAGGER] PASSED ALL FILTERS: {sym} | "
-                        f"cqs={c_cqs:.1f} | pas={c_pas:.1f} | total_score={scaled_score:.1f} | "
-                        f"entry=₹{price:.2f} | last_bar={_last_bar_date} | category={c_tier}"
+                }
+                
+                # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every triggered trade
+                _last_bar_date = "unknown"
+                try:
+                    _price_data = price_data_map.get(sym)
+                    if _price_data and hasattr(_price_data, 'timestamp'):
+                        _last_bar_date = str(_price_data.timestamp)[:10]
+                except Exception:
+                    pass
+                logger.info(
+                    f"✅ [MULTIBAGGER] PASSED ALL FILTERS: {sym} | "
+                    f"cqs={c_cqs:.1f} | pas={c_pas:.1f} | total_score={scaled_score:.1f} | "
+                    f"entry=₹{price:.2f} | last_bar={_last_bar_date} | category={c_tier}"
+                )
+                
+                # We use save_alert_if_new to insert into the main alerts table!
+                from zoneinfo import ZoneInfo
+                ist_now = datetime.now(ZoneInfo('Asia/Kolkata'))
+                
+                # [VERSION: MULTIBAGGER_ALERT_INSERT_GUARD_v1.1] Wrap DB alert insertion in try...except
+                try:
+                    inserted, reason, _, _ = save_alert_if_new(
+                        symbol=sym,
+                        breakout_type="MULTIBAGGER",
+                        alert_time=ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
+                        scanner="MULTIBAGGER",
+                        category=c_tier,
+                        entry_price=round(price, 2),
+                        stop_loss=0.0, # As requested: No SL for Multibagger
+                        target_price=0.0,
+                        signals="Value, Momentum, Quality",
+                        score=scaled_score,
+                        context=context_dict,
+                        capital_allocated=alloc,
+                        shares_bought=pos_shares
                     )
-                    
-                    # We use save_alert_if_new to insert into the main alerts table!
-                    from zoneinfo import ZoneInfo
-                    ist_now = datetime.now(ZoneInfo('Asia/Kolkata'))
-                    
-                    # [VERSION: MULTIBAGGER_ALERT_INSERT_GUARD_v1.1] Wrap DB alert insertion in try...except
-                    try:
-                        inserted, reason, _, _ = save_alert_if_new(
-                            symbol=sym,
-                            breakout_type="MULTIBAGGER",
-                            alert_time=ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
-                            scanner="MULTIBAGGER",
-                            category=c_tier,
-                            entry_price=round(price, 2),
-                            stop_loss=0.0, # As requested: No SL for Multibagger
-                            target_price=0.0,
-                            signals="Value, Momentum, Quality",
-                            score=scaled_score,
-                            context=context_dict,
-                            capital_allocated=alloc,
-                            shares_bought=pos_shares
-                        )
-                    except Exception as exc:
-                        logger.exception(f"{sym}: alert insertion failed: {exc}")
-                        inserted = False
-                        reason = "Database insertion failed"
-                else:
-                    logger.info(f"🧪 [TEST MODE] Skipping save_alert_if_new for {sym}")
-                    inserted = True
+                except Exception as exc:
+                    logger.exception(f"{sym}: alert insertion failed: {exc}")
+                    inserted = False
+                    reason = "Database insertion failed"
 
                 # [FIX-8] Track insertion status AND rejection reason on the candidate
                 cand["inserted"] = inserted

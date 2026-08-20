@@ -537,12 +537,8 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
     scan_start = datetime.strptime("21:00", "%H:%M").time()
     scan_end = datetime.strptime("23:59:59", "%H:%M:%S").time()
     
-    if force:
-        is_test_mode = False
-    else:
-        is_test_mode = getattr(database, "DONT_SAVE_ALERTS", False) or not (scan_start <= now_time <= scan_end)
-    if is_test_mode:
-        logger.info("🧪 [TEST MODE] Outside scheduled window (21:00-23:59). Alerts will NOT be saved to DB.")
+    # [VERSION: ALL_ALERTS_PERSIST_v1.0] Dry-run mode disabled — all generated alerts persist to DB at all times.
+    is_test_mode = False
 
     try:
         from memory_profiler import StageTimelineTracker
@@ -1330,6 +1326,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
 
                             # [VERSION: EOD_DEDUP_FIX] Fixed dedup check to correctly match DB tuple schema (symbol, breakout_type)
                             if (symbol, "EOD") in cooldown_alerts:
+                                logger.info(f"🚫 [EOD] {symbol} REJECTED after picking — Reason: COOLDOWN_ACTIVE (Already alerted in cooldown window)")
                                 with _batch_lock:
                                     rejection_counts["duplicate"] += 1
                                     telemetry_logger.record_reject(symbol, "SYSTEM", "DUPLICATE", None, None, start_time=_row_start_time)
@@ -1362,18 +1359,18 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                             )
                 
                             if sl_result.get("is_rejected"):
+                                logger.warning(f"🚫 [EOD] {symbol} REJECTED after picking — Reason: SL_RR_ENGINE_REJECT ({sl_result.get('rejection_reason')}, Natural RR={sl_result.get('natural_rr', 0):.2f})")
                                 with _batch_lock:
                                     rejection_counts["low_rr"] += 1
                                     telemetry_logger.record_reject(symbol, "RISK", "LOW_RR", sl_result.get("natural_rr", 0) if "sl_result" in locals() else 0, 2.0, start_time=_row_start_time)  # Reusing this counter for engine rejects
                                 from database import save_rejected_alert
-                                if not is_test_mode:
-                                    save_rejected_alert(
-                                        symbol=symbol,
-                                        scanner="EOD",
-                                        rejection_reason=sl_result.get("rejection_reason", "V7 Engine Reject"),
-                                        engine_version=sl_result.get("engine_version", "SL_ENGINE_V7.0"),
-                                        context={"category": category, "score": score, "sl_result": sl_result}
-                                    )
+                                save_rejected_alert(
+                                    symbol=symbol,
+                                    scanner="EOD",
+                                    rejection_reason=sl_result.get("rejection_reason", "V7 Engine Reject"),
+                                    engine_version=sl_result.get("engine_version", "SL_ENGINE_V7.0"),
+                                    context={"category": category, "score": score, "sl_result": sl_result}
+                                )
                                 return
 
                             suggested_stop = sl_result["stop_loss"]

@@ -1794,11 +1794,8 @@ def save_alert_if_new(
         else:
             capital_allocated, shares_bought = 0.0, 0
             
-    # Dry-run mode: if enabled, do not persist alerts.
-    if DONT_SAVE_ALERTS:
-        logger.info(f"🧪 DONT_SAVE_ALERTS enabled — not saving alert for {symbol} ({breakout_type})")
-        return False, "Stale/fallback data or DB constraint", 0.0, 0
-
+    # [VERSION: ALL_ALERTS_PERSIST_v1.0] Dry-run mode disabled — all generated alerts persist to DB.
+    # DONT_SAVE_ALERTS is permanently overridden so alerts save to Postgres DB at all times.
     success = False
     
     def _execute(cur, commit_cb):
@@ -1809,7 +1806,7 @@ def save_alert_if_new(
             WHERE symbol = %s AND scanner = %s AND status = 'OPEN' AND is_rejected = FALSE
         """, (symbol, scanner))
         if cur.fetchone():
-            logger.info(f"⏭️  Alert skipped for {symbol}: Already has an OPEN {scanner} alert.")
+            logger.info(f"🚫 [DB_SAVE] Alert for {symbol} ({scanner}) SKIPPED — Reason: ALREADY_HAS_OPEN_ALERT in database")
             return False, "Already OPEN", 0.0, 0
 
         cur.execute("""
@@ -1831,6 +1828,10 @@ def save_alert_if_new(
         inserted = (row is not None) or (getattr(cur, "rowcount", 0) > 0)
         commit_cb()
         success = True
+        if inserted:
+            logger.info(f"✅ [DB_SAVE] Alert for {symbol} ({scanner or 'EOD'}) SUCCESSFULLY SAVED to DB | Entry: ₹{entry_price:.2f} | Score: {score}")
+        else:
+            logger.info(f"🚫 [DB_SAVE] Alert for {symbol} ({scanner or 'EOD'}) SKIPPED — Reason: SAME_DAY_DUPLICATE (Already alerted today)")
         if inserted:
             alert_id = row[0] if row else 0
             base_score_val = kwargs.get('base_score', score or 80)

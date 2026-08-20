@@ -1055,105 +1055,102 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         entry_val = float(c.entry_price)
         sl_result = c.sl_result
 
-        if is_historical_fallback:
-            c.status = CandidateState.SCORED
-            logger.info(f"🧪 [HISTORICAL FALLBACK] Candidate {c.symbol} @ ₹{entry_val:.2f} — Read-only mode, skipped database persistence & notifications.")
-        else:
-            rs_pct_val = float(rs_rankings.get(c.symbol, 50.0))
+        # [VERSION: ALL_ALERTS_PERSIST_v1.0] Dry-run mode disabled — all generated alerts persist to DB at all times.
+        rs_pct_val = float(rs_rankings.get(c.symbol, 50.0))
             
-            sector_info = sector_rankings_dict.get(c.sector, {}) if c.sector else {}
-            sector_name_val = sector_info.get("sector_name", "")
+        sector_info = sector_rankings_dict.get(c.sector, {}) if c.sector else {}
+        sector_name_val = sector_info.get("sector_name", "")
 
-            # Exact score breakdown reconstruction for DB persistence
-            rs_bonus_val = round(c.score_breakdown.get("rs_bonus", 0.0), 1)
-            sector_bonus_val = round(c.score_breakdown.get("sector_bonus", 0.0), 1)
-            final_score_val = round(c.final_score, 1)
-            base_score_val = round(c.base_score, 1)
+        # Exact score breakdown reconstruction for DB persistence
+        rs_bonus_val = round(c.score_breakdown.get("rs_bonus", 0.0), 1)
+        sector_bonus_val = round(c.score_breakdown.get("sector_bonus", 0.0), 1)
+        final_score_val = round(c.final_score, 1)
+        base_score_val = round(c.base_score, 1)
 
-            saved, reason, _, _ = save_alert_if_new(
-                symbol=c.symbol,
-                breakout_type="PULLBACK",
-                alert_time=ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
-                scanner="PULLBACK",
-                category="PULLBACK",
-                entry_price=entry_val,
-                stop_loss=sl_result.get("stop_loss"),
-                target_1=sl_result.get("target_1"),
-                target_2=sl_result.get("target_2"),
-                target_3=sl_result.get("target_3"),
-                score=final_score_val,
-                context={
-                    "config_version": c.config_version,
-                    "structure": {
-                        "depth_pct": c.structure.depth_pct,
-                        "duration_bars": c.structure.duration_bars,
-                        "volume_ratio": c.structure.volume_ratio
-                    },
-                    "score_breakdown": {
-                        "base_score": base_score_val,
-                        "rs_bonus": rs_bonus_val,
-                        "sector_bonus": sector_bonus_val,
-                        "vol_bonus": round(c.score_breakdown.get("vol_bonus", 0.0), 1),
-                        "trigger_bonus": round(c.score_breakdown.get("trigger_bonus", 0.0), 1),
-                        "eligible_bonus": round(c.score_breakdown.get("eligible_bonus", 0.0), 1),
-                        "penalty": round(c.score_breakdown.get("penalty", 0.0), 1)
-                    }
+        saved, reason, _, _ = save_alert_if_new(
+            symbol=c.symbol,
+            breakout_type="PULLBACK",
+            alert_time=ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
+            scanner="PULLBACK",
+            category="PULLBACK",
+            entry_price=entry_val,
+            stop_loss=sl_result.get("stop_loss"),
+            target_1=sl_result.get("target_1"),
+            target_2=sl_result.get("target_2"),
+            target_3=sl_result.get("target_3"),
+            score=final_score_val,
+            context={
+                "config_version": c.config_version,
+                "structure": {
+                    "depth_pct": c.structure.depth_pct,
+                    "duration_bars": c.structure.duration_bars,
+                    "volume_ratio": c.structure.volume_ratio
                 },
-                base_score=base_score_val,
-                rs_bonus=rs_bonus_val,
-                sector_bonus=sector_bonus_val,
-                rs_percentile=rs_pct_val,
-                sector_name=sector_name_val,
-                regime_score=float(MarketRegimeEngine.get_regime_context().get("market_score", 80.0))
-            )
+                "score_breakdown": {
+                    "base_score": base_score_val,
+                    "rs_bonus": rs_bonus_val,
+                    "sector_bonus": sector_bonus_val,
+                    "vol_bonus": round(c.score_breakdown.get("vol_bonus", 0.0), 1),
+                    "trigger_bonus": round(c.score_breakdown.get("trigger_bonus", 0.0), 1),
+                    "eligible_bonus": round(c.score_breakdown.get("eligible_bonus", 0.0), 1),
+                    "penalty": round(c.score_breakdown.get("penalty", 0.0), 1)
+                }
+            },
+            base_score=base_score_val,
+            rs_bonus=rs_bonus_val,
+            sector_bonus=sector_bonus_val,
+            rs_percentile=rs_pct_val,
+            sector_name=sector_name_val,
+            regime_score=float(MarketRegimeEngine.get_regime_context().get("market_score", 80.0))
+        )
 
-            if saved:
-                alert_count += 1
-                c.status = CandidateState.ALERTED
-                logger.info(
-                    f"✅ [PULLBACK] PASSED ALL FILTERS: {c.symbol} | "
-                    f"score={final_score_val} | entry=₹{entry_val:.2f} | "
-                    f"depth={c.structure.depth_pct:.1f}% | volume_ratio={c.structure.volume_ratio:.2f} | "
-                    f"category=PULLBACK"
+        if saved:
+            alert_count += 1
+            c.status = CandidateState.ALERTED
+            logger.info(
+                f"✅ [PULLBACK] PASSED ALL FILTERS: {c.symbol} | "
+                f"score={final_score_val} | entry=₹{entry_val:.2f} | "
+                f"depth={c.structure.depth_pct:.1f}% | volume_ratio={c.structure.volume_ratio:.2f} | "
+                f"category=PULLBACK"
+            )
+            telemetry_logger.record_pass(
+                symbol=c.symbol,
+                score=final_score_val,
+                rr=float(sl_result.get("natural_rr", 2.0)),
+                metadata={
+                    "depth_pct": c.structure.depth_pct,
+                    "volume_ratio": c.structure.volume_ratio
+                }
+            )
+            try:
+                from telegram_engine import send_telegram_message
+                msg = (
+                    f"↪️ <b>PULLBACK CONTINUATION ALERT</b> ↪️\n\n"
+                    f"📌 <b>Symbol:</b> #{c.symbol}\n"
+                    f"💰 <b>Entry Price:</b> ₹{entry_val:.2f}\n"
+                    f"🛑 <b>Stop Loss:</b> ₹{sl_result.get('stop_loss', 0):.2f}\n"
+                    f"🎯 <b>Target 1:</b> ₹{sl_result.get('target_1', 0):.2f}\n"
+                    f"🎯 <b>Target 2:</b> ₹{sl_result.get('target_2', 0):.2f}\n"
+                    f"🎯 <b>Target 3:</b> ₹{sl_result.get('target_3', 0):.2f}\n"
+                    f"📊 <b>Score:</b> {c.final_score:.1f}/100\n"
+                    f"📉 <b>Pullback Retracement:</b> {c.structure.depth_pct:.1f}% of impulse wave ({c.structure.duration_bars} bars)\n"
+                    f"🔊 <b>Volume Ratio:</b> {c.structure.volume_ratio:.2f}x\n"
+                    f"⚡ <b>Mode:</b> LIVE PRODUCTION"
                 )
-                telemetry_logger.record_pass(
-                    symbol=c.symbol,
-                    score=final_score_val,
-                    rr=float(sl_result.get("natural_rr", 2.0)),
-                    metadata={
-                        "depth_pct": c.structure.depth_pct,
-                        "volume_ratio": c.structure.volume_ratio
-                    }
-                )
-                try:
-                    from telegram_engine import send_telegram_message
-                    msg = (
-                        f"↪️ <b>PULLBACK CONTINUATION ALERT</b> ↪️\n\n"
-                        f"📌 <b>Symbol:</b> #{c.symbol}\n"
-                        f"💰 <b>Entry Price:</b> ₹{entry_val:.2f}\n"
-                        f"🛑 <b>Stop Loss:</b> ₹{sl_result.get('stop_loss', 0):.2f}\n"
-                        f"🎯 <b>Target 1:</b> ₹{sl_result.get('target_1', 0):.2f}\n"
-                        f"🎯 <b>Target 2:</b> ₹{sl_result.get('target_2', 0):.2f}\n"
-                        f"🎯 <b>Target 3:</b> ₹{sl_result.get('target_3', 0):.2f}\n"
-                        f"📊 <b>Score:</b> {c.final_score:.1f}/100\n"
-                        f"📉 <b>Pullback Retracement:</b> {c.structure.depth_pct:.1f}% of impulse wave ({c.structure.duration_bars} bars)\n"
-                        f"🔊 <b>Volume Ratio:</b> {c.structure.volume_ratio:.2f}x\n"
-                        f"⚡ <b>Mode:</b> LIVE PRODUCTION"
-                    )
-                    send_telegram_message(msg, scan_type="PULLBACK")
-                except Exception as tg_err:
-                    logger.warning(f"⚠️ Could not dispatch Telegram message for {c.symbol}: {tg_err}")
-            else:
-                c.status = CandidateState.SUPPRESSED
-                rejected["persistence_failed"] += 1
-                logger.info(f"REJECTION: {c.symbol} (Phase: PERSISTENCE, Reason: {reason})")
-                telemetry_logger.record_reject(
-                    symbol=c.symbol,
-                    last_stage="PERSISTENCE",
-                    gate="PERSISTENCE_FAILED",
-                    actual=None,
-                    required=None
-                )
+                send_telegram_message(msg, scan_type="PULLBACK")
+            except Exception as tg_err:
+                logger.warning(f"⚠️ Could not dispatch Telegram message for {c.symbol}: {tg_err}")
+        else:
+            c.status = CandidateState.SUPPRESSED
+            rejected["persistence_failed"] += 1
+            logger.info(f"REJECTION: {c.symbol} (Phase: PERSISTENCE, Reason: {reason})")
+            telemetry_logger.record_reject(
+                symbol=c.symbol,
+                last_stage="PERSISTENCE",
+                gate="PERSISTENCE_FAILED",
+                actual=None,
+                required=None
+            )
 
     if not is_historical_fallback:
         upsert_scanner_health(
