@@ -7696,6 +7696,10 @@ def get_scanner_execution_history(
                 if lifecycle_status and lifecycle_status.upper() != "ALL":
                     where_clauses.append("lifecycle_status = %s")
                     params.append(lifecycle_status.upper())
+                else:
+                    # Hide QUEUED entries by default from history table to prevent clutter.
+                    # Only show runs that actually acquired the lock and started RUNNING.
+                    where_clauses.append("lifecycle_status != 'QUEUED'")
 
                 if quality_status and quality_status.upper() != "ALL":
                     where_clauses.append("quality_status = %s")
