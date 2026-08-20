@@ -825,9 +825,11 @@ class SideEffectShield:
     """Temporarily neutralize scanner persistence/notification side effects."""
 
     NAMES = (
-        "save_alert_batch", "save_alert", "save_wealth_buy_alert", "upsert_scanner_health",
+        "save_alert_batch", "save_alert", "save_alert_if_new", "save_wealth_buy_alert", "upsert_scanner_health",
         "send_push_to_all", "send_telegram_message", "insert_notification",
         "update_breakout_watchlist_state", "trigger_exit_alert", "monitor_exits",
+        "delete_todays_alerts_for_scanner", "start_scanner_execution_run", "complete_scanner_execution_run",
+        "is_scanner_stopped", "is_scanner_actively_running", "submit_background_upload", "upload_history_bundle_to_db",
     )
 
     def __init__(self, modules: Sequence[types.ModuleType]) -> None:
@@ -839,7 +841,9 @@ class SideEffectShield:
         def make_stub(name: str) -> Callable[..., Any]:
             def _stub(*args: Any, **kwargs: Any) -> Any:
                 self.events.append({"function": name, "args_count": len(args), "kwargs": _json_safe(kwargs)})
-                return 0 if name.startswith("save_") or name.startswith("upsert_") else None
+                if name.startswith("save_alert_if_new"):
+                    return True, "Mock Saved", 0.0, 1
+                return 0 if name.startswith("save_") or name.startswith("upsert_") or name.startswith("delete_") else None
             return _stub
 
         for module in self.modules:
