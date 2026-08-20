@@ -904,6 +904,34 @@ def _patch_shared_provider(modules: Sequence[types.ModuleType], shared: Mapping[
                     out[norm] = df
                 return out if not isinstance(symbols, str) else out.get(_normalize_symbol(symbols))
             setattr(price_cache_mod, "fetch_unified_historical", mock_fetch_unified_historical)
+
+        if hasattr(price_cache_mod, "get_watchlist_data"):
+            originals.append((price_cache_mod, "get_watchlist_data", getattr(price_cache_mod, "get_watchlist_data")))
+            def mock_get_watchlist_data(watchlist, period="1y", interval="1d", requester=""):
+                stocks = watchlist["Stock"].tolist() if isinstance(watchlist, pd.DataFrame) else list(watchlist)
+                out = {}
+                for s in stocks:
+                    norm = _normalize_symbol(s)
+                    df = shared.get((norm, interval))
+                    if not isinstance(df, pd.DataFrame):
+                        df = generate_synthetic_ohlcv(norm, candles=450 if interval == "1d" else 50, interval=interval)
+                    out[norm] = df
+                return out
+            setattr(price_cache_mod, "get_watchlist_data", mock_get_watchlist_data)
+
+        if hasattr(price_cache_mod, "_download_all_robust"):
+            originals.append((price_cache_mod, "_download_all_robust", getattr(price_cache_mod, "_download_all_robust")))
+            def mock_download_all_robust(watchlist, period="1y", interval="1d", requester=""):
+                stocks = watchlist["Stock"].tolist() if isinstance(watchlist, pd.DataFrame) else list(watchlist)
+                out = {}
+                for s in stocks:
+                    norm = _normalize_symbol(s)
+                    df = shared.get((norm, interval))
+                    if not isinstance(df, pd.DataFrame):
+                        df = generate_synthetic_ohlcv(norm, candles=450 if interval == "1d" else 50, interval=interval)
+                    out[norm] = df
+                return out
+            setattr(price_cache_mod, "_download_all_robust", mock_download_all_robust)
     except Exception:
         pass
 
