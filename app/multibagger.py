@@ -1270,7 +1270,13 @@ def save_watchlist_to_db(results: list):
         
     try:
         with get_connection() as conn:
+            if hasattr(conn, "is_dummy") and getattr(conn, "is_dummy", False):
+                logger.info("Local DummyConnection active — skipping watchlist DB execute_values.")
+                return
             with conn.cursor() as cur:
+                if not hasattr(cur, "connection"):
+                    logger.info("Cursor has no connection attribute — skipping execute_values.")
+                    return
                 # Upsert query using execute_values
                 execute_values(cur, """
                     INSERT INTO watchlist 
