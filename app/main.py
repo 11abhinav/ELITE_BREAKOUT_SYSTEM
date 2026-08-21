@@ -1834,71 +1834,50 @@ def _run_multibagger_scanner_single():
         import multibagger
         from telemetry_manager import telemetry
         telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_START")
-        lock_acquired = False
-        max_retries = 30
-        for i in range(max_retries):
-            if scanner_execution_lock.acquire(blocking=False):
-                lock_acquired = True
-                break
-            
-            logger.info(f"⏳ MULTIBAGGER SCAN | Waiting for scanner_execution_lock (attempt {i+1}/{max_retries}). Another scanner is currently running.")
-            try:
-                from database import upsert_scanner_health
-                upsert_scanner_health("MULTIBAGGER", status="DEFERRED", error_msg=f"Deferred: Waiting for scanner lock (attempt {i+1}/{max_retries})")
-            except Exception:
-                pass
-            time.sleep(60)
-            
-        if not lock_acquired:
-            raise RuntimeError(f"Could not acquire scanner_execution_lock after {max_retries} minutes. Evening batch might be stuck.")
-            
+        
+        start_mb_single = time.time()
+        upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Multibagger scan in progress...")
+        from database import start_scanner_execution_run, complete_scanner_execution_run
+        run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER", trigger_type="SCHEDULED", scheduler_name="CRON")
         try:
-            start_mb_single = time.time()
-            upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Multibagger scan in progress...")
-            from database import start_scanner_execution_run, complete_scanner_execution_run
-            run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER", trigger_type="SCHEDULED", scheduler_name="CRON")
-            try:
-                from market_data_session import MarketDataSession
-                from constituent_service import fetch_constituents
-                from watchlist_cache import get_watchlist
-                import pandas as pd
-                symbols = fetch_constituents()
-                if not symbols:
-                    wl_df = get_watchlist()
-                    symbols = wl_df["Stock"].dropna().tolist() if isinstance(wl_df, pd.DataFrame) and "Stock" in wl_df.columns else list(wl_df)
-                session = MarketDataSession.build(symbols=symbols, ist_date=datetime.now(IST).date(), requester="MULTIBAGGER")
-            except Exception as e:
-                logger.error(f"Failed to build MarketDataSession for MULTIBAGGER: {e}")
-                session = None
+            from market_data_session import MarketDataSession
+            from constituent_service import fetch_constituents
+            from watchlist_cache import get_watchlist
+            import pandas as pd
+            symbols = fetch_constituents()
+            if not symbols:
+                wl_df = get_watchlist()
+                symbols = wl_df["Stock"].dropna().tolist() if isinstance(wl_df, pd.DataFrame) and "Stock" in wl_df.columns else list(wl_df)
+            session = MarketDataSession.build(symbols=symbols, ist_date=datetime.now(IST).date(), requester="MULTIBAGGER")
+        except Exception as e:
+            logger.error(f"Failed to build MarketDataSession for MULTIBAGGER: {e}")
+            session = None
 
-            with MemoryProfiler("MULTIBAGGER", force_gc_cleanup=True):
-                stats = multibagger.start(session=session, run_ctx=run_ctx, trigger_type="SCHEDULED", scheduler_name="CRON") or {}
-            dur_mb_single = round(time.time() - start_mb_single, 1)
-            time.sleep(15)
+        with MemoryProfiler("MULTIBAGGER", force_gc_cleanup=True):
+            stats = multibagger.start(session=session, run_ctx=run_ctx, trigger_type="SCHEDULED", scheduler_name="CRON") or {}
+        dur_mb_single = round(time.time() - start_mb_single, 1)
+        time.sleep(15)
 
-            # Mark success in health table INSIDE the lock
-            upsert_scanner_health(
-                "MULTIBAGGER",
-                status="OK",
-                last_success=datetime.now(IST).isoformat(),
-                scheduled_for="Daily 19:00 IST",
-                total_count=stats.get("total_count"),
-                processed_count=stats.get("processed_count"),
-                today_alerts=stats.get("today_alerts", 0),
-                duration_seconds=dur_mb_single
-            )
-            # Rebuild performance data on scanner completion (debounced, async)
-            try:
-                from performance_tracker import trigger_performance_rebuild
-                trigger_performance_rebuild()
-            except Exception as pe:
-                logger.error(f"Failed to trigger performance rebuild post-MULTIBAGGER: {pe}")
-            telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_COMPLETE")
-            telemetry.log_session_timeline("Completed Multibagger Scanner Cycle Successfully")
-            logger.info("✅ MULTIBAGGER SCANNER | Completed successfully for today.")
-        finally:
-            scanner_execution_lock.release()
-        logger.info("✅ MULTIBAGGER SCAN | Completed successfully.")
+        # Mark success in health table INSIDE the lock
+        upsert_scanner_health(
+            "MULTIBAGGER",
+            status="OK",
+            last_success=datetime.now(IST).isoformat(),
+            scheduled_for="Daily 19:00 IST",
+            total_count=stats.get("total_count"),
+            processed_count=stats.get("processed_count"),
+            today_alerts=stats.get("today_alerts", 0),
+            duration_seconds=dur_mb_single
+        )
+        # Rebuild performance data on scanner completion (debounced, async)
+        try:
+            from performance_tracker import trigger_performance_rebuild
+            trigger_performance_rebuild()
+        except Exception as pe:
+            logger.error(f"Failed to trigger performance rebuild post-MULTIBAGGER: {pe}")
+        telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_COMPLETE")
+        telemetry.log_session_timeline("Completed Multibagger Scanner Cycle Successfully")
+        logger.info("✅ MULTIBAGGER SCANNER | Completed successfully for today.")
             
     except Exception as e:
         if "actively running" in str(e).lower():
