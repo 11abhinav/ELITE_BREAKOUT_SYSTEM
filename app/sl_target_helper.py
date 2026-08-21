@@ -737,6 +737,7 @@ class SupportEngine:
 def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, supports: list, ctx: dict) -> dict:
     from config import MIN_STOP_PCT
     mode = ctx.get("mode", "EOD")
+    telemetry_ctx = ctx.get("telemetry_ctx", None)
     min_stop_pct = MIN_STOP_PCT.get(mode, 0.0)
     
     ranked_supports = SupportEngine.get_ranked_supports(entry, eff_atr, supports)
@@ -832,6 +833,15 @@ def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, suppo
         logger.info(f"TIGHT STRUCTURE | Entry: {entry:.2f} | Structure: {best_anchor:.2f} | Stop %: {sl_pct:.2f} | Accepted: YES | Reason: TIGHT_STRUCTURE")
 
     
+    if telemetry_ctx:
+        telemetry_ctx.capture_value("STRUCTURAL_STOP_RAW", best_anchor)
+        telemetry_ctx.capture_value("STRUCTURAL_STOP_BUFFER", round(best_buf, 2))
+        telemetry_ctx.capture_value("STRUCTURAL_STOP_FINAL", best_anchor - best_buf)
+        telemetry_ctx.capture_value("STRUCTURAL_STOP_SCORE", best_score)
+        telemetry_ctx.capture_value("STRUCTURAL_STOP_METHOD", method_str)
+        if is_tight_stop:
+            telemetry_ctx.capture_value("STRUCTURAL_STOP_IS_TIGHT", True)
+
     return {
         "is_valid": True,
         "raw_sl": best_anchor - best_buf,
@@ -1308,6 +1318,7 @@ def _legacy_compute_sl_and_target(
     # Backward-compat alias (old callers used timeframe=)
     timeframe:      Optional[str]   = None,
     ticker:         Optional[pd.DataFrame] = None,
+    telemetry_ctx:  Optional[Any]   = None,
     **kwargs_extra
 ) -> dict:
     """
@@ -1351,6 +1362,7 @@ def _legacy_compute_sl_and_target(
         swing_low_cluster=swing_low_cluster,
         ticker=ticker,
         mode=effective_mode,
+        telemetry_ctx=telemetry_ctx
     )
     kwargs.update(kwargs_extra)
 

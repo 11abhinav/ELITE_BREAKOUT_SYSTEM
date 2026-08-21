@@ -2025,6 +2025,9 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
             if not symbol:
                 continue
             
+            ctx = telemetry_logger.get_or_create_context(symbol)
+            ctx.capture_dataframe_row(row)
+            
             sig_code = row.get("Signal_Code")
             score = float(row.get("FM_Score", 0.0))
             

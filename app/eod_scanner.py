@@ -964,6 +964,8 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                                 return
 
                             latest = ticker.iloc[-1]
+                            ctx = telemetry_logger.get_or_create_context(symbol)
+                            ctx.capture_dataframe_row(latest)
 
                             if "RSI" not in ticker.columns or pd.isna(latest["RSI"]):
                                 logger.debug(f"[EOD] {symbol} rejected: latest RSI is missing or NaN")

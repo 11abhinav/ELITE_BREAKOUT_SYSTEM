@@ -1284,6 +1284,8 @@ def evaluate_reversal_symbol(symbol: str, ticker: pd.DataFrame, fund_data: dict 
         from decision_ledger import global_decision_ledger
         ctx = DecisionContext(symbol=symbol, scanner_name="REVERSAL")
         latest = ticker.iloc[-1]
+        ctx = telemetry_logger.get_or_create_context(symbol)
+        ctx.capture_dataframe_row(latest)
         ctx.capture_raw_market(
             open_p=_safe_float(latest.get("Open")),
             high_p=_safe_float(latest.get("High")),

@@ -110,6 +110,7 @@ class DecisionContext:
         self.dependencies: Dict[str, Any] = {}
         self.timeframe_data: Dict[str, Dict[str, Any]] = {}
         self.error_details: Dict[str, Any] = {}
+        self.decision_trace: List[Dict[str, Any]] = []
 
     def capture(self, key: str, value: Any, origin: str = "CALCULATED", group: str = "DERIVED", source_series: str = None):
         """Captures a field into decision context, guaranteeing non-silent retention."""
@@ -131,6 +132,25 @@ class DecisionContext:
             self.capture("52W_HIGH", high_52w, origin="EXTERNAL_API", group="RAW")
         if low_52w is not None:
             self.capture("52W_LOW", low_52w, origin="EXTERNAL_API", group="RAW")
+
+    def capture_dataframe_row(self, row: Union[pd.Series, dict]):
+        """Captures every field available in the evaluation input DataFrame/Series."""
+        # Layer 1: Raw/Input Coverage
+        if hasattr(row, "to_dict"):
+            d = row.to_dict()
+        else:
+            d = dict(row)
+        for k, v in d.items():
+            # Classify known indicators loosely, but fallback to INPUT if unknown.
+            group = "INPUT"
+            k_upper = str(k).upper()
+            if any(ind in k_upper for ind in ["SMA", "EMA", "RSI", "MACD", "ATR", "ADX", "OBV"]):
+                group = "INDICATOR"
+            elif k_upper in ["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]:
+                group = "MARKET_DATA"
+            
+            # Layer 1 requirement: preserve original field names, don't drop anything.
+            self.capture(str(k), v, origin="DATAFRAME", group=group)
 
     def capture_indicators(self, rsi: Any = None, sma20: Any = None, sma50: Any = None, sma100: Any = None, sma200: Any = None, ema9: Any = None, ema15: Any = None, ema20: Any = None, ema50: Any = None, ema200: Any = None, macd: Any = None, macd_signal: Any = None, macd_hist: Any = None, atr: Any = None, adx: Any = None, obv: Any = None, vol_ratio: Any = None, prior_20d_high: Any = None, bb_width_pctile: Any = None, retracement_pct: Any = None):
         """Captures standard calculated indicator fields."""
@@ -175,6 +195,25 @@ class DecisionContext:
         self.configuration[key] = value
         self.capture(key=f"CONFIG_{key.upper()}", value=value, origin="CONFIG", group="CONFIG")
 
+    def capture_parameter(self, name: str, value: Any):
+        """Explicitly registers a configuration constant/threshold used in a decision."""
+        self.configuration[name] = value
+        self.capture(key=name, value=value, origin="CONFIG", group="CONFIG")
+
+    def capture_value(self, name: str, value: Any):
+        """Explicitly registers a derived/local value used in a decision (e.g. support level)."""
+        self.capture(key=name, value=value, origin="LOCAL", group="DERIVED")
+
+    def capture_trace(self, stage: str, status: str, inputs: dict = None, result: str = None, reason: str = None):
+        """Records a step in the sequential decision path."""
+        self.decision_trace.append({
+            "stage": stage,
+            "status": status,
+            "inputs": inputs or {},
+            "result": result or status,
+            "reason": reason or ""
+        })
+
     def capture_gate(self, gate_name: str, passed: bool, actual_val: Any = None, operator_str: str = ">=", threshold_val: Any = None, reason: str = ""):
         """Captures gate evaluation result with operator and expected threshold (Section 9)."""
         self.gate_results[gate_name] = {
@@ -195,6 +234,15 @@ class DecisionContext:
             "reason": reason
         }
         self.capture(key=f"SCORE_{component_name.upper()}", value=score_points, origin="CALCULATED", group="SCORE")
+
+    def capture_score_component(self, name: str, raw: float, weight: float, contribution: float):
+        """Captures a fully transparent weighted score component."""
+        self.score_breakdown[name] = {
+            "raw": float(raw),
+            "weight": float(weight),
+            "contribution": float(contribution)
+        }
+        self.capture(key=f"SCORE_{name.upper()}", value=contribution, origin="CALCULATED", group="SCORE")
 
     def capture_sl_target(self, entry_price: float, sl_price: float, target_price: float, rr_ratio: float = None, risk_pct: float = None, reward_pct: float = None, min_reward_pct: float = None, target_passed: bool = True):
         """Captures SL & Target geometry details (Section 11)."""
@@ -235,6 +283,7 @@ class DecisionContext:
             self.alert_generated = True
             self.alert_id = alert_dict.get("alert_id") or alert_dict.get("id") or f"ALT_{self.symbol}_{int(time.time())}"
             self.persisted = alert_dict.get("persisted", True)
+        self.capture_trace("FINAL_DECISION", decision, result=decision, reason=self.primary_reason)
 
     @property
     def data_quality_summary(self) -> dict:
@@ -390,6 +439,7 @@ class DecisionContext:
             "score_breakdown": self.score_breakdown,
             "sl_target": self.sl_target,
             "error_details": self.error_details,
+            "decision_trace": self.decision_trace,
             "all_values": {k: e.to_dict() for k, e in self.entries.items()}
         }
 
@@ -403,6 +453,19 @@ class GlobalScannerTelemetryEngine:
         self.regime = regime
         os.makedirs(TELEMETRY_LOG_DIR, exist_ok=True)
         self.stream_records: List[dict] = []
+        self._contexts: Dict[str, DecisionContext] = {}
+
+    def get_or_create_context(self, symbol: str, scanner_name: str = None, run_id: str = None) -> DecisionContext:
+        """Retrieves or creates a continuous state DecisionContext for the given symbol."""
+        with self._lock:
+            key = f"{scanner_name or self.scanner_name}_{symbol}"
+            if key not in self._contexts:
+                self._contexts[key] = DecisionContext(
+                    symbol=symbol,
+                    scanner_name=scanner_name or self.scanner_name,
+                    run_id=run_id or self.run_id
+                )
+            return self._contexts[key]
 
     def emit_terminal(self, ctx: DecisionContext):
         """Emits mandatory terminal telemetry record to console and JSONL stream (Section 1 & 21)."""
@@ -425,7 +488,7 @@ class GlobalScannerTelemetryEngine:
 
     def record_reject(self, symbol: str, last_stage: str = "PRE_CHECK", gate: str = "REJECTED", actual: Any = None, required: Any = None, start_time: float = None, **kwargs):
         """Helper recording rejected symbol into DecisionContext and emitting full terminal telemetry."""
-        ctx = DecisionContext(symbol=symbol, scanner_name=self.scanner_name or "PULLBACK", run_id=self.run_id)
+        ctx = self.get_or_create_context(symbol=symbol)
         if "raw_market" in kwargs and isinstance(kwargs["raw_market"], dict):
             ctx.capture_raw_market(**kwargs["raw_market"])
         if "indicators" in kwargs and isinstance(kwargs["indicators"], dict):
@@ -440,7 +503,7 @@ class GlobalScannerTelemetryEngine:
 
     def record_candidate(self, symbol: str, score: float = 0.0, sl: float = 0.0, target: float = 0.0, **kwargs):
         """Helper recording qualified candidate into DecisionContext and emitting full terminal telemetry."""
-        ctx = DecisionContext(symbol=symbol, scanner_name=self.scanner_name or "PULLBACK", run_id=self.run_id)
+        ctx = self.get_or_create_context(symbol=symbol)
         if "raw_market" in kwargs and isinstance(kwargs["raw_market"], dict):
             ctx.capture_raw_market(**kwargs["raw_market"])
         if "indicators" in kwargs and isinstance(kwargs["indicators"], dict):

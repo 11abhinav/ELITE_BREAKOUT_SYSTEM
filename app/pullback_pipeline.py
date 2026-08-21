@@ -684,6 +684,9 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                         bundle = _indicator_manager.compute_base_indicators(historical_view, sym)
                         last_bar = historical_view.iloc[-1]
                         
+                        ctx = telemetry_logger.get_or_create_context(sym)
+                        ctx.capture_dataframe_row(last_bar)
+                        
                         sma50_val = bundle.sma_50.iloc[-1] if bundle.sma_50 is not None and not bundle.sma_50.empty else None
                         sma200_val = bundle.sma_200.iloc[-1] if bundle.sma_200 is not None and not bundle.sma_200.empty else None
 
