@@ -1762,7 +1762,16 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
                         error_msg=error_msg,
                         scheduled_for="Every 5min (9:15 AM - 3:30 PM)",
                         outcome=outcome,
-                        duration_seconds=elapsed_time
+                        duration_seconds=elapsed_time,
+                        provider_stats={
+                            "SUCCESS": total_fetched,
+                            "NOT_FOUND": total_symbols - total_fetched - total_stale,
+                            "STALE": total_stale,
+                            "RATE_LIMIT": 0,
+                            "NETWORK_ERROR": 0,
+                            "TIMEOUT": 0,
+                            "EMPTY_DATA": 0
+                        }
                     )
                 except Exception:
                     logger.exception("❌ Failed to update scanner health for MULTI_TF")

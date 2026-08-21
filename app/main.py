@@ -1533,11 +1533,12 @@ def run_system_scheduler():
                     safe_run_wealth_market_hours()
                 
                 # [VERSION: SCHEDULER_CORRECTNESS_v1.0] Multi-TF: 15-min candle-aligned cadence
-                # Runs on completed 15-minute bar boundaries (09:30, 09:45, 10:00 … 14:45).
-                # Stops at 15:00 — Phase D (5m trigger) signals generated past 14:45 would
+                # Runs on completed 15-minute bar boundaries (09:30, 09:45, 10:00 … 15:15).
+                # Stops at 15:30 
                 # [VERSION: SCHEDULER_CORRECTNESS_v2.0] Multi-TF: 5-min candle-aligned cadence for fast 5m triggers
                 # Phase A (full universe scan) runs on 15m boundaries inside multi_tf_scanner; Phase B/C/D runs every 5m.
-                if now.hour < 15:  # Do not start new cycles after 14:59
+                if now.hour < 15 or (now.hour == 15 and now.minute < 30):  # Do not start new cycles after 15:29
+                    # Modified by user request to extend to 3:30 PM
                     current_slot = now.replace(second=0, microsecond=0)
                     current_slot = current_slot.replace(minute=(now.minute // 5) * 5)
                     if last_multi_tf is None or current_slot > last_multi_tf:
@@ -1669,7 +1670,7 @@ def check_scanner_staleness(now):
     """
     # Expected max gap (in minutes) for each scanner before it's considered stale
     SCANNER_CADENCE = {
-        "MULTI_TF":            20,   # runs every 5 min (ends 2:55 PM) → stale if no heartbeat in 20 min
+        "MULTI_TF":            20,   # runs every 5 min (ends 3:25 PM) → stale if no heartbeat in 20 min
         "PERFORMANCE_TRACKER": 20,   # runs every 5 min → stale if no heartbeat in 20 min
         "Wealth Engine":       45,   # [VERSION: WEALTH_HEALTH_FIX_v1.0] health only updates on 15-min full scan → stale if no heartbeat in 45 min
         "DAILY_BUILDER":       "DAILY",
@@ -2080,22 +2081,22 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
             except Exception as run_err:
                 raise run_err
 
-                now_str = datetime.now(IST).isoformat()
-                upsert_scanner_health(scanner_key, status="OK", last_success=now_str,
-                                      error_msg=None,
-                                      duration_seconds=duration_sec,
-                                      total_count=stats.get("total_count") if isinstance(stats, dict) else None,
-                                      processed_count=stats.get("processed_count") if isinstance(stats, dict) else None,
-                                      today_alerts=stats.get("today_alerts") if isinstance(stats, dict) else None)
-                
-                try:
-                    from database import insert_notification
-                    dur_str = f"Time: {format_duration(duration_sec)}"
-                    summary = f"Total Scanned: {stats.get('total_count', 'N/A')} | {dur_str}" if isinstance(stats, dict) else f"Completed in {dur_str}."
-                    if scanner_key not in ["DAILY_BUILDER", "EOD", "MULTIBAGGER", "REVERSAL", "MULTI_TF", "Wealth Engine", "PULLBACK"]:
-                        insert_notification("info", f"✅ {scanner_key} Manual Scan Complete", summary)
-                except Exception:
-                    pass
+            now_str = datetime.now(IST).isoformat()
+            upsert_scanner_health(scanner_key, status="OK", last_success=now_str,
+                                  error_msg=None,
+                                  duration_seconds=duration_sec,
+                                  total_count=stats.get("total_count") if isinstance(stats, dict) else None,
+                                  processed_count=stats.get("processed_count") if isinstance(stats, dict) else None,
+                                  today_alerts=stats.get("today_alerts") if isinstance(stats, dict) else None)
+            
+            try:
+                from database import insert_notification
+                dur_str = f"Time: {format_duration(duration_sec)}"
+                summary = f"Total Scanned: {stats.get('total_count', 'N/A')} | {dur_str}" if isinstance(stats, dict) else f"Completed in {dur_str}."
+                if scanner_key not in ["DAILY_BUILDER", "EOD", "MULTIBAGGER", "REVERSAL", "MULTI_TF", "Wealth Engine", "PULLBACK"]:
+                    insert_notification("info", f"✅ {scanner_key} Manual Scan Complete", summary)
+            except Exception:
+                pass
 
             # Perform post-lock background tasks outside the global execution lock
             time.sleep(5)

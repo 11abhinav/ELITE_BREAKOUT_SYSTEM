@@ -2023,7 +2023,16 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                 today_alerts=total_alerts, 
                 processed_count=len(shortlisted_alerts), 
                 total_count=total_symbols, 
-                outcome="SUCCESS"
+                outcome="SUCCESS",
+                provider_stats={
+                    "SUCCESS": total_fetched_count if 'total_fetched_count' in locals() else 0,
+                    "NOT_FOUND": max(0, total_symbols - total_fetched_count - stale_count) if ('total_fetched_count' in locals() and 'stale_count' in locals()) else 0,
+                    "STALE": stale_count if 'stale_count' in locals() else 0,
+                    "RATE_LIMIT": 0,
+                    "NETWORK_ERROR": 0,
+                    "TIMEOUT": 0,
+                    "EMPTY_DATA": 0
+                }
             )
             pass
             fired_rev = {k: v for k, v in rejected.items() if v > 0}

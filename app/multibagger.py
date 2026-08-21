@@ -1347,7 +1347,7 @@ def format_telegram_message(categorized_stocks: dict) -> list:
         
     return messages
 
-def run_scanner(debug_limit: int = None, is_test_mode: bool = False, session=None):
+def run_scanner(debug_limit: int = None, is_test_mode: bool = False, session=None, run_ctx=None):
     """Main execution orchestrator for Multibagger Scanner V5."""
     import time
     start_time = time.time()
@@ -1387,7 +1387,7 @@ def run_scanner(debug_limit: int = None, is_test_mode: bool = False, session=Non
     upsert_scanner_health("MULTIBAGGER", "RUNNING")
     
     # Delegate to the actual scanning logic
-    return _start_wrapper(debug_limit, is_test_mode, session)
+    return _start_wrapper(debug_limit, is_test_mode, session, run_ctx)
 
 def _persist_sell_review(alert_id, reason):
     """[VERSION: MULTIBAGGER_PERSIST_REVIEW_v1.1] Persist SELL_REVIEW status in the database without closing the position.
@@ -1784,7 +1784,7 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
             except Exception as exc:
                 logger.warning(f"⚠️ [MULTIBAGGER] Could not mark run complete in finally: {exc}")
 
-def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=None):
+def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=None, run_ctx=None):
     """Main scanning wrapper."""
     import time
     start_time = time.time()
@@ -1830,6 +1830,12 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     if not price_data_map:
         logger.error("❌ Failed to download batch price data. Aborting scan.")
         raise RuntimeError("Failed to download batch price data from YFinance/Fyers. Market data provider down.")
+
+    if run_ctx:
+        run_ctx.set_total_stocks(len(symbols))
+        run_ctx.fresh_count = len(price_data_map)
+        run_ctx.stale_count = 0
+        run_ctx.incomplete_count = max(0, len(symbols) - len(price_data_map))
 
     # [OPTIMIZATION: SINGLE_BUNDLE_UPLOAD_v1.0] Force a single DB history bundle upload
     # after all 750 symbols finish downloading, replacing 15 redundant sub-batch uploads.
@@ -2576,9 +2582,17 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             last_success=datetime.now(IST).isoformat(),
             today_alerts=alerts_count,
             processed_count=len(results),
-            total_count=len(fundamentals_list),
+            total_count=len(symbols),
             scheduled_for="19:00 IST",
-            duration_seconds=duration_sec
+            duration_seconds=duration_sec,
+            provider_stats={
+                "SUCCESS": len(price_data_map) if 'price_data_map' in locals() else 0,
+                "NOT_FOUND": (len(symbols) - len(price_data_map)) if 'price_data_map' in locals() else 0,
+                "RATE_LIMIT": 0,
+                "NETWORK_ERROR": 0,
+                "TIMEOUT": 0,
+                "EMPTY_DATA": 0
+            }
         )
         pass
     except Exception as e:
@@ -2586,7 +2600,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     # ── Memory Cleanup Phase ──────────────────────────────────────────────
     
     # Store counts before deleting variables
-    total_count = len(fundamentals_list) if 'fundamentals_list' in locals() else 0
+    total_count = len(symbols) if 'symbols' in locals() else 0
     processed_count = len(results) if 'results' in locals() else 0
     
     try:
