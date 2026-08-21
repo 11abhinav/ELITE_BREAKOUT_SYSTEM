@@ -1111,6 +1111,7 @@ _global_lock = ProcessLock("global_scanner_lock")
 def main(force_rebuild: bool = False, run_ctx=None):
     import time
     from database import is_scanner_stopped, upsert_scanner_health
+    from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("DAILY_BUILDER"):
         logger.info("🛑 Daily Builder is STOPPED by Admin. Skipping execution.")
         return
@@ -1150,6 +1151,7 @@ def main(force_rebuild: bool = False, run_ctx=None):
             complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
         return
 
+    _scan_start = print_scanner_start_banner("daily_builder", queued_at=queued_at)
     try:
         _main_wrapper(force_rebuild, run_ctx=run_ctx)
     except Exception as e:
