@@ -1781,7 +1781,7 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
                 pass
                 
             if run_once:
-                return {"total_count": total_symbols}
+                return {"total_count": total_symbols, "today_alerts": metrics_b.get("triggered", 0)}
                 
             logger.info("💤 Sleeping 5 minutes before next Multi-TF ladder run...")
             time.sleep(300)

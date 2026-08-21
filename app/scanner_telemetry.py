@@ -12,6 +12,10 @@ import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 import pandas as pd
 import numpy as np
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
 
 logger = logging.getLogger("GLOBAL_SCANNER_TELEMETRY")
 
@@ -86,7 +90,7 @@ class DecisionContext:
         self.scanner_name = scanner_name
         self.exchange = exchange
         self.run_id = run_id or f"run_{int(time.time())}"
-        self.timestamp = time.strftime("%Y-%m-%d %H:%M:%S IST")
+        self.timestamp = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
         self.start_time = time.time()
         
         self.terminal_decision = "PENDING" # SELECTED / REJECTED / ERROR / NOT_APPLICABLE
