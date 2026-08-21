@@ -38,9 +38,11 @@ class IndicatorExecutor:
     """
 
     def __init__(self, mode: Optional[str] = None, max_workers: Optional[int] = None):
-        # [VERSION: PERF_THREAD_INDICATOR_v1.0] Default to 'thread' for multi-core parallel execution.
-        # TA-Lib and NumPy release the GIL during C calculations, providing ~100x throughput vs sequential.
-        self.mode = mode or os.getenv("INDICATOR_EXECUTION_MODE", "thread")
+        # [VERSION: PERF_SEQ_INDICATOR_v1.0] Changed to 'sequential' by default.
+        # While 'process' is 3x faster, macOS uses 'spawn' which re-imports main.py in child processes,
+        # causing concurrent database initialization and psycopg2 crashes.
+        # Sequential is still 6x faster than 'thread' because it avoids massive GIL lock contention.
+        self.mode = mode or os.getenv("INDICATOR_EXECUTION_MODE", "sequential")
         from config import SCAN_WORKER_THREADS
         self.max_workers = max_workers or int(os.getenv("INDICATOR_MAX_WORKERS", str(SCAN_WORKER_THREADS)))
 
