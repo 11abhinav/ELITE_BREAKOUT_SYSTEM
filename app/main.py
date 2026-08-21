@@ -1569,11 +1569,20 @@ def run_system_scheduler():
                         
                     from lock_utils import ProcessLock
                     global_lock = ProcessLock("global_scanner_lock")
-                    queued_at = time.monotonic()
-                    logger.info("⏳ [EVENING_BATCH] Requesting global scanner lock for session build...")
-                    global_lock.acquire(blocking=True)
-                    try:
+                    queued_at = None
+                    if not global_lock.acquire(blocking=False):
+                        queued_at = time.monotonic()
+                        logger.info("⏳ [EVENING_BATCH] Global scanner lock busy — marking EOD/Reversal/Pullback as QUEUED...")
+                        from database import upsert_scanner_health
+                        if not is_scanner_stopped("EOD"): upsert_scanner_health("EOD", "QUEUED", error_msg="Waiting for global lock...")
+                        if not is_scanner_stopped("REVERSAL"): upsert_scanner_health("REVERSAL", "QUEUED", error_msg="Waiting for global lock...")
+                        if not is_scanner_stopped("PULLBACK"): upsert_scanner_health("PULLBACK", "QUEUED", error_msg="Waiting for global lock...")
+                        global_lock.acquire(blocking=True)
                         logger.info(f"✅ [EVENING_BATCH] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Building Session...")
+                    else:
+                        logger.info("✅ [EVENING_BATCH] Global lock acquired instantly. Building Session...")
+
+                    try:
                         try:
                             from market_data_session import MarketDataSession
                             from watchlist_cache import get_watchlist
@@ -1836,23 +1845,30 @@ def _run_multibagger_scanner_single():
         if multibagger._scan_lock.locked():
             logger.info("🛑 Multibagger scanner is already running in thread lock. Skipping duplicate trigger...")
             return
-        upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Multibagger scan in progress...")
-        import multibagger
+            
+        from database import upsert_scanner_health
+        import time
         from telemetry_manager import telemetry
         telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_START")
         
         start_mb_single = time.time()
-        upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Multibagger scan in progress...")
         from database import start_scanner_execution_run, complete_scanner_execution_run
         run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER", trigger_type="SCHEDULED", scheduler_name="CRON")
         
         from lock_utils import ProcessLock
         global_lock = ProcessLock("global_scanner_lock")
-        queued_at = time.time()
-        logger.info("⏳ [MULTIBAGGER] Requesting global scanner lock for session build...")
-        global_lock.acquire(blocking=True)
+        queued_at = None
+        if not global_lock.acquire(blocking=False):
+            queued_at = time.monotonic()
+            logger.info("⏳ [MULTIBAGGER] Global scanner lock busy — marking QUEUED and waiting for session build...")
+            upsert_scanner_health("MULTIBAGGER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
+            global_lock.acquire(blocking=True)
+            logger.info(f"✅ [MULTIBAGGER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Building Session...")
+        else:
+            logger.info("✅ [MULTIBAGGER] Global lock acquired instantly. Building Session...")
+
         try:
-            logger.info(f"✅ [MULTIBAGGER] Global lock acquired after {round(time.time()-queued_at,1)}s wait. Building Session...")
+            upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Building MarketDataSession...")
             try:
                 from market_data_session import MarketDataSession
                 from constituent_service import fetch_constituents
