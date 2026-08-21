@@ -1072,6 +1072,49 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                                     all_data[sym] = None
                                 continue
 
+                            # [NEW] Bhavcopy Stitching Logic for Daily Timeframe
+                            if interval.lower() in ("1d", "daily", "1y"):
+                                try:
+                                    _mark_cache_staleness(all_data[sym])
+                                    if all_data[sym].attrs.get('is_stale', False):
+                                        from datetime import datetime, time as dt_time
+                                        from zoneinfo import ZoneInfo
+                                        now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+                                        expected_date = now_ist.date()
+                                        if now_ist.time() >= dt_time(17, 30):
+                                            from data_registry import registry
+                                            full_bhavcopy_key = f"bhavcopy_full_{expected_date.isoformat()}"
+                                            bhavcopy_df = registry.get(full_bhavcopy_key)
+                                            if bhavcopy_df is not None and not bhavcopy_df.empty:
+                                                if sym in bhavcopy_df['SYMBOL'].values:
+                                                    df_target = all_data[sym]
+                                                    last_dt = df_target.index[-1] if isinstance(df_target.index, pd.DatetimeIndex) else pd.to_datetime(df_target['Date'].iloc[-1] if 'Date' in df_target.columns else df_target['Datetime'].iloc[-1])
+                                                    if last_dt.date() < expected_date:
+                                                        row = bhavcopy_df[bhavcopy_df['SYMBOL'] == sym].iloc[0]
+                                                        new_row = {
+                                                            'Open': float(row['OPEN']),
+                                                            'High': float(row['HIGH']),
+                                                            'Low': float(row['LOW']),
+                                                            'Close': float(row['CLOSE']),
+                                                            'Volume': float(row['TOTTRDQTY'])
+                                                        }
+                                                        if isinstance(df_target.index, pd.DatetimeIndex):
+                                                            # If timezone-aware index, make new_idx timezone-aware
+                                                            new_idx = pd.to_datetime(expected_date)
+                                                            if df_target.index.tz is not None:
+                                                                new_idx = new_idx.tz_localize(df_target.index.tz)
+                                                            df_target.loc[new_idx] = pd.Series(new_row)
+                                                        else:
+                                                            time_col = 'Date' if 'Date' in df_target.columns else 'Datetime'
+                                                            new_row[time_col] = pd.to_datetime(expected_date)
+                                                            df_target = pd.concat([df_target, pd.DataFrame([new_row])], ignore_index=True)
+                                                            all_data[sym] = df_target
+                                                        
+                                                        all_data[sym].attrs['is_stale'] = False
+                                                        logger.info(f"🧵 [BHAVCOPY STITCHING] Synthesized today's daily candle for {sym} from NSE Bhavcopy.")
+                                except Exception as stitch_err:
+                                    logger.warning(f"Failed to stitch Bhavcopy data for {sym}: {stitch_err}")
+
                             batch_indicator_jobs.append({
                                 "symbol": sym,
                                 "timeframe": interval,

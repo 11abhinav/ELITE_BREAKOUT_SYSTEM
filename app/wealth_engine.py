@@ -2283,7 +2283,16 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                         upsert_scanner_health(
                             scanner_name="Wealth Engine", status="OK", last_success=datetime.now(IST).isoformat(),
                             today_alerts=len(wealth_df[wealth_df["Signal_Code"] == "BUY"]), total_count=len(wealth_df),
-                            duration_seconds=duration_sec
+                            duration_seconds=duration_sec,
+                            provider_stats={
+                                "SUCCESS": len(wealth_df),
+                                "NOT_FOUND": rejection_counts.get("no_data", 0) if "rejection_counts" in globals() or "rejection_counts" in locals() or "rejection_counts" in globals().get("locals", lambda: locals())() else 0,
+                                "STALE": rejection_counts.get("stale_data", 0) if "rejection_counts" in globals() or "rejection_counts" in locals() or "rejection_counts" in globals().get("locals", lambda: locals())() else 0,
+                                "RATE_LIMIT": 0,
+                                "NETWORK_ERROR": 0,
+                                "TIMEOUT": 0,
+                                "EMPTY_DATA": 0
+                            }
                         )
                     except Exception as _sh_e:
                         logger.error(f"❌ [WEALTH_ENGINE] Error in bg_db_sync: {_sh_e}", exc_info=True)

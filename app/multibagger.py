@@ -2576,6 +2576,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     duration_sec = round(time.time() - start_time, 1)
     try:
         from database import insert_notification, upsert_scanner_health
+        stale_count = sum(1 for r in results if r.status == "STALE_DATA")
         upsert_scanner_health(
             scanner_name="MULTIBAGGER",
             status="OK",
@@ -2591,7 +2592,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 "RATE_LIMIT": 0,
                 "NETWORK_ERROR": 0,
                 "TIMEOUT": 0,
-                "EMPTY_DATA": 0
+                "EMPTY_DATA": 0,
+                "STALE": stale_count
             }
         )
         pass

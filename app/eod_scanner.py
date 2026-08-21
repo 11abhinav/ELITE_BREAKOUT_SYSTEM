@@ -1779,6 +1779,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
 
         if not is_test_mode:
             try:
+                provider_stats_counts["STALE"] = rejection_counts.get("stale_data", 0)
                 upsert_scanner_health(
                     scanner_name="EOD",
                     status=status,

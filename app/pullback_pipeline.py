@@ -1166,6 +1166,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                 required=None
             )
 
+    provider_stats_counts["STALE"] = rejected.get("stale_data", 0)
     upsert_scanner_health(
         "PULLBACK",
         status=status_val,
@@ -1174,7 +1175,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         total_count=total_symbols,
         processed_count=symbols_processed,
         duration_seconds=elapsed_time,
-        error_msg=err_val
+        error_msg=err_val,
+        provider_stats=provider_stats_counts
     )
     if status_val == "OK" and alert_count > 0:
         try:

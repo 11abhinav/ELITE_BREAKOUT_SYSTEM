@@ -317,7 +317,15 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
                 series_order = {'EQ': 0, 'BE': 1, 'SM': 2, 'BZ': 3}
                 df['_series_rank'] = df['SERIES'].map(lambda s: series_order.get(s, 99))
                 df = df.sort_values(by=['_series_rank']).drop_duplicates(subset=['SYMBOL'], keep='first')
-                df.drop(columns=['_series_rank'], inplace=True, errors='ignore')
+                # [NEW] Retain full Bhavcopy OHLCV in the registry for price stitching
+                full_bhavcopy_key = f"bhavcopy_full_{trading_date.isoformat()}"
+                from data_registry import DatasetEntry, StorageTier
+                if not registry.get_entry(full_bhavcopy_key):
+                    registry.register_dataset(DatasetEntry(
+                        id=full_bhavcopy_key, owner="DeliveryDataManager", 
+                        tier=StorageTier.EPHEMERAL, cadence=86400, preferred_provider="nse"
+                    ))
+                registry.put(full_bhavcopy_key, df)
 
                 final_dict = df.set_index("SYMBOL")["DELIV_PER"].to_dict()
             
