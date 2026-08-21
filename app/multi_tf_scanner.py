@@ -1551,7 +1551,7 @@ _scan_lock = ProcessLock("multi_tf_scanner")
 _global_lock = ProcessLock("global_scanner_lock")
 
 def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON", session=None):
-    from database import is_scanner_stopped, upsert_scanner_health
+    from database import is_scanner_stopped, upsert_scanner_health, complete_scanner_execution_run
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     import time
     if is_scanner_stopped("MULTI_TF"):
