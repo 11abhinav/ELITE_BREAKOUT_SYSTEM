@@ -1567,41 +1567,46 @@ def run_system_scheduler():
                     logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback sequentially.")
                     today_str = datetime.now(IST).strftime("%Y-%m-%d")
                         
+                    from lock_utils import ProcessLock
+                    global_lock = ProcessLock("global_scanner_lock")
+                    queued_at = time.monotonic()
+                    logger.info("⏳ [EVENING_BATCH] Requesting global scanner lock for session build...")
+                    global_lock.acquire(blocking=True)
                     try:
-                        from market_data_session import MarketDataSession
-                        from watchlist_cache import get_watchlist
-                        wl_df = get_watchlist()
-                        symbols = wl_df["Stock"].dropna().tolist() if isinstance(wl_df, pd.DataFrame) and "Stock" in wl_df.columns else list(wl_df)
-                        session = MarketDataSession.build(symbols=symbols, ist_date=datetime.now(IST).date(), requester="EVENING_BATCH")
-                    except Exception as e:
-                        logger.error(f"Failed to build MarketDataSession for Evening Batch: {e}")
-                        session = None
+                        logger.info(f"✅ [EVENING_BATCH] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Building Session...")
+                        try:
+                            from market_data_session import MarketDataSession
+                            from watchlist_cache import get_watchlist
+                            wl_df = get_watchlist()
+                            symbols = wl_df["Stock"].dropna().tolist() if isinstance(wl_df, pd.DataFrame) and "Stock" in wl_df.columns else list(wl_df)
+                            session = MarketDataSession.build(symbols=symbols, ist_date=datetime.now(IST).date(), requester="EVENING_BATCH")
+                        except Exception as e:
+                            logger.error(f"Failed to build MarketDataSession for Evening Batch: {e}")
+                            session = None
 
-                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                         try:
                             if not is_scanner_stopped("EOD"):
                                 logger.info("Starting EOD Scanner...")
-                                future_eod = executor.submit(_run_eod_with_retries, today_str, session)
-                                future_eod.result()
+                                _run_eod_with_retries(today_str, session)
                             else:
                                 logger.info("⏭️ EOD Scanner is STOPPED by Admin. Skipping.")
 
                             if not is_scanner_stopped("REVERSAL"):
                                 logger.info("Starting Reversal Scanner...")
-                                future_rev = executor.submit(_run_reversal_with_retries, today_str, session)
-                                future_rev.result()
+                                _run_reversal_with_retries(today_str, session)
                             else:
                                 logger.info("⏭️ Reversal Scanner is STOPPED by Admin. Skipping.")
 
                             if not is_scanner_stopped("PULLBACK"):
                                 logger.info("Starting Pullback Pipeline...")
-                                future_pb = executor.submit(_run_pullback_with_retries, today_str, session)
-                                future_pb.result()
+                                _run_pullback_with_retries(today_str, session)
                             else:
                                 logger.info("⏭️ Pullback Pipeline is STOPPED by Admin. Skipping.")
 
                         except Exception as e:
                             logger.error(f"🚨 CRITICAL: Evening Batch error: {e}")
+                    finally:
+                        global_lock.release()
 
                 import threading
                 threading.Thread(target=_run_evening_batch_async, name="EveningBatch", daemon=True).start()
@@ -1840,22 +1845,33 @@ def _run_multibagger_scanner_single():
         upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Multibagger scan in progress...")
         from database import start_scanner_execution_run, complete_scanner_execution_run
         run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER", trigger_type="SCHEDULED", scheduler_name="CRON")
+        
+        from lock_utils import ProcessLock
+        global_lock = ProcessLock("global_scanner_lock")
+        queued_at = time.time()
+        logger.info("⏳ [MULTIBAGGER] Requesting global scanner lock for session build...")
+        global_lock.acquire(blocking=True)
         try:
-            from market_data_session import MarketDataSession
-            from constituent_service import fetch_constituents
-            from watchlist_cache import get_watchlist
-            import pandas as pd
-            symbols = fetch_constituents()
-            if not symbols:
-                wl_df = get_watchlist()
-                symbols = wl_df["Stock"].dropna().tolist() if isinstance(wl_df, pd.DataFrame) and "Stock" in wl_df.columns else list(wl_df)
-            session = MarketDataSession.build(symbols=symbols, ist_date=datetime.now(IST).date(), requester="MULTIBAGGER")
-        except Exception as e:
-            logger.error(f"Failed to build MarketDataSession for MULTIBAGGER: {e}")
-            session = None
+            logger.info(f"✅ [MULTIBAGGER] Global lock acquired after {round(time.time()-queued_at,1)}s wait. Building Session...")
+            try:
+                from market_data_session import MarketDataSession
+                from constituent_service import fetch_constituents
+                from watchlist_cache import get_watchlist
+                import pandas as pd
+                symbols = fetch_constituents()
+                if not symbols:
+                    wl_df = get_watchlist()
+                    symbols = wl_df["Stock"].dropna().tolist() if isinstance(wl_df, pd.DataFrame) and "Stock" in wl_df.columns else list(wl_df)
+                session = MarketDataSession.build(symbols=symbols, ist_date=datetime.now(IST).date(), requester="MULTIBAGGER")
+            except Exception as e:
+                logger.error(f"Failed to build MarketDataSession for MULTIBAGGER: {e}")
+                session = None
 
-        with MemoryProfiler("MULTIBAGGER", force_gc_cleanup=True):
-            stats = multibagger.start(session=session, run_ctx=run_ctx, trigger_type="SCHEDULED", scheduler_name="CRON") or {}
+            with MemoryProfiler("MULTIBAGGER", force_gc_cleanup=True):
+                stats = multibagger.start(session=session, run_ctx=run_ctx, trigger_type="SCHEDULED", scheduler_name="CRON") or {}
+        finally:
+            global_lock.release()
+            
         dur_mb_single = round(time.time() - start_mb_single, 1)
         time.sleep(15)
 
