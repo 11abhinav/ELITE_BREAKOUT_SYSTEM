@@ -1832,7 +1832,6 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         raise RuntimeError("Failed to download batch price data from YFinance/Fyers. Market data provider down.")
 
     if run_ctx:
-        from multibagger import _is_stale_trade_date
         calc_stale = sum(1 for p in price_data_map.values() if _is_stale_trade_date(getattr(p, 'last_trade_date', '')))
         run_ctx.set_total_stocks(len(symbols))
         run_ctx.fresh_count = len(price_data_map) - calc_stale
