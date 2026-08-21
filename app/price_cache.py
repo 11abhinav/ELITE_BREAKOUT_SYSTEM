@@ -1077,7 +1077,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                                 try:
                                     _mark_cache_staleness(all_data[sym])
                                     if all_data[sym].attrs.get('is_stale', False):
-                                        from datetime import datetime, time as dt_time
+                                        from datetime import time as dt_time
                                         from zoneinfo import ZoneInfo
                                         now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
                                         expected_date = now_ist.date()
