@@ -1756,7 +1756,7 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
     _scan_start = print_scanner_start_banner("multibagger", queued_at=queued_at)
 
     try:
-        return run_scanner(debug_limit, is_test_mode, session)
+        return run_scanner(debug_limit, is_test_mode, session, run_ctx=run_ctx)
     except Exception as e:
         if created_ctx:
             try:
@@ -2571,10 +2571,15 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         pass
 
     # [FIX MUL-16] Count actual DB inserts, not ALERT_TRIGGERED status flags.
-    # Before this, the count included candidates suppressed by Top-N or rejected
+    # before this, the count included candidates suppressed by Top-N or rejected
     # by save_alert_if_new (e.g., duplicate alert within lookback window).
     alerts_count = sum(1 for r in results if getattr(r, 'alert_inserted', False))
     duration_sec = round(time.time() - start_time, 1)
+    
+    if run_ctx:
+        run_ctx.processed_count = len(results)
+        run_ctx.alerts_generated = alerts_count
+
     try:
         from database import insert_notification, upsert_scanner_health
         stale_count = sum(1 for r in results if r.status == "STALE_DATA")
