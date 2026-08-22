@@ -101,15 +101,6 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
         logger.warning("🛑 [DUPLICATE GUARD] EOD Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
         return 0
 
-    queued_at = None
-    if not _global_lock.acquire(blocking=False, owner_scanner="EOD", operation="FULL_SCAN"):
-        queued_at = time.monotonic()
-        logger.info("⏳ [EOD] Global scanner lock busy — marking QUEUED and waiting in queue...")
-        upsert_scanner_health("EOD", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-        if not _global_lock.acquire(blocking=True, owner_scanner="EOD", operation="FULL_SCAN"):
-            raise RuntimeError("Failed to acquire global scanner lock.")
-        logger.info(f"✅ [EOD] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
-
     # Lock acquired! NOW create the execution history to strictly show RUNNING
     own_ctx = False
     if run_ctx is None:
@@ -123,14 +114,13 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
     upsert_scanner_health("EOD", "RUNNING", error_msg="EOD scan in progress...")
 
     if not _scan_lock.acquire(blocking=False):
-        _global_lock.release()
         logger.warning("🛑 EOD Scanner is ALREADY actively running. Skipping duplicate execution.")
         if own_ctx and run_ctx:
             from database import complete_scanner_execution_run
             complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
         return 0
 
-    _scan_start = print_scanner_start_banner("eod_scanner", queued_at=queued_at)
+    _scan_start = print_scanner_start_banner("eod_scanner", queued_at=None)
     try:
         total = _start_wrapper(force, session=session, run_ctx=run_ctx, used_fallback_data=used_fallback_data)
         if own_ctx and isinstance(total, int):
@@ -152,7 +142,6 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
         except Exception:
             pass
         _scan_lock.release()
-        _global_lock.release()
 
 
 def _safe_float(val, default=0.0):
@@ -174,6 +163,7 @@ def _check_eod_conditions(
     delivery_pct: float = None,
     nifty_ret: float = None,
     regime_ctx: dict = None,
+    ctx = None,
 ) -> dict:
     """
     Shared EOD breakout condition checks for both UI and production paths.
@@ -220,6 +210,12 @@ def _check_eod_conditions(
     volume_ratio = _safe_float(latest.get("Volume")) / avg_volume
     rsi_val      = _safe_float(latest.get("RSI"), 50.0)
     atr20        = _safe_float(latest.get("ATR20"), _safe_float(latest.get("ATR"), candle_close * 0.025))
+
+    if ctx:
+        ctx.add_decision_input(name="Close", value=candle_close, source="Indicator", as_of="Live", freshness="LIVE", required=True, valid=True)
+        ctx.add_decision_input(name="VolumeRatio", value=volume_ratio, source="Indicator", as_of="Live", freshness="LIVE", required=True, valid=True)
+        ctx.add_decision_input(name="AvgVolume", value=avg_volume, source="Indicator", as_of="Live", freshness="LIVE", required=True, valid=True)
+        ctx.add_decision_input(name="RSI", value=rsi_val, source="Indicator", as_of="Live", freshness="LIVE", required=True, valid=True)
 
     # ── Shared hard gates ──────────────────────────────────────────────────
     if volume_ratio < MIN_VOLUME_RATIO:
@@ -390,7 +386,7 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
     # [FIX P6-13] Use shared condition check for consistency with production path
     cond = _check_eod_conditions(
         ticker=ticker, latest=latest, symbol=symbol, mode="ui",
-        prior_high_source="raw",
+        prior_high_source="raw", ctx=None
     )
     if not cond.get("passed"):
         return {
@@ -470,7 +466,6 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
     # ── PER-STOCK TERMINAL TELEMETRY DUMP (Section 4 & 8) ──
     try:
         from scanner_telemetry import DecisionContext, telemetry_engine
-        from decision_ledger import global_decision_ledger
         ctx = DecisionContext(symbol=symbol, scanner_name="EOD")
         ctx.capture_raw_market(
             open_p=_safe_float(latest.get("Open")),
@@ -514,7 +509,6 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
 
         ctx.finalize(decision="SELECTED" if is_qualified else "REJECTED", primary_reason=reasons[0])
         telemetry_engine.emit_terminal(ctx)
-        global_decision_ledger.record_decision_context(ctx)
     except Exception as telemetry_err:
         logger.debug(f"Telemetry recording skipped: {telemetry_err}")
 
@@ -832,7 +826,12 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                         # EOD Scanner requires SMA200 & 52W High (252 trading days = ~365 cal days max).
                         # Using period="1y" shares the exact same Parquet cache files with Wealth Engine & Reversal scanner,
                         # eliminating 50% data payload and preventing cache key fragmentation.
-                        all_ticker_data = fetch_watchlist_data(chunk_df, interval="1d", period="1y", requester="EOD")
+                        from locks import _global_lock
+                        _global_lock.acquire(blocking=True, owner_scanner="EOD", operation="FETCH_BATCH")
+                        try:
+                            all_ticker_data = fetch_watchlist_data(chunk_df, interval="1d", period="1y", requester="EOD")
+                        finally:
+                            _global_lock.release()
                         
                     _fetch_dur = time.perf_counter() - _batch_start_t
                     if not all_ticker_data:

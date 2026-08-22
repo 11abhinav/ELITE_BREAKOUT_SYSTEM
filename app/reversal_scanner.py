@@ -791,6 +791,9 @@ def _evaluate_candidate(
             "passed": False,
             "reject_reason": f"Drop from 52W High {drop_pct:.1f}% outside allowed band [{effective_min_drop:.1f}%, {max_allowed_drop:.1f}%]",
             "reject_code": "drop_band",
+            "actual": drop_pct,
+            "threshold": f"{effective_min_drop:.1f}-{max_allowed_drop:.1f}",
+            "gate_type": "RANGE",
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
@@ -969,6 +972,9 @@ def _evaluate_candidate(
             "passed": False,
             "reject_reason": f"RSI condition failed: current RSI={current_rsi:.1f} (min {RSI_CURL_MIN}), min RSI={past_rsi_min:.1f} (max {RSI_OVERSOLD_THRESHOLD}), bounce={rsi_recovery:.1f} (min {MIN_RSI_RECOVERY}), trough age={bars_since_trough}b (max {MAX_TROUGH_AGE}b)",
             "reject_code": "failed_pattern",
+            "actual": False,
+            "threshold": True,
+            "gate_type": "BOOLEAN",
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
@@ -987,6 +993,9 @@ def _evaluate_candidate(
                     "passed": False,
                     "reject_reason": f"RSI continuously declining over last 4 bars (agg decline={agg_decline:.2f}): {list(rsi_tail.tail(4).round(2))}",
                     "reject_code": "failed_pattern",
+                    "actual": False,
+                    "threshold": True,
+                    "gate_type": "BOOLEAN",
                     "score": 0,
                     "raw_score": 0,
                     "sl_result": {},
@@ -1014,6 +1023,9 @@ def _evaluate_candidate(
             "passed": False,
             "reject_reason": reason,
             "reject_code": "low_volume",
+            "actual": vol_ratio if vol_ratio else 0.0,
+            "threshold": min_gate_vol,
+            "gate_type": "THRESHOLD",
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
@@ -1281,7 +1293,6 @@ def evaluate_reversal_symbol(symbol: str, ticker: pd.DataFrame, fund_data: dict 
     # ── PER-STOCK TERMINAL TELEMETRY DUMP (Section 4 & 8) ──
     try:
         from scanner_telemetry import DecisionContext, telemetry_engine
-        from decision_ledger import global_decision_ledger
         ctx = DecisionContext(symbol=symbol, scanner_name="REVERSAL")
         latest = ticker.iloc[-1]
         ctx = telemetry_logger.get_or_create_context(symbol)
@@ -1329,7 +1340,6 @@ def evaluate_reversal_symbol(symbol: str, ticker: pd.DataFrame, fund_data: dict 
 
         ctx.finalize(decision="SELECTED" if verdict["passed"] else "REJECTED", primary_reason=verdict.get("reject_reason", ""))
         telemetry_engine.emit_terminal(ctx)
-        global_decision_ledger.record_decision_context(ctx)
     except Exception as telemetry_err:
         logger.debug(f"Telemetry recording skipped: {telemetry_err}")
 

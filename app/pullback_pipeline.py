@@ -284,7 +284,6 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
     # ── PER-STOCK TERMINAL TELEMETRY DUMP (Section 4 & 8) ──
     try:
         from scanner_telemetry import DecisionContext, telemetry_engine
-        from decision_ledger import global_decision_ledger
         ctx = DecisionContext(symbol=symbol, scanner_name="PULLBACK")
         ctx.capture_raw_market(
             open_p=_safe_float(last_bar.get("Open")),
@@ -321,7 +320,6 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
 
         ctx.finalize(decision="SELECTED" if is_qualified else "REJECTED", primary_reason=reasons[0] if reasons else "NO_QUALIFY")
         telemetry_engine.emit_terminal(ctx)
-        global_decision_ledger.record_decision_context(ctx)
     except Exception as telemetry_err:
         logger.debug(f"Telemetry recording skipped: {telemetry_err}")
 
@@ -354,15 +352,6 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
         logger.warning("🛑 [DUPLICATE GUARD] PULLBACK Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
         return 0
 
-    queued_at = None
-    if not _global_lock.acquire(blocking=False, owner_scanner="PULLBACK", operation="FULL_SCAN"):
-        queued_at = time.monotonic()
-        logger.info("⏳ [PULLBACK] Global scanner lock busy — marking QUEUED and waiting in queue...")
-        upsert_scanner_health("PULLBACK", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-        if not _global_lock.acquire(blocking=True, owner_scanner="PULLBACK", operation="FULL_SCAN"):
-            raise RuntimeError("Failed to acquire global scanner lock.")
-        logger.info(f"✅ [PULLBACK] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
-
     # Lock acquired! NOW create the execution history to strictly show RUNNING
     created_ctx = False
     if run_ctx is None:
@@ -376,14 +365,13 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
     upsert_scanner_health("PULLBACK", "RUNNING", error_msg="PULLBACK scan in progress...")
 
     if not _scan_lock.acquire(blocking=False):
-        _global_lock.release()
         logger.warning("🛑 PULLBACK Scanner is ALREADY actively running. Skipping duplicate execution.")
         if created_ctx and run_ctx:
             from database import complete_scanner_execution_run
             complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
         return 0
 
-    _scan_start = print_scanner_start_banner("pullback_scanner", queued_at=queued_at)
+    _scan_start = print_scanner_start_banner("pullback_scanner", queued_at=None)
 
     try:
         total = run_pullback_pipeline(force=force, session=session, run_ctx=run_ctx, used_fallback_data=used_fallback_data)
@@ -412,7 +400,6 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
         except Exception:
             pass
         _scan_lock.release()
-        _global_lock.release()
         if created_ctx:
             try:
                 from database import complete_scanner_execution_run
@@ -512,7 +499,11 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         sample_data = {}
     else:
         sample_chunk = watchlist.head(10)
-        sample_data = fetch_watchlist_data(sample_chunk, "1y", "1d", requester="PULLBACK")
+        _global_lock.acquire(blocking=True, owner_scanner="PULLBACK", operation="FETCH_SAMPLE")
+        try:
+            sample_data = fetch_watchlist_data(sample_chunk, "1y", "1d", requester="PULLBACK")
+        finally:
+            _global_lock.release()
         dataset_date = _determine_dataset_date(sample_data)
 
     is_historical_fallback = False
@@ -529,7 +520,11 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             logger.warning(f"Could not execute Bhavcopy wait: {bh_err}")
 
         # Re-fetch sample after Bhavcopy wait
-        sample_data = fetch_watchlist_data(sample_chunk, "1y", "1d", requester="PULLBACK")
+        _global_lock.acquire(blocking=True, owner_scanner="PULLBACK", operation="FETCH_SAMPLE")
+        try:
+            sample_data = fetch_watchlist_data(sample_chunk, "1y", "1d", requester="PULLBACK")
+        finally:
+            _global_lock.release()
         dataset_date = _determine_dataset_date(sample_data)
 
         if dataset_date == run_date:
@@ -599,7 +594,11 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                     # Pullback Pipeline requires SMA200 & 200-bar min history (200 trading days = ~280 cal days max).
                     # Using period="1y" shares the exact same Parquet cache files with Wealth Engine & EOD scanner,
                     # eliminating 50% data payload and preventing cache key fragmentation.
-                    all_ticker_data = fetch_watchlist_data(chunk_df, interval="1d", period="1y", requester="PULLBACK")
+                    _global_lock.acquire(blocking=True, owner_scanner="PULLBACK", operation="FETCH_BATCH")
+                    try:
+                        all_ticker_data = fetch_watchlist_data(chunk_df, interval="1d", period="1y", requester="PULLBACK")
+                    finally:
+                        _global_lock.release()
                     
                 _fetch_dur = time.perf_counter() - _batch_start_t
                 _eval_start_t = time.perf_counter()

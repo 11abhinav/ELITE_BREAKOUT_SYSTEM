@@ -277,7 +277,6 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
     # ── PER-STOCK TERMINAL TELEMETRY DUMP (Section 4 & 8) ──
     try:
         from scanner_telemetry import DecisionContext, telemetry_engine
-        from decision_ledger import global_decision_ledger
         ctx = DecisionContext(symbol=symbol, scanner_name="MULTI_TF")
         ctx.capture_raw_market(
             open_p=_safe_float(latest.get("Open")),
@@ -299,7 +298,6 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
         
         ctx.finalize(decision="SELECTED", primary_reason="ALL_MULTI_TF_PHASES_PASSED")
         telemetry_engine.emit_terminal(ctx)
-        global_decision_ledger.record_decision_context(ctx)
     except Exception as telemetry_err:
         logger.debug(f"Telemetry recording skipped: {telemetry_err}")
 

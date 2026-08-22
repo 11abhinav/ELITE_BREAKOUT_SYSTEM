@@ -190,7 +190,6 @@ def evaluate_daily_builder_symbol(symbol: str, df: pd.DataFrame, fund_data: dict
     # ── PER-STOCK TERMINAL TELEMETRY DUMP (Section 4 & 8) ──
     try:
         from scanner_telemetry import DecisionContext, telemetry_engine
-        from decision_ledger import global_decision_ledger
         ctx = DecisionContext(symbol=symbol, scanner_name="DAILY_BUILDER")
         ctx.capture_raw_market(
             open_p=_fval(latest, "Open"),
@@ -208,7 +207,6 @@ def evaluate_daily_builder_symbol(symbol: str, df: pd.DataFrame, fund_data: dict
         ctx.capture_gate("DailyBuilderEligibility", is_qualified, actual_val=close_price, threshold_val=MIN_PRICE, reason="; ".join(reasons_list))
         ctx.finalize(decision="SELECTED" if is_qualified else "REJECTED", primary_reason=reasons_list[0])
         telemetry_engine.emit_terminal(ctx)
-        global_decision_ledger.record_decision_context(ctx)
     except Exception as telemetry_err:
         pass
 

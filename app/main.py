@@ -682,24 +682,25 @@ def _run_eod_with_retries(today_str, session=None, used_fallback=False):
             else:
                 logger.info(f"📊 EOD | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
                 
-                is_stale_session = session is not None and session.metadata.delivery_status == "STALE"
-                status_val = "DEGRADED_FALLBACK" if (used_fallback or is_stale_session) else "OK"
-                upsert_scanner_health(
-                    "EOD",
-                    status=status_val,
-                    last_success=datetime.now(IST).isoformat(),
-                    today_alerts=total,
-                    scheduled_for="18:00 IST (After Bhavcopy)",
-                    duration_seconds=duration_sec
-                )
+            is_stale_session = session is not None and session.metadata.delivery_status == "STALE"
+            status_val = "DEGRADED_FALLBACK" if (used_fallback or is_stale_session) else "OK"
+            upsert_scanner_health(
+                "EOD",
+                status=status_val,
+                last_success=datetime.now(IST).isoformat(),
+                today_alerts=total,
+                scheduled_for="18:00 IST (After Bhavcopy)",
+                duration_seconds=duration_sec
+            )
+            if total > 0:
                 try:
                     from performance_tracker import trigger_performance_rebuild
                     trigger_performance_rebuild()
                 except Exception as pe:
                     logger.error(f"Failed to trigger performance rebuild post-EOD: {pe}")
-                logger.info("✅ EOD SCANNER | Completed successfully for today.")
-                with MemoryProfiler("Cleanup - EOD", force_gc_cleanup=True):
-                    pass
+            logger.info("✅ EOD SCANNER | Completed successfully for today.")
+            with MemoryProfiler("Cleanup - EOD", force_gc_cleanup=True):
+                pass
             return
             
         except Exception as exc:
@@ -778,24 +779,25 @@ def _run_reversal_with_retries(today_str, session=None, used_fallback=False):
             else:
                 logger.info(f"🔄 REVERSAL | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
                 
-                is_stale_session = session is not None and session.metadata.delivery_status == "STALE"
-                status_val = "DEGRADED_FALLBACK" if (used_fallback or is_stale_session) else "OK"
-                upsert_scanner_health(
-                    "REVERSAL",
-                    status=status_val,
-                    last_success=datetime.now(IST).isoformat(),
-                    today_alerts=total,
-                    scheduled_for="18:00 IST (After Bhavcopy)",
-                    duration_seconds=duration_sec
-                )
+            is_stale_session = session is not None and session.metadata.delivery_status == "STALE"
+            status_val = "DEGRADED_FALLBACK" if (used_fallback or is_stale_session) else "OK"
+            upsert_scanner_health(
+                "REVERSAL",
+                status=status_val,
+                last_success=datetime.now(IST).isoformat(),
+                today_alerts=total,
+                scheduled_for="18:00 IST (After Bhavcopy)",
+                duration_seconds=duration_sec
+            )
+            if total > 0:
                 try:
                     from performance_tracker import trigger_performance_rebuild
                     trigger_performance_rebuild()
                 except Exception as pe:
                     logger.error(f"Failed to trigger performance rebuild post-REVERSAL: {pe}")
-                logger.info("✅ REVERSAL SCANNER | Completed successfully for today.")
-                with MemoryProfiler("Cleanup - REVERSAL", force_gc_cleanup=True):
-                    pass
+            logger.info("✅ REVERSAL SCANNER | Completed successfully for today.")
+            with MemoryProfiler("Cleanup - REVERSAL", force_gc_cleanup=True):
+                pass
             return
             
         except Exception as exc:

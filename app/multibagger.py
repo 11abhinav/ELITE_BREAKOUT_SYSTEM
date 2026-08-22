@@ -88,6 +88,23 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
 
     latest = ticker.iloc[-1]
     close_price = float(latest["Close"])
+    open_price = float(latest["Open"])
+    high_price = float(latest["High"])
+    low_price = float(latest["Low"])
+    vol = float(latest["Volume"])
+
+    if open_price == high_price == low_price == close_price and vol == 0:
+        try:
+            from scanner_telemetry import DecisionContext, telemetry_engine
+            ctx = DecisionContext(symbol=symbol, scanner_name="MULTIBAGGER")
+            ctx.capture_raw_market(open_p=open_price, high_p=high_price, low_p=low_price, close_p=close_price, volume=vol)
+            ctx.capture_gate(gate_name="NO_TRADING_ACTIVITY", passed=False, actual_val=0, threshold_val=1, reason="Zero volume and zero range", gate_type="BOOLEAN")
+            ctx.add_decision_input(name="NO_TRADING_ACTIVITY", value=True, source="GateCheck", as_of="Live", freshness="LIVE", required=True, valid=False)
+            ctx.finalize(decision="REJECTED", primary_reason="NO_TRADING_ACTIVITY_FAIL")
+            telemetry_engine.emit_terminal(ctx)
+        except Exception:
+            pass
+        return {"status": "NO", "reasons": ["NO_TRADING_ACTIVITY"], "score": 0.0, "qualified": False}
 
     fd = fund_data or {}
     raw_f_score = fd.get("score", fd.get("piotroski_score"))
@@ -152,7 +169,6 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
     # ── PER-STOCK TERMINAL TELEMETRY DUMP (Section 4 & 8) ──
     try:
         from scanner_telemetry import DecisionContext, telemetry_engine
-        from decision_ledger import global_decision_ledger
         ctx = DecisionContext(symbol=symbol, scanner_name="MULTIBAGGER")
         ctx.capture_raw_market(
             open_p=_safe_float(latest.get("Open")),
@@ -174,7 +190,6 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
         
         ctx.finalize(decision="SELECTED" if is_qualified else "REJECTED", primary_reason=reasons[0] if reasons else "NO_QUALIFY")
         telemetry_engine.emit_terminal(ctx)
-        global_decision_ledger.record_decision_context(ctx)
     except Exception as telemetry_err:
         logger.debug(f"Telemetry recording skipped: {telemetry_err}")
 
@@ -502,13 +517,11 @@ def batch_download_market_data(symbols: list, session=None) -> dict:
                     if _o == _h == _l == _c and _v == 0.0:
                         logger.warning(f"🚫 [SEMANTIC GATES] {sym} rejected: NO_TRADING_ACTIVITY (O=H=L=C={_c:.2f}, Vol=0).")
                         from scanner_telemetry import DecisionContext, telemetry_engine
-                        from decision_ledger import global_decision_ledger
                         ctx = DecisionContext(symbol=sym, scanner_name="MULTIBAGGER")
                         ctx.add_decision_input(name="Volume", value=_v, source="MarketData", as_of="Live", freshness="LIVE", required=True, valid=False)
                         ctx.capture_raw_market(open_p=_o, high_p=_h, low_p=_l, close_p=_c, volume=_v)
                         ctx.finalize(decision="REJECTED", primary_reason="NO_TRADING_ACTIVITY")
                         telemetry_engine.emit_terminal(ctx)
-                        global_decision_ledger.record_decision_context(ctx)
                         continue
                 
                     last_trade_date = str(ticker_df.index[-1].date())

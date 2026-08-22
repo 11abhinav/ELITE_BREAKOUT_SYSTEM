@@ -563,9 +563,9 @@ class GlobalScannerTelemetryEngine:
             except Exception as e:
                 logger.error(f"Failed to write to scanner_telemetry.jsonl: {e}")
 
-    def record_reject(self, symbol: str, last_stage: str = "PRE_CHECK", gate: str = "REJECTED", actual: Any = None, required: Any = None, start_time: float = None, scanner_name: str = None, run_id: str = None, gate_type: str = "THRESHOLD", **kwargs):
+    def record_reject(self, symbol: str, last_stage: str = "PRE_CHECK", gate: str = "REJECTED", actual: Any = None, required: Any = None, start_time: float = None, scanner_name: str = None, run_id: str = None, gate_type: str = "THRESHOLD", ctx: DecisionContext = None, **kwargs):
         """Helper recording rejected symbol into DecisionContext and emitting full terminal telemetry."""
-        ctx = self.get_or_create_context(symbol=symbol, scanner_name=scanner_name, run_id=run_id)
+        ctx = ctx or self.get_or_create_context(symbol=symbol, scanner_name=scanner_name, run_id=run_id)
         if "raw_market" in kwargs and isinstance(kwargs["raw_market"], dict):
             ctx.capture_raw_market(**kwargs["raw_market"])
         if "indicators" in kwargs and isinstance(kwargs["indicators"], dict):
@@ -575,8 +575,13 @@ class GlobalScannerTelemetryEngine:
         if "sl_target" in kwargs and isinstance(kwargs["sl_target"], dict):
             ctx.capture_sl_target(**kwargs["sl_target"])
         ctx.capture_gate(gate_name=gate, passed=False, actual_val=actual, threshold_val=required, reason=f"Rejected at stage {last_stage}", gate_type=gate_type, **kwargs)
-        if gate not in ["NO_DATA", "STALE_DATA", "DUPLICATE", "MISSING_COL", "INVALID_TIMESTAMP", "INVALID_SNAPSHOT", "MISSING_SNAPSHOT"]:
+        
+        invalid_data_gates = ["NO_DATA", "STALE_DATA", "DUPLICATE", "MISSING_COL", "INVALID_TIMESTAMP", "INVALID_SNAPSHOT", "MISSING_SNAPSHOT", "NO_TRADING_ACTIVITY"]
+        if gate not in invalid_data_gates:
+            ctx.add_decision_input(name=gate, value=actual, source="GateCheck", as_of="Live", freshness="LIVE", required=True, valid=True)
+        else:
             ctx.add_decision_input(name=gate, value=actual, source="GateCheck", as_of="Live", freshness="LIVE", required=True, valid=False)
+            
         ctx.finalize(decision="REJECTED", primary_reason=f"{gate}_FAIL")
         self.emit_terminal(ctx)
 
@@ -640,8 +645,8 @@ class ScannerDecisionLogger:
         self.run_id = run_id
         self.regime = regime
 
-    def record_reject(self, symbol: str, last_stage: str = "PRE_CHECK", gate: str = "REJECTED", actual: Any = None, required: Any = None, start_time: float = None, gate_type: str = "THRESHOLD", **kwargs):
-        telemetry_engine.record_reject(symbol=symbol, last_stage=last_stage, gate=gate, actual=actual, required=required, start_time=start_time, scanner_name=self.scanner_name, run_id=self.run_id, gate_type=gate_type, **kwargs)
+    def record_reject(self, symbol: str, last_stage: str = "PRE_CHECK", gate: str = "REJECTED", actual: Any = None, required: Any = None, start_time: float = None, gate_type: str = "THRESHOLD", ctx: DecisionContext = None, **kwargs):
+        telemetry_engine.record_reject(symbol=symbol, last_stage=last_stage, gate=gate, actual=actual, required=required, start_time=start_time, scanner_name=self.scanner_name, run_id=self.run_id, gate_type=gate_type, ctx=ctx, **kwargs)
 
     def record_candidate(self, symbol: str, score: float = 0.0, sl: float = 0.0, target: float = 0.0, **kwargs):
         telemetry_engine.record_candidate(symbol=symbol, score=score, sl=sl, target=target, scanner_name=self.scanner_name, run_id=self.run_id, **kwargs)

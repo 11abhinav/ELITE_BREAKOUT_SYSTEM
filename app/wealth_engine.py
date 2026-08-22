@@ -671,11 +671,10 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
     
     try:
         from scanner_telemetry import telemetry_engine
-        from decision_ledger import global_decision_ledger
         
         sym = r.get("Stock", r.get("Symbol", "UNKNOWN"))
         cmp_val = _safe_num(r.get("cmp", r.get("CMP", 0.0)))
-        ctx = telemetry_engine.get_or_create_context(symbol=str(sym), scanner_name="WEALTH_ENGINE")
+        ctx = telemetry_engine.get_or_create_context(symbol=str(sym), scanner_name="WEALTH")
         
         is_fallback = r.get("used_fallback_data", False)
         
@@ -732,8 +731,6 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
         from config import MIN_DAILY_LIQUIDITY_RUPEES_WEALTH
         if liquidity < MIN_DAILY_LIQUIDITY_RUPEES_WEALTH:
             ctx.capture_gate("LiquidityFloor", False, actual_val=liquidity, threshold_val=MIN_DAILY_LIQUIDITY_RUPEES_WEALTH, reason="Low Liquidity")
-            ctx.finalize(decision="REJECTED", primary_reason="LOW_LIQUIDITY")
-            telemetry_engine.emit_terminal(ctx)
             return None
 
         # Instant Kill Gate 2: Extreme Valuation Ceiling (PEG <= 3.0)
@@ -743,8 +740,6 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
                 peg_val = float(peg_raw)
                 if peg_val > 3.0:
                     ctx.capture_gate("ValuationCeiling", False, actual_val=peg_val, threshold_val=3.0, reason="High PEG")
-                    ctx.finalize(decision="REJECTED", primary_reason="HIGH_PEG")
-                    telemetry_engine.emit_terminal(ctx)
                     return None
             except (ValueError, TypeError):
                 pass
@@ -754,8 +749,6 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
             gnpa = None if (gnpa_raw is None or (isinstance(gnpa_raw, float) and pd.isna(gnpa_raw))) else _safe_num(gnpa_raw)
             if gnpa is not None and gnpa > 5.0:
                 ctx.capture_gate("AssetQuality", False, actual_val=gnpa, threshold_val=5.0, reason="High GNPA")
-                ctx.finalize(decision="REJECTED", primary_reason="HIGH_GNPA")
-                telemetry_engine.emit_terminal(ctx)
                 return None  # Known-bad NPA: FAIL
 
         if check_core_compounder_rules(score, mcap, roce, roe, de, is_fin):
@@ -773,13 +766,6 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
         res_bucket = ", ".join(buckets) if buckets else "REVIEW"
 
         ctx.capture_gate("BucketQualification", bool(buckets), actual_val=res_bucket, reason=f"Buckets: {res_bucket}")
-        ctx.finalize(decision="SELECTED" if buckets else "REJECTED", primary_reason=f"BUCKETS_{res_bucket}" if buckets else "NO_BUCKET_MATCH")
-        telemetry_engine.emit_terminal(ctx)
-        
-        try:
-            global_decision_ledger.record_decision_context(ctx)
-        except Exception:
-            pass
 
     except Exception as e:
         import traceback
