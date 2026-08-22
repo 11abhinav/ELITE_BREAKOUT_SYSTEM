@@ -1123,11 +1123,11 @@ def main(force_rebuild: bool = False, run_ctx=None):
         return
 
     queued_at = None
-    if not _global_lock.acquire(blocking=False):
+    if not _global_lock.acquire(blocking=False, owner_scanner="DAILY_BUILDER", operation="FULL_SCAN"):
         queued_at = time.monotonic()
         logger.info("⏳ [DAILY_BUILDER] Global scanner lock busy — marking QUEUED and waiting in queue...")
         upsert_scanner_health("DAILY_BUILDER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-        if not _global_lock.acquire(blocking=True):
+        if not _global_lock.acquire(blocking=True, owner_scanner="DAILY_BUILDER", operation="FULL_SCAN"):
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [DAILY_BUILDER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 

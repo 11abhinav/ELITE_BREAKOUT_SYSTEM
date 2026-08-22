@@ -682,7 +682,8 @@ def _run_eod_with_retries(today_str, session=None, used_fallback=False):
             else:
                 logger.info(f"📊 EOD | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
                 
-                status_val = "DEGRADED_FALLBACK" if used_fallback else "OK"
+                is_stale_session = session is not None and session.metadata.delivery_status == "STALE"
+                status_val = "DEGRADED_FALLBACK" if (used_fallback or is_stale_session) else "OK"
                 upsert_scanner_health(
                     "EOD",
                     status=status_val,
@@ -777,7 +778,8 @@ def _run_reversal_with_retries(today_str, session=None, used_fallback=False):
             else:
                 logger.info(f"🔄 REVERSAL | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
                 
-                status_val = "DEGRADED_FALLBACK" if used_fallback else "OK"
+                is_stale_session = session is not None and session.metadata.delivery_status == "STALE"
+                status_val = "DEGRADED_FALLBACK" if (used_fallback or is_stale_session) else "OK"
                 upsert_scanner_health(
                     "REVERSAL",
                     status=status_val,
@@ -868,7 +870,8 @@ def _run_pullback_with_retries(today_str, session=None, used_fallback=False):
             time.sleep(5)
             logger.info(f"📊 PULLBACK | Completed in {format_duration(duration_sec)} — {total} alert(s) generated")
             alerts_num = total.get("today_alerts", 0) if isinstance(total, dict) else (total if isinstance(total, int) else 0)
-            status_val = "DEGRADED_FALLBACK" if used_fallback else "OK"
+            is_stale_session = session is not None and session.metadata.delivery_status == "STALE"
+            status_val = "DEGRADED_FALLBACK" if (used_fallback or is_stale_session) else "OK"
             upsert_scanner_health("PULLBACK", status=status_val, last_success=datetime.now(IST).isoformat(), today_alerts=alerts_num, scheduled_for="18:00 IST (After Bhavcopy)", duration_seconds=duration_sec)
             logger.info("✅ PULLBACK SCANNER | Completed successfully for today.")
             return

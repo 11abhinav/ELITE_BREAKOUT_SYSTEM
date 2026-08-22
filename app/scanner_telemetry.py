@@ -575,6 +575,8 @@ class GlobalScannerTelemetryEngine:
         if "sl_target" in kwargs and isinstance(kwargs["sl_target"], dict):
             ctx.capture_sl_target(**kwargs["sl_target"])
         ctx.capture_gate(gate_name=gate, passed=False, actual_val=actual, threshold_val=required, reason=f"Rejected at stage {last_stage}", gate_type=gate_type, **kwargs)
+        if gate not in ["NO_DATA", "STALE_DATA", "DUPLICATE", "MISSING_COL", "INVALID_TIMESTAMP", "INVALID_SNAPSHOT", "MISSING_SNAPSHOT"]:
+            ctx.add_decision_input(name=gate, value=actual, source="GateCheck", as_of="Live", freshness="LIVE", required=True, valid=False)
         ctx.finalize(decision="REJECTED", primary_reason=f"{gate}_FAIL")
         self.emit_terminal(ctx)
 

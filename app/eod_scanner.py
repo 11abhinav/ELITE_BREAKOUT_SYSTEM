@@ -90,7 +90,7 @@ from lock_utils import ProcessLock
 _scan_lock = ProcessLock("eod_scanner")
 _global_lock = ProcessLock("global_scanner_lock")
 
-def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON"):
+def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON", used_fallback_data: bool = False):
     from database import is_scanner_stopped, upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("EOD"):
@@ -102,11 +102,11 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
         return 0
 
     queued_at = None
-    if not _global_lock.acquire(blocking=False):
+    if not _global_lock.acquire(blocking=False, owner_scanner="EOD", operation="FULL_SCAN"):
         queued_at = time.monotonic()
         logger.info("⏳ [EOD] Global scanner lock busy — marking QUEUED and waiting in queue...")
         upsert_scanner_health("EOD", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-        if not _global_lock.acquire(blocking=True):
+        if not _global_lock.acquire(blocking=True, owner_scanner="EOD", operation="FULL_SCAN"):
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [EOD] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
@@ -132,7 +132,7 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
 
     _scan_start = print_scanner_start_banner("eod_scanner", queued_at=queued_at)
     try:
-        total = _start_wrapper(force, session=session, run_ctx=run_ctx)
+        total = _start_wrapper(force, session=session, run_ctx=run_ctx, used_fallback_data=used_fallback_data)
         if own_ctx and isinstance(total, int):
             run_ctx.add_alert(total)
         if own_ctx:
@@ -493,6 +493,25 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
         ctx.capture_score("TOTAL", score, 100.0)
         ctx.capture_sl_target(candle_close, sl_result.get("stop_loss", 0.0), sl_result.get("target_1", 0.0))
         
+        consumed_fields = {
+            "Close": candle_close,
+            "High": candle_high,
+            "Low": candle_low,
+            "Open": candle_open,
+            "Volume Ratio": vol_ratio,
+            "RSI": rsi_val,
+            "ATR": atr20,
+            "SMA20": _safe_float(latest.get("SMA20")),
+            "SMA50": _safe_float(latest.get("SMA50")),
+            "SMA200": _safe_float(latest.get("SMA200")),
+            "Prior High": prior_high,
+            "Body Ratio": _body_ratio,
+            "Close Position": _close_position
+        }
+        for k, v in consumed_fields.items():
+            if v is not None and not pd.isna(v):
+                ctx.add_decision_input(name=k, value=v, source="EODScanner", as_of="Live", freshness="LIVE", required=True, valid=True)
+
         ctx.finalize(decision="SELECTED" if is_qualified else "REJECTED", primary_reason=reasons[0])
         telemetry_engine.emit_terminal(ctx)
         global_decision_ledger.record_decision_context(ctx)
@@ -519,7 +538,7 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
 # wall-clock time, memory delta (RSS), and any top-level exception — all without
 # changing any business logic or scanner decision paths.
 @profile_timing("eod_scanner._start_wrapper", log_to_file=True)
-def _start_wrapper(force: bool = False, session=None, run_ctx=None):
+def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallback_data: bool = False):
     from datetime import datetime
     from zoneinfo import ZoneInfo
     IST = ZoneInfo("Asia/Kolkata")
@@ -965,7 +984,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
 
                             latest = ticker.iloc[-1]
                             ctx = telemetry_logger.get_or_create_context(symbol)
-                            ctx.capture_dataframe_row(latest)
+                            ctx.capture_dataframe_row(latest, is_fallback=used_fallback_data)
 
                             if "RSI" not in ticker.columns or pd.isna(latest["RSI"]):
                                 logger.debug(f"[EOD] {symbol} rejected: latest RSI is missing or NaN")

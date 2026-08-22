@@ -501,8 +501,14 @@ def batch_download_market_data(symbols: list, session=None) -> dict:
                     _v = _latest_ohlcv.get("Volume", 0.0)
                     if _o == _h == _l == _c and _v == 0.0:
                         logger.warning(f"🚫 [SEMANTIC GATES] {sym} rejected: NO_TRADING_ACTIVITY (O=H=L=C={_c:.2f}, Vol=0).")
-                        from scanner_telemetry import ScannerDecisionLogger
-                        ScannerDecisionLogger("MULTIBAGGER").record_reject(sym, last_stage="SEMANTIC_GATE", gate="NO_TRADING_ACTIVITY", actual=_v, required=1.0)
+                        from scanner_telemetry import DecisionContext, telemetry_engine
+                        from decision_ledger import global_decision_ledger
+                        ctx = DecisionContext(symbol=sym, scanner_name="MULTIBAGGER")
+                        ctx.add_decision_input(name="Volume", value=_v, source="MarketData", as_of="Live", freshness="LIVE", required=True, valid=False)
+                        ctx.capture_raw_market(open_p=_o, high_p=_h, low_p=_l, close_p=_c, volume=_v)
+                        ctx.finalize(decision="REJECTED", primary_reason="NO_TRADING_ACTIVITY")
+                        telemetry_engine.emit_terminal(ctx)
+                        global_decision_ledger.record_decision_context(ctx)
                         continue
                 
                     last_trade_date = str(ticker_df.index[-1].date())
@@ -1730,11 +1736,11 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
         return {}
 
     queued_at = None
-    if not _global_lock.acquire(blocking=False):
+    if not _global_lock.acquire(blocking=False, owner_scanner="MULTIBAGGER", operation="FULL_SCAN"):
         queued_at = time.monotonic()
         logger.info("⏳ [MULTIBAGGER] Global scanner lock busy — marking QUEUED and waiting in queue...")
         upsert_scanner_health("MULTIBAGGER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-        if not _global_lock.acquire(blocking=True):
+        if not _global_lock.acquire(blocking=True, owner_scanner="MULTIBAGGER", operation="FULL_SCAN"):
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [MULTIBAGGER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 

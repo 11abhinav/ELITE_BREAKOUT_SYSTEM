@@ -1285,7 +1285,7 @@ def evaluate_reversal_symbol(symbol: str, ticker: pd.DataFrame, fund_data: dict 
         ctx = DecisionContext(symbol=symbol, scanner_name="REVERSAL")
         latest = ticker.iloc[-1]
         ctx = telemetry_logger.get_or_create_context(symbol)
-        ctx.capture_dataframe_row(latest)
+        ctx.capture_dataframe_row(latest, is_fallback=used_fallback_data)
         ctx.capture_raw_market(
             open_p=_safe_float(latest.get("Open")),
             high_p=_safe_float(latest.get("High")),
@@ -1308,6 +1308,25 @@ def evaluate_reversal_symbol(symbol: str, ticker: pd.DataFrame, fund_data: dict 
             sl_res = verdict["sl_result"]
             ctx.capture_sl_target(_safe_float(latest.get("Close")), sl_res.get("stop_loss", 0.0), sl_res.get("target_1", 0.0))
             
+        consumed_fields = {
+            "Close": _safe_float(latest.get("Close")),
+            "High": _safe_float(latest.get("High")),
+            "Low": _safe_float(latest.get("Low")),
+            "Open": _safe_float(latest.get("Open")),
+            "Volume": _safe_float(latest.get("Volume")),
+            "RSI": _safe_float(latest.get("RSI")),
+            "EMA20": _safe_float(latest.get("EMA20")),
+            "SMA50": _safe_float(latest.get("SMA50")),
+            "SMA200": _safe_float(latest.get("SMA200")),
+            "MACD": _safe_float(latest.get("MACD")),
+            "Volume Ratio": _safe_float(latest.get("Volume_Ratio")),
+            "High 52W": _safe_float(latest.get("HIGH_52W")),
+            "Low 52W": _safe_float(latest.get("LOW_52W"))
+        }
+        for k, v in consumed_fields.items():
+            if v is not None and not pd.isna(v):
+                ctx.add_decision_input(name=k, value=v, source="ReversalScanner", as_of="Live", freshness="LIVE", required=True, valid=True)
+
         ctx.finalize(decision="SELECTED" if verdict["passed"] else "REJECTED", primary_reason=verdict.get("reject_reason", ""))
         telemetry_engine.emit_terminal(ctx)
         global_decision_ledger.record_decision_context(ctx)
@@ -2196,7 +2215,7 @@ _scan_lock = ProcessLock("reversal_scanner")
 _global_lock = ProcessLock("global_scanner_lock")
 
 
-def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON") -> int:
+def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON", used_fallback_data: bool = False) -> int:
     from database import is_scanner_stopped, upsert_scanner_health
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     import time
@@ -2210,11 +2229,11 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
         return 0
 
     queued_at = None
-    if not _global_lock.acquire(blocking=False):
+    if not _global_lock.acquire(blocking=False, owner_scanner="REVERSAL", operation="FULL_SCAN"):
         queued_at = time.monotonic()
         logger.info("⏳ [REVERSAL] Global scanner lock busy — marking QUEUED and waiting in queue...")
         upsert_scanner_health("REVERSAL", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-        if not _global_lock.acquire(blocking=True):
+        if not _global_lock.acquire(blocking=True, owner_scanner="REVERSAL", operation="FULL_SCAN"):
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [REVERSAL] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
@@ -2241,7 +2260,7 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
     _scan_start = print_scanner_start_banner("reversal_scanner", queued_at=queued_at)
 
     try:
-        total_alerts = _start_wrapper(force, session=session, run_ctx=run_ctx)
+        total_alerts = _start_wrapper(force, session=session, run_ctx=run_ctx, used_fallback_data=used_fallback_data)
         if run_ctx:
             run_ctx.add_alert(total_alerts)
         return total_alerts
@@ -2273,7 +2292,7 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
                 logger.warning(f"⚠️ [REVERSAL] Could not mark run complete in finally: {exc}")
 
 
-def _start_wrapper(force: bool = False, session=None, run_ctx=None) -> int:
+def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallback_data: bool = False) -> int:
     """
     Single-shot scan. Called once by main.py at the 21:00 window.
     Returns the number of alerts generated (0 = no setups found).

@@ -935,11 +935,11 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
         return None
 
     queued_at = None
-    if not _global_lock.acquire(blocking=False):
+    if not _global_lock.acquire(blocking=False, owner_scanner="WEALTH", operation="FULL_SCAN"):
         queued_at = time.monotonic()
         logger.info("⏳ [WEALTH ENGINE] Global scanner lock busy — marking QUEUED and waiting in queue...")
         upsert_scanner_health("Wealth Engine", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-        if not _global_lock.acquire(blocking=True):
+        if not _global_lock.acquire(blocking=True, owner_scanner="WEALTH", operation="FULL_SCAN"):
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [WEALTH ENGINE] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 

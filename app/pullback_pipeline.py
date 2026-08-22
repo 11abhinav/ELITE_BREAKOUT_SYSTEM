@@ -302,6 +302,23 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
         ctx.capture_score("TOTAL", final_score, 100.0)
         ctx.capture_sl_target(entry_val, sl_result.get("stop_loss", 0.0), sl_result.get("target_1", 0.0))
         
+        consumed_fields = {
+            "RS Percentile": rs_percentile,
+            "Sector Status": sector_status,
+            "Volume Ratio": vol_ratio,
+            "Trigger Close Position": close_position,
+            "Has Prior EOD": has_prior_eod,
+            "Has Prior Multi": has_prior_multi,
+            "Retracement Depth %": ps.depth_pct,
+            "Impulse Gain %": ps.impulse.gain_pct if ps.impulse else 0.0,
+            "SMA50": sma50_val,
+            "SMA200": sma200_val,
+            "Close": close_price
+        }
+        for k, v in consumed_fields.items():
+            if v is not None:
+                ctx.add_decision_input(name=k, value=v, source="PullbackEngine", as_of="Live", freshness="LIVE", required=True, valid=True)
+
         ctx.finalize(decision="SELECTED" if is_qualified else "REJECTED", primary_reason=reasons[0] if reasons else "NO_QUALIFY")
         telemetry_engine.emit_terminal(ctx)
         global_decision_ledger.record_decision_context(ctx)
@@ -322,7 +339,7 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
         "atr_14": float(bundle.atr_14.iloc[-1]) if hasattr(bundle, 'atr_14') and bundle.atr_14 is not None and not bundle.atr_14.empty and not pd.isna(bundle.atr_14.iloc[-1]) else float(entry_val * 0.025)
     }
 
-def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON"):
+def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON", used_fallback_data: bool = False):
     """
     Main entry point for Pullback Scanner. Acquires process lock and delegates to pipeline.
     """
@@ -338,11 +355,11 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
         return 0
 
     queued_at = None
-    if not _global_lock.acquire(blocking=False):
+    if not _global_lock.acquire(blocking=False, owner_scanner="PULLBACK", operation="FULL_SCAN"):
         queued_at = time.monotonic()
         logger.info("⏳ [PULLBACK] Global scanner lock busy — marking QUEUED and waiting in queue...")
         upsert_scanner_health("PULLBACK", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-        if not _global_lock.acquire(blocking=True):
+        if not _global_lock.acquire(blocking=True, owner_scanner="PULLBACK", operation="FULL_SCAN"):
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [PULLBACK] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
@@ -369,7 +386,7 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
     _scan_start = print_scanner_start_banner("pullback_scanner", queued_at=queued_at)
 
     try:
-        total = run_pullback_pipeline(force=force, session=session, run_ctx=run_ctx)
+        total = run_pullback_pipeline(force=force, session=session, run_ctx=run_ctx, used_fallback_data=used_fallback_data)
         if run_ctx and isinstance(total, dict) and "total_count" in total:
             run_ctx.set_total_stocks(total["total_count"])
             run_ctx.fresh_count = total["processed_count"]
@@ -426,7 +443,7 @@ def _determine_dataset_date(sample_data: dict) -> Optional[str]:
         return most_common_date
     return None
 
-def run_pullback_pipeline(run_date: str = None, force: bool = False, session=None, run_ctx=None) -> int:
+def run_pullback_pipeline(run_date: str = None, force: bool = False, session=None, run_ctx=None, used_fallback_data: bool = False) -> int:
     init_db()
     ist_now = datetime.now(IST)
     if not run_date:
@@ -685,7 +702,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                         last_bar = historical_view.iloc[-1]
                         
                         ctx = telemetry_logger.get_or_create_context(sym)
-                        ctx.capture_dataframe_row(last_bar)
+                        ctx.capture_dataframe_row(last_bar, is_fallback=used_fallback_data)
                         
                         sma50_val = bundle.sma_50.iloc[-1] if bundle.sma_50 is not None and not bundle.sma_50.empty else None
                         sma200_val = bundle.sma_200.iloc[-1] if bundle.sma_200 is not None and not bundle.sma_200.empty else None

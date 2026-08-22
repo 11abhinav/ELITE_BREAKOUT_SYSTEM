@@ -104,13 +104,20 @@ class ProcessLockImpl:
         self._owner_thread = None
         self._recursion_depth = 0
         self._internal_lock = threading.Lock()
+        
+        # Telemetry fields
+        self.lock_owner_scanner = "UNKNOWN"
+        self.lock_owner_operation = "UNKNOWN"
+        self._wait_start = 0.0
+        self._acquire_time = 0.0
 
     def locked(self) -> bool:
         """Check if the local thread lock is held."""
         return self._recursion_depth > 0
 
-    def acquire(self, blocking: bool = False, timeout: float = -1, **kwargs) -> bool:
+    def acquire(self, blocking: bool = False, timeout: float = -1, owner_scanner: str = "UNKNOWN", operation: str = "UNKNOWN", **kwargs) -> bool:
         current_thread = threading.current_thread().name
+        wait_start_mono = time.monotonic()
         with self._internal_lock:
             if self._owner_thread == current_thread and self._recursion_depth > 0:
                 self._recursion_depth += 1
@@ -146,12 +153,11 @@ class ProcessLockImpl:
                 
                 with self.db_conn.cursor() as cur:
                     if blocking:
-                        wait_start = time.monotonic()
                         last_logged_s = 0
                         while True:
                             cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
                             locked = cur.fetchone()[0]
-                            elapsed = time.monotonic() - wait_start
+                            elapsed = time.monotonic() - wait_start_mono
                             if locked:
                                 if elapsed > 1.0:
                                     logger.info(f"✅ [{self.lock_name.upper()}] Acquired Postgres lock after {elapsed:.1f}s wait")
@@ -176,6 +182,12 @@ class ProcessLockImpl:
                 self.is_acquired = True
                 self._owner_thread = current_thread
                 self._recursion_depth = 1
+                self.lock_owner_scanner = owner_scanner
+                self.lock_owner_operation = operation
+                self._wait_start = wait_start_mono
+                self._acquire_time = time.monotonic()
+                wait_time = self._acquire_time - self._wait_start
+                logger.info(f"🔒 [LOCK ACQUIRED] {self.lock_name} | Scanner: {owner_scanner} | Op: {operation} | Wait Time: {wait_time:.2f}s")
             return True
         except (BlockingIOError, IOError):
             if self.db_conn:
@@ -213,6 +225,10 @@ class ProcessLockImpl:
 
             self.is_acquired = False
             self._owner_thread = None
+            held_time = time.monotonic() - self._acquire_time
+            logger.info(f"🔓 [LOCK RELEASED] {self.lock_name} | Scanner: {self.lock_owner_scanner} | Op: {self.lock_owner_operation} | Held Time: {held_time:.2f}s")
+            self.lock_owner_scanner = "UNKNOWN"
+            self.lock_owner_operation = "UNKNOWN"
 
         # 1. Release Postgres lock by simply closing the dedicated connection
         if self.db_conn is not None:

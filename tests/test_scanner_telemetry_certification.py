@@ -152,3 +152,60 @@ def test_certify_final_decision():
     is_certified, reason = certify_final_decision("TCS", "WEALTH_ENGINE", float("nan"), "2024-05-15", ctx.decision_manifest)
     assert is_certified is False
     assert "INVALID_ENTRY_PRICE" in reason
+
+def test_no_trading_activity_terminal_decision():
+    from scanner_telemetry import DecisionContext
+    
+    ctx = DecisionContext("RELIANCE", "MULTIBAGGER")
+    ctx.capture_raw_market(open_p=100.0, high_p=100.0, low_p=100.0, close_p=100.0, volume=0.0)
+    ctx.add_decision_input(name="Volume", value=0.0, source="MarketData", as_of="Live", freshness="LIVE", required=True, valid=False)
+    ctx.finalize(decision="REJECTED", primary_reason="NO_TRADING_ACTIVITY")
+    
+    assert ctx.terminal_decision == "REJECTED"
+    assert ctx.primary_reason == "NO_TRADING_ACTIVITY"
+    assert len(ctx.decision_manifest) == 1
+    assert ctx.decision_manifest[0]["name"] == "Volume"
+    assert ctx.decision_manifest[0]["value"] == 0.0
+
+def test_fallback_row_stale_inputs():
+    from scanner_telemetry import DecisionContext
+    import pandas as pd
+    
+    ctx = DecisionContext("HDFCBANK", "EOD")
+    # Simulate a fallback row where only Bhavcopy fields are stale
+    row = {"Open": 1500, "High": 1510, "Low": 1490, "Close": 1505, "Volume": 1000000, "RSI": 60}
+    ctx.capture_dataframe_row(row, is_fallback=True, fallback_fields={"OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"})
+    
+    # Check freshness in entries
+    assert ctx.entries["Open"].freshness == "STALE"
+    assert ctx.entries["Volume"].freshness == "STALE"
+    
+    # RSI wasn't in fallback_fields
+    assert ctx.entries["RSI"].freshness == "LIVE"
+    
+    # Now explicitly add them to the manifest
+    ctx.add_decision_input("Volume", 1000000, "Bhavcopy", "2023-01-01", "STALE", required=True, valid=True)
+    ctx.add_decision_input("RSI", 60, "Calculated", "Live", "LIVE", required=True, valid=True)
+    
+    stale_count = sum(1 for f in ctx.decision_manifest if f["freshness"] == "STALE")
+    live_count = sum(1 for f in ctx.decision_manifest if f["freshness"] == "LIVE")
+    assert stale_count == 1
+    assert live_count == 1
+
+def test_critical_gate_structure():
+    from scanner_telemetry import DecisionContext
+    ctx = DecisionContext("ITC", "PULLBACK")
+    
+    ctx.capture_gate(gate_name="LOW_VOLUME", passed=False, actual_val=5000, threshold_val=50000, reason="Volume too low", gate_type="THRESHOLD")
+    ctx.add_decision_input(name="LOW_VOLUME", value=5000, source="GateCheck", as_of="Live", freshness="LIVE", required=True, valid=False)
+    ctx.finalize(decision="REJECTED", primary_reason="LOW_VOLUME_FAIL")
+    
+    gate_data = ctx.gate_results["LOW_VOLUME"]
+    assert gate_data["passed"] is False
+    assert gate_data["actual"] == 5000
+    assert gate_data["threshold"] == 50000
+    assert gate_data["gate_type"] == "THRESHOLD"
+    
+    assert len(ctx.decision_manifest) == 1
+    assert ctx.decision_manifest[0]["name"] == "LOW_VOLUME"
+
