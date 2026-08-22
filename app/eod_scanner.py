@@ -1599,7 +1599,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None):
                     
                 if not saved:
                     rejection_counts["duplicate"] += 1
-                    telemetry_logger.record_reject(symbol, "SYSTEM", "DUPLICATE", None, None, start_time=_row_start_time)
+                    telemetry_logger.record_reject(c["symbol"], "SYSTEM", "DUPLICATE", None, None)
                     continue
                     
                 alerts_by_category.setdefault(c["category"], []).append({
