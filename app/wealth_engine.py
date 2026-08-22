@@ -738,9 +738,12 @@ def apply_sector_cap(df: pd.DataFrame, bucket_col: str, bucket_name: str, max_st
     industry_counts = defaultdict(int)
     selected = []
 
-    for _, row in bucket_df.iterrows():
-        sector = row.get("Sector", "Unknown")
-        industry = row.get("Industry", row.get("Sector", "Unknown"))
+    # [OPTIMIZATION] Replaced iterrows with much faster itertuples
+    for row in bucket_df.itertuples(index=False):
+        # row._asdict() gives a dict to use .get(), or just use getattr(row, "Sector", "Unknown") if available.
+        row_dict = row._asdict() if hasattr(row, '_asdict') else row
+        sector = row_dict.get("Sector", "Unknown")
+        industry = row_dict.get("Industry", row_dict.get("Sector", "Unknown"))
 
         if sector_counts[sector] >= sector_limit:
             continue
@@ -749,7 +752,8 @@ def apply_sector_cap(df: pd.DataFrame, bucket_col: str, bucket_name: str, max_st
 
         sector_counts[sector] += 1
         industry_counts[industry] += 1
-        selected.append(row)
+        # Reconstruct the Series for the final DataFrame
+        selected.append(pd.Series(row_dict))
 
         if len(selected) >= max_stocks:
             break

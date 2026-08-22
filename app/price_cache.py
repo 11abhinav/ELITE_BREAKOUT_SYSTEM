@@ -1533,12 +1533,10 @@ def fetch_market_hour_snapshot(symbols: list[str], recent_period: str = "5d", re
         if os.path.exists(WEALTH_PATH):
             prev = pd.read_parquet(WEALTH_PATH)
             if "Stock" in prev.columns and "sma_200" in prev.columns:
-                for _, row in prev[["Stock", "sma_200"]].iterrows():
-                    sym = row["Stock"]
-                    try:
-                        sma_map[sym] = float(row["sma_200"]) if not pd.isna(row["sma_200"]) else None
-                    except Exception:
-                        sma_map[sym] = None
+                # [OPTIMIZATION] Replaced O(N) iterrows with vectorized set_index and to_dict
+                sma_map = prev.set_index("Stock")["sma_200"].to_dict()
+                # Handle NaNs
+                sma_map = {k: (float(v) if pd.notna(v) else None) for k, v in sma_map.items()}
     except Exception as e:
         logger.warning(f"Could not read wealth parquet for SMA lookup: {e}")
 

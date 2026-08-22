@@ -1999,8 +1999,11 @@ def api_get_portfolio():
         if os.path.exists(WEALTH_PATH):
             df = pd.read_parquet(WEALTH_PATH)
             # Create a lookup dictionary by Stock symbol
-            for _, row in df.iterrows():
-                wealth_data[row["Stock"]] = row.to_dict()
+            # [OPTIMIZATION] Replaced iterrows with vectorized to_dict
+            wealth_data = df.set_index("Stock").to_dict(orient="index")
+            # add "Stock" key back into the sub-dictionaries since we set it as index
+            for sym, data_dict in wealth_data.items():
+                data_dict["Stock"] = sym
 
         def safe_num(v):
             if v is None: return 0.0
@@ -3021,7 +3024,8 @@ def api_all_tickers():
                     df = pd.read_csv(f)
                     if 'Stock' in df.columns:
                         tickers.update(df['Stock'].dropna().unique().tolist())
-                except Exception: pass
+                except Exception as e:
+                    logger.warning(f"Error reading {f} for tickers cache: {e}")
         result = sorted(list(tickers)) if tickers else []
         _ALL_TICKERS_CACHE = result
         _ALL_TICKERS_JSON_BYTES = json.dumps(result).encode('utf-8')
