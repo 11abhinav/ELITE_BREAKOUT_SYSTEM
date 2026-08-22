@@ -186,28 +186,28 @@ def wait_for_window(name: str):
         logger.info(f"⏳ [{name.upper()}] Scan window opens at {start_time.strftime('%H:%M')} IST (in {rem_m}m {rem_s}s)... Checking again in 60s")
         time.sleep(60)
 
-def wait_for_bhavcopy_or_fallback(name: str):
-    """Block until today's Bhavcopy is available, or fallback if it's past 11 PM."""
+def wait_for_bhavcopy_or_fallback(name: str) -> bool:
+    """Block until today's Bhavcopy is available, or fallback. Returns True if fallback used."""
     from delivery_data import fetch_delivery_data
     from database import upsert_scanner_health
     first_wait = True
     while True:
         now = datetime.now(IST)
         if now.weekday() >= 5:
-            return  # Weekend, no bhavcopy published
+            return True  # Weekend, no bhavcopy published
             
         try:
             # fetch_delivery_data handles caching and retries internally
             delivery_map = fetch_delivery_data(now.date())
             if delivery_map:
                 logger.info(f"[{name}] ✅ Today's Bhavcopy is available!")
-                return
+                return False
         except Exception as e:
             logger.warning(f"[{name}] Failed to fetch bhavcopy: {e}")
             
         if now.hour >= 21 or (now.hour == 20 and now.minute >= 30):
             logger.warning(f"[{name}] ⚠️ It's {now.strftime('%H:%M')} and today's Bhavcopy is still missing. Using fallback (yesterday).")
-            return
+            return True
             
         logger.info(f"[{name}] ⏳ Today's Bhavcopy not yet available. Waiting 5 mins...")
         
@@ -632,7 +632,7 @@ def block_until_watchlist_ready():
 #
 # force=True must NOT be removed — doing so causes the scanners to silently
 # enter test_mode and discard all alert results whenever they run before 21:00.
-def _run_eod_with_retries(today_str, session=None):
+def _run_eod_with_retries(today_str, session=None, used_fallback=False):
     retry_count = 0
     while True:
         # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run
@@ -682,9 +682,10 @@ def _run_eod_with_retries(today_str, session=None):
             else:
                 logger.info(f"📊 EOD | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
                 
+                status_val = "DEGRADED_FALLBACK" if used_fallback else "OK"
                 upsert_scanner_health(
                     "EOD",
-                    status="OK",
+                    status=status_val,
                     last_success=datetime.now(IST).isoformat(),
                     today_alerts=total,
                     scheduled_for="18:00 IST (After Bhavcopy)",
@@ -728,7 +729,7 @@ def _run_eod_with_retries(today_str, session=None):
             time.sleep(wait_time)
 
 
-def _run_reversal_with_retries(today_str, session=None):
+def _run_reversal_with_retries(today_str, session=None, used_fallback=False):
     retry_count = 0
     while True:
         # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run
@@ -776,9 +777,10 @@ def _run_reversal_with_retries(today_str, session=None):
             else:
                 logger.info(f"🔄 REVERSAL | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
                 
+                status_val = "DEGRADED_FALLBACK" if used_fallback else "OK"
                 upsert_scanner_health(
                     "REVERSAL",
-                    status="OK",
+                    status=status_val,
                     last_success=datetime.now(IST).isoformat(),
                     today_alerts=total,
                     scheduled_for="18:00 IST (After Bhavcopy)",
@@ -822,7 +824,7 @@ def _run_reversal_with_retries(today_str, session=None):
             time.sleep(wait_time)
 
 
-def _run_pullback_with_retries(today_str, session=None):
+def _run_pullback_with_retries(today_str, session=None, used_fallback=False):
     retry_count = 0
     while True:
         # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run
@@ -866,7 +868,8 @@ def _run_pullback_with_retries(today_str, session=None):
             time.sleep(5)
             logger.info(f"📊 PULLBACK | Completed in {format_duration(duration_sec)} — {total} alert(s) generated")
             alerts_num = total.get("today_alerts", 0) if isinstance(total, dict) else (total if isinstance(total, int) else 0)
-            upsert_scanner_health("PULLBACK", status="OK", last_success=datetime.now(IST).isoformat(), today_alerts=alerts_num, scheduled_for="18:00 IST (After Bhavcopy)", duration_seconds=duration_sec)
+            status_val = "DEGRADED_FALLBACK" if used_fallback else "OK"
+            upsert_scanner_health("PULLBACK", status=status_val, last_success=datetime.now(IST).isoformat(), today_alerts=alerts_num, scheduled_for="18:00 IST (After Bhavcopy)", duration_seconds=duration_sec)
             logger.info("✅ PULLBACK SCANNER | Completed successfully for today.")
             return
         except Exception as exc:
@@ -912,7 +915,7 @@ def run_evening_scanners():
     while True:
         block_until_watchlist_ready()
         wait_for_window("eod")
-        wait_for_bhavcopy_or_fallback("EVENING_SCANNERS")
+        used_fallback = wait_for_bhavcopy_or_fallback("EVENING_SCANNERS")
         now = datetime.now(IST)
         today_str = now.strftime("%Y-%m-%d")
         
@@ -959,13 +962,13 @@ def run_evening_scanners():
         logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback sequentially.")
         
         # Run EOD Scanner (receives session; falls back to independent fetch if session=None)
-        _run_eod_with_retries(today_str, session=evening_session)
+        _run_eod_with_retries(today_str, session=evening_session, used_fallback=used_fallback)
         
         # Run Reversal Scanner
-        _run_reversal_with_retries(today_str, session=evening_session)
+        _run_reversal_with_retries(today_str, session=evening_session, used_fallback=used_fallback)
 
         # Run Pullback Scanner (after EOD & Reversal finish)
-        _run_pullback_with_retries(today_str, session=evening_session)
+        _run_pullback_with_retries(today_str, session=evening_session, used_fallback=used_fallback)
 
         # Verify actual execution outcome from database health records before declaring status
         from database import get_all_scanner_health
@@ -974,7 +977,7 @@ def run_evening_scanners():
         def _check_scanner_ok(name):
             rec = health_records.get(name, {})
             last_success = str(rec.get("last_success", ""))
-            return rec.get("status") == "OK" and last_success.startswith(today_str)
+            return rec.get("status") in ["OK", "DEGRADED_FALLBACK"] and last_success.startswith(today_str)
             
         eod_ok = _check_scanner_ok("EOD")
         rev_ok = _check_scanner_ok("REVERSAL")

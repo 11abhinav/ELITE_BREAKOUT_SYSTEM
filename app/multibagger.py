@@ -489,6 +489,19 @@ def batch_download_market_data(symbols: list, session=None) -> dict:
                     MIN_BARS = 200
                     if len(ticker_df) < MIN_BARS:
                         continue
+                        
+                    # [SEMANTIC VALIDATION] Reject pure data voids that appear valid numerically.
+                    # e.g., O=H=L=C and Vol=0 means the stock is suspended or illiquid, 
+                    # but technical indicators will still calculate flatlines that bypass thresholds.
+                    _latest_ohlcv = ticker_df.iloc[-1]
+                    _o = _latest_ohlcv.get("Open", 0.0)
+                    _h = _latest_ohlcv.get("High", 0.0)
+                    _l = _latest_ohlcv.get("Low", 0.0)
+                    _c = _latest_ohlcv.get("Close", 0.0)
+                    _v = _latest_ohlcv.get("Volume", 0.0)
+                    if _o == _h == _l == _c and _v == 0.0:
+                        logger.warning(f"🚫 [SEMANTIC GATES] {sym} rejected: NO_TRADING_ACTIVITY (O=H=L=C={_c:.2f}, Vol=0).")
+                        continue
                 
                     last_trade_date = str(ticker_df.index[-1].date())
                 

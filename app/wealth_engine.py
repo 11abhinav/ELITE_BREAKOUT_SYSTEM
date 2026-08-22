@@ -735,23 +735,46 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
         cmp_val = _safe_num(r.get("cmp", r.get("CMP", 0.0)))
         ctx = telemetry_engine.get_or_create_context(symbol=str(sym), scanner_name="WEALTH_ENGINE")
         
-        # Populate decision manifest based on whichever buckets qualified
+        # In V5, every field available is added to the decision manifest.
+        # However, we explicitly mark fields as required based on the buckets they matched (or 'cmp' which is always required).
         required_fields = set(["cmp"])
         for b in buckets:
             required_fields.update(CRITICAL_DECISION_INPUTS.get(b, []))
 
+        is_fallback = r.get("used_fallback_data", False)
+        
         for field_key, (raw_val, parsed_val) in raw_values.items():
             req = field_key in required_fields
             val_status = _is_valid(raw_val, parsed_val)
+            
+            is_market_metric = field_key in ["cmp", "rs_6m", "dist_52w", "dist_52w_high"]
+            freshness = "LIVE" if val_status else "MISSING"
+            if is_market_metric and is_fallback and val_status:
+                freshness = "STALE"
+                
             ctx.add_decision_input(
                 name=field_key,
                 value=raw_val,
                 source="Watchlist/Tech",
                 as_of="Latest",
-                freshness="LIVE" if val_status else "MISSING",
+                freshness=freshness,
                 required=req,
                 valid=val_status
             )
+            
+        # [VERSION: WEALTH_MANIFEST_EXT_v1.0] Dump all numeric telemetry into decision manifest
+        for k, v in r.items():
+            # Exclude duplicate base fields and non-numeric fields like strings, dicts, arrays.
+            if k not in raw_values and isinstance(v, (int, float)) and not pd.isna(v):
+                ctx.add_decision_input(
+                    name=str(k),
+                    value=v,
+                    source="Watchlist/Tech",
+                    as_of="Latest",
+                    freshness="STALE" if is_fallback else "LIVE",
+                    required=False, # Non-core metrics are registered as soft inputs
+                    valid=True
+                )
             
         ctx.capture_raw_market(open_p=cmp_val, high_p=cmp_val, low_p=cmp_val, close_p=cmp_val, volume=0.0)
         ctx.capture_fundamentals(
@@ -2181,15 +2204,20 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 elif "Ranked Out" in reason:
                     gate = "RANKED_OUT"
                     gate_type = "RANKING"
-                    actual = None
-                    required = None
+                    actual = score
+                    required = 5.0 # Top 5 Sector Cap
                 elif "Failed Bucket Quality Gates" in reason:
                     gate = "FAILED_BUCKET_GATES"
                     gate_type = "COMPOSITE"
-                    actual = None
-                    required = None
+                    actual = score
+                    required = 65.0
                 elif "Rejected by DB" in reason or "SUPPRESSED" in sig_code:
                     gate = "DB_SUPPRESSED"
+                    gate_type = "BOOLEAN"
+                    actual = False
+                    required = True
+                else:
+                    gate = "FAILED_PATTERN"
                     gate_type = "BOOLEAN"
                     actual = False
                     required = True
@@ -2431,6 +2459,8 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
             data_status = f"BLOCKED (Stale Data {stale_ratio*100:.1f}% > 50%)"
         elif stale_ratio > 0.05:
             data_status = f"DEGRADED (Stale Data {stale_ratio*100:.1f}%)"
+        elif stale_ratio > 0 or missing_ratio > 0:
+            data_status = "DEGRADED (Non-critical Stale/Missing)"
         else:
             data_status = "HEALTHY"
             

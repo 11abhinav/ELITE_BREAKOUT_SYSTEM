@@ -982,13 +982,20 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                     dist_to_breakout = (breakout_level - close) / breakout_level
 
                     # 15m micro-alignment: EMA9 >= EMA20 or Close >= EMA20, price near level (aligned with Phase A bounds)
-                    if (e9_15 >= (0.998 * e20_15) or close >= e20_15) and (-0.06 <= dist_to_breakout <= 0.06):
+                    ema_tolerance = 0.998 * e20_15
+                    condition_ema = e9_15 >= ema_tolerance
+                    condition_close = close >= e20_15
+                    
+                    if (condition_ema or condition_close) and (-0.06 <= dist_to_breakout <= 0.06):
+                        selected_condition = "EMA_TOLERANCE | CLOSE_ABOVE_EMA20" if (condition_ema and condition_close) else ("EMA_TOLERANCE" if condition_ema else "CLOSE_ABOVE_EMA20")
+                        
                         with _batch_lock:
                             lower_funnel["ema15_pass"] += 1
                         ctx_json = json.dumps({
                             "last_state_change_at": ist_now.strftime('%Y-%m-%d %H:%M:%S'),
                             "15m_e9": round(e9_15, 2),
-                            "15m_e20": round(e20_15, 2)
+                            "15m_e20": round(e20_15, 2),
+                            "selected_condition": selected_condition
                         })
                         now_iso = ist_now.isoformat()
                         expires_iso = min(ist_now + timedelta(minutes=30), end_of_session).isoformat()
@@ -1008,8 +1015,10 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                         state = "ENTRY_READY"
                         passed_phase_c = True  # [FIX-M2] Phase C confirmed this cycle — eligible for +5 bonus
                         logger.info(f"🟡 {symbol} promoted to ENTRY_READY "
-                                    f"(15m e9={e9_15:.2f} > e20={e20_15:.2f}, "
-                                    f"dist={dist_to_breakout*100:.2f}%)")
+                                    f"[gate_type=COMPOSITE e9={e9_15:.2f} e20={e20_15:.2f} "
+                                    f"ema_threshold={ema_tolerance:.2f} close={close:.2f} "
+                                    f"condition_ema={condition_ema} condition_close={condition_close} "
+                                    f"selected_condition={selected_condition} dist={dist_to_breakout*100:.2f}%]")
 
             # ── Phase D (5m): ENTRY_READY → TRADE_ACTIVE (Final Trigger) ─────
             # Late-Session Entry Cutoff: Do not generate new intraday entries after 14:15 IST
