@@ -42,9 +42,12 @@ class FyersProvider(ProviderInterface):
         return self._status
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, range_from: datetime, range_to: datetime) -> NormalizedMarketData:
-        start_time = datetime.now()
+        import time
+        import random
         
+        start_time = datetime.now()
         logger.debug(f"🔄 [Fyers] Fetching {symbol} | {timeframe} | {range_from.date()} → {range_to.date()}")
+        
         try:
             token = self.auth_service.get_valid_token(self.provider_name)
             if not token:
@@ -66,18 +69,33 @@ class FyersProvider(ProviderInterface):
                 "cont_flag": "1"
             }
             
-            response = client.history(data=data)
-            latency = (datetime.now() - start_time).total_seconds() * 1000
+            backoff = 1.0
+            response = None
+            latency = 0
             
-            if not response or response.get("s") != "ok":
-                code = str(response.get("code", "")) if response else ""
-                if code in ("-403", "403"):
-                    self._health_score = max(0, self._health_score - 20)
-                    self._status = ProviderStatus.DEGRADED
-                    return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 0), error="403 Permission Denied")
+            for attempt in range(3):
+                attempt_start = datetime.now()
+                response = client.history(data=data)
+                latency = (datetime.now() - start_time).total_seconds() * 1000
+                
+                if not response or response.get("s") != "ok":
+                    code = str(response.get("code", "")) if response else ""
+                    # Retry on 403 (Rate limit/temporary ban) or generic API failures
+                    if attempt < 2:
+                        sleep_time = backoff + random.uniform(0.5, 1.5)
+                        logger.warning(f"🚦 [Fyers] API Failure/Rate Limit for {symbol} (code {code}, attempt {attempt+1}/3) — sleeping {sleep_time:.2f}s")
+                        time.sleep(sleep_time)
+                        backoff *= 2.0
+                        continue
                     
-                self._health_score = max(0, self._health_score - 2)
-                return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 0), error="API Failure")
+                    if code in ("-403", "403"):
+                        self._health_score = max(0, self._health_score - 20)
+                        self._status = ProviderStatus.DEGRADED
+                        return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 0), error="403 Permission Denied")
+                        
+                    self._health_score = max(0, self._health_score - 2)
+                    return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 0), error="API Failure")
+                break
                 
             candles = response.get("candles", [])
             df = pd.DataFrame(candles, columns=["Timestamp", "Open", "High", "Low", "Close", "Volume"])
@@ -99,14 +117,25 @@ class FyersProvider(ProviderInterface):
             return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error=str(e))
             
     def fetch_batch_ohlcv(self, symbols: List[str], timeframe: str, range_from: datetime, range_to: datetime) -> Dict[str, NormalizedMarketData]:
+        import time
         results = {}
         total = len(symbols)
         logger.info(f"🔄 [Fyers] Starting batch fetch: {total} symbols | {timeframe} | {range_from.date()} → {range_to.date()}")
         t_batch_start = datetime.now()
         errors = 0
+        last_request_time = 0
+        
         for idx, sym in enumerate(symbols, 1):
+            # Throttle to mathematically guarantee max ~9 requests/sec
+            now_ts = time.time()
+            elapsed_since_last = now_ts - last_request_time
+            if elapsed_since_last < 0.11:
+                time.sleep(0.11 - elapsed_since_last)
+                
             t_sym_start = datetime.now()
             result = self.fetch_ohlcv(sym, timeframe, range_from, range_to)
+            last_request_time = time.time()
+            
             elapsed_ms = int((datetime.now() - t_sym_start).total_seconds() * 1000)
             results[sym] = result
             if result.error:

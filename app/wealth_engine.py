@@ -1213,6 +1213,13 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
             r["Hold_Score"] = base_hold_score
             r["Exit_Code"] = "DATA_STALE"
             r["Exit_Reason"] = "Stale/Missing price data — exit evaluation deferred until fresh quote"
+            if not math.isfinite(cmp) or cmp <= 0:
+                try:
+                    from telegram_engine import queue_telegram_message
+                    msg = f"🚨 <b>Exit Monitor Error</b>\nUnable to fetch live price for {sym} in Wealth Engine. Skipping evaluation to prevent false exit."
+                    queue_telegram_message(msg, symbol=sym)
+                except Exception:
+                    pass
             return r
         
         # 2. Hard Risk Stop (Calculated BEFORE Tax Bonus)
@@ -1592,7 +1599,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 return {"Stock": sym, "_row_start_time": _sym_start}
 
         stage_tracker.end_stage(f"Found {len(candidate_symbols)} candidates, {len(portfolio_dict)} portfolio positions")
-        stage_tracker.start_stage(2, "Live Quote CMP Fetch (Upstox)", f"Target: {len(all_symbols_to_fetch)} symbols")
+        stage_tracker.start_stage(2, "Live Quote CMP Fetch (UnifiedFetcher)", f"Target: {len(all_symbols_to_fetch)} symbols")
 
         # [VERSION: WEALTH_SPEEDUP_v1.0] Replace 5m snapshot bulk fetch with direct live_prices fetch.
         # Fetching 1D of 5m historical data for 300 stocks took too long and defeated the purpose
@@ -2464,7 +2471,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
         open_symbols = list(portfolio_dict.keys())
         stage_tracker.end_stage(f"Loaded {len(open_symbols)} open positions")
 
-        stage_tracker.start_stage(2, "Live Quote CMP Fetch (Upstox)", f"Target: {len(open_symbols)} positions")
+        stage_tracker.start_stage(2, "Live Quote CMP Fetch (UnifiedFetcher)", f"Target: {len(open_symbols)} positions")
         realtime_metrics = {}
         if open_symbols:
             try:

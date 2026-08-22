@@ -848,6 +848,32 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                     cached_df = next((item[1] for item in items if item[0] == sym), None)
                     
                     if md is None:
+                        # [BATCH FALLBACK FIX] Primary batch provider failed (e.g. rate limit). 
+                        # Use UnifiedFetcher to route through secondary providers (Fyers -> Upstox -> Yahoo).
+                        logger.warning(f"⚠️ Primary batch fetch failed for {sym}. Attempting UnifiedFetcher fallback...")
+                        try:
+                            from data_providers.unified_fetcher import UnifiedFetcher
+                            unified_fetcher = UnifiedFetcher()
+                            fallback_df = unified_fetcher.fetch_historical(sym, interval, period, consumer="price_cache_fallback")
+                            if fallback_df is not None and not fallback_df.empty:
+                                from market_data.core.models import NormalizedMarketData, DataProvenance
+                                # Wrap in NormalizedMarketData to integrate with the batch loop
+                                md = NormalizedMarketData(
+                                    symbol=sym, 
+                                    timeframe=interval, 
+                                    dataframe=fallback_df, 
+                                    provenance=DataProvenance(
+                                        source=fallback_df.attrs.get("provider", "fallback"), 
+                                        start_time=datetime.now(), 
+                                        latency_ms=0, 
+                                        data_quality=100.0
+                                    )
+                                )
+                                logger.info(f"✅ Fallback successful for {sym} using {md.source}")
+                        except Exception as fb_err:
+                            logger.error(f"❌ UnifiedFetcher fallback failed for {sym}: {fb_err}")
+                            
+                    if md is None:
                         if cached_df is not None and not cached_df.empty:
                             _mark_cache_staleness(cached_df)
                             all_data[sym] = cached_df

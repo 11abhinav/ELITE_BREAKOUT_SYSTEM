@@ -704,6 +704,17 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                     update_alert_current_price(t["id"], cur_p)
                 except Exception as e:
                     logger.warning(f"Failed to persist current_price for trade id {t['id']}: {e}")
+        elif is_open and not t["_db_closed"]:
+            # [VERSION: EXIT_MONITOR_MISSING_PRICE_FIX_v1.0] 
+            # Safely skip instead of triggering false SL hits if live price fails
+            logger.error(f"🚨 [PERFORMANCE TRACKER] {sym}: No live price available. Skipping evaluation to prevent false exit.")
+            try:
+                from telegram_engine import queue_telegram_message
+                msg = f"🚨 <b>Exit Monitor Error</b>\nUnable to fetch live price for {sym}. Skipping performance tracking evaluation to prevent false exit. Providers may be rate-limited."
+                queue_telegram_message(msg, symbol=sym)
+            except Exception:
+                pass
+            continue
 
         # ── Already closed in DB — no bar download needed ────────────────────────
         if t["_db_closed"]:

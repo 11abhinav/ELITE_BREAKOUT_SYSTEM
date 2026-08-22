@@ -1456,23 +1456,14 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 
                 # Check for temporary provider outage vs permanent stale data
                 if not price_data:
-                    logger.error(f"🚨 [EXIT MONITOR] {symbol}: No price data available in batch. Stock might be suspended/delisted. Triggering REVIEW.")
-                    # Trigger a review alert since we have zero price data (could be delisted/purged)
+                    logger.error(f"🚨 [EXIT MONITOR] {symbol}: No price data available in batch. Skipping evaluation to prevent false exit.")
+                    # [VERSION: EXIT_MONITOR_MISSING_PRICE_FIX_v1.0] Safely skip instead of triggering SELL_REVIEW
                     try:
-                        with get_connection() as conn:
-                            with conn.cursor() as cur:
-                                cur.execute("""
-                                    UPDATE alerts 
-                                    SET status = 'SELL_REVIEW', 
-                                        exit_signal = 'Review Alert: No price data returned by provider. Stock may be delisted or suspended.',
-                                        exit_reason = 'Review Alert: No price data returned by provider. Stock may be delisted or suspended.',
-                                        updated_at = CURRENT_TIMESTAMP
-                                    WHERE id = %s
-                                """, (alert_id,))
-                            conn.commit()
-                        logger.warning(f"🚨 SELL_REVIEW TRIGGERED for {symbol}: No price data returned by provider.")
+                        from telegram_engine import queue_telegram_message
+                        msg = f"🚨 <b>Exit Monitor Error</b>\nUnable to fetch live price for {symbol}. Skipping evaluation to prevent false exit. Providers may be rate-limited or stock suspended."
+                        queue_telegram_message(msg, symbol=symbol)
                     except Exception as e:
-                        logger.exception(f"Failed to update alert for {symbol} due to missing price data.")
+                        logger.exception(f"Failed to send telegram alert for {symbol} missing price data.")
                     continue
                     
                 current_price = price_data.price
