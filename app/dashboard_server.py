@@ -3095,8 +3095,13 @@ def fetch_and_analyze_concall(symbol):
         data = r.json()
         target_pdfs = []
         
+        if not isinstance(data, list):
+            return {"error": "Unexpected response format from NSE."}
+            
         # Priority 1: Transcripts
         for n in data:
+            if not isinstance(n, dict):
+                continue
             desc = str(n.get("desc", "")).lower()
             if "transcript" in desc:
                 url = str(n.get("attchmntFile", ""))
@@ -3107,6 +3112,8 @@ def fetch_and_analyze_concall(symbol):
         # Priority 2: Earnings / Investor Presentations
         if not target_pdfs:
             for n in data:
+                if not isinstance(n, dict):
+                    continue
                 desc = str(n.get("desc", "")).lower()
                 if "presentation" in desc or "earnings" in desc:
                     url = str(n.get("attchmntFile", ""))
@@ -3117,6 +3124,8 @@ def fetch_and_analyze_concall(symbol):
         # Priority 3: General Concall Updates (Might just be a schedule)
         if not target_pdfs:
             for n in data:
+                if not isinstance(n, dict):
+                    continue
                 desc = str(n.get("desc", "")).lower()
                 if "con. call" in desc or "investor meet" in desc:
                     url = str(n.get("attchmntFile", ""))
