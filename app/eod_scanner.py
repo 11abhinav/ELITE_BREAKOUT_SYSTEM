@@ -826,7 +826,6 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                         # EOD Scanner requires SMA200 & 52W High (252 trading days = ~365 cal days max).
                         # Using period="1y" shares the exact same Parquet cache files with Wealth Engine & Reversal scanner,
                         # eliminating 50% data payload and preventing cache key fragmentation.
-                        from locks import _global_lock
                         _global_lock.acquire(blocking=True, owner_scanner="EOD", operation="FETCH_BATCH")
                         try:
                             all_ticker_data = fetch_watchlist_data(chunk_df, interval="1d", period="1y", requester="EOD")
