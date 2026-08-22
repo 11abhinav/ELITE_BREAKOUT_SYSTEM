@@ -38,17 +38,19 @@ def _safe_float(val: Any, default: Any = None) -> Any:
 def sanitize_telemetry_value(val: Any) -> Tuple[Any, str, str]:
     """Sanitizes raw value and returns (sanitized_val, status, reason)."""
     if val is None:
-        return "NONE", "MISSING", "VALUE_IS_NONE"
+        return "NONE", "NULL", "VALUE_IS_NONE"
     if isinstance(val, float):
         if math.isnan(val) or np.isnan(val):
-            return "NaN", "INVALID", "VALUE_IS_NAN"
+            return "NaN", "NAN", "VALUE_IS_NAN"
         if math.isinf(val) or np.isinf(val):
-            return "INF", "INVALID", "VALUE_IS_INF"
+            return "INF", "NAN", "VALUE_IS_INF"
         return round(val, 4), "VALID", "OK"
     if isinstance(val, (int, np.integer)):
         return int(val), "VALID", "OK"
     if isinstance(val, bool):
         return bool(val), "VALID", "OK"
+    if isinstance(val, str) and str(val).strip().lower() in ["", "nan", "none", "null"]:
+        return str(val), "INVALID", "STRING_EMPTY_OR_NULL_LIKE"
     return str(val), "VALID", "OK"
 
 
@@ -57,12 +59,17 @@ class TelemetryValueEntry:
     def __init__(self, key: str, value: Any, origin: str = "CALCULATED", group: str = "DERIVED", source_series: str = None):
         self.key = key
         self.raw_value = value
-        self.origin = origin # EXTERNAL_API, CALCULATED, CONFIG, DERIVED
+        self.origin = origin # EXTERNAL_API, CALCULATED, CONFIG, DERIVED, STALE_CACHE
         self.group = group # RAW, INDICATOR, DERIVED, CONFIG, GATE, SCORE, SL_TARGET, DEPENDENCY
         self.source_series = source_series
         self.timestamp = time.time()
         
         sanitized, status, reason = sanitize_telemetry_value(value)
+        # Apply STALE precedence if data is otherwise valid but comes from stale cache
+        if origin == "STALE_CACHE" and status == "VALID":
+            status = "STALE"
+            reason = "STALE_DATA_USED"
+
         self.value = sanitized
         self.status = status
         self.reason = reason
@@ -111,6 +118,19 @@ class DecisionContext:
         self.timeframe_data: Dict[str, Dict[str, Any]] = {}
         self.error_details: Dict[str, Any] = {}
         self.decision_trace: List[Dict[str, Any]] = []
+        self.decision_manifest: List[Dict[str, Any]] = []
+
+    def add_decision_input(self, name: str, value: Any, source: str, as_of: str, freshness: str, required: bool, valid: bool):
+        """Adds a field to the explicit decision manifest for auditing."""
+        self.decision_manifest.append({
+            "name": name,
+            "value": value,
+            "source": source,
+            "as_of": as_of,
+            "freshness": freshness,
+            "required": required,
+            "valid": valid
+        })
 
     def capture(self, key: str, value: Any, origin: str = "CALCULATED", group: str = "DERIVED", source_series: str = None):
         """Captures a field into decision context, guaranteeing non-silent retention."""
@@ -214,16 +234,24 @@ class DecisionContext:
             "reason": reason or ""
         })
 
-    def capture_gate(self, gate_name: str, passed: bool, actual_val: Any = None, operator_str: str = ">=", threshold_val: Any = None, reason: str = ""):
-        """Captures gate evaluation result with operator and expected threshold (Section 9)."""
-        self.gate_results[gate_name] = {
+    def capture_gate(self, gate_name: str, passed: bool, actual_val: Any = None, operator_str: str = None, threshold_val: Any = None, reason: str = "", gate_type: str = "THRESHOLD", **kwargs):
+        """Captures gate evaluation result. gate_type can be THRESHOLD, BOOLEAN, RANKING, COMPOSITE."""
+        gate_info = {
             "passed": passed,
             "status": "PASS" if passed else "FAIL",
-            "actual": actual_val,
-            "operator": operator_str,
-            "threshold": threshold_val,
+            "gate_type": gate_type,
             "reason": reason
         }
+        if gate_type == "THRESHOLD":
+            gate_info.update({"actual": actual_val, "operator": operator_str, "threshold": threshold_val})
+        elif gate_type == "BOOLEAN":
+            gate_info.update({"actual": actual_val, "expected": threshold_val, "pattern": reason})
+        elif gate_type == "RANKING":
+            gate_info.update({"actual_rank": actual_val, "max_rank": threshold_val, "competitors": kwargs.get("competitors"), "ranking_basis": kwargs.get("ranking_basis")})
+        else:
+            gate_info.update({"actual": actual_val, "operator": operator_str, "threshold": threshold_val})
+
+        self.gate_results[gate_name] = gate_info
         self.capture(key=f"GATE_{gate_name.upper()}", value="PASS" if passed else "FAIL", origin="CALCULATED", group="GATE")
 
     def capture_score(self, component_name: str, score_points: float, max_points: float, reason: str = ""):
@@ -287,20 +315,29 @@ class DecisionContext:
 
     @property
     def data_quality_summary(self) -> dict:
-        """Computes data quality counts."""
-        missing = sum(1 for e in self.entries.values() if e.status == "MISSING")
-        invalid = sum(1 for e in self.entries.values() if e.status == "INVALID")
-        valid = sum(1 for e in self.entries.values() if e.status == "VALID")
+        """Computes deterministic data quality counts using mutually exclusive precedence invariant."""
+        expected = len(self.entries)
+        null_c = sum(1 for e in self.entries.values() if e.status == "NULL")
+        nan_c = sum(1 for e in self.entries.values() if e.status == "NAN")
+        inv_c = sum(1 for e in self.entries.values() if e.status == "INVALID")
+        stale_c = sum(1 for e in self.entries.values() if e.status == "STALE")
+        valid_c = sum(1 for e in self.entries.values() if e.status == "VALID")
+
+        present = valid_c + null_c + nan_c + inv_c + stale_c
+        
+        # Exact invariant assertion
+        if present != expected:
+            logger.error(f"Data Quality Invariant Broken! present({present}) != expected({expected})")
+
         return {
-            "expected_values": len(self.entries),
-            "captured_values": len(self.entries),
-            "valid_count": valid,
-            "missing_count": missing,
-            "invalid_count": invalid,
-            "none_count": missing,
-            "nan_count": invalid,
-            "fallback_count": sum(1 for e in self.entries.values() if e.origin == "FALLBACK"),
-            "stale_count": sum(1 for e in self.entries.values() if e.origin == "STALE_CACHE")
+            "expected_fields": expected,
+            "present_fields": present,
+            "valid_fields": valid_c,
+            "null_fields": null_c,
+            "nan_fields": nan_c,
+            "invalid_fields": inv_c,
+            "stale_fields": stale_c,
+            "decision_input_fields": len(self.decision_manifest)
         }
 
     def format_terminal_audit_box(self) -> str:
@@ -397,13 +434,21 @@ class DecisionContext:
 
         # 9. DATA QUALITY
         dq = self.data_quality_summary
-        lines.append("\n[DATA QUALITY]")
-        lines.append(f"Expected Values        : {dq['expected_values']}")
-        lines.append(f"Captured Values        : {dq['captured_values']}")
-        lines.append(f"Missing                : {dq['missing_count']}")
-        lines.append(f"None                   : {dq['none_count']}")
-        lines.append(f"NaN                    : {dq['nan_count']}")
-        lines.append(f"Invalid                : {dq['invalid_count']}")
+        lines.append("\n[DATA QUALITY INVARIANTS]")
+        lines.append(f"Expected Fields        : {dq['expected_fields']}")
+        lines.append(f"Present Fields         : {dq['present_fields']}")
+        lines.append(f"Valid                  : {dq['valid_fields']}")
+        lines.append(f"Null                   : {dq['null_fields']}")
+        lines.append(f"NaN/Inf                : {dq['nan_fields']}")
+        lines.append(f"Invalid                : {dq['invalid_fields']}")
+        lines.append(f"Stale                  : {dq['stale_fields']}")
+        lines.append(f"Decision Manifest Inputs: {dq['decision_input_fields']}")
+
+        if self.decision_manifest:
+            lines.append("\n[DECISION MANIFEST]")
+            for dm in self.decision_manifest:
+                valid_str = "VALID" if dm["valid"] else "INVALID"
+                lines.append(f"  - {dm['name']:<15} | req={dm['required']} | val={dm['value']} | src={dm['source']} | fresh={dm['freshness']} | {valid_str}")
 
         # 10. FINAL
         lines.append("\n[FINAL DECISION]")
@@ -440,6 +485,7 @@ class DecisionContext:
             "sl_target": self.sl_target,
             "error_details": self.error_details,
             "decision_trace": self.decision_trace,
+            "decision_manifest": self.decision_manifest,
             "all_values": {k: e.to_dict() for k, e in self.entries.items()}
         }
 
@@ -486,9 +532,9 @@ class GlobalScannerTelemetryEngine:
             except Exception as e:
                 logger.error(f"Failed to write to scanner_telemetry.jsonl: {e}")
 
-    def record_reject(self, symbol: str, last_stage: str = "PRE_CHECK", gate: str = "REJECTED", actual: Any = None, required: Any = None, start_time: float = None, **kwargs):
+    def record_reject(self, symbol: str, last_stage: str = "PRE_CHECK", gate: str = "REJECTED", actual: Any = None, required: Any = None, start_time: float = None, scanner_name: str = None, run_id: str = None, gate_type: str = "THRESHOLD", **kwargs):
         """Helper recording rejected symbol into DecisionContext and emitting full terminal telemetry."""
-        ctx = self.get_or_create_context(symbol=symbol)
+        ctx = self.get_or_create_context(symbol=symbol, scanner_name=scanner_name, run_id=run_id)
         if "raw_market" in kwargs and isinstance(kwargs["raw_market"], dict):
             ctx.capture_raw_market(**kwargs["raw_market"])
         if "indicators" in kwargs and isinstance(kwargs["indicators"], dict):
@@ -497,13 +543,13 @@ class GlobalScannerTelemetryEngine:
             ctx.capture_fundamentals(**kwargs["fundamentals"])
         if "sl_target" in kwargs and isinstance(kwargs["sl_target"], dict):
             ctx.capture_sl_target(**kwargs["sl_target"])
-        ctx.capture_gate(gate_name=gate, passed=False, actual_val=actual, threshold_val=required, reason=f"Rejected at stage {last_stage}")
+        ctx.capture_gate(gate_name=gate, passed=False, actual_val=actual, threshold_val=required, reason=f"Rejected at stage {last_stage}", gate_type=gate_type, **kwargs)
         ctx.finalize(decision="REJECTED", primary_reason=f"{gate}_FAIL")
         self.emit_terminal(ctx)
 
-    def record_candidate(self, symbol: str, score: float = 0.0, sl: float = 0.0, target: float = 0.0, **kwargs):
+    def record_candidate(self, symbol: str, score: float = 0.0, sl: float = 0.0, target: float = 0.0, scanner_name: str = None, run_id: str = None, **kwargs):
         """Helper recording qualified candidate into DecisionContext and emitting full terminal telemetry."""
-        ctx = self.get_or_create_context(symbol=symbol)
+        ctx = self.get_or_create_context(symbol=symbol, scanner_name=scanner_name, run_id=run_id)
         if "raw_market" in kwargs and isinstance(kwargs["raw_market"], dict):
             ctx.capture_raw_market(**kwargs["raw_market"])
         if "indicators" in kwargs and isinstance(kwargs["indicators"], dict):
@@ -515,9 +561,9 @@ class GlobalScannerTelemetryEngine:
         ctx.finalize(decision="SELECTED", primary_reason="ALL_REQUIRED_GATES_PASSED")
         self.emit_terminal(ctx)
 
-    def record_pass(self, symbol: str, score: float = 0.0, rr_ratio: float = 0.0, metrics: Dict[str, Any] = None, start_time: float = None, **kwargs):
+    def record_pass(self, symbol: str, score: float = 0.0, rr_ratio: float = 0.0, metrics: Dict[str, Any] = None, start_time: float = None, scanner_name: str = None, run_id: str = None, **kwargs):
         """Helper recording passed candidate into DecisionContext and emitting full terminal telemetry."""
-        ctx = DecisionContext(symbol=symbol, scanner_name=self.scanner_name or "EOD", run_id=self.run_id)
+        ctx = self.get_or_create_context(symbol=symbol, scanner_name=scanner_name, run_id=run_id)
         if "raw_market" in kwargs and isinstance(kwargs["raw_market"], dict):
             ctx.capture_raw_market(**kwargs["raw_market"])
         if "indicators" in kwargs and isinstance(kwargs["indicators"], dict):
@@ -553,7 +599,62 @@ class GlobalScannerTelemetryEngine:
 # Singleton instance for centralized telemetry emission
 telemetry_engine = GlobalScannerTelemetryEngine()
 
-# Backward compatibility aliases for existing scanner imports
-ScannerDecisionLogger = GlobalScannerTelemetryEngine
+
+class ScannerDecisionLogger:
+    """Wrapper that delegates to the global telemetry singleton while injecting the scanner name."""
+    def __init__(self, scanner_name: str = None, run_id: str = None, regime: str = None, *args, **kwargs):
+        self.scanner_name = scanner_name
+        self.run_id = run_id
+        self.regime = regime
+
+    def record_reject(self, symbol: str, last_stage: str = "PRE_CHECK", gate: str = "REJECTED", actual: Any = None, required: Any = None, start_time: float = None, gate_type: str = "THRESHOLD", **kwargs):
+        telemetry_engine.record_reject(symbol=symbol, last_stage=last_stage, gate=gate, actual=actual, required=required, start_time=start_time, scanner_name=self.scanner_name, run_id=self.run_id, gate_type=gate_type, **kwargs)
+
+    def record_candidate(self, symbol: str, score: float = 0.0, sl: float = 0.0, target: float = 0.0, **kwargs):
+        telemetry_engine.record_candidate(symbol=symbol, score=score, sl=sl, target=target, scanner_name=self.scanner_name, run_id=self.run_id, **kwargs)
+
+    def record_pass(self, symbol: str, score: float = 0.0, rr_ratio: float = 0.0, metrics: Dict[str, Any] = None, start_time: float = None, **kwargs):
+        telemetry_engine.record_pass(symbol=symbol, score=score, rr_ratio=rr_ratio, metrics=metrics, start_time=start_time, scanner_name=self.scanner_name, run_id=self.run_id, **kwargs)
+
+    def flush(self, *args, **kwargs):
+        telemetry_engine.flush(*args, **kwargs)
+
+    def record_summary(self, *args, **kwargs):
+        telemetry_engine.record_summary(*args, **kwargs)
+
+    def print_summary(self, *args, **kwargs):
+        telemetry_engine.print_summary(*args, **kwargs)
+
+    def print_system_summary(self, *args, **kwargs):
+        telemetry_engine.print_system_summary(*args, **kwargs)
+
+    def get_or_create_context(self, symbol: str) -> DecisionContext:
+        return telemetry_engine.get_or_create_context(symbol=symbol, scanner_name=self.scanner_name, run_id=self.run_id)
+
+
 global_telemetry = telemetry_engine
+
+
+def certify_final_decision(symbol: str, scanner_name: str, entry_price: float, timestamp: str, decision_manifest: list) -> Tuple[bool, str]:
+    """
+    FINAL_DECISION_CERTIFICATION: Pre-persistence barrier.
+    Rejects the alert if critical decision inputs are missing/invalid, 
+    if the entry price is invalid, or if the timestamp is missing/bad.
+    """
+    if pd.isna(entry_price) or entry_price <= 0:
+        return False, "INVALID_ENTRY_PRICE"
+    
+    if pd.isna(timestamp) or str(timestamp).lower() in ["nan", "none", "null", ""]:
+        return False, "INVALID_TIMESTAMP"
+
+    for field in decision_manifest:
+        if field.get("required", False):
+            if not field.get("valid", False):
+                return False, f"REQUIRED_DECISION_INPUT_INVALID ({field.get('name')})"
+            if str(field.get("value")).lower() in ["nan", "none", "null", "inf", "-inf"]:
+                return False, f"REQUIRED_DECISION_INPUT_MISSING ({field.get('name')})"
+            if field.get("freshness") == "STALE_CRITICAL":
+                return False, f"STALE_CRITICAL_INPUT ({field.get('name')})"
+
+    return True, "CERTIFIED"
 

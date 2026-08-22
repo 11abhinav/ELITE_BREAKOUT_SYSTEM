@@ -85,3 +85,70 @@ def certify_telemetry(manifest: Dict[str, List[str]], emitted_json: dict) -> boo
     # This is a stub for the full runtime execution test which would run the scanner logic
     # and compare the exact emitted JSON against the expected path.
     return passed
+
+def test_data_quality_invariant():
+    from scanner_telemetry import DecisionContext
+    
+    ctx = DecisionContext("TCS", "WEALTH_ENGINE")
+    
+    # 1. Add VALID input
+    ctx.capture("cmp", 3500.0)
+    ctx.add_decision_input("cmp", 3500.0, "Watchlist", "Live", "LIVE", required=True, valid=True)
+    # 2. Add NULL input
+    ctx.capture("roce", None)
+    ctx.add_decision_input("roce", None, "Watchlist", "Live", "MISSING", required=True, valid=False)
+    # 3. Add NAN input
+    import math
+    ctx.capture("roe", float("nan"))
+    ctx.add_decision_input("roe", float("nan"), "Watchlist", "Live", "MISSING", required=True, valid=False)
+    # 4. Add STALE input
+    ctx.capture("debt_equity", 0.5)
+    # manually setting status to STALE to simulate stale logic which might be external
+    ctx.entries["debt_equity"].status = "STALE"
+    ctx.add_decision_input("debt_equity", 0.5, "Watchlist", "2022-01-01", "STALE", required=True, valid=False)
+    # 5. Add INVALID input (e.g. empty string)
+    ctx.capture("yoy_profit", "")
+    ctx.add_decision_input("yoy_profit", "", "Watchlist", "Live", "MISSING", required=True, valid=False)
+    
+    summary = ctx.data_quality_summary
+    assert summary["expected_fields"] == 5
+    assert summary["valid_fields"] == 1
+    assert summary["null_fields"] == 1
+    assert summary["nan_fields"] == 1
+    assert summary["stale_fields"] == 1
+    assert summary["invalid_fields"] == 1
+    
+    # Invariant assertion
+    assert summary["expected_fields"] == summary["valid_fields"] + summary["null_fields"] + summary["nan_fields"] + summary["invalid_fields"] + summary["stale_fields"]
+
+def test_certify_final_decision():
+    from scanner_telemetry import DecisionContext, certify_final_decision
+    
+    ctx = DecisionContext("INFY", "WEALTH_ENGINE")
+    ctx.add_decision_input("cmp", 1500.0, "Watchlist", "Live", "LIVE", required=True, valid=True)
+    ctx.add_decision_input("roce", 25.0, "Watchlist", "Live", "LIVE", required=True, valid=True)
+    
+    # Pass certification
+    is_certified, reason = certify_final_decision("INFY", "WEALTH_ENGINE", 1500.0, "2024-05-15", ctx.decision_manifest)
+    assert is_certified is True
+    assert reason == "CERTIFIED"
+    
+    # Fail certification (missing required field)
+    ctx.add_decision_input("roe", None, "Watchlist", "Live", "MISSING", required=True, valid=False)
+    is_certified, reason = certify_final_decision("INFY", "WEALTH_ENGINE", 1500.0, "2024-05-15", ctx.decision_manifest)
+    assert is_certified is False
+    assert "REQUIRED_DECISION_INPUT_INVALID" in reason
+    
+    # Fail certification (stale required field)
+    ctx2 = DecisionContext("WIPRO", "WEALTH_ENGINE")
+    ctx2.add_decision_input("cmp", 400.0, "Watchlist", "Live", "LIVE", required=True, valid=True)
+    ctx2.add_decision_input("roce", 15.0, "Watchlist", "Live", "STALE", required=True, valid=False)
+    is_certified, reason = certify_final_decision("WIPRO", "WEALTH_ENGINE", 400.0, "2024-05-15", ctx2.decision_manifest)
+    assert is_certified is False
+    assert "REQUIRED_DECISION_INPUT_INVALID" in reason
+    
+    # Fail certification (NaN price)
+    import math
+    is_certified, reason = certify_final_decision("TCS", "WEALTH_ENGINE", float("nan"), "2024-05-15", ctx.decision_manifest)
+    assert is_certified is False
+    assert "INVALID_ENTRY_PRICE" in reason

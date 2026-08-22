@@ -640,6 +640,14 @@ def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
 def determine_portfolio_bucket(r, nifty_dist_52w: float):
     """Assign stocks to Core / Growth / Opportunistic buckets based on hard filters."""
     import pandas as pd
+    from scanner_telemetry import telemetry_engine
+
+    CRITICAL_DECISION_INPUTS = {
+        "Core": ["roce", "roe", "debt_equity", "cmp"],
+        "Growth": ["yoy_sales", "yoy_profit", "roce", "rs_6m", "dist_52w", "cmp"],
+        "Quality-On-Sale": ["roce", "roe", "dist_52w", "debt_equity", "cmp"],
+        "Opportunistic": ["yoy_profit", "rs_6m", "cmp"]
+    }
 
     # [VERSION: WEALTH_BUCKET_FIX_v1.1] Handle pandas NaN semantics for missing data
     score      = _safe_num(r.get("FM_Score", 0))
@@ -686,6 +694,26 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
         if gnpa is not None and gnpa > 5.0:
             return None  # Known-bad NPA: FAIL — not a data void, data is present and negative
 
+    raw_values = {
+        "score": (r.get("FM_Score"), score),
+        "mcap": (r.get("Market Cap Cr"), mcap),
+        "roce": (r.get("ROCE %"), roce),
+        "roe": (r.get("ROE %"), roe),
+        "debt_equity": (r.get("Debt/Equity"), de),
+        "yoy_sales": (r.get("YOY Revenue %"), yoy_sales),
+        "yoy_profit": (r.get("YOY Profit %"), yoy_profit),
+        "rs_6m": (rs_6m_raw, rs_6m),
+        "dist_52w": (r.get("dist_52w_high"), dist_52w),
+        "cmp": (r.get("cmp", r.get("CMP")), _safe_num(r.get("cmp", r.get("CMP"))))
+    }
+
+    def _is_valid(raw_val, parsed_val):
+        if raw_val is None or (isinstance(raw_val, float) and pd.isna(raw_val)): return False
+        if isinstance(raw_val, str) and raw_val.strip().lower() in ["nan", "none", "null", ""]: return False
+        import math
+        if parsed_val is not None and (math.isnan(parsed_val) or math.isinf(parsed_val)): return False
+        return True
+
     if check_core_compounder_rules(score, mcap, roce, roe, de, is_fin):
         buckets.append("Core")
 
@@ -695,15 +723,36 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
     if check_quality_on_sale_rules(score, roce, roe, dist_52w, de, is_fin):
         buckets.append("Quality-On-Sale")
 
+    if check_opportunistic_rules(score, yoy_profit, rs_6m, cats):
+        buckets.append("Opportunistic")
+
     res_bucket = ", ".join(buckets) if buckets else "REVIEW"
 
     # ── PER-STOCK TERMINAL TELEMETRY DUMP (Section 4 & 8) ──
     try:
-        from scanner_telemetry import DecisionContext, telemetry_engine
         from decision_ledger import global_decision_ledger
         sym = r.get("Stock", r.get("Symbol", "UNKNOWN"))
         cmp_val = _safe_num(r.get("cmp", r.get("CMP", 0.0)))
-        ctx = DecisionContext(symbol=str(sym), scanner_name="WEALTH_ENGINE")
+        ctx = telemetry_engine.get_or_create_context(symbol=str(sym), scanner_name="WEALTH_ENGINE")
+        
+        # Populate decision manifest based on whichever buckets qualified
+        required_fields = set(["cmp"])
+        for b in buckets:
+            required_fields.update(CRITICAL_DECISION_INPUTS.get(b, []))
+
+        for field_key, (raw_val, parsed_val) in raw_values.items():
+            req = field_key in required_fields
+            val_status = _is_valid(raw_val, parsed_val)
+            ctx.add_decision_input(
+                name=field_key,
+                value=raw_val,
+                source="Watchlist/Tech",
+                as_of="Latest",
+                freshness="LIVE" if val_status else "MISSING",
+                required=req,
+                valid=val_status
+            )
+            
         ctx.capture_raw_market(open_p=cmp_val, high_p=cmp_val, low_p=cmp_val, close_p=cmp_val, volume=0.0)
         ctx.capture_fundamentals(
             roce=roce, roe=roe, debt_equity=de,
@@ -1992,17 +2041,36 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 symbol = row.get("Stock")
                 cmp = row.get("cmp")
                 if symbol and cmp and not DONT_SAVE_WEALTH:
-                    # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every triggered trade
+                    # Final Certification Barrier
+                    from scanner_telemetry import certify_final_decision, telemetry_engine
+                    ctx = telemetry_engine.get_or_create_context(symbol, scanner_name="WEALTH_ENGINE")
+                    
+                    # Ensure timestamp falls back securely
                     _last_bar_date = "unknown"
                     if "fallback_timestamp" in row and row["fallback_timestamp"]:
                         _last_bar_date = str(row["fallback_timestamp"])[:10]
                     elif not row.get("used_fallback_data", False):
-                        _last_bar_date = "live/cache"
-                        
+                        _last_bar_date = datetime.now(IST).strftime("%Y-%m-%d")
+                    
+                    is_certified, cert_reason = certify_final_decision(
+                        symbol=symbol,
+                        scanner_name="WEALTH_ENGINE",
+                        entry_price=cmp,
+                        timestamp=_last_bar_date,
+                        decision_manifest=ctx.decision_manifest
+                    )
+
+                    if not is_certified:
+                        logger.warning(f"🚫 [CERTIFICATION FAILED] {symbol} rejected at final barrier: {cert_reason}")
+                        wealth_df.loc[wealth_df["Stock"] == symbol, "Signal_Code"] = "SUPPRESSED"
+                        wealth_df.loc[wealth_df["Stock"] == symbol, "Signal_Reason"] = f"Certification Failed: {cert_reason}"
+                        wealth_df.loc[wealth_df["Stock"] == symbol, "Signal"] = f"SUPPRESSED ({cert_reason})"
+                        continue
+                    # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every triggered trade                        
                     logger.info(
                         f"📍 PICKED [WEALTH ENGINE: BUY SIGNAL]: {symbol} @ ₹{cmp:.2f} | "
                         f"fm_score={row.get('FM_Score', 0):.1f} | mom={row.get('momentum_score', 0)} | "
-                        f"bucket={row.get('Portfolio_Bucket', 'Unknown')} | entry=₹{cmp:.2f} | last_bar={_last_bar_date}"
+                        f"bucket={row.get('Portfolio_Bucket', 'Unknown')} | entry=₹{cmp:.2f} | last_bar={_last_bar_date} | CERTIFIED"
                     )
                     
                     if is_test_mode:
@@ -2077,32 +2145,54 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 
                 if "Incomplete" in reason:
                     gate = "INCOMPLETE_DATA"
+                    gate_type = "BOOLEAN"
+                    actual = False
+                    required = True
                 elif "Stale Data" in reason:
                     gate = "STALE_DATA"
+                    gate_type = "BOOLEAN"
+                    actual = False
+                    required = True
                 elif "Low Consistency" in reason:
                     gate = "LOW_CONSISTENCY"
+                    gate_type = "THRESHOLD"
                     actual = cons_score
                     required = 15.0
                 elif "Overvalued" in reason:
                     gate = "OVERVALUED"
+                    gate_type = "THRESHOLD"
                     actual = val_score
                     required = 5.0
                 elif "Below 200 SMA" in reason:
                     gate = "BELOW_200SMA"
+                    gate_type = "THRESHOLD"
                     actual = cmp_val
                     required = sma200_val
                 elif "Score" in reason and "< 55" in reason:
                     gate = "LOW_SCORE"
+                    gate_type = "THRESHOLD"
                     actual = score
                     required = 55.0
                 elif "Low Momentum" in reason:
                     gate = "LOW_MOMENTUM"
+                    gate_type = "THRESHOLD"
+                    actual = mom_score
+                    required = 40.0 # Assuming mom threshold
                 elif "Ranked Out" in reason:
                     gate = "RANKED_OUT"
+                    gate_type = "RANKING"
+                    actual = None
+                    required = None
                 elif "Failed Bucket Quality Gates" in reason:
                     gate = "FAILED_BUCKET_GATES"
+                    gate_type = "COMPOSITE"
+                    actual = None
+                    required = None
                 elif "Rejected by DB" in reason or "SUPPRESSED" in sig_code:
                     gate = "DB_SUPPRESSED"
+                    gate_type = "BOOLEAN"
+                    actual = False
+                    required = True
                 
                 telemetry_logger.record_reject(
                     symbol=symbol,
@@ -2110,6 +2200,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                     gate=gate,
                     actual=actual,
                     required=required,
+                    gate_type=gate_type,
                     score=score,
                     rr=0.0,
                     metadata={"reason": reason, **metadata},
@@ -2330,8 +2421,18 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         
         stale_count = rejection_counts.get("stale_data", 0)
         no_data_count = rejection_counts.get("no_data", 0)
-        fresh_count = max(0, total_eval - stale_count - no_data_count)
-        data_status = "DEGRADED (Stale Data > 10%)" if (stale_count / max(total_eval, 1)) > 0.10 else "OK"
+        stale_ratio = stale_count / max(total_eval, 1)
+        missing_ratio = no_data_count / max(total_eval, 1)
+        
+        if missing_ratio > 0.50:
+            data_status = f"INVALID (Missing Data {missing_ratio*100:.1f}%)"
+        elif stale_ratio > 0.50:
+            data_status = f"BLOCKED (Stale Data {stale_ratio*100:.1f}% > 50%)"
+        elif stale_ratio > 0.05:
+            data_status = f"DEGRADED (Stale Data {stale_ratio*100:.1f}%)"
+        else:
+            data_status = "HEALTHY"
+            
         duration_sec = round(time.time() - start_time, 1)
 
         summary_lines = [

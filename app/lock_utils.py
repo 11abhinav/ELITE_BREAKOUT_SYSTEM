@@ -151,10 +151,13 @@ class ProcessLockImpl:
                         while True:
                             cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
                             locked = cur.fetchone()[0]
-                            if locked:
-                                break
                             elapsed = time.monotonic() - wait_start
+                            if locked:
+                                if elapsed > 1.0:
+                                    logger.info(f"✅ [{self.lock_name.upper()}] Acquired Postgres lock after {elapsed:.1f}s wait")
+                                break
                             if timeout_val > 0 and elapsed >= timeout_val:
+                                logger.warning(f"❌ [{self.lock_name.upper()}] Lock acquisition timed out after {elapsed:.1f}s")
                                 fcntl.flock(self.lock_fd, fcntl.LOCK_UN)
                                 self.thread_lock.release()
                                 return False

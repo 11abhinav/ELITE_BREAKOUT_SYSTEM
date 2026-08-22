@@ -1413,10 +1413,17 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
     batch_upsert_list = []
     # [VERSION: BATCH_COOLDOWN_v1.0] Collect cooldown updates here; flushed post-loop to avoid per-worker DB calls.
     cooldown_list = []  # List of (symbol, state, hours) tuples
+    has_errors = False
     with ThreadPoolExecutor(max_workers=10, thread_name_prefix="MTF_Worker") as executor:
-        futures = [executor.submit(_process_item, item) for item in active_items]
-        for f in as_completed(futures):
-            f.result()
+        future_to_item = {executor.submit(_process_item, item): item for item in active_items}
+        for f in as_completed(future_to_item):
+            try:
+                f.result()
+            except Exception as e:
+                item = future_to_item[f]
+                sym = item.get("symbol", "UNKNOWN")
+                logger.error(f"❌ [Worker Crash] Error processing {sym}: {e}", exc_info=True)
+                has_errors = True
     _eval_dur = time.perf_counter() - _eval_start_t
 
     if batch_upsert_list:
@@ -1531,7 +1538,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
         except Exception as _mtf_pe:
             logger.warning(f"Failed to export multi_tf_system to DB: {_mtf_pe}")
 
-    return {"fetched": len(unique_fetched), "total": len(unique_needed), "stale": stale_30m + stale_15m + stale_5m, "save_failures": db_save_failures}
+    return {"fetched": len(unique_fetched), "total": len(unique_needed), "stale": stale_30m + stale_15m + stale_5m, "save_failures": db_save_failures, "has_errors": has_errors}
 
 
 def run_sweeper(is_test_mode=False):
@@ -1592,14 +1599,19 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
     _scan_start = print_scanner_start_banner("multi_tf_scanner", queued_at=queued_at)
     try:
         stats = _start_wrapper(run_once, is_test_mode=is_test_mode, session=session, run_ctx=run_ctx)
+        
+        final_status = "COMPLETED"
+        if isinstance(stats, dict) and (stats.get("has_errors") or (stats.get("metrics_b", {}).get("has_errors"))):
+            final_status = "COMPLETED_WITH_ERRORS"
+            
         if own_ctx and isinstance(stats, dict) and "today_alerts" in stats:
             run_ctx.add_alert(stats.get("today_alerts", 0))
         if own_ctx:
-            complete_scanner_execution_run(run_ctx)
+            complete_scanner_execution_run(run_ctx, status_override=final_status)
         return stats
     except Exception as e:
         if own_ctx:
-            complete_scanner_execution_run(run_ctx, exception=e)
+            complete_scanner_execution_run(run_ctx, status_override="FAILED", exception=e)
         raise e
     finally:
         print_scanner_end_banner("multi_tf_scanner", _scan_start)
@@ -1790,7 +1802,10 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
                 pass
                 
             if run_once:
-                return {"total_count": total_symbols, "today_alerts": metrics_b.get("triggered", 0)}
+                has_errors = False
+                if isinstance(metrics_a, dict) and metrics_a.get("has_errors"): has_errors = True
+                if isinstance(metrics_b, dict) and metrics_b.get("has_errors"): has_errors = True
+                return {"total_count": total_symbols, "today_alerts": metrics_b.get("triggered", 0) if isinstance(metrics_b, dict) else 0, "has_errors": has_errors}
                 
             logger.info("💤 Sleeping 5 minutes before next Multi-TF ladder run...")
             time.sleep(300)
