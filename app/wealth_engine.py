@@ -667,87 +667,46 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
     is_fin     = is_financial_sector(r.to_dict() if hasattr(r, 'to_dict') else r)
 
     buckets = []
-
-    # Instant Kill Gate 1: Liquidity Floor
-    from config import MIN_DAILY_LIQUIDITY_RUPEES_WEALTH
-    if liquidity < MIN_DAILY_LIQUIDITY_RUPEES_WEALTH:
-        return None
-
-    # Instant Kill Gate 2: Extreme Valuation Ceiling (PEG <= 3.0)
-    peg_raw = r.get("PEG Ratio", r.get("PEG"))
-    if peg_raw is not None and not pd.isna(peg_raw) and peg_raw != "":
-        try:
-            peg_val = float(peg_raw)
-            if peg_val > 3.0:
-                return None
-        except (ValueError, TypeError):
-            pass
-
-    # [VERSION: WEALTH_FIN_GNPA_GATE_v1.0] Instant Kill Gate 3 (financial sector only):
-    # The D/E ceiling is waived for banks/NBFCs (correctly — they are naturally leveraged).
-    # That exemption creates a gap: a bank with GNPA=8% and ROE=16% would pass unchecked.
-    # This gate substitutes D/E with a banking-specific NPA quality check.
-    # GNPA present and > 5% → FAIL (known bad).  GNPA absent → UNKNOWN → benefit of doubt.
-    if is_fin:
-        gnpa_raw = r.get("GNPA %", r.get("gnpa"))
-        gnpa = None if (gnpa_raw is None or (isinstance(gnpa_raw, float) and pd.isna(gnpa_raw))) else _safe_num(gnpa_raw)
-        if gnpa is not None and gnpa > 5.0:
-            return None  # Known-bad NPA: FAIL — not a data void, data is present and negative
-
-    raw_values = {
-        "score": (r.get("FM_Score"), score),
-        "mcap": (r.get("Market Cap Cr"), mcap),
-        "roce": (r.get("ROCE %"), roce),
-        "roe": (r.get("ROE %"), roe),
-        "debt_equity": (r.get("Debt/Equity"), de),
-        "yoy_sales": (r.get("YOY Revenue %"), yoy_sales),
-        "yoy_profit": (r.get("YOY Profit %"), yoy_profit),
-        "rs_6m": (rs_6m_raw, rs_6m),
-        "dist_52w": (r.get("dist_52w_high"), dist_52w),
-        "cmp": (r.get("cmp", r.get("CMP")), _safe_num(r.get("cmp", r.get("CMP"))))
-    }
-
-    def _is_valid(raw_val, parsed_val):
-        if raw_val is None or (isinstance(raw_val, float) and pd.isna(raw_val)): return False
-        if isinstance(raw_val, str) and raw_val.strip().lower() in ["nan", "none", "null", ""]: return False
-        import math
-        if parsed_val is not None and (math.isnan(parsed_val) or math.isinf(parsed_val)): return False
-        return True
-
-    if check_core_compounder_rules(score, mcap, roce, roe, de, is_fin):
-        buckets.append("Core")
-
-    if check_growth_multiplier_rules(score, mcap, yoy_sales, yoy_profit, rs_6m, dist_52w):
-        buckets.append("Growth")
-
-    if check_quality_on_sale_rules(score, roce, roe, dist_52w, de, is_fin):
-        buckets.append("Quality-On-Sale")
-
-    if check_opportunistic_rules(score, yoy_profit, rs_6m, cats):
-        buckets.append("Opportunistic")
-
-    res_bucket = ", ".join(buckets) if buckets else "REVIEW"
-
-    # ── PER-STOCK TERMINAL TELEMETRY DUMP (Section 4 & 8) ──
+    rejection_reason = ""
+    
     try:
+        from scanner_telemetry import telemetry_engine
         from decision_ledger import global_decision_ledger
+        
         sym = r.get("Stock", r.get("Symbol", "UNKNOWN"))
         cmp_val = _safe_num(r.get("cmp", r.get("CMP", 0.0)))
         ctx = telemetry_engine.get_or_create_context(symbol=str(sym), scanner_name="WEALTH_ENGINE")
         
-        # In V5, every field available is added to the decision manifest.
-        # However, we explicitly mark fields as required based on the buckets they matched (or 'cmp' which is always required).
-        required_fields = set(["cmp"])
-        for b in buckets:
-            required_fields.update(CRITICAL_DECISION_INPUTS.get(b, []))
-
         is_fallback = r.get("used_fallback_data", False)
         
-        for field_key, (raw_val, parsed_val) in raw_values.items():
-            req = field_key in required_fields
+        def _is_valid(raw_val, parsed_val):
+            if raw_val is None or (isinstance(raw_val, float) and pd.isna(raw_val)): return False
+            if isinstance(raw_val, str) and raw_val.strip().lower() in ["nan", "none", "null", ""]: return False
+            import math
+            if parsed_val is not None and (math.isnan(parsed_val) or math.isinf(parsed_val)): return False
+            return True
+
+        # Fields consumed by the Wealth Engine
+        consumed_fields = {
+            "score": (r.get("FM_Score"), score, True),
+            "mcap": (r.get("Market Cap Cr"), mcap, True),
+            "roce": (r.get("ROCE %"), roce, True),
+            "roe": (r.get("ROE %"), roe, True),
+            "debt_equity": (r.get("Debt/Equity"), de, True),
+            "yoy_sales": (r.get("YOY Revenue %"), yoy_sales, False),
+            "yoy_profit": (r.get("YOY Profit %"), yoy_profit, False),
+            "rs_6m": (rs_6m_raw, rs_6m, False),
+            "dist_52w": (r.get("dist_52w_high"), dist_52w, False),
+            "cmp": (r.get("cmp", r.get("CMP")), cmp_val, True),
+            "liquidity": (r.get("liquidity"), liquidity, True),
+            "peg": (r.get("PEG Ratio", r.get("PEG")), peg_val if 'peg_val' in locals() else None, False),
+            "gnpa": (r.get("GNPA %", r.get("gnpa")), gnpa if 'gnpa' in locals() else None, False)
+        }
+
+        # Explicitly register ALL fields consumed by this decision path
+        for field_key, (raw_val, parsed_val, is_critical) in consumed_fields.items():
             val_status = _is_valid(raw_val, parsed_val)
-            
-            is_market_metric = field_key in ["cmp", "rs_6m", "dist_52w", "dist_52w_high"]
+            is_market_metric = field_key in ["cmp", "rs_6m", "dist_52w", "dist_52w_high", "liquidity"]
             freshness = "LIVE" if val_status else "MISSING"
             if is_market_metric and is_fallback and val_status:
                 freshness = "STALE"
@@ -758,23 +717,9 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
                 source="Watchlist/Tech",
                 as_of="Latest",
                 freshness=freshness,
-                required=req,
+                required=is_critical,
                 valid=val_status
             )
-            
-        # [VERSION: WEALTH_MANIFEST_EXT_v1.0] Dump all numeric telemetry into decision manifest
-        for k, v in r.items():
-            # Exclude duplicate base fields and non-numeric fields like strings, dicts, arrays.
-            if k not in raw_values and isinstance(v, (int, float)) and not pd.isna(v):
-                ctx.add_decision_input(
-                    name=str(k),
-                    value=v,
-                    source="Watchlist/Tech",
-                    as_of="Latest",
-                    freshness="STALE" if is_fallback else "LIVE",
-                    required=False, # Non-core metrics are registered as soft inputs
-                    valid=True
-                )
             
         ctx.capture_raw_market(open_p=cmp_val, high_p=cmp_val, low_p=cmp_val, close_p=cmp_val, volume=0.0)
         ctx.capture_fundamentals(
@@ -782,16 +727,67 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
             yoy_revenue=yoy_sales, yoy_profit=yoy_profit, mcap=mcap
         )
         ctx.capture_score("FM_SCORE", score, 100.0)
+        
+        # Instant Kill Gate 1: Liquidity Floor
+        from config import MIN_DAILY_LIQUIDITY_RUPEES_WEALTH
+        if liquidity < MIN_DAILY_LIQUIDITY_RUPEES_WEALTH:
+            ctx.capture_gate("LiquidityFloor", False, actual_val=liquidity, threshold_val=MIN_DAILY_LIQUIDITY_RUPEES_WEALTH, reason="Low Liquidity")
+            ctx.finalize(decision="REJECTED", primary_reason="LOW_LIQUIDITY")
+            telemetry_engine.emit_terminal(ctx)
+            return None
+
+        # Instant Kill Gate 2: Extreme Valuation Ceiling (PEG <= 3.0)
+        peg_raw = r.get("PEG Ratio", r.get("PEG"))
+        if peg_raw is not None and not pd.isna(peg_raw) and peg_raw != "":
+            try:
+                peg_val = float(peg_raw)
+                if peg_val > 3.0:
+                    ctx.capture_gate("ValuationCeiling", False, actual_val=peg_val, threshold_val=3.0, reason="High PEG")
+                    ctx.finalize(decision="REJECTED", primary_reason="HIGH_PEG")
+                    telemetry_engine.emit_terminal(ctx)
+                    return None
+            except (ValueError, TypeError):
+                pass
+
+        if is_fin:
+            gnpa_raw = r.get("GNPA %", r.get("gnpa"))
+            gnpa = None if (gnpa_raw is None or (isinstance(gnpa_raw, float) and pd.isna(gnpa_raw))) else _safe_num(gnpa_raw)
+            if gnpa is not None and gnpa > 5.0:
+                ctx.capture_gate("AssetQuality", False, actual_val=gnpa, threshold_val=5.0, reason="High GNPA")
+                ctx.finalize(decision="REJECTED", primary_reason="HIGH_GNPA")
+                telemetry_engine.emit_terminal(ctx)
+                return None  # Known-bad NPA: FAIL
+
+        if check_core_compounder_rules(score, mcap, roce, roe, de, is_fin):
+            buckets.append("Core")
+
+        if check_growth_multiplier_rules(score, mcap, yoy_sales, yoy_profit, rs_6m, dist_52w):
+            buckets.append("Growth")
+
+        if check_quality_on_sale_rules(score, roce, roe, dist_52w, de, is_fin):
+            buckets.append("Quality-On-Sale")
+
+        if check_opportunistic_rules(score, yoy_profit, rs_6m, cats):
+            buckets.append("Opportunistic")
+
+        res_bucket = ", ".join(buckets) if buckets else "REVIEW"
+
         ctx.capture_gate("BucketQualification", bool(buckets), actual_val=res_bucket, reason=f"Buckets: {res_bucket}")
-        ctx.finalize(decision="SELECTED" if buckets else "REJECTED", primary_reason=f"BUCKETS_{res_bucket}")
+        ctx.finalize(decision="SELECTED" if buckets else "REJECTED", primary_reason=f"BUCKETS_{res_bucket}" if buckets else "NO_BUCKET_MATCH")
         telemetry_engine.emit_terminal(ctx)
-        global_decision_ledger.record_decision_context(ctx)
-    except Exception as telemetry_err:
+        
+        try:
+            global_decision_ledger.record_decision_context(ctx)
+        except Exception:
+            pass
+
+    except Exception as e:
+        import traceback
+        import logging
+        logging.getLogger(__name__).warning(f"Telemetry emission failed in Wealth Engine: {e}\n{traceback.format_exc()}")
         pass
 
-    return res_bucket
-
-
+    return res_bucket if buckets else None
 
 @profile_function("Wealth: apply_sector_cap")
 def apply_sector_cap(df: pd.DataFrame, bucket_col: str, bucket_name: str, max_stocks: int) -> pd.DataFrame:

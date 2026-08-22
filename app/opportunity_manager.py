@@ -208,7 +208,7 @@ class OpportunityManager:
 
             if status == "FUNDED":
                 try:
-                    save_alert_if_new(
+                    inserted, reason, _, _ = save_alert_if_new(
                         symbol=symbol,
                         breakout_type=c.get("breakout_type", "MULTI_TF"),
                         alert_time=now_ist,
@@ -234,6 +234,29 @@ class OpportunityManager:
                             "allocation": c.get("allocation"),
                         },
                     )
+                    
+                    if not inserted:
+                        # Alert Sequencing Fix: STRATEGY_SELECTED -> DUPLICATE_CHECK -> DUPLICATE_REJECTED
+                        actual_status = "DUPLICATE_REJECTED" if "duplicate" in reason.lower() else "INSERT_FAILED"
+                        logger.info(f"🚫 {symbol} alert SUPPRESSED during persist: {reason}")
+                        counts["FUNDED"] -= 1
+                        counts[actual_status] = counts.get(actual_status, 0) + 1
+                        c["expired_reason"] = reason
+                        
+                        save_candidate(
+                            symbol=symbol,
+                            breakout_type=c.get("breakout_type", "MULTI_TF"),
+                            scanner=c.get("scanner", ""),
+                            technical_score=c.get("technical_score", 0),
+                            volume_ratio=c.get("volume_ratio", 0.0),
+                            delivery_pct=c.get("delivery_pct", 0.0),
+                            rr_ratio=c.get("rr_ratio", 0.0),
+                            market_context=c.get("market_context") or {},
+                            status=actual_status,
+                            rejection_reason=reason,
+                            ranking_breakdown=c.get("ranking_breakdown") or {},
+                        )
+                        continue
                     
                     # Also persist as a candidate to maintain the 1:1 invariant
                     save_candidate(

@@ -56,12 +56,13 @@ def sanitize_telemetry_value(val: Any) -> Tuple[Any, str, str]:
 
 class TelemetryValueEntry:
     """Represents a single captured field with origin, status, and reason."""
-    def __init__(self, key: str, value: Any, origin: str = "CALCULATED", group: str = "DERIVED", source_series: str = None):
+    def __init__(self, key: str, value: Any, origin: str = "CALCULATED", group: str = "DERIVED", source_series: str = None, freshness: str = "LIVE"):
         self.key = key
         self.raw_value = value
         self.origin = origin # EXTERNAL_API, CALCULATED, CONFIG, DERIVED, STALE_CACHE
         self.group = group # RAW, INDICATOR, DERIVED, CONFIG, GATE, SCORE, SL_TARGET, DEPENDENCY
         self.source_series = source_series
+        self.freshness = freshness
         self.timestamp = time.time()
         
         sanitized, status, reason = sanitize_telemetry_value(value)
@@ -153,13 +154,18 @@ class DecisionContext:
         if low_52w is not None:
             self.capture("52W_LOW", low_52w, origin="EXTERNAL_API", group="RAW")
 
-    def capture_dataframe_row(self, row: Union[pd.Series, dict]):
+    def capture_dataframe_row(self, row: Union[pd.Series, dict], is_fallback: bool = False, fallback_fields: set = None):
         """Captures every field available in the evaluation input DataFrame/Series."""
         # Layer 1: Raw/Input Coverage
         if hasattr(row, "to_dict"):
             d = row.to_dict()
         else:
             d = dict(row)
+            
+        if fallback_fields is None:
+            # Assume OHLCV are fallback if is_fallback is true
+            fallback_fields = {"OPEN", "HIGH", "LOW", "CLOSE", "VOLUME", "DATE", "DATETIME"}
+            
         for k, v in d.items():
             # Classify known indicators loosely, but fallback to INPUT if unknown.
             group = "INPUT"
@@ -171,6 +177,17 @@ class DecisionContext:
             
             # Layer 1 requirement: preserve original field names, don't drop anything.
             self.capture(str(k), v, origin="DATAFRAME", group=group)
+            
+            # Determine freshness
+            freshness = "STALE" if is_fallback and k_upper in fallback_fields else "LIVE"
+            if getattr(self.entries[str(k)], 'status', 'VALID') in ["NULL", "NAN", "INVALID"]:
+                 freshness = "MISSING"
+                 
+            # Note: We do NOT automatically call add_decision_input here.
+            # Only fields actively consumed will be registered later.
+            
+            # Update the entry object with freshness for later use
+            self.entries[str(k)].freshness = freshness
 
     def capture_indicators(self, rsi: Any = None, sma20: Any = None, sma50: Any = None, sma100: Any = None, sma200: Any = None, ema9: Any = None, ema15: Any = None, ema20: Any = None, ema50: Any = None, ema200: Any = None, macd: Any = None, macd_signal: Any = None, macd_hist: Any = None, atr: Any = None, adx: Any = None, obv: Any = None, vol_ratio: Any = None, prior_20d_high: Any = None, bb_width_pctile: Any = None, retracement_pct: Any = None):
         """Captures standard calculated indicator fields."""
@@ -242,6 +259,20 @@ class DecisionContext:
             "gate_type": gate_type,
             "reason": reason
         }
+        
+        # Explicitly register dict-based actual values into the decision manifest
+        if isinstance(actual_val, dict):
+            for k, v in actual_val.items():
+                k_upper = str(k).upper()
+                if k_upper in self.entries:
+                    freshness = getattr(self.entries[k_upper], 'freshness', 'LIVE')
+                    valid = self.entries[k_upper].status == "VALID"
+                else:
+                    freshness = "LIVE"
+                    valid = v is not None and not (isinstance(v, float) and __import__('math').isnan(v))
+                
+                self.add_decision_input(name=str(k), value=v, source="GateEvaluation", as_of="Live", freshness=freshness, required=True, valid=valid)
+                
         if gate_type == "THRESHOLD":
             gate_info.update({"actual": actual_val, "operator": operator_str, "threshold": threshold_val})
         elif gate_type == "BOOLEAN":

@@ -501,6 +501,8 @@ def batch_download_market_data(symbols: list, session=None) -> dict:
                     _v = _latest_ohlcv.get("Volume", 0.0)
                     if _o == _h == _l == _c and _v == 0.0:
                         logger.warning(f"🚫 [SEMANTIC GATES] {sym} rejected: NO_TRADING_ACTIVITY (O=H=L=C={_c:.2f}, Vol=0).")
+                        from scanner_telemetry import ScannerDecisionLogger
+                        ScannerDecisionLogger("MULTIBAGGER").record_reject(sym, last_stage="SEMANTIC_GATE", gate="NO_TRADING_ACTIVITY", actual=_v, required=1.0)
                         continue
                 
                     last_trade_date = str(ticker_df.index[-1].date())

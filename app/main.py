@@ -674,7 +674,7 @@ def _run_eod_with_retries(today_str, session=None, used_fallback=False):
             import eod_scanner
             start_time = time.time()
             with MemoryProfiler("EOD_SCANNER", force_gc_cleanup=True):
-                total = eod_scanner.start(force=True, session=session, trigger_type="SCHEDULED", scheduler_name="CRON")
+                total = eod_scanner.start(force=True, session=session, trigger_type="SCHEDULED", scheduler_name="CRON", used_fallback_data=used_fallback)
             duration_sec = round(time.time() - start_time, 1)
             time.sleep(15)
             if total == 0:
@@ -769,7 +769,7 @@ def _run_reversal_with_retries(today_str, session=None, used_fallback=False):
             import reversal_scanner
             start_time = time.time()
             with MemoryProfiler("REVERSAL", force_gc_cleanup=True):
-                total = reversal_scanner.start(force=True, session=session, trigger_type="SCHEDULED", scheduler_name="CRON")
+                total = reversal_scanner.start(force=True, session=session, trigger_type="SCHEDULED", scheduler_name="CRON", used_fallback_data=used_fallback)
             duration_sec = round(time.time() - start_time, 1)
             time.sleep(15)
             if total == 0:
@@ -863,7 +863,7 @@ def _run_pullback_with_retries(today_str, session=None, used_fallback=False):
             import pullback_pipeline
             start_time = time.time()
             with MemoryProfiler("PULLBACK_SCANNER", force_gc_cleanup=True):
-                total = pullback_pipeline.start(force=True, session=session, trigger_type="SCHEDULED", scheduler_name="CRON")
+                total = pullback_pipeline.start(force=True, session=session, trigger_type="SCHEDULED", scheduler_name="CRON", used_fallback_data=used_fallback)
             duration_sec = round(time.time() - start_time, 1)
             time.sleep(5)
             logger.info(f"📊 PULLBACK | Completed in {format_duration(duration_sec)} — {total} alert(s) generated")
@@ -2194,15 +2194,15 @@ def _trigger_multi_tf(trigger_type="SCHEDULED", scheduler_name="CRON"):
 
 def _trigger_eod(trigger_type="MANUAL", scheduler_name="MANUAL"):
     import eod_scanner
-    eod_scanner.start(force=True, trigger_type=trigger_type, scheduler_name=scheduler_name, session=None)
+    eod_scanner.start(force=True, trigger_type=trigger_type, scheduler_name=scheduler_name, session=None, used_fallback_data=False)
 
 def _trigger_reversal(trigger_type="MANUAL", scheduler_name="MANUAL"):
     import reversal_scanner
-    reversal_scanner.start(force=True, trigger_type=trigger_type, scheduler_name=scheduler_name, session=None)
+    reversal_scanner.start(force=True, trigger_type=trigger_type, scheduler_name=scheduler_name, session=None, used_fallback_data=False)
 
 def _trigger_pullback(trigger_type="MANUAL", scheduler_name="MANUAL"):
     import pullback_pipeline
-    pullback_pipeline.start(force=True, trigger_type=trigger_type, scheduler_name=scheduler_name, session=None)
+    pullback_pipeline.start(force=True, trigger_type=trigger_type, scheduler_name=scheduler_name, session=None, used_fallback_data=False)
 
 def _trigger_wealth_engine(trigger_type="MANUAL", scheduler_name="MANUAL"):
     from wealth_engine import run_wealth_scan
