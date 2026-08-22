@@ -1459,7 +1459,6 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                     logger.error(f"🚨 [EXIT MONITOR] {symbol}: No price data available in batch. Skipping evaluation to prevent false exit.")
                     # [VERSION: EXIT_MONITOR_MISSING_PRICE_FIX_v1.0] Safely skip instead of triggering SELL_REVIEW
                     try:
-                        from telegram_engine import queue_telegram_message
                         msg = f"🚨 <b>Exit Monitor Error</b>\nUnable to fetch live price for {symbol}. Skipping evaluation to prevent false exit. Providers may be rate-limited or stock suspended."
                         queue_telegram_message(msg, symbol=symbol)
                     except Exception as e:

@@ -2421,6 +2421,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         
         stale_count = rejection_counts.get("stale_data", 0)
         no_data_count = rejection_counts.get("no_data", 0)
+        fresh_count = max(0, total_eval - stale_count - no_data_count)
         stale_ratio = stale_count / max(total_eval, 1)
         missing_ratio = no_data_count / max(total_eval, 1)
         
