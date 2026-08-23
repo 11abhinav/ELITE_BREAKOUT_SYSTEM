@@ -35,7 +35,14 @@ from accumulation_telemetry import AccumulationTelemetryContext
 from accumulation_sl_target import compute_accumulation_sl_target
 
 from lock_utils import ProcessLock
-from database import get_connection, save_alert_if_new
+from database import (
+    get_connection,
+    save_alert_if_new,
+    is_scanner_stopped,
+    upsert_scanner_health,
+    start_scanner_execution_run,
+    complete_scanner_execution_run
+)
 from watchlist_cache import get_watchlist
 from price_cache import fetch_watchlist_data
 from macro_utils import get_nifty_20d_return
@@ -306,13 +313,20 @@ class AccumulationScanner:
         }
 
     def start(self, force: bool = False, trigger_type: str = "SCHEDULED") -> Dict[str, Any]:
-        """Main scanner execution loop."""
+        """Main scanner execution loop with full Health Card and Execution History integration."""
+        if is_scanner_stopped("ACCUMULATION"):
+            logger.info("⏭️ ACCUMULATION scanner is STOPPED by Admin. Skipping.")
+            return {"status": "STOPPED", "reason": "STOPPED_BY_ADMIN"}
+
         if not _accumulation_run_lock.acquire(blocking=False):
             logger.info("⏳ ACCUMULATION scanner already running in another thread. Skipping.")
             return {"status": "SKIPPED", "reason": "ALREADY_RUNNING"}
 
-        run_id = f"acc_run_{datetime.now(IST).strftime('%Y%m%d_%H%M%S')}"
+        start_time = datetime.now(IST)
+        run_id = f"acc_run_{start_time.strftime('%Y%m%d_%H%M%S')}"
         health = AccumulationHealthTracker(run_id=run_id, scanner=ACCUMULATION_SCANNER_NAME)
+        upsert_scanner_health("ACCUMULATION", status="RUNNING", today_alerts=0)
+        run_ctx = None
 
         try:
             health.transition("STARTING", status="RUNNING")
@@ -320,10 +334,12 @@ class AccumulationScanner:
             # Check stop/pause controls
             if AccumulationControl.should_stop():
                 health.stop("CONTROL_STOP_REQUESTED")
+                upsert_scanner_health("ACCUMULATION", status="STOPPED", error_msg="Stopped by Admin")
                 return {"status": "STOPPED", "reason": "CONTROL_STOP_REQUESTED"}
 
             if not AccumulationControl.wait_if_paused():
                 health.stop("CONTROL_STOP_DURING_PAUSE")
+                upsert_scanner_health("ACCUMULATION", status="PAUSED", error_msg="Paused by Admin")
                 return {"status": "STOPPED", "reason": "CONTROL_STOP_DURING_PAUSE"}
 
             # Load Watchlist
@@ -331,11 +347,20 @@ class AccumulationScanner:
             wl_df = get_watchlist()
             if wl_df is None or wl_df.empty:
                 health.fail(RuntimeError("Watchlist is empty"))
+                upsert_scanner_health("ACCUMULATION", status="DOWN", error_msg="Watchlist is empty")
                 return {"status": "FAILED", "reason": "EMPTY_WATCHLIST"}
 
             symbols = wl_df["Stock"].dropna().tolist()
             health.requested_symbols = len(symbols)
             logger.info(f"🚀 [ACCUMULATION SCANNER] Starting scan for {len(symbols)} symbols...")
+
+            # Initialize execution history tracking context
+            run_ctx = start_scanner_execution_run(
+                scanner_name="ACCUMULATION",
+                trigger_type=trigger_type,
+                scheduler_name="SCHEDULER",
+                total_stocks=len(symbols)
+            )
 
             # Load Macro Data (Nifty 20D Return)
             nifty_20d_ret = _safe_float(get_nifty_20d_return(), 0.0)
@@ -361,6 +386,9 @@ class AccumulationScanner:
 
                 for sym in batch:
                     df = ohlcv_map.get(sym)
+                    if isinstance(df, pd.DataFrame) and not df.empty and run_ctx:
+                        run_ctx.record_fresh_data()
+
                     res = self.evaluate_symbol(
                         symbol=sym,
                         df=df if isinstance(df, pd.DataFrame) else None,
@@ -411,6 +439,8 @@ class AccumulationScanner:
                                     )
                                     conn.commit()
                                     alerts_count += 1
+                                    if run_ctx:
+                                        run_ctx.increment_alerts(1)
                                     health.record_metrics(alerts_inc=1)
                         except Exception as al_err:
                             logger.warning(f"Could not persist accumulation alert for {sym}: {al_err}")
@@ -419,6 +449,21 @@ class AccumulationScanner:
 
             health.transition("COMPLETED", status="OK" if health.status != "STOPPED" else "STOPPED")
             health.complete()
+
+            dur_sec = round((datetime.now(IST) - start_time).total_seconds(), 2)
+            now_str = datetime.now(IST).isoformat()
+            upsert_scanner_health(
+                "ACCUMULATION",
+                status="OK",
+                last_success=now_str,
+                today_alerts=alerts_count,
+                processed_count=len(symbols),
+                total_count=len(symbols),
+                duration_seconds=dur_sec
+            )
+            if run_ctx:
+                complete_scanner_execution_run(run_ctx)
+
             return {
                 "status": "OK",
                 "run_id": run_id,
@@ -430,6 +475,15 @@ class AccumulationScanner:
 
         except Exception as exc:
             health.fail(exc)
+            dur_sec = round((datetime.now(IST) - start_time).total_seconds(), 2)
+            upsert_scanner_health(
+                "ACCUMULATION",
+                status="DOWN",
+                error_msg=str(exc),
+                duration_seconds=dur_sec
+            )
+            if run_ctx:
+                complete_scanner_execution_run(run_ctx, exception=exc)
             return {"status": "FAILED", "error": str(exc)}
         finally:
             _accumulation_run_lock.release()

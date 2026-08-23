@@ -2735,6 +2735,7 @@ def get_all_scanner_health() -> list[dict]:
         "EOD": "18:00 IST (After Bhavcopy)",
         "REVERSAL": "18:00 IST (After Bhavcopy)",
         "PULLBACK": "18:00 IST (After Bhavcopy)",
+        "ACCUMULATION": "15:45 IST (Main) / 18:00 IST (Finalizer)",
         "MULTIBAGGER": "19:00 IST Daily",
         "MULTI_TF": "Every 5min (09:30 - 14:55 IST)",
         "PERFORMANCE_TRACKER": "Every 5min Market Hours (9:15 AM - 3:30 PM)",
@@ -2813,6 +2814,8 @@ def normalize_scanner_name(scanner_name: str) -> str:
         return "REVERSAL"
     elif upper in ["PULLBACK", "PULLBACK_PIPELINE"]:
         return "PULLBACK"
+    elif upper in ["ACCUMULATION", "ACCUMULATION_SCANNER", "ACCUMULATION_SCANNER_V1"]:
+        return "ACCUMULATION"
     elif upper in ["WEALTH", "WEALTH_ENGINE"]:
         return "Wealth Engine"
     elif upper in ["MULTIBAGGER"]:
@@ -2889,7 +2892,7 @@ def resume_scanner(scanner_name: str) -> bool:
 
 ALL_KNOWN_SCANNERS = [
     'DAILY_BUILDER', 'MULTI_TF', 'EOD', 'REVERSAL',
-    'PULLBACK', 'Wealth Engine', 'MULTIBAGGER',
+    'PULLBACK', 'ACCUMULATION', 'Wealth Engine', 'MULTIBAGGER',
     'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT',
     'Pledge Worker', 'AI Worker', 'Earnings Calendar'
 ]

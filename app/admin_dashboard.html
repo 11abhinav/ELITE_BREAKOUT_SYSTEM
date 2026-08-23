@@ -1758,6 +1758,7 @@
             <div style="display:flex; gap:8px; align-items:center;">
               <select id="near-miss-scanner-filter" onchange="loadNearMisses()" style="padding:4px 10px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:11px; font-weight:600;">
                 <option value="">All Scanners</option>
+                <option value="ACCUMULATION">Accumulation</option>
                 <option value="EOD">EOD Breakout</option>
                 <option value="REVERSAL">Reversal</option>
                 <option value="MULTI_TF">Multi-TF Ladder</option>
@@ -1930,6 +1931,7 @@
           <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; background:var(--card2); padding:12px; border-radius:10px; border:1px solid var(--border); align-items:center;">
             <select id="seh-scanner-filter" onchange="fetchScannerExecutionHistory(1)" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
               <option value="ALL">All Scanners</option>
+              <option value="ACCUMULATION">Accumulation Scanner</option>
               <option value="EOD">EOD Breakout</option>
               <option value="REVERSAL">Reversal Scanner</option>
               <option value="PULLBACK">Pullback Pipeline</option>
@@ -2810,6 +2812,7 @@
       'EOD': { label: 'EOD Scanner', desc: 'Daily breakout · runs at 18:00 IST' },
       'REVERSAL': { label: 'Reversal Scanner', desc: 'Mean reversion · runs at 18:00 IST' },
       'PULLBACK': { label: 'Pullback Pipeline', desc: 'Pullback continuation · runs at 18:00 IST' },
+      'ACCUMULATION': { label: 'Accumulation Scanner', desc: 'Main 15:45 IST · Finalizer 18:00 IST' },
       'MULTIBAGGER': { label: 'Multibagger Scanner', desc: 'Daily Quality/Value · runs at 19:00 IST' },
       'AI Worker': { label: 'AI Worker', desc: 'Concall caching · Sat-Sun Only (00:00–23:59 IST)' },
       'Pledge Worker': { label: 'Pledge Worker', desc: 'Promoter pledge scrape · Sat-Sun Only (00:00–23:59 IST)' },
@@ -2993,7 +2996,7 @@ function getEarningsBadgeHtml(item) {
       }
 
       // Ensure all known scanners appear even if not in stats
-      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'MULTI_TF', 'EOD', 'REVERSAL', 'PULLBACK', 'Wealth Engine', 'MULTIBAGGER', 'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT', 'Pledge Worker', 'AI Worker', 'Earnings Calendar'];
+      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'MULTI_TF', 'ACCUMULATION', 'EOD', 'REVERSAL', 'PULLBACK', 'Wealth Engine', 'MULTIBAGGER', 'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT', 'Pledge Worker', 'AI Worker', 'Earnings Calendar'];
       const allScanners = new Set([...Object.keys(SCANNER_META), ...Object.keys(scanner_stats)].filter(sc => ALLOWED_SCANNERS.includes(sc)));
       el.innerHTML = '';
 
@@ -7182,8 +7185,9 @@ function renderStockDiagnosticModal(data) {
     { key: 'multi_tf', label: '3. Multi-TF Intraday Scanner', scanner: 'MULTI_TF' },
     { key: 'reversal', label: '4. Reversal Oversold Bounce', scanner: 'REVERSAL' },
     { key: 'pullback', label: '5. Pullback Continuation Pipeline', scanner: 'PULLBACK' },
-    { key: 'wealth_engine', label: '6. Wealth Engine', scanner: 'WEALTH' },
-    { key: 'multibagger', label: '7. Multibagger Engine', scanner: 'MULTIBAGGER' }
+    { key: 'accumulation', label: '6. Accumulation Scanner', scanner: 'ACCUMULATION' },
+    { key: 'wealth_engine', label: '7. Wealth Engine', scanner: 'WEALTH' },
+    { key: 'multibagger', label: '8. Multibagger Engine', scanner: 'MULTIBAGGER' }
   ];
 
   const funnelRowsHtml = funnelKeys.map(item => {
