@@ -315,6 +315,58 @@ def test_target1_preserved_after_later_stop():
     assert res["best_target_reached"] == "T1"  # PRESERVED!
 
 
+def test_same_bar_stop_and_target_2_stop_first():
+    """Same-bar Stop Loss and Target 2 ambiguity resolves to STOP_FIRST policy; prior T1 milestone is preserved, T2 on ambiguous bar is discarded."""
+    setup = {
+        "status": "TARGET_1_REACHED",
+        "entry_type": "ZONE_MIDPOINT",
+        "entry_zone_low": 950.0,
+        "entry_zone_high": 1000.0,
+        "preferred_entry": 975.0,
+        "entry_trigger_level": 975.0,
+        "stop_loss": 900.0,
+        "target_1": 1020.0,
+        "target_2": 1050.0,
+        "target_3": 1100.0,
+        "best_target_reached": "T1"
+    }
+    # Bar touches both Stop (low=890 <= 900) and Target 2 (high=1055 >= 1050)
+    bar = {"Open": 980.0, "High": 1055.0, "Low": 890.0, "Close": 895.0, "Timestamp": datetime.utcnow()}
+
+    res = AccumulationExitEvaluator.evaluate_bar(setup, bar)
+    assert res["status"] == "STOP_TRIGGERED"
+    assert res["setup_outcome"] == "FAILURE"
+    assert res["exit_status"] == "AMBIGUOUS"
+    assert res["exit_assumption"] == "STOP_FIRST"
+    assert res["best_target_reached"] == "T1"  # T1 preserved, T2 on ambiguous bar discarded!
+
+
+def test_same_bar_stop_and_target_3_stop_first():
+    """Same-bar Stop Loss and Target 3 ambiguity resolves to STOP_FIRST policy; prior T1 milestone is preserved, T3 on ambiguous bar is discarded."""
+    setup = {
+        "status": "TARGET_1_REACHED",
+        "entry_type": "ZONE_MIDPOINT",
+        "entry_zone_low": 950.0,
+        "entry_zone_high": 1000.0,
+        "preferred_entry": 975.0,
+        "entry_trigger_level": 975.0,
+        "stop_loss": 900.0,
+        "target_1": 1020.0,
+        "target_2": 1050.0,
+        "target_3": 1100.0,
+        "best_target_reached": "T1"
+    }
+    # Bar touches both Stop (low=890 <= 900) and Target 3 (high=1105 >= 1100)
+    bar = {"Open": 980.0, "High": 1105.0, "Low": 890.0, "Close": 895.0, "Timestamp": datetime.utcnow()}
+
+    res = AccumulationExitEvaluator.evaluate_bar(setup, bar)
+    assert res["status"] == "STOP_TRIGGERED"
+    assert res["setup_outcome"] == "FAILURE"
+    assert res["exit_status"] == "AMBIGUOUS"
+    assert res["exit_assumption"] == "STOP_FIRST"
+    assert res["best_target_reached"] == "T1"  # T1 preserved, T3 on ambiguous bar discarded!
+
+
 def test_existing_six_scanners_unchanged():
     """Ensures existing six scanners exist and package isolation is preserved."""
     import importlib
