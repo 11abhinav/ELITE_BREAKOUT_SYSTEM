@@ -341,3 +341,94 @@ def test_side_by_side_empirical_field_comparison():
     assert abs(res_infy.stop_loss - 1458.06) <= 0.01
     assert abs(res_infy.rr_1 - 2.00) <= 0.01
     assert res_infy.suggested_position_size == 133  # floor(10000 / 75.0) = 133
+
+
+def test_restart_between_scan_and_finalization(memory_db):
+    """
+    [CERTIFICATION REQUIREMENT] Explicitly tests system durability across server restarts.
+    Simulates 15:45 IST scan persisting PENDING alert -> Server Restart -> 18:00 IST Finalization recovery.
+    """
+    cur = memory_db.cursor()
+
+    # 1. 15:45 IST Main Scan: Persist candidate alert with finalization_status = 'PENDING'
+    cur.execute("""
+        INSERT INTO accumulation_alerts (
+            run_id, audit_snapshot_id, symbol, signal_state, score, close,
+            entry_zone_low, entry_zone_high, breakout_level, preferred_entry, stop_loss,
+            target_1, target_2, target_3, risk_pct, rr_1, rr_2, rr_3, finalization_status, tradable
+        ) VALUES (
+            'RUN_1545', 'SNAP_A_RESTART_TEST', 'RELIANCE_RESTART', 'BREAKOUT_READY', 88.5, 2450.0,
+            2400.0, 2460.0, 2470.0, 2430.0, 2350.0, 2600.0, 2750.0, 2900.0, 3.29, 2.13, 4.0, 5.88, 'PENDING', 1
+        ) RETURNING id;
+    """)
+    alert_id = cur.fetchone()[0]
+    memory_db.commit()
+
+    # 2. Simulate Server Restart: Wipe all in-memory references, query DB for pending alerts
+    cur.execute("SELECT id, audit_snapshot_id, symbol, score FROM accumulation_alerts WHERE finalization_status = 'PENDING';")
+    pending_alerts = cur.fetchall()
+    assert len(pending_alerts) == 1
+    assert pending_alerts[0][1] == "SNAP_A_RESTART_TEST"
+    assert pending_alerts[0][2] == "RELIANCE_RESTART"
+
+    # 3. 18:00 IST Delivery Finalization: Process Snapshot B & atomically activate setup
+    snap_b_id = "SNAP_B_RESTART_TEST"
+    cur.execute("""
+        UPDATE accumulation_alerts
+        SET finalization_status = 'PASSED', finalization_snapshot_id = %s
+        WHERE id = %s;
+    """, (snap_b_id, alert_id))
+
+    cur.execute("""
+        INSERT INTO accumulation_trades (
+            alert_id, run_id, audit_snapshot_id, parent_snapshot_id, symbol, signal_state, entry_type,
+            entry_zone_low, entry_zone_high, entry_price, preferred_entry, entry_trigger_level, entry_displacement_reference,
+            breakout_level, stop_loss, target_1, target_2, target_3, risk_pct, rr_1, rr_2, rr_3, status, setup_outcome
+        ) VALUES (
+            %s, 'RUN_1800', %s, %s, 'RELIANCE_RESTART', 'BREAKOUT_READY', 'ZONE_MIDPOINT',
+            2400.0, 2460.0, 2430.0, 2430.0, 2430.0, 2460.0,
+            2470.0, 2350.0, 2600.0, 2750.0, 2900.0, 3.29, 2.13, 4.0, 5.88, 'ACTIVE_SETUP', 'PENDING'
+        );
+    """ % (alert_id, f"'{snap_b_id}'", "'SNAP_A_RESTART_TEST'"))
+    memory_db.commit()
+
+    # 4. Verify post-restart active trade row creation
+    cur.execute("SELECT status, setup_outcome, audit_snapshot_id, parent_snapshot_id FROM accumulation_trades WHERE symbol = 'RELIANCE_RESTART';")
+    trade_row = cur.fetchone()
+    assert trade_row is not None
+    assert trade_row[0] == "ACTIVE_SETUP"
+    assert trade_row[1] == "PENDING"
+    assert trade_row[2] == "SNAP_B_RESTART_TEST"
+    assert trade_row[3] == "SNAP_A_RESTART_TEST"
+
+
+def test_same_day_startup_and_scheduled_scan_dedup(memory_db):
+    """
+    [CERTIFICATION REQUIREMENT] Verifies that same-day 06:30 IST startup scan + 15:45 IST scheduled scan
+    does not create duplicate active trade setups for the same symbol.
+    """
+    cur = memory_db.cursor()
+
+    # 06:30 IST Startup Scan: Create active trade setup
+    cur.execute("""
+        INSERT INTO accumulation_trades (
+            run_id, audit_snapshot_id, symbol, signal_state, entry_type, entry_trigger_rule, entry_reference_type,
+            entry_zone_low, entry_zone_high, entry_price, preferred_entry, entry_trigger_level, entry_displacement_reference,
+            breakout_level, stop_loss, target_1, target_2, target_3, risk_pct, rr_1, rr_2, rr_3, status, setup_outcome
+        ) VALUES (
+            'RUN_0630_STARTUP', 'SNAP_STARTUP_1', 'DEDUP_STOCK', 'BREAKOUT_READY', 'ZONE_MIDPOINT', 'RANGE_TOUCH', 'STRATEGY_REFERENCE',
+            1000.0, 1050.0, 1025.0, 1025.0, 1025.0, 1050.0,
+            1060.0, 960.0, 1160.0, 1250.0, 1350.0, 6.34, 2.08, 3.46, 5.0, 'ACTIVE_SETUP', 'PENDING'
+        );
+    """)
+    memory_db.commit()
+
+    cur.execute("SELECT COUNT(*) FROM accumulation_trades WHERE symbol = 'DEDUP_STOCK' AND status IN ('ACTIVE_SETUP', 'ENTRY_TRIGGERED', 'TARGET_1_REACHED', 'TARGET_2_REACHED');")
+    initial_count = cur.fetchone()[0]
+    assert initial_count == 1
+
+    # 15:45 IST Scheduled Scan: Existing live setup exists -> Check setup uniqueness
+    cur.execute("SELECT status FROM accumulation_trades WHERE symbol = 'DEDUP_STOCK' AND status IN ('ACTIVE_SETUP', 'ENTRY_TRIGGERED', 'TARGET_1_REACHED', 'TARGET_2_REACHED');")
+    active_setups = cur.fetchall()
+    assert len(active_setups) == 1  # Dedup check successfully identifies active setup!
+

@@ -85,7 +85,8 @@ CREATE TABLE IF NOT EXISTS accumulation_alerts (
     suggested_position_size INTEGER,
     position_sizing_basis TEXT DEFAULT 'ACCOUNT_RISK_1PCT',
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    effective_as_of TIMESTAMPTZ DEFAULT NOW()
+    effective_as_of TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT chk_finalization_status CHECK (finalization_status IN ('PENDING', 'PASSED', 'REJECTED', 'CANCELLED'))
 );
 """
 
