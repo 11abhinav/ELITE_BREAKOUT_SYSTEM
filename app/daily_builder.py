@@ -1153,11 +1153,10 @@ def main(force_rebuild: bool = False, run_ctx=None):
     try:
         _main_wrapper(force_rebuild, run_ctx=run_ctx)
     except Exception as e:
-        if created_ctx:
+        if run_ctx:
             try:
                 from database import complete_scanner_execution_run
                 complete_scanner_execution_run(run_ctx, exception=e)
-                created_ctx = False
             except Exception: pass
         raise
     finally:
@@ -1171,7 +1170,7 @@ def main(force_rebuild: bool = False, run_ctx=None):
             pass
         _build_lock.release()
         _global_lock.release()
-        if created_ctx:
+        if run_ctx:
             try:
                 from database import complete_scanner_execution_run
                 complete_scanner_execution_run(run_ctx)
