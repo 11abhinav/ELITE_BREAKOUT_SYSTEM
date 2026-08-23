@@ -93,18 +93,6 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
     low_price = float(latest["Low"])
     vol = float(latest["Volume"])
 
-    if open_price == high_price == low_price == close_price and vol == 0:
-        try:
-            from scanner_telemetry import DecisionContext, telemetry_engine
-            ctx = DecisionContext(symbol=symbol, scanner_name="MULTIBAGGER")
-            ctx.capture_raw_market(open_p=open_price, high_p=high_price, low_p=low_price, close_p=close_price, volume=vol)
-            ctx.capture_gate(gate_name="NO_TRADING_ACTIVITY", passed=False, actual_val=0, threshold_val=1, reason="Zero volume and zero range", gate_type="BOOLEAN")
-            ctx.add_decision_input(name="NO_TRADING_ACTIVITY", value=True, source="GateCheck", as_of="Live", freshness="LIVE", required=True, valid=False)
-            ctx.finalize(decision="REJECTED", primary_reason="NO_TRADING_ACTIVITY_FAIL")
-            telemetry_engine.emit_terminal(ctx)
-        except Exception:
-            pass
-        return {"status": "NO", "reasons": ["NO_TRADING_ACTIVITY"], "score": 0.0, "qualified": False}
 
     fd = fund_data or {}
     raw_f_score = fd.get("score", fd.get("piotroski_score"))

@@ -1545,7 +1545,18 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
         except Exception as _mtf_pe:
             logger.warning(f"Failed to export multi_tf_system to DB: {_mtf_pe}")
 
-    return {"fetched": len(unique_fetched), "total": len(unique_needed), "stale": stale_30m + stale_15m + stale_5m, "save_failures": db_save_failures, "has_errors": has_errors}
+    # [RULE 67] Return lower-TF funnel metrics so _start_wrapper can compute structured breakdown.
+    # unique_needed is the set union of all 3 TF symbol lists — no double-counting.
+    return {
+        "fetched": len(unique_fetched),
+        "total": len(unique_needed),
+        "stale": stale_30m + stale_15m + stale_5m,
+        "save_failures": db_save_failures,
+        "has_errors": has_errors,
+        "entry_ready": lower_funnel.get("entry_ready", 0),
+        "trigger_candidates": lower_funnel.get("trigger_candidates", 0),
+        "triggered": lower_funnel.get("triggered", 0)
+    }
 
 
 def run_sweeper(is_test_mode=False):
@@ -1729,8 +1740,10 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
             error_msg = None
             
             total_stale = (metrics_a.get("stale", 0) + metrics_b.get("stale", 0))
-            total_symbols = (metrics_a.get("total", 0) + metrics_b.get("total", 0))
-            total_fetched = (metrics_a.get("fetched", 0) + metrics_b.get("fetched", 0))
+            # [RULE 67] Unique symbol count — do NOT sum phases (symbols overlap between hourly and lower TF).
+            # max() gives the true unique participating count when lower-TF is a subset of hourly universe.
+            total_symbols = max(metrics_a.get("total", 0), metrics_b.get("total", 0))
+            total_fetched = max(metrics_a.get("fetched", 0), metrics_b.get("fetched", 0))
             
             if run_ctx:
                 run_ctx.set_total_stocks(total_symbols)
@@ -1777,7 +1790,7 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
                         scanner_name=SCANNER_MULTI_TF,
                         status=status,
                         last_success=datetime.now(IST).isoformat() if outcome != "FAILED" else None,
-                        total_count=metrics_a.get("total", 0),
+                        total_count=total_symbols,
                         error_msg=error_msg,
                         scheduled_for="Every 5min (9:15 AM - 3:30 PM)",
                         outcome=outcome,
@@ -1789,13 +1802,42 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
                             "RATE_LIMIT": 0,
                             "NETWORK_ERROR": 0,
                             "TIMEOUT": 0,
-                            "EMPTY_DATA": 0
+                            "EMPTY_DATA": 0,
+                            "1H_COUNT": metrics_a.get("total", 0),
+                            "LOWER_TF_COUNT": metrics_b.get("total", 0)
                         }
                     )
                 except Exception:
                     logger.exception("❌ Failed to update scanner health for MULTI_TF")
             
-            total_scanned = metrics_a.get("total", 0) + metrics_b.get("total", 0)
+            # [RULE 67] Unique symbol count — do NOT sum hourly + lower TF (symbols overlap).
+            # User explicitly required: "use unique participating symbols instead of summing phases".
+            # Phase A (hourly) processes the hourly approved universe.
+            # Phase B/C/D processes the same HOURLY_APPROVED + SETUP_ARMED + ENTRY_READY set.
+            # The set union is the true unique count of distinct symbols touched in this cycle.
+            hourly_symbols = metrics_a.get("total", 0)
+            hourly_approved = metrics_a.get("approved", 0)
+            lower_tf_symbols = metrics_b.get("total", 0)
+            entry_ready_count = metrics_b.get("entry_ready", 0)
+            trigger_candidates_count = metrics_b.get("trigger_candidates", 0)
+            alerts_count = metrics_b.get("triggered", 0) if isinstance(metrics_b, dict) else 0
+
+            # Unique symbols = max of either phase (all lower-TF symbols came from hourly universe)
+            # When both phases ran, lower_tf_symbols is the unique set already (set union of 30m+15m+5m).
+            symbols_scanned = max(hourly_symbols, lower_tf_symbols)
+
+            logger.info(
+                f"📊 [MULTI_TF] Symbol Count Breakdown:\n"
+                f"  hourly_symbols     = {hourly_symbols}\n"
+                f"  hourly_approved    = {hourly_approved}\n"
+                f"  lower_tf_symbols   = {lower_tf_symbols}\n"
+                f"  entry_ready        = {entry_ready_count}\n"
+                f"  trigger_candidates = {trigger_candidates_count}\n"
+                f"  alerts             = {alerts_count}\n"
+                f"  symbols_scanned (unique) = {symbols_scanned}"
+            )
+
+            total_scanned = symbols_scanned
             
             try:
                 from database import insert_notification

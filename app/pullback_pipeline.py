@@ -406,7 +406,11 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
             from database import get_scanner_health, upsert_scanner_health
             h = get_scanner_health("PULLBACK")
             if h and (h.get("status", "").startswith("QUEUED") or h.get("status") == "RUNNING"):
-                upsert_scanner_health("PULLBACK", status="OK", error_msg=None)
+                # [RULE 67] Mirror EOD scanner pattern: do not overwrite DEGRADED_FALLBACK with OK.
+                if 'used_fallback_data' in locals() and used_fallback_data:
+                    upsert_scanner_health("PULLBACK", status="DEGRADED_FALLBACK", error_msg="Historical fallback dataset was used")
+                else:
+                    upsert_scanner_health("PULLBACK", status="OK", error_msg=None)
         except Exception:
             pass
         _scan_lock.release()
@@ -889,6 +893,14 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         status_val = "DEGRADED"
         err_val = f"Partial Fetch: {total_fetched_count}/{total_symbols} symbols"
 
+    # [RULE 67] DEGRADED_FALLBACK takes precedence over DEGRADED.
+    # User explicitly required this at the final health write level:
+    # "enforce DEGRADED_FALLBACK at the final health write level, not just local variables."
+    # is_historical_fallback is set at lines 537/542 when Bhavcopy fallback dataset is used.
+    if is_historical_fallback:
+        status_val = "DEGRADED_FALLBACK"
+        err_val = f"Historical fallback dataset used (fallback from current date)"
+
     stage_tracker.end_stage(f"Candidates={len(candidates)} pullback structures found out of {symbols_processed} processed")
     stage_tracker.start_stage(4, "Scoring & RS/Sector Modifiers", f"Computing pullback scores for {len(candidates)} candidates")
     # ---------------- SCORING & MODIFIERS ----------------
@@ -1214,7 +1226,13 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     stale_count = rejected.get("stale_data", 0)
     no_data_count = rejected.get("no_data", 0)
     fresh_count = len(fresh_valid_symbols)
-    data_status = "DEGRADED (Stale Data > 20%)" if (stale_count / max(total_symbols, 1)) > 0.20 else "OK"
+    # [RULE 67] DEGRADED_FALLBACK takes precedence over stale-based DEGRADED in the summary display.
+    # Matches the same precedence logic applied at the health write and EOD scanner.
+    data_status = "OK"
+    if is_historical_fallback:
+        data_status = "DEGRADED_FALLBACK (Historical Fallback Dataset)"
+    elif (stale_count / max(total_symbols, 1)) > 0.20:
+        data_status = "DEGRADED (Stale Data > 20%)"
 
     summary_lines = [
         "======================================================================",

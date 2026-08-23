@@ -713,6 +713,8 @@ def _evaluate_candidate(
             "passed": False,
             "reject_reason": f"Stock price ₹{close_price:.2f} < ₹{MIN_STOCK_PRICE:.0f} minimum quality floor",
             "reject_code": "price_filter",
+            "gate_type": "THRESHOLD",
+            "operator": "<",
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
@@ -725,6 +727,8 @@ def _evaluate_candidate(
             "passed": False,
             "reject_reason": f"Candle range {candle_rng_pct:.2f}% < {MIN_CANDLE_RANGE_PCT}% minimum volatility threshold",
             "reject_code": "thin_spread",
+            "gate_type": "THRESHOLD",
+            "operator": "<",
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
@@ -753,6 +757,8 @@ def _evaluate_candidate(
                 "passed": False,
                 "reject_reason": f"20D Avg Volume {avg_vol_20d:,.0f} < {MIN_AVG_DAILY_VOLUME:,.0f} liquidity floor",
                 "reject_code": "volume_filter",
+                "gate_type": "THRESHOLD",
+                "operator": "<",
                 "score": 0,
                 "raw_score": 0,
                 "sl_result": {},
@@ -792,8 +798,9 @@ def _evaluate_candidate(
             "reject_reason": f"Drop from 52W High {drop_pct:.1f}% outside allowed band [{effective_min_drop:.1f}%, {max_allowed_drop:.1f}%]",
             "reject_code": "drop_band",
             "actual": drop_pct,
-            "threshold": f"{effective_min_drop:.1f}-{max_allowed_drop:.1f}",
-            "gate_type": "RANGE",
+            "threshold": f"[{effective_min_drop:.1f}, {max_allowed_drop:.1f}]",
+            "gate_type": "THRESHOLD",
+            "operator": "NOT_IN_RANGE",
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
@@ -808,6 +815,8 @@ def _evaluate_candidate(
                 "passed": False,
                 "reject_reason": f"Price {pct_below_sma200:.1f}% below SMA200 > {MAX_DROP_BELOW_SMA200}% maximum structural breakdown limit",
                 "reject_code": "sma200_filter",
+                "gate_type": "THRESHOLD",
+                "operator": ">",
                 "score": 0,
                 "raw_score": 0,
                 "sl_result": {},
@@ -824,6 +833,8 @@ def _evaluate_candidate(
                 "passed": False,
                 "reject_reason": f"[{regime}] {pct_below_sma200:.1f}% below SMA200 > {ev_req['max_pct_below_sma200']}% regime limit",
                 "reject_code": "regime_sma200",
+                "gate_type": "THRESHOLD",
+                "operator": ">",
                 "score": 0,
                 "raw_score": 0,
                 "sl_result": {},
@@ -836,6 +847,8 @@ def _evaluate_candidate(
                 "passed": False,
                 "reject_reason": f"[{regime}] Volume ratio {vol_ratio if vol_ratio is not None else 0.0:.2f}x < {ev_req['min_vol_ratio']}x regime minimum",
                 "reject_code": "regime_vol",
+                "gate_type": "THRESHOLD",
+                "operator": "<",
                 "score": 0,
                 "raw_score": 0,
                 "sl_result": {},
@@ -922,6 +935,8 @@ def _evaluate_candidate(
             "passed": False,
             "reject_reason": f"Close ₹{close_price:.2f} < EMA20 ₹{ema20:.2f} (ATR tolerance {ema_tol:.2f})",
             "reject_code": "ema_filter",
+            "gate_type": "THRESHOLD",
+            "operator": "<",
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
@@ -1008,6 +1023,10 @@ def _evaluate_candidate(
             "passed": False,
             "reject_reason": "MACD below signal without a sufficiently strong improving histogram",
             "reject_code": "macd_stale",
+            "actual": False,
+            "threshold": True,
+            "gate_type": "BOOLEAN",
+            "operator": "==",
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
@@ -1026,6 +1045,7 @@ def _evaluate_candidate(
             "actual": vol_ratio if vol_ratio else 0.0,
             "threshold": min_gate_vol,
             "gate_type": "THRESHOLD",
+            "operator": "<",
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
@@ -1062,6 +1082,8 @@ def _evaluate_candidate(
             "passed": False,
             "reject_reason": f"R:R filter: {sl_res.get('reject_reason', 'SL/Target calculation failed')}",
             "reject_code": "low_rr",
+            "gate_type": "THRESHOLD",
+            "operator": "<",
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
@@ -2289,7 +2311,10 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
             from database import get_scanner_health, upsert_scanner_health
             h = get_scanner_health("REVERSAL")
             if h and (h.get("status", "").startswith("QUEUED") or h.get("status") == "RUNNING"):
-                upsert_scanner_health("REVERSAL", status="OK", error_msg=None)
+                final_status = "OK"
+                if used_fallback_data:
+                    final_status = "DEGRADED_FALLBACK"
+                upsert_scanner_health("REVERSAL", status=final_status, error_msg=None)
         except Exception:
             pass
         _scan_lock.release()

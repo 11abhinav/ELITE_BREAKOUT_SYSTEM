@@ -35,23 +35,87 @@ def _safe_float(val: Any, default: Any = None) -> Any:
         return default
 
 
-def sanitize_telemetry_value(val: Any) -> Tuple[Any, str, str]:
-    """Sanitizes raw value and returns (sanitized_val, status, reason)."""
+def is_bad_numeric(val: Any) -> Tuple[bool, str]:
+    """
+    [RULE 67] Centralized, type-safe NaN/Inf classifier.
+
+    Rationale: math.isnan() only handles Python float; it raises TypeError on NumPy
+    scalars and fails silently on strings. User explicitly required a single, centralized
+    function that handles all four input classes:
+      1. Python float
+      2. NumPy scalar (np.float64, np.float32, np.floating)
+      3. pandas NA / NaT
+      4. String sentinels ("nan", "inf", "-inf")
+
+    Returns: (is_bad: bool, raw_label: str)
+      - (True, "NaN")  — value is NaN-like
+      - (True, "INF")  — value is infinite
+      - (False, "")    — value is numerically safe
+    """
+    # ── Python None ────────────────────────────────────────────────────────────
     if val is None:
-        return "NONE", "NULL", "VALUE_IS_NONE"
-    if isinstance(val, float):
-        if math.isnan(val) or np.isnan(val):
-            return "NaN", "NAN", "VALUE_IS_NAN"
-        if math.isinf(val) or np.isinf(val):
-            return "INF", "NAN", "VALUE_IS_INF"
-        return round(val, 4), "VALID", "OK"
-    if isinstance(val, (int, np.integer)):
-        return int(val), "VALID", "OK"
+        return False, ""  # None is handled as NULL by sanitize_telemetry_value
+
+    # ── pandas NA / NaT ────────────────────────────────────────────────────────
+    try:
+        if pd.isna(val):
+            return True, "NaN"
+    except (TypeError, ValueError):
+        pass  # pd.isna raises on non-scalar iterables; ignore
+
+    # ── NumPy scalars and Python floats ────────────────────────────────────────
+    if isinstance(val, (float, np.floating)):
+        try:
+            if math.isnan(float(val)):
+                return True, "NaN"
+            if math.isinf(float(val)):
+                return True, "INF"
+        except (ValueError, OverflowError):
+            pass
+
+    # ── String sentinels ("nan", "inf", "-inf", "infinity", etc.) ─────────────
+    if isinstance(val, str):
+        stripped = val.strip().lower()
+        if stripped in ("nan",):
+            return True, "NaN"
+        if stripped in ("inf", "+inf", "-inf", "infinity", "-infinity", "+infinity"):
+            return True, "INF"
+
+    return False, ""
+
+
+def sanitize_telemetry_value(val: Any) -> Tuple[Any, Optional[str], str, str]:
+    """
+    Sanitizes raw value and returns (sanitized_val, raw_value_str, status, reason).
+
+    [RULE 67] Routes all NaN/Inf detection through is_bad_numeric() so that NumPy
+    scalars, pandas NA, and string sentinels are all caught by a single centralized
+    function rather than scattered isinstance(float) guards.
+
+    NaN/Inf entries preserve raw_value_str ("NaN"/"INF") so the forensic audit can
+    distinguish "source contained NaN" from "field was simply absent" (NULL).
+    Status kept as "NAN" so data_quality_summary ledger counts nan_fields correctly.
+    """
+    if val is None:
+        return None, None, "NULL", "VALUE_IS_NONE"
+
+    # ── Centralized NaN/Inf check (handles float, NumPy, pandas, strings) ──────
+    _is_bad, _raw_label = is_bad_numeric(val)
+    if _is_bad:
+        # Preserve forensic raw label; keep status="NAN" for data quality ledger
+        return None, _raw_label, "NAN", f"VALUE_IS_{_raw_label}"
+
     if isinstance(val, bool):
-        return bool(val), "VALID", "OK"
-    if isinstance(val, str) and str(val).strip().lower() in ["", "nan", "none", "null"]:
-        return str(val), "INVALID", "STRING_EMPTY_OR_NULL_LIKE"
-    return str(val), "VALID", "OK"
+        # bool must be checked BEFORE int since bool is a subclass of int
+        return bool(val), None, "VALID", "OK"
+    if isinstance(val, (int, np.integer)):
+        return int(val), None, "VALID", "OK"
+    if isinstance(val, (float, np.floating)):
+        return round(float(val), 4), None, "VALID", "OK"
+    if isinstance(val, str) and val.strip().lower() in ("", "none", "null"):
+        # Empty / null-like strings that were NOT caught by is_bad_numeric above
+        return val, None, "INVALID", "STRING_EMPTY_OR_NULL_LIKE"
+    return str(val), None, "VALID", "OK"
 
 
 class TelemetryValueEntry:
@@ -65,18 +129,19 @@ class TelemetryValueEntry:
         self.freshness = freshness
         self.timestamp = time.time()
         
-        sanitized, status, reason = sanitize_telemetry_value(value)
+        sanitized, raw_val_str, status, reason = sanitize_telemetry_value(value)
         # Apply STALE precedence if data is otherwise valid but comes from stale cache
         if origin == "STALE_CACHE" and status == "VALID":
             status = "STALE"
             reason = "STALE_DATA_USED"
 
         self.value = sanitized
+        self.raw_value_str = raw_val_str
         self.status = status
         self.reason = reason
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "key": self.key,
             "value": self.value,
             "status": self.status,
@@ -85,6 +150,9 @@ class TelemetryValueEntry:
             "group": self.group,
             "source_series": self.source_series
         }
+        if self.raw_value_str is not None:
+            d["raw_value"] = self.raw_value_str
+        return d
 
 
 class DecisionContext:
@@ -122,10 +190,24 @@ class DecisionContext:
         self.decision_manifest: List[Dict[str, Any]] = []
 
     def add_decision_input(self, name: str, value: Any, source: str, as_of: str, freshness: str, required: bool, valid: bool):
-        """Adds a field to the explicit decision manifest for auditing."""
+        """
+        Adds a field to the explicit decision manifest for auditing.
+
+        [RULE 67] Uses the centralized is_bad_numeric() helper instead of the previous
+        `isinstance(value, float)` guard. This ensures NumPy scalars (np.float64 etc.) and
+        pandas NA values are also caught and their raw representation preserved in the
+        manifest, not silently discarded.
+        """
+        _is_bad, _raw_label = is_bad_numeric(value)
+        raw_value = _raw_label if _is_bad else None
+        if _is_bad:
+            value = None
+            valid = False
+
         self.decision_manifest.append({
             "name": name,
             "value": value,
+            "raw_value": raw_value,
             "source": source,
             "as_of": as_of,
             "freshness": freshness,
@@ -190,27 +272,32 @@ class DecisionContext:
             self.entries[str(k)].freshness = freshness
 
     def capture_indicators(self, rsi: Any = None, sma20: Any = None, sma50: Any = None, sma100: Any = None, sma200: Any = None, ema9: Any = None, ema15: Any = None, ema20: Any = None, ema50: Any = None, ema200: Any = None, macd: Any = None, macd_signal: Any = None, macd_hist: Any = None, atr: Any = None, adx: Any = None, obv: Any = None, vol_ratio: Any = None, prior_20d_high: Any = None, bb_width_pctile: Any = None, retracement_pct: Any = None):
-        """Captures standard calculated indicator fields."""
-        if rsi is not None: self.capture("RSI", rsi, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if sma20 is not None: self.capture("SMA20", sma20, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if sma50 is not None: self.capture("SMA50", sma50, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if sma100 is not None: self.capture("SMA100", sma100, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if sma200 is not None: self.capture("SMA200", sma200, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if ema9 is not None: self.capture("EMA9", ema9, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if ema15 is not None: self.capture("EMA15", ema15, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if ema20 is not None: self.capture("EMA20", ema20, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if ema50 is not None: self.capture("EMA50", ema50, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if ema200 is not None: self.capture("EMA200", ema200, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if macd is not None: self.capture("MACD", macd, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if macd_signal is not None: self.capture("MACD_SIGNAL", macd_signal, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if macd_hist is not None: self.capture("MACD_HISTOGRAM", macd_hist, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if atr is not None: self.capture("ATR", atr, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if adx is not None: self.capture("ADX", adx, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if obv is not None: self.capture("OBV", obv, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if vol_ratio is not None: self.capture("VOLUME_RATIO", vol_ratio, origin="CALCULATED_FROM_VOLUME", group="INDICATOR")
-        if prior_20d_high is not None: self.capture("PRIOR_20D_HIGH", prior_20d_high, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if bb_width_pctile is not None: self.capture("BB_WIDTH_PCTILE", bb_width_pctile, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
-        if retracement_pct is not None: self.capture("RETRACEMENT_PCT", retracement_pct, origin="CALCULATED_FROM_PRICE", group="INDICATOR")
+        """Captures standard calculated indicator fields and adds them to the decision manifest."""
+        def _add_ind(name: str, val: Any, group: str = "INDICATOR"):
+            if val is not None:
+                self.capture(name, val, origin="CALCULATED_FROM_PRICE" if name != "VOLUME_RATIO" else "CALCULATED_FROM_VOLUME", group=group)
+                self.add_decision_input(name, val, source="Calculated", as_of="Live", freshness="LIVE", required=True, valid=True)
+                
+        _add_ind("RSI", rsi)
+        _add_ind("SMA20", sma20)
+        _add_ind("SMA50", sma50)
+        _add_ind("SMA100", sma100)
+        _add_ind("SMA200", sma200)
+        _add_ind("EMA9", ema9)
+        _add_ind("EMA15", ema15)
+        _add_ind("EMA20", ema20)
+        _add_ind("EMA50", ema50)
+        _add_ind("EMA200", ema200)
+        _add_ind("MACD", macd)
+        _add_ind("MACD_SIGNAL", macd_signal)
+        _add_ind("MACD_HISTOGRAM", macd_hist)
+        _add_ind("ATR", atr)
+        _add_ind("ADX", adx)
+        _add_ind("OBV", obv)
+        _add_ind("VOLUME_RATIO", vol_ratio)
+        _add_ind("PRIOR_20D_HIGH", prior_20d_high)
+        _add_ind("BB_WIDTH_PCTILE", bb_width_pctile)
+        _add_ind("RETRACEMENT_PCT", retracement_pct)
 
     def capture_fundamentals(self, roce: Any = None, roe: Any = None, debt_equity: Any = None, peg: Any = None, yoy_revenue: Any = None, yoy_profit: Any = None, piotroski_score: Any = None, promoter_pledge: Any = None, mcap: Any = None, altman_z: Any = None, category: Any = None, sector: Any = None):
         """Captures fundamental evaluation metrics."""
@@ -429,11 +516,25 @@ class DecisionContext:
             lines.append("\n[ALL GATE RESULTS]")
             for g_name, g_info in self.gate_results.items():
                 res_str = g_info["status"]
+                g_type = g_info.get("gate_type", "THRESHOLD")
                 lines.append(f"{g_name:<24} : {res_str}")
-                lines.append(f"  Actual               : {g_info.get('actual')}")
-                lines.append(f"  Operator             : {g_info.get('operator')}")
-                lines.append(f"  Threshold            : {g_info.get('threshold')}")
-                lines.append(f"  Result               : {res_str}")
+                # [RULE 67] Print scalar gate fields in compact key=value format as approved by user:
+                # "For every scalar gate the terminal audit should expose: actual/operator/threshold/result"
+                # Composite/range/boolean gates continue to use their own structured fields.
+                if g_type in ("THRESHOLD", "BOOLEAN", None, ""):
+                    _actual = g_info.get('actual')
+                    _op = g_info.get('operator')
+                    _thresh = g_info.get('threshold')
+                    if _actual is not None or _op is not None or _thresh is not None:
+                        lines.append(f"  actual={_actual} operator={repr(_op)} threshold={_thresh} result={res_str}")
+                    else:
+                        lines.append(f"  result={res_str}")
+                else:
+                    # Composite/RANKING/RANGE gates: preserve full structured output
+                    for field in ("actual", "operator", "threshold", "actual_rank", "max_rank", "expected"):
+                        if g_info.get(field) is not None:
+                            lines.append(f"  {field:<20} : {g_info[field]}")
+                    lines.append(f"  result={res_str}")
 
         # 6. SCORE COMPONENTS
         if self.score_breakdown:
@@ -563,7 +664,7 @@ class GlobalScannerTelemetryEngine:
             except Exception as e:
                 logger.error(f"Failed to write to scanner_telemetry.jsonl: {e}")
 
-    def record_reject(self, symbol: str, last_stage: str = "PRE_CHECK", gate: str = "REJECTED", actual: Any = None, required: Any = None, start_time: float = None, scanner_name: str = None, run_id: str = None, gate_type: str = "THRESHOLD", ctx: DecisionContext = None, **kwargs):
+    def record_reject(self, symbol: str, last_stage: str = "PRE_CHECK", gate: str = "REJECTED", actual: Any = None, required: Any = None, start_time: float = None, scanner_name: str = None, run_id: str = None, gate_type: str = "THRESHOLD", operator: str = None, ctx: DecisionContext = None, **kwargs):
         """Helper recording rejected symbol into DecisionContext and emitting full terminal telemetry."""
         ctx = ctx or self.get_or_create_context(symbol=symbol, scanner_name=scanner_name, run_id=run_id)
         if "raw_market" in kwargs and isinstance(kwargs["raw_market"], dict):
@@ -574,7 +675,7 @@ class GlobalScannerTelemetryEngine:
             ctx.capture_fundamentals(**kwargs["fundamentals"])
         if "sl_target" in kwargs and isinstance(kwargs["sl_target"], dict):
             ctx.capture_sl_target(**kwargs["sl_target"])
-        ctx.capture_gate(gate_name=gate, passed=False, actual_val=actual, threshold_val=required, reason=f"Rejected at stage {last_stage}", gate_type=gate_type, **kwargs)
+        ctx.capture_gate(gate_name=gate, passed=False, actual_val=actual, threshold_val=required, operator_str=operator, reason=f"Rejected at stage {last_stage}", gate_type=gate_type, **kwargs)
         
         invalid_data_gates = ["NO_DATA", "STALE_DATA", "DUPLICATE", "MISSING_COL", "INVALID_TIMESTAMP", "INVALID_SNAPSHOT", "MISSING_SNAPSHOT", "NO_TRADING_ACTIVITY"]
         if gate not in invalid_data_gates:

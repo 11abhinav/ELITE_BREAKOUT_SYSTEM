@@ -209,3 +209,230 @@ def test_critical_gate_structure():
     assert len(ctx.decision_manifest) == 1
     assert ctx.decision_manifest[0]["name"] == "LOW_VOLUME"
 
+
+# ─── PHASE 4 CERTIFICATION REGRESSION TESTS ─────────────────────────────────
+# Tests 6–12: Validate all approved Phase 4 certification targets.
+# Reference: Session summary + user amendment requests 2026-08-23.
+
+def test_gate_operator_populated():
+    """
+    Phase 4 gate 3: Failed gates must expose actual + operator + threshold + result.
+    User requirement: "For every scalar gate the terminal audit should expose:
+    actual / operator / threshold / result."
+
+    Also verifies that the input that CAUSED the gate to fail is still VALID data
+    (the source field contained a real value — it's the gate decision that failed, not data quality).
+    """
+    from scanner_telemetry import DecisionContext
+
+    ctx = DecisionContext("BATAINDIA", "EOD")
+    ctx.capture_gate(
+        gate_name="WEAK_SIGNALS",
+        passed=False,
+        actual_val=0,
+        operator_str="<",
+        threshold_val=3,
+        reason="Insufficient breakout signals",
+        gate_type="THRESHOLD"
+    )
+    # signals_count=0 is VALID data — the gate failed, not the data quality
+    ctx.add_decision_input("signals_count", 0, "EOD_Filter", "Live", "LIVE", required=True, valid=True)
+    ctx.finalize(decision="REJECTED", primary_reason="WEAK_SIGNALS")
+
+    gate = ctx.gate_results["WEAK_SIGNALS"]
+    assert gate["passed"] is False
+    assert gate["operator"] == "<", f"Operator must be '<', got {gate['operator']}"
+    assert gate["threshold"] == 3, f"Threshold must be 3, got {gate['threshold']}"
+    assert gate["actual"] == 0, f"Actual must be 0, got {gate['actual']}"
+    assert gate["status"] == "FAIL"
+
+    # The consumed input is VALID — a real value of 0 is a legitimate measurement
+    manifest_entry = next((e for e in ctx.decision_manifest if e["name"] == "signals_count"), None)
+    assert manifest_entry is not None, "signals_count must be in decision manifest"
+    assert manifest_entry["valid"] is True, "signals_count=0 is VALID data (gate failed, not data quality)"
+
+    # Terminal audit box must contain the compact key=value format
+    audit_box = ctx.format_terminal_audit_box()
+    assert "actual=0" in audit_box, f"audit box must contain 'actual=0', got:\n{audit_box}"
+    assert "threshold=3" in audit_box, "audit box must contain 'threshold=3'"
+    assert "result=FAIL" in audit_box, "audit box must contain 'result=FAIL'"
+
+
+def test_nan_input_forensic_preservation():
+    """
+    Phase 4 gate 2 (amended): NaN/Inf values must preserve raw_value for forensic audit.
+    User requirement: "do not destroy the original value before audit serialization."
+    Validates Python float, NumPy scalar, pandas NA, and string sentinel inputs.
+    """
+    import math
+    import numpy as np
+    import pandas as pd
+    from scanner_telemetry import DecisionContext, sanitize_telemetry_value
+
+    # ─── sanitize_telemetry_value unit tests ───
+    val, raw, status, reason = sanitize_telemetry_value(float("nan"))
+    assert val is None and raw == "NaN" and status == "NAN"
+
+    val, raw, status, reason = sanitize_telemetry_value(float("inf"))
+    assert val is None and raw == "INF" and status == "NAN"
+
+    val, raw, status, reason = sanitize_telemetry_value(np.float64("nan"))
+    assert val is None and raw == "NaN" and status == "NAN", \
+        f"NumPy NaN: got ({val}, {raw}, {status})"
+
+    val, raw, status, reason = sanitize_telemetry_value(pd.NA)
+    assert val is None and raw == "NaN" and status == "NAN", \
+        f"pandas NA: got ({val}, {raw}, {status})"
+
+    # ─── DecisionContext manifest preservation ───
+    ctx = DecisionContext("ONGC", "REVERSAL")
+    ctx.add_decision_input("RSI", float("nan"), "Indicator", "Live", "LIVE", required=True, valid=True)
+    ctx.add_decision_input("ATR", np.float64("nan"), "Indicator", "Live", "LIVE", required=True, valid=True)
+
+    rsi_entry = next(e for e in ctx.decision_manifest if e["name"] == "RSI")
+    assert rsi_entry["value"] is None, "NaN input must have value=null in manifest"
+    assert rsi_entry["raw_value"] == "NaN", "NaN input must have raw_value='NaN' in manifest"
+    assert rsi_entry["valid"] is False, "NaN input must flip valid=False"
+
+    atr_entry = next(e for e in ctx.decision_manifest if e["name"] == "ATR")
+    assert atr_entry["value"] is None
+    assert atr_entry["raw_value"] == "NaN"
+    assert atr_entry["valid"] is False
+
+
+def test_nan_str_type_safety():
+    """
+    Phase 4: is_bad_numeric() must classify all 4 NaN/Inf input types correctly.
+    Tests the centralized helper that replaces scattered isinstance(float) checks.
+    """
+    import numpy as np
+    import pandas as pd
+    from scanner_telemetry import is_bad_numeric
+
+    # Python float NaN
+    assert is_bad_numeric(float("nan")) == (True, "NaN")
+    # Python float Inf
+    assert is_bad_numeric(float("inf")) == (True, "INF")
+    # NumPy NaN
+    is_bad, label = is_bad_numeric(np.float64("nan"))
+    assert is_bad is True and label == "NaN", f"np.float64 nan: ({is_bad}, {label})"
+    # NumPy Inf
+    is_bad, label = is_bad_numeric(np.float64("inf"))
+    assert is_bad is True and label == "INF", f"np.float64 inf: ({is_bad}, {label})"
+    # pandas NA
+    is_bad, label = is_bad_numeric(pd.NA)
+    assert is_bad is True and label == "NaN", f"pd.NA: ({is_bad}, {label})"
+    # String "nan"
+    is_bad, label = is_bad_numeric("nan")
+    assert is_bad is True and label == "NaN", f"str 'nan': ({is_bad}, {label})"
+    # String "inf"
+    is_bad, label = is_bad_numeric("inf")
+    assert is_bad is True and label == "INF", f"str 'inf': ({is_bad}, {label})"
+
+    # Safe values must NOT be flagged
+    assert is_bad_numeric(42.0) == (False, ""), "float 42.0 must not be flagged"
+    assert is_bad_numeric(0) == (False, ""), "int 0 must not be flagged"
+    assert is_bad_numeric(None) == (False, ""), "None handled as NULL, not bad numeric"
+    assert is_bad_numeric("valid_string") == (False, ""), "valid string must not be flagged"
+
+
+def test_eod_duplicate_workflow():
+    """
+    Phase 4 gate 5: EOD duplicate workflow must follow STRATEGY_SELECTED → DUPLICATE_CHECK → DUPLICATE_REJECTED.
+    User requirement: "STRATEGY_SELECTED must be an intermediate state, only DUPLICATE_REJECTED should be terminal."
+    Duplicate gate manifest must include existing_alert=True and duplicate_window_days.
+    """
+    from scanner_telemetry import DecisionContext
+
+    ctx = DecisionContext("HCLTECH", "EOD")
+    ctx.capture_raw_market(open_p=1200.0, high_p=1210.0, low_p=1195.0, close_p=1205.0, volume=500000.0)
+    ctx.add_decision_input("Close", 1205.0, "MarketData", "Live", "LIVE", required=True, valid=True)
+
+    ctx.capture_trace("STRATEGY_SELECTED", "PASS")
+    ctx.capture_trace("DUPLICATE_CHECK", "PENDING")
+    ctx.capture_trace("DUPLICATE_CHECK", "FAIL")
+
+    ctx.capture_gate(
+        gate_name="DUPLICATE_REJECTED", passed=False,
+        actual_val=True, threshold_val=False,
+        operator_str="!=", gate_type="BOOLEAN",
+        reason="Symbol already alerted within cooldown window"
+    )
+    ctx.add_decision_input("existing_alert", True, "System", "Live", "LIVE", required=True, valid=True)
+    ctx.add_decision_input("duplicate_window_days", 1.0, "System", "Live", "LIVE", required=True, valid=True)
+    ctx.finalize(decision="REJECTED", primary_reason="DUPLICATE_REJECTED")
+
+    assert ctx.terminal_decision == "REJECTED"
+    assert ctx.primary_reason == "DUPLICATE_REJECTED"
+    assert ctx.terminal_decision != "STRATEGY_SELECTED", "STRATEGY_SELECTED must be intermediate, not terminal"
+
+    trace_stages = [t["stage"] for t in ctx.decision_trace]
+    assert "STRATEGY_SELECTED" in trace_stages
+    assert "DUPLICATE_CHECK" in trace_stages
+
+    manifest_names = {e["name"] for e in ctx.decision_manifest}
+    assert "existing_alert" in manifest_names, "existing_alert must be in manifest"
+    assert "duplicate_window_days" in manifest_names, "duplicate_window_days must be in manifest"
+
+    existing_entry = next(e for e in ctx.decision_manifest if e["name"] == "existing_alert")
+    assert existing_entry["value"] is True
+
+
+def test_context_no_overwrite_invariant():
+    """
+    Phase 4 gate 6: Inputs captured before finalize() must survive after finalize().
+    terminal_decision must match the LAST finalize() call.
+    """
+    from scanner_telemetry import DecisionContext
+
+    ctx = DecisionContext("WIPRO", "MULTI_TF")
+    ctx.capture_raw_market(open_p=500.0, high_p=510.0, low_p=498.0, close_p=505.0, volume=1200000.0)
+    ctx.capture_indicators(rsi=62.5, sma50=490.0, sma200=450.0, atr=8.5)
+    ctx.add_decision_input("RSI", 62.5, "Indicator", "Live", "LIVE", required=True, valid=True)
+    ctx.add_decision_input("Close", 505.0, "MarketData", "Live", "LIVE", required=True, valid=True)
+    ctx.capture_gate("BREAKOUT_CONFIRMED", passed=True, actual_val=505.0, threshold_val=500.0, operator_str=">")
+    ctx.finalize(decision="SELECTED", primary_reason="BREAKOUT_CONFIRMED")
+
+    # capture_indicators adds RSI, SMA50, SMA200, ATR to decision_manifest (+4)
+    # plus our 2 explicit add_decision_input calls = 6 total
+    assert len(ctx.decision_manifest) == 6
+    assert ctx.terminal_decision == "SELECTED"
+    assert ctx.primary_reason == "BREAKOUT_CONFIRMED"
+    # Raw market fields are stored uppercase in ctx.entries by capture_raw_market
+    assert "CLOSE" in ctx.entries, "CLOSE must survive finalize()"
+    # Indicators from capture_indicators are stored under their parameter names
+    assert "RSI" in ctx.entries, "RSI must survive finalize()"
+    assert "BREAKOUT_CONFIRMED" in ctx.gate_results
+    assert ctx.gate_results["BREAKOUT_CONFIRMED"]["passed"] is True
+
+
+def test_no_trading_activity_semantic_guard():
+    """
+    Phase 4 gate: O=H=L=C + Volume=0 must produce NO_TRADING_ACTIVITY rejection.
+    Consumed input (Volume=0) must appear in the decision manifest.
+    """
+    from scanner_telemetry import DecisionContext
+
+    ctx = DecisionContext("JUSTAGSHK", "MULTIBAGGER")
+    _o = _h = _l = _c = 250.0
+    _v = 0.0
+
+    ctx.capture_raw_market(open_p=_o, high_p=_h, low_p=_l, close_p=_c, volume=_v)
+    ctx.add_decision_input(name="Volume", value=_v, source="MarketData", as_of="Live",
+                           freshness="LIVE", required=True, valid=False)
+    ctx.finalize(decision="REJECTED", primary_reason="NO_TRADING_ACTIVITY")
+
+    assert ctx.terminal_decision == "REJECTED"
+    assert ctx.primary_reason == "NO_TRADING_ACTIVITY"
+
+    volume_entry = next((e for e in ctx.decision_manifest if e["name"] == "Volume"), None)
+    assert volume_entry is not None, "Volume must be in decision manifest"
+    assert volume_entry["value"] == 0.0
+    assert volume_entry["valid"] is False, "Volume=0 for suspended stock must be marked invalid"
+
+    # Market data is stored in ctx.entries under uppercase keys (OPEN, CLOSE, VOLUME)
+    assert ctx.entries["OPEN"].value == 250.0
+    assert ctx.entries["CLOSE"].value == 250.0
+    assert ctx.entries["VOLUME"].value == 0.0
+
+

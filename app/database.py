@@ -2430,7 +2430,9 @@ def upsert_scanner_health(
         # Normalize and sanitize status values to match DB CHECK constraint
         if status is not None:
             status = str(status).upper()
-        allowed_statuses = {'OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'STOPPED', 'PAUSED'}
+        # [RULE 67] DEGRADED_FALLBACK is a valid operational status (historical data used).
+        # Previously absent from allowed_statuses, silently remapped to IDLE.
+        allowed_statuses = {'OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'DEGRADED_FALLBACK', 'STOPPED', 'PAUSED'}
         if status is not None and status not in allowed_statuses and not status.startswith('QUEUED'):
             logger.warning(f"upsert_scanner_health: unknown status '{status}' provided — mapping to 'IDLE'")
             status = 'IDLE'
@@ -2568,7 +2570,8 @@ def upsert_scanner_health(
                         try:
                             with conn.cursor() as fix_cur:
                                 fix_cur.execute("ALTER TABLE scanner_health DROP CONSTRAINT IF EXISTS chk_scanner_status;")
-                                fix_cur.execute("ALTER TABLE scanner_health ADD CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'PAUSED', 'STOPPED') OR status LIKE 'QUEUED%') NOT VALID;")
+                                # [RULE 67] Include DEGRADED_FALLBACK so the constraint allows historical-fallback state.
+                                fix_cur.execute("ALTER TABLE scanner_health ADD CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'DEGRADED_FALLBACK', 'PAUSED', 'STOPPED') OR status LIKE 'QUEUED%') NOT VALID;")
                                 fix_cur.execute(f"""
                                     INSERT INTO scanner_health
                                         ({insert_cols_str})
