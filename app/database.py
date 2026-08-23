@@ -2433,7 +2433,9 @@ def upsert_scanner_health(
         # [RULE 67] DEGRADED_FALLBACK is a valid operational status (historical data used).
         # Previously absent from allowed_statuses, silently remapped to IDLE.
         allowed_statuses = {'OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'DEGRADED_FALLBACK', 'STOPPED', 'PAUSED'}
-        if status is not None and status not in allowed_statuses and not status.startswith('QUEUED'):
+        if status == 'ERROR':
+            status = 'DOWN'
+        elif status is not None and status not in allowed_statuses and not status.startswith('QUEUED'):
             logger.warning(f"upsert_scanner_health: unknown status '{status}' provided — mapping to 'IDLE'")
             status = 'IDLE'
 

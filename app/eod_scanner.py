@@ -111,15 +111,28 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
         logger.info(f"✅ [EOD] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
     # Lock acquired! NOW create the execution history to strictly show RUNNING
+    if _scan_lock.locked():
+        logger.warning("🛑 [DUPLICATE GUARD] EOD Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
+        return 0
+
+    queued_at = None
+    if not _global_lock.acquire(blocking=False):
+        queued_at = time.monotonic()
+        logger.info("⏳ [EOD] Global scanner lock busy — marking QUEUED and waiting in queue...")
+        upsert_scanner_health("EOD", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
+        if not _global_lock.acquire(blocking=True):
+            raise RuntimeError("Failed to acquire global scanner lock.")
+        logger.info(f"✅ [EOD] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
+
     own_ctx = False
     if run_ctx is None:
         try:
             from database import start_scanner_execution_run
             run_ctx = start_scanner_execution_run(scanner_name="EOD", trigger_type=trigger_type, scheduler_name=scheduler_name)
             own_ctx = True
-        except Exception as exc:
+        except Exception:
             pass
-            
+
     upsert_scanner_health("EOD", "RUNNING", error_msg="EOD scan in progress...")
 
     if not _scan_lock.acquire(blocking=False):
@@ -823,1027 +836,1067 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
         total_batches = (len(watchlist) + BATCH_SIZE - 1) // BATCH_SIZE
 
         approved_candidates = []
+        import os, psutil, gc, time
+        process = psutil.Process(os.getpid())
+        BATCH_SIZE = int(os.environ.get("EOD_FETCH_BATCH_SIZE", "50"))
+        
+        total_fetched_count = 0
+        logger.info(f"📥 Processing EOD phase in chunks of {BATCH_SIZE}...")
+
         with MemoryProfiler("Process Symbols"):
-            for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
-                with BatchMemoryTracker("EOD", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
-                    import pandas as pd
-                    import time
-                    _batch_start_t = time.perf_counter()
-                    # [VERSION: MARKET_DATA_SESSION_v1.0] Serve from session when available;
-                    # fall back to independent fetch otherwise.
-                    if session is not None:
-                        all_ticker_data = {
-                            row["Stock"]: (
-                                session.get(row["Stock"]).ohlcv_df
-                                if session.get(row["Stock"]) is not None else None
-                            )
-                            for _, row in chunk_df.iterrows()
-                        }
-                    else:
-                        # [VERSION: UNIFIED_1Y_CACHE_v2.0]
-                        # Aligned on unified 1-year cache (period="1y", interval="1d").
-                        # EOD Scanner requires SMA200 & 52W High (252 trading days = ~365 cal days max).
-                        # Using period="1y" shares the exact same Parquet cache files with Wealth Engine & Reversal scanner,
-                        # eliminating 50% data payload and preventing cache key fragmentation.
-                        all_ticker_data = fetch_watchlist_data(chunk_df, interval="1d", period="1y", requester="EOD")
-                        
-                    _fetch_dur = time.perf_counter() - _batch_start_t
-                    if not all_ticker_data:
-                        continue
-                    
-                    valid_fetches = sum(1 for v in all_ticker_data.values() if isinstance(v, pd.DataFrame) and not v.empty)
-                    total_fetched_count += valid_fetches
-                    from core_enums import ProviderResult
-                    rows_fetched = sum(len(df) for df in all_ticker_data.values() if isinstance(df, pd.DataFrame))
-                    tracker.mark_fetch_complete(row_count=rows_fetched)
+            for i in range(0, len(watchlist), BATCH_SIZE):
+                batch_start_time = time.time()
+                chunk_df = watchlist.iloc[i:i + BATCH_SIZE]
+                rss_before = process.memory_info().rss / 1024 / 1024
                 
-                    import threading
-                    from concurrent.futures import ThreadPoolExecutor, as_completed
-                    _batch_lock = threading.Lock()
-                    def _process_row(idx, row_tuple, all_ticker_data=all_ticker_data):
-                        symbol = "UNKNOWN"
-                        _row_start_time = _time.perf_counter()
-                        try:
-                            if isinstance(row_tuple, dict):
-                                row = row_tuple
-                            elif hasattr(row_tuple, '_asdict'):
-                                try:
-                                    row = row_tuple._asdict()
-                                except Exception:
+                all_ticker_data = fetch_watchlist_data(chunk_df, "2y", "1d")
+                if not all_ticker_data:
+                    continue
+                
+                total_fetched_count += len(all_ticker_data)
+                rss_after_fetch = process.memory_info().rss / 1024 / 1024
+                
+                for idx, (_, row) in enumerate(chunk_df.iterrows(), start=1):
+                    with BatchMemoryTracker("EOD", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
+                        import pandas as pd
+                        import time
+                        _batch_start_t = time.perf_counter()
+                        # [VERSION: MARKET_DATA_SESSION_v1.0] Serve from session when available;
+                        # fall back to independent fetch otherwise.
+                        if session is not None:
+                            all_ticker_data = {
+                                row["Stock"]: (
+                                    session.get(row["Stock"]).ohlcv_df
+                                    if session.get(row["Stock"]) is not None else None
+                                )
+                                for _, row in chunk_df.iterrows()
+                            }
+                        else:
+                            # [VERSION: UNIFIED_1Y_CACHE_v2.0]
+                            # Aligned on unified 1-year cache (period="1y", interval="1d").
+                            # EOD Scanner requires SMA200 & 52W High (252 trading days = ~365 cal days max).
+                            # Using period="1y" shares the exact same Parquet cache files with Wealth Engine & Reversal scanner,
+                            # eliminating 50% data payload and preventing cache key fragmentation.
+                            all_ticker_data = fetch_watchlist_data(chunk_df, interval="1d", period="1y", requester="EOD")
+                        
+                        _fetch_dur = time.perf_counter() - _batch_start_t
+                        if not all_ticker_data:
+                            continue
+                    
+                        valid_fetches = sum(1 for v in all_ticker_data.values() if isinstance(v, pd.DataFrame) and not v.empty)
+                        total_fetched_count += valid_fetches
+                        from core_enums import ProviderResult
+                        rows_fetched = sum(len(df) for df in all_ticker_data.values() if isinstance(df, pd.DataFrame))
+                        tracker.mark_fetch_complete(row_count=rows_fetched)
+                
+                        import threading
+                        from concurrent.futures import ThreadPoolExecutor, as_completed
+                        _batch_lock = threading.Lock()
+                        def _process_row(idx, row_tuple, all_ticker_data=all_ticker_data):
+                            symbol = "UNKNOWN"
+                            _row_start_time = _time.perf_counter()
+                            try:
+                                if isinstance(row_tuple, dict):
+                                    row = row_tuple
+                                elif hasattr(row_tuple, '_asdict'):
+                                    try:
+                                        row = row_tuple._asdict()
+                                    except Exception:
+                                        row = {}
+                                elif hasattr(row_tuple, '_fields'):
+                                    try:
+                                        row = dict(zip(row_tuple._fields, row_tuple))
+                                    except Exception:
+                                        row = {}
+                                elif hasattr(row_tuple, 'to_dict'):
+                                    try:
+                                        row = row_tuple.to_dict()
+                                    except Exception:
+                                        row = {}
+                                else:
                                     row = {}
-                            elif hasattr(row_tuple, '_fields'):
-                                try:
-                                    row = dict(zip(row_tuple._fields, row_tuple))
-                                except Exception:
+
+                                if not isinstance(row, dict):
                                     row = {}
-                            elif hasattr(row_tuple, 'to_dict'):
-                                try:
-                                    row = row_tuple.to_dict()
-                                except Exception:
-                                    row = {}
-                            else:
-                                row = {}
 
-                            if not isinstance(row, dict):
-                                row = {}
+                                symbol   = row.get("Stock", "UNKNOWN")
+                                category = row.get("Category", "MIDCAP")
+                                sector   = row.get("Sector", None)
 
-                            symbol   = row.get("Stock", "UNKNOWN")
-                            category = row.get("Category", "MIDCAP")
-                            sector   = row.get("Sector", None)
+                                if symbol in get_live_blacklist():
+                                    return
 
-                            if symbol in get_live_blacklist():
-                                return
+                                # Robust symbol resolution across .NS / .BO suffixes
+                                ticker_data = all_ticker_data.get(symbol)
+                                if ticker_data is None:
+                                    ticker_data = all_ticker_data.get(f"{symbol}.NS") or all_ticker_data.get(f"{symbol}.BO") or all_ticker_data.get(symbol.split('.')[0])
 
-                            # Robust symbol resolution across .NS / .BO suffixes
-                            ticker_data = all_ticker_data.get(symbol)
-                            if ticker_data is None:
-                                ticker_data = all_ticker_data.get(f"{symbol}.NS") or all_ticker_data.get(f"{symbol}.BO") or all_ticker_data.get(symbol.split('.')[0])
-
-                            if ticker_data is None:
-                                with _batch_lock:
-                                    rejection_counts["no_data"] += 1
-                                    telemetry_logger.record_reject(symbol, "DATA", "NO_DATA", None, None, start_time=_row_start_time)
-                                with _batch_lock:
-                                    provider_stats_counts["EMPTY_DATA"] += 1
-                                with _batch_lock:
-                                    scan_failures.append(ScanFailure(symbol=symbol, scanner_name="EOD", provider="unknown", failure_reason="missing data", scan_id=scan_id))
-                                return
-
-                            if isinstance(ticker_data, ProviderResult):
-                                res = ticker_data
-                                with _batch_lock:
-                                    provider_stats_counts[res.name] += 1
-                                if res != ProviderResult.SUCCESS:
+                                if ticker_data is None:
                                     with _batch_lock:
                                         rejection_counts["no_data"] += 1
                                         telemetry_logger.record_reject(symbol, "DATA", "NO_DATA", None, None, start_time=_row_start_time)
                                     with _batch_lock:
-                                        scan_failures.append(ScanFailure(symbol=symbol, scanner_name="EOD", provider="unknown", failure_reason=f"Provider error: {res.name}", scan_id=scan_id))
-                                    return
-                            else:
-                                with _batch_lock:
-                                    provider_stats_counts["SUCCESS"] += 1
-
-                            ticker = ticker_data.copy()
-
-                            if ticker.empty:
-                                with _batch_lock:
-                                    rejection_counts["no_data"] += 1
-                                    telemetry_logger.record_reject(symbol, "DATA", "NO_DATA", None, None, start_time=_row_start_time)
-                                return
-
-                            # If provider returned stale data (used as fallback during rate limits), skip EOD buy generation
-                            if getattr(ticker, 'attrs', {}).get('is_stale'):
-                                with _batch_lock:
-                                    rejection_counts["stale_data"] += 1
-                                    telemetry_logger.record_reject(symbol, "DATA", "STALE_DATA", None, None, start_time=_row_start_time)
-                                return
-
-                            if isinstance(ticker.columns, pd.MultiIndex):
-                                ticker.columns = ticker.columns.get_level_values(0)
-
-                            ticker = ticker.loc[:, ~ticker.columns.duplicated()]
-
-                            required_cols = ["Open", "High", "Low", "Close", "Volume"]
-                            missing_col   = False
-
-                            for col_name in required_cols:
-                                if col_name not in ticker.columns:
-                                    missing_col = True
-                                    break
-                                if isinstance(ticker[col_name], pd.DataFrame):
-                                    ticker[col_name] = ticker[col_name].iloc[:, 0]
-                                ticker[col_name] = pd.Series(ticker[col_name]).astype(float)
-
-                            if missing_col:
-                                with _batch_lock:
-                                    rejection_counts["missing_col"] += 1
-                                    telemetry_logger.record_reject(symbol, "DATA", "MISSING_COL", None, None, start_time=_row_start_time)
-                                return
-
-                            ticker = ticker.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
-
-                            if ticker.empty:
-                                with _batch_lock:
-                                    rejection_counts["no_data"] += 1
-                                    telemetry_logger.record_reject(symbol, "DATA", "NO_DATA", None, None, start_time=_row_start_time)
-                                return
-
-                            # [VERSION: EOD_BAR_LIMIT_FIX] Lowered bar minimum from 200 to 50 to allow IPOs/new listings to be evaluated
-                            if len(ticker) < 50:
-                                with _batch_lock:
-                                    rejection_counts["insufficient_bars"] += 1
-                                    telemetry_logger.record_reject(symbol, "LIQUIDITY", "INSUFFICIENT_BARS", len(ticker) if "ticker" in locals() else 0, 50, start_time=_row_start_time)
-                                return
-
-                            # [PERFORMANCE_FIX] apply_indicators() is now pre-calculated by price_cache.py 
-                            # immediately after downloading the dataset. Doing it once there instead of 
-                            # 5000 times here eliminates 4-5 minutes of latency per batch!
-                            # ticker = apply_indicators(ticker, timeframe="1d")
-
-                            if ticker is None or ticker.empty:
-                                with _batch_lock:
-                                    rejection_counts["indicator_fail"] += 1
-                                    telemetry_logger.record_reject(symbol, "DATA", "INDICATOR_FAIL", None, None, start_time=_row_start_time)
-                                return
-
-                            latest = ticker.iloc[-1]
-                            ctx = telemetry_logger.get_or_create_context(symbol)
-                            ctx.capture_dataframe_row(latest, is_fallback=used_fallback_data)
-                            ctx.capture_indicators(
-                                rsi=_safe_float(latest.get("RSI")),
-                                sma20=_safe_float(latest.get("SMA20")),
-                                sma50=_safe_float(latest.get("SMA50")),
-                                sma100=_safe_float(latest.get("SMA100")),
-                                sma200=_safe_float(latest.get("SMA200")),
-                                ema9=_safe_float(latest.get("EMA9")),
-                                ema15=_safe_float(latest.get("EMA15")),
-                                ema20=_safe_float(latest.get("EMA20")),
-                                ema50=_safe_float(latest.get("EMA50")),
-                                ema200=_safe_float(latest.get("EMA200")),
-                                macd=_safe_float(latest.get("MACD")),
-                                macd_signal=_safe_float(latest.get("MACD_SIGNAL")),
-                                macd_hist=_safe_float(latest.get("MACD_HIST")),
-                                atr=_safe_float(latest.get("ATR")),
-                                adx=_safe_float(latest.get("ADX")),
-                                obv=_safe_float(latest.get("OBV")),
-                                prior_20d_high=_safe_float(latest.get("PRIOR_20D_HIGH")),
-                                bb_width_pctile=_safe_float(latest.get("BB_WIDTH_PCTILE"))
-                            )
-
-                            signals = detect_breakouts(ticker, timeframe="1d")
-
-                            if len(signals) < MIN_SIGNALS:
-                                with _batch_lock:
-                                    rejection_counts["weak_signals"] += 1
-                                    ctx.capture_gate(
-                                        gate_name="WEAK_SIGNALS",
-                                        passed=False,
-                                        actual_val=len(signals),
-                                        operator_str="<",
-                                        threshold_val=MIN_SIGNALS if "MIN_SIGNALS" in locals() else 3,
-                                        gate_type="COMPOSITE",
-                                        reason="Insufficient breakout signals",
-                                        components={"signals_count": len(signals), "detected_signals": signals},
-                                        expression=f"len(signals) >= {MIN_SIGNALS}"
-                                    )
-                                    ctx.add_decision_input(name="signals_count", value=len(signals), source="BreakoutEngine", as_of="Live", freshness="LIVE", required=True, valid=True)
-                                    ctx.finalize(decision="REJECTED", primary_reason="WEAK_SIGNALS")
-                                    telemetry_engine.emit_terminal(ctx)
-                                return
-
-                            if "RSI" not in ticker.columns or pd.isna(latest["RSI"]):
-                                logger.debug(f"[EOD] {symbol} rejected: latest RSI is missing or NaN")
-                                with _batch_lock:
-                                    rejection_counts["indicator_nan"] += 1
-                                    telemetry_logger.record_reject(symbol, "DATA", "INDICATOR_NAN", None, None, start_time=_row_start_time)
-                                return
-
-                            # [VERSION: EOD_PATCH_v1.1] [BUG FIX 8 REGRESSION FIX] Proper fallback to DatetimeIndex when Date/Datetime column is missing
-                            # [FIX P0] Compare against the last bar's own date rather than ist_now.date().
-                            # On weekends/holidays, ist_now.date() is a non-trading day and every symbol
-                            # would be rejected as stale. Instead, we confirm the last bar is reasonably
-                            # recent (within 4 calendar days to cover long weekends).
-                            _last_ts = None
-                            _stale_col = next((c for c in ["Date", "Datetime"] if c in ticker.columns), None)
-                            if _stale_col:
-                                try:
-                                    _last_ts = pd.to_datetime(latest[_stale_col])
-                                except Exception as e:
-                                    logger.debug(f"⏭️ {symbol} timestamp parse error: {e}")
-                            elif isinstance(ticker.index, pd.DatetimeIndex):
-                                try:
-                                    _last_ts = pd.Timestamp(ticker.index[-1])
-                                except Exception as e:
-                                    logger.debug(f"⏭️ {symbol} index timestamp parse error: {e}")
-
-                            from market_utils import evaluate_data_staleness
-                            _staleness = evaluate_data_staleness(_last_ts, ist_now)
-                            if _staleness["is_stale"]:
-                                with _batch_lock:
-                                    rejection_counts["stale_data"] += 1
-                                    telemetry_logger.record_reject(symbol, "DATA", "STALE_DATA", None, None, start_time=_row_start_time)
-                                logger.info(f"🚫 [EOD] {symbol} skipped — Data stale. Available till {_staleness['latest_available']} (Expected at least {_staleness['expected_date']})")
-                                return
-
-                            # [VERSION: EOD_VOL_RATIO_FIX] Protect against newly listed stocks with <22 bars
-                            if len(ticker) >= 22:
-                                avg_volume = float(ticker["Volume"].iloc[-21:-1].mean())
-                            else:
-                                avg_volume = float(ticker["Volume"].iloc[:-1].mean())
-
-                            if avg_volume <= 0:
-                                logger.debug(f"REJECTION: {symbol} (Phase: LIQUIDITY_FILTER, Reason: 20D average volume is zero)")
-                                with _batch_lock:
-                                    rejection_counts["zero_avg_volume"] += 1
-                                    telemetry_logger.record_reject(symbol, "LIQUIDITY", "ZERO_AVG_VOLUME", avg_volume if "avg_volume" in locals() else 0, 1, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
-                                return
-
-                            volume_ratio = _safe_float(latest.get("Volume")) / avg_volume
-
-                            candle_high  = _safe_float(latest.get("High"))
-                            candle_low   = _safe_float(latest.get("Low"))
-                            candle_open  = _safe_float(latest.get("Open"))
-                            candle_close = _safe_float(latest.get("Close"))
-                            candle_range = candle_high - candle_low
-                            candle_body  = abs(candle_close - candle_open)
-                            upper_wick   = candle_high - max(candle_close, candle_open)
-
-                            if candle_range <= 0:
-                                with _batch_lock:
-                                    rejection_counts["zero_candle_range"] += 1
-                                    telemetry_logger.record_reject(symbol, "STRUCTURE", "ZERO_CANDLE_RANGE", 0, 1, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
-                                return
-
-                            body_ratio     = candle_body / candle_range
-                            close_position = (candle_close - candle_low) / candle_range
-                            wick_ratio     = upper_wick / candle_range
-                            rsi_val        = _safe_float(latest.get("RSI"))
-
-                            # [FIX P1-3] Converted hard candle gates to scoring penalties.
-                            # Previously these 4 conditions hard-rejected ~40% of valid breakouts.
-                            # Now each applies a proportional penalty to the final score.
-                            candle_penalty = 0
-                            if body_ratio < MIN_BODY_RATIO:
-                                shortfall = (MIN_BODY_RATIO - body_ratio) / MIN_BODY_RATIO
-                                pen = min(15, int(shortfall * 30))
-                                candle_penalty += pen
-                                logger.debug(f"⚠️ {symbol} body_ratio penalty: -{pen} (ratio={body_ratio:.2f} < {MIN_BODY_RATIO})")
-                            if candle_close <= candle_open:
-                                candle_penalty += 5
-                                logger.debug(f"⚠️ {symbol} bearish_candle penalty: -5")
-                            if close_position < MIN_CLOSE_POSITION:
-                                shortfall = (MIN_CLOSE_POSITION - close_position) / MIN_CLOSE_POSITION
-                                pen = min(10, int(shortfall * 20))
-                                candle_penalty += pen
-                                logger.debug(f"⚠️ {symbol} close_position penalty: -{pen} (pos={close_position:.2f} < {MIN_CLOSE_POSITION})")
-                            if wick_ratio > MAX_UPPER_WICK_RATIO:
-                                excess = (wick_ratio - MAX_UPPER_WICK_RATIO) / MAX_UPPER_WICK_RATIO
-                                pen = min(10, int(excess * 20))
-                                candle_penalty += pen
-                                logger.debug(f"⚠️ {symbol} upper_wick penalty: -{pen} (wick={wick_ratio:.2f} > {MAX_UPPER_WICK_RATIO})")
-                            if volume_ratio < MIN_VOLUME_RATIO:
-                                logger.debug(f"REJECTION: {symbol} (Phase: VOLUME_RATIO, Reason: Volume ratio {volume_ratio:.2f}x < {MIN_VOLUME_RATIO:.2f}x)")
-                                with _batch_lock:
-                                    rejection_counts["low_volume"] += 1
-                                    telemetry_logger.record_reject(symbol, "VOLUME", "LOW_VOLUME", volume_ratio if "volume_ratio" in locals() else 0, MIN_VOLUME_RATIO if "MIN_VOLUME_RATIO" in locals() else 1.0, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
-                                return
-                            if avg_volume < MIN_AVG_VOLUME_SHARES:
-                                logger.debug(f"REJECTION: {symbol} (Phase: LIQUIDITY_FILTER, Reason: Avg volume {avg_volume:.0f} < {MIN_AVG_VOLUME_SHARES:.0f} shares)")
-                                with _batch_lock:
-                                    rejection_counts["low_avg_volume"] += 1
-                                    telemetry_logger.record_reject(symbol, "LIQUIDITY", "LOW_AVG_VOLUME", avg_volume if "avg_volume" in locals() else 0, MIN_AVG_VOLUME_SHARES if "MIN_AVG_VOLUME_SHARES" in locals() else 50000, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
-                                return
-                            if candle_close < MIN_STOCK_PRICE:
-                                logger.debug(f"REJECTION: {symbol} (Phase: PRICE_FLOOR, Reason: Close ₹{candle_close:.2f} < ₹{MIN_STOCK_PRICE:.2f})")
-                                with _batch_lock:
-                                    rejection_counts["penny_stock"] += 1
-                                    telemetry_logger.record_reject(symbol, "PRICE", "PENNY_STOCK", candle_close if "candle_close" in locals() else 0, MIN_STOCK_PRICE if "MIN_STOCK_PRICE" in locals() else 20, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
-                                return
-                            if not (MIN_RSI <= rsi_val <= MAX_RSI):
-                                logger.debug(f"REJECTION: {symbol} (Phase: RSI_GATE, Reason: RSI {rsi_val:.1f} outside {MIN_RSI}-{MAX_RSI} range)")
-                                with _batch_lock:
-                                    rejection_counts["rsi_range"] += 1
-                                    telemetry_logger.record_reject(symbol, "RSI", "RSI_RANGE", rsi_val if "rsi_val" in locals() else 0, f"[{MIN_RSI}, {MAX_RSI}]", start_time=_row_start_time, operator="NOT_IN_RANGE", gate_type="THRESHOLD")
-                                return
-
-                            # ── v6: STRUCTURAL BREAKOUT FILTERS ─────────────────────────────
-                            # [VERSION: EOD_PATCH_v1.0] [BUG FIX 2] Added explicit outer else rejection to avoid silent bypass of structural filters
-                            if "PRIOR_20D_HIGH" not in ticker.columns or pd.isna(latest.get("PRIOR_20D_HIGH")):
-                                logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Missing PRIOR_20D_HIGH indicator)")
-                                with _batch_lock:
-                                    rejection_counts["missing_atr"] += 1
-                                    telemetry_logger.record_reject(symbol, "STRUCTURE", "MISSING_ATR", None, None, start_time=_row_start_time)
-                                return
-
-                            prior_high = _safe_float(latest.get("PRIOR_20D_HIGH"))
-                            if prior_high <= 0:
-                                logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Invalid prior 20D high ₹{prior_high:.2f})")
-                                with _batch_lock:
-                                    rejection_counts["no_structural_breakout"] += 1
-                                    telemetry_logger.record_reject(symbol, "STRUCTURE", "NO_BREAKOUT", candle_close if "candle_close" in locals() else 0, prior_high if "prior_high" in locals() else 0, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
-                                return
-
-                            if candle_close <= prior_high:
-                                logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Close ₹{candle_close:.2f} <= Prior 20D High ₹{prior_high:.2f})")
-                                with _batch_lock:
-                                    rejection_counts["no_structural_breakout"] += 1
-                                    telemetry_logger.record_reject(symbol, "STRUCTURE", "NO_BREAKOUT", candle_close if "candle_close" in locals() else 0, prior_high if "prior_high" in locals() else 0, start_time=_row_start_time, operator="<=", gate_type="THRESHOLD")
-                                return
-
-                            # Not Extended
-                            if "ATR20" not in ticker.columns or pd.isna(latest.get("ATR20")):
-                                with _batch_lock:
-                                    rejection_counts["missing_atr"] += 1
-                                    telemetry_logger.record_reject(symbol, "STRUCTURE", "MISSING_ATR", None, None, start_time=_row_start_time)
-                                return
-
-                            atr20 = _safe_float(latest.get("ATR20"))
-                            if atr20 <= 0:
-                                with _batch_lock:
-                                    rejection_counts["missing_atr"] += 1
-                                    telemetry_logger.record_reject(symbol, "STRUCTURE", "MISSING_ATR", None, None, start_time=_row_start_time)
-                                return
-
-                            # [VERSION: BUSINESS_LOGIC_FIX_v1.0] Gap-and-go penalty (Soft Gate)
-                            technical_penalties = {}
-                            atr_extension = (candle_close - prior_high) / atr20
-                            max_ext = EOD_ADVANCED_CONFIG.get("MAX_EXTENDED_BREAKOUT_ATR_MULT", 1.5)
-                            if atr_extension > max_ext:
-                                pen_mult = EOD_ADVANCED_CONFIG.get("GAP_AND_GO_PENALTY_MULT", 10)
-                                max_pen = EOD_ADVANCED_CONFIG.get("GAP_AND_GO_MAX_PENALTY", 20)
-                                technical_penalties["extended_breakout"] = min(max_pen, (atr_extension - max_ext) * pen_mult)
-                
-                            # ATR Expansion
-                            min_atr_expansion = EOD_ADVANCED_CONFIG.get("MIN_ATR_EXPANSION_RATIO", 0.9)
-                            if candle_range / atr20 < min_atr_expansion:
-                                logger.debug(f"REJECTION: {symbol} (Phase: ATR_EXPANSION, Reason: Candle range / ATR20 ({candle_range / atr20:.2f}) < {min_atr_expansion:.1f})")
-                                with _batch_lock:
-                                    rejection_counts["no_atr_expansion"] += 1
-                                    telemetry_logger.record_reject(symbol, "STRUCTURE", "NO_ATR_EXPANSION", candle_range/atr20 if "candle_range" in locals() and "atr20" in locals() and atr20 > 0 else 0, 0.9, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
-                                return
-
-                            # [FIX P1-2] Removed redundant BB_WIDTH_PCTILE check on the current bar.
-                            # The base_too_wide filter at line 776 already checks the PREVIOUS bar's
-                            # BB_WIDTH_PCTILE, which is the correct pre-breakout snapshot. Checking the
-                            # current (breakout) bar's BB width is self-defeating because BB expands on
-                            # breakout candles.
-
-                            if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")):
-                                if candle_close < _safe_float(latest.get("EMA20")):
-                                    logger.debug(f"REJECTION: {symbol} (Phase: EMA20_TREND, Reason: Close ₹{candle_close:.2f} < EMA20 ₹{_safe_float(latest.get('EMA20')):.2f})")
+                                        provider_stats_counts["EMPTY_DATA"] += 1
                                     with _batch_lock:
-                                        rejection_counts["below_ema20"] += 1
-                                        telemetry_logger.record_reject(symbol, "TREND", "BELOW_EMA20", candle_close if "candle_close" in locals() else 0, _safe_float(latest.get("EMA20")) if "latest" in locals() else 0, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
+                                        scan_failures.append(ScanFailure(symbol=symbol, scanner_name="EOD", provider="unknown", failure_reason="missing data", scan_id=scan_id))
                                     return
 
-                            if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")):
-                                if candle_close < _safe_float(latest.get("SMA50")):
-                                    logger.debug(f"REJECTION: {symbol} (Phase: SMA50_TREND, Reason: Close ₹{candle_close:.2f} < SMA50 ₹{_safe_float(latest.get('SMA50')):.2f})")
+                                if isinstance(ticker_data, ProviderResult):
+                                    res = ticker_data
                                     with _batch_lock:
-                                        rejection_counts["below_sma50"] += 1
-                                        telemetry_logger.record_reject(symbol, "TREND", "BELOW_SMA50", candle_close if "candle_close" in locals() else 0, _safe_float(latest.get("SMA50")) if "latest" in locals() else 0, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
-                                    return
-
-                            if "ADX" in ticker.columns and not pd.isna(latest.get("ADX")):
-                                if _safe_float(latest.get("ADX")) < ADX_MIN_THRESHOLD:
-                                    logger.debug(f"REJECTION: {symbol} (Phase: ADX_GATE, Reason: ADX {_safe_float(latest.get('ADX')):.1f} < {ADX_MIN_THRESHOLD})")
-                                    with _batch_lock:
-                                        rejection_counts["weak_adx"] += 1
-                                        telemetry_logger.record_reject(symbol, "TREND", "WEAK_ADX", _safe_float(latest.get("ADX")) if "latest" in locals() else 0, ADX_MIN_THRESHOLD if "ADX_MIN_THRESHOLD" in locals() else 20, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
-                                    return
-
-                            # MACD is no longer mandatory, shifted to scoring engine
-
-                            if "HIGH_52W" in ticker.columns and not pd.isna(latest.get("HIGH_52W")):
-                                high_52w = _safe_float(latest.get("HIGH_52W"))
-                                if high_52w > 0:
-                                    pct_from_high = (high_52w - candle_close) / high_52w * 100
-                                    if pct_from_high > MAX_DISTANCE_FROM_52W_HIGH_PCT:
+                                        provider_stats_counts[res.name] += 1
+                                    if res != ProviderResult.SUCCESS:
                                         with _batch_lock:
-                                            rejection_counts["far_from_52w_high"] += 1
-                                            telemetry_logger.record_reject(symbol, "STRUCTURE", "FAR_FROM_52W_HIGH", pct_from_high if "pct_from_high" in locals() else 0, MAX_DISTANCE_FROM_52W_HIGH_PCT if "MAX_DISTANCE_FROM_52W_HIGH_PCT" in locals() else 20, start_time=_row_start_time, operator=">", gate_type="THRESHOLD")
+                                            rejection_counts["no_data"] += 1
+                                            telemetry_logger.record_reject(symbol, "DATA", "NO_DATA", None, None, start_time=_row_start_time)
+                                        with _batch_lock:
+                                            scan_failures.append(ScanFailure(symbol=symbol, scanner_name="EOD", provider="unknown", failure_reason=f"Provider error: {res.name}", scan_id=scan_id))
+                                        return
+                                else:
+                                    with _batch_lock:
+                                        provider_stats_counts["SUCCESS"] += 1
+
+                                ticker = ticker_data.copy()
+
+                                if ticker.empty:
+                                    with _batch_lock:
+                                        rejection_counts["no_data"] += 1
+                                        telemetry_logger.record_reject(symbol, "DATA", "NO_DATA", None, None, start_time=_row_start_time)
+                                    return
+
+                                # If provider returned stale data (used as fallback during rate limits), skip EOD buy generation
+                                if getattr(ticker, 'attrs', {}).get('is_stale'):
+                                    with _batch_lock:
+                                        rejection_counts["stale_data"] += 1
+                                        telemetry_logger.record_reject(symbol, "DATA", "STALE_DATA", None, None, start_time=_row_start_time)
+                                    return
+
+                                if isinstance(ticker.columns, pd.MultiIndex):
+                                    ticker.columns = ticker.columns.get_level_values(0)
+
+                                ticker = ticker.loc[:, ~ticker.columns.duplicated()]
+
+                                required_cols = ["Open", "High", "Low", "Close", "Volume"]
+                                missing_col   = False
+
+                                for col_name in required_cols:
+                                    if col_name not in ticker.columns:
+                                        missing_col = True
+                                        break
+                                    if isinstance(ticker[col_name], pd.DataFrame):
+                                        ticker[col_name] = ticker[col_name].iloc[:, 0]
+                                    ticker[col_name] = pd.Series(ticker[col_name]).astype(float)
+
+                                if missing_col:
+                                    with _batch_lock:
+                                        rejection_counts["missing_col"] += 1
+                                        telemetry_logger.record_reject(symbol, "DATA", "MISSING_COL", None, None, start_time=_row_start_time)
+                                    return
+
+                                ticker = ticker.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+
+                                if ticker.empty:
+                                    with _batch_lock:
+                                        rejection_counts["no_data"] += 1
+                                        telemetry_logger.record_reject(symbol, "DATA", "NO_DATA", None, None, start_time=_row_start_time)
+                                    return
+
+                                # [VERSION: EOD_BAR_LIMIT_FIX] Lowered bar minimum from 200 to 50 to allow IPOs/new listings to be evaluated
+                                if len(ticker) < 50:
+                                    with _batch_lock:
+                                        rejection_counts["insufficient_bars"] += 1
+                                        telemetry_logger.record_reject(symbol, "LIQUIDITY", "INSUFFICIENT_BARS", len(ticker) if "ticker" in locals() else 0, 50, start_time=_row_start_time)
+                                    return
+
+                                # [PERFORMANCE_FIX] apply_indicators() is now pre-calculated by price_cache.py 
+                                # immediately after downloading the dataset. Doing it once there instead of 
+                                # 5000 times here eliminates 4-5 minutes of latency per batch!
+                                # ticker = apply_indicators(ticker, timeframe="1d")
+
+                                if ticker is None or ticker.empty:
+                                    with _batch_lock:
+                                        rejection_counts["indicator_fail"] += 1
+                                        telemetry_logger.record_reject(symbol, "DATA", "INDICATOR_FAIL", None, None, start_time=_row_start_time)
+                                    return
+
+                                latest = ticker.iloc[-1]
+                                ctx = telemetry_logger.get_or_create_context(symbol)
+                                ctx.capture_dataframe_row(latest, is_fallback=used_fallback_data)
+                                ctx.capture_indicators(
+                                    rsi=_safe_float(latest.get("RSI")),
+                                    sma20=_safe_float(latest.get("SMA20")),
+                                    sma50=_safe_float(latest.get("SMA50")),
+                                    sma100=_safe_float(latest.get("SMA100")),
+                                    sma200=_safe_float(latest.get("SMA200")),
+                                    ema9=_safe_float(latest.get("EMA9")),
+                                    ema15=_safe_float(latest.get("EMA15")),
+                                    ema20=_safe_float(latest.get("EMA20")),
+                                    ema50=_safe_float(latest.get("EMA50")),
+                                    ema200=_safe_float(latest.get("EMA200")),
+                                    macd=_safe_float(latest.get("MACD")),
+                                    macd_signal=_safe_float(latest.get("MACD_SIGNAL")),
+                                    macd_hist=_safe_float(latest.get("MACD_HIST")),
+                                    atr=_safe_float(latest.get("ATR")),
+                                    adx=_safe_float(latest.get("ADX")),
+                                    obv=_safe_float(latest.get("OBV")),
+                                    prior_20d_high=_safe_float(latest.get("PRIOR_20D_HIGH")),
+                                    bb_width_pctile=_safe_float(latest.get("BB_WIDTH_PCTILE"))
+                                )
+
+                                signals = detect_breakouts(ticker, timeframe="1d")
+
+                                if len(signals) < MIN_SIGNALS:
+                                    with _batch_lock:
+                                        rejection_counts["weak_signals"] += 1
+                                        ctx.capture_gate(
+                                            gate_name="WEAK_SIGNALS",
+                                            passed=False,
+                                            actual_val=len(signals),
+                                            operator_str="<",
+                                            threshold_val=MIN_SIGNALS if "MIN_SIGNALS" in locals() else 3,
+                                            gate_type="COMPOSITE",
+                                            reason="Insufficient breakout signals",
+                                            components={"signals_count": len(signals), "detected_signals": signals},
+                                            expression=f"len(signals) >= {MIN_SIGNALS}"
+                                        )
+                                        ctx.add_decision_input(name="signals_count", value=len(signals), source="BreakoutEngine", as_of="Live", freshness="LIVE", required=True, valid=True)
+                                        ctx.finalize(decision="REJECTED", primary_reason="WEAK_SIGNALS")
+                                        telemetry_engine.emit_terminal(ctx)
+                                    return
+
+                                if "RSI" not in ticker.columns or pd.isna(latest["RSI"]):
+                                    logger.debug(f"[EOD] {symbol} rejected: latest RSI is missing or NaN")
+                                    with _batch_lock:
+                                        rejection_counts["indicator_nan"] += 1
+                                        telemetry_logger.record_reject(symbol, "DATA", "INDICATOR_NAN", None, None, start_time=_row_start_time)
+                                    return
+
+                                # [VERSION: EOD_PATCH_v1.1] [BUG FIX 8 REGRESSION FIX] Proper fallback to DatetimeIndex when Date/Datetime column is missing
+                                # [FIX P0] Compare against the last bar's own date rather than ist_now.date().
+                                # On weekends/holidays, ist_now.date() is a non-trading day and every symbol
+                                # would be rejected as stale. Instead, we confirm the last bar is reasonably
+                                # recent (within 4 calendar days to cover long weekends).
+                                _last_ts = None
+                                _stale_col = next((c for c in ["Date", "Datetime"] if c in ticker.columns), None)
+                                if _stale_col:
+                                    try:
+                                        _last_ts = pd.to_datetime(latest[_stale_col])
+                                    except Exception as e:
+                                        logger.debug(f"⏭️ {symbol} timestamp parse error: {e}")
+                                elif isinstance(ticker.index, pd.DatetimeIndex):
+                                    try:
+                                        _last_ts = pd.Timestamp(ticker.index[-1])
+                                    except Exception as e:
+                                        logger.debug(f"⏭️ {symbol} index timestamp parse error: {e}")
+
+                                from market_utils import evaluate_data_staleness
+                                _staleness = evaluate_data_staleness(_last_ts, ist_now)
+                                if _staleness["is_stale"]:
+                                    with _batch_lock:
+                                        rejection_counts["stale_data"] += 1
+                                        telemetry_logger.record_reject(symbol, "DATA", "STALE_DATA", None, None, start_time=_row_start_time)
+                                    logger.info(f"🚫 [EOD] {symbol} skipped — Data stale. Available till {_staleness['latest_available']} (Expected at least {_staleness['expected_date']})")
+                                    return
+
+                                # [VERSION: EOD_VOL_RATIO_FIX] Protect against newly listed stocks with <22 bars
+                                if len(ticker) >= 22:
+                                    avg_volume = float(ticker["Volume"].iloc[-21:-1].mean())
+                                else:
+                                    avg_volume = float(ticker["Volume"].iloc[:-1].mean())
+
+                                if avg_volume <= 0:
+                                    logger.debug(f"REJECTION: {symbol} (Phase: LIQUIDITY_FILTER, Reason: 20D average volume is zero)")
+                                    with _batch_lock:
+                                        rejection_counts["zero_avg_volume"] += 1
+                                        telemetry_logger.record_reject(symbol, "LIQUIDITY", "ZERO_AVG_VOLUME", avg_volume if "avg_volume" in locals() else 0, 1, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
+                                    return
+
+                                volume_ratio = _safe_float(latest.get("Volume")) / avg_volume
+
+                                candle_high  = _safe_float(latest.get("High"))
+                                candle_low   = _safe_float(latest.get("Low"))
+                                candle_open  = _safe_float(latest.get("Open"))
+                                candle_close = _safe_float(latest.get("Close"))
+                                candle_range = candle_high - candle_low
+                                candle_body  = abs(candle_close - candle_open)
+                                upper_wick   = candle_high - max(candle_close, candle_open)
+
+                                if candle_range <= 0:
+                                    with _batch_lock:
+                                        rejection_counts["zero_candle_range"] += 1
+                                        telemetry_logger.record_reject(symbol, "STRUCTURE", "ZERO_CANDLE_RANGE", 0, 1, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
+                                    return
+
+                                body_ratio     = candle_body / candle_range
+                                close_position = (candle_close - candle_low) / candle_range
+                                wick_ratio     = upper_wick / candle_range
+                                rsi_val        = _safe_float(latest.get("RSI"))
+
+                                # [FIX P1-3] Converted hard candle gates to scoring penalties.
+                                # Previously these 4 conditions hard-rejected ~40% of valid breakouts.
+                                # Now each applies a proportional penalty to the final score.
+                                candle_penalty = 0
+                                if body_ratio < MIN_BODY_RATIO:
+                                    shortfall = (MIN_BODY_RATIO - body_ratio) / MIN_BODY_RATIO
+                                    pen = min(15, int(shortfall * 30))
+                                    candle_penalty += pen
+                                    logger.debug(f"⚠️ {symbol} body_ratio penalty: -{pen} (ratio={body_ratio:.2f} < {MIN_BODY_RATIO})")
+                                if candle_close <= candle_open:
+                                    candle_penalty += 5
+                                    logger.debug(f"⚠️ {symbol} bearish_candle penalty: -5")
+                                if close_position < MIN_CLOSE_POSITION:
+                                    shortfall = (MIN_CLOSE_POSITION - close_position) / MIN_CLOSE_POSITION
+                                    pen = min(10, int(shortfall * 20))
+                                    candle_penalty += pen
+                                    logger.debug(f"⚠️ {symbol} close_position penalty: -{pen} (pos={close_position:.2f} < {MIN_CLOSE_POSITION})")
+                                if wick_ratio > MAX_UPPER_WICK_RATIO:
+                                    excess = (wick_ratio - MAX_UPPER_WICK_RATIO) / MAX_UPPER_WICK_RATIO
+                                    pen = min(10, int(excess * 20))
+                                    candle_penalty += pen
+                                    logger.debug(f"⚠️ {symbol} upper_wick penalty: -{pen} (wick={wick_ratio:.2f} > {MAX_UPPER_WICK_RATIO})")
+                                if volume_ratio < MIN_VOLUME_RATIO:
+                                    logger.debug(f"REJECTION: {symbol} (Phase: VOLUME_RATIO, Reason: Volume ratio {volume_ratio:.2f}x < {MIN_VOLUME_RATIO:.2f}x)")
+                                    with _batch_lock:
+                                        rejection_counts["low_volume"] += 1
+                                        telemetry_logger.record_reject(symbol, "VOLUME", "LOW_VOLUME", volume_ratio if "volume_ratio" in locals() else 0, MIN_VOLUME_RATIO if "MIN_VOLUME_RATIO" in locals() else 1.0, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
+                                    return
+                                if avg_volume < MIN_AVG_VOLUME_SHARES:
+                                    logger.debug(f"REJECTION: {symbol} (Phase: LIQUIDITY_FILTER, Reason: Avg volume {avg_volume:.0f} < {MIN_AVG_VOLUME_SHARES:.0f} shares)")
+                                    with _batch_lock:
+                                        rejection_counts["low_avg_volume"] += 1
+                                        telemetry_logger.record_reject(symbol, "LIQUIDITY", "LOW_AVG_VOLUME", avg_volume if "avg_volume" in locals() else 0, MIN_AVG_VOLUME_SHARES if "MIN_AVG_VOLUME_SHARES" in locals() else 50000, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
+                                    return
+                                if candle_close < MIN_STOCK_PRICE:
+                                    logger.debug(f"REJECTION: {symbol} (Phase: PRICE_FLOOR, Reason: Close ₹{candle_close:.2f} < ₹{MIN_STOCK_PRICE:.2f})")
+                                    with _batch_lock:
+                                        rejection_counts["penny_stock"] += 1
+                                        telemetry_logger.record_reject(symbol, "PRICE", "PENNY_STOCK", candle_close if "candle_close" in locals() else 0, MIN_STOCK_PRICE if "MIN_STOCK_PRICE" in locals() else 20, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
+                                    return
+                                if not (MIN_RSI <= rsi_val <= MAX_RSI):
+                                    logger.debug(f"REJECTION: {symbol} (Phase: RSI_GATE, Reason: RSI {rsi_val:.1f} outside {MIN_RSI}-{MAX_RSI} range)")
+                                    with _batch_lock:
+                                        rejection_counts["rsi_range"] += 1
+                                        telemetry_logger.record_reject(symbol, "RSI", "RSI_RANGE", rsi_val if "rsi_val" in locals() else 0, f"[{MIN_RSI}, {MAX_RSI}]", start_time=_row_start_time, operator="NOT_IN_RANGE", gate_type="THRESHOLD")
+                                    return
+
+                                # ── v6: STRUCTURAL BREAKOUT FILTERS ─────────────────────────────
+                                # [VERSION: EOD_PATCH_v1.0] [BUG FIX 2] Added explicit outer else rejection to avoid silent bypass of structural filters
+                                if "PRIOR_20D_HIGH" not in ticker.columns or pd.isna(latest.get("PRIOR_20D_HIGH")):
+                                    logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Missing PRIOR_20D_HIGH indicator)")
+                                    with _batch_lock:
+                                        rejection_counts["missing_atr"] += 1
+                                        telemetry_logger.record_reject(symbol, "STRUCTURE", "MISSING_ATR", None, None, start_time=_row_start_time)
+                                    return
+
+                                prior_high = _safe_float(latest.get("PRIOR_20D_HIGH"))
+                                if prior_high <= 0:
+                                    logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Invalid prior 20D high ₹{prior_high:.2f})")
+                                    with _batch_lock:
+                                        rejection_counts["no_structural_breakout"] += 1
+                                        telemetry_logger.record_reject(symbol, "STRUCTURE", "NO_BREAKOUT", candle_close if "candle_close" in locals() else 0, prior_high if "prior_high" in locals() else 0, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
+                                    return
+
+                                if candle_close <= prior_high:
+                                    logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Close ₹{candle_close:.2f} <= Prior 20D High ₹{prior_high:.2f})")
+                                    with _batch_lock:
+                                        rejection_counts["no_structural_breakout"] += 1
+                                        telemetry_logger.record_reject(symbol, "STRUCTURE", "NO_BREAKOUT", candle_close if "candle_close" in locals() else 0, prior_high if "prior_high" in locals() else 0, start_time=_row_start_time, operator="<=", gate_type="THRESHOLD")
+                                    return
+
+                                # Not Extended
+                                if "ATR20" not in ticker.columns or pd.isna(latest.get("ATR20")):
+                                    with _batch_lock:
+                                        rejection_counts["missing_atr"] += 1
+                                        telemetry_logger.record_reject(symbol, "STRUCTURE", "MISSING_ATR", None, None, start_time=_row_start_time)
+                                    return
+
+                                atr20 = _safe_float(latest.get("ATR20"))
+                                if atr20 <= 0:
+                                    with _batch_lock:
+                                        rejection_counts["missing_atr"] += 1
+                                        telemetry_logger.record_reject(symbol, "STRUCTURE", "MISSING_ATR", None, None, start_time=_row_start_time)
+                                    return
+
+                                # [VERSION: BUSINESS_LOGIC_FIX_v1.0] Gap-and-go penalty (Soft Gate)
+                                technical_penalties = {}
+                                atr_extension = (candle_close - prior_high) / atr20
+                                max_ext = EOD_ADVANCED_CONFIG.get("MAX_EXTENDED_BREAKOUT_ATR_MULT", 1.5)
+                                if atr_extension > max_ext:
+                                    pen_mult = EOD_ADVANCED_CONFIG.get("GAP_AND_GO_PENALTY_MULT", 10)
+                                    max_pen = EOD_ADVANCED_CONFIG.get("GAP_AND_GO_MAX_PENALTY", 20)
+                                    technical_penalties["extended_breakout"] = min(max_pen, (atr_extension - max_ext) * pen_mult)
+                
+                                # ATR Expansion
+                                min_atr_expansion = EOD_ADVANCED_CONFIG.get("MIN_ATR_EXPANSION_RATIO", 0.9)
+                                if candle_range / atr20 < min_atr_expansion:
+                                    logger.debug(f"REJECTION: {symbol} (Phase: ATR_EXPANSION, Reason: Candle range / ATR20 ({candle_range / atr20:.2f}) < {min_atr_expansion:.1f})")
+                                    with _batch_lock:
+                                        rejection_counts["no_atr_expansion"] += 1
+                                        telemetry_logger.record_reject(symbol, "STRUCTURE", "NO_ATR_EXPANSION", candle_range/atr20 if "candle_range" in locals() and "atr20" in locals() and atr20 > 0 else 0, 0.9, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
+                                    return
+
+                                # [FIX P1-2] Removed redundant BB_WIDTH_PCTILE check on the current bar.
+                                # The base_too_wide filter at line 776 already checks the PREVIOUS bar's
+                                # BB_WIDTH_PCTILE, which is the correct pre-breakout snapshot. Checking the
+                                # current (breakout) bar's BB width is self-defeating because BB expands on
+                                # breakout candles.
+
+                                if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")):
+                                    if candle_close < _safe_float(latest.get("EMA20")):
+                                        logger.debug(f"REJECTION: {symbol} (Phase: EMA20_TREND, Reason: Close ₹{candle_close:.2f} < EMA20 ₹{_safe_float(latest.get('EMA20')):.2f})")
+                                        with _batch_lock:
+                                            rejection_counts["below_ema20"] += 1
+                                            telemetry_logger.record_reject(symbol, "TREND", "BELOW_EMA20", candle_close if "candle_close" in locals() else 0, _safe_float(latest.get("EMA20")) if "latest" in locals() else 0, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
                                         return
 
-                            if len(ticker) >= 2:
-                                prev_close = _safe_float(ticker["Close"].iloc[-2])
-                                if prev_close > 0:
-                                    single_move_pct = abs(candle_close - prev_close) / prev_close * 100
-                                    max_single_day_move_pct = EOD_ADVANCED_CONFIG.get("MAX_SINGLE_DAY_MOVE_PCT", 15.0)
-                                    if single_move_pct > max_single_day_move_pct:
+                                if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")):
+                                    if candle_close < _safe_float(latest.get("SMA50")):
+                                        logger.debug(f"REJECTION: {symbol} (Phase: SMA50_TREND, Reason: Close ₹{candle_close:.2f} < SMA50 ₹{_safe_float(latest.get('SMA50')):.2f})")
                                         with _batch_lock:
-                                            rejection_counts["gap_day"] += 1
-                                            telemetry_logger.record_reject(symbol, "STRUCTURE", "GAP_DAY", single_move_pct if "single_move_pct" in locals() else 0, 15.0, start_time=_row_start_time, operator=">", gate_type="THRESHOLD")
+                                            rejection_counts["below_sma50"] += 1
+                                            telemetry_logger.record_reject(symbol, "TREND", "BELOW_SMA50", candle_close if "candle_close" in locals() else 0, _safe_float(latest.get("SMA50")) if "latest" in locals() else 0, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
                                         return
 
-                            # [FIX P1-1] Removed hard 3% gap filter — gap penalty is now
-                            # applied as a scoring penalty via technical_penalties below.
-                            # Previously this hard-rejected valid breakout candidates that
-                            # gapped up on strong institutional demand.
+                                if "ADX" in ticker.columns and not pd.isna(latest.get("ADX")):
+                                    if _safe_float(latest.get("ADX")) < ADX_MIN_THRESHOLD:
+                                        logger.debug(f"REJECTION: {symbol} (Phase: ADX_GATE, Reason: ADX {_safe_float(latest.get('ADX')):.1f} < {ADX_MIN_THRESHOLD})")
+                                        with _batch_lock:
+                                            rejection_counts["weak_adx"] += 1
+                                            telemetry_logger.record_reject(symbol, "TREND", "WEAK_ADX", _safe_float(latest.get("ADX")) if "latest" in locals() else 0, ADX_MIN_THRESHOLD if "ADX_MIN_THRESHOLD" in locals() else 20, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
+                                        return
 
-                            # [FIX P1-1] Gap penalty: proportional scoring penalty instead of hard reject.
-                            # Stocks gapping up >3% on breakout day are penalized but not killed.
-                            gap_lookback_bars = EOD_ADVANCED_CONFIG.get("GAP_LOOKBACK_BARS", 10)
-                            max_gap_pct = EOD_ADVANCED_CONFIG.get("MAX_GAP_FROM_PRIOR_HIGH_PCT", 3.0)
-                            if len(ticker) >= gap_lookback_bars + 1:
-                                gap_reference_high = float(ticker["High"].iloc[-(gap_lookback_bars + 1):-1].max())
-                                if gap_reference_high > 0:
-                                    gap_pct = (candle_open - gap_reference_high) / gap_reference_high * 100
-                                    if gap_pct > max_gap_pct:
-                                        excess = gap_pct - max_gap_pct
-                                        pen = min(20, int(excess * 3))
-                                        technical_penalties["gap_extended"] = pen
-                                        logger.debug(f"⚠️ {symbol} gap penalty: -{pen} (gap={gap_pct:.1f}%)")
+                                # MACD is no longer mandatory, shifted to scoring engine
 
-                            delivery_pct = delivery_map.get(symbol, None)
+                                if "HIGH_52W" in ticker.columns and not pd.isna(latest.get("HIGH_52W")):
+                                    high_52w = _safe_float(latest.get("HIGH_52W"))
+                                    if high_52w > 0:
+                                        pct_from_high = (high_52w - candle_close) / high_52w * 100
+                                        if pct_from_high > MAX_DISTANCE_FROM_52W_HIGH_PCT:
+                                            with _batch_lock:
+                                                rejection_counts["far_from_52w_high"] += 1
+                                                telemetry_logger.record_reject(symbol, "STRUCTURE", "FAR_FROM_52W_HIGH", pct_from_high if "pct_from_high" in locals() else 0, MAX_DISTANCE_FROM_52W_HIGH_PCT if "MAX_DISTANCE_FROM_52W_HIGH_PCT" in locals() else 20, start_time=_row_start_time, operator=">", gate_type="THRESHOLD")
+                                            return
 
-                            # ── v5: PREVIOUS CANDLE CONTEXT FILTER ─────────────────────────────
-                            lookback = EOD_ADVANCED_CONFIG.get("PRE_BREAKOUT_LOOKBACK_BARS", 5)
-                            max_red = EOD_ADVANCED_CONFIG.get("MAX_PRE_BREAKOUT_RED_CANDLES", 2)
-                            tight_base_threshold = EOD_ADVANCED_CONFIG.get("TIGHT_BASE_BB_WIDTH_PCTILE", 0.35)
+                                if len(ticker) >= 2:
+                                    prev_close = _safe_float(ticker["Close"].iloc[-2])
+                                    if prev_close > 0:
+                                        single_move_pct = abs(candle_close - prev_close) / prev_close * 100
+                                        max_single_day_move_pct = EOD_ADVANCED_CONFIG.get("MAX_SINGLE_DAY_MOVE_PCT", 15.0)
+                                        if single_move_pct > max_single_day_move_pct:
+                                            with _batch_lock:
+                                                rejection_counts["gap_day"] += 1
+                                                telemetry_logger.record_reject(symbol, "STRUCTURE", "GAP_DAY", single_move_pct if "single_move_pct" in locals() else 0, 15.0, start_time=_row_start_time, operator=">", gate_type="THRESHOLD")
+                                            return
+
+                                # [FIX P1-1] Removed hard 3% gap filter — gap penalty is now
+                                # applied as a scoring penalty via technical_penalties below.
+                                # Previously this hard-rejected valid breakout candidates that
+                                # gapped up on strong institutional demand.
+
+                                # [FIX P1-1] Gap penalty: proportional scoring penalty instead of hard reject.
+                                # Stocks gapping up >3% on breakout day are penalized but not killed.
+                                gap_lookback_bars = EOD_ADVANCED_CONFIG.get("GAP_LOOKBACK_BARS", 10)
+                                max_gap_pct = EOD_ADVANCED_CONFIG.get("MAX_GAP_FROM_PRIOR_HIGH_PCT", 3.0)
+                                if len(ticker) >= gap_lookback_bars + 1:
+                                    gap_reference_high = float(ticker["High"].iloc[-(gap_lookback_bars + 1):-1].max())
+                                    if gap_reference_high > 0:
+                                        gap_pct = (candle_open - gap_reference_high) / gap_reference_high * 100
+                                        if gap_pct > max_gap_pct:
+                                            excess = gap_pct - max_gap_pct
+                                            pen = min(20, int(excess * 3))
+                                            technical_penalties["gap_extended"] = pen
+                                            logger.debug(f"⚠️ {symbol} gap penalty: -{pen} (gap={gap_pct:.1f}%)")
+
+                                delivery_pct = delivery_map.get(symbol, None)
+
+                                # ── v5: PREVIOUS CANDLE CONTEXT FILTER ─────────────────────────────
+                                lookback = EOD_ADVANCED_CONFIG.get("PRE_BREAKOUT_LOOKBACK_BARS", 5)
+                                max_red = EOD_ADVANCED_CONFIG.get("MAX_PRE_BREAKOUT_RED_CANDLES", 2)
+                                tight_base_threshold = EOD_ADVANCED_CONFIG.get("TIGHT_BASE_BB_WIDTH_PCTILE", 0.35)
                 
-                            if len(ticker) >= (lookback + 1):
-                                red_count = 0
-                                for _ri in range(-(lookback + 1), -1):
-                                    if _safe_float(ticker["Close"].iloc[_ri]) < _safe_float(ticker["Open"].iloc[_ri]):
-                                        red_count += 1
+                                if len(ticker) >= (lookback + 1):
+                                    red_count = 0
+                                    for _ri in range(-(lookback + 1), -1):
+                                        if _safe_float(ticker["Close"].iloc[_ri]) < _safe_float(ticker["Open"].iloc[_ri]):
+                                            red_count += 1
                     
-                                if red_count > max_red:
-                                    # Too many red candles. Reject unless it's a very tight base (volatility compression)
-                                    is_tight_base = False
-                                    if "BB_WIDTH_PCTILE" in ticker.columns and len(ticker) >= 2:
-                                        if _safe_float(ticker["BB_WIDTH_PCTILE"].iloc[-2]) <= tight_base_threshold:
-                                            is_tight_base = True
+                                    if red_count > max_red:
+                                        # Too many red candles. Reject unless it's a very tight base (volatility compression)
+                                        is_tight_base = False
+                                        if "BB_WIDTH_PCTILE" in ticker.columns and len(ticker) >= 2:
+                                            if _safe_float(ticker["BB_WIDTH_PCTILE"].iloc[-2]) <= tight_base_threshold:
+                                                is_tight_base = True
                                 
-                                    if not is_tight_base:
-                                        pen = (red_count - max_red) * 2
-                                        technical_penalties["too_many_red_candles"] = pen
-                                        logger.debug(f"⚠️ {symbol} pre-breakout trend too red ({red_count}/{lookback}) — applying -{pen} penalty")
+                                        if not is_tight_base:
+                                            pen = (red_count - max_red) * 2
+                                            technical_penalties["too_many_red_candles"] = pen
+                                            logger.debug(f"⚠️ {symbol} pre-breakout trend too red ({red_count}/{lookback}) — applying -{pen} penalty")
 
-                            # ── v5: BASE TIGHTNESS FILTER ──────────────────────────────────────────
-                            if "BB_WIDTH_PCTILE" in ticker.columns and len(ticker) >= 2:
-                                bb_width_pctile = _safe_float(ticker["BB_WIDTH_PCTILE"].iloc[-2])
-                                if bb_width_pctile > EOD_ADVANCED_CONFIG.get("MAX_BB_WIDTH_PCTILE", 0.80):
-                                    logger.debug(f"  ⊘ {symbol} base too wide (BB Pctile {bb_width_pctile:.2f}) — skipping")
-                                    with _batch_lock:
-                                        rejection_counts["base_too_wide"] += 1
-                                        telemetry_logger.record_reject(symbol, "STRUCTURE", "BASE_TOO_WIDE", bb_width_pctile if "bb_width_pctile" in locals() else 0, 0.80, start_time=_row_start_time)
-                                    return
+                                # ── v5: BASE TIGHTNESS FILTER ──────────────────────────────────────────
+                                if "BB_WIDTH_PCTILE" in ticker.columns and len(ticker) >= 2:
+                                    bb_width_pctile = _safe_float(ticker["BB_WIDTH_PCTILE"].iloc[-2])
+                                    if bb_width_pctile > EOD_ADVANCED_CONFIG.get("MAX_BB_WIDTH_PCTILE", 0.80):
+                                        logger.debug(f"  ⊘ {symbol} base too wide (BB Pctile {bb_width_pctile:.2f}) — skipping")
+                                        with _batch_lock:
+                                            rejection_counts["base_too_wide"] += 1
+                                            telemetry_logger.record_reject(symbol, "STRUCTURE", "BASE_TOO_WIDE", bb_width_pctile if "bb_width_pctile" in locals() else 0, 0.80, start_time=_row_start_time)
+                                        return
 
-                            # ── v6: OBV STRUCTURE — SCORING PENALTY (not hard reject) ──────────
-                            # [FINDING-8 FIX] OBV_SLOPE is a 3-bar diff which is noisy on breakout
-                            # days. Converted from hard reject to a -5 score penalty applied after
-                            # scoring. The scoring engine already penalizes via BASE_WIDTH and
-                            # unsustained volume checks.
-                            obv_penalty = 0
-                            if "OBV_SLOPE" in ticker.columns and not pd.isna(latest.get("OBV_SLOPE")):
-                                if _safe_float(latest.get("OBV_SLOPE")) <= EOD_ADVANCED_CONFIG.get("MIN_OBV_SLOPE", 0.0):
-                                    obv_penalty = -5
-                                    logger.debug(f"⚠️ {symbol} OBV divergence detected (slope <= 0), applying -5 penalty")
+                                # ── v6: OBV STRUCTURE — SCORING PENALTY (not hard reject) ──────────
+                                # [FINDING-8 FIX] OBV_SLOPE is a 3-bar diff which is noisy on breakout
+                                # days. Converted from hard reject to a -5 score penalty applied after
+                                # scoring. The scoring engine already penalizes via BASE_WIDTH and
+                                # unsustained volume checks.
+                                obv_penalty = 0
+                                if "OBV_SLOPE" in ticker.columns and not pd.isna(latest.get("OBV_SLOPE")):
+                                    if _safe_float(latest.get("OBV_SLOPE")) <= EOD_ADVANCED_CONFIG.get("MIN_OBV_SLOPE", 0.0):
+                                        obv_penalty = -5
+                                        logger.debug(f"⚠️ {symbol} OBV divergence detected (slope <= 0), applying -5 penalty")
 
-                            atr_val_eod = (
-                                _safe_float(latest.get("ATR"))
-                                if "ATR" in ticker.columns and not pd.isna(latest.get("ATR"))
-                                else None
-                            )
+                                atr_val_eod = (
+                                    _safe_float(latest.get("ATR"))
+                                    if "ATR" in ticker.columns and not pd.isna(latest.get("ATR"))
+                                    else None
+                                )
 
 
-                            score, model_version, applied_bayesian_weights = calculate_score(
-                                category=category,
-                                breakout_count=len(signals),
-                                rsi=rsi_val,
-                                volume_ratio=volume_ratio,
-                                breakout_signals=signals,
-                                ticker=ticker,
-                                latest=latest,
-                                symbol=symbol,
-                                timeframe="1d",
-                                atr_val=atr_val_eod,
-                                delivery_pct=delivery_pct,
-                                promoter_pledge_pct=pledge_map.get(symbol),
-                                nifty_ret=nifty_ret_20d,
-                                regime_ctx=regime_ctx,
-                                bayesian_weights=bayesian_weights,
-                                bayesian_version=bayesian_version
-                            )
+                                score, model_version, applied_bayesian_weights = calculate_score(
+                                    category=category,
+                                    breakout_count=len(signals),
+                                    rsi=rsi_val,
+                                    volume_ratio=volume_ratio,
+                                    breakout_signals=signals,
+                                    ticker=ticker,
+                                    latest=latest,
+                                    symbol=symbol,
+                                    timeframe="1d",
+                                    atr_val=atr_val_eod,
+                                    delivery_pct=delivery_pct,
+                                    promoter_pledge_pct=pledge_map.get(symbol),
+                                    nifty_ret=nifty_ret_20d,
+                                    regime_ctx=regime_ctx,
+                                    bayesian_weights=bayesian_weights,
+                                    bayesian_version=bayesian_version
+                                )
 
-                            # Default momentum values in case score <= 0 or gating fails
-                            rs_pct_val = float(rs_dict.get(symbol, 50.0))
-                            rs_bonus_val = 0
-                            sector_bonus_val = 0
-                            total_momentum_bonus = 0
-                            base_score_val = int(score)
-
-                            if score > 0:
-                                # [ARCHITECTURAL FIX] Penalty correlation cap: cap combined technical, OBV, and candle penalties
-                                # at max -15 points to prevent double-counting correlated base/volume weaknesses
-                                total_deductions = sum(technical_penalties.values()) + abs(obv_penalty) + candle_penalty
-                                capped_deduction = min(15, total_deductions)
-                                score = max(0, score - capped_deduction)
-
+                                # Default momentum values in case score <= 0 or gating fails
+                                rs_pct_val = float(rs_dict.get(symbol, 50.0))
+                                rs_bonus_val = 0
+                                sector_bonus_val = 0
+                                total_momentum_bonus = 0
                                 base_score_val = int(score)
 
-                                # ── Feature F-03 & F-07: Momentum Bonus Injection (Prior to Score Gate) ──
-                                rs_bonus_val = RS_BONUS if rs_pct_val >= 80.0 else 0
+                                if score > 0:
+                                    # [ARCHITECTURAL FIX] Penalty correlation cap: cap combined technical, OBV, and candle penalties
+                                    # at max -15 points to prevent double-counting correlated base/volume weaknesses
+                                    total_deductions = sum(technical_penalties.values()) + abs(obv_penalty) + candle_penalty
+                                    capped_deduction = min(15, total_deductions)
+                                    score = max(0, score - capped_deduction)
 
-                                safe_sec_str = "Unknown" if (sector is None or (isinstance(sector, float) and pd.isna(sector))) else str(sector).strip()
-                                sector_info = sector_rankings_dict.get(safe_sec_str, {})
-                                sector_status = sector_info.get("effective_status", "NEUTRAL")
-                                sector_bonus_val = SECTOR_BONUS if sector_status == "TAILWIND" else 0
+                                    base_score_val = int(score)
 
-                                total_momentum_bonus = min(MAX_MOMENTUM_BONUS, rs_bonus_val + sector_bonus_val)
-                                score = max(0, min(100, score + total_momentum_bonus))
+                                    # ── Feature F-03 & F-07: Momentum Bonus Injection (Prior to Score Gate) ──
+                                    rs_bonus_val = RS_BONUS if rs_pct_val >= 80.0 else 0
 
-                            # ── FORENSIC RISK TIER POLICY CHECK ──────────────────────────────────────
-                            forensic_tier = row.get("Forensic_Risk_Tier", "UNKNOWN")
-                            if forensic_tier == "REJECT":
-                                with _batch_lock:
-                                    rejection_counts["forensic_reject"] = rejection_counts.get("forensic_reject", 0) + 1
-                                logger.debug(f"  ⊘ {symbol} rejected by Forensic Risk Engine (Tier: REJECT)")
-                                return
+                                    safe_sec_str = "Unknown" if (sector is None or (isinstance(sector, float) and pd.isna(sector))) else str(sector).strip()
+                                    sector_info = sector_rankings_dict.get(safe_sec_str, {})
+                                    sector_status = sector_info.get("effective_status", "NEUTRAL")
+                                    sector_bonus_val = SECTOR_BONUS if sector_status == "TAILWIND" else 0
 
-                            signal_str = ", ".join(signals.keys() if isinstance(signals, dict) else signals)
+                                    total_momentum_bonus = min(MAX_MOMENTUM_BONUS, rs_bonus_val + sector_bonus_val)
+                                    score = max(0, min(100, score + total_momentum_bonus))
 
-                            # ── REGIME-AWARE THRESHOLDS ──────────────────────────────────────
-                            if score < global_min_score:
-                                with _batch_lock:
-                                    rejection_counts["low_score"] += 1
-                                    telemetry_logger.record_reject(
-                                        symbol, "SCORE", "LOW_SCORE",
-                                        actual=score if "score" in locals() else 0,
-                                        required=global_min_score if "global_min_score" in locals() else 0,
-                                        start_time=_row_start_time,
-                                        raw_market={
-                                            "open_p": candle_open, "high_p": candle_high, "low_p": candle_low,
-                                            "close_p": candle_close, "volume": _safe_float(latest.get("Volume")),
-                                            "high_52w": _safe_float(latest.get("HIGH_52W"))
-                                        },
-                                        indicators={
-                                            "rsi": rsi_val, "sma50": _safe_float(latest.get("SMA50")),
-                                            "sma200": _safe_float(latest.get("SMA200")), "ema20": _safe_float(latest.get("EMA20")),
-                                            "vol_ratio": volume_ratio, "atr": atr20, "adx": _safe_float(latest.get("ADX"))
-                                        }
-                                    )
-                                logger.debug(f"REJECTION: {symbol} (Phase: SCORE_GATE, Reason: Score {score:.1f} < threshold {global_min_score})")
-                                try:
-                                    from near_miss_tracker import log_near_miss
-                                    entry_px = float(candle_close) if "candle_close" in locals() and candle_close else None
-                                    sl_px = float(candle_low) if "candle_low" in locals() and candle_low else (entry_px * 0.95 if entry_px else None)
-                                    tgt_px = float(prior_high) if "prior_high" in locals() and prior_high and prior_high > (entry_px or 0) else (entry_px * 1.10 if entry_px else None)
-                                    log_near_miss(
+                                # ── FORENSIC RISK TIER POLICY CHECK ──────────────────────────────────────
+                                forensic_tier = row.get("Forensic_Risk_Tier", "UNKNOWN")
+                                if forensic_tier == "REJECT":
+                                    with _batch_lock:
+                                        rejection_counts["forensic_reject"] = rejection_counts.get("forensic_reject", 0) + 1
+                                    logger.debug(f"  ⊘ {symbol} rejected by Forensic Risk Engine (Tier: REJECT)")
+                                    return
+
+                                signal_str = ", ".join(signals.keys() if isinstance(signals, dict) else signals)
+
+                                # ── REGIME-AWARE THRESHOLDS ──────────────────────────────────────
+                                if score < global_min_score:
+                                    with _batch_lock:
+                                        rejection_counts["low_score"] += 1
+                                        telemetry_logger.record_reject(
+                                            symbol, "SCORE", "LOW_SCORE",
+                                            actual=score if "score" in locals() else 0,
+                                            required=global_min_score if "global_min_score" in locals() else 0,
+                                            start_time=_row_start_time,
+                                            raw_market={
+                                                "open_p": candle_open, "high_p": candle_high, "low_p": candle_low,
+                                                "close_p": candle_close, "volume": _safe_float(latest.get("Volume")),
+                                                "high_52w": _safe_float(latest.get("HIGH_52W"))
+                                            },
+                                            indicators={
+                                                "rsi": rsi_val, "sma50": _safe_float(latest.get("SMA50")),
+                                                "sma200": _safe_float(latest.get("SMA200")), "ema20": _safe_float(latest.get("EMA20")),
+                                                "vol_ratio": volume_ratio, "atr": atr20, "adx": _safe_float(latest.get("ADX"))
+                                            }
+                                        )
+                                    logger.debug(f"REJECTION: {symbol} (Phase: SCORE_GATE, Reason: Score {score:.1f} < threshold {global_min_score})")
+                                    try:
+                                        from near_miss_tracker import log_near_miss
+                                        entry_px = float(candle_close) if "candle_close" in locals() and candle_close else None
+                                        sl_px = float(candle_low) if "candle_low" in locals() and candle_low else (entry_px * 0.95 if entry_px else None)
+                                        tgt_px = float(prior_high) if "prior_high" in locals() and prior_high and prior_high > (entry_px or 0) else (entry_px * 1.10 if entry_px else None)
+                                        log_near_miss(
+                                            symbol=symbol,
+                                            scanner="EOD",
+                                            breakout_type=signal_str,
+                                            gate_name="score_threshold",
+                                            observed_value=float(score),
+                                            threshold_value=float(global_min_score),
+                                            score=int(score),
+                                            entry_price=entry_px,
+                                            stop_loss=sl_px,
+                                            target_1=tgt_px
+                                        )
+                                    except Exception:
+                                        pass
+                                    return
+
+                                logger.info(f"📍 PICKED [EOD: IN BETWEEN]: {symbol} @ ₹{candle_close:.2f} (Score: {score:.1f}, Prior High: ₹{prior_high:.2f})")
+
+                                # [VERSION: EOD_DEDUP_FIX] Fixed dedup check to correctly match DB tuple schema (symbol, breakout_type)
+                                ctx.capture_trace("STRATEGY_SELECTED", "PASS")
+                                ctx.capture_trace("DUPLICATE_CHECK", "PENDING")
+                                if (symbol, "EOD") in cooldown_alerts:
+                                    logger.info(f"🚫 [EOD] {symbol} REJECTED after picking — Reason: COOLDOWN_ACTIVE (Already alerted in cooldown window)")
+                                    ctx.capture_trace("DUPLICATE_CHECK", "FAIL")
+                                    with _batch_lock:
+                                        rejection_counts["duplicate"] += 1
+                                        # [RULE 67] Capture actual duplicate evidence for forensic audit.
+                                        # User required: "capture actual evidence (e.g., existing_alert_id)
+                                        # in addition to DUPLICATE=true". We include the cooldown window
+                                        # boundary date so the audit can verify which prior alert caused this.
+                                        _dup_window_minutes = ALERT_COOLDOWN_MINUTES.get("EOD", 1440)
+                                        _dup_window_days = round(_dup_window_minutes / 1440, 1)
+                                        from datetime import timedelta
+                                        _dup_cutoff_date = (datetime.now(IST) - timedelta(minutes=_dup_window_minutes)).strftime("%Y-%m-%d %H:%M IST")
+                                        telemetry_logger.record_reject(
+                                            symbol, "SYSTEM", "DUPLICATE_REJECTED", True, False, start_time=_row_start_time, operator="!=", gate_type="BOOLEAN",
+                                            indicators={
+                                                "existing_alert": True,
+                                                "existing_alert_date": _dup_cutoff_date,
+                                                "duplicate_window_minutes": _dup_window_minutes,
+                                                "duplicate_window_days": _dup_window_days
+                                            }
+                                        )
+                                    return
+                                ctx.capture_trace("DUPLICATE_CHECK", "PASS")
+
+                                # ── Dynamic S/R and Indicator-based SL + Target (EOD mode) ───────
+                                sl_result = compute_sl_and_target(
+                                    entry_price=candle_close,
+                                    atr=atr_val_eod,
+                                    candle_range=candle_range,
+                                    mode="EOD",
+                                    adx=latest.get("ADX"),
+                                    rsi=rsi_val,
+                                    macd_hist=latest.get("MACD_HIST"),
+                                    atr_pct=latest.get("ATR_PCT"),
+                                    swing_low=latest.get("SWING_LOW"),
+                                    swing_high=latest.get("SWING_HIGH"),
+                                    bb_upper=latest.get("BB_UPPER"),
+                                    bb_lower=latest.get("BB_LOWER"),
+                                    bb_mid=latest.get("BB_MID"),
+                                    s1=latest.get("S1"),
+                                    s2=latest.get("S2"),
+                                    r1=latest.get("R1"),
+                                    r2=latest.get("R2"),
+                                    swing_low_raw=latest.get("SWING_LOW_RAW"),
+                                    swing_high_raw=latest.get("SWING_HIGH_RAW"),
+                                    candle_low=candle_low,
+                                    vwap=latest.get("VWAP"),
+                                    ticker=ticker,
+                                )
+                
+                                if sl_result.get("is_rejected"):
+                                    logger.warning(f"🚫 [EOD] {symbol} REJECTED after picking — Reason: SL_RR_ENGINE_REJECT ({sl_result.get('rejection_reason')}, Natural RR={sl_result.get('natural_rr', 0):.2f})")
+                                    with _batch_lock:
+                                        rejection_counts["low_rr"] += 1
+                                        telemetry_logger.record_reject(symbol, "RISK", "LOW_RR", sl_result.get("natural_rr", 0) if "sl_result" in locals() else 0, 2.0, start_time=_row_start_time)  # Reusing this counter for engine rejects
+                                    from database import save_rejected_alert
+                                    save_rejected_alert(
                                         symbol=symbol,
                                         scanner="EOD",
-                                        breakout_type=signal_str,
-                                        gate_name="score_threshold",
-                                        observed_value=float(score),
-                                        threshold_value=float(global_min_score),
-                                        score=int(score),
-                                        entry_price=entry_px,
-                                        stop_loss=sl_px,
-                                        target_1=tgt_px
+                                        rejection_reason=sl_result.get("rejection_reason", "V7 Engine Reject"),
+                                        engine_version=sl_result.get("engine_version", "SL_ENGINE_V7.0"),
+                                        context={"category": category, "score": score, "sl_result": sl_result}
                                     )
-                                except Exception:
-                                    pass
-                                return
+                                    return
 
-                            logger.info(f"📍 PICKED [EOD: IN BETWEEN]: {symbol} @ ₹{candle_close:.2f} (Score: {score:.1f}, Prior High: ₹{prior_high:.2f})")
-
-                            # [VERSION: EOD_DEDUP_FIX] Fixed dedup check to correctly match DB tuple schema (symbol, breakout_type)
-                            ctx.capture_trace("STRATEGY_SELECTED", "PASS")
-                            ctx.capture_trace("DUPLICATE_CHECK", "PENDING")
-                            if (symbol, "EOD") in cooldown_alerts:
-                                logger.info(f"🚫 [EOD] {symbol} REJECTED after picking — Reason: COOLDOWN_ACTIVE (Already alerted in cooldown window)")
-                                ctx.capture_trace("DUPLICATE_CHECK", "FAIL")
-                                with _batch_lock:
-                                    rejection_counts["duplicate"] += 1
-                                    # [RULE 67] Capture actual duplicate evidence for forensic audit.
-                                    # User required: "capture actual evidence (e.g., existing_alert_id)
-                                    # in addition to DUPLICATE=true". We include the cooldown window
-                                    # boundary date so the audit can verify which prior alert caused this.
-                                    _dup_window_minutes = ALERT_COOLDOWN_MINUTES.get("EOD", 1440)
-                                    _dup_window_days = round(_dup_window_minutes / 1440, 1)
-                                    from datetime import timedelta
-                                    _dup_cutoff_date = (datetime.now(IST) - timedelta(minutes=_dup_window_minutes)).strftime("%Y-%m-%d %H:%M IST")
-                                    telemetry_logger.record_reject(
-                                        symbol, "SYSTEM", "DUPLICATE_REJECTED", True, False, start_time=_row_start_time, operator="!=", gate_type="BOOLEAN",
-                                        indicators={
-                                            "existing_alert": True,
-                                            "existing_alert_date": _dup_cutoff_date,
-                                            "duplicate_window_minutes": _dup_window_minutes,
-                                            "duplicate_window_days": _dup_window_days
-                                        }
-                                    )
-                                return
-                            ctx.capture_trace("DUPLICATE_CHECK", "PASS")
-
-                            # ── Dynamic S/R and Indicator-based SL + Target (EOD mode) ───────
-                            sl_result = compute_sl_and_target(
-                                entry_price=candle_close,
-                                atr=atr_val_eod,
-                                candle_range=candle_range,
-                                mode="EOD",
-                                adx=latest.get("ADX"),
-                                rsi=rsi_val,
-                                macd_hist=latest.get("MACD_HIST"),
-                                atr_pct=latest.get("ATR_PCT"),
-                                swing_low=latest.get("SWING_LOW"),
-                                swing_high=latest.get("SWING_HIGH"),
-                                bb_upper=latest.get("BB_UPPER"),
-                                bb_lower=latest.get("BB_LOWER"),
-                                bb_mid=latest.get("BB_MID"),
-                                s1=latest.get("S1"),
-                                s2=latest.get("S2"),
-                                r1=latest.get("R1"),
-                                r2=latest.get("R2"),
-                                swing_low_raw=latest.get("SWING_LOW_RAW"),
-                                swing_high_raw=latest.get("SWING_HIGH_RAW"),
-                                candle_low=candle_low,
-                                vwap=latest.get("VWAP"),
-                                ticker=ticker,
-                            )
-                
-                            if sl_result.get("is_rejected"):
-                                logger.warning(f"🚫 [EOD] {symbol} REJECTED after picking — Reason: SL_RR_ENGINE_REJECT ({sl_result.get('rejection_reason')}, Natural RR={sl_result.get('natural_rr', 0):.2f})")
-                                with _batch_lock:
-                                    rejection_counts["low_rr"] += 1
-                                    telemetry_logger.record_reject(symbol, "RISK", "LOW_RR", sl_result.get("natural_rr", 0) if "sl_result" in locals() else 0, 2.0, start_time=_row_start_time)  # Reusing this counter for engine rejects
-                                from database import save_rejected_alert
-                                save_rejected_alert(
-                                    symbol=symbol,
-                                    scanner="EOD",
-                                    rejection_reason=sl_result.get("rejection_reason", "V7 Engine Reject"),
-                                    engine_version=sl_result.get("engine_version", "SL_ENGINE_V7.0"),
-                                    context={"category": category, "score": score, "sl_result": sl_result}
-                                )
-                                return
-
-                            suggested_stop = sl_result["stop_loss"]
-                            target_price = sl_result["target_1"]
+                                suggested_stop = sl_result["stop_loss"]
+                                target_price = sl_result["target_1"]
  
-                            above_ema20  = bool(candle_close >= _safe_float(latest.get("EMA20"))) if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")) else None
-                            above_sma50  = bool(candle_close >= _safe_float(latest.get("SMA50"))) if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")) else None
-                            # [VERSION: EOD_PATCH_v1.0] [BUG FIX 6] Renamed golden_cross to above_golden_cross to accurately reflect it's a state check
-                            above_golden_cross = bool(_safe_float(latest.get("SMA50")) >= _safe_float(latest.get("SMA200"))) if ("SMA50" in ticker.columns and "SMA200" in ticker.columns and not pd.isna(latest.get("SMA50")) and not pd.isna(latest.get("SMA200"))) else None
+                                above_ema20  = bool(candle_close >= _safe_float(latest.get("EMA20"))) if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")) else None
+                                above_sma50  = bool(candle_close >= _safe_float(latest.get("SMA50"))) if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")) else None
+                                # [VERSION: EOD_PATCH_v1.0] [BUG FIX 6] Renamed golden_cross to above_golden_cross to accurately reflect it's a state check
+                                above_golden_cross = bool(_safe_float(latest.get("SMA50")) >= _safe_float(latest.get("SMA200"))) if ("SMA50" in ticker.columns and "SMA200" in ticker.columns and not pd.isna(latest.get("SMA50")) and not pd.isna(latest.get("SMA200"))) else None
 
-                            context = {
-                                "technicals": {
-                                    "above_ema20":      above_ema20,
-                                    "above_sma50":      above_sma50,
-                                    "above_golden_cross":     above_golden_cross,
-                                    "body_ratio":       round(body_ratio * 100, 2),
-                                    "delivery_pct":     round(delivery_pct, 1) if delivery_pct is not None else None,
-                                    "rsi":              round(rsi_val, 1),
-                                    "volume_ratio":     round(volume_ratio, 2),
-                                    "breakout_level":   round(_safe_float(latest.get("PRIOR_20D_HIGH")), 2) if "PRIOR_20D_HIGH" in latest else None,
-                                    "atr20":            round(_safe_float(latest.get("ATR20")), 2) if "ATR20" in latest else None,
-                                    "regime":           market_regime,
-                                    "score":            score
-                                },
-                                "session": {
-                                    "open":             round(candle_open, 2),
-                                    "day_high":         round(candle_high, 2),
-                                    "day_low":          round(candle_low, 2)
-                                },
-                                "fundamentals": {
-                                    "peg":              row.get("PEG Ratio"),
-                                    "yoy_rev":          row.get("YOY Revenue %"),
-                                    "yoy_profit":       row.get("YOY Profit %"),
-                                    "roe":              row.get("ROE %")
-                                },
-                                "execution": {
-                                    "sl_method":        sl_result.get("sl_method"),
-                                    "t_method":         sl_result.get("target_method")
-                                },
-                                "sl_result": sl_result
-                            }
-                
-                            # Append configuration metadata for forward-testing and analytics
-                            context["algo_version"] = ACTIVE_ALGO_VERSION
-                            if delivery_found and delivery_days_back > 0:
-                                context["delivery_data_status"] = "missing_used_fallback"
-                            elif not delivery_found:
-                                context["delivery_data_status"] = "unavailable"
-                            
-                            context["algo_params"] = {
-                                **EOD_CONFIG,
-                                **EOD_ADVANCED_CONFIG,
-                                "MIN_BREAKOUT_MARGIN_1D": MIN_BREAKOUT_MARGIN.get("1d"),
-                                "MIN_BREAKOUT_VOLUME_RATIO": MIN_BREAKOUT_VOLUME_RATIO,
-                                "BASE_TIGHTNESS_THRESHOLD": BASE_TIGHTNESS_THRESHOLD
-                            }
-
-                            if not is_test_mode:
-                                _bayesian_regime = regime_ctx.get("trend", "BULL") if isinstance(regime_ctx, dict) else "BULL"
-                                _regime_score = float(regime_ctx.get("market_score", 80.0)) if isinstance(regime_ctx, dict) else 80.0
-
-                                safe_sec_str = "Unknown" if (sector is None or (isinstance(sector, float) and pd.isna(sector))) else str(sector).strip()
-                                sector_info = sector_rankings_dict.get(safe_sec_str, {})
-                                sector_name_val = sector_info.get("sector_name", sector or "")
-
-                                cand = {
-                                    "symbol": symbol,
-                                    "breakout_type": "EOD",
-                                    "alert_time": ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
-                                    "scanner": "EOD",
-                                    "category": category,
-                                    "entry_price": round(candle_close, 2),
-                                    "signals": signal_str,
-                                    "score": int(score),
-                                    "rsi": round(rsi_val, 1),
-                                    "volume_ratio": round(volume_ratio, 2),
-                                    "stop_loss": suggested_stop,
-                                    "target_1": sl_result.get("target_1"),
-                                    "target_2": sl_result.get("target_2"),
-                                    "target_3": sl_result.get("target_3"),
-                                    "target_price": target_price,
-                                    "context": context,
-                                    "model_version": model_version,
-                                    "bayesian_regime": _bayesian_regime,
-                                    "bayesian_weights": applied_bayesian_weights,
-                                    "structural_failure_stop": sl_result.get("structural_failure_stop"),
-                                    "target_quality_score": sl_result.get("target_quality"),
-                                    "base_score": base_score_val,
-                                    "rs_bonus": rs_bonus_val,
-                                    "sector_bonus": sector_bonus_val,
-                                    "rs_percentile": rs_pct_val,
-                                    "sector_name": sector_name_val,
-                                    "regime_score": _regime_score,
-                                    # Extra data for logging and tracking
-                                    "_candle_open": candle_open,
-                                    "_candle_high": candle_high,
-                                    "_candle_low": candle_low,
-                                    "_body_ratio": body_ratio,
-                                    "_close_position": close_position,
-                                    "_above_ema20": above_ema20,
-                                    "_above_sma50": above_sma50,
-                                    "_above_golden_cross": above_golden_cross,
-                                    "_sl_method": sl_result.get("sl_method"),
-                                    "_target_method": sl_result.get("target_method"),
-                                    "_natural_rr": sl_result.get("natural_rr"),
-                                    "_delivery_pct": delivery_pct,
-                                    "_peg": row.get("PEG Ratio"),
-                                    "_yoy_rev": row.get("YOY Revenue %"),
-                                    "_yoy_profit": row.get("YOY Profit %"),
-                                    "_roe": row.get("ROE %"),
-                                    "_ticker": ticker
+                                context = {
+                                    "technicals": {
+                                        "above_ema20":      above_ema20,
+                                        "above_sma50":      above_sma50,
+                                        "above_golden_cross":     above_golden_cross,
+                                        "body_ratio":       round(body_ratio * 100, 2),
+                                        "delivery_pct":     round(delivery_pct, 1) if delivery_pct is not None else None,
+                                        "rsi":              round(rsi_val, 1),
+                                        "volume_ratio":     round(volume_ratio, 2),
+                                        "breakout_level":   round(_safe_float(latest.get("PRIOR_20D_HIGH")), 2) if "PRIOR_20D_HIGH" in latest else None,
+                                        "atr20":            round(_safe_float(latest.get("ATR20")), 2) if "ATR20" in latest else None,
+                                        "regime":           market_regime,
+                                        "score":            score
+                                    },
+                                    "session": {
+                                        "open":             round(candle_open, 2),
+                                        "day_high":         round(candle_high, 2),
+                                        "day_low":          round(candle_low, 2)
+                                    },
+                                    "fundamentals": {
+                                        "peg":              row.get("PEG Ratio"),
+                                        "yoy_rev":          row.get("YOY Revenue %"),
+                                        "yoy_profit":       row.get("YOY Profit %"),
+                                        "roe":              row.get("ROE %")
+                                    },
+                                    "execution": {
+                                        "sl_method":        sl_result.get("sl_method"),
+                                        "t_method":         sl_result.get("target_method")
+                                    },
+                                    "sl_result": sl_result
                                 }
+                
+                                # Append configuration metadata for forward-testing and analytics
+                                context["algo_version"] = ACTIVE_ALGO_VERSION
+                                if delivery_found and delivery_days_back > 0:
+                                    context["delivery_data_status"] = "missing_used_fallback"
+                                elif not delivery_found:
+                                    context["delivery_data_status"] = "unavailable"
+                            
+                                context["algo_params"] = {
+                                    **EOD_CONFIG,
+                                    **EOD_ADVANCED_CONFIG,
+                                    "MIN_BREAKOUT_MARGIN_1D": MIN_BREAKOUT_MARGIN.get("1d"),
+                                    "MIN_BREAKOUT_VOLUME_RATIO": MIN_BREAKOUT_VOLUME_RATIO,
+                                    "BASE_TIGHTNESS_THRESHOLD": BASE_TIGHTNESS_THRESHOLD
+                                }
+
+                                if not is_test_mode:
+                                    _bayesian_regime = regime_ctx.get("trend", "BULL") if isinstance(regime_ctx, dict) else "BULL"
+                                    _regime_score = float(regime_ctx.get("market_score", 80.0)) if isinstance(regime_ctx, dict) else 80.0
+
+                                    safe_sec_str = "Unknown" if (sector is None or (isinstance(sector, float) and pd.isna(sector))) else str(sector).strip()
+                                    sector_info = sector_rankings_dict.get(safe_sec_str, {})
+                                    sector_name_val = sector_info.get("sector_name", sector or "")
+
+                                    cand = {
+                                        "symbol": symbol,
+                                        "breakout_type": "EOD",
+                                        "alert_time": ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
+                                        "scanner": "EOD",
+                                        "category": category,
+                                        "entry_price": round(candle_close, 2),
+                                        "signals": signal_str,
+                                        "score": int(score),
+                                        "rsi": round(rsi_val, 1),
+                                        "volume_ratio": round(volume_ratio, 2),
+                                        "stop_loss": suggested_stop,
+                                        "target_1": sl_result.get("target_1"),
+                                        "target_2": sl_result.get("target_2"),
+                                        "target_3": sl_result.get("target_3"),
+                                        "target_price": target_price,
+                                        "context": context,
+                                        "model_version": model_version,
+                                        "bayesian_regime": _bayesian_regime,
+                                        "bayesian_weights": applied_bayesian_weights,
+                                        "structural_failure_stop": sl_result.get("structural_failure_stop"),
+                                        "target_quality_score": sl_result.get("target_quality"),
+                                        "base_score": base_score_val,
+                                        "rs_bonus": rs_bonus_val,
+                                        "sector_bonus": sector_bonus_val,
+                                        "rs_percentile": rs_pct_val,
+                                        "sector_name": sector_name_val,
+                                        "regime_score": _regime_score,
+                                        # Extra data for logging and tracking
+                                        "_candle_open": candle_open,
+                                        "_candle_high": candle_high,
+                                        "_candle_low": candle_low,
+                                        "_body_ratio": body_ratio,
+                                        "_close_position": close_position,
+                                        "_above_ema20": above_ema20,
+                                        "_above_sma50": above_sma50,
+                                        "_above_golden_cross": above_golden_cross,
+                                        "_sl_method": sl_result.get("sl_method"),
+                                        "_target_method": sl_result.get("target_method"),
+                                        "_natural_rr": sl_result.get("natural_rr"),
+                                        "_delivery_pct": delivery_pct,
+                                        "_peg": row.get("PEG Ratio"),
+                                        "_yoy_rev": row.get("YOY Revenue %"),
+                                        "_yoy_profit": row.get("YOY Profit %"),
+                                        "_roe": row.get("ROE %"),
+                                        "_ticker": ticker
+                                    }
+                                    with _batch_lock:
+                                        approved_candidates.append(cand)
+                                        telemetry_logger.record_pass(symbol, int(score), float(sl_result.get("natural_rr", 0)), {"VolumeRatio": round(volume_ratio, 2), "RSI": round(rsi_val, 1)}, _row_start_time)
+                                else:
+                                    pass
+
+                            # [VERSION: EOD_PATCH_v1.0] [BUG FIX 4] Catch general Exceptions rather than specific errors to prevent ZeroDivisionError/AttributeError from crashing the entire scan loop
+                            except Exception as e:
+                                error_type = type(e).__name__
+                                logger.exception(f"⚠️ Exception ({error_type}) processing {symbol}: {e}")
                                 with _batch_lock:
-                                    approved_candidates.append(cand)
-                                    telemetry_logger.record_pass(symbol, int(score), float(sl_result.get("natural_rr", 0)), {"VolumeRatio": round(volume_ratio, 2), "RSI": round(rsi_val, 1)}, _row_start_time)
-                            else:
-                                pass
-
-                        # [VERSION: EOD_PATCH_v1.0] [BUG FIX 4] Catch general Exceptions rather than specific errors to prevent ZeroDivisionError/AttributeError from crashing the entire scan loop
-                        except Exception as e:
-                            error_type = type(e).__name__
-                            logger.exception(f"⚠️ Exception ({error_type}) processing {symbol}: {e}")
-                            with _batch_lock:
-                                rejection_counts["indicator_fail"] = rejection_counts.get("indicator_fail", 0) + 1
-                            if not is_test_mode:
-                                try:
-                                    upsert_fetch_error('yfinance', 'EOD', symbol, '1d', f'processing_error_{error_type}', str(e)[:500])
-                                except Exception:
-                                    logger.exception(f'Failed to upsert fetch error for {symbol}')
-                            return
+                                    rejection_counts["indicator_fail"] = rejection_counts.get("indicator_fail", 0) + 1
+                                if not is_test_mode:
+                                    try:
+                                        upsert_fetch_error('yfinance', 'EOD', symbol, '1d', f'processing_error_{error_type}', str(e)[:500])
+                                    except Exception:
+                                        logger.exception(f'Failed to upsert fetch error for {symbol}')
+                                return
 
 
 
-                    with ThreadPoolExecutor(max_workers=10, thread_name_prefix="EOD_Worker") as executor:
-                        futures = [executor.submit(_process_row, idx, row) for idx, row in enumerate(chunk_df.itertuples(index=False), start=1)]
-                        for f in as_completed(futures):
-                            f.result() # Raise any exceptions caught in thread
-                logger.info(f"⏳ [EOD SCANNER] Evaluated Batch {batch_num}/{total_batches} ({min(batch_num * BATCH_SIZE, len(watchlist))}/{len(watchlist)} stocks) | Candidates found so far: {len(approved_candidates)}")
+                        with ThreadPoolExecutor(max_workers=10, thread_name_prefix="EOD_Worker") as executor:
+                            futures = [executor.submit(_process_row, idx, row) for idx, row in enumerate(chunk_df.itertuples(index=False), start=1)]
+                            for f in as_completed(futures):
+                                f.result() # Raise any exceptions caught in thread
+                    logger.info(f"⏳ [EOD SCANNER] Evaluated Batch {batch_num}/{total_batches} ({min(batch_num * BATCH_SIZE, len(watchlist))}/{len(watchlist)} stocks) | Candidates found so far: {len(approved_candidates)}")
 
-        # ── MAX ALERTS ENFORCEMENT & PERSISTENCE ──────────────────────────────────────────
-        if approved_candidates:
-            logger.info(f"📊 EOD Candidates Discovered: {len(approved_candidates)}")
-            for cand in approved_candidates:
-                logger.info(f"  • 🟢 {cand['symbol']} @ ₹{cand['entry_price']:.2f} (Score: {cand['score']}, RSI: {cand['rsi']:.1f}, Vol Ratio: {cand['volume_ratio']:.2f}x)")
-            approved_candidates.sort(key=lambda x: x["score"], reverse=True)
-        else:
-            logger.info("📊 EOD Candidates Discovered: 0")
+            # ── MAX ALERTS ENFORCEMENT & PERSISTENCE ──────────────────────────────────────────
+            if approved_candidates:
+                logger.info(f"📊 EOD Candidates Discovered: {len(approved_candidates)}")
+                for cand in approved_candidates:
+                    logger.info(f"  • 🟢 {cand['symbol']} @ ₹{cand['entry_price']:.2f} (Score: {cand['score']}, RSI: {cand['rsi']:.1f}, Vol Ratio: {cand['volume_ratio']:.2f}x)")
+                approved_candidates.sort(key=lambda x: x["score"], reverse=True)
+            else:
+                logger.info("📊 EOD Candidates Discovered: 0")
 
-        if approved_candidates:
-            from config import SCANNER_MAX_ALERTS
-            max_alerts = SCANNER_MAX_ALERTS.get("EOD", 10)
+            if approved_candidates:
+                from config import SCANNER_MAX_ALERTS
+                max_alerts = SCANNER_MAX_ALERTS.get("EOD", 10)
             
-            if len(approved_candidates) > max_alerts:
-                logger.info(f"Limiting EOD alerts from {len(approved_candidates)} to {max_alerts}")
-                rejected_cands = approved_candidates[max_alerts:]
-                approved_candidates = approved_candidates[:max_alerts]
-                from database import save_rejected_alert
-                for cand in rejected_cands:
-                    rejection_counts["max_alerts_exceeded"] = rejection_counts.get("max_alerts_exceeded", 0) + 1
-                    logger.info(f"🚫 {cand['symbol']} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['score']})")
+                if len(approved_candidates) > max_alerts:
+                    logger.info(f"Limiting EOD alerts from {len(approved_candidates)} to {max_alerts}")
+                    rejected_cands = approved_candidates[max_alerts:]
+                    approved_candidates = approved_candidates[:max_alerts]
+                    from database import save_rejected_alert
+                    for cand in rejected_cands:
+                        rejection_counts["max_alerts_exceeded"] = rejection_counts.get("max_alerts_exceeded", 0) + 1
+                        logger.info(f"🚫 {cand['symbol']} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['score']})")
                     
-            for cand in approved_candidates:
-                c = dict(cand)
-                # Remove extra keys before saving
-                _candle_open = c.pop("_candle_open")
-                _candle_high = c.pop("_candle_high")
-                _candle_low = c.pop("_candle_low")
-                _body_ratio = c.pop("_body_ratio")
-                _close_position = c.pop("_close_position")
-                _above_ema20 = c.pop("_above_ema20")
-                _above_sma50 = c.pop("_above_sma50")
-                _above_golden_cross = c.pop("_above_golden_cross")
-                _sl_method = c.pop("_sl_method")
-                _target_method = c.pop("_target_method")
-                _natural_rr = c.pop("_natural_rr")
-                _delivery_pct = c.pop("_delivery_pct")
-                _peg = c.pop("_peg")
-                _yoy_rev = c.pop("_yoy_rev")
-                _yoy_profit = c.pop("_yoy_profit")
-                _roe = c.pop("_roe")
-                _ticker = c.pop("_ticker")
+                for cand in approved_candidates:
+                    c = dict(cand)
+                    # Remove extra keys before saving
+                    _candle_open = c.pop("_candle_open")
+                    _candle_high = c.pop("_candle_high")
+                    _candle_low = c.pop("_candle_low")
+                    _body_ratio = c.pop("_body_ratio")
+                    _close_position = c.pop("_close_position")
+                    _above_ema20 = c.pop("_above_ema20")
+                    _above_sma50 = c.pop("_above_sma50")
+                    _above_golden_cross = c.pop("_above_golden_cross")
+                    _sl_method = c.pop("_sl_method")
+                    _target_method = c.pop("_target_method")
+                    _natural_rr = c.pop("_natural_rr")
+                    _delivery_pct = c.pop("_delivery_pct")
+                    _peg = c.pop("_peg")
+                    _yoy_rev = c.pop("_yoy_rev")
+                    _yoy_profit = c.pop("_yoy_profit")
+                    _roe = c.pop("_roe")
+                    _ticker = c.pop("_ticker")
                 
-                if not is_test_mode:
-                    saved, reason, cap_alloc, shares = save_alert_if_new(**c)
-                else:
-                    saved, reason, cap_alloc, shares = True, "", 0.0, 0
+                    if not is_test_mode:
+                        saved, reason, cap_alloc, shares = save_alert_if_new(**c)
+                    else:
+                        saved, reason, cap_alloc, shares = True, "", 0.0, 0
                     
-                if not saved:
-                    rejection_counts["duplicate"] += 1
+                    if not saved:
+                        rejection_counts["duplicate"] += 1
+                        try:
+                            ctx_dup = telemetry_logger.get_or_create_context(c["symbol"])
+                            ctx_dup.capture_trace("STRATEGY_SELECTED", "PASS")
+                            ctx_dup.capture_trace("DUPLICATE_CHECK", "PENDING")
+                            ctx_dup.capture_trace("DUPLICATE_CHECK", "FAIL")
+                            ctx_dup.capture_gate(
+                                gate_name="DUPLICATE_REJECTED", passed=False, actual_val=True, threshold_val=False,
+                                operator_str="!=", gate_type="BOOLEAN", reason=reason or "Symbol already alerted within cooldown window"
+                            )
+                            ctx_dup.add_decision_input("existing_alert", True, "DatabaseGuard", "Live", "LIVE", required=True, valid=True)
+                            ctx_dup.add_decision_input("duplicate_window_days", 1.0, "DatabaseGuard", "Live", "LIVE", required=True, valid=True)
+                            ctx_dup.finalize(decision="REJECTED", primary_reason="DUPLICATE_REJECTED")
+                            telemetry_engine.emit_terminal(ctx_dup)
+                        except Exception:
+                            telemetry_logger.record_reject(c["symbol"], "SYSTEM", "DUPLICATE_REJECTED", None, None)
+                        continue
+                    
+                    alerts_by_category.setdefault(c["category"], []).append({
+                        "symbol":           c["symbol"],
+                        "category":         c["category"],
+                        "breakout_signals": [c["signals"]],
+                        "price":            c["entry_price"],
+                        "open":             round(_candle_open, 2),
+                        "day_high":         round(_candle_high, 2),
+                        "day_low":          round(_candle_low, 2),
+                        "rsi":              c["rsi"],
+                        "volume_ratio":     c["volume_ratio"],
+                        "body_ratio":       round(_body_ratio * 100),
+                        "close_position":   round(_close_position * 100),
+                        "score":            c["score"],
+                        "above_ema20":      _above_ema20,
+                        "above_sma50":      _above_sma50,
+                        "above_golden_cross":     _above_golden_cross,
+                        "atr_stop":         c["stop_loss"],
+                        "target_price":     c["target_price"],
+                        "target_2":         c["target_2"],
+                        "target_3":         c["target_3"],
+                        "sl_method":        _sl_method,
+                        "t_method":         _target_method,
+                        "rr_ratio":         _natural_rr,
+                        "delivery_pct":     round(_delivery_pct, 1) if _delivery_pct is not None else None,
+                        "peg":              _peg,
+                        "yoy_rev":          _yoy_rev,
+                        "yoy_profit":       _yoy_profit,
+                        "roe":              _roe,
+                        "capital_allocated": cap_alloc,
+                        "shares_bought":     shares
+                    })
+                    total_alerts += 1
+                
+                    _last_bar_date = "unknown"
                     try:
-                        ctx_dup = telemetry_logger.get_or_create_context(c["symbol"])
-                        ctx_dup.capture_trace("STRATEGY_SELECTED", "PASS")
-                        ctx_dup.capture_trace("DUPLICATE_CHECK", "PENDING")
-                        ctx_dup.capture_trace("DUPLICATE_CHECK", "FAIL")
-                        ctx_dup.capture_gate(
-                            gate_name="DUPLICATE_REJECTED", passed=False, actual_val=True, threshold_val=False,
-                            operator_str="!=", gate_type="BOOLEAN", reason=reason or "Symbol already alerted within cooldown window"
-                        )
-                        ctx_dup.add_decision_input("existing_alert", True, "DatabaseGuard", "Live", "LIVE", required=True, valid=True)
-                        ctx_dup.add_decision_input("duplicate_window_days", 1.0, "DatabaseGuard", "Live", "LIVE", required=True, valid=True)
-                        ctx_dup.finalize(decision="REJECTED", primary_reason="DUPLICATE_REJECTED")
-                        telemetry_engine.emit_terminal(ctx_dup)
+                        if isinstance(_ticker.index, pd.DatetimeIndex):
+                            _last_bar_date = str(_ticker.index[-1])[:10]
+                        elif "Date" in _ticker.columns:
+                            _last_bar_date = str(_ticker["Date"].iloc[-1])[:10]
                     except Exception:
-                        telemetry_logger.record_reject(c["symbol"], "SYSTEM", "DUPLICATE_REJECTED", None, None)
-                    continue
-                    
-                alerts_by_category.setdefault(c["category"], []).append({
-                    "symbol":           c["symbol"],
-                    "category":         c["category"],
-                    "breakout_signals": [c["signals"]],
-                    "price":            c["entry_price"],
-                    "open":             round(_candle_open, 2),
-                    "day_high":         round(_candle_high, 2),
-                    "day_low":          round(_candle_low, 2),
-                    "rsi":              c["rsi"],
-                    "volume_ratio":     c["volume_ratio"],
-                    "body_ratio":       round(_body_ratio * 100),
-                    "close_position":   round(_close_position * 100),
-                    "score":            c["score"],
-                    "above_ema20":      _above_ema20,
-                    "above_sma50":      _above_sma50,
-                    "above_golden_cross":     _above_golden_cross,
-                    "atr_stop":         c["stop_loss"],
-                    "target_price":     c["target_price"],
-                    "target_2":         c["target_2"],
-                    "target_3":         c["target_3"],
-                    "sl_method":        _sl_method,
-                    "t_method":         _target_method,
-                    "rr_ratio":         _natural_rr,
-                    "delivery_pct":     round(_delivery_pct, 1) if _delivery_pct is not None else None,
-                    "peg":              _peg,
-                    "yoy_rev":          _yoy_rev,
-                    "yoy_profit":       _yoy_profit,
-                    "roe":              _roe,
-                    "capital_allocated": cap_alloc,
-                    "shares_bought":     shares
-                })
-                total_alerts += 1
-                
-                _last_bar_date = "unknown"
-                try:
-                    if isinstance(_ticker.index, pd.DatetimeIndex):
-                        _last_bar_date = str(_ticker.index[-1])[:10]
-                    elif "Date" in _ticker.columns:
-                        _last_bar_date = str(_ticker["Date"].iloc[-1])[:10]
-                except Exception:
-                    pass
+                        pass
+                    logger.info(
+                        f"✅ [EOD] PASSED ALL FILTERS AND LIMITS: {c['symbol']} | "
+                        f"score={c['score']} | vol_ratio={c['volume_ratio']:.2f} | rsi={c['rsi']:.1f} | "
+                        f"entry=₹{c['entry_price']:.2f} | sl=₹{c['stop_loss']} | t1=₹{c['target_price']} | "
+                        f"last_bar={_last_bar_date} | category={c['category']}"
+                    )
+
+            # ── VERIFICATION & STATUS ────────────────────────────────────────────────────
+            stage_tracker.end_stage(f"Evaluated {len(watchlist)} stocks | Alerts found: {total_alerts}")
+            stage_tracker.start_stage(4, "Pipeline Summary & Alert Persistence", f"Total alerts: {total_alerts}")
+            fired = {k: v for k, v in rejection_counts.items() if v > 0}
+
+            duration_sec = round((datetime.now(IST) - start_time).total_seconds(), 1)
+            total_symbols = len(watchlist)
+            stale_count = rejection_counts.get("stale_data", 0)
+            no_data_count = rejection_counts.get("no_data", 0)
+            fresh_count = max(0, total_fetched_count - stale_count)
+            data_status = "OK"
+            if used_fallback_data:
+                # [RULE 67] DEGRADED_FALLBACK takes precedence over all other statuses.
+                # User explicitly required this: "enforce DEGRADED_FALLBACK at the final health write level."
+                # Previously only the upsert block at line ~1838 set DEGRADED_FALLBACK, but the
+                # data_status shown in the pipeline SUMMARY still said "OK". Now both agree.
+                data_status = "DEGRADED_FALLBACK (Historical Fallback Dataset)"
+            elif (stale_count / max(total_symbols, 1)) > 0.30:
+                data_status = "DEGRADED (Stale Data > 30%)"
+
+            if run_ctx:
+                run_ctx.set_total_stocks(total_symbols)
+                run_ctx.fresh_count = fresh_count
+                run_ctx.stale_count = stale_count
+                run_ctx.incomplete_count = no_data_count
+
+            summary_lines = [
+                "======================================================================",
+                "=== [EOD SCANNER PIPELINE SUMMARY] ===",
+                "======================================================================",
+                "📊 DATA QUALITY SNAPSHOT:",
+                f"  • Total Watchlist Requested : {total_symbols}",
+                f"  • Fresh Data OK             : {fresh_count}",
+                f"  • Stale Data                : {stale_count}",
+                f"  • Missing / No Data         : {no_data_count}",
+                f"  • Data Health Status        : {data_status}",
+                "",
+                "🎯 CRITERIA & FILTER BREAKDOWN:"
+            ]
+            for k, v in fired.items():
+                summary_lines.append(f"  • {k:<27}: {v}")
+
+            summary_lines.extend([
+                "",
+                "🏆 FINAL OUTCOME:",
+                f"  • Alerts Generated          : {total_alerts}",
+                f"  • Total Execution Time      : {duration_sec}s",
+                "======================================================================"
+            ])
+            logger.info("\n".join(summary_lines))
+            try:
+                stage_tracker.end_stage(f"Alerts generated: {total_alerts}")
+                stage_tracker.print_summary(alerts_found=total_alerts)
+            except Exception:
+                pass
+
+
+            # ✅ CRITICAL: Verify alerts were actually saved to database (2026-06-17)
+            if total_alerts > 0 and not is_test_mode:
+                if not verify_alerts_saved_today("EOD", total_alerts):
+                    logger.critical(f"🚨 CRITICAL ERROR: EOD generated {total_alerts} alerts but save failed!")
+                    upsert_scanner_health(
+                        scanner_name="EOD",
+                        status="DOWN",
+                        error_msg=f"CRITICAL: {total_alerts} alerts failed to save to database"
+                    )
+                    raise RuntimeError("Alert save verification failed - database connectivity issue")
+
+            status = "OK"
+            error_msg = None
+
+            # [VERSION: EOD_STALE_DEGRADE_FIX] Mark degraded if >30% stale
+            # [AUDIT-E1 FIX] stale_count and total_symbols already set at summary block above — removed duplicate assignments
+            if total_symbols > 0 and (stale_count / total_symbols) > 0.30:
+                status = "DEGRADED"
+                error_msg = f"High stale data: {stale_count}/{total_symbols} symbols rejected (likely due to fallback watchlist)"
+
+            # [VERSION: EOD_PATCH_v1.3] Log active thread count to monitor potential ThreadPoolExecutor leaks
+            active_threads = threading.active_count()
+            logger.info(f"🧵 Final Active Thread Count: {active_threads}")
+
+            if total_fetched_count < len(watchlist) * 0.95:
+                status = "DEGRADED"
+                error_msg = f"Partial Fetch: {total_fetched_count}/{len(watchlist)} symbols"
+
+            duration_sec = (datetime.now(IST) - start_time).total_seconds()
+
+            del all_ticker_data
+            locals().pop('ticker', None)
+
+            # Check if we fetched enough data overall
+            if total_fetched_count < len(watchlist) * 0.70:
+                logger.warning(f"⚠️ EOD data fetch returned {total_fetched_count}/{len(watchlist)} symbols (70% minimum required). EOD results may be incomplete.")
+            else:
+                logger.info(f"✅ Successfully fetched {total_fetched_count} symbols for EOD phase")
+                rss_after_convert = process.memory_info().rss / 1024 / 1024
+                del all_ticker_data
+                locals().pop('ticker', None)
+                gc.collect()
+                rss_after_gc = process.memory_info().rss / 1024 / 1024
+                elapsed = time.time() - batch_start_time
                 logger.info(
-                    f"✅ [EOD] PASSED ALL FILTERS AND LIMITS: {c['symbol']} | "
-                    f"score={c['score']} | vol_ratio={c['volume_ratio']:.2f} | rsi={c['rsi']:.1f} | "
-                    f"entry=₹{c['entry_price']:.2f} | sl=₹{c['stop_loss']} | t1=₹{c['target_price']} | "
-                    f"last_bar={_last_bar_date} | category={c['category']}"
+                    f"📊 EOD Batch {i//BATCH_SIZE + 1}/{(len(watchlist) + BATCH_SIZE - 1)//BATCH_SIZE}\n"
+                    f"Symbols: {len(chunk_df)}\n"
+                    f"Time: {elapsed:.1f} s\n"
+                    f"RSS before fetch: {rss_before:.1f} MB\n"
+                    f"RSS after fetch: {rss_after_fetch:.1f} MB\n"
+                    f"RSS after convert: {rss_after_convert:.1f} MB\n"
+                    f"RSS after cleanup: {rss_after_gc:.1f} MB"
                 )
-
-        # ── VERIFICATION & STATUS ────────────────────────────────────────────────────
-        stage_tracker.end_stage(f"Evaluated {len(watchlist)} stocks | Alerts found: {total_alerts}")
-        stage_tracker.start_stage(4, "Pipeline Summary & Alert Persistence", f"Total alerts: {total_alerts}")
-        fired = {k: v for k, v in rejection_counts.items() if v > 0}
-
-        duration_sec = round((datetime.now(IST) - start_time).total_seconds(), 1)
-        total_symbols = len(watchlist)
-        stale_count = rejection_counts.get("stale_data", 0)
-        no_data_count = rejection_counts.get("no_data", 0)
-        fresh_count = max(0, total_fetched_count - stale_count)
-        data_status = "OK"
-        if used_fallback_data:
-            # [RULE 67] DEGRADED_FALLBACK takes precedence over all other statuses.
-            # User explicitly required this: "enforce DEGRADED_FALLBACK at the final health write level."
-            # Previously only the upsert block at line ~1838 set DEGRADED_FALLBACK, but the
-            # data_status shown in the pipeline SUMMARY still said "OK". Now both agree.
-            data_status = "DEGRADED_FALLBACK (Historical Fallback Dataset)"
-        elif (stale_count / max(total_symbols, 1)) > 0.30:
-            data_status = "DEGRADED (Stale Data > 30%)"
-
-        if run_ctx:
-            run_ctx.set_total_stocks(total_symbols)
-            run_ctx.fresh_count = fresh_count
-            run_ctx.stale_count = stale_count
-            run_ctx.incomplete_count = no_data_count
-
-        summary_lines = [
-            "======================================================================",
-            "=== [EOD SCANNER PIPELINE SUMMARY] ===",
-            "======================================================================",
-            "📊 DATA QUALITY SNAPSHOT:",
-            f"  • Total Watchlist Requested : {total_symbols}",
-            f"  • Fresh Data OK             : {fresh_count}",
-            f"  • Stale Data                : {stale_count}",
-            f"  • Missing / No Data         : {no_data_count}",
-            f"  • Data Health Status        : {data_status}",
-            "",
-            "🎯 CRITERIA & FILTER BREAKDOWN:"
-        ]
-        for k, v in fired.items():
-            summary_lines.append(f"  • {k:<27}: {v}")
-
-        summary_lines.extend([
-            "",
-            "🏆 FINAL OUTCOME:",
-            f"  • Alerts Generated          : {total_alerts}",
-            f"  • Total Execution Time      : {duration_sec}s",
-            "======================================================================"
-        ])
-        logger.info("\n".join(summary_lines))
-        try:
-            stage_tracker.end_stage(f"Alerts generated: {total_alerts}")
-            stage_tracker.print_summary(alerts_found=total_alerts)
-        except Exception:
-            pass
-
-
-        # ✅ CRITICAL: Verify alerts were actually saved to database (2026-06-17)
-        if total_alerts > 0 and not is_test_mode:
-            if not verify_alerts_saved_today("EOD", total_alerts):
-                logger.critical(f"🚨 CRITICAL ERROR: EOD generated {total_alerts} alerts but save failed!")
-                upsert_scanner_health(
-                    scanner_name="EOD",
-                    status="DOWN",
-                    error_msg=f"CRITICAL: {total_alerts} alerts failed to save to database"
-                )
-                raise RuntimeError("Alert save verification failed - database connectivity issue")
-
-        status = "OK"
-        error_msg = None
-
-        # [VERSION: EOD_STALE_DEGRADE_FIX] Mark degraded if >30% stale
-        # [AUDIT-E1 FIX] stale_count and total_symbols already set at summary block above — removed duplicate assignments
-        if total_symbols > 0 and (stale_count / total_symbols) > 0.30:
-            status = "DEGRADED"
-            error_msg = f"High stale data: {stale_count}/{total_symbols} symbols rejected (likely due to fallback watchlist)"
-
-        # [VERSION: EOD_PATCH_v1.3] Log active thread count to monitor potential ThreadPoolExecutor leaks
-        active_threads = threading.active_count()
-        logger.info(f"🧵 Final Active Thread Count: {active_threads}")
-
-        if total_fetched_count < len(watchlist) * 0.95:
-            status = "DEGRADED"
-            error_msg = f"Partial Fetch: {total_fetched_count}/{len(watchlist)} symbols"
-
-        duration_sec = (datetime.now(IST) - start_time).total_seconds()
-
-        del all_ticker_data
-        locals().pop('ticker', None)
-
-        # Check if we fetched enough data overall
-        if total_fetched_count < len(watchlist) * 0.70:
-            logger.warning(f"⚠️ EOD data fetch returned {total_fetched_count}/{len(watchlist)} symbols (70% minimum required). EOD results may be incomplete.")
-        else:
-            logger.info(f"✅ Successfully fetched {total_fetched_count} symbols for EOD phase")
+            
+            # Check if we fetched enough data overall
+            if total_fetched_count < len(watchlist) * 0.70:
+                logger.warning(f"⚠️ EOD data fetch returned {total_fetched_count}/{len(watchlist)} symbols (70% minimum required). EOD results may be incomplete.")
+            else:
+                logger.info(f"✅ Successfully fetched {total_fetched_count} symbols for EOD phase")
         # Insert scan failures via batch
         if scan_failures and not is_test_mode:
             try:

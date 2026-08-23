@@ -5230,7 +5230,7 @@ function closeDepositFundsDialog() {
   document.getElementById('depositAmount').value = '';
 }
 
-async function submitDepositFunds() {
+async async function submitDepositFunds() {
   const amount = parseFloat(document.getElementById('depositAmount').value);
   if (isNaN(amount) || amount <= 0) {
     showCustomToast('Please enter a valid amount', 'info');
@@ -6297,7 +6297,7 @@ async function markAllNotificationsSeen(e) {
     }
 }
 
-async function clearAllNotifications(e) {
+async async function clearAllNotifications(e) {
     if(e) e.stopPropagation();
     const confirmed = await showCustomConfirm("Are you sure you want to clear all notifications?");
     if (!confirmed) return;
@@ -6446,7 +6446,7 @@ async function loadPendingUsers(force = false) {
     }
 }
 
-async function approveUser(id) {
+async async function approveUser(id) {
     const confirmed = await showCustomConfirm('Approve this user?');
     if (!confirmed) return;
     try {
@@ -6465,7 +6465,7 @@ async function approveUser(id) {
     }
 }
 
-async function rejectUser(id) {
+async async function rejectUser(id) {
     const confirmed = await showCustomConfirm('Reject this user and delete account?');
     if (!confirmed) return;
     try {
@@ -7351,7 +7351,8 @@ function renderStockDiagnosticModal(data) {
 }
 
 function createManualAlert(sym, scanner) {
-  if (!confirm(`Confirm raising active manual ${scanner} BUY alert for #${sym}?`)) return;
+  const confirmed = await showCustomConfirm(`Confirm raising active manual ${scanner} BUY alert for #${sym}?`);
+      if (!confirmed) return;
 
   fetch('/api/v1/create_manual_alert', {
     method: 'POST',

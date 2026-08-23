@@ -1640,6 +1640,11 @@ Below is the verbatim source code of `app/config.py`:
 # =====================================================================================
 
 import os
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
+except ImportError:
+    pass
 
 # =====================================================================================
 # BASE DIRECTORY
@@ -1678,6 +1683,26 @@ os.makedirs(DATA_DIR, exist_ok=True)
 WATCHLIST_PATH = os.path.join(DATA_DIR, "elite_fundamental_watchlist.parquet")
 DB_PATH = os.path.join(DATA_DIR, "alerts.db")
 
+# Path for NSE constituent disk cache (Fix RCA-MB-2)
+CONSTITUENT_CACHE_PATH = os.path.join(DATA_DIR, "constituent_cache.json")
+
+# =====================================================================================
+# RESILIENCE / FALLBACK CONFIGURATION
+# =====================================================================================
+
+# [VERSION: WEALTH_CB_FALLBACK_v1.0] Maximum age (hours) of the saved wealth parquet
+# that is still acceptable for the circuit-breaker fallback path.
+# When YFinance/Fyers circuit breakers fire, Wealth Engine will load the last-saved
+# parquet (suppressing new BUY signals but keeping exit monitor running) if the
+# parquet was written within this many hours. 12h covers the overnight 2AM scan
+# through end of trading day. Beyond 12h the system aborts as before.
+WEALTH_CB_FALLBACK_MAX_AGE_HOURS = int(os.environ.get("WEALTH_CB_FALLBACK_MAX_AGE_HOURS", "12"))
+
+# [VERSION: CONSTITUENT_DISK_CACHE_v1.0] Maximum age (days) of the on-disk NSE
+# constituent cache file before it is considered too stale to use as a last resort.
+# NSE index rebalancing happens quarterly, so 7 days is always safe.
+CONSTITUENT_DISK_CACHE_MAX_DAYS = int(os.environ.get("CONSTITUENT_DISK_CACHE_MAX_DAYS", "7"))
+
 # =====================================================================================
 # SYSTEM & PROFILING CONFIGURATION
 # =====================================================================================
@@ -1695,6 +1720,7 @@ MEMORY_PROFILER_CONFIG = {
 # =====================================================================================
 
 DISABLE_NSE_SURVEILLANCE_FETCH = False  # Set to True in validation environments to avoid WAF/tarpit timeouts
+CRAWLORA_API_KEY = os.getenv("CRAWLORA_API_KEY")
 
 # =====================================================================================
 # SCORE THRESHOLDS & AI
@@ -1703,15 +1729,52 @@ DISABLE_NSE_SURVEILLANCE_FETCH = False  # Set to True in validation environments
 ENABLE_AI_SENTIMENT_SCORE = True  # Set False to disable experimental AI sentiment scoring for audit/backtest runs
 
 SCORE_THRESHOLDS = {
-    "15m": 78,
-    "1h":  80,
-    "1d":  82,
+    "15m": 75,
+    "1h":  75,
+    "1d":  75,
 }
 
 # =====================================================================================
 # SCAN CONFIGURATION (Algorithm Parameters)
 # =====================================================================================
 ACTIVE_ALGO_VERSION = "SL_ENGINE_V7.1"  # Updated: Target Engine v7 Pipeline, Institutional S/R Clustering, Parallel Orchestration + Combined Audit Fixes
+
+def get_system_version() -> str:
+    """Dynamically resolves deployment version incorporating git commit hash."""
+    env_ver = os.getenv("DEPLOYMENT_VERSION") or os.getenv("SYSTEM_DEPLOYMENT_VERSION")
+    if env_ver:
+        return env_ver
+
+    base_ver = "v1"
+    commit_sha = ""
+
+    # Check local version.json if generated during build/deployment
+    import json
+    ver_file = os.path.join(BASE_DIR, "app", "version.json")
+    if os.path.exists(ver_file):
+        try:
+            with open(ver_file, "r") as f:
+                data = json.load(f)
+                if data.get("version"):
+                    return data["version"]
+                commit_sha = data.get("commit", "")
+        except Exception:
+            pass
+
+    if not commit_sha:
+        try:
+            import subprocess
+            res = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=2)
+            if res.returncode == 0 and res.stdout:
+                commit_sha = res.stdout.strip()
+        except Exception:
+            pass
+
+    if commit_sha:
+        return f"{base_ver}-{commit_sha}"
+    return base_ver
+
+SYSTEM_DEPLOYMENT_VERSION = get_system_version()
 
 # =====================================================================================
 # MOMENTUM BONUS CONSTANTS & RULE 10 RATIONALE
@@ -1734,7 +1797,8 @@ MULTI_TF_CONFIG = {
     "MIN_VOLUME_AVG":     150_000,
     "MIN_RSI":            52,
     "MAX_RSI":            87,
-    "PULLBACK_TRIGGER_MODE": "PREVIOUS_HIGH", # Alternatives: PREVIOUS_OPEN, INSIDE_BAR, ENGULFING
+    # [VERSION: PHASE_D_PULLBACK_REFINEMENT_v1.0] Set default pullback mode to PREVIOUS_CLOSE
+    "PULLBACK_TRIGGER_MODE": "PREVIOUS_CLOSE", # Alternatives: PREVIOUS_CLOSE, PREVIOUS_BODY, PREVIOUS_HIGH, PREVIOUS_OPEN, INSIDE_BAR
 }
 
 LIVE_1H_CONFIG = {
@@ -1750,17 +1814,17 @@ LIVE_1H_CONFIG = {
 
 EOD_CONFIG = {
     "MIN_SIGNALS":        1,
-    "MIN_BODY_RATIO":     0.45,
-    "MIN_CLOSE_POSITION": 0.65,
+    "MIN_BODY_RATIO":     0.40,
+    "MIN_CLOSE_POSITION": 0.55,
     "MAX_UPPER_WICK":     0.35,
-    "MIN_VOLUME_RATIO":   1.8,
+    "MIN_VOLUME_RATIO":   1.3,
     "MIN_VOLUME_AVG":     50_000,
-    "MIN_RSI":            55,
+    "MIN_RSI":            50,
     "MAX_RSI":            88,
 }
 
 EOD_ADVANCED_CONFIG = {
-    "MAX_DISTANCE_FROM_52W_HIGH_PCT": 15.0,
+    "MAX_DISTANCE_FROM_52W_HIGH_PCT": 30.0,
     "MAX_SINGLE_DAY_MOVE_PCT": 15.0,
     "MAX_GAP_FROM_PRIOR_HIGH_PCT": 3.0,
     "GAP_LOOKBACK_BARS": 10,
@@ -1769,37 +1833,36 @@ EOD_ADVANCED_CONFIG = {
     "MAX_EXTENDED_BREAKOUT_ATR_MULT": 1.5,
     "GAP_AND_GO_PENALTY_MULT": 10,
     "GAP_AND_GO_MAX_PENALTY": 20,
-    "MIN_ATR_EXPANSION_RATIO": 0.9,  # [FIX P1] Relaxed from 1.2 — 1.2 rejected steady uptrend breakouts
+    "MIN_ATR_EXPANSION_RATIO": 0.8,
     "MIN_OBV_SLOPE": 0.0,
     
     # ── Prior Context & Tight Bases ──
     "PRE_BREAKOUT_LOOKBACK_BARS": 5,
-    "MAX_PRE_BREAKOUT_RED_CANDLES": 2,
-    "TIGHT_BASE_BB_WIDTH_PCTILE": 0.35,
+    "MAX_PRE_BREAKOUT_RED_CANDLES": 3,
+    "TIGHT_BASE_BB_WIDTH_PCTILE": 0.50,
     
     # ── [FIX] Structural Breakout Constraint Relaxation ──
-    # Previously 0.20, which contradicted the fact that Bollinger Bands expand upon breakout.
     "MAX_BB_WIDTH_PCTILE": 0.80
 }
 
 REVERSAL_CONFIG = {
-    "MIN_DROP_FROM_52W_HIGH": 20.0,
-    "MAX_DROP_FROM_52W_HIGH": 45.0,
-    # ── [FIX] Reversal RSI Constraint Relaxation ──
-    # Since above_sma50 is a strict gate, the stock is recovering. Thus RSI won't be deeply oversold (<35) recently.
-    "RSI_OVERSOLD_THRESHOLD": 38,
-    "RSI_CURL_MIN": 50,
-    "MIN_VOLUME_RATIO": 2.0,
-    "MIN_AVG_DAILY_VOLUME": 300_000,
-    "MIN_ROE": 12.0,
-    "MIN_YOY_REVENUE_GROWTH": 8.0,
+    "MIN_DROP_FROM_52W_HIGH": 3.0,
+    "MAX_DROP_FROM_52W_HIGH": 55.0,
+    "RSI_CURL_MIN": 38,
+    "RSI_OVERSOLD_THRESHOLD": 35,
+    "MIN_VOLUME_RATIO": 1.0,
+    "MIN_AVG_DAILY_VOLUME": 80_000,
+    "MIN_ROE": 5.0,
+    "MIN_YOY_REVENUE_GROWTH": -15.0,
     "MAX_DROP_BELOW_SMA200": 20.0,
-    "REVERSAL_COOLDOWN_TRADING_DAYS": 40
+    "REVERSAL_COOLDOWN_TRADING_DAYS": 40,
+    "QUALITY_CAT_MIN_DROP": 1.0,
+    "MIN_RSI_RECOVERY": 3.0,
 }
 
 ALERT_COOLDOWN_MINUTES = {
     "WEALTH": 1440,       # 24 hours
-    "MULTI_TF": 240,      # 4 hours (240 minutes)
+    "MULTI_TF": 240,      # 4 hours
     "EOD": 1440,          # 24 hours
     "REVERSAL": 10080,    # 7 days
     "PULLBACK": 10080,    # 7 days
@@ -1817,38 +1880,36 @@ SCANNER_MAX_ALERTS = {
 
 # =====================================================================================
 # SCANNER LOOKBACK & THRESHOLD CONSTANTS
-# (All formerly hardcoded inside scanner modules — centralised here for §7 preamble compliance)
 # =====================================================================================
 
-# Reversal Gate 8: RSI must have been below RSI_OVERSOLD_THRESHOLD within this many bars
-REVERSAL_RSI_LOOKBACK = 15
+REVERSAL_RSI_LOOKBACK = 25
+REVERSAL_MAX_TROUGH_AGE = 25
 
-# Multi-TF Phase B: Bollinger Band squeeze gate threshold (percentile rolling window)
 BB_WIDTH_PCTILE_LOOKBACK = 60
 
-# Multi-TF batch size (number of symbols fetched per provider call)
-MULTI_TF_FETCH_BATCH_SIZE = 50
+MULTI_TF_FETCH_BATCH_SIZE = 100
 
 # =====================================================================================
 # POSITION SIZING & RISK BUDGETING CONFIGURATION
 # =====================================================================================
 MAX_SL_DISTANCE_PCT = 8.0         # Max allowed stop loss distance % from entry
 ACCOUNT_RISK_BUDGET_PCT = 1.0     # Max portfolio equity risk % per trade (Kelly / risk budget)
-# [VERSION: PHASE2_SL_TARGET_IMPROVE_v1.0] Enforce MAX_POSITION_PCT concentration cap (25% max portfolio capital per single trade)
 MAX_POSITION_PCT = 0.25
 
 PULLBACK_CONFIG = {
     "VERSION": "pb-1.0.0",
-    "LOOKBACK": 10, "CONFIRM": 3,
-    "MIN_IMPULSE_GAIN_PCT": 8.0, "MIN_IMPULSE_ATR": 3.0, "MAX_IMPULSE_BARS": 20,
-    "MIN_DEPTH_PCT": 23.6, "MAX_DEPTH_PCT": 61.8, "ABSOLUTE_FLOOR_PCT": 2.0,
+    "LOOKBACK": 10, "CONFIRM": 2,
+    "MIN_IMPULSE_GAIN_PCT": 5.0, "MIN_IMPULSE_ATR": 3.0, "MAX_IMPULSE_BARS": 20,
+    "MIN_DEPTH_PCT": 10.0, "MAX_DEPTH_PCT": 78.6,
     "MIN_DURATION": 3, "MAX_DURATION": 20,
-    "MAX_INTERNAL_SWINGS": 2, "MAX_PB_VOLUME_RATIO": 0.75,
-    "TRIGGER_VOL_MULT": 1.3, "MIN_CLOSE_LOCATION": 0.75,
-    "MIN_BODY_ATR": 0.5, "MAX_UPPER_WICK": 0.25, "MAX_ENTRY_GAP_PCT": 3.0,
+    "MAX_INTERNAL_SWINGS": 3, "MAX_PB_VOLUME_RATIO": 1.25,
+    "TRIGGER_VOL_MULT": 1.1,
+    "MIN_CLOSE_LOCATION": 0.55,
+    "MIN_BODY_ATR": 0.35,
+    "MAX_UPPER_WICK": 0.35, "MAX_ENTRY_GAP_PCT": 3.0,
     "MAX_BONUS": 5, "PRIOR_WINDOW": 30,
     "OUTAGE_THRESHOLD_BUMP": 3,
-    "MIN_HISTORY": 200,   # [VERSION: PB_BAR_FIX_v1.0] Lowered from 260 to 200 bars (1y daily data has ~250 trading bars)
+    "MIN_HISTORY": 180,
     "MODE": "LIVE", "DEBUG_SWINGS": False,
 }
 
@@ -1870,13 +1931,12 @@ SCORE_BANDS = [
     (75, 80),
     (80, 85),
     (85, 90),
-    (90, 101),
+    (90, 999),
 ]
 
 
 # Maximum percentage of row loss accepted before logging a regression warning
 MAX_HISTORY_SHRINK = 0.30
-
 
 
 # Source reliability multipliers (0.0 to 1.0). Used for fallback evaluation.
@@ -1891,7 +1951,7 @@ SOURCE_RELIABILITY = {
 # [FINDING-F FIX] Lowered ADX from 25 to 18. ADX 25+ indicates a trend that has
 # already moved significantly. ADX 18-24 captures the accumulation/developing phase
 # exactly where breakouts occur, while still filtering out choppy (ADX < 18) stocks.
-ADX_MIN_THRESHOLD = 18
+ADX_MIN_THRESHOLD = 15
 MIN_STOCK_PRICE = 100.0    # No penny stocks — matches daily_builder MIN_PRICE
 
 # LIQUIDITY THRESHOLDS (in Rupees)
@@ -1905,13 +1965,31 @@ DELIVERY_CONVICTION_THRESHOLDS = {
     "intraday_churn": 0,
 }
 
-BATCH_DOWNLOAD_SIZE = 30
+# [VERSION: RATE_LIMIT_PROTECTION_v1.0] Lower batch size from 150 to 40 to prevent YFinance HTTP 429 rate limit block
+BATCH_DOWNLOAD_SIZE = 40
 YAHOO_TIMEOUT = 30
 PRICE_CACHE_TTL_SECONDS = 60  # Changed from 180s: Intraday runs every 5min (need fresh cache hit)
 
 
-TELEGRAM_CHUNK_SIZE = 10
-TELEGRAM_RETRIES = 3
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1002341999976")
+
+# ─── MARKET DATA PLATFORM MIGRATION (FEATURE FLAGS) ─────────────────────────
+# When True, routes fetches through the new HistoricalDataService (Upstox + Fyers)
+# When False, uses legacy data_provider.py and price_provider.py (Yahoo Finance)
+USE_MARKET_DATA_PLATFORM = os.environ.get("USE_MARKET_DATA_PLATFORM", "False").lower() == "true"
+USE_UPSTOX_PROVIDER = os.environ.get("USE_UPSTOX_PROVIDER", "True").lower() == "true"
+USE_FYERS_PROVIDER = os.environ.get("USE_FYERS_PROVIDER", "True").lower() == "true"
+
+# ── PERFORMANCE ENGINEERING V1 ROADMAP FEATURE FLAGS ──
+# Active by default across all environments (No environment variable dependency)
+FEATURE_PARALLEL_SCANNERS_V1 = True
+FEATURE_ASYNC_SYMBOL_PROBING_V1 = True
+FEATURE_PROVIDER_LOCK_SPLIT_V1 = True
+# [VERSION: PERF_THREAD_TUNE_v1.0] Raised from 4 → 8 to match server vCPU count.
+# Wealth Engine, Daily Builder, and Pullback all cap to min(cpu_count, this) — 4 was leaving 4 cores idle.
+SCAN_WORKER_THREADS = 8
+
+UPSTOX_ACCESS_TOKEN = os.environ.get("UPSTOX_ACCESS_TOKEN")
 TELEGRAM_TIMEOUT = 10
 LOG_LEVEL = "INFO"
 
@@ -1999,12 +2077,21 @@ TARGET_CONFIDENCE_BASELINE = {
     "value": 85
 }
 
+# [FIX: DUPLICATE_CONFIG] This was a duplicate of the SCORE_THRESHOLDS defined at the top of this file.
+# Removed to avoid confusion. The authoritative definition is at the top of config.py.
+
+MIN_NATURAL_RR = {
+    "MULTI_TF": 1.5,
+    "EOD": 2.0,
+    "REVERSAL": 2.0,
+    "PULLBACK": 2.0,
+}
+
 MIN_REWARD_POTENTIAL = {
-    "MULTI_TF": 1.8,
-    "EOD": 4.0,
-    "REVERSAL": 3.0,
-    "PULLBACK": 4.0,
-    "MULTIBAGGER": 8.0,
+    "MULTI_TF": 1.5,
+    "EOD": 2.0,
+    "REVERSAL": 1.8,
+    "PULLBACK": 2.0,
 }
 
 MIN_STOP_PCT = {
@@ -2012,15 +2099,18 @@ MIN_STOP_PCT = {
     "EOD": 1.5,
     "REVERSAL": 2.0,
     "PULLBACK": 1.5,
-    "MULTIBAGGER": 4.0,
 }
 
 
 
 TARGET_QUALITY_THRESHOLD = {
+    "MULTI_TF": 55,
     "EOD":      55,
-    "REVERSAL": 50
+    "REVERSAL": 50,
+    "PULLBACK": 55,
 }
+
+
 
 STRUCTURAL_RESISTANCE_SCORES = {
     "1H Swing High": 35,
@@ -2061,24 +2151,28 @@ STRUCTURAL_STOP = {
 # =====================================================================================
 
 # ── DATA PROVIDER SETTINGS ──────────────────────────────────────────────────────────
-DATA_PROVIDER = os.getenv("DATA_PROVIDER", "auto")  # auto, yfinance, fyers, or kite
+DATA_PROVIDER = os.getenv("DATA_PROVIDER", "fyers")  # fyers, yfinance, or kite
 
 # [VERSION: V5_ACQUISITION_ROUTING_V1.0] Provider routing policy and capabilities configuration
 ROUTING_POLICY_VERSION = 2
 
 PROVIDER_ROUTING_POLICY = {
-    "price_1d": ["yahoo", "fyers", "bse"],
-    "price_1wk": ["yahoo", "fyers", "bse"],
-    "price_1mo": ["yahoo", "fyers", "bse"],
-    "price_1h": ["fyers", "yahoo", "bse"],
-    "price_30m": ["fyers", "yahoo", "bse"],
-    "price_15m": ["fyers", "yahoo", "bse"],
-    "price_5m": ["fyers", "yahoo", "bse"],
-    "price_1m": ["fyers", "yahoo", "bse"],
-    "live_quotes": ["fyers", "yahoo", "bse"],
+    "price_1d":  ["upstox", "fyers", "yahoo", "bse"],
+    "price_1wk": ["upstox", "fyers", "yahoo", "bse"],
+    "price_1mo": ["upstox", "fyers", "yahoo", "bse"],
+
+    "price_1h":  ["upstox", "fyers", "yahoo", "bse"],
+    "price_30m": ["upstox", "fyers", "yahoo", "bse"],
+    "price_15m": ["upstox", "fyers", "yahoo", "bse"],
+    "price_5m":  ["upstox", "fyers", "yahoo", "bse"],
+    "price_1m":  ["upstox", "fyers", "yahoo", "bse"],
+
+    # Fyers & Upstox for live quotes
+    "live_quotes": ["upstox", "fyers", "yahoo", "bse"],
+
     "bhavcopy_delivery": ["nse_bhavcopy", "bse_bhavcopy"],
-    "promoter_pledge": ["bse_corporate", "nse_corporate"],
-    "default": ["fyers", "yahoo", "bse"]
+    "promoter_pledge":   ["bse_corporate", "nse_corporate"],
+    "default": ["upstox", "fyers", "yahoo", "bse"]
 }
 
 PROVIDER_CAPABILITIES = {
@@ -2117,7 +2211,7 @@ STAGE_PERFORMANCE_BUDGETS = {
 # ── FYERS CONFIGURATION ──────────────────────────────────────────────────────────
 FYERS_CLIENT_ID = os.getenv("FYERS_CLIENT_ID")
 FYERS_SECRET_KEY = os.getenv("FYERS_SECRET_KEY")
-FYERS_REDIRECT_URL = os.getenv("FYERS_REDIRECT_URL", "https://elitebreakoutsystem-production-4ad2.up.railway.app/fyers/callback")
+FYERS_REDIRECT_URL = os.getenv("FYERS_REDIRECT_URL", os.getenv("FYERS_REDIRECT_URI", os.getenv("APP_URL", "https://elitebreakout.duckdns.org").rstrip("/") + "/fyers/callback"))
 FYERS_TOKEN_PATH = os.path.join(DATA_DIR, "fyers_token.txt")
 
 
@@ -2148,7 +2242,7 @@ REGIME_POLICIES = {
         "capital_allocation_mult": 1.0
     },
     "BEAR": {
-        "score_modifier": 5,
+        "score_modifier": 5,  # [FIX: ALERT_GATE] Was 5 — correct, threshold → 80
         "allow_mean_reversion": True,
         "max_new_positions_per_day": 1,
         "min_target_quality_override": 80,
@@ -2156,7 +2250,7 @@ REGIME_POLICIES = {
         "capital_allocation_mult": 0.5
     },
     "SIDEWAYS": {
-        "score_modifier": 8,
+        "score_modifier": 3,  # [FIX: ALERT_GATE] Was +8 (threshold→83, near-impossible). Reduced to +3 (threshold→78). SIDEWAYS should still allow quality breakouts.
         "allow_mean_reversion": True,
         "max_new_positions_per_day": 2,
         "min_target_quality_override": 75,
@@ -2164,7 +2258,7 @@ REGIME_POLICIES = {
         "capital_allocation_mult": 0.5
     },
     "RANGEBOUND": {
-        "score_modifier": 8,
+        "score_modifier": 3,  # [FIX: ALERT_GATE] Was +8 (threshold→83). Reduced to +3 (threshold→78). Same reasoning as SIDEWAYS.
         "allow_mean_reversion": True,
         "max_new_positions_per_day": 2,
         "min_target_quality_override": 75,
@@ -2172,7 +2266,7 @@ REGIME_POLICIES = {
         "capital_allocation_mult": 0.5
     },
     "WEAK_BEAR": {
-        "score_modifier": 10,
+        "score_modifier": 5,  # [FIX: ALERT_GATE] Was +10 (threshold→85, effectively impossible). Reduced to +5 (threshold→80). Same as BEAR — proportionate.
         "allow_mean_reversion": True,
         "max_new_positions_per_day": 1,
         "min_target_quality_override": 80,
@@ -2230,7 +2324,11 @@ TARGET_SOURCE_WEIGHTS = {
     "ROUND_NUM":       0,
 }
 
-FIB_200_WEIGHTS = {"BULL": 7, "TRENDING": 7, "NEUTRAL": 5, "BEAR": 2}
+FIB_200_WEIGHTS = {
+    "STRONG_BULL": 8, "WEAK_BULL": 6, "BULL": 7, "TRENDING": 7,
+    "BEAR": 2, "WEAK_BEAR": 3, "STRONG_BEAR": 1,
+    "SIDEWAYS": 4, "RANGEBOUND": 4, "NEUTRAL": 5
+}
 
 SOURCE_PRIORITY = {
     "EQUAL_HIGH":     1,
@@ -2291,10 +2389,15 @@ _MODE_CONFIG = {
     "MULTI_TF": (1.50,    0.50,       0.0050,     3.0),
     "REVERSAL": (2.00,    1.00,       0.0100,     3.5),
     "PULLBACK": (2.00,    0.75,       0.0075,     3.0),   # Pullback Continuation
+    "MULTIBAGGER": (2.00, 1.00,       0.0100,     3.5),
 }
 
 
 SCANNER_MULTI_TF = "MULTI_TF"
+
+# Scanner Telemetry
+SCANNER_DECISION_LOGGING = True
+
 
 ```
 

@@ -991,14 +991,20 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
         high_52w=kwargs.get("high_52w"), prev_day_high=kwargs.get("prev_day_high"), ticker=ticker
     )
     
-    strategy = TrendExtensionStrategy()
-    candidates = strategy.pre_filter(candidates, {"vwap": kwargs.get("vwap")})
-    
+    risk = abs(entry - sl_data["raw_sl"])
     clusters = ClusterEngine.cluster(candidates, entry, eff_atr)
-    RoundNumberEngine.detect_and_boost(clusters, eff_atr)
-    clusters = ConflictResolver.resolve(clusters, "MULTI_TF", entry, macro_regime)
+    RoundNumberEngine.detect_and_boost(clusters)
+    clusters, rejection_reason = ConflictResolver.resolve(clusters, "MULTI_TF", entry, macro_regime, risk, eff_atr)
     
-    targets = strategy.select_targets(clusters, entry, entry - sl_data["raw_sl"], {})
+    if not clusters:
+        return {
+            "engine_version": "SL_ENGINE_V7.3", "is_rejected": True, 
+            "rejection_reason": rejection_reason,
+            "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
+        }
+        
+    strategy = TrendExtensionStrategy()
+    targets = strategy.select_targets(clusters, entry, risk, {})
     
     pool = []
     for c in candidates:
@@ -1089,11 +1095,20 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
         high_52w=kwargs.get("high_52w"), prev_day_high=kwargs.get("prev_day_high"), ticker=ticker
     )
     
-    strategy = ClusterConsensusStrategy()
+    risk = abs(entry - sl_data["raw_sl"])
     clusters = ClusterEngine.cluster(candidates, entry, eff_atr)
-    RoundNumberEngine.detect_and_boost(clusters, eff_atr)
-    clusters = ConflictResolver.resolve(clusters, "EOD", entry, macro_regime)
-    targets = strategy.select_targets(clusters, entry, entry - sl_data["raw_sl"], {})
+    RoundNumberEngine.detect_and_boost(clusters)
+    clusters, rejection_reason = ConflictResolver.resolve(clusters, "EOD", entry, macro_regime, risk, eff_atr)
+    
+    if not clusters:
+        return {
+            "engine_version": "SL_ENGINE_V7.3", "is_rejected": True, 
+            "rejection_reason": rejection_reason,
+            "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
+        }
+        
+    strategy = ClusterConsensusStrategy()
+    targets = strategy.select_targets(clusters, entry, risk, {})
     
     pool = []
     for c in candidates:
@@ -1187,35 +1202,20 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     if _safe(kwargs.get("sma200")): cands.append(TargetCandidate(kwargs.get("sma200"), TargetSource.SMA200, "any", "REVERSAL", "NORMAL", {}))
     if _safe(swing_high_raw): cands.append(TargetCandidate(swing_high_raw, TargetSource.SWING_HIGH_RAW, "any", "REVERSAL", "NORMAL", {}))
     
-    # Filter only above entry and enforce MIN_NATURAL_RR
-    if sl_data["raw_sl"] >= entry:
+    # Filter only above entry
+    valid_cands = [c for c in cands if c.price > entry]
+    
+    risk = abs(entry - sl_data["raw_sl"])
+    clusters = ClusterEngine.cluster(valid_cands, entry, eff_atr)
+    RoundNumberEngine.detect_and_boost(clusters)
+    clusters, rejection_reason = ConflictResolver.resolve(clusters, "REVERSAL", entry, kwargs.get("macro_regime", "NEUTRAL"), risk, eff_atr)
+    
+    if not clusters:
         return {
-            "engine_version": "SL_ENGINE_V7.1", "is_rejected": True,
-            "rejection_reason": f"INVALID_STOP_PLACEMENT (Stop Loss ₹{sl_data['raw_sl']:.2f} >= Entry Price ₹{entry:.2f})",
+            "engine_version": "SL_ENGINE_V7.3", "is_rejected": True, 
+            "rejection_reason": rejection_reason,
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
         }
-    min_rr = MIN_NATURAL_RR.get("REVERSAL", 1.2)
-    risk = entry - sl_data["raw_sl"]
-    
-    valid_cands = []
-    for c in cands:
-        if c.price > entry:
-            rr = (c.price - entry) / risk
-            if rr >= min(min_rr, 1.0):
-                valid_cands.append(c)
-                
-    if not valid_cands:
-        return {
-            "engine_version": "SL_ENGINE_V7.1", "is_rejected": True, 
-            "rejection_reason": f"NO_VALID_STRUCTURAL_TARGET (Min RR: {min_rr}x)",
-            "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
-        }
-        
-    cands = valid_cands
-    
-    clusters = ClusterEngine.cluster(cands, entry, eff_atr)
-    RoundNumberEngine.detect_and_boost(clusters, eff_atr)
-    clusters = ConflictResolver.resolve(clusters, "REVERSAL", entry, kwargs.get("macro_regime", "NEUTRAL"))
     
     t1_cluster = clusters[0] if clusters else None
     t1 = t1_cluster.consensus_price if t1_cluster else entry + 2*eff_atr
