@@ -1068,31 +1068,11 @@ def performance_json():
 
 @app.route("/health")
 def health():
-    """Railway health-check endpoint."""
-    perf_exists = False
-    perf_age    = None
-    try:
-        from database import get_system_state
-        val = get_system_state("performance_generated_at")
-        perf_exists = val is not None
-        if perf_exists:
-            import json
-            gen_at = json.loads(val)
-            if gen_at:
-                gen_dt = datetime.fromisoformat(gen_at)
-                if gen_dt.tzinfo is None:
-                    gen_dt = gen_dt.replace(tzinfo=IST)
-                now_dt = datetime.now(IST)
-                perf_age = round((now_dt - gen_dt).total_seconds() / 3600, 1)
-    except Exception as e:
-        logger.warning(f"⚠️ Health check failed to parse performance data: {e}")
-
+    """Zero-dependency lightweight healthcheck endpoint (0ms response)."""
     return jsonify({
-        "status":            "ok",
-        "time_ist":          datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
-        "performance_ready": perf_exists,
-        "performance_age_h": perf_age,
-    })
+        "status": "ok",
+        "time_ist": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+    }), 200
 
 
 def _detect_git_commit_hash() -> str:
