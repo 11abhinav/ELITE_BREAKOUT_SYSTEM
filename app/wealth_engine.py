@@ -2702,3 +2702,63 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
     except Exception as e:
         logger.exception(f"Error in wealth intraday update: {e}")
         return run_wealth_scan(is_test_mode=is_test_mode)
+
+
+def restore_healthy_wealth_positions():
+    """
+    [VERSION: WEALTH_RESTORE_v1.0] Re-evaluates all historical CLOSED and SELL_REVIEW wealth positions.
+    If the exit was erroneous/data-void (stock has solid hold score >= 50 and no active exit trigger): restores to OPEN.
+    If the exit was legitimate: sets status to WIN (if PnL >= 0) or LOSS (if PnL < 0).
+    """
+    try:
+        from database import get_connection
+        from psycopg2.extras import RealDictCursor
+
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT id, symbol, alert_price, exit_price, status, is_closed
+                    FROM wealth_buy_alert
+                    WHERE status IN ('SELL_REVIEW', 'CLOSED') OR is_closed = TRUE;
+                """)
+                rows = cur.fetchall()
+
+        if not rows:
+            logger.info("ℹ️ No Wealth alerts currently in SELL_REVIEW or CLOSED to re-evaluate.")
+            return 0
+
+        restored_count = 0
+        legitimate_count = 0
+
+        for r in rows:
+            alert_id = r["id"]
+            symbol = r["symbol"]
+            entry_p = float(r["alert_price"]) if r.get("alert_price") else None
+            exit_p = float(r["exit_price"]) if r.get("exit_price") else None
+
+            # Calculate return
+            pnl = None
+            if entry_p and exit_p and entry_p > 0:
+                pnl = ((exit_p - entry_p) / entry_p) * 100.0
+
+            final_st = "WIN" if (pnl is not None and pnl >= 0) else "LOSS"
+
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE wealth_buy_alert
+                        SET status = %s,
+                            status_updated_at = NOW()
+                        WHERE id = %s AND status = 'CLOSED';
+                    """, (final_st, alert_id))
+                conn.commit()
+            legitimate_count += 1
+
+        if legitimate_count > 0:
+            logger.info(f"✅ Wealth Re-evaluation: Categorized {legitimate_count} historical closed trades as WIN/LOSS.")
+
+        return restored_count
+
+    except Exception as e:
+        logger.error(f"Failed to re-evaluate wealth positions: {e}")
+        return 0

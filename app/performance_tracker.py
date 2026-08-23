@@ -513,6 +513,18 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     logger.info(f"📊 PERFORMANCE TRACKER | Building performance data... (Trigger: {trigger})")
     logger.info("=" * 70)
 
+    # Re-evaluate historical CLOSED / SELL_REVIEW trades for MULTIBAGGER and WEALTH scanners
+    try:
+        from multibagger import restore_healthy_multibagger_positions
+        restore_healthy_multibagger_positions()
+    except Exception as _mbe:
+        logger.debug(f"Multibagger re-evaluation warning: {_mbe}")
+    try:
+        from wealth_engine import restore_healthy_wealth_positions
+        restore_healthy_wealth_positions()
+    except Exception as _we:
+        logger.debug(f"Wealth re-evaluation warning: {_we}")
+
     try:
         raw_alerts = get_all_alerts()
     except Exception:
