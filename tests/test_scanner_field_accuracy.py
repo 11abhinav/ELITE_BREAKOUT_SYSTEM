@@ -157,3 +157,34 @@ def test_master_scanner_certification_evaluator():
     input_fail["Decision Inputs"] = "FAIL"
     assert evaluate_overall(input_fail) == "NOT_CERTIFIED"
 
+
+def test_certification_requires_live_validation_evidence():
+    """
+    [RULE 67 Invariant]
+    Certification engine requires live/empirical validation evidence records.
+    Without empirical validation records (sample_count == 0 or fields_validated == 0),
+    the scanner MUST be marked NOT_CERTIFIED.
+    """
+    def evaluate_with_evidence(dims: dict, evidence_record: dict) -> str:
+        if not evidence_record or evidence_record.get("sample_count", 0) == 0 or evidence_record.get("fields_validated", 0) == 0:
+            return "NOT_CERTIFIED"
+        required = [
+            dims.get("Telemetry"), dims.get("Raw Data"), dims.get("Indicators"),
+            dims.get("Fundamentals"), dims.get("Decision Inputs"), dims.get("Gate Replay"), dims.get("Freshness")
+        ]
+        return "CERTIFIED" if all(v == "PASS" for v in required) else "NOT_CERTIFIED"
+
+    dims_perfect = {
+        "Telemetry": "PASS", "Raw Data": "PASS", "Indicators": "PASS",
+        "Fundamentals": "PASS", "Decision Inputs": "PASS", "Gate Replay": "PASS", "Freshness": "PASS"
+    }
+
+    # Missing evidence record MUST produce NOT_CERTIFIED
+    assert evaluate_with_evidence(dims_perfect, None) == "NOT_CERTIFIED"
+    assert evaluate_with_evidence(dims_perfect, {"sample_count": 0, "fields_validated": 0}) == "NOT_CERTIFIED"
+
+    # Present evidence record with valid samples produces CERTIFIED
+    valid_evidence = {"sample_count": 3, "fields_validated": 39, "failed_count": 0}
+    assert evaluate_with_evidence(dims_perfect, valid_evidence) == "CERTIFIED"
+
+

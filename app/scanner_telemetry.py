@@ -525,6 +525,25 @@ class DecisionContext:
             "decision_input_fields": len(self.decision_manifest)
         }
 
+    def to_dict(self) -> dict:
+        """Exports DecisionContext as a structured dictionary."""
+        return {
+            "audit_snapshot_id": getattr(self, "audit_snapshot_id", f"{self.symbol}-{self.scanner_name}"),
+            "symbol": self.symbol,
+            "scanner": self.scanner_name,
+            "exchange": self.exchange,
+            "run_id": self.run_id,
+            "timestamp": self.timestamp,
+            "terminal_decision": self.terminal_decision,
+            "primary_reason": self.primary_reason,
+            "raw_vs_normalized": getattr(self, "raw_vs_normalized", {}),
+            "gate_results": self.gate_results,
+            "score_breakdown": self.score_breakdown,
+            "sl_target": self.sl_target,
+            "decision_manifest": self.decision_manifest,
+            "all_values": {k: {"value": v.value, "origin": v.origin, "group": v.group, "status": v.status} for k, v in self.entries.items()}
+        }
+
     def format_terminal_audit_box(self) -> str:
         """Generates a complete, standardized human-readable ASCII terminal audit box (Section 8)."""
         lines = []
