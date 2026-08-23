@@ -24,6 +24,13 @@ class SubScoreResult:
     volume_delivery_score: float
     fundamental_score: float
     composite_score: float
+    # [VERSION: ACCUM_TELEMETRY_RAW_PRESERVATION_v1.0] Preserves raw component values alongside 0-100 normalized scores for forensic audit traceability
+    raw_obv_slope: float = 0.0
+    raw_bb_width_pct: float = 0.0
+    raw_rs_20d: float = 0.0
+    raw_res_dist_pct: float = 0.0
+    raw_delivery_pct: float = 0.0
+    raw_roe: float = 0.0
 
 @dataclass
 class GateResult:
@@ -47,6 +54,10 @@ class SLTargetResult:
     support_anchor_type: str
     support_anchor_score: int = 50
     sl_adjustment_reason: str = "STRUCTURAL"
+    # [VERSION: ACCUM_SL_TELEMETRY_BREAKDOWN_v1.0] Tracks raw structural SL, floor SL, and cap SL for clear auditability of stop adjustments
+    raw_structural_sl: float = 0.0
+    floor_sl: float = 0.0
+    cap_sl: float = 0.0
     suggested_capital: float = 0.0
     suggested_position_size: int = 0
     rejection_reason: Optional[str] = None

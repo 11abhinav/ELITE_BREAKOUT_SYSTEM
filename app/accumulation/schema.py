@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS accumulation_health (
     last_failure_at TIMESTAMPTZ,
     failure_reason TEXT,
     control_state TEXT DEFAULT 'RUNNING',
-    certification_status TEXT DEFAULT 'CERTIFIED',
+    certification_status TEXT DEFAULT 'PENDING',
     strategy_version TEXT DEFAULT 'ACCUMULATION_V1.0',
     config_version TEXT DEFAULT 'ACCUM_CFG_V1',
     started_at TIMESTAMPTZ DEFAULT NOW(),

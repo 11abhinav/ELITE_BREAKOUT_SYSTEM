@@ -161,6 +161,10 @@ class AccumulationSLTargetEngine:
             support_anchor_type=sup_type,
             support_anchor_score=sup_score,
             sl_adjustment_reason=sl_adjustment_reason,
+            # [VERSION: ACCUM_SL_TELEMETRY_BREAKDOWN_v1.0] Populates explicit SL breakdown for forensic audit
+            raw_structural_sl=raw_sl,
+            floor_sl=max_allowed_sl,
+            cap_sl=min_allowed_sl,
             suggested_capital=suggested_capital,
             suggested_position_size=suggested_position_size,
             rejection_reason=rejection_reason_str

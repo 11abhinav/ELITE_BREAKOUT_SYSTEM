@@ -131,8 +131,12 @@ class AccumulationExitEvaluator:
 
         # ── 2. Exit Evaluation from Bar N+1 Onward ─────────────────────────────
         # Check Stop Loss
+        # [VERSION: ACCUM_STOP_FIRST_GENERALIZED_v1.0] Generalized STOP_FIRST Precedence Rule:
+        # If low <= stop_loss AND high >= any target (T1, T2, or T3), the conservative assumption
+        # marks exit_status = AMBIGUOUS and exit_assumption = STOP_FIRST (outcome = FAILURE).
+        # Any previously reached milestone (T1 or T2) is preserved, but targets touched on the ambiguous bar are discarded.
         if bar_low <= stop_loss:
-            if bar_high >= target_1:
+            if bar_high >= target_1 or bar_high >= target_2 or bar_high >= target_3:
                 result["exit_status"] = "AMBIGUOUS"
                 result["exit_assumption"] = "STOP_FIRST"
             else:

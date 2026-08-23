@@ -29,7 +29,7 @@ class AccumulationHealthTracker:
             cur.execute("""
                 INSERT INTO accumulation_health (
                     run_id, scanner, status, lifecycle_state, current_phase, last_heartbeat, certification_status
-                ) VALUES (%s, 'ACCUMULATION_SCANNER_V1', 'HEALTHY', %s, %s, NOW(), 'CERTIFIED')
+                ) VALUES (%s, 'ACCUMULATION_SCANNER_V1', 'HEALTHY', %s, %s, NOW(), 'PENDING')
                 ON CONFLICT (id) DO UPDATE SET
                     lifecycle_state = EXCLUDED.lifecycle_state,
                     current_phase = EXCLUDED.current_phase,
@@ -63,7 +63,7 @@ class AccumulationHealthTracker:
             cur.execute("""
                 INSERT INTO accumulation_health (
                     run_id, scanner, status, lifecycle_state, current_phase, last_heartbeat, last_success_at, completed_at, duration_seconds, certification_status
-                ) VALUES (%s, 'ACCUMULATION_SCANNER_V1', 'HEALTHY', 'COMPLETED', 'FINISHED', NOW(), NOW(), NOW(), %s, 'CERTIFIED');
+                ) VALUES (%s, 'ACCUMULATION_SCANNER_V1', 'HEALTHY', 'COMPLETED', 'FINISHED', NOW(), NOW(), NOW(), %s, 'PENDING');
             """, (run_id, duration_seconds))
             conn.commit()
             return True

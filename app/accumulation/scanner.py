@@ -49,33 +49,34 @@ class AccumulationScanner:
         return FundamentalFloorResult(passed=True, roe=roe, roce=roce, de_ratio=de, reason="PASS")
 
     def compute_sub_scores(self, features: Dict[str, Any], delivery_status: str = "VALID") -> SubScoreResult:
-        """Piecewise score normalization (0–100 scale) ACCUM_SCORE_NORM_V1."""
+        """Piecewise score normalization (explicit 0–100 scale clamp) ACCUM_SCORE_NORM_V1."""
         # 1. Accumulation Sub-Score (OBV slope, volume trends)
         obv_slope = float(features.get("obv_slope_20d", 0.0) or 0.0)
-        acc_score = min(100.0, max(0.0, 50.0 + obv_slope * 10.0))
+        acc_score = max(0.0, min(100.0, 50.0 + obv_slope * 10.0))
 
         # 2. Volatility Compression Sub-Score (BB Width Percentile)
         bb_width_pct = float(features.get("bb_width_percentile", 50.0) or 50.0)
-        comp_score = min(100.0, max(0.0, (100.0 - bb_width_pct)))
+        comp_score = max(0.0, min(100.0, 100.0 - bb_width_pct))
 
         # 3. Relative Strength Sub-Score (RS20 vs Nifty50)
         rs_20 = float(features.get("rs_20d", 0.0) or 0.0)
-        rs_score = min(100.0, max(0.0, 50.0 + rs_20 * 5.0))
+        rs_score = max(0.0, min(100.0, 50.0 + rs_20 * 5.0))
 
         # 4. Resistance Structure Sub-Score (Distance to resistance)
         res_dist_pct = float(features.get("resistance_dist_pct", 5.0) or 5.0)
-        res_score = min(100.0, max(0.0, 100.0 - res_dist_pct * 8.0))
+        res_score = max(0.0, min(100.0, 100.0 - res_dist_pct * 8.0))
 
         # 5. Volume/Delivery Sub-Score
         if delivery_status == "VALID":
             deliv_pct = float(features.get("delivery_pct", 40.0) or 40.0)
-            vol_deliv_score = min(100.0, max(0.0, deliv_pct * 1.5))
+            vol_deliv_score = max(0.0, min(100.0, deliv_pct * 1.5))
         else:
+            deliv_pct = 40.0
             vol_deliv_score = 40.0  # Degraded fallback score for PRE_BREAKOUT
 
         # 6. Fundamental Sub-Score
         roe = float(features.get("roe", 12.0) or 12.0)
-        fund_score = min(100.0, max(0.0, roe * 4.0))
+        fund_score = max(0.0, min(100.0, roe * 4.0))
 
         # Composite Score Calculation
         composite = (
@@ -95,6 +96,13 @@ class AccumulationScanner:
             volume_delivery_score=round(vol_deliv_score, 2),
             fundamental_score=round(fund_score, 2),
             composite_score=round(composite, 2),
+            # [VERSION: ACCUM_TELEMETRY_RAW_PRESERVATION_v1.0] Preserves raw component values alongside normalized 0-100 scores
+            raw_obv_slope=round(obv_slope, 4),
+            raw_bb_width_pct=round(bb_width_pct, 4),
+            raw_rs_20d=round(rs_20, 4),
+            raw_res_dist_pct=round(res_dist_pct, 4),
+            raw_delivery_pct=round(deliv_pct, 4),
+            raw_roe=round(roe, 4),
         )
 
     def evaluate_hard_gates(self, sub_scores: SubScoreResult, res_dist_pct: float, delivery_status: str = "VALID", target_state: str = "PRE_BREAKOUT") -> GateResult:
@@ -149,7 +157,7 @@ class AccumulationScanner:
         if AccumulationCooldownEngine.is_in_cooldown(symbol):
             return {"symbol": symbol, "passed": False, "reason": "IN_TERMINAL_COOLDOWN"}
 
-        # Step 3 & 4: Feature Extraction & Sub-Scores
+        # Step 3 & 4: Feature Extraction & Piecewise Sub-Score Normalization
         latest = df.iloc[-1]
         close = float(latest["Close"])
         high = float(latest["High"])
@@ -195,7 +203,7 @@ class AccumulationScanner:
         else:
             return {"symbol": symbol, "passed": False, "reason": f"SCORE_BELOW_WATCH ({sub_scores.composite_score} < 70)"}
 
-        # Step 8 & 9: Structural SL/Target & Initial Tradability Gate
+        # Step 8: Structural SL & 3-Tier Target Construction
         sl_t_res = AccumulationSLTargetEngine.compute_sl_and_targets(
             entry_zone_low=entry_zone_low,
             entry_zone_high=entry_zone_high,
@@ -205,10 +213,23 @@ class AccumulationScanner:
             entry_method=entry_method
         )
 
-        if not sl_t_res.is_valid:
-            return {"symbol": symbol, "passed": False, "reason": sl_t_res.rejection_reason}
+        # Step 9: Decision Snapshot A Creation (Generated BEFORE tradability evaluation so rejected setups preserve immutable audit snapshots)
+        snapshot_id = AccumulationTelemetry.generate_snapshot_id(symbol, self.run_id)
 
-        # Step 10: Actionable Trade Setup Emission (status = ACTIVE_SETUP, outcome = PENDING)
+        # Step 10: Initial Tradability Gate Evaluation
+        if not sl_t_res.is_valid:
+            # [VERSION: ACCUM_SNAPSHOT_BEFORE_TRADABILITY_v1.0] Returns audit_snapshot_id even on tradability rejection for forensic telemetry
+            return {
+                "symbol": symbol,
+                "passed": False,
+                "audit_snapshot_id": snapshot_id,
+                "reason": sl_t_res.rejection_reason,
+                "sl_target_result": sl_t_res,
+                "score": sub_scores.composite_score,
+                "signal_state": signal_state
+            }
+
+        # Step 10 (cont): Actionable Trade Setup Contract Emission (status = ACTIVE_SETUP, outcome = PENDING)
         preferred_entry = round((entry_zone_low + entry_zone_high) / 2.0, 2)
         entry_trigger_level = round(breakout_level * 1.002, 2) if entry_method == "BREAKOUT_CONFIRMATION" else preferred_entry
         entry_displacement_ref = entry_zone_high if entry_method == "ZONE_MIDPOINT" else entry_trigger_level
@@ -250,11 +271,9 @@ class AccumulationScanner:
         # Validate Contract
         val_res = AccumulationContractValidator.validate_setup_contract(setup_contract)
         if not val_res["is_valid"]:
-            return {"symbol": symbol, "passed": False, "reason": val_res["reason"]}
+            return {"symbol": symbol, "passed": False, "audit_snapshot_id": snapshot_id, "reason": val_res["reason"]}
 
-        # Step 11: Telemetry Audit Snapshot ID
-        snapshot_id = AccumulationTelemetry.generate_snapshot_id(symbol, self.run_id)
-
+        # Step 11 & 12: Telemetry Snapshot & DB Persistence
         return {
             "symbol": symbol,
             "passed": True,
