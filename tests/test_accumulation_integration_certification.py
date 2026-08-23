@@ -46,6 +46,42 @@ def memory_db():
     """)
     
     cur.execute("""
+    CREATE TABLE IF NOT EXISTS accumulation_alerts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id TEXT NOT NULL,
+        audit_snapshot_id TEXT NOT NULL UNIQUE,
+        parent_snapshot_id TEXT,
+        finalization_snapshot_id TEXT,
+        finalization_status TEXT DEFAULT 'PENDING',
+        symbol TEXT NOT NULL,
+        signal_state TEXT NOT NULL,
+        tradable BOOLEAN NOT NULL DEFAULT 1,
+        score REAL NOT NULL,
+        close REAL NOT NULL,
+        entry_zone_low REAL NOT NULL,
+        entry_zone_high REAL NOT NULL,
+        breakout_level REAL NOT NULL,
+        preferred_entry REAL NOT NULL,
+        entry_method TEXT NOT NULL DEFAULT 'ZONE_MIDPOINT',
+        entry_trigger_rule TEXT NOT NULL DEFAULT 'RANGE_TOUCH',
+        stop_loss REAL NOT NULL,
+        target_1 REAL NOT NULL,
+        target_2 REAL NOT NULL,
+        target_3 REAL NOT NULL,
+        risk_pct REAL NOT NULL,
+        rr_1 REAL NOT NULL,
+        rr_2 REAL NOT NULL,
+        rr_3 REAL NOT NULL,
+        suggested_capital REAL,
+        suggested_position_size INTEGER,
+        position_sizing_basis TEXT DEFAULT 'ACCOUNT_RISK_1PCT',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        effective_as_of DATETIME DEFAULT CURRENT_TIMESTAMP,
+        CHECK (finalization_status IN ('PENDING', 'PASSED', 'REJECTED', 'CANCELLED'))
+    );
+    """)
+
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS accumulation_trades (
         trade_id INTEGER PRIMARY KEY AUTOINCREMENT,
         alert_id INTEGER,
@@ -359,9 +395,9 @@ def test_restart_between_scan_and_finalization(memory_db):
         ) VALUES (
             'RUN_1545', 'SNAP_A_RESTART_TEST', 'RELIANCE_RESTART', 'BREAKOUT_READY', 88.5, 2450.0,
             2400.0, 2460.0, 2470.0, 2430.0, 2350.0, 2600.0, 2750.0, 2900.0, 3.29, 2.13, 4.0, 5.88, 'PENDING', 1
-        ) RETURNING id;
+        )
     """)
-    alert_id = cur.fetchone()[0]
+    alert_id = cur.lastrowid
     memory_db.commit()
 
     # 2. Simulate Server Restart: Wipe all in-memory references, query DB for pending alerts
