@@ -126,14 +126,14 @@ def _get_pool() -> Optional[pool.ThreadedConnectionPool]:
         db_url = os.getenv("DATABASE_URL")
         if not db_url:
             return None
-        # Configure pool size via env override if provided (fallback to 50)
-        maxconn = int(os.getenv("DB_MAXCONN", "100"))
+        # Configure pool size via env override if provided (fallback to 20 to fit standard Postgres max_connections limits)
+        maxconn = int(os.getenv("DB_MAXCONN", "20"))
         minconn = int(os.getenv("DB_MINCONN", "2"))
         _pool = pool.ThreadedConnectionPool(
             minconn=minconn,
             maxconn=maxconn,
             dsn=db_url,
-            connect_timeout=10  # 10s connection timeout for Railway Postgres
+            connect_timeout=10  # 10s connection timeout for Railway/Coolify Postgres
         )
         try:
             # Initialize semaphore to mirror pool capacity
@@ -170,7 +170,7 @@ def get_connection(timeout: int = 15):
         # Ensure semaphore exists (in case pool was created elsewhere)
         if _conn_semaphore is None:
             try:
-                _conn_semaphore = threading.BoundedSemaphore(value=getattr(p, 'maxconn', 50))
+                _conn_semaphore = threading.BoundedSemaphore(value=getattr(p, 'maxconn', 20))
             except Exception:
                 _conn_semaphore = None
         if _conn_semaphore is not None:
@@ -178,11 +178,25 @@ def get_connection(timeout: int = 15):
             if not acquired:
                 raise OperationalError('Connection pool exhausted (acquire timeout)')
 
-        conn = p.getconn()
-        # Test connection is alive and set timezone to IST before returning
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1")
-            cur.execute("SET TIME ZONE 'Asia/Kolkata'")
+        # Retry checkout up to 3 times if server returns "too many clients"
+        for attempt in range(3):
+            try:
+                conn = p.getconn()
+                with conn.cursor() as cur:
+                    cur.execute("SELECT 1")
+                    cur.execute("SET TIME ZONE 'Asia/Kolkata'")
+                break
+            except OperationalError as oe:
+                if conn:
+                    try:
+                        p.putconn(conn, close=True)
+                    except Exception: pass
+                    conn = None
+                if "too many clients" in str(oe).lower() and attempt < 2:
+                    time.sleep(0.3)
+                    continue
+                raise oe
+
         yield conn
     except OperationalError as e:
         # Circuit breaker: log and fail fast instead of hanging
