@@ -5275,6 +5275,20 @@ def close_position_atomic(symbol: str, exit_price: float, exit_reason: str, posi
                         now = datetime.now(IST)
                         exit_date = now.strftime('%Y-%m-%d')
                         exit_time = now.strftime('%H:%M:%S')
+
+                        # Determine PnL outcome (WIN vs LOSS)
+                        cur.execute("""
+                            SELECT alert_price FROM wealth_buy_alert
+                            WHERE symbol = %s AND is_closed = FALSE
+                        """, (symbol,))
+                        r_row = cur.fetchone()
+                        alert_p = float(r_row[0]) if (r_row and r_row[0] is not None) else None
+
+                        final_st = "WIN"
+                        if alert_p and alert_p > 0 and exit_price is not None:
+                            calc_ret = ((exit_price - alert_p) / alert_p) * 100.0
+                            final_st = "WIN" if calc_ret >= 0 else "LOSS"
+
                         cur.execute("""
                             UPDATE wealth_buy_alert
                             SET is_closed = TRUE,
@@ -5282,14 +5296,14 @@ def close_position_atomic(symbol: str, exit_price: float, exit_reason: str, posi
                                 exit_date = %s,
                                 exit_time = %s,
                                 exit_signal = %s,
-                                status = 'CLOSED'
+                                status = %s
                             WHERE symbol = %s AND is_closed = FALSE
-                        """, (exit_price, exit_date, exit_time, exit_reason, symbol))
+                        """, (exit_price, exit_date, exit_time, exit_reason, final_st, symbol))
                         updated = cur.rowcount >= 1
                     conn.commit()
                     if updated:
-                        logger.info(f"💰 ATOMIC POSITION CLOSED ({position_source}): {symbol} at ₹{exit_price}")
-                        insert_notification('sell', 'Position Closed', f'{symbol} ({position_source}) closed at ₹{exit_price}: {exit_reason}', symbol)
+                        logger.info(f"💰 ATOMIC POSITION EXITED ({position_source}): {symbol} at ₹{exit_price} | Outcome: {final_st}")
+                        insert_notification('sell', 'Position Closed', f'{symbol} ({position_source}) exited at ₹{exit_price} ({final_st}): {exit_reason}', symbol)
                     return updated
         except Exception as e:
             logger.exception(f"❌ Failed atomic position close for {symbol} ({position_source}): {e}")

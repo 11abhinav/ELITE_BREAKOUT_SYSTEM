@@ -2706,7 +2706,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
 
 def restore_healthy_wealth_positions():
     """
-    [VERSION: WEALTH_RESTORE_v1.0] Re-evaluates all historical CLOSED and SELL_REVIEW wealth positions.
+    [VERSION: WEALTH_RESTORE_v2.0] Re-evaluates all historical CLOSED and SELL_REVIEW wealth positions.
     If the exit was erroneous/data-void (stock has solid hold score >= 50 and no active exit trigger): restores to OPEN.
     If the exit was legitimate: sets status to WIN (if PnL >= 0) or LOSS (if PnL < 0).
     """
@@ -2717,7 +2717,7 @@ def restore_healthy_wealth_positions():
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("""
-                    SELECT id, symbol, alert_price, exit_price, status, is_closed
+                    SELECT id, symbol, alert_price, exit_price, status, is_closed, current_score
                     FROM wealth_buy_alert
                     WHERE status IN ('SELL_REVIEW', 'CLOSED') OR is_closed = TRUE;
                 """)
@@ -2735,27 +2735,46 @@ def restore_healthy_wealth_positions():
             symbol = r["symbol"]
             entry_p = float(r["alert_price"]) if r.get("alert_price") else None
             exit_p = float(r["exit_price"]) if r.get("exit_price") else None
+            score = float(r["current_score"]) if r.get("current_score") is not None else 60.0
 
             # Calculate return
             pnl = None
             if entry_p and exit_p and entry_p > 0:
                 pnl = ((exit_p - entry_p) / entry_p) * 100.0
 
-            final_st = "WIN" if (pnl is not None and pnl >= 0) else "LOSS"
+            # Check if trade was closed due to an erroneous data void but is fundamental solid
+            if score >= 50 and pnl is not None and pnl > -15.0:
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            UPDATE wealth_buy_alert
+                            SET is_closed = FALSE,
+                                status = 'ACTIVE',
+                                exit_signal = NULL,
+                                exit_price = NULL,
+                                exit_date = NULL,
+                                exit_time = NULL,
+                                status_updated_at = NOW()
+                            WHERE id = %s AND (status = 'SELL_REVIEW' OR is_closed = TRUE);
+                        """, (alert_id,))
+                    conn.commit()
+                restored_count += 1
+                logger.info(f"🔄 Re-evaluated Wealth holding {symbol} (Alert #{alert_id}): Verified healthy -> restored to OPEN status.")
+            else:
+                final_st = "WIN" if (pnl is not None and pnl >= 0) else "LOSS"
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            UPDATE wealth_buy_alert
+                            SET status = %s,
+                                status_updated_at = NOW()
+                            WHERE id = %s;
+                        """, (final_st, alert_id))
+                    conn.commit()
+                legitimate_count += 1
 
-            with get_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        UPDATE wealth_buy_alert
-                        SET status = %s,
-                            status_updated_at = NOW()
-                        WHERE id = %s AND status = 'CLOSED';
-                    """, (final_st, alert_id))
-                conn.commit()
-            legitimate_count += 1
-
-        if legitimate_count > 0:
-            logger.info(f"✅ Wealth Re-evaluation: Categorized {legitimate_count} historical closed trades as WIN/LOSS.")
+        if restored_count > 0 or legitimate_count > 0:
+            logger.info(f"✅ Wealth Re-evaluation: Restored {restored_count} to OPEN | Categorized {legitimate_count} legitimate exits as WIN/LOSS.")
 
         return restored_count
 
