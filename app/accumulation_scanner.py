@@ -322,6 +322,14 @@ class AccumulationScanner:
             logger.info("⏳ ACCUMULATION scanner already running in another thread. Skipping.")
             return {"status": "SKIPPED", "reason": "ALREADY_RUNNING"}
 
+        from lock_utils import ProcessLock
+        _global_lock = ProcessLock("global_scanner_lock")
+        if not _global_lock.acquire(blocking=False, owner_scanner="ACCUMULATION", operation="FULL_SCAN"):
+            logger.info("⏳ [ACCUMULATION] Global scanner lock busy — waiting in queue...")
+            upsert_scanner_health("ACCUMULATION", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
+            if not _global_lock.acquire(blocking=True, owner_scanner="ACCUMULATION", operation="FULL_SCAN"):
+                raise RuntimeError("Failed to acquire global scanner lock.")
+
         start_time = datetime.now(IST)
         run_id = f"acc_run_{start_time.strftime('%Y%m%d_%H%M%S')}"
         health = AccumulationHealthTracker(run_id=run_id, scanner=ACCUMULATION_SCANNER_NAME)
@@ -386,8 +394,16 @@ class AccumulationScanner:
 
                 for sym in batch:
                     df = ohlcv_map.get(sym)
-                    if isinstance(df, pd.DataFrame) and not df.empty and run_ctx:
-                        run_ctx.mark_fresh()
+                    if isinstance(df, pd.DataFrame) and not df.empty:
+                        if getattr(df, "attrs", {}).get("is_stale"):
+                            if run_ctx:
+                                run_ctx.mark_stale()
+                        else:
+                            if run_ctx:
+                                run_ctx.mark_fresh()
+                    else:
+                        if run_ctx:
+                            run_ctx.mark_incomplete()
 
                     res = self.evaluate_symbol(
                         symbol=sym,
@@ -486,4 +502,8 @@ class AccumulationScanner:
                 complete_scanner_execution_run(run_ctx, exception=exc)
             return {"status": "FAILED", "error": str(exc)}
         finally:
+            try:
+                _global_lock.release()
+            except Exception:
+                pass
             _accumulation_run_lock.release()
