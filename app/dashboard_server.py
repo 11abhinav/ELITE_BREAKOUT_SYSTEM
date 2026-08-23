@@ -2840,6 +2840,7 @@ def api_scanner_status():
                             "pnl_pct":      float(t["pnl_pct"]) if t["pnl_pct"] is not None else None,
                             "status":       t["status"] or "OPEN",
                             "score":        t["score"],
+                            "exit_signal":  t.get("exit_signal") or t.get("exit_reason") or "",
                         }
                         for t in today_trades
                     ],

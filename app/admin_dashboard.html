@@ -3492,6 +3492,13 @@ function getEarningsBadgeHtml(item) {
           }
             </div>
           </div>
+          ${(t.exit_signal || t.exit_reason) ? `
+          <div class="detail-item" style="grid-column: 1 / -1; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3); padding: 10px 14px; border-radius: 6px; margin-top: 4px;">
+            <div class="detail-label" style="color: #ff4d6d; font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">🛑 Exit Reason / Trigger Signal</div>
+            <div class="detail-val" style="font-size: 12px; font-weight: 700; color: #ffffff; font-family: var(--font-mono); margin-top: 2px;">
+              ${t.exit_signal || t.exit_reason}
+            </div>
+          </div>` : ''}
           <div style="grid-column: 1 / -1; padding-top: 16px; border-top: 1px dashed rgba(0,212,161,.15); display:grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap:24px; width: 100%; box-sizing: border-box;">
             <div class="detail-item">
               <div class="detail-label" style="color:var(--accent);">Live Catalysts</div>
@@ -3558,15 +3565,15 @@ function getEarningsBadgeHtml(item) {
                 if (r.ok) {
                   const eh = await r.json();
                   EXIT_HISTORY_CACHE.set(cacheKey, eh);
-                  renderExitHistory(ehEl, eh);
+                  renderExitHistory(ehEl, eh, alertDbId);
                 } else {
-                  ehEl.textContent = '—';
+                  renderExitHistory(ehEl, null, alertDbId);
                 }
               } catch(e) {
-                ehEl.textContent = '—';
+                renderExitHistory(ehEl, null, alertDbId);
               }
             } else {
-              renderExitHistory(ehEl, EXIT_HISTORY_CACHE.get(cacheKey));
+              renderExitHistory(ehEl, EXIT_HISTORY_CACHE.get(cacheKey), alertDbId);
             }
           } else {
             ehEl.textContent = '—';
@@ -3575,8 +3582,16 @@ function getEarningsBadgeHtml(item) {
       }
     }
 
-    function renderExitHistory(el, eh) {
-      if (!eh || !eh.length) { el.textContent = '—'; return; }
+    function renderExitHistory(el, eh, alertDbId) {
+      if (!eh || !eh.length) {
+        const trade = alertDbId ? ALL_TRADES.find(t => t.id === alertDbId) : null;
+        if (trade && (trade.exit_signal || trade.exit_reason)) {
+          el.innerHTML = `<span style="color:#ff4d6d; font-weight:700;">${trade.exit_signal || trade.exit_reason}</span>`;
+        } else {
+          el.textContent = '—';
+        }
+        return;
+      }
       el.innerHTML = eh.map(x =>
         `${(x.time||x.timestamp||'').substring(5,10)} ${(x.time||x.timestamp||'').substring(11,16)} | Sold ${x.shares} @ ${x.price} (${x.type||x.reason||''})`
       ).join('<br>');

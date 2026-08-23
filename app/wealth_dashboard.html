@@ -1350,7 +1350,7 @@ function getEarningsBadgeHtml(item) {
         const exitPrice = parseFloat(pos.exit_price) || 0;
         const pnlRs = parseFloat(pos.pnl_rs) || 0;
         const pnlPct = parseFloat(pos.pnl_pct) || 0;
-        const exitSignal = pos.exit_signal || '-';
+        const exitSignal = pos.exit_signal || pos.exit_reason || '-';
         
         // Calculate days held
         let daysHeld = '-';
@@ -1371,7 +1371,7 @@ function getEarningsBadgeHtml(item) {
             <td class="mono">${daysHeld}</td>
             <td class="mono ${pnlClass}" style="color: ${pnlColor}; font-weight: 600;">₹${pnlRs.toFixed(2)}</td>
             <td class="mono ${pnlClass}" style="color: ${pnlColor}; font-weight: 600;">${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(2)}%</td>
-            <td style="font-size: 11px; color: var(--muted);">${exitSignal}</td>
+            <td style="font-size: 11px; font-weight: 700; color: #ff4d6d; font-family: var(--font-mono);">${exitSignal}</td>
           </tr>
         `;
       }).join('');

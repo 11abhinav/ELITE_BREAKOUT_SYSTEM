@@ -586,6 +586,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             "is_rejected":   row.get("is_rejected", False),
             "execution_state": row.get("execution_state"),
             "structural_failure_stop": _f(row.get("structural_failure_stop")),
+            "exit_signal":   row.get("exit_signal"),
+            "exit_reason":   row.get("exit_signal") or row.get("warning_msg") or "",
             "_db_closed":    row.get("status") in ("WIN", "LOSS", "CLOSED"),  # internal flag
         })
 

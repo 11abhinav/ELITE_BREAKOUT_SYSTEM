@@ -2220,7 +2220,7 @@ def update_alert_outcome(
                                 remaining_shares = 0,
                                 execution_state = %s
                             WHERE id = %s
-                            AND status = 'OPEN'
+                            AND status NOT IN ('WIN', 'LOSS', 'EXPIRED', 'NEUTRAL', 'CLOSED', 'REJECTED')
                         """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, execution_state, alert_id))
                     else:
                         cur.execute("""
@@ -2233,7 +2233,7 @@ def update_alert_outcome(
                                 exit_signal = %s,
                                 remaining_shares = 0
                             WHERE id = %s
-                            AND status = 'OPEN'
+                            AND status NOT IN ('WIN', 'LOSS', 'EXPIRED', 'NEUTRAL', 'CLOSED', 'REJECTED')
                         """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, alert_id))
                     
                     if cur.rowcount:
@@ -2430,7 +2430,7 @@ def get_all_alerts() -> list[dict]:
                     a.scanner, a.category, a.entry_price, a.stop_loss, a.initial_stop_loss,
                     a.target_price, a.target_1, a.target_2, a.target_3,
                     a.signals, a.score, a.rsi, a.volume_ratio,
-                    a.status, a.exit_price, a.pnl_pct, a.closed_at, a.is_rejected,
+                    a.status, a.exit_price, a.pnl_pct, a.closed_at, a.is_rejected, a.exit_signal,
                     a.shadow_status, a.shadow_exit_price, a.shadow_pnl_pct, a.shadow_closed_at,
                     a.capital_allocated, a.shares_bought, a.remaining_shares, a.exit_history, a.pnl_rs, a.context,
                     a.model_version, a.data_partition, a.current_price,
@@ -2958,7 +2958,7 @@ def get_all_scanners_today_trades(today_str: str) -> dict:
                         symbol, category, signals, entry_price, alert_time,
                         stop_loss, initial_stop_loss, target_1, target_2, target_3,
                         target_price, pnl_pct, status, score,
-                        exit_price, closed_at
+                        exit_price, closed_at, exit_signal
                     FROM alerts
                     WHERE alert_date = %s
                     ORDER BY alert_time DESC
@@ -2981,7 +2981,7 @@ def get_todays_alerts(today_str: str) -> list[dict]:
             try:
                 cur.execute("""
                     SELECT a.id, a.symbol, a.breakout_type, a.alert_time::text as alert_time, a.scanner, a.category, a.entry_price,
-                        a.stop_loss, a.initial_stop_loss, a.target_1, a.target_2, a.target_3, a.target_4, a.target_price, a.remaining_shares, a.signals, a.score::int as score, a.status, a.seen_by_user, a.seen_by_admin, a.is_rejected,
+                        a.stop_loss, a.initial_stop_loss, a.target_1, a.target_2, a.target_3, a.target_4, a.target_price, a.remaining_shares, a.signals, a.score::int as score, a.status, a.seen_by_user, a.seen_by_admin, a.is_rejected, a.exit_signal,
                         -- [VERSION: EARNINGS_BADGE_v1.0] Earnings fields from alerts table (populated at alert creation time)
                         COALESCE(a.earnings_flag, FALSE)                         AS earnings_flag,
                         COALESCE(a.days_to_earnings, 999)                        AS days_to_earnings,
@@ -2993,7 +2993,7 @@ def get_todays_alerts(today_str: str) -> list[dict]:
                     UNION ALL
                     SELECT w.id, w.symbol, w.breakout_type, w.alert_time::text as alert_time, w.breakout_type as scanner, w.portfolio_bucket as category, w.alert_price as entry_price,
                         NULL::real as stop_loss, NULL::real as initial_stop_loss, NULL::real as target_1, NULL::real as target_2, NULL::real as target_3, NULL::real as target_4, NULL::real as target_price, NULL::int as remaining_shares, w.entry_signal as signals, w.fm_score::int as score,
-                        CASE WHEN w.is_closed THEN 'CLOSED' ELSE 'OPEN' END as status, FALSE as seen_by_user, FALSE as seen_by_admin, FALSE as is_rejected,
+                        CASE WHEN w.is_closed THEN 'CLOSED' ELSE 'OPEN' END as status, FALSE as seen_by_user, FALSE as seen_by_admin, FALSE as is_rejected, w.exit_signal,
                         -- [VERSION: EARNINGS_BADGE_v1.0] Earnings fields from earnings_calendar for wealth alerts
                         COALESCE(ec.earnings_date IS NOT NULL, FALSE)           AS earnings_flag,
                         COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999) AS days_to_earnings,
