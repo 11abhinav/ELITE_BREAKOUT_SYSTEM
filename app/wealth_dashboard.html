@@ -94,11 +94,11 @@
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: var(--font-body); font-size: 14px; min-height: 100vh; -webkit-font-smoothing: antialiased; overflow-x: hidden; overflow-y: auto; }
-  html { overflow-x: hidden; }
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-body); font-size: 14px; min-height: 100vh; -webkit-font-smoothing: antialiased; overflow-x: auto; overflow-y: auto; }
+  html { overflow-x: auto; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--card2); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--muted2); }
   ::selection { background: var(--accent); color: #fff; }
 
@@ -174,8 +174,9 @@
   .table-container {
     background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg);
     overflow-x: auto; margin-bottom: 32px; box-shadow: var(--shadow);
+    scrollbar-width: thin; scrollbar-color: var(--border2) var(--card2);
   }
-  table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
+  table { width: 100%; min-width: 900px; border-collapse: collapse; text-align: left; font-size: 13px; }
   th, td { padding: 11px 12px; white-space: nowrap; }
   th { background: var(--card2); color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; border-bottom: 1px solid var(--border); cursor: pointer; transition: color .15s; }
   th:hover { color: var(--text); }

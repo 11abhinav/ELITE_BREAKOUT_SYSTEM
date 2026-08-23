@@ -121,13 +121,16 @@
       font-family: var(--font-body);
       font-size: 14px;
       min-height: 100vh;
+      overflow-x: auto;
       -webkit-font-smoothing: antialiased;
     }
 
+    html { overflow-x: auto; }
+
     /* ── SCROLLBAR ── */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: var(--card2); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--muted2); }
 
     ::selection { background: var(--accent); color: #fff; }
@@ -726,9 +729,11 @@
       overflow-x: auto;
       overflow-y: auto;
       max-height: calc(100vh - 300px);
+      scrollbar-width: thin;
+      scrollbar-color: var(--border2) var(--card2);
     }
 
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table { width: 100%; min-width: 1200px; border-collapse: collapse; font-size: 13px; }
 
     thead th {
       position: sticky;
@@ -5304,7 +5309,6 @@ async function initDashboard() {
     } catch (e) { console.error("Error in refreshScannerStatus:", e); }
     setTimeout(refreshScannerStatus, 60000);
   }
-  setTimeout(refreshScannerStatus, 60000);
 
 
 
@@ -5335,7 +5339,6 @@ async function initDashboard() {
     } catch (e) { console.error("Error in refreshAllData:", e); }
     setTimeout(refreshAllData, 180000);
   }
-  setTimeout(refreshAllData, 180000);
 }
 
 function togglePreviewAnalytics() {
