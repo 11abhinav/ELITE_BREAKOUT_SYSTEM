@@ -169,6 +169,8 @@ class DecisionContext:
         self.timestamp = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
         self.start_time = time.time()
         
+        import uuid
+        self.audit_snapshot_id = f"{symbol}-{scanner_name}-{datetime.now(IST).strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}"
         self.terminal_decision = "PENDING" # SELECTED / REJECTED / ERROR / NOT_APPLICABLE
         self.evaluation_mode = "FULL" # FULL / SHORT_CIRCUITED
         self.primary_reason = ""
@@ -176,6 +178,7 @@ class DecisionContext:
         self.alert_generated = False
         self.alert_id = None
         self.persisted = False
+        self.raw_vs_normalized: Dict[str, Any] = {}
         
         # Captured Telemetry Dictionaries
         self.entries: Dict[str, TelemetryValueEntry] = {}
@@ -189,14 +192,9 @@ class DecisionContext:
         self.decision_trace: List[Dict[str, Any]] = []
         self.decision_manifest: List[Dict[str, Any]] = []
 
-    def add_decision_input(self, name: str, value: Any, source: str, as_of: str, freshness: str, required: bool, valid: bool):
+    def add_decision_input(self, name: str, value: Any, source: str, as_of: str, freshness: str, required: bool, valid: bool, provider: str = None, source_as_of: str = None, bar_timestamp: str = None, interval: str = None, data_type: str = None, calculation_fingerprint: str = None, formula: str = None):
         """
-        Adds a field to the explicit decision manifest for auditing.
-
-        [RULE 67] Uses the centralized is_bad_numeric() helper instead of the previous
-        `isinstance(value, float)` guard. This ensures NumPy scalars (np.float64 etc.) and
-        pandas NA values are also caught and their raw representation preserved in the
-        manifest, not silently discarded.
+        Adds a field to the explicit decision manifest for auditing with provenance & calculation fingerprints.
         """
         _is_bad, _raw_label = is_bad_numeric(value)
         raw_value = _raw_label if _is_bad else None
@@ -212,7 +210,14 @@ class DecisionContext:
             "as_of": as_of,
             "freshness": freshness,
             "required": required,
-            "valid": valid
+            "valid": valid,
+            "provider": provider or "NSE_BHAVCOPY",
+            "source_as_of": source_as_of or as_of,
+            "bar_timestamp": bar_timestamp,
+            "interval": interval or "1d",
+            "data_type": data_type or "DAILY_CLOSE",
+            "calculation_fingerprint": calculation_fingerprint,
+            "formula": formula
         })
 
     def capture(self, key: str, value: Any, origin: str = "CALCULATED", group: str = "DERIVED", source_series: str = None):
@@ -338,13 +343,67 @@ class DecisionContext:
             "reason": reason or ""
         })
 
-    def capture_gate(self, gate_name: str, passed: bool, actual_val: Any = None, operator_str: str = None, threshold_val: Any = None, reason: str = "", gate_type: str = "THRESHOLD", **kwargs):
+    def capture_raw_vs_normalized(self, source_raw: dict, scanner_normalized: dict, transformation: dict = None):
+        """
+        [RULE 67] Transformation-Aware Raw vs Normalized Dual-Tracking.
+        Preserves original source_raw OHLCV alongside scanner_normalized.
+        If raw != normalized and no registered transformation is provided, flags SYNTHETIC_DATA_CORRUPTION.
+        """
+        raw_vol = source_raw.get("raw_volume", source_raw.get("Volume", 0.0))
+        norm_vol = scanner_normalized.get("normalized_volume", scanner_normalized.get("Volume", 0.0))
+        
+        raw_open = source_raw.get("raw_open", source_raw.get("Open"))
+        raw_high = source_raw.get("raw_high", source_raw.get("High"))
+        raw_low = source_raw.get("raw_low", source_raw.get("Low"))
+        raw_close = source_raw.get("raw_close", source_raw.get("Close"))
+        
+        norm_open = scanner_normalized.get("normalized_open", scanner_normalized.get("Open"))
+        norm_high = scanner_normalized.get("normalized_high", scanner_normalized.get("High"))
+        norm_low = scanner_normalized.get("normalized_low", scanner_normalized.get("Low"))
+        norm_close = scanner_normalized.get("normalized_close", scanner_normalized.get("Close"))
+
+        is_corrupt = False
+        corruption_reason = ""
+
+        # Invariant: Unexplained transformation from nonzero volume to zero volume is corrupt
+        if raw_vol is not None and float(raw_vol) > 0 and (norm_vol is None or float(norm_vol) == 0):
+            if not transformation or transformation.get("transformation_applied") == "NO_TRANSFORMATION":
+                is_corrupt = True
+                corruption_reason = f"Corrupt transformation: Raw Volume {raw_vol} became Normalized Volume {norm_vol} without registered transformation"
+
+        # Invariant: Unexplained flattening of OHLC to O=H=L=C when raw was non-zero range
+        if raw_high != raw_low and (norm_open == norm_high == norm_low == norm_close):
+            if not transformation or transformation.get("transformation_applied") == "NO_TRANSFORMATION":
+                is_corrupt = True
+                corruption_reason = f"Corrupt transformation: Raw bar (H={raw_high}, L={raw_low}) flattened to O=H=L=C={norm_close}"
+
+        self.raw_vs_normalized = {
+            "source_raw": source_raw,
+            "scanner_normalized": scanner_normalized,
+            "transformation": transformation or {
+                "transformation_applied": "NO_TRANSFORMATION",
+                "transformation_reason": "None",
+                "transformation_version": "1.0"
+            },
+            "is_corrupt": is_corrupt,
+            "corruption_reason": corruption_reason
+        }
+        
+        if is_corrupt:
+            self.error_details["SYNTHETIC_DATA_CORRUPTION"] = corruption_reason
+            logger.error(f"🚨 [TELEMETRY INVARIANT VIOLATION] {self.symbol} ({self.scanner_name}): {corruption_reason}")
+
+    def capture_gate(self, gate_name: str, passed: bool, actual_val: Any = None, operator_str: str = None, threshold_val: Any = None, reason: str = "", gate_type: str = "THRESHOLD", components: dict = None, expression: str = None, **kwargs):
         """Captures gate evaluation result. gate_type can be THRESHOLD, BOOLEAN, RANKING, COMPOSITE."""
         gate_info = {
             "passed": passed,
             "status": "PASS" if passed else "FAIL",
             "gate_type": gate_type,
-            "reason": reason
+            "reason": reason,
+            "components": components or {},
+            "expression": expression or "",
+            "evaluated_result": passed,
+            "terminal_result": "PASS" if passed else "FAIL"
         }
         
         # Explicitly register dict-based actual values into the decision manifest
@@ -366,6 +425,14 @@ class DecisionContext:
             gate_info.update({"actual": actual_val, "expected": threshold_val, "pattern": reason})
         elif gate_type == "RANKING":
             gate_info.update({"actual_rank": actual_val, "max_rank": threshold_val, "competitors": kwargs.get("competitors"), "ranking_basis": kwargs.get("ranking_basis")})
+        elif gate_type == "COMPOSITE":
+            gate_info.update({
+                "actual": actual_val,
+                "operator": operator_str or ">=",
+                "threshold": threshold_val,
+                "components": components or {},
+                "expression": expression or f"passed_count >= {threshold_val}"
+            })
         else:
             gate_info.update({"actual": actual_val, "operator": operator_str, "threshold": threshold_val})
 

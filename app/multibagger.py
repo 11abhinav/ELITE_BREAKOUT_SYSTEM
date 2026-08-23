@@ -262,7 +262,8 @@ class ScreenerResult:
     alert_inserted: bool = False
 
 # [VERSION: MULTIBAGGER_REJECTION_VISIBILITY_v1.1] Helper to construct and append ScreenerResult for rejected symbols
-def append_rejection(results: list, symbol: str, status: str, notes: str, price: float = 0.0, cqs: float = 0.0, pas: float = 0.0, trend_score: float = 0.0, total_score: float = 0.0, buy_zone_low: float = 0.0, buy_zone_high: float = 0.0, bucket: str = "⚪ Low Conviction"):
+# [VERSION: MULTIBAGGER_REJECTION_VISIBILITY_v2.0] Helper to construct and append ScreenerResult for rejected symbols
+def append_rejection(results: list, symbol: str, status: str, notes: str, price: float = 0.0, cqs: float = 0.0, pas: float = 0.0, trend_score: float = 0.0, total_score: float = 0.0, buy_zone_low: float = 0.0, buy_zone_high: float = 0.0, bucket: str = "⚪ Low Conviction", price_data = None, raw_fundamentals: dict = None):
     results.append(ScreenerResult(
         symbol=symbol,
         price=round(price, 2) if price else 0.0,
@@ -281,8 +282,63 @@ def append_rejection(results: list, symbol: str, status: str, notes: str, price:
     try:
         from scanner_telemetry import DecisionContext, telemetry_engine
         ctx = DecisionContext(symbol=symbol, scanner_name="MULTIBAGGER")
-        if price:
-            ctx.capture_raw_market(open_p=price, high_p=price, low_p=price, close_p=price, volume=0.0)
+        
+        # Real market data extraction from price_data
+        _open = getattr(price_data, 'today_open', price) if price_data else price
+        _high = getattr(price_data, 'high_52w', price) if price_data else price
+        _low = getattr(price_data, 'low_52w', price) if price_data else price
+        _close = price_data.price if price_data else price
+        _vol = getattr(price_data, 'latest_volume', 0.0) if price_data else 0.0
+        
+        ctx.capture_raw_market(open_p=_open, high_p=_high, low_p=_low, close_p=_close, volume=_vol)
+        ctx.capture_raw_vs_normalized(
+            source_raw={"Open": _open, "High": _high, "Low": _low, "Close": _close, "Volume": _vol},
+            scanner_normalized={"Open": _open, "High": _high, "Low": _low, "Close": _close, "Volume": _vol}
+        )
+
+        # Register technical inputs into manifest
+        if price_data:
+            ctx.add_decision_input("Close", _close, source="PriceData", as_of="Live", freshness="LIVE", required=True, valid=_close > 0, provider="NSE_BHAVCOPY", data_type="DAILY_CLOSE")
+            ctx.add_decision_input("Volume", _vol, source="PriceData", as_of="Live", freshness="LIVE", required=True, valid=_vol > 0, provider="NSE_BHAVCOPY", data_type="DAILY_CLOSE")
+            ctx.add_decision_input("SMA50", getattr(price_data, 'sma_50', _close), source="TechnicalIndicator", as_of="Live", freshness="LIVE", required=True, valid=True, calculation_fingerprint=f"SMA50|CLOSE|1D|SIMPLE|200BARS|UNADJUSTED")
+            ctx.add_decision_input("SMA200", getattr(price_data, 'sma_200', _close), source="TechnicalIndicator", as_of="Live", freshness="LIVE", required=True, valid=True, calculation_fingerprint=f"SMA200|CLOSE|1D|SIMPLE|200BARS|UNADJUSTED")
+            ctx.add_decision_input("EMA20", getattr(price_data, 'ema_20', _close), source="TechnicalIndicator", as_of="Live", freshness="LIVE", required=True, valid=True, calculation_fingerprint=f"EMA20|CLOSE|1D|EMA|200BARS|UNADJUSTED")
+            ctx.add_decision_input("ATR", getattr(price_data, 'atr_14', _close*0.02), source="TechnicalIndicator", as_of="Live", freshness="LIVE", required=True, valid=True, calculation_fingerprint=f"ATR14|CLOSE|1D|WILDER|200BARS|UNADJUSTED")
+
+        # Register full fundamental metrics into manifest
+        if raw_fundamentals:
+            fund_mapping = [
+                ("ROE", "roe", "PAT/AVG_EQUITY"),
+                ("ROCE", "roce", "EBIT/CAPITAL_EMPLOYED"),
+                ("DebtEquity", "debt_equity", "TOTAL_DEBT/SHAREHOLDER_EQUITY"),
+                ("MarketCap", "market_cap", "TOTAL_SHARES*CMP"),
+                ("PE", "pe_ratio", "CMP/TTM_EPS"),
+                ("PromoterPledge", "promoter_pledge_pct", "PLEDGED_SHARES/PROMOTER_SHARES"),
+                ("OperatingCashFlowTTM", "operating_cash_flow_ttm", "CASH_FROM_OPERATIONS_TTM"),
+                ("SalesGrowth", "yoy_revenue", "YOY_REVENUE_GROWTH_PCT"),
+                ("PATGrowth", "yoy_profit", "YOY_PAT_GROWTH_PCT"),
+                ("EBITDAMargin", "ebitda_margin", "EBITDA/TOTAL_REVENUE"),
+                ("ValuationScore", "pas_score", "PAS_VALUATION_ENGINE"),
+                ("QualityScore", "cqs_score", "CQS_QUALITY_ENGINE"),
+                ("TrendScore", "trend_score", "TREND_STRUCTURE_ENGINE")
+            ]
+            for m_name, f_key, f_formula in fund_mapping:
+                f_val = raw_fundamentals.get(f_key)
+                f_valid = f_val is not None and not (isinstance(f_val, float) and __import__('math').isnan(f_val))
+                ctx.add_decision_input(
+                    name=m_name,
+                    value=f_val,
+                    source="FundamentalsDB",
+                    as_of=raw_fundamentals.get("data_as_of", "Live"),
+                    freshness=raw_fundamentals.get("data_freshness", "LIVE"),
+                    required=True,
+                    valid=f_valid,
+                    provider="FUNDAMENTALS_DB",
+                    data_type="FUNDAMENTAL_METRIC",
+                    calculation_fingerprint=f"{m_name}|TTM|{f_formula}",
+                    formula=f_formula
+                )
+
         ctx.capture_score("CQS_QUALITY", cqs, 30.0)
         ctx.capture_score("PAS_VALUATION", pas, 35.0)
         ctx.capture_score("TREND_STRUCTURE", trend_score, 35.0)
@@ -290,8 +346,8 @@ def append_rejection(results: list, symbol: str, status: str, notes: str, price:
         ctx.capture_gate(gate_name=status, passed=False, actual_val=total_score, threshold_val=65.0, reason=notes)
         ctx.finalize(decision="REJECTED", primary_reason=f"{status}: {notes}")
         telemetry_engine.emit_terminal(ctx)
-    except Exception:
-        pass
+    except Exception as _tr_e:
+        logger.debug(f"Telemetry recording exception in append_rejection: {_tr_e}")
     try:
         eff_score = total_score or cqs or 0.0
         if eff_score > 0:
@@ -2147,32 +2203,32 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         # 2. Early Ambiguity & Quality Gates
         if price_data.sma_200 <= 0 or price_data.ema_20 <= 0 or price_data.sma_50 <= 0 or price_data.price <= 0:
             logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Ambiguous Technicals)")
-            append_rejection(results, sym, "TECHNICAL_UNAVAILABLE", "Ambiguous Technicals", price=price_data.price)
+            append_rejection(results, sym, "TECHNICAL_UNAVAILABLE", "Ambiguous Technicals", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
             return
 
         # [FIX-2] Reject stale entries — if the last trade was >= 3 business days ago
         if _is_stale_trade_date(getattr(price_data, 'last_trade_date', '')):
             logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Stale price data — last trade: {getattr(price_data, 'last_trade_date', 'unknown')})")
-            append_rejection(results, sym, "STALE_DATA", f"Stale trade date: {getattr(price_data, 'last_trade_date', 'unknown')}", price=price_data.price)
+            append_rejection(results, sym, "STALE_DATA", f"Stale trade date: {getattr(price_data, 'last_trade_date', 'unknown')}", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
             return
             
         if raw_fundamentals.get("data_freshness") == "FALLBACK":
             logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Fallback Fundamentals)")
-            append_rejection(results, sym, "FALLBACK_DATA", "Fallback Fundamentals", price=price_data.price)
+            append_rejection(results, sym, "FALLBACK_DATA", "Fallback Fundamentals", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
             return
 
         # [FIX-6] Reject before scoring when volume is unavailable. None/0 volume
         # means the V5 pipeline will impute a neutral score, artificially inflating the result.
         if price_data.latest_volume <= 0 or price_data.volume_sma20 <= 0:
             logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Volume data unavailable)")
-            append_rejection(results, sym, "VOLUME_UNAVAILABLE", "Volume data unavailable", price=price_data.price)
+            append_rejection(results, sym, "VOLUME_UNAVAILABLE", "Volume data unavailable", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
             return
             
         ok, reason = passes_multibagger_quality_gate(raw_fundamentals)
         if not ok:
             logger.debug(f"REJECTION: {sym} (Phase: QUALITY_GATE, Reason: {reason})")
             status_code = "UNSUPPORTED_FINANCIAL" if reason.startswith("UNSUPPORTED") else "QUALITY_REJECTED"
-            append_rejection(results, sym, status_code, reason, price=price_data.price)
+            append_rejection(results, sym, status_code, reason, price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
             return
 
         # 3. Run the V5 Pipeline
@@ -2181,13 +2237,13 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             pipeline_result = run_pipeline_for_symbol(sym, raw_fundamentals, technicals)
         except Exception:
             logger.exception("%s: V5 pipeline failed", sym)
-            append_rejection(results, sym, "PIPELINE_FAILED", "V5 pipeline execution error", price=price_data.price)
+            append_rejection(results, sym, "PIPELINE_FAILED", "V5 pipeline execution error", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
             return
         
         # Log rejection if invalidated by V5 gates
         if pipeline_result.is_invalidated:
             logger.debug(f"REJECTION: {sym} (Phase: V5_GATE, Reason: {pipeline_result.invalidation_reason})")
-            append_rejection(results, sym, "QUALITY_REJECTED", f"V5 Gate: {pipeline_result.invalidation_reason}", price=price_data.price)
+            append_rejection(results, sym, "QUALITY_REJECTED", f"V5 Gate: {pipeline_result.invalidation_reason}", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
             return
                 
         # Extract scores from the V5 pipeline

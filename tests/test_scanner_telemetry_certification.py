@@ -436,3 +436,79 @@ def test_no_trading_activity_semantic_guard():
     assert ctx.entries["VOLUME"].value == 0.0
 
 
+def test_multibagger_raw_vs_normalized_integrity():
+    """
+    Phase 4: Raw vs Normalized integrity tracking.
+    Unexplained volume drop from 26M to 0 must trigger SYNTHETIC_DATA_CORRUPTION.
+    """
+    from scanner_telemetry import DecisionContext
+
+    ctx = DecisionContext("HDFCBANK", "MULTIBAGGER")
+    source_raw = {"Open": 728.40, "High": 732.80, "Low": 726.60, "Close": 726.95, "Volume": 26000000.0}
+    scanner_norm = {"Open": 726.95, "High": 726.95, "Low": 726.95, "Close": 726.95, "Volume": 0.0}
+
+    ctx.capture_raw_vs_normalized(source_raw, scanner_norm)
+    assert ctx.raw_vs_normalized["is_corrupt"] is True
+    assert "SYNTHETIC_DATA_CORRUPTION" in ctx.error_details
+
+
+def test_no_synthetic_indicator_or_fundamental_defaults():
+    """
+    Phase 4 invariant: Missing indicators/fundamentals must remain MISSING/INVALID,
+    never defaulted to plausible numeric values (RSI=50, ROE=0) without quality marking.
+    """
+    from scanner_telemetry import DecisionContext
+
+    ctx = DecisionContext("INFY", "EOD")
+    ctx.add_decision_input("RSI", None, "Indicator", "Live", "MISSING", required=True, valid=False)
+
+    rsi_entry = next(e for e in ctx.decision_manifest if e["name"] == "RSI")
+    assert rsi_entry["value"] is None
+    assert rsi_entry["valid"] is False
+    assert rsi_entry["freshness"] == "MISSING"
+
+
+def test_indicator_provenance_and_fingerprint():
+    """
+    Phase 4: Decision inputs must include calculation_fingerprint and provenance metadata.
+    """
+    from scanner_telemetry import DecisionContext
+
+    ctx = DecisionContext("TCS", "EOD")
+    ctx.add_decision_input(
+        name="SMA50",
+        value=3850.0,
+        source="TechnicalIndicator",
+        as_of="2026-08-21",
+        freshness="LIVE",
+        required=True,
+        valid=True,
+        provider="NSE_BHAVCOPY",
+        data_type="DAILY_CLOSE",
+        calculation_fingerprint="SMA50|CLOSE|1D|SIMPLE|200BARS|UNADJUSTED"
+    )
+
+    sma_entry = next(e for e in ctx.decision_manifest if e["name"] == "SMA50")
+    assert sma_entry["provider"] == "NSE_BHAVCOPY"
+    assert sma_entry["data_type"] == "DAILY_CLOSE"
+    assert sma_entry["calculation_fingerprint"] == "SMA50|CLOSE|1D|SIMPLE|200BARS|UNADJUSTED"
+
+
+def test_stale_data_cannot_pass_fresh_contract():
+    """
+    Phase 4: Stale data must fail fresh input contracts:
+    - Critical stale fields trigger invalid/missing contract failure.
+    - Non-critical stale fields force status to DEGRADED.
+    """
+    from scanner_telemetry import DecisionContext
+    from scanner_contracts import validate_manifest_against_contract
+
+    ctx = DecisionContext("WIPRO", "EOD")
+    ctx.add_decision_input("Close", 450.0, "Bhavcopy", "2026-08-15", "STALE", required=True, valid=False)
+
+    is_valid, missing, stats = validate_manifest_against_contract("EOD", ctx.decision_manifest)
+    assert is_valid is False
+    assert "Close" in missing
+
+
+

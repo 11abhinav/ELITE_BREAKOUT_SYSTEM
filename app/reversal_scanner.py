@@ -715,6 +715,8 @@ def _evaluate_candidate(
             "reject_code": "price_filter",
             "gate_type": "THRESHOLD",
             "operator": "<",
+            "actual": close_price,
+            "threshold": MIN_STOCK_PRICE,
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
@@ -1828,14 +1830,49 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                             rej_code = verdict.get("reject_code", "failed_pattern")
                             with _batch_lock:
                                 rejected[rej_code] += 1
-                            telemetry_logger.record_reject(
-                                symbol=symbol,
-                                last_stage="REVERSAL_GATE",
-                                gate=rej_code.upper(),
-                                actual=verdict.get("actual", verdict.get("score")),
-                                required=verdict.get("threshold"),
-                                start_time=_row_start_time
-                            )
+                            try:
+                                ctx_rev = telemetry_logger.get_or_create_context(symbol)
+                                latest_rec = ticker.iloc[-1]
+                                ctx_rev.capture_dataframe_row(latest_rec, is_fallback=used_fallback_data)
+                                ctx_rev.capture_raw_market(
+                                    open_p=_safe_float(latest_rec.get("Open")),
+                                    high_p=_safe_float(latest_rec.get("High")),
+                                    low_p=_safe_float(latest_rec.get("Low")),
+                                    close_p=_safe_float(latest_rec.get("Close")),
+                                    volume=_safe_float(latest_rec.get("Volume")),
+                                    high_52w=_safe_float(latest_rec.get("HIGH_52W")),
+                                    low_52w=_safe_float(latest_rec.get("LOW_52W"))
+                                )
+                                ctx_rev.capture_indicators(
+                                    rsi=_safe_float(latest_rec.get("RSI")),
+                                    ema20=_safe_float(latest_rec.get("EMA20")),
+                                    sma50=_safe_float(latest_rec.get("SMA50")),
+                                    sma200=_safe_float(latest_rec.get("SMA200")),
+                                    macd=_safe_float(latest_rec.get("MACD")),
+                                    vol_ratio=_safe_float(latest_rec.get("Volume_Ratio"))
+                                )
+                                ctx_rev.capture_gate(
+                                    gate_name=rej_code.upper(),
+                                    passed=False,
+                                    actual_val=verdict.get("actual", verdict.get("score", 0.0)),
+                                    operator_str=verdict.get("operator", "<="),
+                                    threshold_val=verdict.get("threshold", 0.0),
+                                    gate_type=verdict.get("gate_type", "THRESHOLD"),
+                                    reason=verdict.get("reject_reason", ""),
+                                    components=verdict.get("components", {}),
+                                    expression=verdict.get("expression", f"gate_{rej_code} == PASS")
+                                )
+                                ctx_rev.finalize(decision="REJECTED", primary_reason=verdict.get("reject_reason", rej_code))
+                                telemetry_engine.emit_terminal(ctx_rev)
+                            except Exception as _tr_err:
+                                telemetry_logger.record_reject(
+                                    symbol=symbol,
+                                    last_stage="REVERSAL_GATE",
+                                    gate=rej_code.upper(),
+                                    actual=verdict.get("actual", verdict.get("score")),
+                                    required=verdict.get("threshold"),
+                                    start_time=_row_start_time
+                                )
                             try:
                                 from near_miss_tracker import log_near_miss
                                 ev_score = verdict.get("score") or verdict.get("raw_score") or 0

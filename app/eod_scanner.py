@@ -696,6 +696,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                             delivery_days_back = (ist_now.date() - candidate).days
                             delivery_found = True
                             if delivery_days_back > 0:
+                                used_fallback_data = True
                                 logger.info(f"✅ EOD Scanner using FALLBACK Bhavcopy from: {candidate}")
                                 try:
                                     from push_service import send_push_to_all
@@ -986,18 +987,9 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     telemetry_logger.record_reject(symbol, "DATA", "INDICATOR_FAIL", None, None, start_time=_row_start_time)
                                 return
 
-                            signals = detect_breakouts(ticker, timeframe="1d")
-
-                            if len(signals) < MIN_SIGNALS:
-                                with _batch_lock:
-                                    rejection_counts["weak_signals"] += 1
-                                    telemetry_logger.record_reject(symbol, "BREAKOUT", "WEAK_SIGNALS", len(signals) if "signals" in locals() else 0, MIN_SIGNALS if "MIN_SIGNALS" in locals() else 3, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
-                                return
-
                             latest = ticker.iloc[-1]
                             ctx = telemetry_logger.get_or_create_context(symbol)
                             ctx.capture_dataframe_row(latest, is_fallback=used_fallback_data)
-                            
                             ctx.capture_indicators(
                                 rsi=_safe_float(latest.get("RSI")),
                                 sma20=_safe_float(latest.get("SMA20")),
@@ -1018,6 +1010,27 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 prior_20d_high=_safe_float(latest.get("PRIOR_20D_HIGH")),
                                 bb_width_pctile=_safe_float(latest.get("BB_WIDTH_PCTILE"))
                             )
+
+                            signals = detect_breakouts(ticker, timeframe="1d")
+
+                            if len(signals) < MIN_SIGNALS:
+                                with _batch_lock:
+                                    rejection_counts["weak_signals"] += 1
+                                    ctx.capture_gate(
+                                        gate_name="WEAK_SIGNALS",
+                                        passed=False,
+                                        actual_val=len(signals),
+                                        operator_str="<",
+                                        threshold_val=MIN_SIGNALS if "MIN_SIGNALS" in locals() else 3,
+                                        gate_type="COMPOSITE",
+                                        reason="Insufficient breakout signals",
+                                        components={"signals_count": len(signals), "detected_signals": signals},
+                                        expression=f"len(signals) >= {MIN_SIGNALS}"
+                                    )
+                                    ctx.add_decision_input(name="signals_count", value=len(signals), source="BreakoutEngine", as_of="Live", freshness="LIVE", required=True, valid=True)
+                                    ctx.finalize(decision="REJECTED", primary_reason="WEAK_SIGNALS")
+                                    telemetry_engine.emit_terminal(ctx)
+                                return
 
                             if "RSI" not in ticker.columns or pd.isna(latest["RSI"]):
                                 logger.debug(f"[EOD] {symbol} rejected: latest RSI is missing or NaN")
@@ -1671,7 +1684,21 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                     
                 if not saved:
                     rejection_counts["duplicate"] += 1
-                    telemetry_logger.record_reject(c["symbol"], "SYSTEM", "DUPLICATE", None, None)
+                    try:
+                        ctx_dup = telemetry_logger.get_or_create_context(c["symbol"])
+                        ctx_dup.capture_trace("STRATEGY_SELECTED", "PASS")
+                        ctx_dup.capture_trace("DUPLICATE_CHECK", "PENDING")
+                        ctx_dup.capture_trace("DUPLICATE_CHECK", "FAIL")
+                        ctx_dup.capture_gate(
+                            gate_name="DUPLICATE_REJECTED", passed=False, actual_val=True, threshold_val=False,
+                            operator_str="!=", gate_type="BOOLEAN", reason=reason or "Symbol already alerted within cooldown window"
+                        )
+                        ctx_dup.add_decision_input("existing_alert", True, "DatabaseGuard", "Live", "LIVE", required=True, valid=True)
+                        ctx_dup.add_decision_input("duplicate_window_days", 1.0, "DatabaseGuard", "Live", "LIVE", required=True, valid=True)
+                        ctx_dup.finalize(decision="REJECTED", primary_reason="DUPLICATE_REJECTED")
+                        telemetry_engine.emit_terminal(ctx_dup)
+                    except Exception:
+                        telemetry_logger.record_reject(c["symbol"], "SYSTEM", "DUPLICATE_REJECTED", None, None)
                     continue
                     
                 alerts_by_category.setdefault(c["category"], []).append({
