@@ -29,10 +29,7 @@ import logging
 import yfinance as yf
 from core_enums import ProviderResult
 
-try:
-    import pandas as pd
-except Exception:
-    pd = None
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 

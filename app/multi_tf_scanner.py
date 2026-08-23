@@ -10,6 +10,7 @@ import time as _time
 # - Rationale: Tracks exact timeframe alignment states, squeeze releases, entry ready triggers, and risk management parameters
 #   in scanner_telemetry.jsonl to maintain 100% operational transparency.
 # =====================================================================================
+import os
 import logging
 import math
 from datetime import datetime, timedelta

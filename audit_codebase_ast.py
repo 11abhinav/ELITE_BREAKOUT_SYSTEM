@@ -201,6 +201,27 @@ class VariableScopeVisitor(ast.NodeVisitor):
                         "details": f"Global import '{var_name}' used at line {loads_before_imp[0]} but shadowed by local import at line {first_imp_line}"
                     })
 
+        # AUDIT RULE 3: Undefined Global Name Access (NameError Check)
+        COMMON_CRITICAL_NAMES = {"os", "sys", "json", "math", "re", "time", "datetime", "pd", "np", "logger", "gc", "psutil"}
+        for var_name, load_line in loads:
+            if var_name in COMMON_CRITICAL_NAMES:
+                if (var_name not in self.global_names and
+                    var_name not in self.global_imports and
+                    var_name not in local_assignments and
+                    var_name not in params and
+                    var_name not in global_decls and
+                    var_name not in nonlocal_decls and
+                    var_name not in BUILTIN_NAMES):
+                    self.issues.append({
+                        "file": self.filename,
+                        "function": fn_name,
+                        "line": load_line,
+                        "type": "UNDEFINED_GLOBAL_NAME",
+                        "variable": var_name,
+                        "first_load_line": load_line,
+                        "details": f"Name '{var_name}' accessed at line {load_line} but is NOT imported or defined globally or locally (NameError risk!)"
+                    })
+
 def audit_codebase():
     py_files = sorted(glob.glob('app/**/*.py', recursive=True) + glob.glob('tests/**/*.py', recursive=True))
     all_issues = []
