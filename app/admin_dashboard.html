@@ -1509,16 +1509,16 @@
                 <th data-col="symbol">Symbol</th>
                 <th data-col="entry_date">Date</th>
                 <th data-col="scanner">Scanner</th>
+                <th data-col="status" class="sort-asc">Status</th>
                 <th>Chart</th>
                 <th data-col="entry_price" style="cursor:pointer">Entry ₹</th>
                 <th data-col="current_price" style="cursor:pointer">CMP/Exit ₹</th>
-                <th data-col="capital_allocated" style="cursor:pointer">Capital ₹</th>
-                <th data-col="shares_bought" style="cursor:pointer">Shares</th>
+                <th data-col="capital_allocated" style="cursor:pointer" class="col-opt">Capital ₹</th>
+                <th data-col="shares_bought" style="cursor:pointer" class="col-opt">Shares</th>
                 <th data-col="pnl_pct" style="cursor:pointer" class="desc">P&amp;L %</th>
                 <th data-col="pnl_rs" style="cursor:pointer">P&amp;L ₹</th>
                 <th data-col="score" style="cursor:pointer">Score</th>
                 <th data-col="days_held">Days</th>
-                <th data-col="status" class="sort-asc">Status</th>
               </tr>
             </thead>
             <tbody id="tradeBody"></tbody>
@@ -3332,63 +3332,32 @@ function getEarningsBadgeHtml(item) {
           days_held: 0,
         }));
         document.getElementById('drill-title').textContent = `${meta.label} — Today's ${data.today_alerts} alert${data.today_alerts !== 1 ? 's' : ''}`;
-        document.getElementById('drill-body').innerHTML = renderMiniTable(trades);
-      }
-
-      document.getElementById('drill-panel').classList.add('open');
-      document.getElementById('drill-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setTimeout(() => { document.getElementById('drill-body').scrollTop = 0; }, 50);
-    }
-
-    // Acknowledge a single error group and refresh
-    async function ackFetchErrorGroup(errorId, scanner) {
-      try {
-        const response = await fetch(`/api/fetch_errors/ack/${errorId}`, { method: 'POST' });
-        if (response.ok) {
-          // Refresh scanner drill to show updated state
-          _errorsByScanner_ts = 0;
-          await doRefresh();
-          const stats = window._scannerStats || {};
-          const data = stats[scanner];
-          if (data) showScannerDrill(scanner);
-        }
-      } catch (e) {
-        console.error('Failed to acknowledge error:', e);
-      }
-    }
-
-    // ── TRADE TABLE
-    let expandedIds = new Set();
-    let sortCol = 'status', sortDir = 1;
-
-    // In-memory cache for on-demand exit history fetches
-    const EXIT_HISTORY_CACHE = new Map();
-
-    function calcFloatingPnl(t) {
-      // Use pre-computed pnl_rs from the DB rather than summing exit_history locally.
-      // exit_history is now fetched on-demand only when a row is expanded.
-      let realizedRs = (t.pnl_rs != null && (t.status === 'WIN' || t.status === 'LOSS' || (t.status && t.status.startsWith('PARTIAL_WIN')))) ? t.pnl_rs : 0;
-      let floatingRs = 0;
-      if ((t.status === 'OPEN' || (t.status && t.status.startsWith('PARTIAL_WIN'))) && t.current_price && t.entry_price) {
-        let shares = (t.remaining_shares !== undefined && t.remaining_shares !== null) ? t.remaining_shares : t.shares_bought;
-        if (shares) {
-          floatingRs = (t.current_price - t.entry_price) * shares;
-        }
-      }
-      let totalRs = t.pnl_rs != null ? t.pnl_rs : (realizedRs + floatingRs);
-      let totalPct = t.pnl_pct != null ? t.pnl_pct : (t.capital_allocated ? (totalRs / t.capital_allocated) * 100 : 0);
-      return { totalRs, totalPct };
-    }
-
-    function buildTradeRows(trades, maxAbs, prefix) {
-      const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
-      const todayStr = formatter.format(new Date());
-
-      return trades.map((t, i) => {
-        const id = prefix + i;
-        const pnlData = calcFloatingPnl(t);
-        const barW = pnlData.totalPct != null ? Math.min(100, Math.abs(pnlData.totalPct) / maxAbs * 100).toFixed(1) : 0;
-        const barColor = pnlData.totalPct == null ? C.muted : pnlData.totalPct >= 0 ? C.accent : C.warn;
+              return `
+    <tr class="main-row${isOpen ? ' open' : ''}" id="mr-${id}" onclick="toggleDetail('${id}', '${t.symbol}', '${key}')" style="${missingStyle}">
+      <td onclick="event.stopPropagation();">${checkboxHtml}</td>
+      <td>${isOpen ? '\u25bc' : '\u25b6'}</td>
+      <td style="font-weight:700;color:var(--text);letter-spacing:-.3px">${t.symbol}${eventMarkHtml}</td>
+      <td style="color:var(--muted);font-family:var(--font-mono);font-size:11px">${fmtAlertTime(t.alert_time || t.entry_date)}</td>
+      <td><span class="badge badge-scanner">${t.scanner || '—'}</span></td>
+      <td>${badgeHtml(t.status, t)}</td>
+      <td style="text-align:center;"><button onclick="openChart('${t.symbol}', ${t.current_price || t.entry_price}); event.stopPropagation();" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:4px; font-size:12px; cursor:pointer;" title="View Chart">📈</button></td>
+      <td>${fmt(t.entry_price)}</td>
+      <td title="${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') ? (t.closed_at ? 'Closed: ' + fmtDetailTime(t.closed_at) : '') : (window.DATA_GENERATED_AT ? 'Updated: ' + fmtDetailTime(window.DATA_GENERATED_AT) : '')}">
+        ${fmt(t.exit_price || t.current_price)}
+        ${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') 
+          ? (t.closed_at ? `<div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">Closed: ${fmtDetailTime(t.closed_at)}</div>` : '') 
+          : (window.DATA_GENERATED_AT ? `<div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${fmtDetailTime(window.DATA_GENERATED_AT)}</div>` : '')}
+      </td>
+      <td class="col-opt">${fmt(t.capital_allocated)}</td>
+      <td class="col-opt">${t.shares_bought || '\u2014'}</td>
+      <td><div class="pnl-wrap"><div class="pnl-bar-track"><div class="pnl-bar-fill" style="width:${barW}%;background:${barColor}"></div></div><span class="pnl-text ${pctClass(pnlData.totalPct)}">${pct(pnlData.totalPct)}</span></div></td>
+      <td class="${pctClass(pnlData.totalRs)}">${pnlData.totalRs !== 0 || pnlData.totalPct !== 0 ? fmt(pnlData.totalRs) : '—'}</td>
+      <td title="Calculated: ${fmtDetailTime(t.alert_time || t.entry_date)}">
+        ${sc}
+        <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${t.alert_time || t.entry_date ? fmtDetailTime(t.alert_time || t.entry_date) : ''}</div>
+      </td>
+      <td style="color:var(--muted)">${t.days_held != null ? t.days_held + 'd' : '—'}</td>
+    </tr>`arColor = pnlData.totalPct == null ? C.muted : pnlData.totalPct >= 0 ? C.accent : C.warn;
         const isOpen = expandedIds.has(id);
         const sc = t.score != null ? `<span class="score-ring ${scoreClass(t.score)}">${t.score}</span>` : '—';
         const key = t.symbol + '|' + (t.alert_time || t.entry_date);
@@ -3410,6 +3379,7 @@ function getEarningsBadgeHtml(item) {
       <td style="font-weight:700;color:var(--text);letter-spacing:-.3px">${t.symbol}${eventMarkHtml}</td>
       <td style="color:var(--muted);font-family:var(--font-mono);font-size:11px">${fmtAlertTime(t.alert_time || t.entry_date)}</td>
       <td><span class="badge badge-scanner">${t.scanner || '—'}</span></td>
+      <td>${badgeHtml(t.status, t)}</td>
       <td style="text-align:center;"><button onclick="openChart('${t.symbol}', ${t.current_price || t.entry_price}); event.stopPropagation();" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:4px; font-size:12px; cursor:pointer;" title="View Chart">📈</button></td>
       <td>${fmt(t.entry_price)}</td>
       <td title="${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') ? (t.closed_at ? 'Closed: ' + fmtDetailTime(t.closed_at) : '') : (window.DATA_GENERATED_AT ? 'Updated: ' + fmtDetailTime(window.DATA_GENERATED_AT) : '')}">
@@ -3418,8 +3388,8 @@ function getEarningsBadgeHtml(item) {
           ? (t.closed_at ? `<div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">Closed: ${fmtDetailTime(t.closed_at)}</div>` : '') 
           : (window.DATA_GENERATED_AT ? `<div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${fmtDetailTime(window.DATA_GENERATED_AT)}</div>` : '')}
       </td>
-      <td>${fmt(t.capital_allocated)}</td>
-      <td>${t.shares_bought || '\u2014'}</td>
+      <td class="col-opt">${fmt(t.capital_allocated)}</td>
+      <td class="col-opt">${t.shares_bought || '\u2014'}</td>
       <td><div class="pnl-wrap"><div class="pnl-bar-track"><div class="pnl-bar-fill" style="width:${barW}%;background:${barColor}"></div></div><span class="pnl-text ${pctClass(pnlData.totalPct)}">${pct(pnlData.totalPct)}</span></div></td>
       <td class="${pctClass(pnlData.totalRs)}">${pnlData.totalRs !== 0 || pnlData.totalPct !== 0 ? fmt(pnlData.totalRs) : '—'}</td>
       <td title="Calculated: ${fmtDetailTime(t.alert_time || t.entry_date)}">
@@ -3427,7 +3397,6 @@ function getEarningsBadgeHtml(item) {
         <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${t.alert_time || t.entry_date ? fmtDetailTime(t.alert_time || t.entry_date) : ''}</div>
       </td>
       <td style="color:var(--muted)">${t.days_held != null ? t.days_held + 'd' : '—'}</td>
-      <td>${badgeHtml(t.status, t)}</td>
     </tr>
     <tr class="detail-row">
       <td colspan="15">

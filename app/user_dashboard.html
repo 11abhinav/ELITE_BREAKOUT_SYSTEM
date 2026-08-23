@@ -173,14 +173,18 @@
   .filter-bar select option{background:var(--card);color:var(--text);}
   .tbl-wrap{overflow-x:auto;}
   table{width:100%;border-collapse:collapse;font-size:13px;}
-  thead th{background:var(--card2);color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;padding:11px 12px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;transition:color .15s;}
+  thead th{background:var(--card2);color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:8px 8px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;transition:color .15s;}
   thead th:hover{color:var(--text);}
   thead th.sort-asc::after{content:' ▲';color:var(--accent);font-size:8px;}
   thead th.sort-desc::after{content:' ▼';color:var(--accent);font-size:8px;}
   tbody tr{border-bottom:1px solid var(--border);transition:background .08s;}
   tbody tr:last-child{border-bottom:none;}
   tbody tr:hover{background:var(--card2);}
-  tbody td{padding:11px 12px;white-space:nowrap;font-family:var(--font-mono);font-size:12px;color:var(--text);}
+  tbody td{padding:8px 8px;white-space:nowrap;font-family:var(--font-mono);font-size:12px;color:var(--text);}
+  @media(max-width: 1280px) {
+    thead th, tbody td { padding: 6px 6px !important; font-size: 11px !important; }
+    .col-opt { display: none !important; }
+  }
   .badge{display:inline-block;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.3px;font-family:var(--font-mono);}
   .badge-win{background:rgba(5,150,105,.1);color:#059669;border:1px solid rgba(5,150,105,.2);}
   .badge-loss{background:rgba(220,38,38,.1);color:#dc2626;border:1px solid rgba(220,38,38,.2);}
@@ -585,17 +589,17 @@ function playDing() {
               <th data-col="symbol">Symbol</th>
               <th data-col="entry_date">Date &amp; Time</th>
               <th data-col="scanner">Scanner</th>
-              <th data-col="category">Category</th>
+              <th data-col="status" class="sort-asc">Status</th>
+              <th data-col="category" class="col-opt">Category</th>
               <th>Chart</th>
               <th data-col="entry_price" style="cursor:pointer">Entry ₹</th>
               <th data-col="current_price" style="cursor:pointer">CMP/Exit ₹</th>
-              <th data-col="capital_allocated" style="cursor:pointer">Capital ₹</th>
-              <th data-col="shares_bought" style="cursor:pointer">Shares</th>
+              <th data-col="capital_allocated" style="cursor:pointer" class="col-opt">Capital ₹</th>
+              <th data-col="shares_bought" style="cursor:pointer" class="col-opt">Shares</th>
               <th data-col="pnl_pct" style="cursor:pointer" class="desc">P&amp;L %</th>
               <th data-col="pnl_rs" style="cursor:pointer">P&amp;L ₹</th>
               <th data-col="score" style="cursor:pointer">Score</th>
               <th data-col="days_held">Days</th>
-              <th data-col="status" class="sort-asc">Status</th>
             </tr>
           </thead>
           <tbody id="tradeBody"></tbody>
@@ -1217,7 +1221,8 @@ function buildTradeRows(trades, maxAbs, prefix) {
       <td style="font-weight:700;color:var(--text);letter-spacing:-.3px">${t.symbol}${eventMarkHtml}</td>
       <td style="color:var(--muted);font-family:var(--font-mono);font-size:11px">${fmtAlertTime(t.alert_time||t.entry_date)}</td>
       <td><span class="badge badge-scanner">${t.scanner||'—'}</span></td>
-      <td style="color:var(--muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-body)">${t.category||'—'}</td>
+      <td>${badgeHtml(t.status)}</td>
+      <td class="col-opt" style="color:var(--muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-body)">${t.category||'—'}</td>
       <td style="text-align:center;"><button onclick="openChart('${t.symbol}', ${t.current_price || t.entry_price}); event.stopPropagation();" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:4px; font-size:12px; cursor:pointer;" title="View Chart">📈</button></td>
       <td>${fmt(t.entry_price)}</td>
       <td title="${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') ? (t.closed_at ? 'Closed: ' + fmtDetailTime(t.closed_at) : '') : (window.DATA_GENERATED_AT ? 'Updated: ' + fmtDetailTime(window.DATA_GENERATED_AT) : '')}">
@@ -1226,8 +1231,8 @@ function buildTradeRows(trades, maxAbs, prefix) {
           ? (t.closed_at ? `<div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">Closed: ${fmtDetailTime(t.closed_at)}</div>` : '') 
           : (window.DATA_GENERATED_AT ? `<div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${fmtDetailTime(window.DATA_GENERATED_AT)}</div>` : '')}
       </td>
-      <td>${fmt(t.capital_allocated)}</td>
-      <td>${t.shares_bought||'\u2014'}</td>
+      <td class="col-opt">${fmt(t.capital_allocated)}</td>
+      <td class="col-opt">${t.shares_bought||'\u2014'}</td>
       <td><div class="pnl-wrap"><div class="pnl-bar-track"><div class="pnl-bar-fill" style="width:${barW}%;background:${barColor}"></div></div><span class="pnl-text ${pctClass(t.pnl_pct)}">${pct(t.pnl_pct)}</span></div></td>
       <td class="${pctClass(t.status === 'OPEN' && t.shares_bought && t.current_price ? (t.current_price - t.entry_price) * t.shares_bought : t.pnl_rs)}">${t.status === 'OPEN' && t.shares_bought && t.current_price ? fmt((t.current_price - t.entry_price) * t.shares_bought) : (t.pnl_rs != null ? fmt(t.pnl_rs) : '—')}</td>
       <td title="Calculated: ${fmtDetailTime(t.alert_time || t.entry_date)}">
@@ -1235,10 +1240,9 @@ function buildTradeRows(trades, maxAbs, prefix) {
         <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${t.alert_time || t.entry_date ? fmtDetailTime(t.alert_time || t.entry_date) : ''}</div>
       </td>
       <td style="color:var(--muted)">${t.days_held!=null?t.days_held+'d':'—'}</td>
-      <td>${badgeHtml(t.status)}</td>
     </tr>
     <tr class="detail-row">
-      <td colspan="14">
+      <td colspan="15">
         <div class="detail-panel ${isOpen?'open':'closed'}" id="dp-${id}">
           <div class="detail-item">
             <div class="detail-label">Stop Loss</div>
