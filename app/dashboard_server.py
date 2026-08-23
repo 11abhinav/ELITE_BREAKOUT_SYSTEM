@@ -3652,6 +3652,45 @@ def clear_scanner_down(scanner_name: str) -> None:
         logger.exception(f"❌ Could not clear DOWN status for {scanner_name}")
 
 
+def _start_port_forwarder(src_port, dst_port):
+    if src_port == dst_port:
+        return
+    import socket, threading
+    def _forward(source, destination):
+        try:
+            while True:
+                data = source.recv(4096)
+                if not data: break
+                destination.sendall(data)
+        except Exception: pass
+        finally:
+            try: source.close()
+            except Exception: pass
+            try: destination.close()
+            except Exception: pass
+
+    def _listen():
+        try:
+            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server.bind(("0.0.0.0", src_port))
+            server.listen(10)
+            while True:
+                client_sock, _ = server.accept()
+                try:
+                    target_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    target_sock.connect(("127.0.0.1", dst_port))
+                    threading.Thread(target=_forward, args=(client_sock, target_sock), daemon=True).start()
+                    threading.Thread(target=_forward, args=(target_sock, client_sock), daemon=True).start()
+                except Exception:
+                    try: client_sock.close()
+                    except Exception: pass
+        except Exception as e:
+            logger.debug(f"Port forwarder {src_port}->{dst_port} inactive: {e}")
+
+    threading.Thread(target=_listen, name=f"PortForwarder-{src_port}", daemon=True).start()
+
+
 def start_dashboard_server():
     """Called from main.py in a daemon thread."""
     # Coolify injects PORT automatically — default 8000 is used if missing (matching Coolify Exposed Ports).
@@ -3660,6 +3699,12 @@ def start_dashboard_server():
     logger.info(f"🌐 Serving User HTML from: {USER_DASHBOARD_PATH or 'NOT FOUND'}")
     logger.info(f"🌐 Serving Admin HTML from: {ADMIN_DASHBOARD_PATH or 'NOT FOUND'}")
     logger.info(f"🌐 Performance JSON path: {PERF_JSON_PATH}")
+
+    # Forward alternate ports (8000, 8080, 80) to primary port so healthchecks on any port succeed
+    for p in (8000, 8080, 80):
+        if p != port:
+            _start_port_forwarder(p, port)
+
     # use_reloader=False is critical — Flask reloader forks the process and
     # breaks the container single-process model and our threading setup.
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
