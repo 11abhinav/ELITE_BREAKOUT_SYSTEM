@@ -5306,6 +5306,8 @@ async function initDashboard() {
   }
   setTimeout(refreshScannerStatus, 60000);
 
+
+
   // Start viewer ping
   async function schedulePingViewer() {
     try { await pingViewer(); } catch (e) { console.error("Error pinging viewer:", e); }
@@ -5527,18 +5529,24 @@ async function generateAIModal() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Fetch all NSE tickers for autocomplete
+    // Guard: skip if first DOMContentLoaded block already built this datalist
+    if (document.getElementById('tickerList')) return;
+    // Fetch all NSE tickers for autocomplete (AI modal input)
     fetch('/api/all_tickers')
         .then(res => res.json())
         .then(symbols => {
-            const datalist = document.createElement('datalist');
-            datalist.id = 'tickerList';
-            symbols.forEach(sym => {
-                const option = document.createElement('option');
-                option.value = sym;
-                datalist.appendChild(option);
-            });
-            document.body.appendChild(datalist);
+            // Reuse existing datalist if available (built by first block)
+            let datalist = document.getElementById('tickerList');
+            if (!datalist) {
+                datalist = document.createElement('datalist');
+                datalist.id = 'tickerList';
+                symbols.forEach(sym => {
+                    const option = document.createElement('option');
+                    option.value = sym;
+                    datalist.appendChild(option);
+                });
+                document.body.appendChild(datalist);
+            }
 
             const searchBox = document.getElementById('searchBox');
             if(searchBox) searchBox.setAttribute('list', 'tickerList');

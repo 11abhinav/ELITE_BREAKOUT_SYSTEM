@@ -1467,9 +1467,13 @@ function getEarningsBadgeHtml(item) {
     loadTickers();
     loadAlertHistory();
     loadClosedPositions();
-    setInterval(loadData, 180000);  // Refresh main data every 3 mins
-    setInterval(loadAlertHistory, 180000);  // Refresh alert history every 3 mins
-    setInterval(loadClosedPositions, 180000);  // Refresh closed positions every 3 mins
+    // Unified 3-min refresh — one timer instead of 3 to avoid simultaneous backend hits
+    async function refreshAll() {
+      await loadData();
+      await loadAlertHistory();
+      await loadClosedPositions();
+    }
+    setInterval(refreshAll, 180000);
     setInterval(fetchTodaysAlertsAndBlink_Wealth, ALERT_FETCH_INTERVAL_WEALTH); // Refresh blinking every 30s
   
 let _audioCtx = null;
@@ -1669,8 +1673,8 @@ async function clearAllNotifications(e) {
     }
 }
 
-// Poll every 5 seconds
-setInterval(fetchNotifications, 5000);
+// Poll every 15 seconds (server caches for 15s anyway)
+setInterval(fetchNotifications, 15000);
 fetchNotifications();
 
 window.addEventListener('DOMContentLoaded', () => {

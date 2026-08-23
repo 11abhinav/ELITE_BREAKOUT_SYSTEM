@@ -658,7 +658,7 @@ def get_notifications():
     user_role = session.get('role', 'user')
     cache_key = "admin_payload" if user_role == 'admin' else "user_payload"
     
-    if _notifications_cache[cache_key] is not None and (now_ts - _notifications_cache["ts"]) < 5.0:
+    if _notifications_cache[cache_key] is not None and (now_ts - _notifications_cache["ts"]) < 15.0:
         return Response(_notifications_cache[cache_key], mimetype="application/json")
 
     try:
@@ -971,7 +971,7 @@ def performance_json():
     now_ts = time.time()
     force_rebuild = request.args.get("rebuild", "").lower() == "true"
     
-    if not force_rebuild and _PERFORMANCE_JSON_CACHE["payload"] is not None and (now_ts - _PERFORMANCE_JSON_CACHE["ts"]) < 10.0:
+    if not force_rebuild and _PERFORMANCE_JSON_CACHE["payload"] is not None and (now_ts - _PERFORMANCE_JSON_CACHE["ts"]) < 30.0:
         return Response(_PERFORMANCE_JSON_CACHE["payload"], mimetype="application/json")
 
     try:
@@ -1869,6 +1869,7 @@ def api_deposit_funds():
             return jsonify({"error": "Amount must be > 0"}), 400
         
         deposit_funds(amount)
+        _CAPITAL_INFO_CACHE["ts"] = 0.0  # Invalidate cache after deposit
         capital_info = get_capital_info()
         return jsonify({"ok": True, **capital_info})
     except Exception as e:
@@ -1876,14 +1877,22 @@ def api_deposit_funds():
         return jsonify({"error": str(e)}), 500
 
 
+_CAPITAL_INFO_CACHE: dict = {"ts": 0.0, "payload": None}
+
 @app.route("/api/capital_info", methods=["GET"])
 @login_required
 def api_capital_info():
-    """Get capital breakdown: base_capital, total_deposited, total_capital."""
+    """Get capital breakdown: base_capital, total_deposited, total_capital. 60s in-memory cache."""
+    global _CAPITAL_INFO_CACHE
+    now_ts = time.time()
+    if _CAPITAL_INFO_CACHE["payload"] is not None and (now_ts - _CAPITAL_INFO_CACHE["ts"]) < 60.0:
+        return Response(_CAPITAL_INFO_CACHE["payload"], mimetype="application/json")
     try:
         from database import get_capital_info
         info = get_capital_info()
-        return jsonify(info)
+        payload = json.dumps(info)
+        _CAPITAL_INFO_CACHE = {"ts": now_ts, "payload": payload}
+        return Response(payload, mimetype="application/json")
     except Exception:
         logger.exception("❌ /api/capital_info failed")
         return jsonify({"base_capital": 0, "total_deposited": 0, "total_capital": 0})
