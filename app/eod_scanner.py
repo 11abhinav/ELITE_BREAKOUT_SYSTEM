@@ -72,6 +72,8 @@ from config import (
 
 logger = logging.getLogger(__name__)
 
+from scanner_telemetry import DecisionContext, telemetry_engine
+
 IST        = ZoneInfo("Asia/Kolkata")
 
 MIN_SIGNALS             = EOD_CONFIG["MIN_SIGNALS"]
@@ -430,6 +432,7 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
         }
 
     candle_close = cond["candle_close"]
+    candle_open  = cond["candle_open"]
     candle_low   = cond["candle_low"]
     candle_high  = cond["candle_high"]
     candle_range = cond["candle_range"]
@@ -531,8 +534,8 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
             "SMA50": _safe_float(latest.get("SMA50")),
             "SMA200": _safe_float(latest.get("SMA200")),
             "Prior High": prior_high,
-            "Body Ratio": _body_ratio,
-            "Close Position": _close_position
+            "Body Ratio": _safe_float(latest.get("Body_Ratio")),
+            "Close Position": _safe_float(latest.get("Close_Position"))
         }
         for k, v in consumed_fields.items():
             if v is not None and not pd.isna(v):
@@ -845,6 +848,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
 
         with MemoryProfiler("Process Symbols"):
             for i in range(0, len(watchlist), BATCH_SIZE):
+                batch_num = (i // BATCH_SIZE) + 1
                 batch_start_time = time.time()
                 chunk_df = watchlist.iloc[i:i + BATCH_SIZE]
                 rss_before = process.memory_info().rss / 1024 / 1024

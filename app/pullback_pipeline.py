@@ -36,6 +36,15 @@ from macro_utils import MarketRegimeEngine, get_nifty_20d_return, get_macro_regi
 from lock_utils import ProcessLock
 
 logger = logging.getLogger("pullback_scanner")
+
+def _safe_float(val, default=0.0):
+    try:
+        if val is None or (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
+            return default
+        return float(val)
+    except Exception:
+        return default
+
 IST = ZoneInfo("Asia/Kolkata")
 _scan_lock = ProcessLock("pullback_scanner")
 _global_lock = ProcessLock("global_scanner_lock")

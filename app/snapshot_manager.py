@@ -89,29 +89,6 @@ class Snapshot:
 from collections import deque
 
 
-@dataclass(frozen=True)
-class Snapshot:
-    """Immutable data snapshot representation."""
-    snapshot_type: str
-    version: int
-    generated_at: str
-    metadata: Dict[str, Any]
-    records: List[Dict[str, Any]]
-    summary: Dict[str, Any]
-    etag: str
-    raw_json_bytes: bytes
-    brotli_bytes: Optional[bytes] = None
-    gzip_bytes: Optional[bytes] = None
-
-    def get_brotli_bytes(self) -> Optional[bytes]:
-        """Brotli compression buffer."""
-        return self.brotli_bytes
-
-    def get_gzip_bytes(self) -> bytes:
-        """Gzip compression buffer."""
-        return self.gzip_bytes or self.raw_json_bytes
-
-
 class SnapshotManager:
     """
     Singleton In-Memory Shared Snapshot Manager.

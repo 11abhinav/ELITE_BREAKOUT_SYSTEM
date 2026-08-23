@@ -58,12 +58,21 @@ def _pledge_ratio(v):
     v = float(v)
     return v / 100.0 if v > 1.0 else v
 
-from database import get_connection, save_alert_if_new, close_position, update_alert_outcome, init_db, upsert_scanner_health
+from database import get_connection, save_alert_if_new, close_position, update_alert_outcome, init_db, upsert_scanner_health, is_scanner_stopped
 from telegram_engine import queue_telegram_message
 from wealth_risk_adjusted_sizing import calculate_risk_adjusted_sizing
 from core.multibagger_pipeline import run_pipeline_for_symbol
 
 logger = logging.getLogger("multibagger")
+
+def _safe_float(val, default=0.0):
+    try:
+        if val is None or (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
+            return default
+        return float(val)
+    except Exception:
+        return default
+
 IST = ZoneInfo("Asia/Kolkata")
 def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None) -> dict:
     """

@@ -40,21 +40,22 @@ class VariableScopeVisitor(ast.NodeVisitor):
                 for target in stmt.targets:
                     if isinstance(target, ast.Name):
                         self.global_names.add(target.id)
+            elif isinstance(stmt, ast.AnnAssign):
+                if isinstance(stmt.target, ast.Name):
+                    self.global_names.add(stmt.target.id)
             elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 self.global_names.add(stmt.name)
 
         # Second pass: visit function bodies
         self.generic_visit(node)
 
-    def visit_FunctionDef(self, node: ast.FunctionDef):
-        self._analyze_function(node)
-        self.generic_visit(node)
+    def visit_FunctionDef(self, node: ast.FunctionDef, enclosing_vars: Set[str] = None):
+        self._analyze_function(node, enclosing_vars or set())
 
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
-        self._analyze_function(node)
-        self.generic_visit(node)
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef, enclosing_vars: Set[str] = None):
+        self._analyze_function(node, enclosing_vars or set())
 
-    def _analyze_function(self, fn_node):
+    def _analyze_function(self, fn_node, enclosing_vars: Set[str]):
         fn_name = fn_node.name
         fn_lineno = fn_node.lineno
 
@@ -75,11 +76,21 @@ class VariableScopeVisitor(ast.NodeVisitor):
         local_imports: Dict[str, List[int]] = {}
         loads: List[Tuple[str, int]] = []
 
+        nested_fns = []
+
+        # Pre-pass: Collect all inner function and inner class names defined anywhere in fn_node
+        for stmt in ast.walk(fn_node):
+            if stmt is not fn_node:
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    local_assignments.setdefault(stmt.name, []).append(stmt.lineno)
+                elif isinstance(stmt, ast.ClassDef):
+                    local_assignments.setdefault(stmt.name, []).append(stmt.lineno)
+
         class LocalVisitor(ast.NodeVisitor):
             def visit_FunctionDef(self, inner_node):
-                pass
+                nested_fns.append(inner_node)
             def visit_AsyncFunctionDef(self, inner_node):
-                pass
+                nested_fns.append(inner_node)
             def visit_ClassDef(self, inner_node):
                 pass
 
@@ -132,6 +143,26 @@ class VariableScopeVisitor(ast.NodeVisitor):
                     self.visit(body_stmt)
                 for oelse in stmt.orelse:
                     self.visit(oelse)
+
+            def visit_With(self, stmt):
+                for item in stmt.items:
+                    self.visit(item.context_expr)
+                    if item.optional_vars:
+                        self._extract_targets(item.optional_vars, stmt.lineno)
+                for body_stmt in stmt.body:
+                    self.visit(body_stmt)
+
+            def visit_AsyncWith(self, stmt):
+                for item in stmt.items:
+                    self.visit(item.context_expr)
+                    if item.optional_vars:
+                        self._extract_targets(item.optional_vars, stmt.lineno)
+                for body_stmt in stmt.body:
+                    self.visit(body_stmt)
+
+            def visit_Lambda(self, node):
+                # Don't recurse lambda body into outer variable loads check
+                pass
 
             def visit_ListComp(self, node):
                 pass
@@ -201,30 +232,30 @@ class VariableScopeVisitor(ast.NodeVisitor):
                         "details": f"Global import '{var_name}' used at line {loads_before_imp[0]} but shadowed by local import at line {first_imp_line}"
                     })
 
-        # AUDIT RULE 3: Undefined Global Name Access (NameError Check)
-        COMMON_CRITICAL_NAMES = {
-            "os", "sys", "json", "math", "re", "time", "datetime", "date", "timedelta",
-            "pd", "np", "logger", "gc", "psutil", "Optional", "List", "Dict", "Set",
-            "Tuple", "Union", "Any", "dataclass", "requests", "hashlib", "traceback"
-        }
+        # AUDIT RULE 3: Undefined Local or Global Name Access (NameError Check)
         for var_name, load_line in loads:
-            if var_name in COMMON_CRITICAL_NAMES:
-                if (var_name not in self.global_names and
-                    var_name not in self.global_imports and
-                    var_name not in local_assignments and
-                    var_name not in params and
-                    var_name not in global_decls and
-                    var_name not in nonlocal_decls and
-                    var_name not in BUILTIN_NAMES):
-                    self.issues.append({
-                        "file": self.filename,
-                        "function": fn_name,
-                        "line": load_line,
-                        "type": "UNDEFINED_GLOBAL_NAME",
-                        "variable": var_name,
-                        "first_load_line": load_line,
-                        "details": f"Name '{var_name}' accessed at line {load_line} but is NOT imported or defined globally or locally (NameError risk!)"
-                    })
+            if (var_name not in self.global_names and
+                var_name not in self.global_imports and
+                var_name not in local_assignments and
+                var_name not in params and
+                var_name not in enclosing_vars and
+                var_name not in global_decls and
+                var_name not in nonlocal_decls and
+                var_name not in BUILTIN_NAMES):
+                self.issues.append({
+                    "file": self.filename,
+                    "function": fn_name,
+                    "line": load_line,
+                    "type": "UNDEFINED_NAME_ERROR",
+                    "variable": var_name,
+                    "first_load_line": load_line,
+                    "details": f"Variable/Name '{var_name}' accessed at line {load_line} but is NOT defined anywhere in local, parameter, enclosing, global, or builtin scope (NameError risk!)"
+                })
+
+        # Recurse into nested function bodies with updated enclosing scope
+        current_scope_vars = params | set(local_assignments.keys()) | enclosing_vars
+        for inner_fn in nested_fns:
+            self._analyze_function(inner_fn, current_scope_vars)
 
 def audit_codebase():
     py_files = sorted(glob.glob('app/**/*.py', recursive=True) + glob.glob('tests/**/*.py', recursive=True))

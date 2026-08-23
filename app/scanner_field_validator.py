@@ -12,7 +12,10 @@ import numpy as np
 from datetime import datetime, date
 from typing import Dict, Any, List, Tuple, Optional
 
+from zoneinfo import ZoneInfo
+
 logger = logging.getLogger(__name__)
+IST = ZoneInfo("Asia/Kolkata")
 
 # Field-Specific Validation Tolerances & Rules
 FIELD_VALIDATION_RULES = {

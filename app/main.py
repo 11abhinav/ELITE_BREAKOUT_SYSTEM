@@ -1229,10 +1229,7 @@ def run_system_scheduler():
                         )
                         logger.info(f"✅ Wealth Engine (market hours) FULL SCAN completed in {format_duration(duration_sec)}")
                     except Exception as run_err:
-                        if run_ctx:
-                            complete_scanner_execution_run(run_ctx, exception=run_err)
                         logger.exception(f"❌ [CRITICAL SCANNER FAILURE] Wealth Engine scan failed: {run_err}")
-                        complete_scanner_execution_run(run_ctx, exception=run_err)
                         raise run_err
                 else:
                     logger.info("⏭️ Wealth Engine BUY scan is PAUSED by Admin. Skipping 1-hour BUY scan.")

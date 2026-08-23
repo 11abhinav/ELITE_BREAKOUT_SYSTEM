@@ -48,6 +48,7 @@ from zoneinfo import ZoneInfo
 from datetime import date, datetime, time as dtime, timedelta
 from typing import Any, Optional
 
+from scanner_telemetry import DecisionContext, telemetry_engine
 from technical_indicators import apply_indicators
 apply_reversal_indicators = apply_indicators
 from memory_profiler import MemoryProfiler, chunk_iterable
@@ -77,6 +78,14 @@ from perf_utils import profile_timing, FilterStats, flush_timing_report, reset_s
 
 
 logger = logging.getLogger(__name__)
+
+def _safe_float(val, default=0.0):
+    try:
+        if val is None or (isinstance(val, float) and (math.isnan(val) or math.isinf(val))):
+            return default
+        return float(val)
+    except Exception:
+        return default
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -1319,8 +1328,7 @@ def evaluate_reversal_symbol(symbol: str, ticker: pd.DataFrame, fund_data: dict 
         from scanner_telemetry import DecisionContext, telemetry_engine
         ctx = DecisionContext(symbol=symbol, scanner_name="REVERSAL")
         latest = ticker.iloc[-1]
-        ctx = telemetry_logger.get_or_create_context(symbol)
-        ctx.capture_dataframe_row(latest, is_fallback=used_fallback_data)
+        ctx.capture_dataframe_row(latest, is_fallback=False)
         ctx.capture_raw_market(
             open_p=_safe_float(latest.get("Open")),
             high_p=_safe_float(latest.get("High")),
@@ -1641,7 +1649,7 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                         if is_market_open:
                             if snap_df is None or snap_df.empty:
                                 rejected["missing_snapshot"] += 1
-                                telemetry_logger.record_reject(symbol, "DATA", "MISSING_SNAPSHOT", None, None, start_time=_row_start_time)
+                                telemetry_logger.record_reject(can_sym, "DATA", "MISSING_SNAPSHOT", None, None, start_time=time.time())
                                 ticker_data_by_symbol.pop(can_sym, None)
                                 valid_fetched_symbols.discard(can_sym)
                                 continue
@@ -1654,7 +1662,7 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                                 )
                                 if numeric[["Open", "High", "Low", "Close"]].dropna().empty:
                                     rejected["invalid_snapshot"] += 1
-                                    telemetry_logger.record_reject(symbol, "DATA", "INVALID_SNAPSHOT", None, None, start_time=_row_start_time)
+                                    telemetry_logger.record_reject(can_sym, "DATA", "INVALID_SNAPSHOT", None, None, start_time=time.time())
                                     ticker_data_by_symbol.pop(can_sym, None)
                                     valid_fetched_symbols.discard(can_sym)
                                     continue
@@ -1668,7 +1676,7 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                                 # Logic validation checks
                                 if not (snap_low <= live_price <= snap_high) or not (snap_low <= snap_open <= snap_high):
                                     rejected["invalid_snapshot_bounds"] += 1
-                                    telemetry_logger.record_reject(symbol, "DATA", "INVALID_SNAPSHOT_BOUNDS", None, None, start_time=_row_start_time)
+                                    telemetry_logger.record_reject(can_sym, "DATA", "INVALID_SNAPSHOT_BOUNDS", None, None, start_time=time.time())
                                     ticker_data_by_symbol.pop(can_sym, None)
                                     valid_fetched_symbols.discard(can_sym)
                                     continue
@@ -1677,7 +1685,7 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                             except Exception as parse_e:
                                 logger.warning(f"Failed to parse snapshot row for {can_sym}: {parse_e}")
                                 rejected["invalid_snapshot"] += 1
-                                telemetry_logger.record_reject(symbol, "DATA", "INVALID_SNAPSHOT", None, None, start_time=_row_start_time)
+                                telemetry_logger.record_reject(can_sym, "DATA", "INVALID_SNAPSHOT", None, None, start_time=time.time())
                                 ticker_data_by_symbol.pop(can_sym, None)
                                 valid_fetched_symbols.discard(can_sym)
                                 continue
@@ -1701,7 +1709,7 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                                         ticker_data_by_symbol.pop(can_sym, None)
                                         valid_fetched_symbols.discard(can_sym)
                                         rejected["indicator_failure"] += 1
-                                        telemetry_logger.record_reject(symbol, "DATA", "INDICATOR_FAIL", None, None, start_time=_row_start_time)
+                                        telemetry_logger.record_reject(can_sym, "DATA", "INDICATOR_FAIL", None, None, start_time=time.time())
                                         continue
                                     hist_df = recomputed
                                 except Exception as exc:
@@ -1709,7 +1717,7 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                                     ticker_data_by_symbol.pop(can_sym, None)
                                     valid_fetched_symbols.discard(can_sym)
                                     rejected["indicator_failure"] += 1
-                                    telemetry_logger.record_reject(symbol, "DATA", "INDICATOR_FAIL", None, None, start_time=_row_start_time)
+                                    telemetry_logger.record_reject(can_sym, "DATA", "INDICATOR_FAIL", None, None, start_time=time.time())
                                     continue
                                 synthetic_bar_symbols.discard(can_sym)
                                 synthetic_vol_missing.discard(can_sym)
@@ -1731,7 +1739,7 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                                         ticker_data_by_symbol.pop(can_sym, None)
                                         valid_fetched_symbols.discard(can_sym)
                                         rejected["indicator_failure"] += 1
-                                        telemetry_logger.record_reject(symbol, "DATA", "INDICATOR_FAIL", None, None, start_time=_row_start_time)
+                                        telemetry_logger.record_reject(can_sym, "DATA", "INDICATOR_FAIL", None, None, start_time=time.time())
                                         continue
                                     hist_df = recomputed
                                 except Exception as exc:
@@ -1739,7 +1747,7 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                                     ticker_data_by_symbol.pop(can_sym, None)
                                     valid_fetched_symbols.discard(can_sym)
                                     rejected["indicator_failure"] += 1
-                                    telemetry_logger.record_reject(symbol, "DATA", "INDICATOR_FAIL", None, None, start_time=_row_start_time)
+                                    telemetry_logger.record_reject(can_sym, "DATA", "INDICATOR_FAIL", None, None, start_time=time.time())
                                     continue
                                 synthetic_bar_symbols.add(can_sym)
                                 if snap_vol <= 0: synthetic_vol_missing.add(can_sym)
@@ -1833,7 +1841,7 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                             try:
                                 ctx_rev = telemetry_logger.get_or_create_context(symbol)
                                 latest_rec = ticker.iloc[-1]
-                                ctx_rev.capture_dataframe_row(latest_rec, is_fallback=used_fallback_data)
+                                ctx_rev.capture_dataframe_row(latest_rec, is_fallback=False)
                                 ctx_rev.capture_raw_market(
                                     open_p=_safe_float(latest_rec.get("Open")),
                                     high_p=_safe_float(latest_rec.get("High")),
