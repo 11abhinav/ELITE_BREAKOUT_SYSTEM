@@ -4,8 +4,6 @@ echo "🚀 Starting Elite Breakout System Supervisor..."
 
 # Reduce glibc native memory fragmentation
 export MALLOC_ARENA_MAX=2
-echo "🧹 Running database symbol mappings cleanup..."
-python3 app/clear_poisoned_mappings.py
 
 while true; do
     echo "▶️ Launching app/main.py..."
@@ -19,6 +17,6 @@ while true; do
         break
     fi
     
-    echo "⏳ Respawning in 5 seconds to allow Railway health checks and port releases..."
+    echo "⏳ Respawning in 5 seconds..."
     sleep 5
 done

@@ -2326,31 +2326,18 @@ def _trigger_wealth_exit():
 if __name__ == "__main__":
     forensics.take_snapshot("startup")
 
-    # Clean up any orphaned scanner execution records left in RUNNING state from previous container restarts
-    try:
-        from database import cleanup_orphaned_scanner_runs_on_boot
-        cleanup_orphaned_scanner_runs_on_boot()
-        logger.info("🧹 [BOOT] Cleaned up any orphaned scanner runs from previous server process.")
-    except Exception as e:
-        logger.warning(f"⚠️ [BOOT] Boot scanner cleanup warning: {e}")
+    # 1. START FLASK DASHBOARD SERVER IMMEDIATELY (0ms latency for health checks & Coolify)
+    if "--worker" not in sys.argv:
+        try:
+            from dashboard_server import start_dashboard_server_async
+            start_dashboard_server_async()
+            logger.info("🌐 [BOOT] Dashboard server started asynchronously — ports 8000/8080/80 open instantly for healthchecks!")
+        except Exception as _d_err:
+            logger.error(f"❌ Could not start dashboard server: {_d_err}")
 
-    # [VERSION: SESSION_ARCH_v2A_0] Instantiate ApplicationContext at process boot.
-    # This is the single process-lifetime owner of all services and sessions.
-    from application_context import ApplicationContext
-    _app_ctx = ApplicationContext.get_instance()
-    logger.info("✅ [SESSION_ARCH] ApplicationContext ready (Phase 2A — wiring only).")
-
+    # 2. SIGNAL HANDLERS FOR CLEAN SHUTDOWN
     def handle_sigterm(*args):
         logger.info("🛑 SIGTERM received — container shutting down. Closing gracefully...")
-        try:
-            from database import cleanup_orphaned_scanner_runs_on_boot
-            cleanup_orphaned_scanner_runs_on_boot()
-        except Exception:
-            pass
-        try:
-            _app_ctx.destroy_session()
-        except Exception:
-            pass
         try:
             from database import close_pool
             close_pool()
@@ -2361,23 +2348,27 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, handle_sigterm)
     signal.signal(signal.SIGINT, handle_sigterm)
 
-
-    watchdog_thread = threading.Thread(target=run_watchdog, name="Watchdog", daemon=True)
-    watchdog_thread.start()
-
-    if "--worker" in sys.argv:
-        logger.info("🛠️ Running in WORKER mode — decoupling Flask dashboard.")
-        while True:
-            time.sleep(86400)
-    else:
+    # 3. RUN DB & SCANNER INITIALIZATION IN BACKGROUND THREAD
+    def _bg_boot_sequence():
         try:
-            from dashboard_server import start_dashboard_server
-            port = int(os.getenv("PORT", 8080))
-            logger.info(f"🌐 Dashboard server binding to port {port} (main thread)")
-            start_dashboard_server()
-        except ImportError:
-            logger.error("❌ dashboard_server.py not found — Container will show 'failed to respond'")
-            watchdog_thread.join()
-        except Exception:
-            logger.exception("❌ Dashboard server crashed")
-            watchdog_thread.join()
+            from database import cleanup_orphaned_scanner_runs_on_boot
+            cleanup_orphaned_scanner_runs_on_boot()
+            logger.info("🧹 [BOOT] Cleaned up any orphaned scanner runs.")
+        except Exception as e:
+            logger.warning(f"⚠️ [BOOT] Boot scanner cleanup warning: {e}")
+
+        try:
+            from application_context import ApplicationContext
+            _app_ctx = ApplicationContext.get_instance()
+            logger.info("✅ [SESSION_ARCH] ApplicationContext ready.")
+        except Exception as e:
+            logger.warning(f"⚠️ ApplicationContext init warning: {e}")
+
+        watchdog_thread = threading.Thread(target=run_watchdog, name="Watchdog", daemon=True)
+        watchdog_thread.start()
+
+    threading.Thread(target=_bg_boot_sequence, name="BootSequence", daemon=True).start()
+
+    # Block main thread to keep container alive
+    while True:
+        time.sleep(3600)

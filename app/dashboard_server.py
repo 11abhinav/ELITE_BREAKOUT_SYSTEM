@@ -3690,6 +3690,13 @@ def start_dashboard_server():
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 
+def start_dashboard_server_async():
+    """Starts the Flask server in a daemon thread so process boot completes in 0ms."""
+    t = threading.Thread(target=start_dashboard_server, name="FlaskDashboardServer", daemon=True)
+    t.start()
+    return t
+
+
 _BREAKOUT_CMP_CACHE = {}
 _BREAKOUT_CMP_LAST_FETCH = 0
 _BREAKOUT_RESPONSE_CACHE = {"ts": 0.0, "payload": None}
