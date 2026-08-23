@@ -411,8 +411,8 @@ def test_restart_between_scan_and_finalization(memory_db):
     snap_b_id = "SNAP_B_RESTART_TEST"
     cur.execute("""
         UPDATE accumulation_alerts
-        SET finalization_status = 'PASSED', finalization_snapshot_id = %s
-        WHERE id = %s;
+        SET finalization_status = 'PASSED', finalization_snapshot_id = ?
+        WHERE id = ?;
     """, (snap_b_id, alert_id))
 
     cur.execute("""
@@ -421,11 +421,11 @@ def test_restart_between_scan_and_finalization(memory_db):
             entry_zone_low, entry_zone_high, entry_price, preferred_entry, entry_trigger_level, entry_displacement_reference,
             breakout_level, stop_loss, target_1, target_2, target_3, risk_pct, rr_1, rr_2, rr_3, status, setup_outcome
         ) VALUES (
-            %s, 'RUN_1800', %s, %s, 'RELIANCE_RESTART', 'BREAKOUT_READY', 'ZONE_MIDPOINT',
+            ?, 'RUN_1800', ?, ?, 'RELIANCE_RESTART', 'BREAKOUT_READY', 'ZONE_MIDPOINT',
             2400.0, 2460.0, 2430.0, 2430.0, 2430.0, 2460.0,
             2470.0, 2350.0, 2600.0, 2750.0, 2900.0, 3.29, 2.13, 4.0, 5.88, 'ACTIVE_SETUP', 'PENDING'
         );
-    """ % (alert_id, f"'{snap_b_id}'", "'SNAP_A_RESTART_TEST'"))
+    """, (alert_id, snap_b_id, 'SNAP_A_RESTART_TEST'))
     memory_db.commit()
 
     # 4. Verify post-restart active trade row creation
