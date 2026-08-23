@@ -54,7 +54,6 @@ class RequestPlanner:
                 
         # 4. If cache is stale, compute delta
         # Delta range_from should be (last_ts - 1 day) to ensure overlapping candles
-        import pandas as pd
         from datetime import timedelta
         
         delta_from = last_ts - timedelta(days=1)

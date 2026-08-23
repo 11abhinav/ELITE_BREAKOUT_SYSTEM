@@ -743,6 +743,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                 sector_rankings_dict = {}
 
         total_alerts       = 0
+        approved_candidates = []
         alerts_by_category = {}
 
         provider_stats_counts = {

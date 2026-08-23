@@ -2648,7 +2648,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         run_ctx.alerts_generated = alerts_count
 
     try:
-        from database import insert_notification, upsert_scanner_health
+        from database import insert_notification
         stale_count = sum(1 for r in results if r.status == "STALE_DATA")
         upsert_scanner_health(
             scanner_name="MULTIBAGGER",

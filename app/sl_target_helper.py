@@ -277,10 +277,10 @@ class ClusterEngine:
         
         result = []
         for i, c_cands in enumerate(clusters):
-            for c in c_cands:
-                c.cluster_id = i
+            for cand_item in c_cands:
+                cand_item.cluster_id = i
             c_price = ClusterEngine._consensus_price(c_cands)
-            c_score = sum(c.score for c in c_cands)
+            c_score = sum(cand_item.score for cand_item in c_cands)
             result.append(ClusteredTarget(
                 cluster_id=i, consensus_price=c_price, score=c_score, candidates=c_cands
             ))

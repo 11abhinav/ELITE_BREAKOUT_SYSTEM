@@ -666,6 +666,17 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
     cats       = str(r.get("Category", ""))
     is_fin     = is_financial_sector(r.to_dict() if hasattr(r, 'to_dict') else r)
 
+    peg_raw = r.get("PEG Ratio", r.get("PEG"))
+    peg_val = None
+    if peg_raw is not None and not pd.isna(peg_raw) and peg_raw != "":
+        try:
+            peg_val = float(peg_raw)
+        except (ValueError, TypeError):
+            pass
+
+    gnpa_raw = r.get("GNPA %", r.get("gnpa"))
+    gnpa = None if (gnpa_raw is None or (isinstance(gnpa_raw, float) and pd.isna(gnpa_raw))) else _safe_num(gnpa_raw)
+
     buckets = []
     rejection_reason = ""
     
@@ -698,8 +709,8 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
             "dist_52w": (r.get("dist_52w_high"), dist_52w, False),
             "cmp": (r.get("cmp", r.get("CMP")), cmp_val, True),
             "liquidity": (r.get("liquidity"), liquidity, True),
-            "peg": (r.get("PEG Ratio", r.get("PEG")), peg_val if 'peg_val' in locals() else None, False),
-            "gnpa": (r.get("GNPA %", r.get("gnpa")), gnpa if 'gnpa' in locals() else None, False)
+            "peg": (r.get("PEG Ratio", r.get("PEG")), peg_val, False),
+            "gnpa": (r.get("GNPA %", r.get("gnpa")), gnpa, False)
         }
 
         # Explicitly register ALL fields consumed by this decision path
@@ -734,22 +745,13 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
             return None
 
         # Instant Kill Gate 2: Extreme Valuation Ceiling (PEG <= 3.0)
-        peg_raw = r.get("PEG Ratio", r.get("PEG"))
-        if peg_raw is not None and not pd.isna(peg_raw) and peg_raw != "":
-            try:
-                peg_val = float(peg_raw)
-                if peg_val > 3.0:
-                    ctx.capture_gate("ValuationCeiling", False, actual_val=peg_val, threshold_val=3.0, reason="High PEG")
-                    return None
-            except (ValueError, TypeError):
-                pass
+        if peg_val is not None and peg_val > 3.0:
+            ctx.capture_gate("ValuationCeiling", False, actual_val=peg_val, threshold_val=3.0, reason="High PEG")
+            return None
 
-        if is_fin:
-            gnpa_raw = r.get("GNPA %", r.get("gnpa"))
-            gnpa = None if (gnpa_raw is None or (isinstance(gnpa_raw, float) and pd.isna(gnpa_raw))) else _safe_num(gnpa_raw)
-            if gnpa is not None and gnpa > 5.0:
-                ctx.capture_gate("AssetQuality", False, actual_val=gnpa, threshold_val=5.0, reason="High GNPA")
-                return None  # Known-bad NPA: FAIL
+        if is_fin and gnpa is not None and gnpa > 5.0:
+            ctx.capture_gate("AssetQuality", False, actual_val=gnpa, threshold_val=5.0, reason="High GNPA")
+            return None  # Known-bad NPA: FAIL
 
         if check_core_compounder_rules(score, mcap, roce, roe, de, is_fin):
             buckets.append("Core")

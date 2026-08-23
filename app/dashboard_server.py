@@ -1411,7 +1411,6 @@ def export_watchlist(list_type):
     if file_path.endswith('.parquet'):
         import pandas as pd
         import io
-        from flask import Response
         try:
             df = pd.read_parquet(file_path)
             output = io.StringIO()
