@@ -618,6 +618,139 @@ def init_db():
                     )
                 """)
 
+                # 14. system_control & scanner_control
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS system_control (
+                        id INTEGER PRIMARY KEY DEFAULT 1,
+                        global_enabled BOOLEAN DEFAULT TRUE,
+                        global_paused BOOLEAN DEFAULT FALSE,
+                        global_stop_requested BOOLEAN DEFAULT FALSE,
+                        reason TEXT,
+                        updated_by TEXT DEFAULT 'ADMIN',
+                        updated_at TIMESTAMPTZ DEFAULT NOW(),
+                        CONSTRAINT single_row_system_control CHECK (id = 1)
+                    )
+                """)
+                cur.execute("INSERT INTO system_control (id, global_enabled, global_paused, global_stop_requested) VALUES (1, TRUE, FALSE, FALSE) ON CONFLICT (id) DO NOTHING")
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS scanner_control (
+                        scanner_name TEXT PRIMARY KEY,
+                        enabled BOOLEAN DEFAULT TRUE,
+                        paused BOOLEAN DEFAULT FALSE,
+                        stop_requested BOOLEAN DEFAULT FALSE,
+                        manual_run_requested BOOLEAN DEFAULT FALSE,
+                        reason TEXT,
+                        updated_by TEXT DEFAULT 'ADMIN',
+                        updated_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+                cur.execute("INSERT INTO scanner_control (scanner_name, enabled, paused, stop_requested) VALUES ('ACCUMULATION', TRUE, FALSE, FALSE) ON CONFLICT (scanner_name) DO NOTHING")
+
+                # 15. ACCUMULATION scanner tables
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS accumulation_runs (
+                        run_id TEXT PRIMARY KEY,
+                        trigger_type TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'STARTING',
+                        started_at TIMESTAMPTZ DEFAULT NOW(),
+                        completed_at TIMESTAMPTZ,
+                        metrics JSONB DEFAULT '{}'::jsonb
+                    )
+                """)
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS accumulation_health (
+                        id SERIAL PRIMARY KEY,
+                        run_id TEXT NOT NULL,
+                        scanner TEXT NOT NULL DEFAULT 'ACCUMULATION',
+                        status TEXT NOT NULL DEFAULT 'IDLE',
+                        lifecycle_state TEXT DEFAULT 'IDLE',
+                        requested_symbols INTEGER DEFAULT 0,
+                        processed_symbols INTEGER DEFAULT 0,
+                        valid_symbols INTEGER DEFAULT 0,
+                        rejected_symbols INTEGER DEFAULT 0,
+                        candidates INTEGER DEFAULT 0,
+                        alerts INTEGER DEFAULT 0,
+                        raw_data_errors INTEGER DEFAULT 0,
+                        stale_symbols INTEGER DEFAULT 0,
+                        invalid_symbols INTEGER DEFAULT 0,
+                        cache_hits INTEGER DEFAULT 0,
+                        cache_misses INTEGER DEFAULT 0,
+                        bytes_fetched BIGINT DEFAULT 0,
+                        api_latency_ms REAL DEFAULT 0.0,
+                        calculation_time_ms REAL DEFAULT 0.0,
+                        persistence_time_ms REAL DEFAULT 0.0,
+                        started_at TIMESTAMPTZ DEFAULT NOW(),
+                        completed_at TIMESTAMPTZ,
+                        duration_seconds REAL DEFAULT 0.0,
+                        pause_requested BOOLEAN DEFAULT FALSE,
+                        stop_requested BOOLEAN DEFAULT FALSE,
+                        last_error TEXT,
+                        error_count INTEGER DEFAULT 0,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS accumulation_alerts (
+                        id BIGSERIAL PRIMARY KEY,
+                        run_id TEXT NOT NULL,
+                        audit_snapshot_id TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        tradable BOOLEAN DEFAULT TRUE,
+                        score NUMERIC,
+                        accumulation_score NUMERIC,
+                        compression_score NUMERIC,
+                        relative_strength_score NUMERIC,
+                        resistance_score NUMERIC,
+                        volume_structure_score NUMERIC,
+                        fundamental_score NUMERIC,
+                        close NUMERIC,
+                        entry_zone_low NUMERIC,
+                        entry_zone_high NUMERIC,
+                        breakout_level NUMERIC,
+                        stop_loss NUMERIC,
+                        target_1 NUMERIC,
+                        target_2 NUMERIC,
+                        target_3 NUMERIC,
+                        risk_pct NUMERIC,
+                        rr_1 NUMERIC,
+                        rr_2 NUMERIC,
+                        rr_3 NUMERIC,
+                        time_stop_days INTEGER DEFAULT 40,
+                        invalidation_reason TEXT,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        effective_as_of TIMESTAMPTZ DEFAULT NOW(),
+                        CONSTRAINT unq_accumulation_alert UNIQUE (symbol, state, run_id)
+                    )
+                """)
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS accumulation_candidates (
+                        id BIGSERIAL PRIMARY KEY,
+                        run_id TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        score NUMERIC NOT NULL,
+                        state TEXT NOT NULL,
+                        raw_data JSONB DEFAULT '{}'::jsonb,
+                        metadata JSONB DEFAULT '{}'::jsonb,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS accumulation_telemetry (
+                        id BIGSERIAL PRIMARY KEY,
+                        run_id TEXT NOT NULL,
+                        symbol TEXT NOT NULL,
+                        audit_snapshot_id TEXT NOT NULL,
+                        payload JSONB NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+
                 # 14. instrument_registry, provider_instruments, symbol_mappings, resolution_history
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS instrument_registry (
