@@ -900,16 +900,18 @@ function getEarningsBadgeHtml(item) {
           if (macroRes.status === 'fulfilled' && macroRes.value.ok) {
             const macroData = await macroRes.value.json();
             const badge = document.getElementById('macro-state-badge');
-            if (macroData.bear_market_gate) {
-              badge.textContent = `🔴 BEAR MARKET: DEEP VALUE MODE (NIFTY -${macroData.nifty_dist_52w}%)`;
-              badge.style.background = 'rgba(239, 68, 68, 0.1)';
-              badge.style.color = 'var(--red)';
-              badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
-            } else {
-              badge.textContent = `🟢 BULL MARKET: MOMENTUM MODE (NIFTY -${macroData.nifty_dist_52w}%)`;
-              badge.style.background = 'rgba(16, 185, 129, 0.1)';
-              badge.style.color = 'var(--green)';
-              badge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+            if (badge) {
+              if (macroData.bear_market_gate) {
+                badge.textContent = `🔴 BEAR MARKET: DEEP VALUE MODE (NIFTY -${macroData.nifty_dist_52w}%)`;
+                badge.style.background = 'rgba(239, 68, 68, 0.1)';
+                badge.style.color = 'var(--red)';
+                badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+              } else {
+                badge.textContent = `🟢 BULL MARKET: MOMENTUM MODE (NIFTY -${macroData.nifty_dist_52w}%)`;
+                badge.style.background = 'rgba(16, 185, 129, 0.1)';
+                badge.style.color = 'var(--green)';
+                badge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+              }
             }
           }
         } catch (e) {
