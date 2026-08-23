@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS accumulation_alerts (
     audit_snapshot_id TEXT NOT NULL UNIQUE,
     parent_snapshot_id TEXT,
     finalization_snapshot_id TEXT,
-    finalization_status TEXT DEFAULT 'PASSED',
+    finalization_status TEXT DEFAULT 'PENDING',
     symbol TEXT NOT NULL,
     signal_state TEXT NOT NULL,
     tradable BOOLEAN NOT NULL DEFAULT TRUE,

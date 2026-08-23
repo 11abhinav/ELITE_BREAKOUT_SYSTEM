@@ -89,6 +89,7 @@ class TradeSetupContract:
     position_sizing_basis: str = "ACCOUNT_RISK_1PCT"
     status: str = "ACTIVE_SETUP"
     setup_outcome: str = "PENDING"
+    finalization_status: str = "PENDING"
     entry_trigger_level_reached: Optional[bool] = None
 
 class AccumulationContractValidator:
