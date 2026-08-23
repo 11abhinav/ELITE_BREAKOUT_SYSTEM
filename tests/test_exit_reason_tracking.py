@@ -6,21 +6,20 @@ def test_exit_signal_persistence_and_query():
     """Verify that update_alert_outcome persists exit_signal and database queries expose it."""
     init_db()
     
-    symbol = "TEST_EXIT_REASON_STOCK"
+    symbol = "REASON_TEST_STOCK"
     alert_date = "2026-08-23"
     alert_time = "2026-08-23 10:00:00"
     
     # 1. Insert alert
     alert_id = save_alert_if_new(
-        symbol,
-        "EOD|Breakout|50DMA|EOD_V1",
-        100.0,
-        90.0,
-        120.0,
-        "EOD",
-        alert_date,
-        "V1",
-        alert_time
+        symbol=symbol,
+        breakout_type="EOD|Breakout|50DMA|EOD_V1",
+        alert_time=alert_time,
+        scanner="EOD",
+        category="STRONG_UPTREND",
+        entry_price=100.0,
+        stop_loss=90.0,
+        target_price=120.0
     )
     
     assert alert_id is not None, "Failed to insert test alert"
