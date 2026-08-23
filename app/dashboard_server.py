@@ -3673,21 +3673,24 @@ def _start_port_forwarder(src_port, dst_port):
 
 def start_dashboard_server():
     """Called from main.py in a daemon thread."""
-    # Coolify injects PORT automatically — default 8000 is used if missing (matching Coolify Exposed Ports).
-    port = int(os.getenv("PORT", 8000))
-    logger.info(f"🌐 Dashboard server starting on port {port}")
-    logger.info(f"🌐 Serving User HTML from: {USER_DASHBOARD_PATH or 'NOT FOUND'}")
-    logger.info(f"🌐 Serving Admin HTML from: {ADMIN_DASHBOARD_PATH or 'NOT FOUND'}")
-    logger.info(f"🌐 Performance JSON path: {PERF_JSON_PATH}")
+    try:
+        # Coolify injects PORT automatically — default 8000 is used if missing (matching Coolify Exposed Ports).
+        port = int(os.getenv("PORT", 8000))
+        logger.info(f"🌐 Dashboard server starting on port {port}")
+        logger.info(f"🌐 Serving User HTML from: {USER_DASHBOARD_PATH or 'NOT FOUND'}")
+        logger.info(f"🌐 Serving Admin HTML from: {ADMIN_DASHBOARD_PATH or 'NOT FOUND'}")
+        logger.info(f"🌐 Performance JSON path: {PERF_JSON_PATH}")
 
-    # Forward alternate ports (8000, 8080, 80) to primary port so healthchecks on any port succeed
-    for p in (8000, 8080, 80):
-        if p != port:
-            _start_port_forwarder(p, port)
+        # Forward alternate ports (8000, 8080) to primary port so healthchecks on any port succeed
+        for p in (8000, 8080):
+            if p != port:
+                _start_port_forwarder(p, port)
 
-    # use_reloader=False is critical — Flask reloader forks the process and
-    # breaks the container single-process model and our threading setup.
-    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+        # use_reloader=False is critical — Flask reloader forks the process and
+        # breaks the container single-process model and our threading setup.
+        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    except Exception as e:
+        logger.exception(f"❌ Critical failure starting Flask dashboard server: {e}")
 
 
 def start_dashboard_server_async():
