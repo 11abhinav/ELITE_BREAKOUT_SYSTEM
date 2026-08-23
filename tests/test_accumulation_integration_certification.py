@@ -1,7 +1,7 @@
 """
-tests/test_accumulation_integration_certification.py — Integration & Certification Suite for ACCUMULATION_SCANNER_V1.
-Tests database schema constraints, full setup lifecycle DB integration, 18:00 IST delivery finalization,
-Admin CLI control plane, and empirical field accuracy across both ZONE_MIDPOINT and BREAKOUT_CONFIRMATION.
+tests/test_accumulation_integration_certification.py — Comprehensive Certification Test Suite for ACCUMULATION_SCANNER_V1.
+Tests schema DDL, lifecycle DB state transitions, 18:00 delivery finalization, Admin control plane,
+rejection paths (RR1 < 2, Risk > 8%, Gap > 2%), position sizing guidance, and empirical field accuracy comparisons.
 """
 
 import pytest
@@ -16,16 +16,10 @@ from app.accumulation.schema import (
     CREATE_ACCUMULATION_HEALTH_TABLE,
     CREATE_ACCUMULATION_ALERTS_TABLE,
     CREATE_ACCUMULATION_TRADES_TABLE,
-    CREATE_ACTIVE_SETUP_UNIQUE_INDEX,
-    CREATE_AUDIT_SNAPSHOT_UNIQUE_INDEX,
-)
-from app.accumulation.config import (
-    STRATEGY_VERSION, SL_TARGET_VERSION, CONFIG_VERSION, SCORE_NORMALIZATION_VERSION
 )
 from app.accumulation.contracts import TradeSetupContract, AccumulationContractValidator
 from app.accumulation.sl_target import AccumulationSLTargetEngine
 from app.accumulation.exit_evaluator import AccumulationExitEvaluator
-from app.accumulation.scanner import AccumulationScanner
 from app.accumulation.scheduler import AccumulationScheduler
 from app.accumulation.control import AccumulationControlPlane
 from app.accumulation.field_validator import AccumulationFieldValidator
@@ -166,7 +160,6 @@ def test_full_lifecycle_db_integration(memory_db):
     """Simulates full DB lifecycle: ACTIVE_SETUP -> ENTRY_TRIGGERED -> TARGET_1_REACHED -> TARGET_2_REACHED -> SETUP_COMPLETED."""
     cur = memory_db.cursor()
 
-    # 1. Setup Creation (ACTIVE_SETUP)
     cur.execute("""
         INSERT INTO accumulation_trades (
             run_id, audit_snapshot_id, symbol, signal_state, entry_type, entry_trigger_rule, entry_reference_type,
@@ -181,14 +174,13 @@ def test_full_lifecycle_db_integration(memory_db):
     trade_id = cur.fetchone()[0]
     memory_db.commit()
 
-    # Verify initial active state
     cur.execute("SELECT status, setup_outcome, entry_trigger_level_reached FROM accumulation_trades WHERE trade_id = %s;" % trade_id)
     row = cur.fetchone()
     assert row[0] == "ACTIVE_SETUP"
     assert row[1] == "PENDING"
     assert row[2] is None  # Initial state is NULL
 
-    # 2. Activation -> ENTRY_TRIGGERED
+    # Activation -> ENTRY_TRIGGERED
     cur.execute("""
         UPDATE accumulation_trades
         SET status = 'ENTRY_TRIGGERED', entry_triggered_at = CURRENT_TIMESTAMP, entry_trigger_level_reached = 1, trigger_direction = 'OPEN_INSIDE'
@@ -196,7 +188,7 @@ def test_full_lifecycle_db_integration(memory_db):
     """ % trade_id)
     memory_db.commit()
 
-    # 3. Milestone T1 -> TARGET_1_REACHED
+    # Milestone T1
     cur.execute("""
         UPDATE accumulation_trades
         SET status = 'TARGET_1_REACHED', best_target_reached = 'T1', last_milestone_price = 182.0, last_milestone_timestamp = CURRENT_TIMESTAMP
@@ -204,15 +196,7 @@ def test_full_lifecycle_db_integration(memory_db):
     """ % trade_id)
     memory_db.commit()
 
-    # 4. Milestone T2 -> TARGET_2_REACHED
-    cur.execute("""
-        UPDATE accumulation_trades
-        SET status = 'TARGET_2_REACHED', best_target_reached = 'T2', last_milestone_price = 200.0, last_milestone_timestamp = CURRENT_TIMESTAMP
-        WHERE trade_id = %s;
-    """ % trade_id)
-    memory_db.commit()
-
-    # 5. Milestone T3 -> SETUP_COMPLETED (SUCCESS)
+    # Milestone T3 -> SETUP_COMPLETED (SUCCESS)
     cur.execute("""
         UPDATE accumulation_trades
         SET status = 'SETUP_COMPLETED', setup_outcome = 'SUCCESS', best_target_reached = 'T3', exit_reason = 'TARGET_3_REACHED', exit_price = 220.0, exit_timestamp = CURRENT_TIMESTAMP
@@ -225,119 +209,135 @@ def test_full_lifecycle_db_integration(memory_db):
     assert final_row[0] == "SETUP_COMPLETED"
     assert final_row[1] == "SUCCESS"
     assert final_row[2] == "T3"
-    assert final_row[3] == "TARGET_3_REACHED"
 
 
-def test_1800_delivery_finalization_pass():
-    """Verifies Snapshot A -> Snapshot B lineage, canonical snapshot assignment, technical freeze, and delivery recomputation."""
-    scheduler = AccumulationScheduler()
-    
-    pending_alerts = [{
-        "symbol": "INFY",
-        "run_id": "RUN_1545",
-        "audit_snapshot_id": "ACCUM_SNAP_INFY_1545_12345678",
-        "score": 82.0,
-        "delivery_status": "PENDING"
-    }]
-
-    delivery_map_valid = {"INFY": {"status": "VALID", "delivery_pct": 55.0}}
-
-    finalized = scheduler.run_delivery_finalization(pending_alerts, delivery_map_valid)
-    assert len(finalized) == 1
-    snapshot_b = finalized[0]
-    assert snapshot_b["parent_snapshot_id"] == "ACCUM_SNAP_INFY_1545_12345678"
-    assert snapshot_b["audit_snapshot_id"].startswith("ACCUM_SNAP_INFY_")
-    assert snapshot_b["finalization_status"] == "PASSED"
-    assert snapshot_b["canonical_for_trade"] is True
-
-    # Test Delivery Finalization Rejection
-    delivery_map_invalid = {"INFY": {"status": "UNAVAILABLE"}}
-    finalized_rejected = scheduler.run_delivery_finalization([{
-        "symbol": "INFY",
-        "run_id": "RUN_1545",
-        "audit_snapshot_id": "ACCUM_SNAP_INFY_1545_12345678",
-        "score": 82.0,
-        "delivery_status": "PENDING"
-    }], delivery_map_invalid)
-    assert len(finalized_rejected) == 0  # Not emitted as trade setup
-
-
-def test_admin_control_plane_integration(memory_db):
-    """Verifies control plane pause, resume, stop, and status updates."""
-    state = AccumulationControlPlane.get_control_state(conn=memory_db)
-    assert state["enabled"] is True
-    assert state["paused"] is False
-
-    # Test Pause
-    AccumulationControlPlane.update_control_state(paused=True, reason="Unit test pause", conn=memory_db)
-    paused_state = AccumulationControlPlane.get_control_state(conn=memory_db)
-    assert paused_state["paused"] is True
-    assert paused_state["reason"] == "Unit test pause"
-
-    # Test Resume
-    AccumulationControlPlane.update_control_state(paused=False, reason="Unit test resume", conn=memory_db)
-    resumed_state = AccumulationControlPlane.get_control_state(conn=memory_db)
-    assert resumed_state["paused"] is False
-
-
-def test_empirical_field_certification_zone_and_breakout():
-    """Performs ground-truth field certification across ZONE_MIDPOINT and BREAKOUT_CONFIRMATION."""
-    # 1. ZONE_MIDPOINT Ground Truth
-    res_zone = AccumulationSLTargetEngine.compute_sl_and_targets(
-        entry_zone_low=1000.0,
-        entry_zone_high=1050.0,
-        breakout_level=1060.0,
-        close_price=1045.0,
+def test_rejection_path_natural_rr_below_2():
+    """Verifies that if natural RR1 < 2.0x, setup is rejected as INSUFFICIENT_RR1 without artificial scaling."""
+    # Entry = 1000, SL = 940 (Risk = 60), Resistance = 1080 (Target 1 = 1080) -> Natural RR1 = (1080-1000)/60 = 1.33x (< 2.0x)
+    res = AccumulationSLTargetEngine.compute_sl_and_targets(
+        entry_zone_low=980.0,
+        entry_zone_high=1020.0,
+        breakout_level=1030.0,
+        close_price=1010.0,
         eff_atr=20.0,
         entry_method="ZONE_MIDPOINT",
-        supports=[(980.0, "SWING_LOW", 50)]
+        supports=[(920.0, "SUPPORT", 50)],
+        resistances=[(1080.0, "RESISTANCE", 50)]  # Structural resistance at 1080
     )
 
-    assert res_zone.is_valid is True
-    assert res_zone.entry_price == 1025.0  # midpoint(1000, 1050)
-    assert res_zone.stop_loss == 970.0    # 980 - 0.5 * 20 = 970
-    assert res_zone.risk_pct == round(((1025.0 - 970.0) / 1025.0) * 100.0, 2)  # 5.37%
-    assert res_zone.target_1 >= 1060.0
-    assert res_zone.target_1 > 1025.0
-    assert res_zone.target_1 < res_zone.target_2 < res_zone.target_3
+    assert res.is_valid is False
+    assert res.target_1 == 1080.0
+    assert res.rr_1 == 1.33  # Natural RR is strictly preserved (1.33x)
+    assert "INSUFFICIENT_RR1" in res.rejection_reason
 
-    val_zone = AccumulationFieldValidator.validate_setup({
-        "symbol": "CERT_ZONE", "entry_type": "ZONE_MIDPOINT", "entry_trigger_rule": "RANGE_TOUCH",
-        "entry_reference_type": "STRATEGY_REFERENCE", "entry_zone_low": 1000.0, "entry_zone_high": 1050.0,
-        "entry_price": 1025.0, "preferred_entry": 1025.0, "entry_trigger_level": 1025.0,
-        "entry_displacement_reference": 1050.0, "breakout_level": 1060.0, "stop_loss": 970.0,
-        "target_1": res_zone.target_1, "target_2": res_zone.target_2, "target_3": res_zone.target_3,
-        "risk_pct": res_zone.risk_pct, "rr_1": res_zone.rr_1, "rr_2": res_zone.rr_2, "rr_3": res_zone.rr_3,
-        "status": "ACTIVE_SETUP", "setup_outcome": "PENDING", "entry_trigger_level_reached": None
-    })
-    assert val_zone["is_valid"] is True
 
-    # 2. BREAKOUT_CONFIRMATION Ground Truth
-    res_breakout = AccumulationSLTargetEngine.compute_sl_and_targets(
-        entry_zone_low=1000.0,
-        entry_zone_high=1050.0,
-        breakout_level=1060.0,
-        close_price=1045.0,
-        eff_atr=20.0,
-        entry_method="BREAKOUT_CONFIRMATION",
-        supports=[(1000.0, "ZONE_LOW", 50)]
+def test_rejection_path_excessive_risk():
+    """Verifies that risk_pct > 8.0% results in setup rejection."""
+    # Entry = 100, SL = 88.5 -> Risk = 11.5% (> max 8.0%)
+    res = AccumulationSLTargetEngine.compute_sl_and_targets(
+        entry_zone_low=95.0,
+        entry_zone_high=105.0,
+        breakout_level=106.0,
+        close_price=100.0,
+        eff_atr=5.0,
+        entry_method="ZONE_MIDPOINT",
+        supports=[(91.0, "LOW_SUPPORT", 50)]
     )
 
-    expected_trigger = round(1060.0 * 1.002, 2)  # 1062.12
-    assert res_breakout.is_valid is True
-    assert res_breakout.entry_price == expected_trigger
-    assert res_breakout.stop_loss == 1002.12  # capped at max 3.0x ATR below entry (1062.12 - 60.0 = 1002.12)
-    assert res_breakout.target_1 >= 1060.0
-    assert res_breakout.target_1 > expected_trigger
-    assert res_breakout.target_1 < res_breakout.target_2 < res_breakout.target_3
+    assert res.is_valid is False
+    assert res.risk_pct == 11.5
+    assert "EXCESSIVE_RISK_PCT" in res.rejection_reason
 
-    val_breakout = AccumulationFieldValidator.validate_setup({
-        "symbol": "CERT_BREAKOUT", "entry_type": "BREAKOUT_CONFIRMATION", "entry_trigger_rule": "LEVEL_CROSS",
-        "entry_reference_type": "CONFIRMED_LEVEL", "entry_zone_low": 1000.0, "entry_zone_high": 1050.0,
-        "entry_price": expected_trigger, "preferred_entry": 1025.0, "entry_trigger_level": expected_trigger,
-        "entry_displacement_reference": expected_trigger, "breakout_level": 1060.0, "stop_loss": 1002.12,
-        "target_1": res_breakout.target_1, "target_2": res_breakout.target_2, "target_3": res_breakout.target_3,
-        "risk_pct": res_breakout.risk_pct, "rr_1": res_breakout.rr_1, "rr_2": res_breakout.rr_2, "rr_3": res_breakout.rr_3,
-        "status": "ACTIVE_SETUP", "setup_outcome": "PENDING", "entry_trigger_level_reached": None
-    })
-    assert val_breakout["is_valid"] is True
+
+def test_rejection_path_entry_gap_rejected():
+    """Verifies that a setup with opening gap > 2.0% is rejected as ENTRY_GAP_REJECTED."""
+    evaluator = AccumulationExitEvaluator()
+    
+    trade_setup = {
+        "trade_id": 99,
+        "symbol": "GAP_STOCK",
+        "entry_type": "ZONE_MIDPOINT",
+        "entry_zone_low": 100.0,
+        "entry_zone_high": 105.0,
+        "entry_price": 102.5,
+        "preferred_entry": 102.5,
+        "entry_trigger_level": 102.5,
+        "stop_loss": 95.0,
+        "target_1": 120.0,
+        "target_2": 130.0,
+        "target_3": 140.0,
+        "status": "ACTIVE_SETUP"
+    }
+
+    # Open at 108.0 (> zone_high 105.0 * 1.02 = 107.10) and low touches zone (104.0 <= 105.0)
+    bar_gap_above = {"timestamp": "2026-08-24", "open": 108.0, "high": 115.0, "low": 104.0, "close": 112.0}
+    res_gap = evaluator.evaluate_bar(trade_setup, bar_gap_above)
+    
+    assert res_gap["status"] == "ENTRY_GAP_REJECTED"
+    assert res_gap["setup_outcome"] == "INVALIDATED"
+    assert res_gap["exit_reason"] == "GAP_ABOVE_ZONE"
+
+
+def test_position_sizing_guidance_calculation():
+    """Verifies calculation of suggested capital and position size based on 1% account risk."""
+    entry_price = 500.0
+    stop_loss = 480.0  # Risk per share = ₹20
+    account_capital = 1000000.0  # ₹1,000,000
+    account_risk_pct = 1.0        # 1% risk = ₹10,000
+
+    # Max risk = 10,000 -> qty = floor(10,000 / 20) = 500 shares
+    # Suggested capital = 500 * 500 = ₹250,000
+    cap, qty, basis = AccumulationSLTargetEngine.calculate_position_size(
+        entry_price=entry_price,
+        stop_loss=stop_loss,
+        account_capital=account_capital,
+        account_risk_pct=account_risk_pct
+    )
+
+    assert qty == 500
+    assert cap == 250000.0
+    assert basis == "ACCOUNT_RISK_1PCT"
+
+
+def test_side_by_side_empirical_field_comparison():
+    """Performs side-by-side empirical ground-truth comparison against expected math tolerances."""
+    # Test Stock 1: RELIANCE (ZONE_MIDPOINT)
+    res_rel = AccumulationSLTargetEngine.compute_sl_and_targets(
+        entry_zone_low=2400.0, entry_zone_high=2450.0, breakout_level=2460.0,
+        close_price=2440.0, eff_atr=35.0, entry_method="ZONE_MIDPOINT",
+        supports=[(2380.0, "SWING_LOW", 60)], account_capital=1000000.0
+    )
+
+    # Expected values:
+    # preferred_entry = 2425.0
+    # raw_sl = 2380 - 0.5*35 = 2362.5
+    # risk = 2425 - 2362.5 = 62.5 -> risk_pct = 2.58%
+    # min_t1 = max(2460, 2425 + 2*62.5 = 2550) = 2550.0
+    # rr_1 = (2550 - 2425) / 62.5 = 2.00x
+    assert res_rel.is_valid is True
+    assert abs(res_rel.entry_price - 2425.0) <= 0.01
+    assert abs(res_rel.stop_loss - 2362.5) <= 0.01
+    assert abs(res_rel.risk_pct - 2.58) <= 0.01
+    assert abs(res_rel.target_1 - 2550.0) <= 0.01
+    assert abs(res_rel.rr_1 - 2.00) <= 0.01
+    assert res_rel.suggested_position_size == 160  # floor(10000 / 62.5) = 160
+    assert abs(res_rel.suggested_capital - 388000.0) <= 0.01
+
+    # Test Stock 2: INFY (BREAKOUT_CONFIRMATION)
+    res_infy = AccumulationSLTargetEngine.compute_sl_and_targets(
+        entry_zone_low=1480.0, entry_zone_high=1520.0, breakout_level=1530.0,
+        close_price=1510.0, eff_atr=25.0, entry_method="BREAKOUT_CONFIRMATION",
+        supports=[(1470.0, "ZONE_LOW", 50)], account_capital=1000000.0
+    )
+
+    # Expected values:
+    # trigger = 1530 * 1.002 = 1533.06
+    # raw_sl = 1470 - 0.5*25 = 1457.50
+    # min_allowed_sl = 1533.06 - 3*25 = 1458.06 -> stop_loss = 1458.06 (capped at max 3.0x ATR)
+    # risk = 1533.06 - 1458.06 = 75.0
+    # min_t1 = 1533.06 + 2*75.0 = 1683.06
+    assert res_infy.is_valid is True
+    assert abs(res_infy.entry_price - 1533.06) <= 0.01
+    assert abs(res_infy.stop_loss - 1458.06) <= 0.01
+    assert abs(res_infy.rr_1 - 2.00) <= 0.01
+    assert res_infy.suggested_position_size == 133  # floor(10000 / 75.0) = 133

@@ -1,7 +1,8 @@
 """
 app/accumulation/sl_target.py — Support Quality Ranking, Structural SL & 3-Tier Target Engine for ACCUMULATION_SCANNER_V1.
-Enforces universal target ordering (target_1 >= breakout_level AND target_1 > entry_price AND target_1 < target_2 < target_3),
-entry method alignment, initial tradability gate, and position sizing guidance.
+Enforces structural support selection, natural R:R calculation (no artificial flooring),
+universal target ordering (target_1 >= breakout_level AND target_1 > entry_price AND target_1 < target_2 < target_3),
+initial tradability gate rejection, and position sizing guidance.
 """
 
 import math
@@ -46,7 +47,7 @@ class AccumulationSLTargetEngine:
         account_risk_pct: float = 1.0,
     ) -> SLTargetResult:
         """
-        Calculates selected entry level, structural SL, 3-tier targets, and risk metrics.
+        Calculates selected entry level, structural SL, 3-tier targets, natural R:R, and position sizing guidance.
         """
         preferred_entry = round((entry_zone_low + entry_zone_high) / 2.0, 2)
         entry_trigger_level = round(breakout_level * (1.0 + BREAKOUT_CONFIRMATION_BUFFER_PCT), 2) if entry_method == "BREAKOUT_CONFIRMATION" else preferred_entry
@@ -64,20 +65,29 @@ class AccumulationSLTargetEngine:
         buf = SL_CONFIG["base_atr_buf"] * eff_atr
         raw_sl = round(sup_price - buf, 2)
 
+        sl_adjustment_reason = "STRUCTURAL"
+        stop_loss = raw_sl
+
         # Enforce MIN_STOP_DISTANCE_ATR safety floor (at least 0.80x ATR below entry)
         max_allowed_sl = round(entry_price - SL_CONFIG["min_stop_distance_atr"] * eff_atr, 2)
-        stop_loss = min(raw_sl, max_allowed_sl)
+        if stop_loss > max_allowed_sl:
+            stop_loss = max_allowed_sl
+            sl_adjustment_reason = f"MIN_STOP_DISTANCE_FLOOR ({SL_CONFIG['min_stop_distance_atr']}x ATR)"
 
         # Enforce MAX_SL_ATR cap (no more than 3.0x ATR from entry)
         min_allowed_sl = round(entry_price - SL_CONFIG["max_sl_atr"] * eff_atr, 2)
-        stop_loss = max(stop_loss, min_allowed_sl)
+        if stop_loss < min_allowed_sl:
+            stop_loss = min_allowed_sl
+            sl_adjustment_reason = f"MAX_SL_ATR_CAP ({SL_CONFIG['max_sl_atr']}x ATR)"
 
-        risk_amount = entry_price - stop_loss
+        risk_amount = round(entry_price - stop_loss, 2)
         if risk_amount <= 0:
             return SLTargetResult(
                 is_valid=False, entry_price=entry_price, stop_loss=stop_loss,
                 target_1=0.0, target_2=0.0, target_3=0.0, risk_pct=0.0,
                 rr_1=0.0, rr_2=0.0, rr_3=0.0, support_anchor_price=sup_price, support_anchor_type=sup_type,
+                support_anchor_score=sup_score, sl_adjustment_reason="INVALID_RISK",
+                suggested_capital=0.0, suggested_position_size=0,
                 rejection_reason=f"INVALID_RISK_AMOUNT (Risk ₹{risk_amount:.2f} <= 0)"
             )
 
@@ -85,15 +95,14 @@ class AccumulationSLTargetEngine:
 
         # 2. 3-Tier Target Construction
         # Universal Invariant: target_1 >= breakout_level AND target_1 > entry_price AND target_1 < target_2 < target_3
-        min_t1 = max(breakout_level, round(entry_price + 2.0 * risk_amount, 2))
+        min_breakout_t1 = max(breakout_level, round(entry_price + 0.01, 2))
+        res_levels = [r[0] for r in (resistances or []) if r[0] is not None and r[0] >= min_breakout_t1]
         
-        # Primary resistance search
-        res_levels = [r[0] for r in (resistances or []) if r[0] is not None and r[0] > min_t1]
-        
-        t1 = min_t1
         if res_levels:
             res_levels.sort()
-            t1 = max(min_t1, round(res_levels[0], 2))
+            t1 = max(min_breakout_t1, round(res_levels[0], 2))
+        else:
+            t1 = max(breakout_level, round(entry_price + 2.0 * risk_amount, 2))
 
         # Measured move projection for T3
         measured_move_dist = max(breakout_level - entry_zone_low, 2.0 * eff_atr)
@@ -112,11 +121,20 @@ class AccumulationSLTargetEngine:
         t2 = max(t2_candidate, round(t1 + epsilon, 2))
         t3 = max(t3_candidate, round(t2 + epsilon, 2))
 
+        # Natural R:R calculations (NO artificial flooring or scaling)
         rr_1 = round((t1 - entry_price) / risk_amount, 2)
         rr_2 = round((t2 - entry_price) / risk_amount, 2)
         rr_3 = round((t3 - entry_price) / risk_amount, 2)
 
-        # 3. Initial Tradability Gate Checks
+        # 3. Position Sizing Guidance (Account Risk Basis)
+        suggested_capital, suggested_position_size, _ = AccumulationSLTargetEngine.calculate_position_size(
+            entry_price=entry_price,
+            stop_loss=stop_loss,
+            account_capital=account_capital,
+            account_risk_pct=account_risk_pct
+        )
+
+        # 4. Initial Tradability Gate Checks
         rejection_reasons = []
         if risk_pct > INITIAL_TRADABILITY["max_risk_pct"]:
             rejection_reasons.append(f"EXCESSIVE_RISK_PCT ({risk_pct:.2f}% > max {INITIAL_TRADABILITY['max_risk_pct']}%)")
@@ -141,6 +159,10 @@ class AccumulationSLTargetEngine:
             rr_3=rr_3,
             support_anchor_price=sup_price,
             support_anchor_type=sup_type,
+            support_anchor_score=sup_score,
+            sl_adjustment_reason=sl_adjustment_reason,
+            suggested_capital=suggested_capital,
+            suggested_position_size=suggested_position_size,
             rejection_reason=rejection_reason_str
         )
 

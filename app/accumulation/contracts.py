@@ -45,6 +45,10 @@ class SLTargetResult:
     rr_3: float
     support_anchor_price: float
     support_anchor_type: str
+    support_anchor_score: int = 50
+    sl_adjustment_reason: str = "STRUCTURAL"
+    suggested_capital: float = 0.0
+    suggested_position_size: int = 0
     rejection_reason: Optional[str] = None
 
 @dataclass

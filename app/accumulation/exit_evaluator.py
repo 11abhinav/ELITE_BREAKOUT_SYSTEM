@@ -34,11 +34,11 @@ class AccumulationExitEvaluator:
         target_3 = float(setup["target_3"])
         best_target_reached = setup.get("best_target_reached")
 
-        bar_open = float(bar["Open"])
-        bar_high = float(bar["High"])
-        bar_low = float(bar["Low"])
-        bar_close = float(bar["Close"])
-        bar_timestamp = bar.get("Timestamp") or datetime.utcnow()
+        bar_open = float(bar.get("Open") if "Open" in bar else bar.get("open", 0.0))
+        bar_high = float(bar.get("High") if "High" in bar else bar.get("high", 0.0))
+        bar_low = float(bar.get("Low") if "Low" in bar else bar.get("low", 0.0))
+        bar_close = float(bar.get("Close") if "Close" in bar else bar.get("close", 0.0))
+        bar_timestamp = bar.get("Timestamp") or bar.get("timestamp") or datetime.utcnow()
 
         result = dict(setup)
 
