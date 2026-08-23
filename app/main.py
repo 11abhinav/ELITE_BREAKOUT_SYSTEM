@@ -1027,20 +1027,22 @@ def run_bayesian_loop():
 
 def run_all_seven_scanners_non_market_boot():
     """
-    Executes a single catch-up pass of ALL SEVEN scanners sequentially when the server restarts during non-market hours.
-    Seven Scanners:
-      1. EOD Scanner
-      2. Reversal Scanner
-      3. Pullback Pipeline
-      4. Multi-TF Scanner
-      5. Wealth Engine
-      6. Multibagger Scanner
-      7. Accumulation Scanner
+    Executes a single catch-up pass of ALL PRIMARY SCANNERS sequentially in the exact sequence
+    as displayed on the System Health dashboard card grid when the server restarts during non-market hours.
+    Sequence (matches Health Card Grid):
+      1. DAILY_BUILDER (Watchlist Builder)
+      2. MULTI_TF (Multi-TF Scanner)
+      3. ACCUMULATION (Accumulation Scanner)
+      4. EOD (EOD Scanner)
+      5. REVERSAL (Reversal Scanner)
+      6. PULLBACK (Pullback Pipeline)
+      7. Wealth Engine (Wealth Engine)
+      8. MULTIBAGGER (Multibagger Scanner)
     """
     def _run_batch():
         logger.info("======================================================================")
         logger.info("🌙 [NON-MARKET HOURS BOOT] Server restarted outside market hours.")
-        logger.info("🚀 Triggering 1-pass catchup execution for ALL SEVEN SCANNERS...")
+        logger.info("🚀 Triggering 1-pass catchup execution for ALL SCANNERS in Health Dashboard sequence...")
         logger.info("======================================================================")
         
         try:
@@ -1048,23 +1050,25 @@ def run_all_seven_scanners_non_market_boot():
         except Exception as e:
             logger.warning(f"⚠️ [NON-MARKET BOOT] Watchlist readiness check warning: {e}")
 
-        seven_scanners = [
+        all_scanners = [
+            ("DAILY_BUILDER", _trigger_daily_builder),
+            ("MULTI_TF", _trigger_multi_tf),
+            ("ACCUMULATION", _trigger_accumulation),
             ("EOD", _trigger_eod),
             ("REVERSAL", _trigger_reversal),
             ("PULLBACK", _trigger_pullback),
-            ("MULTI_TF", _trigger_multi_tf),
             ("Wealth Engine", _trigger_wealth_engine),
             ("MULTIBAGGER", _trigger_multibagger),
-            ("ACCUMULATION", _trigger_accumulation),
         ]
 
-        from database import is_scanner_stopped
-        for idx, (name, fn) in enumerate(seven_scanners, 1):
+        from database import is_scanner_stopped, upsert_scanner_health
+        for idx, (name, fn) in enumerate(all_scanners, 1):
             if is_scanner_stopped(name):
-                logger.info(f"⏭️ [NON-MARKET BOOT] ({idx}/7) {name} is STOPPED by Admin. Skipping.")
+                logger.info(f"⏭️ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) {name} is STOPPED by Admin. Skipping.")
                 continue
 
-            logger.info(f"▶️ [NON-MARKET BOOT] ({idx}/7) Running Scanner: {name}...")
+            logger.info(f"▶️ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) Running Scanner: {name}...")
+            upsert_scanner_health(name, status="RUNNING", error_msg="Non-market boot scan in progress...")
             start_t = time.time()
             try:
                 import inspect
@@ -1074,15 +1078,15 @@ def run_all_seven_scanners_non_market_boot():
                 else:
                     fn()
                 dur = round(time.time() - start_t, 1)
-                logger.info(f"✅ [NON-MARKET BOOT] ({idx}/7) {name} completed in {format_duration(dur)}.")
+                logger.info(f"✅ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) {name} completed in {format_duration(dur)}.")
             except Exception as exc:
                 dur = round(time.time() - start_t, 1)
-                logger.exception(f"❌ [NON-MARKET BOOT] ({idx}/7) {name} failed after {format_duration(dur)}: {exc}")
+                logger.exception(f"❌ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) {name} failed after {format_duration(dur)}: {exc}")
 
             time.sleep(5)
 
         logger.info("======================================================================")
-        logger.info("✅ [NON-MARKET HOURS BOOT] Completed single catch-up pass of all seven scanners.")
+        logger.info("✅ [NON-MARKET HOURS BOOT] Completed single catch-up pass of all scanners.")
         logger.info("======================================================================")
 
     import threading
@@ -2240,7 +2244,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     return {"status": "ok", "message": f"{scanner_key} triggered — running in background"}
 
 
-def _trigger_daily_builder():
+def _trigger_daily_builder(trigger_type="MANUAL", scheduler_name="MANUAL"):
     import os
     import json
     try:
@@ -2253,9 +2257,19 @@ def _trigger_daily_builder():
         logging.getLogger(__name__).warning(f"Could not clear daily builder checkpoint: {e}")
         
     from daily_builder import main as build_watchlist
-    build_watchlist(force_rebuild=True)
-    from watchlist_cache import get_watchlist
-    get_watchlist()
+    from database import start_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health
+    upsert_scanner_health("DAILY_BUILDER", status="RUNNING", error_msg="Building watchlist...")
+    run_ctx = start_scanner_execution_run(scanner_name="DAILY_BUILDER", trigger_type=trigger_type, scheduler_name=scheduler_name)
+    try:
+        build_watchlist(force_rebuild=True)
+        complete_scanner_execution_run(run_ctx)
+        from watchlist_cache import get_watchlist
+        get_watchlist()
+        upsert_scanner_health("DAILY_BUILDER", status="OK", error_msg=None)
+    except Exception as exc:
+        complete_scanner_execution_run(run_ctx, exception=exc)
+        upsert_scanner_health("DAILY_BUILDER", status="DOWN", error_msg=str(exc))
+        raise exc
 
 def _trigger_multi_tf(trigger_type="SCHEDULED", scheduler_name="CRON"):
     import multi_tf_scanner

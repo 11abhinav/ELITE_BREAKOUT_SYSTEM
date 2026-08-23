@@ -88,47 +88,51 @@ class ConstituentService:
                     logger.info(f"📥 Downloading {name} constituents...")
                     
                     response = None
-                    max_retries = 3
+                    max_retries = 2
                     for attempt in range(max_retries):
+                        # Attempt 1: Direct Session fetch (10s timeout)
                         try:
-                            response = session.get(url, timeout=30)
-                            if response.status_code == 200:
+                            res = session.get(url, timeout=10)
+                            if res and res.status_code == 200 and len(res.content) > 100:
+                                response = res
                                 break
-                        except Exception as e:
-                            # Try Crawlora fallback before sleeping
-                            from config import CRAWLORA_API_KEY
-                            if CRAWLORA_API_KEY:
-                                try:
-                                    masked_ckey = f"{CRAWLORA_API_KEY[:4]}...{CRAWLORA_API_KEY[-4:]}" if len(CRAWLORA_API_KEY) > 8 else "CRAWLORA"
-                                    logger.info(f"🌐 [CRAWLORA] Requesting {name} constituents (Key: [{masked_ckey}]): {url}")
-                                    c_resp = requests.get('https://api.crawlora.net/v1/scrape', params={'api_key': CRAWLORA_API_KEY, 'url': url}, timeout=30)
-                                    if c_resp is not None and c_resp.status_code == 200:
-                                        response = c_resp
-                                        logger.info(f"✅ [CRAWLORA SUCCESS] Downloaded {name} constituents ({len(c_resp.content)} bytes)")
-                                        break
-                                    else:
-                                        status_str = c_resp.status_code if c_resp else 'No Response'
-                                        logger.warning(f"⚠️ [CRAWLORA FAIL] HTTP {status_str} for {name} constituents: {c_resp.text[:150] if c_resp else ''}")
-                                except Exception as crawlora_err:
-                                    logger.warning(f"❌ [CRAWLORA ERROR] Crawlora fallback failed for {name}: {crawlora_err}")
+                        except Exception as direct_err:
+                            logger.warning(f"⚠️ [NSE DIRECT FETCH] Timeout/error for {name} (attempt {attempt+1}): {direct_err}")
+                        
+                        # Attempt 2: Crawlora fallback with active key rotation
+                        try:
+                            from pledge_scraper import get_crawlora_key
+                            crawlora_key = get_crawlora_key()
+                            if crawlora_key:
+                                masked_ckey = f"{crawlora_key[:4]}...{crawlora_key[-4:]}" if len(crawlora_key) > 8 else "CRAWLORA"
+                                logger.info(f"🌐 [CRAWLORA] Fetching {name} constituents (Key: [{masked_ckey}]): {url}")
+                                c_resp = requests.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': url}, timeout=15)
+                                if c_resp is not None and c_resp.status_code == 200 and len(c_resp.content) > 100:
+                                    response = c_resp
+                                    logger.info(f"✅ [CRAWLORA SUCCESS] Downloaded {name} constituents ({len(c_resp.content)} bytes)")
+                                    break
+                                else:
+                                    status_str = c_resp.status_code if c_resp else 'No Response'
+                                    logger.warning(f"⚠️ [CRAWLORA FAIL] HTTP {status_str} for {name}")
+                        except Exception as crawlora_err:
+                            logger.warning(f"⚠️ [CRAWLORA ERROR] Crawlora fallback for {name}: {crawlora_err}")
 
-                            if attempt == max_retries - 1:
-                                logger.error(f"Failed to download {name} constituents after {max_retries} attempts: {e}")
-                                try:
-                                    from database import insert_notification
-                                    insert_notification(
-                                        notif_type="error",
-                                        title=f"🚨 NSE API Timeout ({name})",
-                                        message=f"Failed to fetch {url}. The NSE server is throttling or down. Error: {str(e)[:200]}"
-                                    )
-                                except Exception:
-                                    pass
-                                raise
-                            
-                            backoff = (2 ** attempt) * 5
-                            logger.warning(f"⚠️ NSE API error for {name} (attempt {attempt+1}): {e}. Retrying in {backoff}s...")
-                            time.sleep(backoff)
-                    
+                        # Attempt 3: ScraperAPI fallback
+                        try:
+                            scraperapi_key = os.getenv("SCRAPERAPI_KEY")
+                            if scraperapi_key:
+                                logger.info(f"🌐 [SCRAPERAPI] Fetching {name} constituents via ScraperAPI...")
+                                s_resp = requests.get("http://api.scraperapi.com", params={"api_key": scraperapi_key, "url": url}, timeout=20)
+                                if s_resp and s_resp.status_code == 200 and len(s_resp.content) > 100:
+                                    response = s_resp
+                                    logger.info(f"✅ [SCRAPERAPI SUCCESS] Downloaded {name} constituents ({len(s_resp.content)} bytes)")
+                                    break
+                        except Exception as scraper_err:
+                            logger.warning(f"⚠️ [SCRAPERAPI ERROR] ScraperAPI fallback for {name}: {scraper_err}")
+
+                        if attempt < max_retries - 1:
+                            time.sleep(2)
+
                     if response and response.status_code == 200:
                         df = pd.read_csv(io.StringIO(response.text))
                         if "Symbol" in df.columns:
@@ -138,12 +142,14 @@ class ConstituentService:
                                     symbols.add(clean_sym)
                             logger.info(f"✅ Loaded {len(df)} constituents for {name}.")
                             success_count += 1
+                        else:
+                            logger.warning(f"⚠️ CSV parsed for {name} missing 'Symbol' column.")
                     else:
-                        logger.warning(f"⚠️ Failed to fetch {name}: HTTP {response.status_code if response else 'Unknown'}")
+                        logger.warning(f"⚠️ Could not download {name} constituents from live sources. Continuing with remaining indices...")
                 except Exception as e:
-                    logger.warning(f"⚠️ Error fetching {name}: {e}")
+                    logger.warning(f"⚠️ Gracefully handled exception for {name}: {e}")
                 
-                time.sleep(2.5)
+                time.sleep(1.0)
             
             if success_count == 0:
                 logger.error("❌ Failed to download ANY constituents from NSE.")
