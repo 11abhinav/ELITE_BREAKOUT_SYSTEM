@@ -3348,6 +3348,8 @@ function getEarningsBadgeHtml(item) {
     // ── TRADE TABLE helpers
     let expandedIds = new Set();
     let sortCol = 'status', sortDir = 1;
+    const EXIT_HISTORY_CACHE = new Map(); // In-memory cache for on-demand exit history fetches
+
 
     function calcFloatingPnl(t) {
       let realizedRs = (t.pnl_rs != null && (t.status === 'WIN' || t.status === 'LOSS' || (t.status && t.status.startsWith('PARTIAL_WIN')))) ? t.pnl_rs : 0;
