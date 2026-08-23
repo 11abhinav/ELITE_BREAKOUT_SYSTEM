@@ -392,7 +392,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False, session=None):
     _wl_hash = hashlib.md5("|".join(_wl_stocks).encode()).hexdigest()[:12]
     logger.info(f"📋 [MULTI_TF] Targeted universe fingerprint: {len(watchlist)} stocks | hash={_wl_hash}")
 
-    import gc, time, os
+    import gc, time
     BATCH_SIZE = int(os.environ.get("MULTI_TF_FETCH_BATCH_SIZE", "200"))
     
     stale_1h = 0

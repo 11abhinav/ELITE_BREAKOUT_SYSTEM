@@ -835,8 +835,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
         from memory_profiler import chunk_iterable, BatchMemoryTracker
         total_batches = (len(watchlist) + BATCH_SIZE - 1) // BATCH_SIZE
 
-        approved_candidates = []
-        import os, psutil, gc, time
+        import psutil
         process = psutil.Process(os.getpid())
         BATCH_SIZE = int(os.environ.get("EOD_FETCH_BATCH_SIZE", "50"))
         
