@@ -1043,6 +1043,8 @@ def run_all_seven_scanners_non_market_boot():
         logger.info("======================================================================")
         
         try:
+            from database import cleanup_orphaned_scanner_runs_on_boot
+            cleanup_orphaned_scanner_runs_on_boot()
             block_until_watchlist_ready()
         except Exception as e:
             logger.warning(f"⚠️ [NON-MARKET BOOT] Watchlist readiness check warning: {e}")
@@ -2324,6 +2326,14 @@ def _trigger_wealth_exit():
 if __name__ == "__main__":
     forensics.take_snapshot("startup")
 
+    # Clean up any orphaned scanner execution records left in RUNNING state from previous container restarts
+    try:
+        from database import cleanup_orphaned_scanner_runs_on_boot
+        cleanup_orphaned_scanner_runs_on_boot()
+        logger.info("🧹 [BOOT] Cleaned up any orphaned scanner runs from previous server process.")
+    except Exception as e:
+        logger.warning(f"⚠️ [BOOT] Boot scanner cleanup warning: {e}")
+
     # [VERSION: SESSION_ARCH_v2A_0] Instantiate ApplicationContext at process boot.
     # This is the single process-lifetime owner of all services and sessions.
     from application_context import ApplicationContext
@@ -2331,8 +2341,12 @@ if __name__ == "__main__":
     logger.info("✅ [SESSION_ARCH] ApplicationContext ready (Phase 2A — wiring only).")
 
     def handle_sigterm(*args):
-        logger.info("🛑 SIGTERM received — container shutting down. Closing gracefuly...")
-        # Destroy session cleanly on SIGTERM so memory is released before exit
+        logger.info("🛑 SIGTERM received — container shutting down. Closing gracefully...")
+        try:
+            from database import cleanup_orphaned_scanner_runs_on_boot
+            cleanup_orphaned_scanner_runs_on_boot()
+        except Exception:
+            pass
         try:
             _app_ctx.destroy_session()
         except Exception:
