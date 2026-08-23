@@ -1106,18 +1106,12 @@ from lock_utils import ProcessLock
 _build_lock = ProcessLock("daily_builder")
 _global_lock = ProcessLock("global_scanner_lock")
 
-def main(force_rebuild: bool = False, run_ctx=None):
+def main(force_rebuild: bool = False, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON"):
     import time
     from database import is_scanner_stopped, upsert_scanner_health
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("DAILY_BUILDER"):
         logger.info("🛑 Daily Builder is STOPPED by Admin. Skipping execution.")
-        return
-
-    from database import is_scanner_actively_running
-    current_run_id = getattr(run_ctx, "run_id", None) if run_ctx else None
-    if _build_lock.locked():
-        logger.warning("🛑 [DUPLICATE GUARD] DAILY_BUILDER Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
         return
 
     queued_at = None
@@ -1129,25 +1123,45 @@ def main(force_rebuild: bool = False, run_ctx=None):
             raise RuntimeError("Failed to acquire global scanner lock.")
         logger.info(f"✅ [DAILY_BUILDER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
-    # Lock acquired! NOW create the execution history to strictly show RUNNING
+    if not _build_lock.acquire(blocking=False):
+        _global_lock.release()
+        logger.warning("🛑 DAILY_BUILDER Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
+        if run_ctx:
+            try:
+                from database import complete_scanner_execution_run
+                complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
+            except Exception: pass
+        return
+
+    # Check if data already exists for today when force_rebuild is False
+    if not force_rebuild:
+        try:
+            from database import check_data_exists_for_today
+            if check_data_exists_for_today() and ensure_daily_builder_cache():
+                logger.info("⏭️ [DAILY BUILDER] Watchlist already fresh for today. Skipping redundant build.")
+                upsert_scanner_health("DAILY_BUILDER", status="OK", error_msg=None)
+                _build_lock.release()
+                _global_lock.release()
+                if run_ctx:
+                    try:
+                        from database import complete_scanner_execution_run
+                        complete_scanner_execution_run(run_ctx, status_override="SKIPPED_FRESH", stop_reason="Watchlist data already exists for today")
+                    except Exception: pass
+                return
+        except Exception as check_err:
+            logger.warning(f"⚠️ DB re-run guard check failed in main(): {check_err}. Proceeding with build.")
+
+    # Lock acquired and build needed! NOW create execution history run context if not provided
     created_ctx = False
     if run_ctx is None:
         try:
             from database import start_scanner_execution_run
-            run_ctx = start_scanner_execution_run(scanner_name="DAILY_BUILDER", trigger_type="SCHEDULED", scheduler_name="CRON")
+            run_ctx = start_scanner_execution_run(scanner_name="DAILY_BUILDER", trigger_type=trigger_type, scheduler_name=scheduler_name)
             created_ctx = True
         except Exception as exc:
             pass
             
     upsert_scanner_health("DAILY_BUILDER", "RUNNING", error_msg="DAILY_BUILDER scan in progress...")
-
-    if not _build_lock.acquire(blocking=False):
-        _global_lock.release()
-        logger.warning("🛑 DAILY_BUILDER Scanner is ALREADY actively running. Skipping duplicate execution.")
-        if created_ctx and run_ctx:
-            from database import complete_scanner_execution_run
-            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
-        return
 
     _scan_start = print_scanner_start_banner("daily_builder", queued_at=queued_at)
     try:
@@ -1170,7 +1184,7 @@ def main(force_rebuild: bool = False, run_ctx=None):
             pass
         _build_lock.release()
         _global_lock.release()
-        if run_ctx:
+        if run_ctx and not created_ctx:
             try:
                 from database import complete_scanner_execution_run
                 complete_scanner_execution_run(run_ctx)

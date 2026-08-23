@@ -169,17 +169,23 @@ def _log_cache_timeline():
         largest_key = None
         largest_key_mb = 0.0
         
-        for k, entry in _cache.items():
-            data = entry.get("data", {})
+        # [RULE 67 CHANGE RATIONALE - CACHE TIMELINE TRAVERSAL FIX]
+        # _cache structure is _cache[(interval, period)][symbol] = {"data": df, "ts": ...}.
+        # Previously `data = entry.get("data", {})` assumed top-level entry had a "data" key, returning {}
+        # and falsely logging Total DFs: 0 and Memory: 0.0 MB.
+        # Fixed by iterating over sym_map.items() and accessing item.get("data").
+        for k, sym_map in _cache.items():
             key_mb = 0.0
             dfs_in_key = 0
-            for sym, df in data.items():
-                if df is not None and not df.empty:
-                    dfs_in_key += 1
-                    try:
-                        key_mb += df.memory_usage(deep=False).sum() / (1024 * 1024)
-                    except Exception:
-                        pass
+            if isinstance(sym_map, dict):
+                for sym, item in sym_map.items():
+                    df = item.get("data") if isinstance(item, dict) else item
+                    if df is not None and isinstance(df, pd.DataFrame) and not df.empty:
+                        dfs_in_key += 1
+                        try:
+                            key_mb += df.memory_usage(deep=False).sum() / (1024 * 1024)
+                        except Exception:
+                            pass
             
             total_dfs += dfs_in_key
             total_mb += key_mb

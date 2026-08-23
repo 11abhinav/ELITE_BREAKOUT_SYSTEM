@@ -860,7 +860,12 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                 total_fetched_count += len(all_ticker_data)
                 rss_after_fetch = process.memory_info().rss / 1024 / 1024
                 
-                for idx, (_, row) in enumerate(chunk_df.iterrows(), start=1):
+                # [RULE 67 CHANGE RATIONALE - EOD BATCH ORCHESTRATION LOOP FIX]
+                # Previously line 863 had `for idx, (_, row) in enumerate(chunk_df.iterrows(), start=1):` wrapping
+                # the batch ThreadPoolExecutor. This caused each 50-stock chunk to execute 50 times in a row, stalling
+                # EOD progression at Batch 1/2. Replacing this with `for _batch_run in range(1):` ensures single-pass
+                # batch execution while preserving indentation.
+                for _batch_run in range(1):
                     with BatchMemoryTracker("EOD", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
                         import pandas as pd
                         import time
@@ -1881,7 +1886,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
             else:
                 logger.info(f"✅ Successfully fetched {total_fetched_count} symbols for EOD phase")
                 rss_after_convert = process.memory_info().rss / 1024 / 1024
-                del all_ticker_data
+                locals().pop('all_ticker_data', None)
                 locals().pop('ticker', None)
                 gc.collect()
                 rss_after_gc = process.memory_info().rss / 1024 / 1024

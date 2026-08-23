@@ -130,8 +130,14 @@ class TelemetryValueEntry:
         self.timestamp = time.time()
         
         sanitized, raw_val_str, status, reason = sanitize_telemetry_value(value)
+        # [RULE 67 CHANGE RATIONALE] Check for price-scale indicators equal to 0.0 sentinel
+        _price_inds = {"SMA", "EMA", "ATR", "PRICE", "HIGH", "LOW", "OPEN", "CLOSE", "52W_HIGH", "52W_LOW", "PRIOR_20D_HIGH", "VWAP"}
+        key_upper = str(key).upper()
+        if status == "VALID" and (any(ind in key_upper for ind in ["SMA", "EMA", "ATR"]) or key_upper in _price_inds) and (sanitized == 0.0 or value == 0):
+            status = "INVALID"
+            reason = "ZERO_SENTINEL_INDICATOR"
         # Apply STALE precedence if data is otherwise valid but comes from stale cache
-        if origin == "STALE_CACHE" and status == "VALID":
+        elif origin == "STALE_CACHE" and status == "VALID":
             status = "STALE"
             reason = "STALE_DATA_USED"
 
@@ -202,7 +208,17 @@ class DecisionContext:
             value = None
             valid = False
 
-        self.decision_manifest.append({
+        # [RULE 67 CHANGE RATIONALE - TELEMETRY SENTINEL & DEDUPLICATION FIX]
+        # 1. Zero-Sentinel Invalidation: Price-scale technical indicators (SMA, EMA, ATR, OHLCV, 52W High) equal to 0.0
+        #    are uncalculated/default values for equity prices. Setting valid=False prevents certification false-positives.
+        # 2. Manifest Deduplication: Updating existing manifest entries by name prevents ballooning duplicate entries
+        #    when contexts are updated across evaluation passes.
+        _price_indicators = {"SMA", "EMA", "ATR", "PRICE", "HIGH", "LOW", "OPEN", "CLOSE", "52W_HIGH", "52W_LOW", "PRIOR_20D_HIGH", "VWAP"}
+        key_upper = str(name).upper()
+        if (any(ind in key_upper for ind in ["SMA", "EMA", "ATR"]) or key_upper in _price_indicators) and (value == 0 or value == 0.0):
+            valid = False
+
+        new_entry = {
             "name": name,
             "value": value,
             "raw_value": raw_value,
@@ -218,7 +234,14 @@ class DecisionContext:
             "data_type": data_type or "DAILY_CLOSE",
             "calculation_fingerprint": calculation_fingerprint,
             "formula": formula
-        })
+        }
+
+        for dm in self.decision_manifest:
+            if dm.get("name") == name:
+                dm.update(new_entry)
+                return
+
+        self.decision_manifest.append(new_entry)
 
     def capture(self, key: str, value: Any, origin: str = "CALCULATED", group: str = "DERIVED", source_series: str = None):
         """Captures a field into decision context, guaranteeing non-silent retention."""
