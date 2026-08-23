@@ -3647,6 +3647,21 @@ def start_dashboard_server():
     logger.info(f"🌐 Serving User HTML from: {USER_DASHBOARD_PATH or 'NOT FOUND'}")
     logger.info(f"🌐 Serving Admin HTML from: {ADMIN_DASHBOARD_PATH or 'NOT FOUND'}")
     logger.info(f"🌐 Performance JSON path: {PERF_JSON_PATH}")
+
+    # Bind secondary port (8000 if primary is 8080, or 8080 if primary is 8000)
+    # This guarantees Coolify's container healthcheck succeeds whether it probes port 8000 or 8080
+    alt_port = 8000 if port != 8000 else 8080
+    def _run_secondary():
+        try:
+            from werkzeug.serving import make_server
+            srv = make_server("0.0.0.0", alt_port, app)
+            logger.info(f"🌐 Secondary health listener active on port {alt_port}")
+            srv.serve_forever()
+        except Exception as e:
+            logger.warning(f"⚠️ Secondary health listener on port {alt_port} skipped: {e}")
+
+    threading.Thread(target=_run_secondary, name="SecondaryHealthPort", daemon=True).start()
+
     # use_reloader=False is critical — Flask reloader forks the process and
     # breaks the container single-process model and our threading setup.
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
