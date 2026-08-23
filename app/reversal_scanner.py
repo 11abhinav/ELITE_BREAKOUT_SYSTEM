@@ -527,6 +527,7 @@ def _score_reversal(
     if rsi_recovery >= 20:   rsi_pts = 15
     elif rsi_recovery >= 12: rsi_pts = 12
     elif rsi_recovery >= 8:  rsi_pts = 8
+    elif rsi_recovery >= 3:  rsi_pts = 2
     score += rsi_pts
 
     # ── Category quality (10 pts) ──
@@ -2223,7 +2224,7 @@ def _validate_config():
     if RSI_CURL_MIN <= RSI_OVERSOLD_THRESHOLD:
         fatal.append(f"RSI_CURL_MIN ({RSI_CURL_MIN}) must exceed RSI_OVERSOLD_THRESHOLD ({RSI_OVERSOLD_THRESHOLD})")
     
-    _MIN_RSI_PTS = 15 if MIN_RSI_RECOVERY >= 20 else (12 if MIN_RSI_RECOVERY >= 12 else (8 if MIN_RSI_RECOVERY >= 8 else 0))
+    _MIN_RSI_PTS = 15 if MIN_RSI_RECOVERY >= 20 else (12 if MIN_RSI_RECOVERY >= 12 else (8 if MIN_RSI_RECOVERY >= 8 else (2 if MIN_RSI_RECOVERY >= 3 else 0)))
     for r, req in REGIME_EVIDENCE_REQ.items():
         min_v = req.get("min_vol_ratio", MIN_VOLUME_RATIO)
         v_pts = 15 if min_v >= 5.0 else (12 if min_v >= 3.5 else (9 if min_v >= 2.5 else (5 if min_v >= 2.0 else 0)))
