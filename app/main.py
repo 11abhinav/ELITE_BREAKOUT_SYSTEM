@@ -2351,6 +2351,11 @@ if __name__ == "__main__":
             _app_ctx.destroy_session()
         except Exception:
             pass
+        try:
+            from database import close_pool
+            close_pool()
+        except Exception:
+            pass
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, handle_sigterm)

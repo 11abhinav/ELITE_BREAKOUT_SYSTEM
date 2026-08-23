@@ -144,6 +144,20 @@ def _get_pool() -> Optional[pool.ThreadedConnectionPool]:
         return _pool
 
 
+def close_pool():
+    global _pool
+    with _pool_lock:
+        if _pool is not None:
+            try:
+                _pool.closeall()
+                logger.info("🧹 Postgres connection pool closed cleanly.")
+            except Exception as e:
+                logger.warning(f"Error closing DB pool: {e}")
+            _pool = None
+
+atexit.register(close_pool)
+
+
 @contextmanager
 def get_connection(timeout: int = 15):
     """Get DB connection with circuit breaker pattern.

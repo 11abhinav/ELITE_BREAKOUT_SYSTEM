@@ -690,18 +690,21 @@ def get_access_token() -> str:
             logger.error(f"❌ [FYERS AUTH ERROR] Fyers token missing for today ({now_date}). Auto-login was already attempted on startup and failed. Please authenticate via /fyers/login.")
             return None
 
-        # 4. Attempt auto-login ONCE for today
+        # 4. Attempt auto-login ONCE for today in background thread to avoid blocking server boot & healthchecks
         _autologin_attempted_date = now_date
-        logger.info(f"No valid Fyers token for today found in DB or locally. Attempting ONE-TIME ScraperAPI auto-login for today ({now_date})...")
-        token = auto_login()
-        if token:
-            _cached_token = token
-            _token_date = now_date
-            return token
-
-        # Dispatch clickable admin notification ONCE and return None
-        dispatch_fyers_reauth_notification("Fyers access token could not be generated automatically.")
-        logger.error(f"❌ [FYERS AUTH ERROR] Auto-login failed on startup. Lock set for today ({now_date}) — please authenticate via /fyers/login.")
+        logger.info(f"No valid Fyers token for today found in DB or locally. Triggering background auto-login for today ({now_date})...")
+        def _bg_auto_login():
+            token = auto_login()
+            if token:
+                global _cached_token, _token_date
+                with _token_lock:
+                    _cached_token = token
+                    _token_date = now_date
+            else:
+                dispatch_fyers_reauth_notification("Fyers access token could not be generated automatically.")
+                logger.error(f"❌ [FYERS AUTH ERROR] Auto-login failed on startup — please authenticate via /fyers/login.")
+        
+        threading.Thread(target=_bg_auto_login, name="FyersAutoLogin", daemon=True).start()
         return None
 
 def clear_token(force: bool = False):
