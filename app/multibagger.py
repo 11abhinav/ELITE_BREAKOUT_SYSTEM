@@ -686,7 +686,8 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
     if not isinstance(f, dict):
         return False, "Invalid fundamental dataset"
     
-    known_metrics_count = 0
+    known_metrics = []
+    missing_metrics = []
     has_solvency_metric = False
     
     is_fin = f.get("is_financial", False)
@@ -708,25 +709,30 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
     if pr is not None:
         if pr > 0.20:
             return False, f"High promoter pledge ({pr*100:.1f}%)"
-        known_metrics_count += 1
+        known_metrics.append("Promoter Pledge")
+    else:
+        missing_metrics.append("Promoter Pledge")
 
     # 3. Piotroski F-Score / Quality Score check
     piot_score = f.get("score", f.get("piotroski_f_score", f.get("piotroski_score")))
     if piot_score is not None and not __import__('pandas').isna(piot_score):
-        known_metrics_count += 1
+        known_metrics.append(f"Piotroski ({safe_float(piot_score):.0f}/9)")
         if safe_float(piot_score) >= 1:
             has_solvency_metric = True
+    else:
+        missing_metrics.append("Piotroski Score")
 
     # 4. Financial Sector Logic
     if is_fin:
         # Tier 1: CAR
         car = normalize_ratio(f.get("capital_adequacy_ratio"))
         if car is not None:
-            known_metrics_count += 1
+            known_metrics.append(f"CAR ({car:.1%})")
             has_solvency_metric = True
             if car < 0.11:
                 return False, f"Solvency fail: CAR {car:.2%}"
         else:
+            missing_metrics.append("CAR")
             # Proxies
             roe_for_tier2 = f.get("roe")
             gnpa_for_tier2 = f.get("gnpa")
@@ -738,10 +744,8 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
             
             if tier2_roe_ok:
                 has_solvency_metric = True
-                known_metrics_count += 1
             elif gnpa_val_t2 is not None and gnpa_val_t2 <= 0.05:
                 has_solvency_metric = True
-                known_metrics_count += 1
             else:
                 if roe_val_t2 is not None and roe_val_t2 < 0.05:
                     return False, f"Financial solvency UNKNOWN and ROE below 5% ({roe_val_t2*100:.1f}%)"
@@ -750,14 +754,16 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
 
         gnpa = f.get("gnpa")
         if gnpa is not None and not __import__('pandas').isna(gnpa):
-            known_metrics_count += 1
+            known_metrics.append(f"GNPA ({safe_float(gnpa)*100:.1f}%)")
             if safe_float(gnpa) > 0.05:
                 return False, f"High GNPA ({safe_float(gnpa)*100:.1f}%)"
+        else:
+            missing_metrics.append("GNPA")
 
         # ROE Profile Check
         roe = f.get("roe")
         if roe is not None and not __import__('pandas').isna(roe):
-            known_metrics_count += 1
+            known_metrics.append(f"ROE ({safe_float(roe)*100:.1f}%)")
             if is_turnaround:
                 evidence_score = 0
                 yoy_rev = safe_float(f.get("yoy_revenue"))
@@ -773,43 +779,55 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
             else:
                 if safe_float(roe) < 0.10:
                     return False, f"Financial ROE below 10% ({safe_float(roe)*100:.1f}%)"
+        else:
+            missing_metrics.append("ROE")
 
     else:
         # Non-Financial Logic
         fcf_margin = f.get("fcf_margin")
         if fcf_margin is not None and not __import__('pandas').isna(fcf_margin):
-            known_metrics_count += 1
+            known_metrics.append("FCF Margin")
             if safe_float(fcf_margin) < 0.00:
                 return False, f"Negative FCF conversion ({safe_float(fcf_margin)*100:.1f}%)"
+        else:
+            missing_metrics.append("FCF Margin")
 
         cfo_pat = f.get("cfo_pat_ratio")
         if cfo_pat is not None and not __import__('pandas').isna(cfo_pat):
-            known_metrics_count += 1
+            known_metrics.append("CFO/PAT")
             if safe_float(cfo_pat) < 0.5:
                 return False, f"Poor cash conversion CFO/PAT ({safe_float(cfo_pat):.2f})"
+        else:
+            missing_metrics.append("CFO/PAT")
 
         de = f.get("debt_equity")
         if de is not None and not __import__('pandas').isna(de):
-            known_metrics_count += 1
+            known_metrics.append(f"D/E ({safe_float(de):.2f})")
             has_solvency_metric = True
             if safe_float(de) > 2.0:
                 return False, f"Debt/Equity > 2.0 ({safe_float(de):.2f})"
+        else:
+            missing_metrics.append("Debt/Equity")
 
         icr = f.get("interest_coverage_ratio")
         if icr is not None and not __import__('pandas').isna(icr):
-            known_metrics_count += 1
+            known_metrics.append(f"ICR ({safe_float(icr):.1f}x)")
             has_solvency_metric = True
             if safe_float(icr) < 3.0:
                 return False, f"Interest coverage < 3x ({safe_float(icr):.1f})"
+        else:
+            missing_metrics.append("Interest Coverage")
 
         altman_z = f.get("altman_z")
         if altman_z is not None and not __import__('pandas').isna(altman_z):
-            known_metrics_count += 1
+            known_metrics.append(f"Altman-Z ({safe_float(altman_z):.2f})")
             has_solvency_metric = True
             is_svc = any(k in str(f.get("sector", "")).lower() for k in ["technology", "communication", "services"])
             z_threshold = 1.10 if is_svc else 1.80
             if safe_float(altman_z) < z_threshold:
                 return False, f"Altman-Z in distress zone ({safe_float(altman_z):.2f} < {z_threshold})"
+        else:
+            missing_metrics.append("Altman-Z")
 
         # Profitability Gates
         roce_val = f.get("roce", f.get("roe"))
@@ -817,9 +835,11 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
         rev_cagr = f.get("revenue_cagr_3y")
         
         if rev_cagr is not None and not __import__('pandas').isna(rev_cagr):
-            known_metrics_count += 1
+            known_metrics.append("Revenue CAGR 3Y")
             if safe_float(rev_cagr) < -0.10:
                 return False, f"Revenue CAGR 3Y highly negative ({safe_float(rev_cagr)*100:.1f}%)"
+        else:
+            missing_metrics.append("Revenue CAGR 3Y")
 
         if is_turnaround:
             evidence_score = 0
@@ -836,32 +856,40 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
                 return False, f"Turnaround lacks momentum evidence (Score: {evidence_score}/3 required)"
         else:
             if roce_val is not None and not __import__('pandas').isna(roce_val):
-                known_metrics_count += 1
+                known_metrics.append(f"ROCE ({safe_float(roce_val)*100:.1f}%)")
                 roce = safe_float(roce_val)
                 if roce < 0.05:
                     return False, f"ROCE/ROE below 5% ({roce*100:.1f}%)"
+            else:
+                missing_metrics.append("ROCE/ROE")
             
             if opm is not None and not __import__('pandas').isna(opm):
-                known_metrics_count += 1
+                known_metrics.append(f"OPM ({safe_float(opm)*100:.1f}%)")
                 if safe_float(opm) < 0.08:
                     return False, f"Operating margin below 8% ({safe_float(opm)*100:.1f}%)"
+            else:
+                missing_metrics.append("Operating Margin")
 
         # Valuation / Fallback proxies in lightweight cache
         pe_fb = f.get("pe_fallback")
         if pe_fb is not None and not __import__('pandas').isna(pe_fb):
-            known_metrics_count += 1
+            known_metrics.append("P/E Ratio")
 
         pb_fb = f.get("pb_fallback")
         if pb_fb is not None and not __import__('pandas').isna(pb_fb):
-            known_metrics_count += 1
+            known_metrics.append("P/B Ratio")
 
         # Fallback solvency assumption for lightweight cache entries with valid Piotroski/ROE
-        if not has_solvency_metric and known_metrics_count >= 2:
+        if not has_solvency_metric and len(known_metrics) >= 2:
             has_solvency_metric = True
 
+    known_count = len(known_metrics)
     fin_tier3_exempt = is_fin and not has_solvency_metric
-    if known_metrics_count < 2 or (not has_solvency_metric and not fin_tier3_exempt):
-        return False, f"Data Void: Only {known_metrics_count} metrics known, solvency={'present' if has_solvency_metric else 'MISSING'}"
+    if known_count < 2 or (not has_solvency_metric and not fin_tier3_exempt):
+        known_str = ", ".join(known_metrics) if known_metrics else "None"
+        missing_str = ", ".join(missing_metrics) if missing_metrics else "None"
+        solv_str = "Present" if has_solvency_metric else "MISSING"
+        return False, f"Data Void: Incomplete dataset ({known_count} populated: [{known_str}] | Missing: [{missing_str}] | Solvency: {solv_str})"
         
     return True, "OK"
 

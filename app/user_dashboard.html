@@ -1287,9 +1287,9 @@ function buildTradeRows(trades, maxAbs, prefix) {
             </div>
           </div>
           ${(t.exit_signal || t.exit_reason) ? `
-          <div class="detail-item" style="grid-column: 1 / -1; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3); padding: 10px 14px; border-radius: 6px; margin-top: 4px;">
-            <div class="detail-label" style="color: #ff4d6d; font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">🛑 Exit Reason / Trigger Signal</div>
-            <div class="detail-val" style="font-size: 12px; font-weight: 700; color: #ffffff; font-family: var(--font-mono); margin-top: 2px;">
+          <div class="detail-item" style="grid-column: 1 / -1; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); padding: 10px 14px; border-radius: 6px; margin-top: 4px;">
+            <div class="detail-label" style="color: #dc2626; font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">🛑 Exit Reason / Trigger Signal</div>
+            <div class="detail-val" style="font-size: 12px; font-weight: 700; color: var(--text); font-family: var(--font-mono); margin-top: 2px;">
               ${t.exit_signal || t.exit_reason}
             </div>
           </div>` : ''}
