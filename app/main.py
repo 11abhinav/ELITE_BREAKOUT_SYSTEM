@@ -1,12 +1,9 @@
 # =====================================================================================
 # app/main.py  — SELF-HEALING ORCHESTRATOR
+# [VERSION: DEPLOYMENT_v1.0.1] - Build & Deploy Pipeline Validation
 #
-# RAILWAY FIX: Flask (dashboard) runs in the MAIN thread so Railway's health check
-# gets a response immediately. The watchdog loop and all scanners run as daemon
-# threads in the background. This is the correct pattern for Railway deployments.
-#
-# EOD / REVERSAL run ONCE at 21:00 IST. They are NOT auto-restarted on crash.
-# Instead, any crash or zero-alert result sends a Telegram notification.
+# Flask (dashboard) runs in the MAIN thread so health checks get responses
+# immediately. The watchdog loop and all scanners run as daemon threads in the background.
 # =====================================================================================
 import sys
 import os
