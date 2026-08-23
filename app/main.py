@@ -1025,6 +1025,71 @@ def run_bayesian_loop():
         time.sleep(86400)
 
 
+def run_all_seven_scanners_non_market_boot():
+    """
+    Executes a single catch-up pass of ALL SEVEN scanners sequentially when the server restarts during non-market hours.
+    Seven Scanners:
+      1. EOD Scanner
+      2. Reversal Scanner
+      3. Pullback Pipeline
+      4. Multi-TF Scanner
+      5. Wealth Engine
+      6. Multibagger Scanner
+      7. Accumulation Scanner
+    """
+    def _run_batch():
+        logger.info("======================================================================")
+        logger.info("🌙 [NON-MARKET HOURS BOOT] Server restarted outside market hours.")
+        logger.info("🚀 Triggering 1-pass catchup execution for ALL SEVEN SCANNERS...")
+        logger.info("======================================================================")
+        
+        try:
+            block_until_watchlist_ready()
+        except Exception as e:
+            logger.warning(f"⚠️ [NON-MARKET BOOT] Watchlist readiness check warning: {e}")
+
+        seven_scanners = [
+            ("EOD", _trigger_eod),
+            ("REVERSAL", _trigger_reversal),
+            ("PULLBACK", _trigger_pullback),
+            ("MULTI_TF", _trigger_multi_tf),
+            ("Wealth Engine", _trigger_wealth_engine),
+            ("MULTIBAGGER", _trigger_multibagger),
+            ("ACCUMULATION", _trigger_accumulation),
+        ]
+
+        from database import is_scanner_stopped
+        for idx, (name, fn) in enumerate(seven_scanners, 1):
+            if is_scanner_stopped(name):
+                logger.info(f"⏭️ [NON-MARKET BOOT] ({idx}/7) {name} is STOPPED by Admin. Skipping.")
+                continue
+
+            logger.info(f"▶️ [NON-MARKET BOOT] ({idx}/7) Running Scanner: {name}...")
+            start_t = time.time()
+            try:
+                import inspect
+                sig = inspect.signature(fn)
+                if "trigger_type" in sig.parameters:
+                    fn(trigger_type="NON_MARKET_BOOT", scheduler_name="NON_MARKET_BOOT")
+                else:
+                    fn()
+                dur = round(time.time() - start_t, 1)
+                logger.info(f"✅ [NON-MARKET BOOT] ({idx}/7) {name} completed in {format_duration(dur)}.")
+            except Exception as exc:
+                dur = round(time.time() - start_t, 1)
+                logger.exception(f"❌ [NON-MARKET BOOT] ({idx}/7) {name} failed after {format_duration(dur)}: {exc}")
+
+            time.sleep(5)
+
+        logger.info("======================================================================")
+        logger.info("✅ [NON-MARKET HOURS BOOT] Completed single catch-up pass of all seven scanners.")
+        logger.info("======================================================================")
+
+    import threading
+    t = threading.Thread(target=_run_batch, name="NonMarketBootBatch", daemon=True)
+    t.start()
+
+
 # =====================================================================================
 # TIME-BASED SCHEDULER
 # =====================================================================================
@@ -1381,8 +1446,9 @@ def run_system_scheduler():
         logger.info("⏰ Startup / Deployment during MARKET HOURS (9:00 AM - 3:45 PM IST) — Skipping initial boot test scans.")
         verify_scans(run_test_scans=False)
     else:
-        logger.info("🌙 Startup during NON-MARKET HOURS — Running boot test scans to validate system integrity.")
+        logger.info("🌙 Startup during NON-MARKET HOURS — Executing single catch-up pass of ALL SEVEN SCANNERS...")
         verify_scans(run_test_scans=True)
+        run_all_seven_scanners_non_market_boot()
         try:
             from telemetry_manager import telemetry
             telemetry.log_scheduler_event("PERFORMANCE_TRACKER_BOOT", "CYCLE_START")
