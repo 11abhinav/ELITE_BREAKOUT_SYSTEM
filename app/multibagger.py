@@ -1524,6 +1524,27 @@ def _persist_sell_review(alert_id, reason):
     except Exception as e:
         logger.error(f"Failed to persist SELL_REVIEW for alert_id={alert_id}: {e}")
 
+def _clear_sell_review_to_open(alert_id, symbol):
+    """Restores a position currently in SELL_REVIEW back to OPEN when fundamental metrics are resolved."""
+    try:
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE alerts
+                    SET status = 'OPEN',
+                        exit_signal = NULL,
+                        exit_reason = NULL,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s
+                      AND status = 'SELL_REVIEW'
+                """, (alert_id,))
+                if cur.rowcount > 0:
+                    logger.info(f"🔄 Auto-cleared SELL_REVIEW for {symbol} (Alert #{alert_id}) back to OPEN status as fundamental metrics are resolved.")
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Failed to clear SELL_REVIEW for alert_id={alert_id}: {e}")
+
 def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = False):
     """
     Evaluates open MULTIBAGGER positions in the database for exit signals.
@@ -1537,7 +1558,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # [VERSION: MULTIBAGGER_EXIT_FUND_FIX_v1.1] Include both OPEN and SELL_REVIEW so reviewed positions remain monitored
                 cur.execute("""
-                    SELECT id, symbol, entry_price as alert_price, alert_date
+                    SELECT id, symbol, entry_price as alert_price, alert_date, status
                     FROM alerts 
                     WHERE scanner = 'MULTIBAGGER' AND status IN ('OPEN', 'SELL_REVIEW') AND is_rejected = FALSE;
                 """)
@@ -1564,6 +1585,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 symbol = pos["symbol"]
                 entry_price = float(pos["alert_price"]) if pos.get("alert_price") is not None else 0.0
                 alert_id = pos["id"]
+                current_status = pos.get("status")
                 
                 # Try exit_prices first, then fall back to price_data_map
                 price_data = exit_prices.get(symbol) or price_data_map.get(symbol)
@@ -1715,26 +1737,31 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                                 exit_triggered = True
                                 exit_reason = f"Sustained 200-DMA breakdown: 3+ closes below, and >7% deep (Price: ₹{current_price:.1f}, 200-DMA: ₹{price_data.sma_200:.1f})"
                         
+                        # Auto-resolution: If position was in SELL_REVIEW but now passes quality gate cleanly, restore to OPEN
+                        if current_status == "SELL_REVIEW" and not is_test_mode:
+                            _clear_sell_review_to_open(alert_id, symbol)
+                        
                 # Handle triggered exit
                 if exit_triggered:
                     logger.warning(f"🚨 SELL TRIGGERED for {symbol}: {exit_reason}")
                     calc_ret = ((current_price - entry_price) / entry_price * 100.0) if entry_price > 0 else 0.0
+                    final_status = "WIN" if calc_ret >= 0 else "LOSS"
                     
                     if is_test_mode:
-                        logger.info(f"🧪 [TEST MODE] Would have closed {symbol} due to {exit_reason}")
+                        logger.info(f"🧪 [TEST MODE] Would have closed {symbol} with status={final_status} due to {exit_reason}")
                         close_success = False
                     else:
                         try:
                             update_alert_outcome(
                                 alert_id=alert_id,
-                                status="CLOSED",
+                                status=final_status,
                                 exit_price=current_price,
                                 pnl_pct=calc_ret,
                                 pnl_rs=0.0,  # We don't track position size natively in alerts table without wealth engine
                                 exit_signal=exit_reason
                             )
                             close_success = True
-                            logger.info(f"💰 MULTIBAGGER CLOSED: {symbol} at {current_price} (P&L: {calc_ret:.2f}%)")
+                            logger.info(f"💰 MULTIBAGGER EXITED ({final_status}): {symbol} at {current_price} (P&L: {calc_ret:.2f}%)")
                         except Exception as e:
                             logger.error(f"❌ Failed to close MULTIBAGGER alert for {symbol}: {e}")
                             close_success = False

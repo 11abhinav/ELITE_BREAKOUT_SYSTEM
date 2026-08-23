@@ -781,6 +781,7 @@
     .badge-win     { background: rgba(5,150,105,.1); color: #059669; border: 1px solid rgba(5,150,105,.2); }
     .badge-loss    { background: rgba(220,38,38,.1);  color: #dc2626; border: 1px solid rgba(220,38,38,.2); }
     .badge-open    { background: rgba(37,99,235,.1);  color: #2563eb; border: 1px solid rgba(37,99,235,.2); }
+    .badge-review  { background: rgba(217,119,6,.12); color: #d97706; border: 1px solid rgba(217,119,6,.25); }
     .badge-neutral { background: var(--card3);         color: var(--muted); border: 1px solid var(--border2); }
     .badge-rejected { background: rgba(220,38,38,.07); color: #dc2626; border: 1px solid rgba(220,38,38,.15); text-decoration: line-through; opacity: 0.8; }
     .badge-scanner { background: rgba(217,119,6,.1);  color: var(--amber); font-family: var(--font-mono); border: 1px solid rgba(217,119,6,.2); }
@@ -2381,8 +2382,14 @@
     const pctClass = v => v == null ? 'flat' : v > 0 ? 'pos' : v < 0 ? 'neg' : 'flat';
     const fmt = v => v != null ? '₹' + Number(v).toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—';
     const badgeHtml = (s, t) => {
-      const m = { WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', NEUTRAL: 'badge-neutral', REJECTED: 'badge-rejected' };
-      let html = `<span class="badge ${m[s] || 'badge-neutral'}">${s}</span>`;
+      let displayStatus = s;
+      if (s === 'CLOSED' && t && t.pnl_pct != null) {
+        displayStatus = t.pnl_pct >= 0 ? 'PROFIT' : 'LOSS';
+      } else if (s === 'WIN') {
+        displayStatus = 'PROFIT';
+      }
+      const m = { PROFIT: 'badge-win', WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', SELL_REVIEW: 'badge-review', NEUTRAL: 'badge-neutral', REJECTED: 'badge-rejected' };
+      let html = `<span class="badge ${m[displayStatus] || 'badge-neutral'}">${displayStatus}</span>`;
       if (t && t.is_rejected && t.shadow_status && t.shadow_status !== 'SHADOW_OPEN') {
         const isWin = t.shadow_status === 'SHADOW_WIN';
         const shColor = isWin ? '#00e5a0' : '#ff4d4d';

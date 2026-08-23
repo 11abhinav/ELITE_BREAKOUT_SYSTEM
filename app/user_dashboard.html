@@ -189,6 +189,7 @@
   .badge-win{background:rgba(5,150,105,.1);color:#059669;border:1px solid rgba(5,150,105,.2);}
   .badge-loss{background:rgba(220,38,38,.1);color:#dc2626;border:1px solid rgba(220,38,38,.2);}
   .badge-open{background:rgba(37,99,235,.1);color:#2563eb;border:1px solid rgba(37,99,235,.2);}
+  .badge-review{background:rgba(217,119,6,.12);color:#d97706;border:1px solid rgba(217,119,6,.25);}
   .badge-neutral{background:var(--card3);color:var(--muted);border:1px solid var(--border2);}
   .badge-scanner{background:rgba(217,119,6,.1);color:var(--amber);font-family:var(--font-mono);border:1px solid rgba(217,119,6,.2);}
   .pos{color:var(--win);} .neg{color:var(--loss);} .flat{color:var(--muted);}
@@ -820,9 +821,15 @@ const C = {
 const pct      = v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) + '%' : '—';
 const pctClass = v => v == null ? 'flat' : v > 0 ? 'pos' : v < 0 ? 'neg' : 'flat';
 const fmt      = v => v != null ? '₹' + Number(v).toLocaleString('en-IN', {maximumFractionDigits:2}) : '—';
-const badgeHtml = s => {
-  const m = {WIN:'badge-win',LOSS:'badge-loss',OPEN:'badge-open',NEUTRAL:'badge-neutral'};
-  return `<span class="badge ${m[s]||'badge-neutral'}">${s}</span>`;
+const badgeHtml = (s, t) => {
+  let displayStatus = s;
+  if (s === 'CLOSED' && t && t.pnl_pct != null) {
+    displayStatus = t.pnl_pct >= 0 ? 'PROFIT' : 'LOSS';
+  } else if (s === 'WIN') {
+    displayStatus = 'PROFIT';
+  }
+  const m = { PROFIT: 'badge-win', WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', SELL_REVIEW: 'badge-review', NEUTRAL: 'badge-neutral' };
+  return `<span class="badge ${m[displayStatus] || 'badge-neutral'}">${displayStatus}</span>`;
 };
 const scoreClass = v => v >= 85 ? 'score-high' : v >= 75 ? 'score-mid' : 'score-low';
 const parseToISTDate = (ts) => {
@@ -1221,7 +1228,7 @@ function buildTradeRows(trades, maxAbs, prefix) {
       <td style="font-weight:700;color:var(--text);letter-spacing:-.3px">${t.symbol}${eventMarkHtml}</td>
       <td style="color:var(--muted);font-family:var(--font-mono);font-size:11px">${fmtAlertTime(t.alert_time||t.entry_date)}</td>
       <td><span class="badge badge-scanner">${t.scanner||'—'}</span></td>
-      <td>${badgeHtml(t.status)}</td>
+      <td>${badgeHtml(t.status, t)}</td>
       <td class="col-opt" style="color:var(--muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-body)">${t.category||'—'}</td>
       <td style="text-align:center;"><button onclick="openChart('${t.symbol}', ${t.current_price || t.entry_price}); event.stopPropagation();" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:4px; font-size:12px; cursor:pointer;" title="View Chart">📈</button></td>
       <td>${fmt(t.entry_price)}</td>
