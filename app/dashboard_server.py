@@ -780,9 +780,22 @@ def add_headers(response):
 
 
 @app.route("/")
-@login_required
 def index():
-    """Serve the dashboard HTML. If user has admin role, redirect to /admin."""
+    """Serve the dashboard HTML if logged in; if not logged in, serve login page directly with 200 OK for healthchecks."""
+    if 'user_id' not in session:
+        login_path = get_html_path("login.html")
+        if login_path and os.path.exists(login_path):
+            return send_file(login_path), 200
+        return redirect('/login')
+
+    session_token = session.get('session_token')
+    if not _cached_check_session(session['user_id'], session_token):
+        session.clear()
+        login_path = get_html_path("login.html")
+        if login_path and os.path.exists(login_path):
+            return send_file(login_path), 200
+        return redirect('/login')
+
     role = session.get('role', 'user')
     if role in ('admin', 'superuser'):
         return redirect('/admin')
