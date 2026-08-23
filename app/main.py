@@ -1157,14 +1157,10 @@ def run_system_scheduler():
                         with scanner_execution_lock:
                             run_ctx = start_scanner_execution_run(scanner_name="DAILY_BUILDER", trigger_type="SCHEDULED", scheduler_name="CRON")
                             try:
-                                build_watchlist()
-                                complete_scanner_execution_run(run_ctx)
+                                build_watchlist(run_ctx=run_ctx)
                             except Exception as db_err:
-                                complete_scanner_execution_run(run_ctx, exception=db_err)
                                 raise db_err
                 except Exception as db_err:
-                    if run_ctx:
-                        complete_scanner_execution_run(run_ctx, exception=db_err)
                     raise db_err
 
             
@@ -2258,13 +2254,11 @@ def _trigger_daily_builder(trigger_type="MANUAL", scheduler_name="MANUAL"):
     upsert_scanner_health("DAILY_BUILDER", status="RUNNING", error_msg="Building watchlist...")
     run_ctx = start_scanner_execution_run(scanner_name="DAILY_BUILDER", trigger_type=trigger_type, scheduler_name=scheduler_name)
     try:
-        build_watchlist(force_rebuild=True)
-        complete_scanner_execution_run(run_ctx)
+        build_watchlist(force_rebuild=True, run_ctx=run_ctx)
         from watchlist_cache import get_watchlist
         get_watchlist()
         upsert_scanner_health("DAILY_BUILDER", status="OK", error_msg=None)
     except Exception as exc:
-        complete_scanner_execution_run(run_ctx, exception=exc)
         upsert_scanner_health("DAILY_BUILDER", status="DOWN", error_msg=str(exc))
         raise exc
 
