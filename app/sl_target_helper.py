@@ -446,18 +446,31 @@ class MeanReversionStrategy(TargetStrategy):
 
 class ConflictResolver:
     @staticmethod
-    def resolve(clusters: List[ClusteredTarget], scanner: str, entry: float, macro_regime: str) -> List[ClusteredTarget]:
+    def resolve(
+        clusters: List[ClusteredTarget],
+        scanner: str,
+        entry: float,
+        macro_regime: str,
+        risk: float = 0.0,
+        eff_atr: float = 0.0
+    ) -> tuple:
+        if not clusters:
+            return [], "NO_TARGET_CLUSTERS_FOUND"
+
         policy = TARGET_CONFLICT_POLICY.get(scanner, "CONFIDENCE")
         if policy == "NEAREST":
-            return sorted(clusters, key=lambda c: (c.consensus_price, -c.score, c.cluster_id))
+            resolved = sorted(clusters, key=lambda c: (c.consensus_price, -c.score, c.cluster_id))
         elif policy == "CONFIDENCE":
-            return sorted(clusters, key=lambda c: (c.score, c.consensus_price, -c.cluster_id), reverse=True)
+            resolved = sorted(clusters, key=lambda c: (c.score, c.consensus_price, -c.cluster_id), reverse=True)
         elif policy == "REGIME":
             if macro_regime in ("BULL", "TRENDING"):
-                return sorted(clusters, key=lambda c: (c.consensus_price, c.score, -c.cluster_id), reverse=True) # Prefer higher
+                resolved = sorted(clusters, key=lambda c: (c.consensus_price, c.score, -c.cluster_id), reverse=True) # Prefer higher
             else:
-                return sorted(clusters, key=lambda c: (c.score, c.consensus_price, -c.cluster_id), reverse=True)
-        return sorted(clusters, key=lambda c: (c.score, c.consensus_price, -c.cluster_id), reverse=True)
+                resolved = sorted(clusters, key=lambda c: (c.score, c.consensus_price, -c.cluster_id), reverse=True)
+        else:
+            resolved = sorted(clusters, key=lambda c: (c.score, c.consensus_price, -c.cluster_id), reverse=True)
+            
+        return resolved, None
 
 class ExitPolicy:
     @staticmethod
