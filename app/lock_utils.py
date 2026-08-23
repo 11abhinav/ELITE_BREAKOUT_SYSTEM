@@ -143,40 +143,48 @@ class ProcessLockImpl:
                 
             fcntl.flock(self.lock_fd, flags)
 
-            # 2. True distributed PostgreSQL lock (vital for Railway autodeploys/multi-containers)
+            # 2. True distributed PostgreSQL lock via controlled connection pool
             db_url = os.environ.get("DATABASE_URL")
             if db_url:
                 if self.db_conn is None:
-                    # Create a raw unpooled connection dedicated to holding this lock
-                    self.db_conn = psycopg2.connect(db_url)
-                    self.db_conn.autocommit = True
-                
-                with self.db_conn.cursor() as cur:
-                    if blocking:
-                        last_logged_s = 0
-                        while True:
+                    try:
+                        from database import _get_pool
+                        p = _get_pool()
+                        if p:
+                            self.db_conn = p.getconn()
+                            self._pool_ref = p
+                            self.db_conn.autocommit = True
+                    except Exception as pool_err:
+                        logger.warning(f"Could not checkout lock connection from pool: {pool_err}")
+                        self.db_conn = None
+
+                if self.db_conn is not None:
+                    with self.db_conn.cursor() as cur:
+                        if blocking:
+                            last_logged_s = 0
+                            while True:
+                                cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
+                                locked = cur.fetchone()[0]
+                                elapsed = time.monotonic() - wait_start_mono
+                                if locked:
+                                    if elapsed > 1.0:
+                                        logger.info(f"✅ [{self.lock_name.upper()}] Acquired Postgres lock after {elapsed:.1f}s wait")
+                                    break
+                                if timeout_val > 0 and elapsed >= timeout_val:
+                                    logger.warning(f"❌ [{self.lock_name.upper()}] Lock acquisition timed out after {elapsed:.1f}s")
+                                    fcntl.flock(self.lock_fd, fcntl.LOCK_UN)
+                                    self.thread_lock.release()
+                                    return False
+                                if int(elapsed) >= last_logged_s + 15:
+                                    last_logged_s = int(elapsed)
+                                    logger.info(f"⏳ [{self.lock_name.upper()}] Lock busy — waiting for active scanner to release... (elapsed: {last_logged_s}s)")
+                                time.sleep(1.0)
+                        else:
                             cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
                             locked = cur.fetchone()[0]
-                            elapsed = time.monotonic() - wait_start_mono
-                            if locked:
-                                if elapsed > 1.0:
-                                    logger.info(f"✅ [{self.lock_name.upper()}] Acquired Postgres lock after {elapsed:.1f}s wait")
-                                break
-                            if timeout_val > 0 and elapsed >= timeout_val:
-                                logger.warning(f"❌ [{self.lock_name.upper()}] Lock acquisition timed out after {elapsed:.1f}s")
-                                fcntl.flock(self.lock_fd, fcntl.LOCK_UN)
-                                self.thread_lock.release()
-                                return False
-                            if int(elapsed) >= last_logged_s + 15:
-                                last_logged_s = int(elapsed)
-                                logger.info(f"⏳ [{self.lock_name.upper()}] Lock busy — waiting for active scanner to release... (elapsed: {last_logged_s}s)")
-                            time.sleep(1.0)
-                    else:
-                        cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
-                        locked = cur.fetchone()[0]
-                    
-                    if not locked:
-                        raise BlockingIOError("Could not acquire Postgres distributed lock")
+                        
+                        if not locked:
+                            raise BlockingIOError("Could not acquire Postgres distributed lock")
 
             with self._internal_lock:
                 self.is_acquired = True
@@ -190,28 +198,33 @@ class ProcessLockImpl:
                 logger.info(f"🔒 [LOCK ACQUIRED] {self.lock_name} | Scanner: {owner_scanner} | Op: {operation} | Wait Time: {wait_time:.2f}s")
             return True
         except (BlockingIOError, IOError):
-            if self.db_conn:
-                try:
-                    self.db_conn.close()
-                    self.db_conn = None
-                except Exception:
-                    pass
+            self._cleanup_db_conn()
             self.thread_lock.release()
             return False
         except Exception as e:
             # [VERSION: PROCESS_LOCK_EXC_FIX_v1.0] On DB or system exception, release thread lock and return False
             logger.error(f"Error acquiring distributed lock {self.lock_name}: {e}")
-            if self.db_conn:
-                try:
-                    self.db_conn.close()
-                    self.db_conn = None
-                except Exception:
-                    pass
+            self._cleanup_db_conn()
             try:
                 self.thread_lock.release()
             except Exception:
                 pass
             return False
+
+    def _cleanup_db_conn(self):
+        if self.db_conn is not None:
+            try:
+                with self.db_conn.cursor() as cur:
+                    cur.execute("SELECT pg_advisory_unlock(%s)", (self.lock_key,))
+            except Exception: pass
+            try:
+                if getattr(self, '_pool_ref', None):
+                    self._pool_ref.putconn(self.db_conn)
+                else:
+                    self.db_conn.close()
+            except Exception: pass
+            self.db_conn = None
+            self._pool_ref = None
 
     def release(self):
         with self._internal_lock:
@@ -230,13 +243,8 @@ class ProcessLockImpl:
             self.lock_owner_scanner = "UNKNOWN"
             self.lock_owner_operation = "UNKNOWN"
 
-        # 1. Release Postgres lock by simply closing the dedicated connection
-        if self.db_conn is not None:
-            try:
-                self.db_conn.close()
-                self.db_conn = None
-            except Exception:
-                pass
+        # 1. Unlock and return connection to pool cleanly
+        self._cleanup_db_conn()
 
         # 2. Release local file lock
         if self.lock_fd is not None:

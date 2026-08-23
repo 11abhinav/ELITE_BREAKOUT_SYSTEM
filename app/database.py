@@ -126,9 +126,9 @@ def _get_pool() -> Optional[pool.ThreadedConnectionPool]:
         db_url = os.getenv("DATABASE_URL")
         if not db_url:
             return None
-        # Configure pool size via env override if provided (fallback to 20 to fit standard Postgres max_connections limits)
-        maxconn = int(os.getenv("DB_MAXCONN", "20"))
-        minconn = int(os.getenv("DB_MINCONN", "2"))
+        # Configure pool size via env override if provided (strictly default to 10 to prevent Postgres client exhaustion)
+        maxconn = int(os.getenv("DB_MAXCONN", "10"))
+        minconn = int(os.getenv("DB_MINCONN", "1"))
         _pool = pool.ThreadedConnectionPool(
             minconn=minconn,
             maxconn=maxconn,
@@ -184,7 +184,7 @@ def get_connection(timeout: int = 15):
         # Ensure semaphore exists (in case pool was created elsewhere)
         if _conn_semaphore is None:
             try:
-                _conn_semaphore = threading.BoundedSemaphore(value=getattr(p, 'maxconn', 20))
+                _conn_semaphore = threading.BoundedSemaphore(value=getattr(p, 'maxconn', 10))
             except Exception:
                 _conn_semaphore = None
         if _conn_semaphore is not None:
@@ -307,24 +307,39 @@ def insert_notification(notif_type: str, title: str, message: str, symbol: str =
 
 class _AdvisoryLockGuard:
     def __init__(self):
-        import os, psycopg2
+        self.conn_ctx = None
         self.conn = None
         try:
             db_url = os.getenv("DATABASE_URL")
             if db_url:
-                self.conn = psycopg2.connect(db_url)
+                self.conn_ctx = get_connection()
+                self.conn = self.conn_ctx.__enter__()
                 with self.conn.cursor() as cur:
-                    # Prevent concurrent DDL deadlocks across multi-process workers
                     cur.execute("SELECT pg_advisory_lock(20240728)")
         except Exception as e:
             logger.error(f"Failed to acquire advisory lock: {e}")
 
-    def __del__(self):
+    def release(self):
         if self.conn:
             try:
-                self.conn.close()
-            except Exception:
-                pass
+                with self.conn.cursor() as cur:
+                    cur.execute("SELECT pg_advisory_unlock(20240728)")
+            except Exception: pass
+        if self.conn_ctx:
+            try:
+                self.conn_ctx.__exit__(None, None, None)
+            except Exception: pass
+            self.conn_ctx = None
+            self.conn = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.release()
+
+    def __del__(self):
+        self.release()
 
 def init_db():
     # [VERSION: GREENFIELD_DB_OVERHAUL_v1.0] Greenfield Database Schema Initialization
