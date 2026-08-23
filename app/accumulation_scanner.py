@@ -387,7 +387,7 @@ class AccumulationScanner:
                 for sym in batch:
                     df = ohlcv_map.get(sym)
                     if isinstance(df, pd.DataFrame) and not df.empty and run_ctx:
-                        run_ctx.record_fresh_data()
+                        run_ctx.mark_fresh()
 
                     res = self.evaluate_symbol(
                         symbol=sym,
@@ -440,7 +440,7 @@ class AccumulationScanner:
                                     conn.commit()
                                     alerts_count += 1
                                     if run_ctx:
-                                        run_ctx.increment_alerts(1)
+                                        run_ctx.add_alert(1)
                                     health.record_metrics(alerts_inc=1)
                         except Exception as al_err:
                             logger.warning(f"Could not persist accumulation alert for {sym}: {al_err}")

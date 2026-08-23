@@ -113,10 +113,16 @@ class ScannerRunContext:
             self.fresh_count += count
             self.heartbeat()
 
+    def record_fresh_data(self, count: int = 1):
+        self.mark_fresh(count)
+
     def mark_stale(self, count: int = 1):
         with self._lock:
             self.stale_count += count
             self.heartbeat()
+
+    def record_stale_data(self, count: int = 1):
+        self.mark_stale(count)
 
     def mark_incomplete(self, count: int = 1):
         with self._lock:
@@ -127,6 +133,9 @@ class ScannerRunContext:
         with self._lock:
             self.alerts_generated += count
             self.heartbeat()
+
+    def increment_alerts(self, count: int = 1):
+        self.add_alert(count)
 
     def record_api_call(self, count: int = 1):
         with self._lock:
