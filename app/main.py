@@ -1047,8 +1047,7 @@ def run_all_seven_scanners_non_market_boot():
         except Exception as e:
             logger.warning(f"⚠️ [NON-MARKET BOOT] Watchlist readiness check warning: {e}")
 
-        all_scanners = [
-            ("DAILY_BUILDER", _trigger_daily_builder),
+        seven_scanners = [
             ("MULTI_TF", _trigger_multi_tf),
             ("ACCUMULATION", _trigger_accumulation),
             ("EOD", _trigger_eod),
@@ -1059,12 +1058,12 @@ def run_all_seven_scanners_non_market_boot():
         ]
 
         from database import is_scanner_stopped, upsert_scanner_health
-        for idx, (name, fn) in enumerate(all_scanners, 1):
+        for idx, (name, fn) in enumerate(seven_scanners, 1):
             if is_scanner_stopped(name):
-                logger.info(f"⏭️ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) {name} is STOPPED by Admin. Skipping.")
+                logger.info(f"⏭️ [NON-MARKET BOOT] ({idx}/{len(seven_scanners)}) {name} is STOPPED by Admin. Skipping.")
                 continue
 
-            logger.info(f"▶️ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) Running Scanner: {name}...")
+            logger.info(f"▶️ [NON-MARKET BOOT] ({idx}/{len(seven_scanners)}) Running Scanner: {name}...")
             upsert_scanner_health(name, status="RUNNING", error_msg="Non-market boot scan in progress...")
             start_t = time.time()
             try:
