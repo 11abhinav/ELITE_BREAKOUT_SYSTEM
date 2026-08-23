@@ -377,7 +377,7 @@ def inspect_largest_global_objects(top_n: int = 10):
     records = []
     
     # Modules in the application namespace
-    target_mods = [m for name, m in sys.modules.items() if m and name and (name.startswith("app") or name in [
+    target_mods = [m for name, m in list(sys.modules.items()) if m and name and (name.startswith("app") or name in [
         "price_cache", "delivery_data", "surveillance", "watchlist_cache", "block_deal_detector",
         "dashboard_server", "eod_scanner", "reversal_scanner", "pullback_pipeline", "scoring_engine",
         "sl_target_helper", "breakout_engine", "technical_indicators", "constituent_service"

@@ -448,11 +448,13 @@ class ConflictResolver:
     @staticmethod
     def resolve(
         clusters: List[ClusteredTarget],
-        scanner: str,
-        entry: float,
-        macro_regime: str,
+        scanner: str = "EOD",
+        entry: float = 0.0,
+        macro_regime: str = "NEUTRAL",
         risk: float = 0.0,
-        eff_atr: float = 0.0
+        eff_atr: float = 0.0,
+        *args,
+        **kwargs
     ) -> tuple:
         if not clusters:
             return [], "NO_TARGET_CLUSTERS_FOUND"

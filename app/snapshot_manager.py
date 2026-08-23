@@ -220,8 +220,8 @@ class SnapshotManager:
             summary=materialized_summary,
             etag=etag,
             raw_json_bytes=raw_bytes,
-            brotli_bytes=brotli_buf,
-            gzip_bytes=gzip_buf,
+            _brotli_bytes=brotli_buf,
+            _gzip_bytes=gzip_buf,
         )
 
         # 7. Atomic Reference Swap & Ring Buffer History Insertion

@@ -301,18 +301,20 @@ class MeanReversionStrategy(TargetStrategy):
 
 class ConflictResolver:
     @staticmethod
-    def resolve(clusters: List[ClusteredTarget], scanner: str, entry: float, macro_regime: str) -> List[ClusteredTarget]:
+    def resolve(clusters: List[ClusteredTarget], scanner: str = "EOD", entry: float = 0.0, macro_regime: str = "NEUTRAL", *args, **kwargs) -> Any:
         policy = TARGET_CONFLICT_POLICY.get(scanner, "CONFIDENCE")
         if policy == "NEAREST":
-            return sorted(clusters, key=lambda c: c.consensus_price)
+            resolved = sorted(clusters, key=lambda c: c.consensus_price)
         elif policy == "CONFIDENCE":
-            return sorted(clusters, key=lambda c: c.score, reverse=True)
+            resolved = sorted(clusters, key=lambda c: c.score, reverse=True)
         elif policy == "REGIME":
             if macro_regime in ("BULL", "TRENDING"):
-                return sorted(clusters, key=lambda c: c.consensus_price, reverse=True) # Prefer higher
+                resolved = sorted(clusters, key=lambda c: c.consensus_price, reverse=True) # Prefer higher
             else:
-                return sorted(clusters, key=lambda c: c.score, reverse=True)
-        return clusters
+                resolved = sorted(clusters, key=lambda c: c.score, reverse=True)
+        else:
+            resolved = clusters
+        return resolved, None
 
 class ExitPolicy:
     @staticmethod
