@@ -202,7 +202,11 @@ class VariableScopeVisitor(ast.NodeVisitor):
                     })
 
         # AUDIT RULE 3: Undefined Global Name Access (NameError Check)
-        COMMON_CRITICAL_NAMES = {"os", "sys", "json", "math", "re", "time", "datetime", "pd", "np", "logger", "gc", "psutil"}
+        COMMON_CRITICAL_NAMES = {
+            "os", "sys", "json", "math", "re", "time", "datetime", "date", "timedelta",
+            "pd", "np", "logger", "gc", "psutil", "Optional", "List", "Dict", "Set",
+            "Tuple", "Union", "Any", "dataclass", "requests", "hashlib", "traceback"
+        }
         for var_name, load_line in loads:
             if var_name in COMMON_CRITICAL_NAMES:
                 if (var_name not in self.global_names and
