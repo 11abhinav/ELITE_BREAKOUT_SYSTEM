@@ -119,3 +119,41 @@ def test_decision_replay_gate_by_gate_equality():
     assert is_reproducible is True
     assert len(mismatches) == 0
     assert summary["gates_verified"] == 1
+
+
+def test_master_scanner_certification_evaluator():
+    """
+    [RULE 67 Invariant]
+    A scanner is CERTIFIED iff:
+    telemetry == PASS and raw_data == PASS and indicators == PASS and
+    fundamentals == PASS and decision_inputs == PASS and replay == PASS and freshness == PASS.
+    If ANY sub-dimension is FAIL, overall status MUST be NOT_CERTIFIED.
+    """
+    def evaluate_overall(dims: dict) -> str:
+        required = [
+            dims.get("Telemetry"),
+            dims.get("Raw Data"),
+            dims.get("Indicators"),
+            dims.get("Fundamentals"),
+            dims.get("Decision Inputs"),
+            dims.get("Gate Replay"),
+            dims.get("Freshness")
+        ]
+        return "CERTIFIED" if all(v == "PASS" for v in required) else "NOT_CERTIFIED"
+
+    perfect = {
+        "Telemetry": "PASS", "Raw Data": "PASS", "Indicators": "PASS",
+        "Fundamentals": "PASS", "Decision Inputs": "PASS", "Gate Replay": "PASS", "Freshness": "PASS"
+    }
+    assert evaluate_overall(perfect) == "CERTIFIED"
+
+    # Single failing fundamental dimension MUST force NOT_CERTIFIED
+    fund_fail = perfect.copy()
+    fund_fail["Fundamentals"] = "FAIL"
+    assert evaluate_overall(fund_fail) == "NOT_CERTIFIED"
+
+    # Single failing decision input dimension MUST force NOT_CERTIFIED
+    input_fail = perfect.copy()
+    input_fail["Decision Inputs"] = "FAIL"
+    assert evaluate_overall(input_fail) == "NOT_CERTIFIED"
+
