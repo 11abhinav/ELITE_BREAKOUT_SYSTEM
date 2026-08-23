@@ -574,6 +574,7 @@
     let isAlertActive = false;
     let ALL_WEALTH_STOCKS = [];
     let isFirstLoad = true;  // Skip alert on initial page load
+    const setElText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
     const ALERT_FETCH_INTERVAL_WEALTH = 60 * 1000;  // Check for alerts every 60 seconds
     
     function triggerAlertFlashing() {
@@ -869,6 +870,8 @@ function getEarningsBadgeHtml(item) {
     }
 
     async function loadData() {
+      let newBuySignals = new Set();
+      let newSellSignals = new Set();
       try {
         // Fire ALL API requests in parallel with ETag header support
         const headers = lastWealthEtag ? { 'If-None-Match': lastWealthEtag } : {};
@@ -928,8 +931,8 @@ function getEarningsBadgeHtml(item) {
           window.DATA_GENERATED_AT = data.generated_at;
           
           // Alert Diffing Logic - Track new BUY/SELL signals
-          let newBuySignals = new Set();
-          let newSellSignals = new Set();
+          newBuySignals = new Set();
+          newSellSignals = new Set();
           // Skip alert popup on first load, only track new signals after first load
           if (ALL_WEALTH_STOCKS.length > 0 && !isFirstLoad) {
               const oldKeys = new Set(ALL_WEALTH_STOCKS.filter(s => s.Signal).map(s => s.Stock + '|' + s.Signal));
@@ -948,9 +951,7 @@ function getEarningsBadgeHtml(item) {
         }
 
         const stocks = ALL_WEALTH_STOCKS;
-        document.getElementById('kpi-total').textContent = stocks.length;
-
-
+        setElText('kpi-total', stocks.length);
 
         // Use the already-fetched alerts data from parallel request
         let todayAlertSymbols = new Set();
@@ -968,34 +969,36 @@ function getEarningsBadgeHtml(item) {
         }
 
         const buys = stocks.filter(s => (s.Signal || "").toUpperCase().includes("BUY")).sort((a,b) => (b.FM_Score || 0) - (a.FM_Score || 0));
-        document.getElementById('kpi-buys').textContent = buys.length;
-        document.getElementById('buy-count').textContent = buys.length;
+        setElText('kpi-buys', buys.length);
+        setElText('buy-count', buys.length);
 
+        const buyTbody = document.querySelector('#tbl-buy tbody');
+        if (buyTbody) {
+          buyTbody.innerHTML = buys.length ? buys.map(r => `
+            <tr class="${newBuySignals.has(r.Stock) ? 'buy-signal-blink' : ''}">
+              <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
+              <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
+                <span class="mono">₹${fmt(r.cmp)}</span>
+                <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
+              </td>
+              <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
+                <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
+                <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
+              </td>
+              <td><span class="score-badge ${getScoreCls(r.momentum_score)}">${r.momentum_score || 0}</span></td>
+              <td class="mono" style="color:var(--accent); font-weight:bold;">${r.position_pct ? (parseFloat(r.position_pct) * 100).toFixed(2) + '%' : '-'}</td>
+              <td class="mono" style="color:var(--green); font-weight:bold;">${r.position_amount ? '₹' + r.position_amount.toLocaleString('en-IN') : '-'}</td>
+              <td class="mono" style="color:var(--text); font-weight:600;">${r.position_shares ? r.position_shares : '-'}</td>
+              <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
+              <td class="mono">${fmt(r['ROCE %'])}%</td>
+              <td class="mono">${fmt(r['ROE %'])}%</td>
+              <td class="mono">${fmt(r['YOY Profit %'])}%</td>
 
-        document.querySelector('#tbl-buy tbody').innerHTML = buys.length ? buys.map(r => `
-          <tr class="${newBuySignals.has(r.Stock) ? 'buy-signal-blink' : ''}">
-            <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
-            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
-              <span class="mono">₹${fmt(r.cmp)}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
-            </td>
-            <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
-              <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
-            </td>
-            <td><span class="score-badge ${getScoreCls(r.momentum_score)}">${r.momentum_score || 0}</span></td>
-            <td class="mono" style="color:var(--accent); font-weight:bold;">${r.position_pct ? (parseFloat(r.position_pct) * 100).toFixed(2) + '%' : '-'}</td>
-            <td class="mono" style="color:var(--green); font-weight:bold;">${r.position_amount ? '₹' + r.position_amount.toLocaleString('en-IN') : '-'}</td>
-            <td class="mono" style="color:var(--text); font-weight:600;">${r.position_shares ? r.position_shares : '-'}</td>
-            <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
-            <td class="mono">${fmt(r['ROCE %'])}%</td>
-            <td class="mono">${fmt(r['ROE %'])}%</td>
-            <td class="mono">${fmt(r['YOY Profit %'])}%</td>
-
-            <td>${bucketTag(r.Portfolio_Bucket)}</td>
-            <td>${sectorTag(r.Sector)}</td>
-          </tr>
-        `).join('') : `<tr><td colspan="12" class="empty">No active buy signals — wait for score ≥ 55 + Mom ≥ 25 above 200 SMA</td></tr>`;
+              <td>${bucketTag(r.Portfolio_Bucket)}</td>
+              <td>${sectorTag(r.Sector)}</td>
+            </tr>
+          `).join('') : `<tr><td colspan="12" class="empty">No active buy signals — wait for score ≥ 55 + Mom ≥ 25 above 200 SMA</td></tr>`;
+        }
 
         // Use the already-fetched closed positions from parallel request
         let closedToday = [];
@@ -1012,8 +1015,8 @@ function getEarningsBadgeHtml(item) {
         const sells = stocks.filter(s => (s.Signal || "").includes("SELL")).sort((a,b) => (a.FM_Score || 0) - (b.FM_Score || 0));
         const totalSellsCount = sells.length + closedToday.length;
         
-        document.getElementById('kpi-sells').textContent = totalSellsCount === 0 ? '-' : totalSellsCount;
-        document.getElementById('sells-count').textContent = totalSellsCount;
+        setElText('kpi-sells', totalSellsCount === 0 ? '-' : totalSellsCount);
+        setElText('sells-count', totalSellsCount);
         
         let sellsHtml = "";
         try {
@@ -1059,7 +1062,8 @@ function getEarningsBadgeHtml(item) {
         }
 
         const combinedHtml = sellsHtml + closedRowsHtml;
-        document.querySelector('#tbl-sells tbody').innerHTML = combinedHtml || `<tr><td colspan="7" class="empty">No sell alerts or closed positions today</td></tr>`;
+        const sellsTbody = document.querySelector('#tbl-sells tbody');
+        if (sellsTbody) sellsTbody.innerHTML = combinedHtml || `<tr><td colspan="7" class="empty">No sell alerts or closed positions today</td></tr>`;
 
         // Top 20
         const top20 = [...stocks].sort((a,b) => {
@@ -1067,120 +1071,135 @@ function getEarningsBadgeHtml(item) {
           if (scoreDiff !== 0) return scoreDiff;
           return (b.rs_6m || 0) - (a.rs_6m || 0);
         }).slice(0, 20);
-        document.getElementById('top20-count').textContent = top20.length;
+        setElText('top20-count', top20.length);
         const avgScore = top20.length ? Math.round(top20.reduce((s,r) => s + (r.FM_Score || 0), 0) / top20.length) : 0;
-        document.getElementById('kpi-avg-score').textContent = avgScore;
+        setElText('kpi-avg-score', avgScore);
 
-        document.querySelector('#tbl-top20 tbody').innerHTML = top20.length ? top20.map((r, i) => `
-          <tr>
-            <td class="mono" style="color:var(--muted);">#${i+1}</td>
-            <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
-            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
-              <span class="mono">₹${fmt(r.cmp)}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
-            </td>
-            <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
-              <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
-            </td>
-            <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
-            <td class="mono">${fmt(r['ROCE %'])}%</td>
-            <td class="mono">${fmt(r['ROE %'])}%</td>
-            <td class="mono">${fmt(r['YOY Profit %'])}%</td>
+        const top20Tbody = document.querySelector('#tbl-top20 tbody');
+        if (top20Tbody) {
+          top20Tbody.innerHTML = top20.length ? top20.map((r, i) => `
+            <tr>
+              <td class="mono" style="color:var(--muted);">#${i+1}</td>
+              <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
+              <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
+                <span class="mono">₹${fmt(r.cmp)}</span>
+                <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
+              </td>
+              <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
+                <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
+                <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
+              </td>
+              <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
+              <td class="mono">${fmt(r['ROCE %'])}%</td>
+              <td class="mono">${fmt(r['ROE %'])}%</td>
+              <td class="mono">${fmt(r['YOY Profit %'])}%</td>
 
-            <td>${sectorTag(r.Sector)}</td>
-            <td>${getSigHtml(r.Signal)}</td>
-          </tr>
-        `).join('') : `<tr><td colspan="11" class="empty">No data available</td></tr>`;
+              <td>${sectorTag(r.Sector)}</td>
+              <td>${getSigHtml(r.Signal)}</td>
+            </tr>
+          `).join('') : `<tr><td colspan="11" class="empty">No data available</td></tr>`;
+        }
 
         // Core — use Core_Selected flag (already sector-capped by engine)
         const core = stocks.filter(s => s.Core_Selected === true).sort((a,b) => (b.FM_Score || 0) - (a.FM_Score || 0));
-        document.getElementById('kpi-core').textContent = core.length;
-        document.getElementById('core-count').textContent = `${core.length} / 15 max`;
-        document.querySelector('#tbl-core tbody').innerHTML = core.length ? core.map(r => `
-          <tr>
-            <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
-            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
-              <span class="mono">₹${fmt(r.cmp)}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
-            </td>
-            <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
-              <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
-            </td>
-            <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
-            <td class="mono">${fmt(r['ROCE %'])}%</td>
-            <td class="mono">${fmt(r['ROE %'])}%</td>
+        setElText('kpi-core', core.length);
+        setElText('core-count', `${core.length} / 15 max`);
+        const coreTbody = document.querySelector('#tbl-core tbody');
+        if (coreTbody) {
+          coreTbody.innerHTML = core.length ? core.map(r => `
+            <tr>
+              <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
+              <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
+                <span class="mono">₹${fmt(r.cmp)}</span>
+                <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
+              </td>
+              <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
+                <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
+                <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
+              </td>
+              <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
+              <td class="mono">${fmt(r['ROCE %'])}%</td>
+              <td class="mono">${fmt(r['ROE %'])}%</td>
 
-            <td>${sectorTag(r.Sector)}</td>
-            <td>${getSigHtml(r.Signal)}</td>
-          </tr>
-        `).join('') : `<tr><td colspan="9" class="empty">No stocks met Core criteria</td></tr>`;
+              <td>${sectorTag(r.Sector)}</td>
+              <td>${getSigHtml(r.Signal)}</td>
+            </tr>
+          `).join('') : `<tr><td colspan="9" class="empty">No stocks met Core criteria</td></tr>`;
+        }
 
         // Growth
         const growth = stocks.filter(s => (s.Portfolio_Bucket || "").includes("Growth")).sort((a,b) => (b.FM_Score || 0) - (a.FM_Score || 0));
-        document.getElementById('kpi-growth').textContent = growth.length;
-        document.getElementById('growth-count').textContent = growth.length;
-        document.querySelector('#tbl-growth tbody').innerHTML = growth.length ? growth.map(r => `
-          <tr>
-            <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
-            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
-              <span class="mono">₹${fmt(r.cmp)}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
-            </td>
-            <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
-              <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
-            </td>
-            <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
-            <td class="mono">${fmt(r['YOY Revenue %'])}%</td>
-            <td class="mono">${fmt(r['YOY Profit %'])}%</td>
+        setElText('kpi-growth', growth.length);
+        setElText('growth-count', growth.length);
+        const growthTbody = document.querySelector('#tbl-growth tbody');
+        if (growthTbody) {
+          growthTbody.innerHTML = growth.length ? growth.map(r => `
+            <tr>
+              <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
+              <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
+                <span class="mono">₹${fmt(r.cmp)}</span>
+                <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
+              </td>
+              <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
+                <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
+                <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
+              </td>
+              <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
+              <td class="mono">${fmt(r['YOY Revenue %'])}%</td>
+              <td class="mono">${fmt(r['YOY Profit %'])}%</td>
 
-            <td>${getSigHtml(r.Signal)}</td>
-          </tr>
-        `).join('') : `<tr><td colspan="8" class="empty">No stocks met Growth criteria</td></tr>`;
+              <td>${getSigHtml(r.Signal)}</td>
+            </tr>
+          `).join('') : `<tr><td colspan="8" class="empty">No stocks met Growth criteria</td></tr>`;
+        }
 
         // Quality On Sale
         const sale = stocks.filter(s => (s.Portfolio_Bucket || "").includes("Quality-On-Sale")).sort((a,b) => (b.FM_Score || 0) - (a.FM_Score || 0));
-        document.getElementById('kpi-sale').textContent = sale.length;
-        document.getElementById('sale-count').textContent = sale.length;
-        document.querySelector('#tbl-sale tbody').innerHTML = sale.length ? sale.map(r => `
-          <tr>
-            <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
-            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
-              <span class="mono">₹${fmt(r.cmp)}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
-            </td>
-            <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
-              <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
-            </td>
-            <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
-            <td class="mono">${fmt(r['ROCE %'])}%</td>
-            <td class="mono">${fmt(r['PEG Ratio'])}</td>
+        setElText('kpi-sale', sale.length);
+        setElText('sale-count', sale.length);
+        const saleTbody = document.querySelector('#tbl-sale tbody');
+        if (saleTbody) {
+          saleTbody.innerHTML = sale.length ? sale.map(r => `
+            <tr>
+              <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
+              <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
+                <span class="mono">₹${fmt(r.cmp)}</span>
+                <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
+              </td>
+              <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
+                <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
+                <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
+              </td>
+              <td class="mono ${getRsCls(r.rs_6m)}">${fmt(r.rs_6m)}%</td>
+              <td class="mono">${fmt(r['ROCE %'])}%</td>
+              <td class="mono">${fmt(r['PEG Ratio'])}</td>
 
-            <td>${getSigHtml(r.Signal)}</td>
-          </tr>
-        `).join('') : `<tr><td colspan="8" class="empty">No stocks met Quality-On-Sale criteria</td></tr>`;
+              <td>${getSigHtml(r.Signal)}</td>
+            </tr>
+          `).join('') : `<tr><td colspan="8" class="empty">No stocks met Quality-On-Sale criteria</td></tr>`;
+        }
 
         // Opportunistic
         const opp = stocks.filter(s => (s.Portfolio_Bucket || "").includes("Opportunistic")).sort((a,b) => (b.FM_Score || 0) - (a.FM_Score || 0));
-        document.getElementById('opp-count').textContent = opp.length;
-        document.querySelector('#tbl-opp tbody').innerHTML = opp.length ? opp.map(r => `
-          <tr>
-            <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
-            <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
-              <span class="mono">₹${fmt(r.cmp)}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
-            </td>
-            <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
-              <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
-              <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
-            </td>
-            <td style="font-size:11px; color:var(--muted);">${r.Category || '-'}</td>
-            <td>${getSigHtml(r.Signal)}</td>
-          </tr>
-        `).join('') : `<tr><td colspan="5" class="empty">No turnarounds detected</td></tr>`;
+        setElText('opp-count', opp.length);
+        const oppTbody = document.querySelector('#tbl-opp tbody');
+        if (oppTbody) {
+          oppTbody.innerHTML = opp.length ? opp.map(r => `
+            <tr>
+              <td class="sym">${r.Stock}${getEarningsBadgeHtml(r)}</td>
+              <td title="Updated: ${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}">
+                <span class="mono">₹${fmt(r.cmp)}</span>
+                <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
+              </td>
+              <td title="Calculated: ${fmtDetailTime(window.DATA_GENERATED_AT)}">
+                <span class="score-badge ${getScoreCls(r.FM_Score)}">${r.FM_Score || 0}</span>
+                <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px; text-align:center;">${window.DATA_GENERATED_AT ? fmtDetailTime(window.DATA_GENERATED_AT) : ''}</div>
+              </td>
+              <td style="font-size:11px; color:var(--muted);">${r.Category || '-'}</td>
+              <td>${getSigHtml(r.Signal)}</td>
+            </tr>
+          `).join('') : `<tr><td colspan="5" class="empty">No turnarounds detected</td></tr>`;
+        }
 
       } catch (err) {
         console.error(err);

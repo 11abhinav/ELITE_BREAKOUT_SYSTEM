@@ -44,7 +44,7 @@ def sanitize_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return cleaned
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class Snapshot:
     """Immutable data snapshot representation."""
     snapshot_type: str
@@ -55,8 +55,43 @@ class Snapshot:
     summary: Dict[str, Any]
     etag: str
     raw_json_bytes: bytes
-    _brotli_bytes: Optional[bytes] = None
-    _gzip_bytes: Optional[bytes] = None
+    _brotli_bytes: Optional[bytes]
+    _gzip_bytes: Optional[bytes]
+
+    def __init__(
+        self,
+        snapshot_type: str,
+        version: int,
+        generated_at: str,
+        metadata: Dict[str, Any],
+        records: List[Dict[str, Any]],
+        summary: Dict[str, Any],
+        etag: str,
+        raw_json_bytes: bytes,
+        _brotli_bytes: Optional[bytes] = None,
+        _gzip_bytes: Optional[bytes] = None,
+        brotli_bytes: Optional[bytes] = None,
+        gzip_bytes: Optional[bytes] = None,
+        **kwargs,
+    ):
+        object.__setattr__(self, "snapshot_type", snapshot_type)
+        object.__setattr__(self, "version", version)
+        object.__setattr__(self, "generated_at", generated_at)
+        object.__setattr__(self, "metadata", metadata)
+        object.__setattr__(self, "records", records)
+        object.__setattr__(self, "summary", summary)
+        object.__setattr__(self, "etag", etag)
+        object.__setattr__(self, "raw_json_bytes", raw_json_bytes)
+        
+        br = _brotli_bytes if _brotli_bytes is not None else brotli_bytes
+        if br is None and "brotli_bytes" in kwargs:
+            br = kwargs["brotli_bytes"]
+        gz = _gzip_bytes if _gzip_bytes is not None else gzip_bytes
+        if gz is None and "gzip_bytes" in kwargs:
+            gz = kwargs["gzip_bytes"]
+            
+        object.__setattr__(self, "_brotli_bytes", br)
+        object.__setattr__(self, "_gzip_bytes", gz)
 
     def get_brotli_bytes(self) -> Optional[bytes]:
         """Lazy Brotli compression buffer."""

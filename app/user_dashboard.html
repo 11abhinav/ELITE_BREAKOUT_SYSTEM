@@ -1938,7 +1938,8 @@ async function doRefresh(isAuto = false) {
   renderTradeTable();
   renderCategoryStats();
   updateSim();
-  document.getElementById('gen-time').textContent = 'Updated: ' + new Date().toLocaleTimeString('en-IN', {timeZone:'Asia/Kolkata'});
+  const gtEl = document.getElementById('gen-time');
+  if (gtEl) gtEl.textContent = 'Updated: ' + new Date().toLocaleTimeString('en-IN', {timeZone:'Asia/Kolkata'});
   btn.classList.remove('spinning');
 }
 
@@ -1955,8 +1956,10 @@ async function pingViewer() {
     if (res.ok) {
       const data = await res.json();
       if (data && data.active_count) {
-        document.getElementById('vCountVal').textContent = data.active_count;
-        document.getElementById('viewerCount').title = 'Active: ' + data.viewers.join(', ');
+        const vEl = document.getElementById('vCountVal');
+        if (vEl) vEl.textContent = data.active_count;
+        const vcEl = document.getElementById('viewerCount');
+        if (vcEl) vcEl.title = 'Active: ' + (data.viewers ? data.viewers.join(', ') : '');
       }
     }
   } catch(e) {}
@@ -1970,15 +1973,19 @@ async function initDashboard() {
     loadData(false),
   ]);
 
-  document.getElementById('loading').style.display = 'none';
-  document.getElementById('main').style.display = 'block';
+  const lEl = document.getElementById('loading');
+  if (lEl) lEl.style.display = 'none';
+  const mEl = document.getElementById('main');
+  if (mEl) mEl.style.display = 'block';
   window.scrollTo(0, 0);
-  document.getElementById('gen-time').textContent = 'Generated: ' + (data.generated_at
+  const gtEl = document.getElementById('gen-time');
+  if (gtEl) gtEl.textContent = 'Generated: ' + (data && data.generated_at
     ? new Date(data.generated_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) : '—');
 
-  const s = data.summary || { win_rate: 0, winners: 0, losers: 0, open_positions: 0 };
-  document.getElementById('header-stats').textContent = `${s.win_rate}% WR · ${s.winners}W ${s.losers}L ${s.open_positions} open`;
-  ALL_TRADES = data.trades || [];
+  const s = (data && data.summary) || { win_rate: 0, winners: 0, losers: 0, open_positions: 0 };
+  const hsEl = document.getElementById('header-stats');
+  if (hsEl) hsEl.textContent = `${s.win_rate}% WR · ${s.winners}W ${s.losers}L ${s.open_positions} open`;
+  ALL_TRADES = (data && data.trades) || [];
   populateFilters(ALL_TRADES);
   renderKPIs(s);
   // Fire secondary data loads in parallel (non-blocking)
