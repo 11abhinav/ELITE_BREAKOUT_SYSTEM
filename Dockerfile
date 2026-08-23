@@ -16,6 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+EXPOSE 8000
 EXPOSE 8080
 
 CMD ["bash", "start.sh"]

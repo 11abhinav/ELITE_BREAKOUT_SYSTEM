@@ -3641,8 +3641,8 @@ def clear_scanner_down(scanner_name: str) -> None:
 
 def start_dashboard_server():
     """Called from main.py in a daemon thread."""
-    # Coolify injects PORT automatically — default 8080 is used if missing.
-    port = int(os.getenv("PORT", 8080))
+    # Coolify injects PORT automatically — default 8000 is used if missing (matching Coolify Exposed Ports).
+    port = int(os.getenv("PORT", 8000))
     logger.info(f"🌐 Dashboard server starting on port {port}")
     logger.info(f"🌐 Serving User HTML from: {USER_DASHBOARD_PATH or 'NOT FOUND'}")
     logger.info(f"🌐 Serving Admin HTML from: {ADMIN_DASHBOARD_PATH or 'NOT FOUND'}")
