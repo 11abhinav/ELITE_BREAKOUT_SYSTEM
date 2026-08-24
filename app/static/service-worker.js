@@ -107,27 +107,46 @@ async function networkFirstNoHtmlCache(request) {
                         request.url.includes('/login');
 
   try {
-    // 45-second timeout for network requests (accommodates slow 3G/4G connections & heavy JSON data)
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 45000);
-    const networkResponse = await fetch(request, { signal: controller.signal });
-    clearTimeout(timeoutId);
+    let networkResponse;
+    if (request.mode === 'navigate') {
+      // Navigation requests MUST use native fetch(request) to preserve browser credentials & navigation context
+      networkResponse = await fetch(request);
+    } else {
+      // API / Data requests use AbortController with 45s timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
+      networkResponse = await fetch(request.url, {
+        method: request.method,
+        headers: request.headers,
+        credentials: 'same-origin',
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+    }
 
     // NEVER cache HTML pages or API responses in CacheStorage
-    if (!isHtmlRequest && !isApiRequest && request.method === 'GET' && networkResponse.ok && request.url.startsWith('http')) {
+    if (!isHtmlRequest && !isApiRequest && request.method === 'GET' && networkResponse && networkResponse.ok && request.url.startsWith('http')) {
       const cache = await caches.open(CACHE_NAME);
       cache.put(request, networkResponse.clone());
     }
     return networkResponse;
   } catch (err) {
-    if (err.name !== 'AbortError') {
-      console.warn('[SW] Network request failed:', request.url);
-    }
     if (isHtmlRequest) {
+      // Retry native fetch before serving offline page
+      try {
+        const retryResp = await fetch(request);
+        if (retryResp) return retryResp;
+      } catch (_e) {}
+
       return new Response(offlineHTML(), {
         headers: { 'Content-Type': 'text/html' }
       });
     }
+
+    if (err.name !== 'AbortError') {
+      console.warn('[SW] Network request failed:', request.url);
+    }
+
     const cached = await caches.match(request);
     if (cached) {
       return cached;

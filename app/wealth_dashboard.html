@@ -1442,7 +1442,9 @@ function getEarningsBadgeHtml(item) {
           return; 
         }
         const data = await res.json();
-        console.log('🔔 fetchTodaysAlerts_Wealth: received', data.length, 'alerts');
+        if (data && data.length > 0) {
+          console.log('🔔 fetchTodaysAlerts_Wealth: received', data.length, 'alerts');
+        }
         
         if (!isFirstWealthAlertFetch && data.length > lastWealthAlertCount) {
             playLoudNotificationSound();
