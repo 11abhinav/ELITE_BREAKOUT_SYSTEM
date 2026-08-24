@@ -2682,6 +2682,18 @@ def api_restore_multibagger_positions():
         logger.exception("❌ /api/admin/restore_multibagger_positions failed")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route("/api/admin/reset_all_positions", methods=["POST"])
+@admin_required
+def api_reset_all_positions():
+    """Admin endpoint to re-open all closed alerts/positions and clear exit history."""
+    try:
+        from database import reset_all_positions_to_open
+        count = reset_all_positions_to_open()
+        return jsonify({"status": "ok", "message": f"Successfully re-opened {count} positions and cleared exit history.", "count": count}), 200
+    except Exception as e:
+        logger.exception("❌ /api/admin/reset_all_positions failed")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route("/api/admin/pledge_worker/mode", methods=["GET", "POST"])
 @admin_required
 def api_pledge_worker_mode():

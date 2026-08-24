@@ -8009,4 +8009,67 @@ def get_scanner_execution_history(
         return {"records": [], "total_records": 0, "page": page, "per_page": per_page, "total_pages": 1, "available_versions": ["v1"], "available_commits": [], "summary_stats": {}}
 
 
+def reset_all_positions_to_open() -> int:
+    """Resets all alerts, breakout watchlists, and wealth positions in DB to OPEN status and clears exit history."""
+    init_db()
+    with _DB_WRITE_LOCK:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # 1. Reset main alerts table
+                cur.execute("""
+                    UPDATE alerts
+                    SET status           = 'OPEN',
+                        exit_price       = NULL,
+                        pnl_pct          = NULL,
+                        pnl_rs           = NULL,
+                        closed_at        = NULL,
+                        exit_signal      = NULL,
+                        execution_state  = 'OPEN',
+                        stopped_out      = FALSE,
+                        target_hit       = FALSE,
+                        remaining_shares = COALESCE(shares_bought, 1),
+                        exit_history     = '[]'
+                """)
+                count = cur.rowcount
+                
+                # 2. Reset breakout_watchlist
+                try:
+                    cur.execute("""
+                        UPDATE breakout_watchlist
+                        SET current_state = 'HOURLY_APPROVED',
+                            cooldown_until = NULL,
+                            invalidated_at = NULL
+                    """)
+                except Exception:
+                    pass
+
+                # 3. Reset wealth_buy_alert
+                try:
+                    cur.execute("""
+                        UPDATE wealth_buy_alert
+                        SET is_closed = FALSE,
+                            closed_at = NULL,
+                            exit_reason = NULL,
+                            exit_price = NULL
+                    """)
+                except Exception:
+                    pass
+                
+                # 4. Clear auxiliary outcome tracking tables if present
+                try:
+                    cur.execute("TRUNCATE TABLE alert_outcomes CASCADE;")
+                except Exception:
+                    pass
+                try:
+                    cur.execute("TRUNCATE TABLE partial_exits CASCADE;")
+                except Exception:
+                    pass
+                    
+                cur.execute("DELETE FROM system_state WHERE key = 'performance_data';")
+                conn.commit()
+                logger.info(f"🔄 [RESET] Reset {count} positions back to OPEN status and purged all exit history.")
+                return count
+
+
+
 

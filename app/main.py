@@ -2337,6 +2337,14 @@ if __name__ == "__main__":
         except Exception as _router_err:
             logger.warning(f"⚠️ Failed to restore symbol router state: {_router_err}")
 
+        # RESET ALL POSITIONS TO OPEN ON BOOT
+        try:
+            from database import reset_all_positions_to_open
+            reset_all_positions_to_open()
+            logger.info("🔓 [BOOT] Successfully reset all positions/alerts to OPEN status and cleared exit history.")
+        except Exception as _rst_err:
+            logger.warning(f"⚠️ Boot position reset warning: {_rst_err}")
+
         # ORPHANED SCANNER RUNS CLEANUP
         try:
             from database import cleanup_orphaned_scanner_runs_on_boot
