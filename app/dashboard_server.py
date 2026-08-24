@@ -1233,6 +1233,26 @@ def fyers_callback():
         logger.exception(f"Fyers callback token exchange failed")
         return f"Error exchanging Fyers token: {e}", 500
 
+@app.route("/api/admin/fyers/save_token", methods=["POST"])
+@admin_required
+def api_admin_fyers_save_token():
+    """Admin API endpoint to directly save/update Fyers access token."""
+    try:
+        data = request.json or {}
+        token = (data.get("token") or "").strip()
+        if not token:
+            return jsonify({"status": "error", "message": "Access token string is required."}), 400
+        
+        from fyers_auth import save_access_token_direct
+        saved = save_access_token_direct(token)
+        if saved:
+            return jsonify({"status": "ok", "message": "Fyers access token updated and saved successfully!"}), 200
+        else:
+            return jsonify({"status": "error", "message": "Failed to save Fyers access token."}), 500
+    except Exception as e:
+        logger.exception("❌ /api/admin/fyers/save_token failed")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 
 # =====================================================================================
 # [VERSION: ADMIN_DB_EXPORT_APIS_v1.0] EXHAUSTIVE ADMIN DATABASE EXPORT & INSPECTION APIS

@@ -625,13 +625,17 @@ def dispatch_fyers_reauth_notification(reason: str = "Fyers API access token is 
 
 _token_lock = threading.Lock()
 _autologin_attempted_date = None
+_last_autologin_fail_time = 0.0
+_last_fyers_err_log_time = 0.0
 
 def get_access_token() -> str:
-    """Retrieves the access token prioritizing DB, then local file, then ONE-TIME auto-login per day."""
+    """Retrieves the access token prioritizing DB, then local file, then auto-login (with 15m retry cooldown)."""
+    import time
     from zoneinfo import ZoneInfo
     from datetime import datetime as _dt
-    global _cached_token, _token_date, _autologin_attempted_date
+    global _cached_token, _token_date, _autologin_attempted_date, _last_autologin_fail_time, _last_fyers_err_log_time
     now_date = str(_dt.now(ZoneInfo('Asia/Kolkata')).date())
+    now_ts = time.time()
 
     with _token_lock:
         if _cached_token and _token_date == now_date:
@@ -685,12 +689,14 @@ def get_access_token() -> str:
             except Exception as e:
                 logger.warning(f"Error reading Fyers token file: {e}")
 
-        # 3. Suppress repeat auto-login attempts if already tried today and failed
-        if _autologin_attempted_date == now_date:
-            logger.error(f"❌ [FYERS AUTH ERROR] Fyers token missing for today ({now_date}). Auto-login was already attempted on startup and failed. Please authenticate via /fyers/login.")
+        # 3. Suppress repeat auto-login attempts within 15-minute cooldown window
+        if _autologin_attempted_date == now_date and (now_ts - _last_autologin_fail_time < 900.0):
+            if now_ts - _last_fyers_err_log_time > 300.0:
+                _last_fyers_err_log_time = now_ts
+                logger.warning(f"⚠️ [FYERS AUTH] Fyers token missing for today ({now_date}). Auto-login in 15m cooldown. Please authenticate via /fyers/login.")
             return None
 
-        # 4. Attempt auto-login ONCE for today in background thread to avoid blocking server boot & healthchecks
+        # 4. Attempt auto-login in background thread
         _autologin_attempted_date = now_date
         logger.info(f"No valid Fyers token for today found in DB or locally. Triggering background auto-login for today ({now_date})...")
         def _bg_auto_login():
@@ -701,8 +707,10 @@ def get_access_token() -> str:
                     _cached_token = token
                     _token_date = now_date
             else:
+                global _last_autologin_fail_time
+                _last_autologin_fail_time = time.time()
                 dispatch_fyers_reauth_notification("Fyers access token could not be generated automatically.")
-                logger.error(f"❌ [FYERS AUTH ERROR] Auto-login failed on startup — please authenticate via /fyers/login.")
+                logger.error(f"❌ [FYERS AUTH ERROR] Auto-login failed — please authenticate via /fyers/login.")
         
         threading.Thread(target=_bg_auto_login, name="FyersAutoLogin", daemon=True).start()
         return None
