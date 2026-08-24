@@ -2244,13 +2244,22 @@ def update_alert_outcome(
             success = False
             try:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT status, stop_loss, remaining_shares, exit_history FROM alerts WHERE id = %s", (alert_id,))
+                    cur.execute("SELECT status, stop_loss, remaining_shares, exit_history, entry_price, shares_bought, capital_allocated FROM alerts WHERE id = %s", (alert_id,))
                     row = cur.fetchone()
                     if not row: return
                     if row[0] in ("WIN", "LOSS", "EXPIRED", "NEUTRAL", "CLOSED", "REJECTED"):
                         logger.debug(f"🔒 Alert {alert_id} is already in terminal state ({row[0]}); ignoring outcome update.")
                         return
                     old_state = {"status": row[0], "stop_loss": row[1], "remaining_shares": row[2]}
+
+                    if pnl_rs is None or pnl_rs == 0:
+                        ep = float(row[4]) if row[4] is not None else None
+                        sh = int(row[5]) if row[5] is not None else None
+                        cap = float(row[6]) if row[6] is not None else None
+                        if exit_price and ep and sh:
+                            pnl_rs = round((exit_price - ep) * sh, 2)
+                        elif pnl_pct is not None and cap:
+                            pnl_rs = round((pnl_pct / 100.0) * cap, 2)
 
                     # Note: We allow overwriting OPEN or any PARTIAL_WIN_x
                     if execution_state:
@@ -2496,6 +2505,48 @@ def get_all_alerts() -> list[dict]:
             for row in cur.fetchall():
                 rows.append(dict(row))
             return rows
+
+
+def reset_closed_positions_to_open() -> dict:
+    """
+    Resets all previously closed/review trades back to OPEN/ACTIVE status in PostgreSQL DB
+    so that exit monitors can cleanly re-evaluate them in the next run.
+    """
+    with _DB_WRITE_LOCK:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # 1. Reset alerts table
+                cur.execute("""
+                    UPDATE alerts
+                    SET status = 'OPEN',
+                        exit_price = NULL,
+                        pnl_pct = NULL,
+                        pnl_rs = NULL,
+                        closed_at = NULL,
+                        exit_signal = NULL,
+                        exit_reason = NULL,
+                        remaining_shares = shares_bought,
+                        updated_at = NOW()
+                    WHERE status IN ('CLOSED', 'WIN', 'LOSS', 'NEUTRAL');
+                """)
+                alerts_reset = cur.rowcount
+
+                # 2. Reset wealth_buy_alert table
+                cur.execute("""
+                    UPDATE wealth_buy_alert
+                    SET is_closed = FALSE,
+                        status = 'ACTIVE',
+                        exit_signal = NULL,
+                        exit_price = NULL,
+                        exit_date = NULL,
+                        exit_time = NULL,
+                        status_updated_at = NOW()
+                    WHERE status IN ('CLOSED', 'SELL_REVIEW') OR is_closed = TRUE;
+                """)
+                wealth_reset = cur.rowcount
+            conn.commit()
+            logger.info(f"🔄 [DB RESET] Reset {alerts_reset} alerts and {wealth_reset} wealth buy alerts back to OPEN/ACTIVE status.")
+            return {"alerts_reset": alerts_reset, "wealth_reset": wealth_reset}
 
 
 # ── Scanner Health API ────────────────────────────────────────────────────────────────

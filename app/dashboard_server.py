@@ -1069,6 +1069,18 @@ def performance_json():
                 ad_val = r.get("alert_date")
                 ad_str = ad_val.isoformat()[:10] if hasattr(ad_val, "isoformat") else (str(ad_val)[:10] if ad_val else (at_str[:10] if at_str else ""))
 
+                ep_f = _safe_f(r.get("entry_price"))
+                xp_f = _safe_f(r.get("exit_price"))
+                sh_f = r.get("shares_bought")
+                cap_f = _safe_f(r.get("capital_allocated"))
+                p_pct_f = _safe_f(r.get("pnl_pct"))
+                pnl_rs_f = _safe_f(r.get("pnl_rs"))
+
+                if (pnl_rs_f is None or pnl_rs_f == 0) and xp_f is not None and ep_f and sh_f:
+                    pnl_rs_f = round((xp_f - ep_f) * sh_f, 2)
+                elif (pnl_rs_f is None or pnl_rs_f == 0) and p_pct_f is not None and cap_f:
+                    pnl_rs_f = round((p_pct_f / 100.0) * cap_f, 2)
+
                 trades_fallback.append({
                     "id": r.get("id"),
                     "symbol": r.get("symbol"),
@@ -1077,19 +1089,19 @@ def performance_json():
                     "signals": r.get("signals", ""),
                     "entry_date": ad_str,
                     "alert_time": at_str,
-                    "entry_price": _safe_f(r.get("entry_price")),
+                    "entry_price": ep_f,
                     "stop_loss": _safe_f(r.get("stop_loss")),
                     "initial_stop_loss": _safe_f(r.get("initial_stop_loss")),
                     "target_price": _safe_f(r.get("target_price")),
                     "target_1": _safe_f(r.get("target_1")),
                     "target_2": _safe_f(r.get("target_2")),
                     "target_3": _safe_f(r.get("target_3")),
-                    "current_price": _safe_f(r.get("current_price")) or _safe_f(r.get("entry_price")),
-                    "exit_price": _safe_f(r.get("exit_price")),
-                    "pnl_pct": _safe_f(r.get("pnl_pct")),
-                    "pnl_rs": _safe_f(r.get("pnl_rs")),
-                    "capital_allocated": _safe_f(r.get("capital_allocated")),
-                    "shares_bought": r.get("shares_bought"),
+                    "current_price": _safe_f(r.get("current_price")) or ep_f,
+                    "exit_price": xp_f,
+                    "pnl_pct": p_pct_f,
+                    "pnl_rs": pnl_rs_f,
+                    "capital_allocated": cap_f,
+                    "shares_bought": sh_f,
                     "status": r.get("status") or "OPEN",
                     "score": r.get("score"),
                     "is_rejected": bool(r.get("is_rejected", False)),
@@ -2320,6 +2332,18 @@ def api_todays_alerts():
         logger.exception('❌ /api/todays_alerts failed')
         return jsonify([]), 200
 
+
+@app.route('/api/admin/reset_trades_to_open', methods=['GET', 'POST'])
+def api_reset_trades_to_open():
+    """Reset all closed positions to OPEN status in DB so exit monitors re-evaluate them."""
+    try:
+        from database import reset_closed_positions_to_open, invalidate_performance_cache
+        res = reset_closed_positions_to_open()
+        invalidate_performance_cache()
+        return jsonify({"success": True, "details": res, "message": "All closed positions successfully reset to OPEN status."})
+    except Exception as e:
+        logger.exception("Error resetting trades to OPEN")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/alerts', methods=['GET'])
 @login_required

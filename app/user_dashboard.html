@@ -1216,9 +1216,28 @@ function getEarningsBadgeHtml(item) {
 }
 
 
+function calcPnlRs(t) {
+  if (!t) return 0;
+  const isActive = ['OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING'].includes(t.status);
+  if (isActive && t.shares_bought && (t.current_price || t.entry_price) && t.entry_price) {
+    return ((t.current_price || t.entry_price) - t.entry_price) * t.shares_bought;
+  }
+  if (t.pnl_rs != null && t.pnl_rs !== 0) {
+    return t.pnl_rs;
+  }
+  if (t.exit_price && t.entry_price && t.shares_bought) {
+    return (t.exit_price - t.entry_price) * t.shares_bought;
+  }
+  if (t.pnl_pct != null && t.capital_allocated) {
+    return (t.pnl_pct / 100.0) * t.capital_allocated;
+  }
+  return t.pnl_rs || 0;
+}
+
 function buildTradeRows(trades, maxAbs, prefix) {
   return trades.map((t, i) => {
     const id = prefix + i;
+    const pnlRsVal = calcPnlRs(t);
     const barW = t.pnl_pct != null ? Math.min(100, Math.abs(t.pnl_pct) / maxAbs * 100).toFixed(1) : 0;
     const barColor = t.pnl_pct == null ? C.muted : t.pnl_pct >= 0 ? C.accent : C.warn;
     const isOpen = expandedIds.has(id);
@@ -1244,7 +1263,7 @@ function buildTradeRows(trades, maxAbs, prefix) {
       <td class="col-opt">${fmt(t.capital_allocated)}</td>
       <td class="col-opt">${t.shares_bought||'\u2014'}</td>
       <td><div class="pnl-wrap"><div class="pnl-bar-track"><div class="pnl-bar-fill" style="width:${barW}%;background:${barColor}"></div></div><span class="pnl-text ${pctClass(t.pnl_pct)}">${pct(t.pnl_pct)}</span></div></td>
-      <td class="${pctClass(t.status === 'OPEN' && t.shares_bought && t.current_price ? (t.current_price - t.entry_price) * t.shares_bought : t.pnl_rs)}">${t.status === 'OPEN' && t.shares_bought && t.current_price ? fmt((t.current_price - t.entry_price) * t.shares_bought) : (t.pnl_rs != null ? fmt(t.pnl_rs) : '—')}</td>
+      <td class="${pctClass(pnlRsVal)}">${pnlRsVal !== 0 ? fmt(pnlRsVal) : (t.pnl_rs != null && t.pnl_rs !== 0 ? fmt(t.pnl_rs) : '—')}</td>
       <td title="Calculated: ${fmtDetailTime(t.alert_time || t.entry_date)}">
         ${sc}
         <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${t.alert_time || t.entry_date ? fmtDetailTime(t.alert_time || t.entry_date) : ''}</div>

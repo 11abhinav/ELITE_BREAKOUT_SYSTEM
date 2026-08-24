@@ -3360,13 +3360,22 @@ function getEarningsBadgeHtml(item) {
 
 
     function calcFloatingPnl(t) {
-      let realizedRs = (t.pnl_rs != null && (t.status === 'WIN' || t.status === 'LOSS' || (t.status && t.status.startsWith('PARTIAL_WIN')))) ? t.pnl_rs : 0;
-      let floatingRs = 0;
-      if ((t.status === 'OPEN' || (t.status && t.status.startsWith('PARTIAL_WIN'))) && t.current_price && t.entry_price) {
-        let shares = (t.remaining_shares !== undefined && t.remaining_shares !== null) ? t.remaining_shares : t.shares_bought;
-        if (shares) floatingRs = (t.current_price - t.entry_price) * shares;
+      let realizedRs = (t.pnl_rs != null && t.pnl_rs !== 0 && (t.status === 'WIN' || t.status === 'LOSS' || (t.status && t.status.startsWith('PARTIAL_WIN')))) ? t.pnl_rs : 0;
+      if ((t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED') && (t.pnl_rs == null || t.pnl_rs === 0)) {
+        if (t.exit_price && t.entry_price && t.shares_bought) {
+          realizedRs = (t.exit_price - t.entry_price) * t.shares_bought;
+        } else if (t.pnl_pct != null && t.capital_allocated) {
+          realizedRs = (t.pnl_pct / 100.0) * t.capital_allocated;
+        }
       }
-      let totalRs = t.pnl_rs != null ? t.pnl_rs : (realizedRs + floatingRs);
+      let floatingRs = 0;
+      const isActive = ['OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING'].includes(t.status);
+      if (isActive && t.entry_price) {
+        const curP = t.current_price || t.entry_price;
+        let shares = (t.remaining_shares !== undefined && t.remaining_shares !== null) ? t.remaining_shares : t.shares_bought;
+        if (shares && curP) floatingRs = (curP - t.entry_price) * shares;
+      }
+      let totalRs = isActive ? floatingRs : (realizedRs || t.pnl_rs || 0);
       let totalPct = t.pnl_pct != null ? t.pnl_pct : (t.capital_allocated ? (totalRs / t.capital_allocated) * 100 : 0);
       return { totalRs, totalPct };
     }
