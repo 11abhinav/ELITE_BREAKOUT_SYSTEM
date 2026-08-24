@@ -14,7 +14,7 @@
   if ('caches' in window) {
     caches.keys().then(keys => {
       keys.forEach(key => {
-        if (key !== 'elite-breakout-v5-no-html-cache') {
+        if (!key.startsWith('elite-breakout-v8')) {
           console.log('[PWA] Purging legacy cache bucket:', key);
           caches.delete(key);
         }

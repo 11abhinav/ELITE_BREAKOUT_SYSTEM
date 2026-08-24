@@ -2239,7 +2239,25 @@ async function generateAIModal() {
 
 </style>
 <script>
-const ALERT_FETCH_INTERVAL = 60 * 1000;
+const ALERT_FETCH_INTERVAL = 10 * 1000;
+
+let lastUserEtag = null;
+function setupSSEAlertStream() {
+  if (!!window.EventSource) {
+    const source = new EventSource('/api/stream/alerts');
+    source.addEventListener('snapshot', function(e) {
+      try {
+        const data = JSON.parse(e.data);
+        if (data && data.etag !== lastUserEtag) {
+          lastUserEtag = data.etag;
+          fetchTodaysAlertsAndBlink_User();
+          if (typeof fetchNotifications === 'function') fetchNotifications();
+        }
+      } catch(err) {}
+    }, false);
+  }
+}
+setupSSEAlertStream();
 
 let isFirstUserAlertFetch = true;
 let lastUserAlertCount = 0;

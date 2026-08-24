@@ -5281,7 +5281,23 @@ async function initDashboard() {
   refreshScannerStatus();
   setInterval(refreshScannerStatus, 10000);
 
-
+  // SSE Stream Listener for Instant Real-Time Updates
+  let lastSummaryEtag = null;
+  function setupSSEAlertStream() {
+    if (!!window.EventSource) {
+      const source = new EventSource('/api/stream/alerts');
+      source.addEventListener('snapshot', function(e) {
+        try {
+          const data = JSON.parse(e.data);
+          if (data && data.etag !== lastSummaryEtag) {
+            lastSummaryEtag = data.etag;
+            refreshScannerStatus();
+          }
+        } catch(err) {}
+      }, false);
+    }
+  }
+  setupSSEAlertStream();
 
   // Start viewer ping
   async function schedulePingViewer() {

@@ -576,7 +576,7 @@
     let ALL_WEALTH_STOCKS = [];
     let isFirstLoad = true;  // Skip alert on initial page load
     const setElText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-    const ALERT_FETCH_INTERVAL_WEALTH = 60 * 1000;  // Check for alerts every 60 seconds
+    const ALERT_FETCH_INTERVAL_WEALTH = 10 * 1000;  // Check for alerts every 10 seconds
     
     function triggerAlertFlashing() {
         if(isAlertActive) return;
