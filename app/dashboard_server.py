@@ -2307,6 +2307,22 @@ def api_todays_alerts():
         return jsonify([]), 200
 
 
+@app.route('/api/alerts', methods=['GET'])
+@login_required
+def api_all_alerts():
+    """Return ALL trade alerts from PostgreSQL database across all dates, newest first."""
+    try:
+        from database import get_all_alerts
+        rows = get_all_alerts()
+        is_admin = session.get('role') in ('admin', 'superuser')
+        if not is_admin:
+            rows = [r for r in rows if not r.get('is_rejected', False)]
+        return jsonify(serialize_datetimes(rows))
+    except Exception:
+        logger.exception('❌ /api/alerts failed')
+        return jsonify([]), 200
+
+
 @app.route('/api/alert/mark_seen', methods=['POST'])
 @login_required
 def api_mark_alert_seen():
