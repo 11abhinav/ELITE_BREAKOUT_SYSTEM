@@ -1000,9 +1000,8 @@ def run_all_seven_scanners_non_market_boot():
         try:
             from database import cleanup_orphaned_scanner_runs_on_boot
             cleanup_orphaned_scanner_runs_on_boot()
-            block_until_watchlist_ready()
         except Exception as e:
-            logger.warning(f"⚠️ [NON-MARKET BOOT] Watchlist readiness check warning: {e}")
+            logger.warning(f"⚠️ [NON-MARKET BOOT] Cleanup warning: {e}")
 
         all_scanners = [
             ("DAILY_BUILDER", _trigger_daily_builder),
@@ -1027,6 +1026,10 @@ def run_all_seven_scanners_non_market_boot():
             if is_scanner_stopped(name):
                 logger.info(f"⏭️ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) {name} is STOPPED by Admin. Skipping.")
                 continue
+
+            if idx > 1:
+                # Ensure watchlist built by DAILY_BUILDER (idx 1) is pristine for subsequent scanners
+                block_until_watchlist_ready()
 
             logger.info(f"▶️ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) Running Scanner: {name}...")
             start_t = time.time()
@@ -1314,7 +1317,9 @@ def run_system_scheduler():
 
         # 1. Verify Watchlist (with full date-aware cache/DB/rebuild logic)
         logger.info(f"🕒 SCHEDULER | Step 1: Verifying watchlist freshness for {today_str}")
-        block_until_watchlist_ready()
+        if not verify_watchlist_is_pristine():
+            logger.warning("📋 Watchlist is missing/stale on boot. Triggering Daily Builder to build watchlist...")
+            _trigger_daily_builder()
 
         # 2. Verify Wealth Engine
         try:
