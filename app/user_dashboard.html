@@ -2013,33 +2013,43 @@ async function pingViewer() {
 
 // ── MAIN
 async function initDashboard() {
-  // Fire both initial data loads in parallel
-  const [_, data] = await Promise.all([
-    loadCapitalInfo(),
-    loadData(false),
-  ]);
+  try {
+    const [capRes, dataRes] = await Promise.allSettled([
+      loadCapitalInfo(),
+      loadData(false),
+    ]);
 
-  const lEl = document.getElementById('loading');
-  if (lEl) lEl.style.display = 'none';
-  const mEl = document.getElementById('main');
-  if (mEl) mEl.style.display = 'block';
-  window.scrollTo(0, 0);
-  const gtEl = document.getElementById('gen-time');
-  if (gtEl) gtEl.textContent = 'Generated: ' + (data && data.generated_at
-    ? new Date(data.generated_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) : '—');
+    const data = (dataRes.status === 'fulfilled' && dataRes.value) ? dataRes.value : {
+      generated_at: new Date().toISOString(),
+      summary: { win_rate: 0, winners: 0, losers: 0, open_positions: 0 },
+      trades: []
+    };
 
-  const s = (data && data.summary) || { win_rate: 0, winners: 0, losers: 0, open_positions: 0 };
-  const hsEl = document.getElementById('header-stats');
-  if (hsEl) hsEl.textContent = `${s.win_rate}% WR · ${s.winners}W ${s.losers}L ${s.open_positions} open`;
-  ALL_TRADES = (data && data.trades) || [];
-  populateFilters(ALL_TRADES);
-  renderKPIs(s);
-  // Fire secondary data loads in parallel (non-blocking)
-  fetchSignalLadder();
-  loadMultibaggerWatchlist();
-  renderTradeTable();
-  renderCategoryStats();
-  updateSim();
+    const gtEl = document.getElementById('gen-time');
+    if (gtEl) gtEl.textContent = 'Generated: ' + (data && data.generated_at
+      ? new Date(data.generated_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) : '—');
+
+    const s = (data && data.summary) || { win_rate: 0, winners: 0, losers: 0, open_positions: 0 };
+    const hsEl = document.getElementById('header-stats');
+    if (hsEl) hsEl.textContent = `${s.win_rate}% WR · ${s.winners}W ${s.losers}L ${s.open_positions} open`;
+    ALL_TRADES = (data && data.trades) || [];
+    populateFilters(ALL_TRADES);
+    renderKPIs(s);
+    // Fire secondary data loads in parallel (non-blocking)
+    fetchSignalLadder();
+    loadMultibaggerWatchlist();
+    renderTradeTable();
+    renderCategoryStats();
+    updateSim();
+  } catch (err) {
+    console.error("User dashboard init error:", err);
+  } finally {
+    const lEl = document.getElementById('loading');
+    const mEl = document.getElementById('main');
+    if (lEl) lEl.style.display = 'none';
+    if (mEl) mEl.style.display = 'block';
+    window.scrollTo(0, 0);
+  }
 
   // Start viewer ping
   pingViewer();

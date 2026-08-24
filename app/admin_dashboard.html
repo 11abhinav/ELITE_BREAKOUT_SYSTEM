@@ -5243,34 +5243,50 @@ async function submitDepositFunds() {
 
 // ── MAIN
 async function initDashboard() {
-  const [data, liveStatus] = await Promise.all([loadData(), loadScannerStatus()]);
-  if (liveStatus) {
-    data.scanner_stats = {...(data.scanner_stats||{}), ...liveStatus};
+  try {
+    const [dataRes, liveStatusRes] = await Promise.allSettled([loadData(), loadScannerStatus()]);
+    const data = (dataRes.status === 'fulfilled' && dataRes.value) ? dataRes.value : {
+      generated_at: new Date().toISOString(),
+      summary: { total_alerts: 0, judged: 0, winners: 0, losers: 0, open_positions: 0, win_rate: 0, avg_return_pct: 0, avg_win_pct: 0, avg_loss_pct: 0, best_trade_pct: 0, worst_trade_pct: 0, expectancy: 0, sl_triggered: 0, target_hit: 0 },
+      trades: [], by_scanner: {}, by_category: {}, equity_curve: [], monthly: []
+    };
+    const liveStatus = (liveStatusRes.status === 'fulfilled' && liveStatusRes.value) ? liveStatusRes.value : {};
+
+    if (liveStatus) {
+      data.scanner_stats = {...(data.scanner_stats||{}), ...liveStatus};
+    }
+    window._scannerStats = data.scanner_stats || {};
+
+    const genEl = document.getElementById('gen-time');
+    if (genEl) {
+      genEl.textContent = 'Generated: ' + (data.generated_at
+        ? new Date(data.generated_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) : '—');
+    }
+
+    ALL_TRADES = data.trades || [];
+    EXIT_HISTORY_CACHE.clear();
+    populateFilters(ALL_TRADES);
+    renderTradeTable();
+    renderScannerGrid(data.scanner_stats);
+    loadNonCriticalErrors();
+
+    // Load secondary dashboard components concurrently (non-blocking)
+    Promise.allSettled([
+      loadCapitalInfo(),
+      fetchSignalLadder(),
+      loadMultibaggerWatchlist(),
+      loadPendingUsers(),
+      loadAdvancedOutcomeAnalytics()
+    ]).catch(e => console.error("Error loading secondary dashboard components:", e));
+  } catch (err) {
+    console.error("Dashboard init error:", err);
+  } finally {
+    const lEl = document.getElementById('loading');
+    const mEl = document.getElementById('main');
+    if (lEl) lEl.style.display = 'none';
+    if (mEl) mEl.style.display = 'block';
+    window.scrollTo(0, 0);
   }
-  window._scannerStats = data.scanner_stats || {};
-
-  document.getElementById('loading').style.display = 'none';
-  document.getElementById('main').style.display = 'block';
-  window.scrollTo(0, 0);
-
-  document.getElementById('gen-time').textContent = 'Generated: ' + (data.generated_at
-    ? new Date(data.generated_at).toLocaleString('en-IN',{timeZone:'Asia/Kolkata'}) : '—');
-
-  ALL_TRADES = data.trades || [];
-  EXIT_HISTORY_CACHE.clear();
-  populateFilters(ALL_TRADES);
-  renderTradeTable();
-  renderScannerGrid(data.scanner_stats);
-  loadNonCriticalErrors();
-
-  // Load secondary dashboard components concurrently
-  Promise.all([
-    loadCapitalInfo(),
-    fetchSignalLadder(),
-    loadMultibaggerWatchlist(),
-    loadPendingUsers(),
-    loadAdvancedOutcomeAnalytics()
-  ]).catch(e => console.error("Error loading secondary dashboard components:", e));
 
   // Auto-refresh scanner status & execution history every 10s
   async function refreshScannerStatus() {
