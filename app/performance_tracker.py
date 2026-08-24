@@ -1139,25 +1139,19 @@ def _write_empty():
 
 import threading
 _perf_rebuild_lock = threading.Lock()
+_last_perf_rebuild_ts = 0.0
+_perf_rebuild_cooldown = 45.0
 
 def trigger_performance_rebuild(recalc_ids: list[int] = None):
     """
     Debounced/asynchronous trigger for rebuilding performance data.
-    
-    RCA & DESIGN DECISION (2026-07-15):
-    - Background: We decoupled performance rebuilds from scanners/endpoints to prevent "rebuild storms"
-      (parallel threads running build_performance_data() concurrently and causing DB/API contention).
-      However, this caused a 5-minute UI lag where newly generated scanner signals or manual alert
-      actions (accept/reject) would not show up in the "All Trades" dashboard table until the next
-      background scheduler run.
-      
-    - Solution: This function acts as a debouncer. It acquires _perf_rebuild_lock with blocking=False.
-      If a rebuild is already in progress, any incoming triggers return immediately without spawning
-      a thread or queuing. If no rebuild is running, it spawns a background thread, waits to safely
-      serialize with active scanners using main.scanner_execution_lock, and builds the performance data.
-      This keeps the UI responsive (instant return), prevents parallel build collisions, and updates
-      performance data within seconds of a scanner finishing or an alert action being clicked.
     """
+    global _last_perf_rebuild_ts
+    now = time.time()
+    if recalc_ids is None and (now - _last_perf_rebuild_ts) < _perf_rebuild_cooldown:
+        logger.info("📈 PERFORMANCE TRACKER | Rebuild triggered within 45s cooldown, skipping redundant trigger.")
+        return
+    _last_perf_rebuild_ts = now
     def _target():
         t_name = threading.current_thread().name
         # non-blocking lock acquire to prevent storm

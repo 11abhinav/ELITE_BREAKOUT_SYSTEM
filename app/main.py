@@ -2409,12 +2409,13 @@ if __name__ == "__main__":
         # NON-MARKET HOURS CATCH-UP is handled entirely by the SystemScheduler thread
         # to prevent concurrent executions.
         # SystemScheduler is started automatically by the Watchdog via RESTARTABLE_THREADS.
+        pass
 
+    # WATCHDOG THREAD — Start Watchdog FIRST so scanners and scheduler start immediately on boot
+    watchdog_thread = threading.Thread(target=run_watchdog, name="Watchdog", daemon=True)
+    watchdog_thread.start()
 
-        # WATCHDOG THREAD
-        watchdog_thread = threading.Thread(target=run_watchdog, name="Watchdog", daemon=True)
-        watchdog_thread.start()
-
+    # BACKGROUND BOOT SEQUENCE (diagnostics, symbol router, position resets)
     threading.Thread(target=_bg_boot_sequence, name="BootSequence", daemon=True).start()
 
     # Block main thread to keep container alive

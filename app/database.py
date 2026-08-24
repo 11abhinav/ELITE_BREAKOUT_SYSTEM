@@ -8254,10 +8254,10 @@ def reset_all_positions_to_open() -> int:
                 cur.execute("DELETE FROM system_state WHERE key IN ('performance_data', 'performance_data_json');")
                 conn.commit()
                 try:
-                    from performance_tracker import build_performance_data
-                    build_performance_data(fast_mode=True, force_live_fetch=True)
+                    from performance_tracker import trigger_performance_rebuild
+                    trigger_performance_rebuild()
                 except Exception as _p_err:
-                    logger.warning(f"Failed to rebuild performance_data after reset: {_p_err}")
+                    logger.warning(f"Failed to trigger performance_data rebuild post-reset: {_p_err}")
                 logger.info(f"🔄 [RESET] Reset {count} positions back to OPEN status and purged all exit history.")
                 return count
 
