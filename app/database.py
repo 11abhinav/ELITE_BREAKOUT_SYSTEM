@@ -1445,43 +1445,65 @@ def init_db():
                     cur.execute("ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS last_updated TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;")
                 except Exception as mig_err:
                     logger.warning(f"⚠️ Schema migration failed (some columns may not be added): {mig_err}")
-                # 39. Trade analytics view mapping JSONB context to columns
-                cur.execute("DROP VIEW IF EXISTS v_trade_analytics CASCADE")
-                cur.execute("""
-                    CREATE OR REPLACE VIEW v_trade_analytics AS
-                    SELECT 
-                        id,
-                        symbol,
-                        alert_time,
-                        alert_date,
-                        scanner,
-                        category,
-                        entry_price,
-                        stop_loss,
-                        target_price,
-                        status,
-                        exit_price,
-                        pnl_pct,
-                        closed_at,
-                        (context->'technicals'->>'above_ema20')::boolean AS above_ema20,
-                        (context->'technicals'->>'above_sma50')::boolean AS above_sma50,
-                        (context->'technicals'->>'golden_cross')::boolean AS golden_cross,
-                        (context->'technicals'->>'body_ratio')::float AS body_ratio,
-                        (context->'technicals'->>'delivery_pct')::float AS delivery_pct,
-                        (context->'technicals'->>'rsi')::float AS rsi,
-                        (context->'technicals'->>'volume_ratio')::float AS volume_ratio,
-                        (context->'session'->>'open')::float AS session_open,
-                        (context->'session'->>'day_high')::float AS session_day_high,
-                        (context->'session'->>'day_low')::float AS session_day_low,
-                        (context->'fundamentals'->>'peg')::float AS peg,
-                        (context->'fundamentals'->>'yoy_rev')::float AS yoy_rev,
-                        (context->'fundamentals'->>'yoy_profit')::float AS yoy_profit,
-                        (context->'fundamentals'->>'roe')::float AS roe,
-                        context->'execution'->>'sl_method' AS sl_method,
-                        context->'execution'->>'t_method' AS t_method,
-                        context->'execution'->>'trail_note' AS trail_note
-                    FROM alerts;
-                """)
+                    # CRITICAL: if migration fails (e.g. deadlock), transaction is aborted.
+                    # Must rollback before running any more DDL, otherwise every subsequent
+                    # statement will fail with "InFailedSqlTransaction".
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+
+                # 39. Trade analytics view — wrapped in own try/except with lock_timeout
+                # to prevent this DDL from blocking on AccessExclusiveLock when other workers
+                # are reading from the 'alerts' table (causes deadlock otherwise).
+                try:
+                    with conn.cursor() as _vcur:
+                        _vcur.execute("SET LOCAL lock_timeout = '3s'")
+                        _vcur.execute("DROP VIEW IF EXISTS v_trade_analytics CASCADE")
+                        _vcur.execute("""
+                            CREATE OR REPLACE VIEW v_trade_analytics AS
+                            SELECT 
+                                id,
+                                symbol,
+                                alert_time,
+                                alert_date,
+                                scanner,
+                                category,
+                                entry_price,
+                                stop_loss,
+                                target_price,
+                                status,
+                                exit_price,
+                                pnl_pct,
+                                closed_at,
+                                (context->'technicals'->>'above_ema20')::boolean AS above_ema20,
+                                (context->'technicals'->>'above_sma50')::boolean AS above_sma50,
+                                (context->'technicals'->>'golden_cross')::boolean AS golden_cross,
+                                (context->'technicals'->>'body_ratio')::float AS body_ratio,
+                                (context->'technicals'->>'delivery_pct')::float AS delivery_pct,
+                                (context->'technicals'->>'rsi')::float AS rsi,
+                                (context->'technicals'->>'volume_ratio')::float AS volume_ratio,
+                                (context->'session'->>'open')::float AS session_open,
+                                (context->'session'->>'day_high')::float AS session_day_high,
+                                (context->'session'->>'day_low')::float AS session_day_low,
+                                (context->'fundamentals'->>'peg')::float AS peg,
+                                (context->'fundamentals'->>'yoy_rev')::float AS yoy_rev,
+                                (context->'fundamentals'->>'yoy_profit')::float AS yoy_profit,
+                                (context->'fundamentals'->>'roe')::float AS roe,
+                                context->'execution'->>'sl_method' AS sl_method,
+                                context->'execution'->>'t_method' AS t_method,
+                                context->'execution'->>'trail_note' AS trail_note
+                            FROM alerts;
+                        """)
+                    conn.commit()
+                except Exception as view_err:
+                    logger.warning(f"⚠️ v_trade_analytics view create/replace skipped (non-critical, will retry next boot): {view_err}")
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+
+
 
                 # 40. Seed reference data & admin user
                 bootstrap_admin(cur=cur)

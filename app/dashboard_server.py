@@ -247,7 +247,9 @@ def vapid_public_key():
 def push_subscribe():
     """Saves the user's push subscription."""
     try:
-        sub_data = request.json or {}
+        sub_data = request.get_json(silent=True, force=True) or {}
+        if not sub_data:
+            return jsonify({"error": "Empty or invalid JSON body"}), 400
         endpoint = sub_data.get("endpoint")
         if not endpoint:
             return jsonify({"error": "Invalid subscription data"}), 400
