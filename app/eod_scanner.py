@@ -103,29 +103,6 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
         logger.warning("🛑 [DUPLICATE GUARD] EOD Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
         return 0
 
-    queued_at = None
-    if not _global_lock.acquire(blocking=False, owner_scanner="EOD", operation="FULL_SCAN"):
-        queued_at = time.monotonic()
-        logger.info("⏳ [EOD] Global scanner lock busy — marking QUEUED and waiting in queue...")
-        upsert_scanner_health("EOD", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-        if not _global_lock.acquire(blocking=True, owner_scanner="EOD", operation="FULL_SCAN"):
-            raise RuntimeError("Failed to acquire global scanner lock.")
-        logger.info(f"✅ [EOD] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
-
-    # Lock acquired! NOW create the execution history to strictly show RUNNING
-    if _scan_lock.locked():
-        logger.warning("🛑 [DUPLICATE GUARD] EOD Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
-        return 0
-
-    queued_at = None
-    if not _global_lock.acquire(blocking=False):
-        queued_at = time.monotonic()
-        logger.info("⏳ [EOD] Global scanner lock busy — marking QUEUED and waiting in queue...")
-        upsert_scanner_health("EOD", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-        if not _global_lock.acquire(blocking=True):
-            raise RuntimeError("Failed to acquire global scanner lock.")
-        logger.info(f"✅ [EOD] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
-
     own_ctx = False
     if run_ctx is None:
         try:
@@ -134,6 +111,21 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
             own_ctx = True
         except Exception:
             pass
+
+    queued_at = None
+    if not _global_lock.acquire(blocking=False, owner_scanner="EOD", operation="FULL_SCAN"):
+        queued_at = time.monotonic()
+        logger.info("⏳ [EOD] Global scanner lock busy — marking QUEUED and waiting in queue...")
+        if own_ctx and run_ctx:
+            from database import update_scanner_run_lifecycle
+            update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
+        upsert_scanner_health("EOD", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
+        if not _global_lock.acquire(blocking=True, owner_scanner="EOD", operation="FULL_SCAN"):
+            raise RuntimeError("Failed to acquire global scanner lock.")
+        if own_ctx and run_ctx:
+            from database import update_scanner_run_lifecycle
+            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
+        logger.info(f"✅ [EOD] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
     upsert_scanner_health("EOD", "RUNNING", error_msg="EOD scan in progress...")
 

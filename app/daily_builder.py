@@ -1114,13 +1114,28 @@ def main(force_rebuild: bool = False, run_ctx=None, trigger_type="SCHEDULED", sc
         logger.info("🛑 Daily Builder is STOPPED by Admin. Skipping execution.")
         return
 
+    created_ctx = False
+    if run_ctx is None:
+        try:
+            from database import start_scanner_execution_run
+            run_ctx = start_scanner_execution_run(scanner_name="DAILY_BUILDER", trigger_type=trigger_type, scheduler_name=scheduler_name)
+            created_ctx = True
+        except Exception as exc:
+            pass
+
     queued_at = None
     if not _global_lock.acquire(blocking=False, owner_scanner="DAILY_BUILDER", operation="FULL_SCAN"):
         queued_at = time.monotonic()
         logger.info("⏳ [DAILY_BUILDER] Global scanner lock busy — marking QUEUED and waiting in queue...")
+        if created_ctx and run_ctx:
+            from database import update_scanner_run_lifecycle
+            update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
         upsert_scanner_health("DAILY_BUILDER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
         if not _global_lock.acquire(blocking=True, owner_scanner="DAILY_BUILDER", operation="FULL_SCAN"):
             raise RuntimeError("Failed to acquire global scanner lock.")
+        if created_ctx and run_ctx:
+            from database import update_scanner_run_lifecycle
+            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
         logger.info(f"✅ [DAILY_BUILDER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
     if not _build_lock.acquire(blocking=False):
@@ -1151,16 +1166,6 @@ def main(force_rebuild: bool = False, run_ctx=None, trigger_type="SCHEDULED", sc
         except Exception as check_err:
             logger.warning(f"⚠️ DB re-run guard check failed in main(): {check_err}. Proceeding with build.")
 
-    # Lock acquired and build needed! NOW create execution history run context if not provided
-    created_ctx = False
-    if run_ctx is None:
-        try:
-            from database import start_scanner_execution_run
-            run_ctx = start_scanner_execution_run(scanner_name="DAILY_BUILDER", trigger_type=trigger_type, scheduler_name=scheduler_name)
-            created_ctx = True
-        except Exception as exc:
-            pass
-            
     upsert_scanner_health("DAILY_BUILDER", "RUNNING", error_msg="DAILY_BUILDER scan in progress...")
 
     _scan_start = print_scanner_start_banner("daily_builder", queued_at=queued_at)

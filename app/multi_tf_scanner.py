@@ -1581,15 +1581,6 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
         logger.warning("🛑 [DUPLICATE GUARD] Multi-TF Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
         return
 
-    queued_at = None
-    if not _global_lock.acquire(blocking=False, owner_scanner="MULTI_TF", operation="FULL_SCAN"):
-        queued_at = time.monotonic()
-        logger.info("⏳ [MULTI_TF] Global scanner lock busy — marking QUEUED and waiting in queue...")
-        upsert_scanner_health("MULTI_TF", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-        if not _global_lock.acquire(blocking=True, owner_scanner="MULTI_TF", operation="FULL_SCAN"):
-            raise RuntimeError("Failed to acquire global scanner lock.")
-        logger.info(f"✅ [MULTI_TF] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
-
     own_ctx = False
     if run_ctx is None:
         try:
@@ -1598,6 +1589,21 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
             own_ctx = True
         except Exception:
             pass
+
+    queued_at = None
+    if not _global_lock.acquire(blocking=False, owner_scanner="MULTI_TF", operation="FULL_SCAN"):
+        queued_at = time.monotonic()
+        logger.info("⏳ [MULTI_TF] Global scanner lock busy — marking QUEUED and waiting in queue...")
+        if own_ctx and run_ctx:
+            from database import update_scanner_run_lifecycle
+            update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
+        upsert_scanner_health("MULTI_TF", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
+        if not _global_lock.acquire(blocking=True, owner_scanner="MULTI_TF", operation="FULL_SCAN"):
+            raise RuntimeError("Failed to acquire global scanner lock.")
+        if own_ctx and run_ctx:
+            from database import update_scanner_run_lifecycle
+            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
+        logger.info(f"✅ [MULTI_TF] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
     upsert_scanner_health("MULTI_TF", "RUNNING", error_msg="Multi-TF scan in progress...")
 

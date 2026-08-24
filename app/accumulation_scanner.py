@@ -322,19 +322,29 @@ class AccumulationScanner:
             logger.info("⏳ ACCUMULATION scanner already running in another thread. Skipping.")
             return {"status": "SKIPPED", "reason": "ALREADY_RUNNING"}
 
+        start_time = datetime.now(IST)
+        run_id = f"acc_run_{start_time.strftime('%Y%m%d_%H%M%S')}"
+
+        # Initialize execution history tracking context early
+        run_ctx = start_scanner_execution_run(
+            scanner_name="ACCUMULATION",
+            trigger_type=trigger_type,
+            scheduler_name="SCHEDULER"
+        )
+
         from lock_utils import ProcessLock
         _global_lock = ProcessLock("global_scanner_lock")
         if not _global_lock.acquire(blocking=False, owner_scanner="ACCUMULATION", operation="FULL_SCAN"):
             logger.info("⏳ [ACCUMULATION] Global scanner lock busy — waiting in queue...")
+            from database import update_scanner_run_lifecycle
+            update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
             upsert_scanner_health("ACCUMULATION", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
             if not _global_lock.acquire(blocking=True, owner_scanner="ACCUMULATION", operation="FULL_SCAN"):
                 raise RuntimeError("Failed to acquire global scanner lock.")
+            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
 
-        start_time = datetime.now(IST)
-        run_id = f"acc_run_{start_time.strftime('%Y%m%d_%H%M%S')}"
         health = AccumulationHealthTracker(run_id=run_id, scanner=ACCUMULATION_SCANNER_NAME)
         upsert_scanner_health("ACCUMULATION", status="RUNNING", today_alerts=0)
-        run_ctx = None
 
         try:
             health.transition("STARTING", status="RUNNING")
@@ -360,15 +370,9 @@ class AccumulationScanner:
 
             symbols = wl_df["Stock"].dropna().tolist()
             health.requested_symbols = len(symbols)
+            if run_ctx:
+                run_ctx.set_total_stocks(len(symbols))
             logger.info(f"🚀 [ACCUMULATION SCANNER] Starting scan for {len(symbols)} symbols...")
-
-            # Initialize execution history tracking context
-            run_ctx = start_scanner_execution_run(
-                scanner_name="ACCUMULATION",
-                trigger_type=trigger_type,
-                scheduler_name="SCHEDULER",
-                total_stocks=len(symbols)
-            )
 
             # Load Macro Data (Nifty 20D Return)
             nifty_20d_ret = _safe_float(get_nifty_20d_return(), 0.0)

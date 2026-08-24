@@ -1029,7 +1029,6 @@ def run_all_seven_scanners_non_market_boot():
                 continue
 
             logger.info(f"▶️ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) Running Scanner: {name}...")
-            upsert_scanner_health(name, status="RUNNING", error_msg="Non-market boot scan in progress...")
             start_t = time.time()
             try:
                 import inspect

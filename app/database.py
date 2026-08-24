@@ -7824,9 +7824,10 @@ def start_scanner_execution_run(
     scheduler_name: str = "CRON",
     parent_run_id: str = None,
     retry_attempt: int = 0,
-    total_stocks: int = 0
+    total_stocks: int = 0,
+    initial_status: str = "RUNNING"
 ):
-    """Creates a new RUNNING record in scanner_execution_history and returns a ScannerRunContext."""
+    """Creates a new record in scanner_execution_history and returns a ScannerRunContext."""
     from scanner_run_context import ScannerRunContext
     ctx = ScannerRunContext(
         scanner_name=scanner_name,
@@ -7836,6 +7837,7 @@ def start_scanner_execution_run(
         retry_attempt=retry_attempt,
         total_stocks=total_stocks
     )
+    status_upper = (initial_status or "RUNNING").upper()
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -7844,13 +7846,13 @@ def start_scanner_execution_run(
                         run_id, parent_run_id, retry_attempt, scanner_name,
                         lifecycle_status, quality_status, trigger_type, scheduler_name,
                         system_version, git_commit, started_at, heartbeat_at, total_stocks
-                    ) VALUES (%s, %s, %s, %s, 'RUNNING', 'NORMAL', %s, %s, %s, %s, NOW(), NOW(), %s);
+                    ) VALUES (%s, %s, %s, %s, %s, 'NORMAL', %s, %s, %s, %s, NOW(), NOW(), %s);
                 """, (
                     ctx.run_id, ctx.parent_run_id, ctx.retry_attempt, ctx.scanner_name,
-                    ctx.trigger_type, ctx.scheduler_name, ctx.system_version, ctx.git_commit, ctx.total_stocks
+                    status_upper, ctx.trigger_type, ctx.scheduler_name, ctx.system_version, ctx.git_commit, ctx.total_stocks
                 ))
                 conn.commit()
-                logger.info(f"📜 [EXECUTION HISTORY] Started run {ctx.run_id[:8]} for {scanner_name} (Trigger: {trigger_type})")
+                logger.info(f"📜 [EXECUTION HISTORY] Started run {ctx.run_id[:8]} for {scanner_name} (Trigger: {trigger_type}, Status: {status_upper})")
     except Exception as e:
         logger.warning(f"Failed to insert scanner execution history for {scanner_name}: {e}")
 
