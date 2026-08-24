@@ -7756,7 +7756,7 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
                 SET status = 'IDLE',
                     error_msg = 'Server restarted — health status reset to IDLE',
                     updated_at = NOW()
-                WHERE status IN ('RUNNING', 'QUEUED') OR status LIKE 'QUEUED%';
+                WHERE status IN ('RUNNING', 'QUEUED', 'STOPPED', 'PAUSED') OR status LIKE 'QUEUED%';
             """)
             return c.rowcount
         except Exception as e:

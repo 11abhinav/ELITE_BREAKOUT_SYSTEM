@@ -984,6 +984,66 @@ def api_get_near_misses():
         return jsonify([])
 
 
+def _build_instant_performance_fallback():
+    try:
+        from database import get_all_alerts
+        raw_alerts = get_all_alerts()
+        if not raw_alerts:
+            return None
+
+        trades = []
+        for row in raw_alerts:
+            ep = float(row["entry_price"]) if row.get("entry_price") is not None else None
+            cp = float(row.get("current_price")) if row.get("current_price") is not None else ep
+            pnl = float(row.get("pnl_pct")) if row.get("pnl_pct") is not None else 0.0
+            st = row.get("status") or "OPEN"
+            trades.append({
+                "id": row["id"],
+                "symbol": row["symbol"],
+                "scanner": row.get("scanner") or "",
+                "category": row.get("category") or "",
+                "signals": row.get("signals") or "",
+                "entry_date": str(row.get("alert_date") or row.get("alert_time") or "")[:10],
+                "alert_time": str(row.get("alert_time") or ""),
+                "entry_price": ep,
+                "stop_loss": float(row["stop_loss"]) if row.get("stop_loss") is not None else None,
+                "target_price": float(row["target_price"]) if row.get("target_price") is not None else None,
+                "current_price": cp,
+                "pnl_pct": pnl,
+                "status": st,
+                "shares_bought": row.get("shares_bought", 0),
+                "capital_allocated": float(row["capital_allocated"]) if row.get("capital_allocated") is not None else None,
+            })
+
+        judged = [t for t in trades if t["status"] in ("WIN", "LOSS", "CLOSED")]
+        winners = [t for t in judged if t["status"] == "WIN" or (t.get("pnl_pct") or 0.0) > 0]
+        losers = [t for t in judged if t["status"] == "LOSS" or (t.get("pnl_pct") or 0.0) <= 0]
+        open_p = [t for t in trades if t["status"] == "OPEN"]
+
+        wr = round(len(winners) / max(1, len(judged)) * 100, 1) if judged else 0.0
+
+        payload = {
+            "generated_at": datetime.now(IST).isoformat(),
+            "summary": {
+                "total_alerts": len(trades),
+                "judged": len(judged),
+                "winners": len(winners),
+                "losers": len(losers),
+                "open_positions": len(open_p),
+                "win_rate": wr,
+                "avg_return_pct": 0, "avg_win_pct": 0, "avg_loss_pct": 0,
+                "best_trade_pct": 0, "worst_trade_pct": 0, "expectancy": 0,
+                "sl_triggered": len(losers), "target_hit": len(winners)
+            },
+            "trades": trades,
+            "by_scanner": {}, "by_category": {}, "equity_curve": [], "monthly": []
+        }
+        return json.dumps(payload, default=str)
+    except Exception as e:
+        logger.warning(f"Failed to build instant performance fallback: {e}")
+        return None
+
+
 _perf_data_mem_cache = None
 _perf_data_mem_ts = 0.0
 
@@ -1007,12 +1067,19 @@ def performance_json():
             trigger_performance_rebuild()
             val = get_system_state("performance_data")
 
+        if not val:
+            val = _build_instant_performance_fallback()
+
         if val:
             _perf_data_mem_cache = val
             _perf_data_mem_ts = now_ts
             return Response(val, mimetype="application/json")
     except Exception as e:
         logger.exception(f"❌ Failed to load performance data from DB: {e}")
+
+    fallback_val = _build_instant_performance_fallback()
+    if fallback_val:
+        return Response(fallback_val, mimetype="application/json")
 
     empty_data = json.dumps({
         "generated_at": datetime.now(IST).isoformat(),
