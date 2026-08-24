@@ -1722,10 +1722,25 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
 
                     # If review-only gate breach occurred, skip fundamental decay and 200-DMA breakdown exits
                     if not exit_triggered and not is_review_only_gate:
-                        # [VERSION: MULTIBAGGER_V5_INVALIDATION_EXIT_v1.0] Check V5 Invalidation
-                        if is_invalid:
-                            exit_triggered = True
-                            exit_reason = f"V5 invalidation: {invalidation_reason}"
+                        # [VERSION: MULTIBAGGER_DATA_SAFETY_v2.0]
+                        # Incomplete or invalid data MUST NEVER trigger a trade sell/exit.
+                        # Convert to SELL_REVIEW, keep position open, and notify admin.
+                        if is_invalid or is_fallback:
+                            is_review_only_gate = True
+                            inv_msg = invalidation_reason or "Incomplete or Fallback data used"
+                            logger.warning(f"⚠️ [EXIT MONITOR] {symbol}: Incomplete data ({inv_msg}) — flagging as SELL_REVIEW (keeping position OPEN)")
+                            if not is_test_mode:
+                                _persist_sell_review(alert_id, f"SELL_REVIEW: Incomplete Data ({inv_msg})")
+                                try:
+                                    from database import insert_notification
+                                    insert_notification("admin", f"⚠️ [SELL REVIEW] {symbol}: Incomplete Data", f"Multibagger position {symbol} flagged for Sell Review due to incomplete data: {inv_msg}. Position kept OPEN.")
+                                except Exception as _notif_err:
+                                    logger.warning(f"Could not insert admin notification for {symbol}: {_notif_err}")
+                                try:
+                                    from telegram_engine import queue_telegram_message
+                                    queue_telegram_message(f"⚠️ <b>[SELL REVIEW] {symbol}</b>\nExit evaluation deferred due to incomplete data: <i>{inv_msg}</i>.\nPosition remains OPEN under review.", symbol=symbol)
+                                except Exception as _tg_err:
+                                    logger.warning(f"Could not queue Telegram sell review message for {symbol}: {_tg_err}")
                         # Check CQS score decay (< 55)
                         elif cqs is not None and cqs < 55.0:
                             exit_triggered = True
