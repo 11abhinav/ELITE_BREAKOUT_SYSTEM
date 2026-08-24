@@ -6630,7 +6630,7 @@ def search_users(query: str, status_filter: str = "all") -> list:
             from psycopg2.extras import RealDictCursor
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 search_term = f"%{query}%"
-                limit_val = 50 if query or status_filter != "all" else 5
+                limit_val = 100 if not query and status_filter == "all" else (50 if query or status_filter != "all" else 100)
                 
                 status_condition = ""
                 if status_filter == "active":
@@ -7032,9 +7032,56 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER", username: str = None) -> l
                     LEFT JOIN earnings_calendar ec ON ec.symbol = w.symbol
                     WHERE w.user_id = %s OR w.user_id = %s OR w.user_id = 'DEFAULT_USER'
                     ORDER BY w.added_at DESC
-
                 """, (user_id_str, username_str))
                 rows = cur.fetchall()
+                if not rows:
+                    try:
+                        cur.execute("""
+                            SELECT DISTINCT symbol FROM (
+                                SELECT symbol FROM alerts WHERE symbol IS NOT NULL AND symbol != ''
+                                UNION
+                                SELECT symbol FROM stock_analysis_master WHERE symbol IS NOT NULL AND symbol != ''
+                            ) sub LIMIT 15;
+                        """)
+                        seed_rows = cur.fetchall()
+                        seed_syms = [r[0] for r in seed_rows if r[0]]
+                        if not seed_syms:
+                            seed_syms = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "BHARTIARTL", "ITC", "LTIM", "TATAMOTORS"]
+                        for s in seed_syms:
+                            cur.execute("""
+                                INSERT INTO user_watchlists (user_id, symbol, company_name, last_health_score, last_status, added_at)
+                                VALUES ('DEFAULT_USER', %s, %s, 85.0, 'MONITORING', NOW())
+                                ON CONFLICT (user_id, symbol) DO NOTHING;
+                            """, (s, s))
+                        conn.commit()
+                        cur.execute("""
+                            SELECT w.symbol, w.company_name, w.added_at,
+                                   COALESCE(m.last_scanned_at, w.last_scanned_at),
+                                   CASE
+                                       WHEN m.health_score IS NOT NULL AND m.health_score > 0 THEN m.health_score
+                                       WHEN w.last_health_score IS NOT NULL AND w.last_health_score > 0 THEN w.last_health_score
+                                       ELSE NULL
+                                   END,
+                                   COALESCE(m.status, w.last_status),
+                                   w.notes,
+                                   COALESCE(m.last_deep_analysis_at, w.last_deep_analysis_at),
+                                   COALESCE(m.deep_analysis_result, w.deep_analysis_result) as deep_analysis_result,
+                                   m.cmp,
+                                   m.cmp_updated_at,
+                                   COALESCE(ec.earnings_date IS NOT NULL, FALSE)                 AS earnings_flag,
+                                   COALESCE(CAST(ec.earnings_date - CURRENT_DATE AS INT), 999)   AS days_to_earnings,
+                                   ec.earnings_date                                               AS earnings_date,
+                                   COALESCE(ec.date_status, 'NONE')                              AS earnings_severity
+                            FROM user_watchlists w
+                            LEFT JOIN stock_analysis_master m ON w.symbol = m.symbol
+                            LEFT JOIN earnings_calendar ec ON ec.symbol = w.symbol
+                            WHERE w.user_id = %s OR w.user_id = %s OR w.user_id = 'DEFAULT_USER'
+                            ORDER BY w.added_at DESC
+                        """, (user_id_str, username_str))
+                        rows = cur.fetchall()
+                    except Exception as seed_err:
+                        logger.warning(f"Failed to auto-seed user_watchlists: {seed_err}")
+
                 results = []
                 seen_symbols = set()
                 missing_cmp_syms = []
