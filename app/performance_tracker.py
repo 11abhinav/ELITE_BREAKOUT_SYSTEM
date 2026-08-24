@@ -289,6 +289,9 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 update_alert_outcome(t["id"], final_status, exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="GAP_LOSS", execution_state=execution_state)
             
             t["status"] = final_status
+            t["exit_price"] = exit_p
+            t["exit_signal"] = "GAP_LOSS"
+            t["exit_reason"] = "GAP_LOSS"
             t["remaining_shares"] = 0
             t["exit_history"] = json.dumps(hist_list)
             t["pnl_pct"] = total_pnl_pct
@@ -319,6 +322,9 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 update_alert_outcome(t["id"], final_status, exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="STOP_LOSS", execution_state=execution_state)
             
             t["status"] = final_status
+            t["exit_price"] = exit_p
+            t["exit_signal"] = "STOP_LOSS"
+            t["exit_reason"] = "STOP_LOSS"
             t["remaining_shares"] = 0
             t["exit_history"] = json.dumps(hist_list)
             t["pnl_pct"] = total_pnl_pct
@@ -347,6 +353,9 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 update_alert_outcome(t["id"], final_status, exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="STRUCTURAL_FAIL", execution_state=execution_state)
             
             t["status"] = final_status
+            t["exit_price"] = exit_p
+            t["exit_signal"] = "STRUCTURAL_FAIL"
+            t["exit_reason"] = "STRUCTURAL_FAIL"
             t["remaining_shares"] = 0
             t["exit_history"] = json.dumps(hist_list)
             t["pnl_pct"] = total_pnl_pct
@@ -536,7 +545,41 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     stage_tracker.total_symbols = len(raw_alerts)
     stage_tracker.end_stage(f"Loaded {len(raw_alerts)} alerts from DB")
 
-    # ── 1. Build trade objects ───────────────────────────────────────────────────────
+    def _f(v):
+        return float(v) if v is not None else None
+
+    def _extract_exit_price(row_dict):
+        ep = _f(row_dict.get("exit_price"))
+        if ep is not None and ep > 0:
+            return ep
+        eh = row_dict.get("exit_history")
+        if eh:
+            try:
+                eh_list = eh if isinstance(eh, list) else json.loads(eh)
+                if eh_list and isinstance(eh_list, list):
+                    last_evt = eh_list[-1]
+                    if isinstance(last_evt, dict) and last_evt.get("price"):
+                        return float(last_evt["price"])
+            except Exception:
+                pass
+        return None
+
+    def _extract_exit_reason(row_dict):
+        sig = row_dict.get("exit_signal")
+        if sig and not str(sig).startswith("⚠️ UNVERIFIED EARNINGS"):
+            return str(sig)
+        eh = row_dict.get("exit_history")
+        if eh:
+            try:
+                eh_list = eh if isinstance(eh, list) else json.loads(eh)
+                if eh_list and isinstance(eh_list, list):
+                    last_evt = eh_list[-1]
+                    if isinstance(last_evt, dict) and last_evt.get("type"):
+                        return str(last_evt["type"])
+            except Exception:
+                pass
+        return ""
+
     trades = []
     for row in raw_alerts:
         symbol      = row["symbol"]
@@ -554,10 +597,6 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
 
         alert_time  = alert_time_str or alert_time_raw
         alert_date  = alert_date_str
-        # Cast to float immediately — psycopg2 returns REAL/NUMERIC as decimal.Decimal
-        # and mixing Decimal with float in arithmetic raises TypeError.
-        def _f(v):
-            return float(v) if v is not None else None
 
         entry_price = _f(row.get("entry_price"))
 
@@ -586,7 +625,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             "target_2":      _f(row.get("target_2")),
             "target_3":      _f(row.get("target_3")),
             "current_price": _f(row.get("current_price")),
-            "exit_price":    _f(row.get("exit_price")),   # pre-filled if already closed
+            "exit_price":    _extract_exit_price(row),   # pre-filled if already closed
             "pnl_pct":       _f(row.get("pnl_pct")),      # pre-filled if already closed
             "stopped_out":   row.get("status") == "LOSS",
             "target_hit":    row.get("status") == "WIN",
@@ -605,8 +644,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             "is_rejected":   row.get("is_rejected", False),
             "execution_state": row.get("execution_state"),
             "structural_failure_stop": _f(row.get("structural_failure_stop")),
-            "exit_signal":   row.get("exit_signal"),
-            "exit_reason":   row.get("exit_signal") or row.get("warning_msg") or "",
+            "exit_signal":   _extract_exit_reason(row),
+            "exit_reason":   _extract_exit_reason(row),
             "_db_closed":    row.get("status") in ("WIN", "LOSS", "CLOSED"),  # internal flag
         })
 
