@@ -493,46 +493,42 @@ def verify_watchlist_is_pristine() -> bool:
         return False
 
     with _watchlist_build_lock:
-        # STEP 1: Check local disk cache
-        if is_disk_fresh():
-            logger.info(f"✅ [CACHE] Watchlist from today ({today_str}) found on local disk.")
-            return True
+        # STEP 1: Check if local file exists and is usable (valid parquet with symbols)
+        if os.path.exists(WATCHLIST_PATH):
+            try:
+                df = pd.read_parquet(WATCHLIST_PATH)
+                if not df.empty and len(df) > 10:
+                    logger.info(f"✅ [CACHE] Valid watchlist found on local disk ({len(df)} symbols).")
+                    from watchlist_cache import get_watchlist
+                    get_watchlist()
+                    return True
+            except Exception:
+                pass
         
-        logger.warning(f"⚠️ [CACHE] Local disk missing/stale watchlist. Checking DB for today's data ({today_str})...")
+        logger.warning(f"⚠️ [CACHE] Local disk missing/invalid watchlist. Checking DB for latest watchlist data...")
         
-        # STEP 2: Try to restore from DB (TODAY ONLY)
-        if download_parquet_from_db_today("daily_builder", WATCHLIST_PATH):
-            if is_disk_fresh():
-                logger.info(f"✅ [DB] Watchlist from today successfully restored from DB to local disk.")
+        # STEP 2: Restore latest watchlist from DB (today first, then fallback to most recent)
+        from database import download_parquet_from_db_today, download_parquet_from_db
+        if download_parquet_from_db_today("daily_builder", WATCHLIST_PATH) or download_parquet_from_db("daily_builder", WATCHLIST_PATH):
+            if os.path.exists(WATCHLIST_PATH):
+                logger.info(f"✅ [DB] Watchlist successfully restored from DB to local disk.")
                 from watchlist_cache import get_watchlist
                 get_watchlist()
                 return True
         
-        # STEP 3: DB has old/stale data. Delete it and trigger rebuild.
-        logger.warning(f"⚠️ [DB] No today's data in cache or DB! Deleting stale entries from DB...")
-        delete_stale_parquet_from_db("daily_builder")
-        
-        logger.warning(f"⚠️ [REBUILD] Triggering fresh Daily Builder rebuild for {today_str}...")
+        # STEP 3: If no watchlist exists anywhere, trigger Daily Builder
+        logger.warning(f"⚠️ [REBUILD] No watchlist in DB or disk. Triggering Daily Builder for {today_str}...")
         try:
             from daily_builder import main as build_watchlist
             build_watchlist(force_rebuild=True)
             from watchlist_cache import get_watchlist
             get_watchlist()
+            return True
         except Exception as e:
             if "actively running" in str(e).lower():
                 logger.info("⏳ Daily Builder is actively running.")
                 return False
-            logger.exception(f"❌ Daily Builder rebuild FAILED (full traceback above): {e}")
-            from database import upsert_scanner_health, insert_notification
-            upsert_scanner_health("DAILY_BUILDER", status="DOWN", error_msg=str(e)[:500], scheduled_for="05:00 IST")
-            try:
-                insert_notification(
-                    notif_type="scanner_down",
-                    title="🚨 Daily Builder FAILED to rebuild",
-                    message=f"Watchlist is stale and rebuild failed: {str(e)[:400]}"
-                )
-            except Exception:
-                pass
+            logger.exception(f"❌ Daily Builder rebuild FAILED: {e}")
             return False
         
         # STEP 4: Verify fresh data was created
