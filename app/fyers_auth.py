@@ -243,9 +243,13 @@ def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None)
         if crawlora_key:
             logger.info(f"🌐 Routing POST request via Crawlora Proxy for {target_url}...")
             res_crawlora = session.post('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': target_url}, json=payload, headers=headers, timeout=60)
-            if res_crawlora.status_code in (401, 403, 429):
+            body_crawlora = res_crawlora.text.strip()
+            
+            # Check if Crawlora API key itself is invalid or exhausted
+            if res_crawlora.status_code in (401, 429) and ("invalid key" in body_crawlora.lower() or "credit" in body_crawlora.lower() or "limit" in body_crawlora.lower()):
+                logger.warning(f"❌ Crawlora API key ({crawlora_key[:4]}...) is EXHAUSTED/INVALID. Marking key exhausted for today.")
                 mark_crawlora_key_exhausted_today(crawlora_key)
-            elif res_crawlora.status_code in (200, 201) and not res_crawlora.text.strip().startswith("<!doctype"):
+            elif (res_crawlora.status_code in (200, 201) or "request_key" in body_crawlora or '"s":' in body_crawlora or "fyers" in body_crawlora.lower()) and not body_crawlora.startswith("<!doctype") and not body_crawlora.startswith("<html"):
                 logger.info(f"✅ Crawlora Proxy successfully fetched POST {target_url}!")
                 return res_crawlora
     except Exception as c_err:
@@ -299,9 +303,13 @@ def fyers_get_with_scraper_fallback(session, target_url, headers=None):
         if crawlora_key:
             logger.info(f"🌐 Routing GET request via Crawlora Proxy for {target_url}...")
             res_crawlora = session.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': target_url}, headers=headers, allow_redirects=False, timeout=60)
-            if res_crawlora.status_code in (401, 403, 429):
+            body_crawlora = res_crawlora.text.strip()
+            
+            # Check if Crawlora API key itself is invalid or exhausted
+            if res_crawlora.status_code in (401, 429) and ("invalid key" in body_crawlora.lower() or "credit" in body_crawlora.lower() or "limit" in body_crawlora.lower()):
+                logger.warning(f"❌ Crawlora API key ({crawlora_key[:4]}...) is EXHAUSTED/INVALID. Marking key exhausted for today.")
                 mark_crawlora_key_exhausted_today(crawlora_key)
-            elif res_crawlora.status_code in (200, 301, 302, 303, 307, 308) and not res_crawlora.text.strip().startswith("<!doctype"):
+            elif (res_crawlora.status_code in (200, 301, 302, 303, 307, 308) or '"s":' in body_crawlora or "location" in res_crawlora.headers) and not body_crawlora.startswith("<!doctype") and not body_crawlora.startswith("<html"):
                 logger.info(f"✅ Crawlora Proxy successfully fetched GET {target_url}!")
                 return res_crawlora
     except Exception as c_err:
