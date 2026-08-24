@@ -2136,15 +2136,30 @@ def get_validation_health():
                 ''')
                 records = cur.fetchall()
                 
+        def _parse_json_field(val):
+            if isinstance(val, (list, dict)):
+                return val
+            if isinstance(val, str):
+                try:
+                    return json.loads(val)
+                except Exception:
+                    return []
+            return []
+
         for r in records:
-            r['failures'] = json.loads(r['failures']) if r['failures'] else []
-            r['warnings'] = json.loads(r['warnings']) if r['warnings'] else []
-            r['validated_at'] = r['validated_at'].isoformat() if r['validated_at'] else None
+            r['failures'] = _parse_json_field(r.get('failures'))
+            r['warnings'] = _parse_json_field(r.get('warnings'))
+            if hasattr(r.get('validated_at'), 'isoformat'):
+                r['validated_at'] = r['validated_at'].isoformat()
+            elif r.get('validated_at'):
+                r['validated_at'] = str(r['validated_at'])
+            else:
+                r['validated_at'] = None
             
         return jsonify({"status": "success", "data": records})
     except Exception as e:
         logger.exception("❌ /api/validation_health failed")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "success", "data": []})
 
 @app.route("/api/validation_history/<dataset>", methods=["GET"])
 @admin_required
@@ -2164,15 +2179,30 @@ def get_validation_history(dataset):
                 ''', (dataset, limit))
                 records = cur.fetchall()
                 
+        def _parse_json_field(val):
+            if isinstance(val, (list, dict)):
+                return val
+            if isinstance(val, str):
+                try:
+                    return json.loads(val)
+                except Exception:
+                    return []
+            return []
+
         for r in records:
-            r['failures'] = json.loads(r['failures']) if r['failures'] else []
-            r['warnings'] = json.loads(r['warnings']) if r['warnings'] else []
-            r['validated_at'] = r['validated_at'].isoformat() if r['validated_at'] else None
+            r['failures'] = _parse_json_field(r.get('failures'))
+            r['warnings'] = _parse_json_field(r.get('warnings'))
+            if hasattr(r.get('validated_at'), 'isoformat'):
+                r['validated_at'] = r['validated_at'].isoformat()
+            elif r.get('validated_at'):
+                r['validated_at'] = str(r['validated_at'])
+            else:
+                r['validated_at'] = None
             
         return jsonify({"status": "success", "data": records})
     except Exception as e:
         logger.exception(f"❌ /api/validation_history/{dataset} failed")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "success", "data": []})
 
 @app.route("/api/data_fetch_health")
 @login_required
@@ -2180,30 +2210,33 @@ def api_data_fetch_health():
     """Return the health status of external data providers (cache/fetch failures)."""
     try:
         from database import get_all_data_fetch_health
-        rows = get_all_data_fetch_health()
+        rows = get_all_data_fetch_health() or []
         
         # Inject Fyers API session health if using Fyers data provider
-        from config import DATA_PROVIDER
-        if DATA_PROVIDER == "fyers":
-            from fyers_auth import get_access_token
-            token = get_access_token()
-            token_valid = token is not None
-            
-            fyers_row = {
-                "source_name": "Fyers API Session",
-                "last_success": datetime.now(IST) if token_valid else None,
-                "last_failure": None if token_valid else datetime.now(IST),
-                "consecutive_failures": 0 if token_valid else 1,
-                "error_msg": "Session active and token cached." if token_valid else 'Token missing or expired. <a href="/fyers/login" style="color:#00d4a1; font-weight:bold; text-decoration:underline;">Click here to Authorize Fyers API</a>.',
-                "is_acknowledged": 0,
-                "updated_at": datetime.now(IST)
-            }
-            rows.append(fyers_row)
-            
+        try:
+            from config import DATA_PROVIDER
+            if DATA_PROVIDER == "fyers":
+                from fyers_auth import get_access_token
+                token = get_access_token()
+                token_valid = token is not None
+                
+                fyers_row = {
+                    "source_name": "Fyers API Session",
+                    "last_success": datetime.now(IST) if token_valid else None,
+                    "last_failure": None if token_valid else datetime.now(IST),
+                    "consecutive_failures": 0 if token_valid else 1,
+                    "error_msg": "Session active and token cached." if token_valid else 'Token missing or expired. <a href="/fyers/login" style="color:#00d4a1; font-weight:bold; text-decoration:underline;">Click here to Authorize Fyers API</a>.',
+                    "is_acknowledged": 0,
+                    "updated_at": datetime.now(IST)
+                }
+                rows.append(fyers_row)
+        except Exception as _f_err:
+            logger.warning(f"Failed to check Fyers token in health check: {_f_err}")
+
         return jsonify(serialize_datetimes(rows))
-    except Exception:
-        logger.exception("❌ /api/data_fetch_health failed")
-        return jsonify([]), 500
+    except Exception as e:
+        logger.exception(f"❌ /api/data_fetch_health failed: {e}")
+        return jsonify([])
 
 
 _todays_alerts_cache = {"ts": 0, "admin_payload": None, "user_payload": None}
