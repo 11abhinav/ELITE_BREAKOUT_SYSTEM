@@ -7050,9 +7050,11 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER", username: str = None) -> l
                         for s in seed_syms:
                             cur.execute("""
                                 INSERT INTO user_watchlists (user_id, symbol, company_name, last_health_score, last_status, added_at)
-                                VALUES ('DEFAULT_USER', %s, %s, 85.0, 'MONITORING', NOW())
-                                ON CONFLICT (user_id, symbol) DO NOTHING;
-                            """, (s, s))
+                                SELECT 'DEFAULT_USER', %s, %s, 85.0, 'MONITORING', NOW()
+                                WHERE NOT EXISTS (
+                                    SELECT 1 FROM user_watchlists WHERE user_id = 'DEFAULT_USER' AND symbol = %s
+                                );
+                            """, (s, s, s))
                         conn.commit()
                         cur.execute("""
                             SELECT w.symbol, w.company_name, w.added_at,

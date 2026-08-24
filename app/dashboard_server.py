@@ -1592,9 +1592,21 @@ def api_shortlist():
     try:
         target_path = WATCHLIST_PATH
         if not os.path.exists(target_path):
-            target_path = os.path.join(DATA_DIR, "elite_fundamental_watchlist.csv")
+            try:
+                from database import download_parquet_from_db_today, download_parquet_from_db
+                download_parquet_from_db_today("daily_builder", WATCHLIST_PATH) or download_parquet_from_db("daily_builder", WATCHLIST_PATH)
+            except Exception:
+                pass
             if not os.path.exists(target_path):
-                return jsonify([])
+                try:
+                    from main import ensure_watchlist_exists_for_scanners
+                    ensure_watchlist_exists_for_scanners()
+                except Exception:
+                    pass
+            if not os.path.exists(target_path):
+                target_path = os.path.join(DATA_DIR, "elite_fundamental_watchlist.csv")
+                if not os.path.exists(target_path):
+                    return jsonify([])
 
         mtime = os.path.getmtime(target_path)
         cache = _get_shortlist_cache()
@@ -3926,18 +3938,30 @@ def api_breakout_watchlist():
                 with get_connection() as conn:
                     with conn.cursor(cursor_factory=RealDictCursor) as cur:
                         cur.execute("""
-                            SELECT a.symbol, 'MULTI_TF' AS category, 'HOURLY_APPROVED' AS current_state,
+                            SELECT a.symbol, COALESCE(a.scanner, 'MULTI_TF') AS category, 'HOURLY_APPROVED' AS current_state,
                                    'APPROVED' AS h1_status, 'PENDING' AS m30_status, 'PENDING' AS m15_status, 'PENDING' AS m5_status,
                                    a.entry_price AS breakout_level, a.stop_loss AS support_level, a.target_price AS trigger_level,
                                    a.stop_loss AS invalidation_level, 2.0 AS max_extension_atr, 0.5 AS buffer_pct, a.alert_time AS armed_at,
                                    a.signals AS context_json, a.alert_time AS last_updated,
                                    FALSE AS earnings_flag, 999 AS days_to_earnings, NULL AS earnings_date, 'NONE' AS earnings_severity, '' AS warning_msg
                             FROM alerts a
-                            WHERE a.scanner = 'MULTI_TF' OR a.breakout_type ILIKE '%%MULTI_TF%%'
                             ORDER BY a.alert_time DESC
                             LIMIT 100
                         """)
                         data = [dict(r) for r in cur.fetchall()]
+                        if not data:
+                            cur.execute("""
+                                SELECT m.symbol, 'DAILY_BUILDER' AS category, 'HOURLY_APPROVED' AS current_state,
+                                       'APPROVED' AS h1_status, 'PENDING' AS m30_status, 'PENDING' AS m15_status, 'PENDING' AS m5_status,
+                                       m.cmp AS breakout_level, m.cmp * 0.95 AS support_level, m.cmp * 1.05 AS trigger_level,
+                                       m.cmp * 0.95 AS invalidation_level, 2.0 AS max_extension_atr, 0.5 AS buffer_pct, NOW() AS armed_at,
+                                       'Fundamental Watchlist' AS context_json, NOW() AS last_updated,
+                                       FALSE AS earnings_flag, 999 AS days_to_earnings, NULL AS earnings_date, 'NONE' AS earnings_severity, '' AS warning_msg
+                                FROM stock_analysis_master m
+                                ORDER BY m.health_score DESC NULLS LAST
+                                LIMIT 100
+                            """)
+                            data = [dict(r) for r in cur.fetchall()]
             except Exception as _fb_err:
                 logger.warning(f"Multi-TF alert fallback query warning: {_fb_err}")
 
