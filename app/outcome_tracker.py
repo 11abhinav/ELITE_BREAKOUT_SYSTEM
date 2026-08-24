@@ -150,11 +150,15 @@ def run_outcome_tracker(force: bool = False) -> Dict[str, Any]:
                 with conn.cursor() as cur:
                     if is_closed:
                         db_status = "WIN" if (realized_rr and realized_rr > 0 and exit_reason != "AMBIGUOUS_SL_HIT") else "LOSS"
+                        calc_exit_price = float(t1) if exit_reason == "T1_HIT" else float(sl)
                         cur.execute("""
                             UPDATE alerts
-                            SET status = %s, closed_at = NOW()
+                            SET status = %s,
+                                exit_price = COALESCE(exit_price, %s),
+                                exit_signal = COALESCE(exit_signal, %s),
+                                closed_at = NOW()
                             WHERE id = %s
-                        """, (db_status, alert_id))
+                        """, (db_status, calc_exit_price, exit_reason, alert_id))
 
                         cur.execute("""
                             UPDATE alert_outcomes

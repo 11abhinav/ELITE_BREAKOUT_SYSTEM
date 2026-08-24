@@ -840,6 +840,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                 if lowest_low <= sl:
                     t["stopped_out"] = True
                     t["exit_price"]  = sl
+                    t["exit_signal"] = "STOP_LOSS"
+                    t["exit_reason"] = "STOP_LOSS"
                     t["pnl_pct"]     = round((sl - ep) / ep * 100, 2)
                     # Find the first candle that breached the Stop Loss
                     hit_row = hist[hist["Low"] <= sl]
@@ -850,6 +852,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                 elif cur_p and cur_p <= sl:
                     t["stopped_out"] = True
                     t["exit_price"]  = sl
+                    t["exit_signal"] = "STOP_LOSS"
+                    t["exit_reason"] = "STOP_LOSS"
                     t["pnl_pct"]     = round((sl - ep) / ep * 100, 2)
                     t["pnl_rs"]      = t["shares_bought"] * (sl - ep) if t["shares_bought"] else 0.0
                     hit_time = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
@@ -861,6 +865,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             elif cur_p and cur_p <= sl:
                 t["stopped_out"] = True
                 t["exit_price"]  = sl
+                t["exit_signal"] = "STOP_LOSS"
+                t["exit_reason"] = "STOP_LOSS"
                 t["pnl_pct"]     = round((sl - ep) / ep * 100, 2)
                 t["pnl_rs"]      = t["shares_bought"] * (sl - ep) if t["shares_bought"] else 0.0
                 hit_time = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
