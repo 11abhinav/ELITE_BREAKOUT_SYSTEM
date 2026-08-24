@@ -1352,6 +1352,35 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
                 logger.warning(f"⚠️ [SPLIT_GUARD] Corporate action check failed for {sym}: {_split_err}")
 
             if not _split_detected:
+                # [VERSION: SPLIT_GUARD_DELAYED_DATA_v1.0]
+                # If yfinance hasn't updated its splits array yet (common on the morning of ex-date),
+                # the hard stop would normally trigger. We can detect a retroactive historical adjustment
+                # by checking if Yahoo's returned prev_close is already > 19.5% below our entry price!
+                # If it is, and we didn't sell it yesterday, history was rewritten overnight!
+                historical_drawdown_pct = ((entry_price - prev_close) / entry_price) * 100.0 if (entry_price > 0 and prev_close is not None) else 0.0
+                
+                if historical_drawdown_pct >= 19.5:
+                    logger.warning(
+                        f"🔀 [SPLIT_GUARD] {sym}: yfinance splits array empty, but historical prev_close is {historical_drawdown_pct:.1f}% below entry. "
+                        f"This implies retroactive split adjustment overnight. Suspected corporate action."
+                    )
+                    r["Hold_Score"] = base_hold_score
+                    r["Exit_Code"] = "SPLIT_ADJUSTED"
+                    r["Exit_Reason"] = f"Suspected Corporate Action (Delayed Data). Drawdown: -{drawdown_pct:.1f}%. Awaiting manual DB intervention."
+                    
+                    try:
+                        from telegram_engine import queue_telegram_message
+                        msg = (
+                            f"⚠️ <b>Suspected Corporate Action (Delayed Data)</b>\n"
+                            f"<b>{sym}</b> shows a {historical_drawdown_pct:.1f}% retroactive drop in its historical close price.\n"
+                            f"This usually means a split occurred but Yahoo data is delayed.\n"
+                            f"Automated SELL deferred. Please adjust DB alert_price if a split occurred."
+                        )
+                        queue_telegram_message(msg, symbol=sym)
+                    except Exception:
+                        pass
+                    return r
+
                 # Normal hard stop — not a split
                 r["Hold_Score"] = 0
                 r["Exit_Code"] = "SELL"
