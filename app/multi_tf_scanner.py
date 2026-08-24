@@ -1122,24 +1122,17 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                     trigger_type = ""
             
                     # Thrust/Continuation Trigger
-                    # Price breaks local high while still close to level, with volume
-                    if close > float(prev["High"]) and close > (trigger_level + buffer_val) and vol_ratio > 1.05:
+                    # Price breaks local high while still close to level, with mandatory volume expansion (>= 1.25x)
+                    min_thrust_vol = float(MULTI_TF_CONFIG.get("MIN_VOLUME_RATIO", 1.25))
+                    if close > float(prev["High"]) and close > (trigger_level + buffer_val) and vol_ratio >= min_thrust_vol:
                         if close_position >= 0.60:
                             is_ready = True
                             trigger_type = "thrust"
                 
-                    # [VERSION: MULTI_TF_PATCH_v1.1] Decoupled Pullback Trigger from Thrust Trigger
-                    # Breakout level or EMA9 is defended, and price reclaims with volume and strong rejection
-                    # [FIX MTF-21] Defense is tested against trigger_level only (+ micro-buffer for
-                    # intraday noise). EMA9 as a defense level was inconsistent — if EMA9 > trigger_level
-                    # the stock never actually tested the breakout zone.
+                    # [VERSION: MULTI_TF_PATCH_v1.2] High-Conviction Pullback Trigger
+                    # Breakout level or EMA9 is defended, requiring minimum volume expansion (>= 1.15x) and strong close (>= 0.60)
                     defense_level = trigger_level
                     if not is_ready and low <= defense_level + (0.15 * atr20):
-                        # [VERSION: PHASE_D_PULLBACK_REFINEMENT_v1.0]
-                        # Safe structural correction for Phase D Pullback Trigger:
-                        # 1. PREVIOUS_CLOSE mode requires close > prev_close (confirms support defense without un-economical full-bar engulfing)
-                        # 2. Volume threshold set to vol_ratio >= 0.80 for pullback retest recovery (vs >1.05 for thrust breakouts)
-                        # 3. Close position threshold set to >= 0.50 (closes in upper half of 5m bounce candle)
                         trigger_mode = MULTI_TF_CONFIG.get("PULLBACK_TRIGGER_MODE", "PREVIOUS_CLOSE")
                     
                         if trigger_mode == "PREVIOUS_CLOSE":
@@ -1160,11 +1153,11 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                         else:
                             c_engulf = close > float(prev["Close"])
                         
-                        # Dual-Trigger OR Model:
-                        # 1. Normal Trigger: Volume ratio >= 0.80 AND Close position >= 0.50
-                        # 2. Strong Price Trigger: Volume ratio >= 0.65 AND Close position >= 0.60 (top 40% close) AND price holds trigger level
-                        c_std_trig = (vol_ratio >= 0.80 and close_position >= 0.50)
-                        c_strong_price_trig = (vol_ratio >= 0.65 and close_position >= 0.60 and close >= trigger_level)
+                        # High-Conviction Trigger (Reject low-volume < 1.15x traps)
+                        # 1. High-Volume Pullback: Volume ratio >= 1.15 AND Close position >= 0.60
+                        # 2. Strong Surge Pullback: Volume ratio >= 1.25 AND Close position >= 0.55 AND price holds trigger level
+                        c_std_trig = (vol_ratio >= 1.15 and close_position >= 0.60)
+                        c_strong_price_trig = (vol_ratio >= 1.25 and close_position >= 0.55 and close >= trigger_level)
                         
                         if close >= trigger_level and c_engulf and close > open_px and (c_std_trig or c_strong_price_trig):
                             is_ready = True

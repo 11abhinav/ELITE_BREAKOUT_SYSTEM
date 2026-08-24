@@ -155,9 +155,9 @@ MAX_MOMENTUM_BONUS = 15
 MULTI_TF_CONFIG = {
     "MIN_SIGNALS":        2,
     "MIN_BODY_RATIO":     0.60,
-    "MIN_CLOSE_POSITION": 0.70,
+    "MIN_CLOSE_POSITION": 0.65,
     "MAX_UPPER_WICK":     0.35,
-    "MIN_VOLUME_RATIO":   1.2,
+    "MIN_VOLUME_RATIO":   1.25,
     "MIN_VOLUME_AVG":     150_000,
     "MIN_RSI":            52,
     "MAX_RSI":            87,
