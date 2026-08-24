@@ -7699,23 +7699,32 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
             logger.warning(f"Failed to add new columns during boot cleanup: {e}")
         from config import SYSTEM_DEPLOYMENT_VERSION
         current_commit = SYSTEM_DEPLOYMENT_VERSION.split('-')[-1] if '-' in SYSTEM_DEPLOYMENT_VERSION else SYSTEM_DEPLOYMENT_VERSION
-        c.execute("""
-            UPDATE scanner_execution_history
-            SET completed_at = NOW(),
-                lifecycle_status = 'SERVER_RESTARTED',
-                error_summary = 'Server restarted while scan was in progress',
-                error_details = 'Automated boot cleanup detected unclosed RUNNING state from previous deployment'
-            WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
-               OR (git_commit IS NOT NULL AND git_commit != %s AND lifecycle_status = 'RUNNING');
-        """, (current_commit,))
-        c.execute("""
-            UPDATE scanner_health
-            SET status = 'IDLE',
-                error_msg = 'Server restarted — health status reset to IDLE',
-                updated_at = NOW()
-            WHERE status IN ('RUNNING', 'QUEUED') OR status LIKE 'QUEUED%';
-        """)
-        return c.rowcount
+        
+        try:
+            c.execute("""
+                UPDATE scanner_execution_history
+                SET completed_at = NOW(),
+                    lifecycle_status = 'SERVER_RESTARTED',
+                    error_summary = 'Server restarted while scan was in progress',
+                    error_details = 'Automated boot cleanup detected unclosed RUNNING state from previous deployment'
+                WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
+                   OR (git_commit IS NOT NULL AND git_commit != %s AND lifecycle_status = 'RUNNING');
+            """, (current_commit,))
+        except Exception as e:
+            logger.warning(f"Failed to reset scanner_execution_history on boot: {e}")
+            
+        try:
+            c.execute("""
+                UPDATE scanner_health
+                SET status = 'IDLE',
+                    error_msg = 'Server restarted — health status reset to IDLE',
+                    updated_at = NOW()
+                WHERE status IN ('RUNNING', 'QUEUED') OR status LIKE 'QUEUED%';
+            """)
+            return c.rowcount
+        except Exception as e:
+            logger.warning(f"Failed to reset scanner_health on boot: {e}")
+            return 0
 
     try:
         if cur is not None:

@@ -1016,6 +1016,13 @@ def run_all_seven_scanners_non_market_boot():
         ]
 
         from database import is_scanner_stopped, upsert_scanner_health
+        
+        # 1. First mark all non-stopped scanners as QUEUED so the UI reflects the boot sequence queue
+        for name, _ in all_scanners:
+            if not is_scanner_stopped(name):
+                upsert_scanner_health(name, status="QUEUED", error_msg="Waiting in non-market boot sequence queue...")
+
+        # 2. Execute sequentially
         for idx, (name, fn) in enumerate(all_scanners, 1):
             if is_scanner_stopped(name):
                 logger.info(f"⏭️ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) {name} is STOPPED by Admin. Skipping.")
