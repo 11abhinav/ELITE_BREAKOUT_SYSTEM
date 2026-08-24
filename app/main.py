@@ -58,66 +58,11 @@ try:
 except Exception:
     pass
 
-# ── Phase 2 Dataset Registry: Self-Register Consumers ────────────────────────
-try:
-    from data_registry import registry
-    registry.register_consumer("watchlist", "WealthEngine")
-    registry.register_consumer("price_1d", "WealthEngine")
-    registry.register_consumer("fundamentals_quarterly", "WealthEngine")
-    
-    registry.register_consumer("watchlist", "MultiTFScanner")
-    registry.register_consumer("price_1m", "MultiTFScanner")
-    registry.register_consumer("price_15m", "MultiTFScanner")
-    registry.register_consumer("price_1d", "MultiTFScanner")
-    
-    registry.register_consumer("watchlist", "EODScanner")
-    registry.register_consumer("price_1d", "EODScanner")
-    
-    registry.register_consumer("watchlist", "PullbackScanner")
-    registry.register_consumer("price_1d", "PullbackScanner")
-    
-    registry.register_consumer("watchlist", "ReversalScanner")
-    registry.register_consumer("price_1d", "ReversalScanner")
-    
-    # Run graph validation at startup
-    registry.validate()
-    logger.info("✅ Dataset Registry graph validation passed.")
-except Exception as e:
-    logger.critical(f"🚨 Dataset Registry initialization failed: {e}")
-    sys.exit(1)
-
 # ─────────────────────────────────────────────────────────────────────────────
-# STARTUP DIAGNOSTICS — Verify all required functions are available (2026-06-26)
-# This catches version mismatches between local/container code early
+# STARTUP DIAGNOSTICS & TELEMETRY TIMERS
 # ─────────────────────────────────────────────────────────────────────────────
-try:
-    from diagnostics import run_startup_diagnostics
-    if not run_startup_diagnostics():
-        logger.critical("🚨 CRITICAL: Startup diagnostics FAILED. Aborting boot.")
-        sys.exit(1)
-except ImportError:
-    logger.warning("⚠️ diagnostics module not found (new deployment). Continuing without diagnostics.")
-except Exception as e:
-    logger.warning(f"⚠️ Diagnostics check failed: {e}. Continuing anyway.")
-
-# [VERSION: FYERS_SCOPE_CHECK_v1.0] Perform startup verification of Fyers Historical Data API scope.
-# If code -403 is returned, opens circuit breaker immediately & records PERMISSION_DENIED status in DB.
-try:
-    from data_providers.fyers_fetcher import verify_fyers_startup_scope
-    verify_fyers_startup_scope()
-except Exception as _fyers_scope_err:
-    logger.warning(f"⚠️ Fyers startup scope verification failed: {_fyers_scope_err}")
-
-# [VERSION: PERF_PROFILER_v1.0] Log total boot latency from process start to first
-# scanner-ready checkpoint. This is a passive metric — no behavior is changed.
-_boot_elapsed = _time.monotonic() - _PROCESS_START_TIME
-logger.info(f"⏱  [STARTUP] Boot sequence complete in {_boot_elapsed:.1f}s (imports + DB init + diagnostics)")
-try:
-    from symbol_router import symbol_router
-    symbol_router.load_persisted_routes()
-except Exception as _router_err:
-    logger.warning(f"⚠️ Failed to restore symbol router state on boot: {_router_err}")
-# ─────────────────────────────────────────────────────────────────────────────
+import time as _time
+_PROCESS_START_TIME = _time.monotonic()
 
 # Map watchdog thread names to dashboard database keys
 THREAD_TO_SCANNER = {
@@ -2350,6 +2295,49 @@ if __name__ == "__main__":
 
     # 3. RUN DB & SCANNER INITIALIZATION IN BACKGROUND THREAD
     def _bg_boot_sequence():
+        # Phase 2 Dataset Registry: Self-Register Consumers
+        try:
+            from data_registry import registry
+            registry.register_consumer("watchlist", "WealthEngine")
+            registry.register_consumer("price_1d", "WealthEngine")
+            registry.register_consumer("fundamentals_quarterly", "WealthEngine")
+            registry.register_consumer("watchlist", "MultiTFScanner")
+            registry.register_consumer("price_1m", "MultiTFScanner")
+            registry.register_consumer("price_15m", "MultiTFScanner")
+            registry.register_consumer("price_1d", "MultiTFScanner")
+            registry.register_consumer("watchlist", "EODScanner")
+            registry.register_consumer("price_1d", "EODScanner")
+            registry.register_consumer("watchlist", "PullbackScanner")
+            registry.register_consumer("price_1d", "PullbackScanner")
+            registry.register_consumer("watchlist", "ReversalScanner")
+            registry.register_consumer("price_1d", "ReversalScanner")
+            registry.validate()
+            logger.info("✅ Dataset Registry graph validation passed.")
+        except Exception as e:
+            logger.warning(f"⚠️ Dataset Registry initialization warning: {e}")
+
+        # STARTUP DIAGNOSTICS
+        try:
+            from diagnostics import run_startup_diagnostics
+            run_startup_diagnostics()
+        except Exception as e:
+            logger.warning(f"⚠️ Diagnostics check skipped: {e}")
+
+        # FYERS SCOPE VERIFICATION & TOKEN CHECK
+        try:
+            from data_providers.fyers_fetcher import verify_fyers_startup_scope
+            verify_fyers_startup_scope()
+        except Exception as _fyers_scope_err:
+            logger.warning(f"⚠️ Fyers startup scope verification skipped: {_fyers_scope_err}")
+
+        # SYMBOL ROUTER PERSISTED ROUTES
+        try:
+            from symbol_router import symbol_router
+            symbol_router.load_persisted_routes()
+        except Exception as _router_err:
+            logger.warning(f"⚠️ Failed to restore symbol router state: {_router_err}")
+
+        # ORPHANED SCANNER RUNS CLEANUP
         try:
             from database import cleanup_orphaned_scanner_runs_on_boot
             cleanup_orphaned_scanner_runs_on_boot()
@@ -2357,6 +2345,7 @@ if __name__ == "__main__":
         except Exception as e:
             logger.warning(f"⚠️ [BOOT] Boot scanner cleanup warning: {e}")
 
+        # APPLICATION CONTEXT
         try:
             from application_context import ApplicationContext
             _app_ctx = ApplicationContext.get_instance()
@@ -2364,6 +2353,7 @@ if __name__ == "__main__":
         except Exception as e:
             logger.warning(f"⚠️ ApplicationContext init warning: {e}")
 
+        # WATCHDOG THREAD
         watchdog_thread = threading.Thread(target=run_watchdog, name="Watchdog", daemon=True)
         watchdog_thread.start()
 
