@@ -1043,14 +1043,21 @@ def performance_json():
             for r in raw_alerts:
                 def _safe_f(val_in):
                     return float(val_in) if val_in is not None else None
+
+                at_val = r.get("alert_time")
+                at_str = at_val.isoformat() if hasattr(at_val, "isoformat") else (str(at_val) if at_val else "")
+
+                ad_val = r.get("alert_date")
+                ad_str = ad_val.isoformat()[:10] if hasattr(ad_val, "isoformat") else (str(ad_val)[:10] if ad_val else (at_str[:10] if at_str else ""))
+
                 trades_fallback.append({
                     "id": r.get("id"),
                     "symbol": r.get("symbol"),
                     "scanner": r.get("scanner", "EOD"),
                     "category": r.get("category", "BREAKOUT"),
                     "signals": r.get("signals", ""),
-                    "entry_date": r.get("alert_date") or (r.get("alert_time", "")[:10] if r.get("alert_time") else ""),
-                    "alert_time": r.get("alert_time", ""),
+                    "entry_date": ad_str,
+                    "alert_time": at_str,
                     "entry_price": _safe_f(r.get("entry_price")),
                     "stop_loss": _safe_f(r.get("stop_loss")),
                     "initial_stop_loss": _safe_f(r.get("initial_stop_loss")),

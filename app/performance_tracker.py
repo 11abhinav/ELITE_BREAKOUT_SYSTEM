@@ -540,8 +540,20 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     trades = []
     for row in raw_alerts:
         symbol      = row["symbol"]
-        alert_time  = row.get("alert_time") or ""
-        alert_date  = row.get("alert_date") or (alert_time[:10] if alert_time else "")
+        alert_time_raw = row.get("alert_time")
+        if hasattr(alert_time_raw, "isoformat"):
+            alert_time_str = alert_time_raw.isoformat()
+        else:
+            alert_time_str = str(alert_time_raw) if alert_time_raw else ""
+
+        alert_date_raw = row.get("alert_date")
+        if hasattr(alert_date_raw, "isoformat"):
+            alert_date_str = alert_date_raw.isoformat()[:10]
+        else:
+            alert_date_str = str(alert_date_raw)[:10] if alert_date_raw else (alert_time_str[:10] if alert_time_str else "")
+
+        alert_time  = alert_time_str or alert_time_raw
+        alert_date  = alert_date_str
         # Cast to float immediately — psycopg2 returns REAL/NUMERIC as decimal.Decimal
         # and mixing Decimal with float in arithmetic raises TypeError.
         def _f(v):
