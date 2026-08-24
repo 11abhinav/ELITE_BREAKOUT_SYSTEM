@@ -7692,10 +7692,12 @@ def log_resolution_event_db(provider: str, original_symbol: str, attempted_symbo
 # SCANNER EXECUTION HISTORY & TELEMETRY ENGINE
 # =====================================================================================
 
+_PROCESS_BOOT_TIME = datetime.now(ZoneInfo('Asia/Kolkata'))
+
 def cleanup_orphaned_scanner_runs_on_boot(cur=None):
     """
     On server boot, finds any scanner runs left in 'RUNNING' or 'QUEUED' status
-    and updates them to 'SERVER_RESTARTED'.
+    from previous server processes and updates them to 'SERVER_RESTARTED'.
     """
     def _execute_cleanup(c):
         c.execute("""
@@ -7734,8 +7736,6 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
             c.execute("ALTER TABLE scanner_execution_history ADD COLUMN IF NOT EXISTS git_commit VARCHAR(64);")
         except Exception as e:
             logger.warning(f"Failed to add new columns during boot cleanup: {e}")
-        from config import SYSTEM_DEPLOYMENT_VERSION
-        current_commit = SYSTEM_DEPLOYMENT_VERSION.split('-')[-1] if '-' in SYSTEM_DEPLOYMENT_VERSION else SYSTEM_DEPLOYMENT_VERSION
         
         try:
             c.execute("""
@@ -7743,10 +7743,10 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
                 SET completed_at = NOW(),
                     lifecycle_status = 'SERVER_RESTARTED',
                     error_summary = 'Server restarted while scan was in progress',
-                    error_details = 'Automated boot cleanup detected unclosed RUNNING state from previous deployment'
+                    error_details = 'Automated boot cleanup detected unclosed RUNNING/QUEUED state from previous server process'
                 WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
-                   OR (git_commit IS NOT NULL AND git_commit != %s AND lifecycle_status = 'RUNNING');
-            """, (current_commit,))
+                  AND started_at < %s;
+            """, (_PROCESS_BOOT_TIME,))
         except Exception as e:
             logger.warning(f"Failed to reset scanner_execution_history on boot: {e}")
             
@@ -7779,28 +7779,37 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
 
 def is_scanner_actively_running(scanner_name: str, exclude_run_id: str = None, check_system_wide: bool = False) -> bool:
     """
-    [VERSION: SCANNER_DUPLICATE_GUARD_FIX_v2.0]
-    Check PostgreSQL execution history for an active (RUNNING/QUEUED) run of the specified scanner
-    or any heavy system scanner if check_system_wide=True.
-    Auto-cleans any abandoned/stale runs older than 15 minutes before checking active status.
+    [VERSION: SCANNER_DUPLICATE_GUARD_FIX_v3.0]
+    Check PostgreSQL execution history for an active (RUNNING/QUEUED) run of the specified scanner.
+    Auto-cleans any abandoned runs started before the current process boot time or inactive for >15 mins.
     """
     if not scanner_name and not check_system_wide:
         return False
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                from config import SYSTEM_DEPLOYMENT_VERSION
-                current_commit = SYSTEM_DEPLOYMENT_VERSION.split('-')[-1] if '-' in SYSTEM_DEPLOYMENT_VERSION else SYSTEM_DEPLOYMENT_VERSION
-                # 🧹 WATCHDOG HEALING: Auto-mark any stale RUNNING/QUEUED records or previous deployment runs as TIMEOUT_STALE / SERVER_RESTARTED
+                # 🧹 WATCHDOG HEALING: Auto-mark any pre-boot or stale RUNNING/QUEUED records as SERVER_RESTARTED / TIMEOUT_STALE
                 cur.execute("""
                     UPDATE scanner_execution_history
                     SET completed_at = NOW(),
                         lifecycle_status = 'SERVER_RESTARTED',
-                        error_summary = 'Previous deployment run terminated during server restart',
-                        error_details = 'Watchdog auto-cleaned unclosed RUNNING state from prior deployment commit'
+                        error_summary = 'Previous process run terminated during server restart',
+                        error_details = 'Watchdog auto-cleaned unclosed RUNNING state from prior server process'
                     WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
-                      AND git_commit IS NOT NULL AND git_commit != %s;
-                """, (current_commit,))
+                      AND started_at < %s;
+                """, (_PROCESS_BOOT_TIME,))
+                cur.execute("""
+                    UPDATE scanner_execution_history
+                    SET completed_at = NOW(),
+                        lifecycle_status = 'TIMEOUT_STALE',
+                        error_summary = 'Execution timed out after 15 minutes of inactivity',
+                        error_details = 'Watchdog auto-cleaned stale RUNNING state without recent heartbeat'
+                    WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
+                      AND (
+                          heartbeat_at < NOW() - INTERVAL '15 minutes'
+                          OR (started_at < NOW() - INTERVAL '15 minutes' AND (heartbeat_at IS NULL OR heartbeat_at = started_at))
+                      );
+                """)
                 cur.execute("""
                     UPDATE scanner_execution_history
                     SET completed_at = NOW(),
