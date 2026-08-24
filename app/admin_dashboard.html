@@ -5271,10 +5271,15 @@ async function initDashboard() {
         if (typeof renderScannerGrid === 'function') renderScannerGrid(window._scannerStats);
         if (diagnosticsLoaded) loadNonCriticalErrors();
       }
-      await fetchScannerExecutionHistory(currentSehPage);
+      if (typeof fetchScannerExecutionHistory === 'function') {
+        await fetchScannerExecutionHistory(currentSehPage);
+      }
     } catch (e) { console.error("Error in refreshScannerStatus:", e); }
-    setTimeout(refreshScannerStatus, 10000);
   }
+
+  // Kick off 10s timer loop immediately
+  refreshScannerStatus();
+  setInterval(refreshScannerStatus, 10000);
 
 
 
