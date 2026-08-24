@@ -998,9 +998,9 @@ function renderKPIs(s) {
   const todayStr = formatter.format(new Date());
 
   const todaysCount = filteredTrades.filter(t => (t.alert_time || t.entry_date || '').startsWith(todayStr)).length;
-  const judged = filteredTrades.filter(t => ['WIN', 'LOSS', 'NEUTRAL'].includes(t.status));
-  const winners = judged.filter(t => t.status === 'WIN');
-  const losers = judged.filter(t => t.status === 'LOSS');
+  const judged = filteredTrades.filter(t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status));
+  const winners = judged.filter(t => t.status === 'WIN' || (t.status === 'CLOSED' && (t.pnl_pct || 0) > 0));
+  const losers = judged.filter(t => t.status === 'LOSS' || (t.status === 'CLOSED' && (t.pnl_pct || 0) <= 0));
   const winRate = judged.length > 0 ? ((winners.length / judged.length) * 100).toFixed(0) : 0;
   const avgReturn = judged.length > 0 ? (judged.reduce((sum, t) => sum + (t.pnl_pct || 0), 0) / judged.length) : 0;
   const avgWin = winners.length > 0 ? (winners.reduce((sum, t) => sum + (t.pnl_pct || 0), 0) / winners.length) : 0;
@@ -1009,20 +1009,23 @@ function renderKPIs(s) {
 
   const bestTrade = filteredTrades.reduce((max, t) => (t.pnl_pct || 0) > max ? (t.pnl_pct || 0) : max, -100);
   const worstTrade = filteredTrades.reduce((min, t) => (t.pnl_pct || 0) < min ? (t.pnl_pct || 0) : min, 100);
-  const openPositions = filteredTrades.filter(t => t.status === 'OPEN').length;
+  
+  const openStatuses = ['OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING'];
+  const openTradesList = filteredTrades.filter(t => openStatuses.includes(t.status) || !['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED'].includes(t.status));
+  const openPositions = openTradesList.length;
 
   const defs = [
     { id: 'today', label: "Today's Alerts", value: todaysCount, cls: 'blue', sub: 'new today', filter: t => (t.alert_time || t.entry_date || '').startsWith(todayStr) },
     { id: 'total', label: 'Total Alerts', value: filteredTrades.length, cls: '', sub: 'all alerts', filter: t => true },
-    { id: 'judged', label: 'Judged', value: judged.length, cls: '', sub: `${judged.filter(t => t.status === 'LOSS').length} SL · ${judged.filter(t => t.status === 'WIN').length} target`, filter: t => ['WIN', 'LOSS', 'NEUTRAL'].includes(t.status) },
-    { id: 'winrate', label: 'Win Rate', value: winRate + '%', cls: winRate >= 55 ? 'green' : winRate >= 45 ? 'amber' : 'red', sub: `${winners.length}W / ${losers.length}L`, filter: t => t.status === 'WIN' || t.status === 'LOSS' },
-    { id: 'avgret', label: 'Avg Return', value: pct(avgReturn), cls: avgReturn >= 0 ? 'green' : 'red', sub: 'per judged trade', filter: t => ['WIN', 'LOSS', 'NEUTRAL'].includes(t.status) && t.pnl_pct != null },
-    { id: 'avgwin', label: 'Avg Win', value: pct(avgWin), cls: 'green', sub: 'winners only', filter: t => t.status === 'WIN' },
-    { id: 'avgloss', label: 'Avg Loss', value: pct(avgLoss), cls: 'red', sub: 'losers only', filter: t => t.status === 'LOSS' },
-    { id: 'expect', label: 'Expectancy', value: pct(expectancy), cls: expectancy >= 0 ? 'green' : 'red', sub: 'WR×avgW+(1-WR)×avgL', filter: t => ['WIN', 'LOSS', 'NEUTRAL'].includes(t.status) },
-    { id: 'best', label: 'Best Trade', value: pct(bestTrade), cls: 'green', sub: '', filter: t => t.pnl_pct != null && t.pnl_pct === bestTrade },
-    { id: 'worst', label: 'Worst Trade', value: pct(worstTrade), cls: 'red', sub: '', filter: t => t.pnl_pct != null && t.pnl_pct === worstTrade },
-    { id: 'open', label: 'Open', value: openPositions, cls: 'blue', sub: 'awaiting close', filter: t => t.status === 'OPEN' },
+    { id: 'judged', label: 'Judged', value: judged.length, cls: '', sub: judged.length > 0 ? `${losers.length} SL · ${winners.length} target` : `${openPositions} active open`, filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) },
+    { id: 'winrate', label: 'Win Rate', value: judged.length > 0 ? winRate + '%' : '—', cls: winRate >= 55 ? 'green' : winRate >= 45 ? 'amber' : '', sub: judged.length > 0 ? `${winners.length}W / ${losers.length}L` : 'all positions active', filter: t => t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' },
+    { id: 'avgret', label: 'Avg Return', value: judged.length > 0 ? pct(avgReturn) : '—', cls: avgReturn >= 0 ? 'green' : 'red', sub: 'per judged trade', filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) && t.pnl_pct != null },
+    { id: 'avgwin', label: 'Avg Win', value: winners.length > 0 ? pct(avgWin) : '—', cls: 'green', sub: 'winners only', filter: t => t.status === 'WIN' || (t.status === 'CLOSED' && (t.pnl_pct || 0) > 0) },
+    { id: 'avgloss', label: 'Avg Loss', value: losers.length > 0 ? pct(avgLoss) : '—', cls: 'red', sub: 'losers only', filter: t => t.status === 'LOSS' || (t.status === 'CLOSED' && (t.pnl_pct || 0) <= 0) },
+    { id: 'expect', label: 'Expectancy', value: judged.length > 0 ? pct(expectancy) : '—', cls: expectancy >= 0 ? 'green' : 'red', sub: 'WR×avgW+(1-WR)×avgL', filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) },
+    { id: 'best', label: 'Best Trade', value: filteredTrades.length > 0 ? pct(bestTrade) : '—', cls: 'green', sub: '', filter: t => t.pnl_pct != null && t.pnl_pct === bestTrade },
+    { id: 'worst', label: 'Worst Trade', value: filteredTrades.length > 0 ? pct(worstTrade) : '—', cls: 'red', sub: '', filter: t => t.pnl_pct != null && t.pnl_pct === worstTrade },
+    { id: 'open', label: 'Open', value: openPositions, cls: 'blue', sub: 'active positions', filter: t => openStatuses.includes(t.status) || !['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED'].includes(t.status) },
   ];
   document.getElementById('kpis').innerHTML = defs.map(d => `
 <div class="kpi ${activeKpi === d.id ? 'active' : ''}" data-id="${d.id}" onclick="drillKpi('${d.id}',this)">
