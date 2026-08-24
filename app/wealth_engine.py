@@ -1281,6 +1281,19 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
                 except Exception:
                     pass
             return r
+            
+        import pandas as pd
+        if pd.isna(r.get("FM_Score")) or pd.isna(r.get("RS_Rating")):
+            r["Hold_Score"] = base_hold_score
+            r["Exit_Code"] = "SELL_REVIEW"
+            r["Exit_Reason"] = "Incomplete Data (Missing Fundamentals/Orphaned)"
+            try:
+                from telegram_engine import queue_telegram_message
+                msg = f"⚠️ <b>Incomplete Data</b>\n<b>{sym}</b> is missing core fundamental data (e.g. FM_Score) in Wealth Engine.\nHold Score could not be reliably calculated.\nMoved to SELL_REVIEW."
+                queue_telegram_message(msg, symbol=sym)
+            except Exception:
+                pass
+            return r
         
         # 2. Hard Risk Stop (Calculated BEFORE Tax Bonus)
         drawdown_pct = 0.0
