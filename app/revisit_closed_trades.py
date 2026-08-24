@@ -23,14 +23,9 @@ def audit_and_correct_closed_trades(rebuild_perf=False):
         from database import get_connection
         from psycopg2.extras import RealDictCursor
         
-        # 1. Audit MULTIBAGGER alerts
-        from multibagger import restore_healthy_multibagger_positions
-        mb_restored = restore_healthy_multibagger_positions()
-        logger.info(f"📊 [TRADE AUDITOR] Multibagger pass complete (restored/updated {mb_restored} positions).")
-
-        # 2. Audit WEALTH buy alerts
-        from wealth_engine import restore_healthy_wealth_positions
-        wealth_restored = restore_healthy_wealth_positions()
+        # 1. Skip restoring healthy positions to OPEN (closed trades remain closed)
+        mb_restored = 0
+        wealth_restored = 0
         logger.info(f"📊 [TRADE AUDITOR] Wealth Engine pass complete (restored/updated {wealth_restored} positions).")
 
         # 3. Audit Swing Scanners (EOD, MULTI_TF, REVERSAL, PULLBACK) in alerts table

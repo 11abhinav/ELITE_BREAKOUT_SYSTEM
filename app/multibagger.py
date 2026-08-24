@@ -2772,11 +2772,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
 
 
 def restore_healthy_multibagger_positions():
-    """
-    [VERSION: MULTIBAGGER_RESTORE_v2.0] Re-evaluates all historical CLOSED and SELL_REVIEW trades.
-    If the exit was erroneous/data-void (stock is fundamental solid & passes quality gate): restores position to OPEN.
-    If the exit was legitimate: sets status to WIN (if PnL >= 0) or LOSS (if PnL < 0).
-    """
+    """No-op: Closed positions stay closed. Exit monitors only evaluate open/sell_review positions."""
+    return 0
     try:
         from database import get_connection
         from psycopg2.extras import RealDictCursor

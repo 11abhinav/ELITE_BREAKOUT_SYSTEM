@@ -2705,11 +2705,8 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
 
 
 def restore_healthy_wealth_positions():
-    """
-    [VERSION: WEALTH_RESTORE_v2.0] Re-evaluates all historical CLOSED and SELL_REVIEW wealth positions.
-    If the exit was erroneous/data-void (stock has solid hold score >= 50 and no active exit trigger): restores to OPEN.
-    If the exit was legitimate: sets status to WIN (if PnL >= 0) or LOSS (if PnL < 0).
-    """
+    """No-op: Closed positions stay closed. Exit monitors only evaluate open/sell_review positions."""
+    return 0
     try:
         from database import get_connection
         from psycopg2.extras import RealDictCursor
