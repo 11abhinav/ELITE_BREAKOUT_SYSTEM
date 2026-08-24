@@ -984,51 +984,43 @@ def api_get_near_misses():
         return jsonify([])
 
 
-# Cache removal: invalidate_performance_cache function removed
+_perf_data_mem_cache = None
+_perf_data_mem_ts = 0.0
 
 @app.route("/data/performance_data.json")
 @login_required
 def performance_json():
-    """Serve the latest performance JSON for the dashboard to fetch, loaded from DB with 10s memory cache."""
-    # Cache variable removed; no global needed
+    """Serve latest performance JSON with sub-millisecond memory caching and non-blocking background rebuilds."""
+    global _perf_data_mem_cache, _perf_data_mem_ts
     now_ts = time.time()
     force_rebuild = request.args.get("rebuild", "").lower() == "true"
-    
-    # Cache disabled: removed cache check
+
+    if not force_rebuild and _perf_data_mem_cache and (now_ts - _perf_data_mem_ts < 15.0):
+        return Response(_perf_data_mem_cache, mimetype="application/json")
+
     try:
-        from database import get_system_state, get_all_alerts
+        from database import get_system_state
         val = get_system_state("performance_data") if not force_rebuild else None
-        
-        # Check if cached performance_data in DB is missing trades while database has active alerts
-        has_empty_trades = False
-        if val:
-            try:
-                parsed_val = json.loads(val) if isinstance(val, str) else val
-                if isinstance(parsed_val, dict) and len(parsed_val.get("trades", [])) == 0:
-                    db_alerts_count = len(get_all_alerts())
-                    if db_alerts_count > 0:
-                        has_empty_trades = True
-            except Exception:
-                pass
 
-        if not val or force_rebuild or has_empty_trades:
-            try:
-                from performance_tracker import build_performance_data
-                build_performance_data(fast_mode=True, force_live_fetch=force_rebuild)
-                val = get_system_state("performance_data")
-            except Exception as _b_err:
-                logger.warning(f"On-the-fly performance rebuild warning: {_b_err}")
+        if not val or force_rebuild:
+            from performance_tracker import trigger_performance_rebuild
+            trigger_performance_rebuild()
+            val = get_system_state("performance_data")
 
         if val:
-            try:
-                parsed_val = json.loads(val) if isinstance(val, str) else val
-                if isinstance(parsed_val, dict) and len(parsed_val.get("trades", [])) > 0:
-                    # Cache disabled: not storing
-                    return Response(val, mimetype="application/json")
-            except Exception:
-                pass
+            _perf_data_mem_cache = val
+            _perf_data_mem_ts = now_ts
+            return Response(val, mimetype="application/json")
     except Exception as e:
         logger.exception(f"❌ Failed to load performance data from DB: {e}")
+
+    empty_data = json.dumps({
+        "generated_at": datetime.now(IST).isoformat(),
+        "trades": [],
+        "summary": { "total_alerts": 0, "win_rate": 0, "winners": 0, "losers": 0, "open_positions": 0, "sl_triggered": 0, "target_hit": 0 },
+        "by_scanner": {}, "by_category": {}, "equity_curve": [], "monthly": []
+    })
+    return Response(empty_data, mimetype="application/json")
 
     # Fallback Tier 4: Direct alerts query if system_state performance_data is unavailable
     empty = {

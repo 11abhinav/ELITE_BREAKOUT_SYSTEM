@@ -2013,33 +2013,35 @@ def start_thread(name, target):
 
 def run_watchdog():
     """Watchdog loop — background daemon thread; Flask owns the main thread."""
-    logger.info("🔐 [BOOT] Initializing Fyers API session on startup...")
-    try:
-        from data_provider import get_fetcher
-        fetcher = get_fetcher()
-        if getattr(fetcher, "_should_use_fyers", lambda: False)():
-            # Perform a live 1-symbol probe query to verify Fyers Historical Data API permissions
-            try:
+    logger.info("🚀 [BOOT] Starting all background system threads...")
+    for name, target in ALL_THREADS.items():
+        try:
+            start_thread(name, target)
+            logger.info(f"✅ [BOOT] Started background thread: {name}")
+        except Exception as _st_err:
+            logger.error(f"❌ [BOOT] Failed to start thread {name}: {_st_err}")
+
+    logger.info("=" * 70)
+    logger.info("🛡️  SELF-HEALING WATCHDOG ACTIVE | All Scanners Initialized")
+    logger.info("🌐  Dashboard: http://localhost:8080/")
+    logger.info("=" * 70)
+
+    # Optional background Fyers probe (non-blocking)
+    def _async_fyers_probe():
+        try:
+            from data_provider import get_fetcher
+            fetcher = get_fetcher()
+            if getattr(fetcher, "_should_use_fyers", lambda: False)():
                 probe_res = fetcher.fyers_fetcher.get_ohlcv("SBIN", "1d", "5d")
                 if probe_res and probe_res.dataframe is not None and not probe_res.dataframe.empty:
                     logger.info("✅ [BOOT] Fyers API session authenticated & historical data verified live on startup!")
                 else:
                     err = getattr(probe_res, 'error', 'Unknown')
                     logger.warning(f"⚠️ [BOOT] Fyers token loaded, but historical data probe returned: {err}")
-            except Exception as probe_err:
-                logger.warning(f"⚠️ [BOOT] Fyers historical data live probe failed: {probe_err}")
-        else:
-            logger.warning("⚠️ [BOOT] Fyers API auto-login skipped or incomplete on startup.")
-    except Exception as boot_fyers_err:
-        logger.warning(f"⚠️ [BOOT] Fyers API boot initialization warning: {boot_fyers_err}")
+        except Exception as boot_fyers_err:
+            logger.warning(f"⚠️ [BOOT] Fyers API boot probe warning: {boot_fyers_err}")
 
-    for name, target in ALL_THREADS.items():
-        start_thread(name, target)
-
-    logger.info("=" * 70)
-    logger.info("🛡️  SELF-HEALING WATCHDOG ACTIVE | All Scanners Initialized")
-    logger.info("🌐  Dashboard: http://localhost:8080/")
-    logger.info("=" * 70)
+    threading.Thread(target=_async_fyers_probe, name="FyersBootProbe", daemon=True).start()
 
     _logged_ready = False
     while True:

@@ -5237,11 +5237,13 @@ def _get_wealth_positions(is_closed: bool = None, symbol: str = None, trade_date
                     query += " AND w.alert_date = %s"
                     params.append(trade_date)
                 elif days_back is not None:
+                    from datetime import timedelta
+                    cutoff_str = (datetime.now(IST).date() - timedelta(days=int(days_back))).isoformat()
                     if is_closed is True:
-                        query += " AND w.exit_date::DATE >= (CURRENT_DATE - (%s * INTERVAL '1 day'))"
+                        query += " AND (w.exit_date >= %s OR w.exit_date IS NULL)"
                     else:
-                        query += " AND w.alert_date::DATE >= (CURRENT_DATE - (%s * INTERVAL '1 day'))"
-                    params.append(int(days_back))
+                        query += " AND w.alert_date >= %s"
+                    params.append(cutoff_str)
 
                 if is_closed is True:
                     query += " ORDER BY w.exit_date DESC, w.exit_time DESC"
