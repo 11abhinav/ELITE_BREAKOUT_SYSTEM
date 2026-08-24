@@ -760,6 +760,11 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                 prefetched_data.update(batch_res)
 
     for t in trades:
+        # [PERF] Yield the GIL so the Flask Dashboard server can handle incoming API requests
+        # preventing 504 Gateway Timeouts during heavy performance tracking loops.
+        import time
+        time.sleep(0.01)
+        
         from corporate_actions import adjust_trade_for_corporate_actions
         adjust_trade_for_corporate_actions(t)
 
