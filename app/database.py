@@ -7180,8 +7180,22 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER", username: str = None) -> l
 
                 return results
     except Exception as e:
-        logger.error(f"Failed to fetch user watchlist for {user_id}: {e}")
-        return []
+        logger.error(f"Failed to fetch user watchlist for {user_id}: {e}. Running simplified fallback query...")
+        try:
+            with get_connection() as conn:
+                from psycopg2.extras import RealDictCursor
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT w.symbol, w.company_name, w.added_at, w.last_scanned_at,
+                               w.last_health_score AS health_score, w.last_status AS status, w.notes
+                        FROM user_watchlists w
+                        ORDER BY w.added_at DESC
+                    """)
+                    fallback_rows = cur.fetchall()
+                    return [dict(r) for r in fallback_rows]
+        except Exception as _fb_err:
+            logger.error(f"Simple user watchlist fallback failed: {_fb_err}")
+            return []
 
 
 def update_user_watchlist_scan_result(symbol: str, user_id: str = "DEFAULT_USER", health_score: float = None, status: str = None, deep_analysis_result: dict = None) -> bool:
