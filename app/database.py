@@ -2470,7 +2470,7 @@ def get_all_alerts() -> list[dict]:
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                SELECT DISTINCT ON (a.id)
+                SELECT
                     a.id, a.symbol, a.breakout_type, a.alert_time, a.alert_date,
                     a.scanner, a.category, a.entry_price, a.stop_loss, a.initial_stop_loss,
                     a.target_price, a.target_1, a.target_2, a.target_3,
@@ -2485,8 +2485,12 @@ def get_all_alerts() -> list[dict]:
                     COALESCE(ec.date_status, a.earnings_severity, 'NONE')                        AS earnings_severity,
                     COALESCE(a.warning_msg, '')                                                 AS warning_msg
                 FROM alerts a
-                LEFT JOIN earnings_calendar ec ON UPPER(ec.symbol) = UPPER(a.symbol)
-                ORDER BY a.id, a.alert_time DESC
+                LEFT JOIN (
+                    SELECT DISTINCT ON (UPPER(symbol)) symbol, earnings_date, date_status
+                    FROM earnings_calendar
+                    ORDER BY UPPER(symbol), earnings_date DESC
+                ) ec ON UPPER(ec.symbol) = UPPER(a.symbol)
+                ORDER BY a.alert_time DESC
             """)
             rows = []
             for row in cur.fetchall():
