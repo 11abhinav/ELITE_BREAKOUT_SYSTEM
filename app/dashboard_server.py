@@ -1021,8 +1021,13 @@ def performance_json():
                 logger.warning(f"On-the-fly performance rebuild warning: {_b_err}")
 
         if val:
-            _PERFORMANCE_JSON_CACHE = {"ts": now_ts, "payload": val}
-            return Response(val, mimetype="application/json")
+            try:
+                parsed_val = json.loads(val) if isinstance(val, str) else val
+                if isinstance(parsed_val, dict) and len(parsed_val.get("trades", [])) > 0:
+                    _PERFORMANCE_JSON_CACHE = {"ts": now_ts, "payload": val}
+                    return Response(val, mimetype="application/json")
+            except Exception:
+                pass
     except Exception as e:
         logger.exception(f"❌ Failed to load performance data from DB: {e}")
 
@@ -1079,15 +1084,24 @@ def performance_json():
                     "target_1": _safe_f(r.get("target_1")),
                     "target_2": _safe_f(r.get("target_2")),
                     "target_3": _safe_f(r.get("target_3")),
-                    "current_price": _safe_f(r.get("current_price")),
+                    "current_price": _safe_f(r.get("current_price")) or _safe_f(r.get("entry_price")),
                     "exit_price": _safe_f(r.get("exit_price")),
                     "pnl_pct": _safe_f(r.get("pnl_pct")),
+                    "pnl_rs": _safe_f(r.get("pnl_rs")),
+                    "capital_allocated": _safe_f(r.get("capital_allocated")),
+                    "shares_bought": r.get("shares_bought"),
                     "status": r.get("status") or "OPEN",
                     "score": r.get("score"),
+                    "is_rejected": bool(r.get("is_rejected", False)),
+                    "days_to_earnings": r.get("days_to_earnings"),
+                    "earnings_date": r.get("earnings_date"),
+                    "earnings_severity": r.get("earnings_severity"),
+                    "warning_msg": r.get("warning_msg"),
                 })
             empty["trades"] = trades_fallback
             empty["summary"]["total_alerts"] = len(trades_fallback)
-            empty["summary"]["open_positions"] = len([t for t in trades_fallback if t["status"] == "OPEN"])
+            open_statuses = ['OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING']
+            empty["summary"]["open_positions"] = len([t for t in trades_fallback if t["status"] in open_statuses or t["status"] not in ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED']])
     except Exception as _fa_err:
         logger.warning(f"Direct alerts fallback warning: {_fa_err}")
 

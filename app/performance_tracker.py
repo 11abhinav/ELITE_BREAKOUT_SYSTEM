@@ -1065,6 +1065,11 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         save_system_state("performance_summary", json.dumps(summary, default=str))
         save_system_state("performance_generated_at", json.dumps(payload["generated_at"]))
         save_system_state("performance_data", payload_str)
+        try:
+            from dashboard_server import invalidate_performance_cache
+            invalidate_performance_cache()
+        except Exception:
+            pass
         logger.info("✅ PERFORMANCE TRACKER | Stored performance metrics in PostgreSQL")
     except Exception:
         logger.exception("❌ PERFORMANCE TRACKER | Failed to store performance metrics in DB")
