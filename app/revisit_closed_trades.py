@@ -43,7 +43,19 @@ def audit_and_correct_closed_trades(rebuild_perf=False):
             for r in rows:
                 alert_id = r["id"]
                 curr_status = r["status"]
-                entry_p = float(r["entry_price"]) if r.get("entry_price") is not None else None
+                
+                # Check for corporate action split adjustment
+                trade_dict = {
+                    "symbol": r.get("symbol"),
+                    "entry_date": r.get("alert_date") or r.get("created_at"),
+                    "entry_price": float(r["entry_price"]) if r.get("entry_price") is not None else None,
+                    "stop_loss": float(r["stop_loss"]) if r.get("stop_loss") is not None else None,
+                    "target_1": float(r["target_1"]) if r.get("target_1") is not None else None,
+                }
+                from corporate_actions import adjust_trade_for_corporate_actions
+                adjust_trade_for_corporate_actions(trade_dict)
+
+                entry_p = trade_dict["entry_price"]
                 exit_p = float(r["exit_price"]) if r.get("exit_price") is not None else None
                 pnl = float(r["pnl_pct"]) if r.get("pnl_pct") is not None else None
 

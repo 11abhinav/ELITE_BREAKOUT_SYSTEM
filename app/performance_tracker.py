@@ -191,11 +191,16 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     State Machine Evaluator for Partial Exits (Full Replay Architecture).
     Walks forward through historical ticks from alert creation and executes trailing SLs and limits.
     Deduplicates database writes by checking existing exit_history.
+    Adjusts cost basis and SL/targets for any stock splits or bonus corporate actions.
     """
     from database import update_partial_exit, update_alert_outcome
+    from corporate_actions import adjust_trade_for_corporate_actions
     import json
     from datetime import datetime
     import pandas as pd
+    
+    # Adjust trade for stock splits / bonus issues prior to evaluating exits
+    adjust_trade_for_corporate_actions(t)
     
     t1 = t.get("target_1")
     t2 = t.get("target_2")
@@ -755,6 +760,9 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                 prefetched_data.update(batch_res)
 
     for t in trades:
+        from corporate_actions import adjust_trade_for_corporate_actions
+        adjust_trade_for_corporate_actions(t)
+
         sym        = t["symbol"]
         ep         = t["entry_price"]
         sl         = t["stop_loss"]

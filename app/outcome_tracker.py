@@ -80,6 +80,23 @@ def run_outcome_tracker(force: bool = False) -> Dict[str, Any]:
         if df_after.empty:
             continue
 
+        # Adjust cost basis, SL, and targets for corporate actions (splits/bonuses)
+        alert_dict = {
+            "symbol": symbol,
+            "entry_date": alert_date_val,
+            "entry_price": float(entry) if entry else 0.0,
+            "stop_loss": float(sl) if sl else 0.0,
+            "target_1": float(t1) if t1 else 0.0,
+            "target_2": float(t2) if t2 else 0.0
+        }
+        from corporate_actions import adjust_trade_for_corporate_actions
+        adjust_trade_for_corporate_actions(alert_dict)
+
+        entry = alert_dict["entry_price"]
+        sl = alert_dict["stop_loss"]
+        t1 = alert_dict["target_1"]
+        t2 = alert_dict.get("target_2")
+
         risk_dist = max(0.01, float(entry) - float(sl))
         holding_bars = len(df_after)
 

@@ -1259,6 +1259,21 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         used_fallback = r.get("used_fallback_data", False)
         data_quality = str(r.get("data_quality", ""))
         
+        # Check and apply corporate action split adjustments to entry_price
+        trade_payload = {
+            "symbol": sym,
+            "entry_date": r.get("entry_date") or r.get("alert_date"),
+            "entry_price": entry_price,
+            "stop_loss": _safe_num(r.get("stop_loss")),
+        }
+        from corporate_actions import adjust_trade_for_corporate_actions
+        adjust_trade_for_corporate_actions(trade_payload)
+        if trade_payload.get("split_factor", 1.0) > 1.0:
+            entry_price = trade_payload["entry_price"]
+            r["entry_price"] = entry_price
+            if trade_payload.get("stop_loss"):
+                r["stop_loss"] = trade_payload["stop_loss"]
+        
         # 1. Strict Live Price & Genuine Prev Close Validation
         # [VERSION: WEALTH_STALE_STATE_v1.0] DATA_STALE is checked FIRST — before any hard-stop logic.
         # This ensures that missing prev_close / stale intraday data never accidentally triggers an automated SELL.
