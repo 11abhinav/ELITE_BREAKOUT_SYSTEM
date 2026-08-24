@@ -1298,7 +1298,7 @@ def run_system_scheduler():
             )
             return False
 
-    def verify_scans(run_test_scans: bool = False):
+    def verify_scans():
         """Verify file readiness at 8:30 AM or boot."""
         logger.info("🕒 SCHEDULER | Verifying file readiness for today's scan")
         now = datetime.now(IST)
@@ -1331,10 +1331,6 @@ def run_system_scheduler():
 
                     if restored and os.path.exists(WEALTH_PATH):
                         logger.info("✅ Wealth system restored from DB.")
-                    elif run_test_scans:
-                        logger.warning("⚠️ Wealth system missing from DB too. Non-market hours: running test setup scan.")
-                        if not is_scanner_stopped("Wealth Engine"):
-                            safe_run_wealth_scan_initial()
                 except Exception as e:
                     logger.exception(f"Failed to restore wealth from DB: {e}")
             else:
@@ -1350,10 +1346,6 @@ def run_system_scheduler():
 
                         if restored and os.path.exists(WEALTH_PATH):
                             logger.info("✅ Wealth system restored from DB.")
-                        elif run_test_scans:
-                            logger.warning("⚠️ Wealth system not in today DB. Non-market hours: running test setup scan.")
-                            if not is_scanner_stopped("Wealth Engine"):
-                                safe_run_wealth_scan_initial()
                     except Exception as e:
                         logger.exception(f"Failed to restore wealth: {e}")
         except Exception as e:
@@ -1406,11 +1398,11 @@ def run_system_scheduler():
     is_market_hours_boot = is_within_custom_hours(dt_time(9, 0), dt_time(15, 45), now_boot)
 
     if is_market_hours_boot:
-        logger.info("⏰ Startup / Deployment during MARKET HOURS (9:00 AM - 3:45 PM IST) — Skipping initial boot test scans.")
-        verify_scans(run_test_scans=False)
+        logger.info("⏰ Startup / Deployment during MARKET HOURS (9:00 AM - 3:45 PM IST) — Skipping initial boot scans.")
+        verify_scans()
     else:
         logger.info("🌙 Startup during NON-MARKET HOURS — Executing single catch-up pass of ALL SEVEN SCANNERS...")
-        verify_scans(run_test_scans=False)  # User requested to remove test scans
+        verify_scans()
         run_all_seven_scanners_non_market_boot()
         try:
             from telemetry_manager import telemetry
@@ -2409,16 +2401,9 @@ if __name__ == "__main__":
         except Exception as e:
             logger.warning(f"⚠️ ApplicationContext init warning: {e}")
 
-        # SYSTEM SCHEDULER THREAD
-        try:
-            scheduler_thread = threading.Thread(target=run_system_scheduler, name="SystemScheduler", daemon=True)
-            scheduler_thread.start()
-            logger.info("⏰ [BOOT] System scheduler thread launched.")
-        except Exception as _sch_err:
-            logger.error(f"❌ Failed to launch system scheduler thread: {_sch_err}")
-
         # NON-MARKET HOURS CATCH-UP is handled entirely by the SystemScheduler thread
         # to prevent concurrent executions.
+        # SystemScheduler is started automatically by the Watchdog via RESTARTABLE_THREADS.
 
 
         # WATCHDOG THREAD
