@@ -5215,10 +5215,10 @@ def _get_wealth_positions(is_closed: bool = None, symbol: str = None, trade_date
                     params.append(trade_date)
                 elif days_back is not None:
                     if is_closed is True:
-                        query += " AND w.exit_date::DATE >= (CURRENT_DATE - INTERVAL '%s days')"
+                        query += " AND w.exit_date::DATE >= (CURRENT_DATE - (%s * INTERVAL '1 day'))"
                     else:
-                        query += " AND w.alert_date::DATE >= (CURRENT_DATE - INTERVAL '%s days')"
-                    params.append(days_back)
+                        query += " AND w.alert_date::DATE >= (CURRENT_DATE - (%s * INTERVAL '1 day'))"
+                    params.append(int(days_back))
 
                 if is_closed is True:
                     query += " ORDER BY w.exit_date DESC, w.exit_time DESC"
