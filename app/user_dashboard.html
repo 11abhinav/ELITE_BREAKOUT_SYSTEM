@@ -2316,6 +2316,7 @@ async function fetchTodaysAlertsAndBlink_User(){
     const res = await fetch('/api/todays_alerts'); if(!res.ok) return; const data = await res.json();
     if (!isFirstUserAlertFetch && data.length > lastUserAlertCount) {
         playLoudNotificationSound();
+        triggerAlertFlashing();
     }
     lastUserAlertCount = data.length;
     isFirstUserAlertFetch = false;

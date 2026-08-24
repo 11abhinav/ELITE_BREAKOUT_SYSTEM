@@ -284,7 +284,36 @@
 <meta name="theme-color" content="#0b0e14">
 </head>
 <body>
+  <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 24px; background:var(--card); border-bottom:1px solid var(--border);">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <h1 style="margin:0; font-size:18px; font-weight:800; color:var(--text);">🏛️ Wealth Engine Dashboard</h1>
+      <span style="font-size:11px; background:var(--accent-dim); color:var(--accent); padding:2px 8px; border-radius:4px; font-weight:700;">V5 PIPELINE</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <!-- NOTIFICATION BELL CONTAINER -->
+      <div class="notification-bell-container" id="notif-container" onclick="toggleNotifications(event)">
+        <div class="notification-bell-icon">
+          🔔
+          <div class="notification-badge" id="notif-badge">0</div>
+        </div>
+        <div class="notification-dropdown" id="notif-dropdown">
+          <div class="notification-header">
+            <h3>Notifications</h3>
+            <div>
+              <span class="mark-all-seen" onclick="markAllNotificationsSeen(event)" style="margin-right:8px;">Read all</span>
+              <span class="mark-all-seen" onclick="clearAllNotifications(event)" style="color:var(--red);">Clear all</span>
+            </div>
+          </div>
+          <div class="notification-list" id="notif-list">
+            <div style="padding:20px; text-align:center; color:var(--muted); font-size:12px;">No notifications yet.</div>
+          </div>
+        </div>
+      </div>
 
+      <button onclick="goToTrading()" style="padding:6px 14px; background:var(--card2); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600; cursor:pointer;">📊 Screener</button>
+      <button onclick="goToAdmin()" style="padding:6px 14px; background:var(--accent); color:white; border:none; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer;">⚙️ Admin</button>
+    </div>
+  </div>
 
   <div class="weight-bar">
     <div style="width:30%; background: linear-gradient(135deg, #6366f1 0%, #7c3aed 100%); cursor: pointer; transition: all 0.3s;" onmouseover="this.style.flex='1.2'" onmouseout="this.style.flex='1'" title="Quality Metrics: 30%">Quality 30</div>
@@ -1417,6 +1446,7 @@ function getEarningsBadgeHtml(item) {
         
         if (!isFirstWealthAlertFetch && data.length > lastWealthAlertCount) {
             playLoudNotificationSound();
+            triggerAlertFlashing();
         }
         lastWealthAlertCount = data.length;
         isFirstWealthAlertFetch = false;

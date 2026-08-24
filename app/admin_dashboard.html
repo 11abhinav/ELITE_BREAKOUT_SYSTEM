@@ -4477,10 +4477,11 @@ function getEarningsBadgeHtml(item) {
 
     async function ackFetchErrorGroup(ids) {
       try {
+        const idList = Array.isArray(ids) ? ids : [ids];
         await fetch('/api/fetch_errors/ack_batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: ids })
+          body: JSON.stringify({ ids: idList })
         });
         await doRefresh();
       } catch (e) { console.error('Failed to ack fetch error group', e); }
@@ -4783,6 +4784,9 @@ async function fetchScannerExecutionHistory(page = 1) {
     const data = await res.json();
     if (data.available_commits) {
       updateSehCommitDropdown(data.available_commits);
+    }
+    if (data.available_versions) {
+      updateSehVersionDropdown(data.available_versions);
     }
     renderScannerExecutionHistory(data);
   } catch (e) {
@@ -5825,6 +5829,7 @@ async function fetchTodaysAlertsAndBlink_Admin(){
     const res = await fetch('/api/todays_alerts'); if(!res.ok) return; const data = await res.json();
     if (!isFirstAdminAlertFetch && data.length > lastAdminAlertCount) {
         playLoudNotificationSound();
+        triggerAlertFlashing();
     }
     lastAdminAlertCount = data.length;
     isFirstAdminAlertFetch = false;
