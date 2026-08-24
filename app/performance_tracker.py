@@ -655,12 +655,21 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     from market_utils import is_market_open
     is_open = is_market_open() or force_live_fetch
     
-    if is_open:
-        logger.info(f"📈 Fetching current prices for {len(unique_symbols)} symbols...")
-        current_prices = _fetch_current_prices(unique_symbols)
-    else:
-        logger.info(f"⏸️ Market is closed. Skipping live quote fetch for {len(unique_symbols)} symbols.")
-        current_prices = {}
+    logger.info(f"📈 Fetching current/last-known prices for {len(unique_symbols)} symbols...")
+    current_prices = _fetch_current_prices(unique_symbols) or {}
+    
+    # Fallback to stock_analysis_master CMP if live quote returns partial/empty dict
+    if len(current_prices) < len(unique_symbols):
+        try:
+            from database import get_connection
+            with get_connection() as _cmp_conn:
+                with _cmp_conn.cursor() as _cmp_cur:
+                    _cmp_cur.execute("SELECT symbol, cmp FROM stock_analysis_master WHERE symbol = ANY(%s) AND cmp IS NOT NULL", (unique_symbols,))
+                    for row in _cmp_cur.fetchall():
+                        if row[0] not in current_prices and row[1] is not None:
+                            current_prices[row[0]] = float(row[1])
+        except Exception as _db_cmp_err:
+            logger.warning(f"Could not load fallback CMP from stock_analysis_master: {_db_cmp_err}")
 
     # [VERSION: CMP_MASTER_v1.0] Fetch CMP for ALL watchlist symbols and persist to stock_analysis_master.
     # This makes the master table the single source of truth for live prices across admin + user dashboards.

@@ -2470,7 +2470,7 @@ def get_all_alerts() -> list[dict]:
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
-                SELECT
+                SELECT DISTINCT ON (a.id)
                     a.id, a.symbol, a.breakout_type, a.alert_time, a.alert_date,
                     a.scanner, a.category, a.entry_price, a.stop_loss, a.initial_stop_loss,
                     a.target_price, a.target_1, a.target_2, a.target_3,
@@ -2486,7 +2486,7 @@ def get_all_alerts() -> list[dict]:
                     COALESCE(a.warning_msg, '')                                                 AS warning_msg
                 FROM alerts a
                 LEFT JOIN earnings_calendar ec ON UPPER(ec.symbol) = UPPER(a.symbol)
-                ORDER BY a.alert_time DESC
+                ORDER BY a.id, a.alert_time DESC
             """)
             rows = []
             for row in cur.fetchall():
@@ -8090,6 +8090,11 @@ def reset_all_positions_to_open() -> int:
                     
                 cur.execute("DELETE FROM system_state WHERE key IN ('performance_data', 'performance_data_json');")
                 conn.commit()
+                try:
+                    from performance_tracker import build_performance_data
+                    build_performance_data(fast_mode=True, force_live_fetch=True)
+                except Exception as _p_err:
+                    logger.warning(f"Failed to rebuild performance_data after reset: {_p_err}")
                 logger.info(f"🔄 [RESET] Reset {count} positions back to OPEN status and purged all exit history.")
                 return count
 

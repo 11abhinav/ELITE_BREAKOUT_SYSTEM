@@ -981,7 +981,9 @@ def api_get_near_misses():
         return jsonify([])
 
 
-_PERFORMANCE_JSON_CACHE = {"ts": 0.0, "payload": None}
+def invalidate_performance_cache():
+    global _PERFORMANCE_JSON_CACHE
+    _PERFORMANCE_JSON_CACHE = {"ts": 0.0, "payload": None}
 
 @app.route("/data/performance_data.json")
 @login_required
@@ -995,10 +997,22 @@ def performance_json():
         return Response(_PERFORMANCE_JSON_CACHE["payload"], mimetype="application/json")
 
     try:
-        from database import get_system_state
+        from database import get_system_state, get_all_alerts
         val = get_system_state("performance_data") if not force_rebuild else None
         
-        if not val or force_rebuild:
+        # Check if cached performance_data in DB is missing trades while database has active alerts
+        has_empty_trades = False
+        if val:
+            try:
+                parsed_val = json.loads(val) if isinstance(val, str) else val
+                if isinstance(parsed_val, dict) and len(parsed_val.get("trades", [])) == 0:
+                    db_alerts_count = len(get_all_alerts())
+                    if db_alerts_count > 0:
+                        has_empty_trades = True
+            except Exception:
+                pass
+
+        if not val or force_rebuild or has_empty_trades:
             try:
                 from performance_tracker import build_performance_data
                 build_performance_data(fast_mode=True, force_live_fetch=force_rebuild)
