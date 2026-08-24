@@ -2857,7 +2857,7 @@ def api_scanner_status():
     global _scanner_status_cache
     now_ts = time.time()
     if _scanner_status_cache["payload"] is not None and (now_ts - _scanner_status_cache["timestamp"]) < 3.0:
-        return Response(_scanner_status_cache["payload"], mimetype="application/json")
+        return Response(_scanner_status_cache["payload"], mimetype="application/json", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
 
     try:
         import os
@@ -3012,7 +3012,7 @@ def api_scanner_status():
         res_payload = json.dumps(serialize_datetimes(result))
         _scanner_status_cache["timestamp"] = now_ts
         _scanner_status_cache["payload"] = res_payload
-        return Response(res_payload, mimetype="application/json")
+        return Response(res_payload, mimetype="application/json", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
     except Exception as exc:
         logger.exception("❌ /api/scanner_status failed")
         return jsonify({}), 200
@@ -3052,7 +3052,7 @@ def api_scanner_execution_history():
     now_ts = time.time()
     query_key = f"{request.args.get('scanner','ALL')}_{request.args.get('lifecycle_status','ALL')}_{request.args.get('page',1)}"
     if query_key == "ALL_ALL_1" and _EXEC_HIST_CACHE["payload"] is not None and (now_ts - _EXEC_HIST_CACHE["ts"]) < 3.0:
-        return Response(_EXEC_HIST_CACHE["payload"], mimetype="application/json")
+        return Response(_EXEC_HIST_CACHE["payload"], mimetype="application/json", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
 
     try:
         scanner_name = request.args.get("scanner", "ALL")
@@ -3081,7 +3081,7 @@ def api_scanner_execution_history():
         if query_key == "ALL_ALL_1":
             # Cache disabled: not storing
             _EXEC_HIST_CACHE = {"ts": now_ts, "payload": payload, "query": query_key}
-        return Response(payload, mimetype="application/json")
+        return Response(payload, mimetype="application/json", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
     except Exception as e:
         logger.exception("❌ Failed in /api/scanner_execution_history")
         return jsonify({"records": [], "total_records": 0, "page": 1, "per_page": 25, "total_pages": 1, "summary_stats": {}}), 200

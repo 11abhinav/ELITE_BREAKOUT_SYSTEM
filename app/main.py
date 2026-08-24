@@ -325,6 +325,9 @@ def _run_performance_tracker_single():
         return
     start_time = time.time()
     try:
+        from database import start_scanner_execution_run, complete_scanner_execution_run
+        run_ctx = start_scanner_execution_run(scanner_name="PERFORMANCE_TRACKER", trigger_type="SCHEDULED", scheduler_name="CRON")
+        
         from telemetry_manager import telemetry
         telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_START")
         build_performance_data()
@@ -337,12 +340,14 @@ def _run_performance_tracker_single():
             duration_seconds=duration_sec
         )
         telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_COMPLETE")
+        complete_scanner_execution_run(run_ctx)
     except Exception as e:
         if "actively running" not in str(e).lower():
             logger.exception("❌ PERFORMANCE TRACKER | Refresh failed")
             from telemetry_manager import telemetry
             telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_FAILED", error=str(e))
             try:
+                complete_scanner_execution_run(run_ctx, exception=e)
                 upsert_scanner_health(
                     "PERFORMANCE_TRACKER", status="DOWN",
                     error_msg=str(e)[:500],
@@ -359,6 +364,9 @@ def _run_multibagger_exit_single():
         return
     start_time = time.time()
     try:
+        from database import start_scanner_execution_run, complete_scanner_execution_run
+        run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER_EXIT", trigger_type="SCHEDULED", scheduler_name="CRON")
+        
         logger.info("🕒 SCHEDULER | Triggering Multibagger Exit Monitor (Single Pass)")
         from telemetry_manager import telemetry
         telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_START")
@@ -373,12 +381,14 @@ def _run_multibagger_exit_single():
             duration_seconds=duration_sec
         )
         telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_COMPLETE")
+        complete_scanner_execution_run(run_ctx)
     except Exception as e:
         logger.exception(f"❌ SCHEDULER | Multibagger Exit Monitor crashed: {e}")
         from telemetry_manager import telemetry
         telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_FAILED", error=str(e))
         if "actively running" not in str(e):
             try:
+                complete_scanner_execution_run(run_ctx, exception=e)
                 upsert_scanner_health("MULTIBAGGER_EXIT", status="DOWN", error_msg=str(e)[:500], scheduled_for="Every 15min (market hours)")
             except Exception:
                 pass

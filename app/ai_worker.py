@@ -38,8 +38,10 @@ def run_ai_worker_scan_once() -> dict:
     _fn_start = time.time()
     try:
         from config import WATCHLIST_PATH
-        from database import get_recent_concall_analysis, upsert_scanner_health, get_total_cached_concalls, upsert_fetch_error, save_concall_analysis, has_valid_concall_cache, has_error_concall_cache_within_24h
+        from database import get_recent_concall_analysis, upsert_scanner_health, get_total_cached_concalls, upsert_fetch_error, save_concall_analysis, has_valid_concall_cache, has_error_concall_cache_within_24h, start_scanner_execution_run, complete_scanner_execution_run
         from dashboard_server import fetch_and_analyze_concall
+        
+        run_ctx = start_scanner_execution_run(scanner_name="AI Worker", trigger_type="SCHEDULED", scheduler_name="WORKER")
         
         upsert_scanner_health("AI Worker", "RUNNING", error_msg="AI Worker Scan in progress...")
         now_ist = datetime.now(IST_ZONE)
@@ -49,12 +51,14 @@ def run_ai_worker_scan_once() -> dict:
         
         if not os.path.exists(WATCHLIST_PATH):
             logger.warning("Watchlist parquet file does not exist yet.")
+            complete_scanner_execution_run(run_ctx, status_override="SKIPPED", stop_reason="No watchlist")
             return {"total_count": 0, "processed_count": 0}
             
         try:
             df = pd.read_parquet(WATCHLIST_PATH)
         except Exception as e:
             logger.exception(f"Failed to read parquet watchlist")
+            complete_scanner_execution_run(run_ctx, exception=e)
             return {"total_count": 0, "processed_count": 0}
             
         pending_stocks = df["Stock"].tolist()
@@ -99,6 +103,7 @@ def run_ai_worker_scan_once() -> dict:
         if not actual_pending:
             elapsed = round(time.time() - _fn_start, 1)
             logger.debug(f"🤖 [AI WORKER] All {total_stocks} stocks already cached today. Nothing to do. ({elapsed}s)")
+            complete_scanner_execution_run(run_ctx, status_override="SKIPPED", stop_reason="All cached")
             return {"total_count": total_stocks, "processed_count": db_processed_count}
             
         logger.info(f"📊 [AI WORKER] Pending symbols to fetch today: {len(actual_pending)} (out of {total_stocks} universe) | {total_stocks - len(actual_pending)} already cached in DB")
@@ -186,7 +191,14 @@ def run_ai_worker_scan_once() -> dict:
         logger.info("=" * 70)
         logger.info(f"🤖 [AI WORKER] Scan complete in {total_elapsed}s | Total={total_stocks} | Processed={db_processed_count} | Failed={final_failed_count}")
         logger.info("=" * 70)
+        complete_scanner_execution_run(run_ctx)
         return {"total_count": total_stocks, "processed_count": db_processed_count}
+    except Exception as outer_err:
+        try:
+            complete_scanner_execution_run(run_ctx, exception=outer_err)
+        except:
+            pass
+        raise outer_err
         
     finally:
         _scan_lock.release()

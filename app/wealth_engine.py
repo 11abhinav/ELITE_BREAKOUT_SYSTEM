@@ -2629,12 +2629,17 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
     logger.info("⚡ [WEALTH ENGINE 5M] Starting lightweight intraday portfolio update...")
     
     try:
+        from database import start_scanner_execution_run, complete_scanner_execution_run
+        run_ctx = start_scanner_execution_run(scanner_name="WEALTH_EXIT", trigger_type="SCHEDULED", scheduler_name="CRON")
+        
         if not os.path.exists(WEALTH_PATH):
             logger.info("⚠️ WEALTH_PATH parquet not found for intraday update. Running full scan once...")
+            complete_scanner_execution_run(run_ctx, status_override="SKIPPED", stop_reason="Running full scan instead")
             return run_wealth_scan(is_test_mode=is_test_mode)
 
         wealth_df = pd.read_parquet(WEALTH_PATH)
         if wealth_df.empty or "Stock" not in wealth_df.columns:
+            complete_scanner_execution_run(run_ctx, status_override="SKIPPED", stop_reason="Empty parquet")
             return run_wealth_scan(is_test_mode=is_test_mode)
 
         stage_tracker.start_stage(1, "Postgres Portfolio Query", "Querying open holdings from manual_portfolio and wealth_buy_alert")
@@ -2747,10 +2752,15 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                         duration_sec = round(time.time() - start_time, 1)
                         today_buys = len(wealth_df[wealth_df["Signal_Code"] == "BUY"]) if "Signal_Code" in wealth_df.columns else 0
                         upsert_scanner_health(
-                            scanner_name="Wealth Engine", status="OK", last_success=datetime.now(IST).isoformat(),
+                            scanner_name="WEALTH_EXIT", status="OK", last_success=datetime.now(IST).isoformat(),
                             today_alerts=today_buys, total_count=len(wealth_df),
                             duration_seconds=duration_sec
                         )
+                    try:
+                        from database import complete_scanner_execution_run
+                        complete_scanner_execution_run(run_ctx)
+                    except Exception:
+                        pass
                 except Exception as _e:
                     logger.error(f"❌ [WEALTH_ENGINE] Error in bg_db_sync_intraday: {_e}", exc_info=True)
 
@@ -2766,6 +2776,11 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
 
     except Exception as e:
         logger.exception(f"Error in wealth intraday update: {e}")
+        try:
+            from database import complete_scanner_execution_run
+            complete_scanner_execution_run(run_ctx, exception=e)
+        except Exception:
+            pass
         return run_wealth_scan(is_test_mode=is_test_mode)
 
 
