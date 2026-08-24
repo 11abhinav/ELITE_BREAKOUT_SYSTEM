@@ -1024,8 +1024,19 @@
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
-        .then(reg => console.log('[PWA] Service worker registered (Install prompt ready)'))
+        .then(reg => {
+          console.log('[PWA] Service worker registered (Install prompt ready)');
+          reg.update();
+        })
         .catch(err => console.error('[PWA] SW registration failed:', err));
+
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!refreshing) {
+          refreshing = true;
+          window.location.reload();
+        }
+      });
     });
   }
 </script>
