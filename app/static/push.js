@@ -10,12 +10,13 @@
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
                        window.navigator.standalone === true;
 
-  // ── Cache cleanup ──
+  // ── Cache cleanup: delete all caches EXCEPT the currently active one ──
+  const CURRENT_CACHE = 'elite-breakout-v9';
   if ('caches' in window) {
     caches.keys().then(keys => {
       keys.forEach(key => {
-        if (!key.startsWith('elite-breakout-v8')) {
-          console.log('[PWA] Purging legacy cache bucket:', key);
+        if (key !== CURRENT_CACHE) {
+          console.log('[PWA] Purging old cache bucket:', key);
           caches.delete(key);
         }
       });
@@ -39,7 +40,9 @@
       const saveRes = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sub)
+        // Use sub.toJSON() for reliable cross-browser PushSubscription serialization.
+        // JSON.stringify(sub) relies on implicit toJSON() which is not consistent across all browsers.
+        body: JSON.stringify(typeof sub.toJSON === 'function' ? sub.toJSON() : sub)
       });
       if (saveRes.ok) {
         console.log('[PWA] ✅ Push subscription saved on server.');
