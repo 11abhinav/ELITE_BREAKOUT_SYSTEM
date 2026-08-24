@@ -8032,7 +8032,8 @@ def reset_all_positions_to_open() -> int:
                 """)
                 count = cur.rowcount
                 
-                # 2. Reset breakout_watchlist
+                # 2. Reset breakout_watchlist safely using SAVEPOINT
+                cur.execute("SAVEPOINT bw_sp;")
                 try:
                     cur.execute("""
                         UPDATE breakout_watchlist
@@ -8040,10 +8041,12 @@ def reset_all_positions_to_open() -> int:
                             cooldown_until = NULL,
                             invalidated_at = NULL
                     """)
-                except Exception:
-                    pass
+                    cur.execute("RELEASE SAVEPOINT bw_sp;")
+                except Exception as _bw_e:
+                    cur.execute("ROLLBACK TO SAVEPOINT bw_sp;")
 
-                # 3. Reset wealth_buy_alert
+                # 3. Reset wealth_buy_alert safely using SAVEPOINT
+                cur.execute("SAVEPOINT wba_sp;")
                 try:
                     cur.execute("""
                         UPDATE wealth_buy_alert
@@ -8052,20 +8055,26 @@ def reset_all_positions_to_open() -> int:
                             exit_reason = NULL,
                             exit_price = NULL
                     """)
-                except Exception:
-                    pass
+                    cur.execute("RELEASE SAVEPOINT wba_sp;")
+                except Exception as _wba_e:
+                    cur.execute("ROLLBACK TO SAVEPOINT wba_sp;")
                 
-                # 4. Clear auxiliary outcome tracking tables if present
+                # 4. Clear auxiliary outcome tracking tables if present using SAVEPOINT
+                cur.execute("SAVEPOINT ao_sp;")
                 try:
                     cur.execute("TRUNCATE TABLE alert_outcomes CASCADE;")
+                    cur.execute("RELEASE SAVEPOINT ao_sp;")
                 except Exception:
-                    pass
+                    cur.execute("ROLLBACK TO SAVEPOINT ao_sp;")
+
+                cur.execute("SAVEPOINT pe_sp;")
                 try:
                     cur.execute("TRUNCATE TABLE partial_exits CASCADE;")
+                    cur.execute("RELEASE SAVEPOINT pe_sp;")
                 except Exception:
-                    pass
+                    cur.execute("ROLLBACK TO SAVEPOINT pe_sp;")
                     
-                cur.execute("DELETE FROM system_state WHERE key = 'performance_data';")
+                cur.execute("DELETE FROM system_state WHERE key IN ('performance_data', 'performance_data_json');")
                 conn.commit()
                 logger.info(f"🔄 [RESET] Reset {count} positions back to OPEN status and purged all exit history.")
                 return count
