@@ -2853,6 +2853,8 @@ def api_scanner_status():
     Previously called get_scanner_today_trades() once per scanner (~10 separate DB round-trips).
     Now uses get_all_scanners_today_trades() for 1 query total.
     """
+    import time
+    now_ts = time.time()
     try:
         import os
         from database import get_all_scanner_health, get_all_scanners_today_trades

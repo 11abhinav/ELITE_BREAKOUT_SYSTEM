@@ -511,7 +511,7 @@ def _trade_status(
 # MAIN BUILD FUNCTION
 # =====================================================================================
 
-def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: list[int] = None):
+def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: list[int] = None, run_ctx=None):
     import time as _time
     _fn_start = _time.time()
     from perf_utils import ScannerStageTracker
@@ -543,6 +543,9 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
 
     logger.info(f"📋 {len(raw_alerts)} total alerts in database")
     stage_tracker.total_symbols = len(raw_alerts)
+    if run_ctx:
+        run_ctx.set_total_stocks(len(raw_alerts))
+        run_ctx.record_fresh_data(len(raw_alerts))
     stage_tracker.end_stage(f"Loaded {len(raw_alerts)} alerts from DB")
 
     def _f(v):

@@ -2641,6 +2641,9 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
         if wealth_df.empty or "Stock" not in wealth_df.columns:
             complete_scanner_execution_run(run_ctx, status_override="SKIPPED", stop_reason="Empty parquet")
             return run_wealth_scan(is_test_mode=is_test_mode)
+            
+        run_ctx.set_total_stocks(len(wealth_df))
+        run_ctx.record_fresh_data(len(wealth_df))
 
         stage_tracker.start_stage(1, "Postgres Portfolio Query", "Querying open holdings from manual_portfolio and wealth_buy_alert")
         portfolio_dict = {}

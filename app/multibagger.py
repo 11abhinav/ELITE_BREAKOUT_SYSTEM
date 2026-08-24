@@ -1827,7 +1827,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
     except Exception as e:
         logger.exception(f"❌ Failed to complete exit monitoring")
 
-def run_standalone_exit_monitor(is_test_mode: bool = False):
+def run_standalone_exit_monitor(is_test_mode: bool = False, run_ctx=None):
     """Entry point for the 5-minute scheduler to check exits only."""
     try:
         from database import get_connection
@@ -1851,6 +1851,10 @@ def run_standalone_exit_monitor(is_test_mode: bool = False):
         symbols = [p['symbol'] for p in open_positions]
         if not symbols:
             return
+            
+        if run_ctx:
+            run_ctx.set_total_stocks(len(symbols))
+            run_ctx.record_fresh_data(len(symbols))
             
         price_data_map_raw = batch_download_market_data(symbols)
         
