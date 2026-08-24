@@ -94,7 +94,11 @@ async function networkFirstNoHtmlCache(request) {
                         request.url.includes('/login');
 
   try {
-    const networkResponse = await fetch(request);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const networkResponse = await fetch(request, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
     // NEVER cache HTML pages or API responses in CacheStorage
     if (!isHtmlRequest && request.method === 'GET' && networkResponse.ok && request.url.startsWith('http')) {
       const cache = await caches.open(CACHE_NAME);
@@ -102,20 +106,19 @@ async function networkFirstNoHtmlCache(request) {
     }
     return networkResponse;
   } catch (err) {
-    console.warn('[SW] Network request failed:', request.url, err);
-    // If offline and it's an HTML page request, return offlineHTML, NEVER a stale cached HTML page
+    console.warn('[SW] Network request failed or timed out:', request.url);
     if (isHtmlRequest) {
       return new Response(offlineHTML(), {
         headers: { 'Content-Type': 'text/html' }
       });
     }
-    // For non-HTML static requests, try cache
     const cached = await caches.match(request);
     if (cached) {
       return cached;
     }
-    return new Response(offlineHTML(), {
-      headers: { 'Content-Type': 'text/html' }
+    return new Response(JSON.stringify({ status: "offline", message: "Request unavailable" }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
     });
   }
 }

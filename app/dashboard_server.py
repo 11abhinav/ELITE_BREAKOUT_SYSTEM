@@ -2974,6 +2974,8 @@ def api_trade_audit_log():
         logger.debug(f"Trade audit log fetch fallback: {e}")
         return jsonify([])
 
+_EXEC_HIST_CACHE = {"ts": 0.0, "payload": None, "query": ""}
+
 @app.route("/api/scanner_execution_history", methods=["GET"])
 @app.route("/api/funnel_telemetry", methods=["GET"])
 @app.route("/api/telemetry/pullback_health", methods=["GET"])
@@ -2981,6 +2983,12 @@ def api_trade_audit_log():
 @login_required
 def api_scanner_execution_history():
     """Returns filterable, paginated scanner execution history with telemetry stats."""
+    global _EXEC_HIST_CACHE
+    now_ts = time.time()
+    query_key = f"{request.args.get('scanner','ALL')}_{request.args.get('lifecycle_status','ALL')}_{request.args.get('page',1)}"
+    if query_key == "ALL_ALL_1" and _EXEC_HIST_CACHE["payload"] is not None and (now_ts - _EXEC_HIST_CACHE["ts"]) < 3.0:
+        return Response(_EXEC_HIST_CACHE["payload"], mimetype="application/json")
+
     try:
         scanner_name = request.args.get("scanner", "ALL")
         lifecycle_status = request.args.get("lifecycle_status", "ALL")
@@ -3004,7 +3012,10 @@ def api_scanner_execution_history():
             page=page,
             per_page=per_page
         )
-        return jsonify(serialize_datetimes(res))
+        payload = json.dumps(serialize_datetimes(res))
+        if query_key == "ALL_ALL_1":
+            _EXEC_HIST_CACHE = {"ts": now_ts, "payload": payload, "query": query_key}
+        return Response(payload, mimetype="application/json")
     except Exception as e:
         logger.exception("❌ Failed in /api/scanner_execution_history")
         return jsonify({"records": [], "total_records": 0, "page": 1, "per_page": 25, "total_pages": 1, "summary_stats": {}}), 200
@@ -3889,9 +3900,16 @@ def api_breakout_watchlist():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+_PENDING_USERS_CACHE = {"ts": 0.0, "payload": None}
+
 @app.route("/admin/pending_users", methods=["GET"])
 @admin_required
 def get_pending_users():
+    global _PENDING_USERS_CACHE
+    now_ts = time.time()
+    if _PENDING_USERS_CACHE["payload"] is not None and (now_ts - _PENDING_USERS_CACHE["ts"]) < 5.0:
+        return Response(_PENDING_USERS_CACHE["payload"], mimetype="application/json")
+
     try:
         with database.get_connection() as conn:
             with conn.cursor() as cur:
@@ -3908,7 +3926,9 @@ def get_pending_users():
                         "mobile": r[5],
                         "created_at": created_at_str
                     })
-        return jsonify(users)
+        payload = json.dumps(users)
+        _PENDING_USERS_CACHE = {"ts": now_ts, "payload": payload}
+        return Response(payload, mimetype="application/json")
     except Exception as e:
         logger.exception(f"Failed to fetch pending users")
         return jsonify({"error": "Failed to fetch pending users"}), 500
