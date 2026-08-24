@@ -20,6 +20,6 @@ EXPOSE 8000
 EXPOSE 8080
 
 HEALTHCHECK --interval=5s --timeout=3s --start-period=3s --retries=10 \
-  CMD wget -q --spider http://127.0.0.1:8000/health || wget -q --spider http://127.0.0.1:8080/health || exit 1
+  CMD curl -sf http://127.0.0.1:8000/health || wget -qO- http://127.0.0.1:8000/health >/dev/null || exit 1
 
 CMD ["bash", "start.sh"]

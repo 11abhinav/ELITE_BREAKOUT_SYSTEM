@@ -1066,9 +1066,11 @@ def performance_json():
     return jsonify(empty), 200
 
 
-@app.route("/health")
+@app.route("/health", methods=["GET", "HEAD"])
 def health():
-    """Zero-dependency lightweight healthcheck endpoint (0ms response)."""
+    """Zero-dependency lightweight healthcheck endpoint (0ms response for GET & HEAD)."""
+    if request.method == "HEAD":
+        return "", 200
     return jsonify({
         "status": "ok",
         "time_ist": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
