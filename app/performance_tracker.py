@@ -283,8 +283,8 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             
             hist_list.append(event)
             total_pnl_rs = sum(e["pnl"] for e in hist_list)
-            cap = t.get("capital_allocated") or 0.0
-            total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
+            cap = t.get("capital_allocated") or (float(t.get("entry_price") or 0.0) * float(t.get("shares_bought") or 0.0))
+            total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
             
             execution_state = "GAP_LOSS"
             final_status = "LOSS"
@@ -319,8 +319,8 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             
             hist_list.append(event)
             total_pnl_rs = sum(e["pnl"] for e in hist_list)
-            cap = t.get("capital_allocated") or 0.0
-            total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
+            cap = t.get("capital_allocated") or (float(t.get("entry_price") or 0.0) * float(t.get("shares_bought") or 0.0))
+            total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
             
             if "SL_HIT" not in db_events:
                 update_partial_exit(t["id"], final_status, sl, rem_shares, 0, pnl_rs_event, event, execution_state)
@@ -350,8 +350,8 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             
             hist_list.append(event)
             total_pnl_rs = sum(e["pnl"] for e in hist_list)
-            cap = t.get("capital_allocated") or 0.0
-            total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
+            cap = t.get("capital_allocated") or (float(t.get("entry_price") or 0.0) * float(t.get("shares_bought") or 0.0))
+            total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
             
             if "STRUCT_FAIL" not in db_events:
                 update_partial_exit(t["id"], final_status, sl, rem_shares, 0, pnl_rs_event, event, execution_state)
@@ -403,8 +403,8 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 t["status"] = "WIN"
                 execution_state = "WIN"
                 total_pnl_rs = sum(e["pnl"] for e in hist_list)
-                cap = t.get("capital_allocated") or 0.0
-                p_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
+                cap = t.get("capital_allocated") or (float(t.get("entry_price") or 0.0) * float(t.get("shares_bought") or 0.0))
+                p_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
                 t["pnl_pct"] = p_pct
                 t["pnl_rs"] = total_pnl_rs
                 t["target_hit"] = True
@@ -450,8 +450,8 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 t["status"] = "WIN"
                 execution_state = "WIN"
                 total_pnl_rs = sum(e["pnl"] for e in hist_list)
-                cap = t.get("capital_allocated") or 0.0
-                p_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
+                cap = t.get("capital_allocated") or (float(t.get("entry_price") or 0.0) * float(t.get("shares_bought") or 0.0))
+                p_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
                 t["pnl_pct"] = p_pct
                 t["pnl_rs"] = total_pnl_rs
                 t["target_hit"] = True
@@ -478,8 +478,8 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             t["remaining_shares"] = 0
             
             total_pnl_rs = sum(e["pnl"] for e in hist_list)
-            cap = t.get("capital_allocated") or 0.0
-            p_pct = round((total_pnl_rs / cap) * 100, 2) if cap else 0.0
+            cap = t.get("capital_allocated") or (float(t.get("entry_price") or 0.0) * float(t.get("shares_bought") or 0.0))
+            p_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
             t["pnl_pct"] = p_pct
             t["pnl_rs"] = total_pnl_rs
             t["target_hit"] = True

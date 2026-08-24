@@ -5405,11 +5405,21 @@ def close_position_atomic(symbol: str, exit_price: float, exit_reason: str, posi
 
                         # Determine PnL outcome (WIN vs LOSS)
                         cur.execute("""
-                            SELECT alert_price FROM wealth_buy_alert
+                            SELECT alert_price, alert_date FROM wealth_buy_alert
                             WHERE symbol = %s AND is_closed = FALSE
                         """, (symbol,))
                         r_row = cur.fetchone()
                         alert_p = float(r_row[0]) if (r_row and r_row[0] is not None) else None
+                        alert_d = r_row[1] if (r_row and len(r_row) > 1) else None
+
+                        if alert_p and alert_d:
+                            try:
+                                trade_payload = {"symbol": symbol, "entry_date": alert_d, "entry_price": alert_p}
+                                from corporate_actions import adjust_trade_for_corporate_actions
+                                adjust_trade_for_corporate_actions(trade_payload)
+                                alert_p = trade_payload["entry_price"]
+                            except Exception as _ca_err:
+                                logger.debug(f"close_position_atomic corporate action adjustment warning: {_ca_err}")
 
                         final_st = "WIN"
                         # RCA: calc_ret was computed only for WIN/LOSS label; pnl_rs/pnl_pct

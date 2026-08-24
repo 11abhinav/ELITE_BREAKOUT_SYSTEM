@@ -3941,6 +3941,10 @@ def api_breakout_watchlist():
                 logger.warning(f"Failed to fetch live CMP for watchlist: {e}")
 
 
+        from corporate_actions import adjust_trade_for_corporate_actions
+        for item in data:
+            adjust_trade_for_corporate_actions(item)
+
         payload = json.dumps({"status": "success", "data": serialize_datetimes(data)}, default=str)
         _BREAKOUT_RESPONSE_CACHE = {"ts": now_sec, "payload": payload}
         return Response(payload, mimetype="application/json")

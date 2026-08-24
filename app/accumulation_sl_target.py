@@ -129,6 +129,9 @@ def evaluate_accumulation_exit(
     Evaluates paper position exit triggers.
     Returns: {"exit_signal": str, "reason": str, "should_exit": bool}
     """
+    from corporate_actions import adjust_trade_for_corporate_actions
+    adjust_trade_for_corporate_actions(position)
+
     cmp = _safe_float(current_market.get("close"))
     sl = _safe_float(position.get("stop_loss"))
     t1 = _safe_float(position.get("target_1"))
