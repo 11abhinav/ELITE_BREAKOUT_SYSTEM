@@ -8025,8 +8025,6 @@ def reset_all_positions_to_open() -> int:
                         closed_at        = NULL,
                         exit_signal      = NULL,
                         execution_state  = 'OPEN',
-                        stopped_out      = FALSE,
-                        target_hit       = FALSE,
                         remaining_shares = COALESCE(shares_bought, 1),
                         exit_history     = '[]'
                 """)

@@ -2361,6 +2361,26 @@ if __name__ == "__main__":
         except Exception as e:
             logger.warning(f"⚠️ ApplicationContext init warning: {e}")
 
+        # SYSTEM SCHEDULER THREAD
+        try:
+            scheduler_thread = threading.Thread(target=run_system_scheduler, name="SystemScheduler", daemon=True)
+            scheduler_thread.start()
+            logger.info("⏰ [BOOT] System scheduler thread launched.")
+        except Exception as _sch_err:
+            logger.error(f"❌ Failed to launch system scheduler thread: {_sch_err}")
+
+        # NON-MARKET HOURS CATCH-UP SCANNER RUN
+        try:
+            now_dt = datetime.now(ZoneInfo('Asia/Kolkata'))
+            now_time = now_dt.time()
+            mkt_start = datetime.strptime("09:15", "%H:%M").time()
+            mkt_end = datetime.strptime("15:30", "%H:%M").time()
+            if now_time < mkt_start or now_time > mkt_end or now_dt.weekday() in (5, 6):
+                logger.info(f"🌙 [NON-MARKET BOOT] Server boot detected at {now_dt.strftime('%H:%M:%S IST')} (Outside Market Hours). Triggering catch-up scan pass across all scanners...")
+                run_all_seven_scanners_non_market_boot()
+        except Exception as _nm_err:
+            logger.warning(f"⚠️ Non-market hours boot scan trigger warning: {_nm_err}")
+
         # WATCHDOG THREAD
         watchdog_thread = threading.Thread(target=run_watchdog, name="Watchdog", daemon=True)
         watchdog_thread.start()
