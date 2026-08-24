@@ -217,12 +217,37 @@ class EarningsContributor(EventContributor):
         return badges
 
 
+class CorporateActionContributor(EventContributor):
+    """Evaluates stock splits and bonus events and produces semantic corporate action badges."""
+    def contribute(self, symbol: str, symbol_events: Dict[str, Any], calendar: TradingCalendar, current_date: date) -> List[Dict[str, Any]]:
+        badges = []
+        try:
+            from corporate_actions import get_cumulative_split_factor
+            from datetime import timedelta
+            one_yr_ago = current_date - timedelta(days=365)
+            factor = get_cumulative_split_factor(symbol, one_yr_ago, current_date)
+            if factor > 1.0:
+                badges.append({
+                    "type": "corporate_action",
+                    "label": f"Split {factor:.1f}x" if factor.is_integer() else f"Split {factor:.2f}x",
+                    "priority": int(EventPriority.SPLIT),
+                    "status": "ACTIVE",
+                    "metadata": {
+                        "split_factor": factor
+                    }
+                })
+        except Exception:
+            pass
+        return badges
+
+
 class CorporateEventPipeline:
     """Pluggable pipeline managing contributors and decorating stock payloads."""
 
     def __init__(self):
         self.contributors: List[EventContributor] = [
-            EarningsContributor()
+            EarningsContributor(),
+            CorporateActionContributor()
         ]
 
     def register_contributor(self, contributor: EventContributor):

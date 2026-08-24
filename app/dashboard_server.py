@@ -1107,6 +1107,9 @@ def performance_json():
                     "earnings_severity": r.get("earnings_severity"),
                     "warning_msg": r.get("warning_msg"),
                 })
+            from corporate_actions import adjust_trade_for_corporate_actions
+            for tf in trades_fallback:
+                adjust_trade_for_corporate_actions(tf)
             empty["trades"] = trades_fallback
             empty["summary"]["total_alerts"] = len(trades_fallback)
             open_statuses = ['OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING']
@@ -2091,6 +2094,8 @@ def api_get_portfolio():
 
         enriched = []
         for p in portfolio:
+            from corporate_actions import adjust_trade_for_corporate_actions
+            adjust_trade_for_corporate_actions(p)
             sym = p["symbol"]
             entry_price = safe_num(p["entry_price"])
             
