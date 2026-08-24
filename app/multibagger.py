@@ -2087,21 +2087,35 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     with ThreadPoolExecutor(max_workers=6) as executor:
         futures = {}
         cached_count = 0
-        for p in shortlist:
-            sym = p.symbol
+        
+        # Build set of all symbols that need to be evaluated (shortlist + open positions)
+        all_syms_to_check = set([p.symbol for p in shortlist])
+        try:
+            from database import get_connection
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT symbol FROM alerts WHERE current_status IN ('OPEN', 'SELL_REVIEW') AND scanner_type = 'Multibagger Scanner'")
+                    for row in cur.fetchall():
+                        all_syms_to_check.add(row[0])
+        except Exception as e:
+            logger.error(f"Failed to fetch open positions for pre-hydration: {e}")
+            
+        for sym in all_syms_to_check:
             cached = get_cached_fundamentals(sym, cache)
             if cached and _is_fully_hydrated_v5(cached):
-                cached_count += 1
-                fundamentals_list.append(cached)
+                # We only append to fundamentals_list if it's in the shortlist (for the Buy scanner)
+                if any(p.symbol == sym for p in shortlist):
+                    cached_count += 1
+                    fundamentals_list.append(cached)
             else:
                 futures[executor.submit(fetch_ticker_fundamentals, sym)] = sym
                 
         if cached_count > 0:
-            logger.info(f"💾 Loaded fundamentals for {cached_count}/{len(shortlist)} stocks directly from DB cache.")
+            logger.info(f"💾 Loaded fundamentals for {cached_count}/{len(shortlist)} shortlist stocks directly from DB cache.")
             
         fetch_total = len(futures)
         if fetch_total > 0:
-            logger.info(f"📥 Fetching fresh fundamentals for the remaining {fetch_total} stocks via Yahoo Finance...")
+            logger.info(f"📥 Fetching fresh fundamentals for the remaining {fetch_total} stocks (shortlist + open positions) via Yahoo Finance...")
         else:
             logger.info("✅ All fundamentals were loaded from cache. No fetching required!")
                 
