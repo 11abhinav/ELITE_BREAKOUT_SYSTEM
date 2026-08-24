@@ -246,23 +246,30 @@ def vapid_public_key():
 @csrf.exempt
 def push_subscribe():
     """Saves the user's push subscription."""
-    sub_data = request.json
-    if not sub_data or not sub_data.get("endpoint"):
-        return jsonify({"error": "Invalid subscription data"}), 400
+    try:
+        sub_data = request.json or {}
+        endpoint = sub_data.get("endpoint")
+        if not endpoint:
+            return jsonify({"error": "Invalid subscription data"}), 400
+            
+        keys = sub_data.get("keys", {})
+        p256dh = keys.get("p256dh")
+        auth = keys.get("auth")
         
-    keys = sub_data.get("keys", {})
-    p256dh = keys.get("p256dh")
-    auth = keys.get("auth")
-    
-    if not p256dh or not auth:
-        return jsonify({"error": "Missing subscription keys"}), 400
+        if not p256dh or not auth:
+            return jsonify({"error": "Missing subscription keys"}), 400
+            
+        user_id = session.get('user_id')
+        user_id_int = int(user_id) if user_id is not None else None
         
-    user_id = session.get('user_id')
-    success = database.save_push_subscription(user_id, sub_data["endpoint"], p256dh, auth)
-    
-    if success:
-        return jsonify({"success": True, "message": "Subscribed successfully"}), 201
-    return jsonify({"error": "Database error"}), 500
+        success = database.save_push_subscription(user_id_int, endpoint, p256dh, auth)
+        
+        if success:
+            return jsonify({"success": True, "message": "Subscribed successfully"}), 201
+        return jsonify({"error": "Failed to save subscription"}), 500
+    except Exception as e:
+        logger.exception(f"Error handling push subscription: {e}")
+        return jsonify({"error": "Internal server error"}), 500
 
 # ── Auth Routes ──────────────────────────────────────────────────────────
 
@@ -3820,13 +3827,14 @@ def get_pending_users():
                 rows = cur.fetchall()
                 users = []
                 for r in rows:
+                    created_at_str = r[6].isoformat() if hasattr(r[6], "isoformat") else str(r[6]) if r[6] else None
                     users.append({
                         "user_id": r[0],
                         "username": r[1],
                         "email": r[2],
                         "name": f"{r[3] or ''} {r[4] or ''}".strip(),
                         "mobile": r[5],
-                        "created_at": r[6]
+                        "created_at": created_at_str
                     })
         return jsonify(users)
     except Exception as e:
