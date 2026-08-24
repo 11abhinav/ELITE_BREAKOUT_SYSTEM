@@ -15,7 +15,7 @@
 // because the SW's fetch() lacked the browser's session cookies & auth context.
 // ============================================================
 
-const CACHE_NAME = 'elite-breakout-v9';
+const CACHE_NAME = 'elite-breakout-v10'; // v10: bypass non-GET API requests to preserve POST body
 const STATIC_ASSETS = [
   '/static/manifest.json',
   '/static/icons/icon-192.png',
@@ -58,14 +58,13 @@ self.addEventListener('fetch', event => {
 
   // ① Bypass: SSE / EventSource streams
   if (url.pathname.includes('/stream/') || req.headers.get('accept')?.includes('text/event-stream')) {
-    return; // no event.respondWith → browser handles natively
+    return; // browser handles natively
   }
 
   // ② Bypass: ALL navigation requests (page loads, back/forward, redirects)
   //    These need the browser's full cookie/auth stack.
-  //    Intercepting them causes the "[SW] Network request failed" error.
   if (req.mode === 'navigate') {
-    return; // no event.respondWith → browser handles natively
+    return; // browser handles natively
   }
 
   // ③ Bypass: third-party origins (except approved CDNs)
@@ -76,13 +75,22 @@ self.addEventListener('fetch', event => {
     return; // browser handles natively
   }
 
-  // ④ API & data → network-first, 45s timeout, never cached
+  // ④ Bypass: ALL non-GET API & data requests (POST, PUT, DELETE, PATCH, etc.)
+  //    A service worker cannot reliably clone a request body (ReadableStream is
+  //    consumed once). Intercepting POST/PUT drops the body → server gets empty
+  //    body → 400 Bad Request. Let the browser handle these natively.
+  if ((url.pathname.startsWith('/api/') || url.pathname.startsWith('/data/')) &&
+       req.method !== 'GET') {
+    return; // browser handles natively — body, cookies, auth all preserved
+  }
+
+  // ⑤ GET /api/ and GET /data/ → network-first with 45s timeout (no caching)
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/data/')) {
     event.respondWith(networkFirstNoCache(req));
     return;
   }
 
-  // ⑤ Static assets & CDNs → cache-first
+  // ⑥ Static assets & CDNs → cache-first
   if (url.pathname.startsWith('/static/') ||
       url.hostname.includes('fonts.googleapis.com') ||
       url.hostname.includes('fonts.gstatic.com') ||
@@ -91,9 +99,10 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // ⑥ Everything else → network-first, not cached
+  // ⑦ Everything else → network-first, not cached
   event.respondWith(networkFirstNoCache(req));
 });
+
 
 // ── Network-first: 45s timeout, never caches ─────────────────
 async function networkFirstNoCache(request) {
