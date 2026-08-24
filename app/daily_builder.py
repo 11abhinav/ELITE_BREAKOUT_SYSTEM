@@ -1427,9 +1427,17 @@ def _main_impl(force_rebuild: bool = False):
         except Exception:
             logger.info(f"✅ [FETCH] Universe fetched successfully from TradingView in {_fetch_dur:.2f}s")
 
-        tmp_univ = "data/temp_universe.parquet.tmp"
+        import threading
+        tmp_univ = f"data/temp_universe.parquet.{os.getpid()}_{threading.get_ident()}.tmp"
         universe_df.to_parquet(tmp_univ)
-        os.replace(tmp_univ, "data/temp_universe.parquet")
+        if os.path.exists(tmp_univ):
+            try:
+                os.replace(tmp_univ, "data/temp_universe.parquet")
+            except FileNotFoundError:
+                if os.path.exists("data/temp_universe.parquet"):
+                    logger.warning("⚠️ temp_universe.parquet.tmp was already replaced by a concurrent process/thread.")
+                else:
+                    raise
         save_checkpoint({**state, "universe_fetched": True})
         state["universe_fetched"] = True
     else:
@@ -1669,13 +1677,30 @@ def _main_impl(force_rebuild: bool = False):
         
         logger.info(f"📋 [PROVENANCE] source_status={final_df['source_status'].value_counts().to_dict()}, build_date={final_df['build_date'].iloc[0]}")
 
-        tmp_csv = OUTPUT_CSV + ".tmp"
+        import threading
+        os.makedirs(os.path.dirname(OUTPUT_CSV), exist_ok=True)
+        tmp_csv = f"{OUTPUT_CSV}.{os.getpid()}_{threading.get_ident()}.tmp"
         final_df.to_csv(tmp_csv, index=False)
-        os.replace(tmp_csv, OUTPUT_CSV)
+        if os.path.exists(tmp_csv):
+            try:
+                os.replace(tmp_csv, OUTPUT_CSV)
+            except FileNotFoundError:
+                if os.path.exists(OUTPUT_CSV):
+                    logger.warning(f"⚠️ {tmp_csv} was already replaced by a concurrent process/thread.")
+                else:
+                    raise
         
-        tmp_parquet = OUTPUT_PARQUET + ".tmp"
+        os.makedirs(os.path.dirname(OUTPUT_PARQUET), exist_ok=True)
+        tmp_parquet = f"{OUTPUT_PARQUET}.{os.getpid()}_{threading.get_ident()}.tmp"
         final_df.to_parquet(tmp_parquet, index=False)
-        os.replace(tmp_parquet, OUTPUT_PARQUET)
+        if os.path.exists(tmp_parquet):
+            try:
+                os.replace(tmp_parquet, OUTPUT_PARQUET)
+            except FileNotFoundError:
+                if os.path.exists(OUTPUT_PARQUET):
+                    logger.warning(f"⚠️ {tmp_parquet} was already replaced by a concurrent process/thread.")
+                else:
+                    raise
         logger.info(f"💾 [SAVE] Final watchlist saved: {len(final_df)} stocks (source: {final_df['source_status'].iloc[0]})")
 
         # Backup to Database in background thread to survive server restarts without blocking main thread
