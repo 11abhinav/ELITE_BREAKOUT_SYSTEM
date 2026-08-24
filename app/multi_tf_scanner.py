@@ -1594,13 +1594,13 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
     if not _global_lock.acquire(blocking=False, owner_scanner="MULTI_TF", operation="FULL_SCAN"):
         queued_at = time.monotonic()
         logger.info("⏳ [MULTI_TF] Global scanner lock busy — marking QUEUED and waiting in queue...")
-        if own_ctx and run_ctx:
+        if run_ctx:
             from database import update_scanner_run_lifecycle
             update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
         upsert_scanner_health("MULTI_TF", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
         if not _global_lock.acquire(blocking=True, owner_scanner="MULTI_TF", operation="FULL_SCAN"):
             raise RuntimeError("Failed to acquire global scanner lock.")
-        if own_ctx and run_ctx:
+        if run_ctx:
             from database import update_scanner_run_lifecycle
             update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
         logger.info(f"✅ [MULTI_TF] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
@@ -1610,7 +1610,7 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
     if not _scan_lock.acquire(blocking=False):
         _global_lock.release()
         logger.warning("🛑 Multi-TF Scanner is ALREADY actively running. Skipping duplicate execution.")
-        if own_ctx and run_ctx:
+        if run_ctx:
             complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
         return
 
@@ -1622,13 +1622,13 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
         if isinstance(stats, dict) and (stats.get("has_errors") or (stats.get("metrics_b", {}).get("has_errors"))):
             final_status = "COMPLETED_WITH_ERRORS"
             
-        if own_ctx and isinstance(stats, dict) and "today_alerts" in stats:
+        if run_ctx and isinstance(stats, dict) and "today_alerts" in stats:
             run_ctx.add_alert(stats.get("today_alerts", 0))
-        if own_ctx:
+        if run_ctx:
             complete_scanner_execution_run(run_ctx, status_override=final_status)
         return stats
     except Exception as e:
-        if own_ctx:
+        if run_ctx:
             complete_scanner_execution_run(run_ctx, status_override="FAILED", exception=e)
         raise e
     finally:

@@ -935,13 +935,13 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
     if not _global_lock.acquire(blocking=False, owner_scanner="WEALTH", operation="FULL_SCAN"):
         queued_at = time.monotonic()
         logger.info("⏳ [WEALTH ENGINE] Global scanner lock busy — marking QUEUED and waiting in queue...")
-        if created_ctx and run_ctx:
+        if run_ctx:
             from database import update_scanner_run_lifecycle
             update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
         upsert_scanner_health("Wealth Engine", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
         if not _global_lock.acquire(blocking=True, owner_scanner="WEALTH", operation="FULL_SCAN"):
             raise RuntimeError("Failed to acquire global scanner lock.")
-        if created_ctx and run_ctx:
+        if run_ctx:
             from database import update_scanner_run_lifecycle
             update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
         logger.info(f"✅ [WEALTH ENGINE] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
@@ -951,7 +951,7 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
     if not _scan_lock.acquire(blocking=False):
         _global_lock.release()
         logger.warning("⏭️ Wealth Engine scan skipped — previous run still in progress.")
-        if created_ctx and run_ctx:
+        if run_ctx:
             from database import complete_scanner_execution_run
             complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
         return None
@@ -961,11 +961,10 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
     try:
         return _run_wealth_scan_wrapper(is_test_mode=is_test_mode, run_ctx=run_ctx, session=session)
     except Exception as e:
-        if created_ctx:
+        if run_ctx:
             try:
                 from database import complete_scanner_execution_run
                 complete_scanner_execution_run(run_ctx, exception=e)
-                created_ctx = False
             except Exception as exc:
                 logger.warning(f"⚠️ [WEALTH_ENGINE] Could not mark run complete on exception: {exc}")
         raise
@@ -980,7 +979,7 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
             logger.error(f"⚠️ [WEALTH_ENGINE] Failed to clear RUNNING status in finally block: {_clear_err}")
         _scan_lock.release()
         _global_lock.release()
-        if created_ctx:
+        if run_ctx:
             try:
                 from database import complete_scanner_execution_run
                 complete_scanner_execution_run(run_ctx)

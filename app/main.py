@@ -1420,6 +1420,11 @@ def run_system_scheduler():
             logger.error(f"Boot perf tracker failed: {e}")
 
     # Main scheduler loop state variables
+    from market_utils import is_within_custom_hours
+    from datetime import time as dt_time
+    now_boot = datetime.now(IST)
+    is_market_boot = is_within_custom_hours(dt_time(9, 0), dt_time(15, 45), now_boot)
+
     last_mb_exit = None
     last_perf = None
     last_multi_tf = None          # [VERSION: SCHEDULER_CORRECTNESS_v1.0] Tracks last 15-min candle-aligned Multi-TF execution
@@ -1428,12 +1433,12 @@ def run_system_scheduler():
     multibagger_initial_ran = False
     verify_scans_ran = False
     multibagger_ran = False
-    last_multibagger_date = None
+    last_multibagger_date = now_boot.date() if not is_market_boot else None
     last_rotation_date = None
-    evening_scanners_ran = False
+    evening_scanners_ran = True if not is_market_boot else False
     evening_batch_deadline_logged = False
     warmup_ran = False
-    last_accumulation_date = None
+    last_accumulation_date = now_boot.date() if not is_market_boot else None
 
     last_earnings_date = None
     saturday_mb_refresh_ran = False
@@ -1884,13 +1889,12 @@ def _run_multibagger_scanner_single():
     try:
         now = datetime.now(IST)
         logger.info(f"🚀 MULTIBAGGER SCAN | Starting daily scan at {now.strftime('%H:%M:%S IST')}...")
-        from database import upsert_scanner_health
+        from database import upsert_scanner_health, is_scanner_actively_running, update_scanner_run_lifecycle
         import multibagger
-        if multibagger._scan_lock.locked():
-            logger.info("🛑 Multibagger scanner is already running in thread lock. Skipping duplicate trigger...")
+        if multibagger._scan_lock.locked() or is_scanner_actively_running("MULTIBAGGER"):
+            logger.info("🛑 Multibagger scanner is ALREADY queued or actively running in database/thread lock. Skipping duplicate trigger...")
             return
             
-        from database import upsert_scanner_health
         import time
         from telemetry_manager import telemetry
         telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_START")
@@ -1905,8 +1909,12 @@ def _run_multibagger_scanner_single():
         if not global_lock.acquire(blocking=False):
             queued_at = time.monotonic()
             logger.info("⏳ [MULTIBAGGER] Global scanner lock busy — marking QUEUED and waiting for session build...")
+            if run_ctx:
+                update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
             upsert_scanner_health("MULTIBAGGER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
             global_lock.acquire(blocking=True)
+            if run_ctx:
+                update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
             logger.info(f"✅ [MULTIBAGGER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Building Session...")
         else:
             logger.info("✅ [MULTIBAGGER] Global lock acquired instantly. Building Session...")

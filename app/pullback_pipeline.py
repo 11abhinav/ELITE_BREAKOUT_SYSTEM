@@ -374,13 +374,13 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
     if not _global_lock.acquire(blocking=False, owner_scanner="PULLBACK", operation="FULL_SCAN"):
         queued_at = time.monotonic()
         logger.info("⏳ [PULLBACK] Global scanner lock busy — marking QUEUED and waiting in queue...")
-        if created_ctx and run_ctx:
+        if run_ctx:
             from database import update_scanner_run_lifecycle
             update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
         upsert_scanner_health("PULLBACK", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
         if not _global_lock.acquire(blocking=True, owner_scanner="PULLBACK", operation="FULL_SCAN"):
             raise RuntimeError("Failed to acquire global scanner lock.")
-        if created_ctx and run_ctx:
+        if run_ctx:
             from database import update_scanner_run_lifecycle
             update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
         logger.info(f"✅ [PULLBACK] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
@@ -390,7 +390,7 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
     if not _scan_lock.acquire(blocking=False):
         _global_lock.release()
         logger.warning("🛑 PULLBACK Scanner is ALREADY actively running. Skipping duplicate execution.")
-        if created_ctx and run_ctx:
+        if run_ctx:
             from database import complete_scanner_execution_run
             complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
         return 0
@@ -406,11 +406,10 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
                 run_ctx.add_alert(total["today_alerts"])
         return total
     except Exception as e:
-        if created_ctx:
+        if run_ctx:
             try:
                 from database import complete_scanner_execution_run
                 complete_scanner_execution_run(run_ctx, exception=e)
-                created_ctx = False
             except Exception as exc:
                 logger.warning(f"⚠️ [PULLBACK] Could not mark run complete on exception: {exc}")
         raise
@@ -429,7 +428,7 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
             pass
         _scan_lock.release()
         _global_lock.release()
-        if created_ctx:
+        if run_ctx:
             try:
                 from database import complete_scanner_execution_run
                 complete_scanner_execution_run(run_ctx)

@@ -116,13 +116,13 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
     if not _global_lock.acquire(blocking=False, owner_scanner="EOD", operation="FULL_SCAN"):
         queued_at = time.monotonic()
         logger.info("⏳ [EOD] Global scanner lock busy — marking QUEUED and waiting in queue...")
-        if own_ctx and run_ctx:
+        if run_ctx:
             from database import update_scanner_run_lifecycle
             update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
         upsert_scanner_health("EOD", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
         if not _global_lock.acquire(blocking=True, owner_scanner="EOD", operation="FULL_SCAN"):
             raise RuntimeError("Failed to acquire global scanner lock.")
-        if own_ctx and run_ctx:
+        if run_ctx:
             from database import update_scanner_run_lifecycle
             update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
         logger.info(f"✅ [EOD] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
@@ -132,7 +132,7 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
     if not _scan_lock.acquire(blocking=False):
         _global_lock.release()
         logger.warning("🛑 EOD Scanner is ALREADY actively running. Skipping duplicate execution.")
-        if own_ctx and run_ctx:
+        if run_ctx:
             from database import complete_scanner_execution_run
             complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
         return 0
@@ -140,13 +140,13 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
     _scan_start = print_scanner_start_banner("eod_scanner", queued_at=queued_at)
     try:
         total = _start_wrapper(force, session=session, run_ctx=run_ctx, used_fallback_data=used_fallback_data)
-        if own_ctx and isinstance(total, int):
+        if run_ctx and isinstance(total, int):
             run_ctx.add_alert(total)
-        if own_ctx:
+        if run_ctx:
             complete_scanner_execution_run(run_ctx)
         return total
     except Exception as e:
-        if own_ctx:
+        if run_ctx:
             complete_scanner_execution_run(run_ctx, exception=e)
         raise e
     finally:
