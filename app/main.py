@@ -1005,7 +1005,6 @@ def run_all_seven_scanners_non_market_boot():
             logger.warning(f"⚠️ [NON-MARKET BOOT] Watchlist readiness check warning: {e}")
 
         all_scanners = [
-            ("DAILY_BUILDER", _trigger_daily_builder),
             ("MULTI_TF", _trigger_multi_tf),
             ("ACCUMULATION", _trigger_accumulation),
             ("EOD", _trigger_eod),
@@ -1121,12 +1120,15 @@ def run_system_scheduler():
                             run_ctx = start_scanner_execution_run(scanner_name="DAILY_BUILDER", trigger_type="SCHEDULED", scheduler_name="CRON")
                             try:
                                 build_watchlist(run_ctx=run_ctx)
+                                if run_ctx:
+                                    complete_scanner_execution_run(run_ctx)
                             except Exception as db_err:
+                                if run_ctx:
+                                    complete_scanner_execution_run(run_ctx, exception=db_err)
                                 raise db_err
                 except Exception as db_err:
                     raise db_err
 
-            
             # Update memory cache
             from watchlist_cache import get_watchlist
             get_watchlist()
@@ -2236,8 +2238,12 @@ def _trigger_daily_builder(trigger_type="MANUAL", scheduler_name="MANUAL"):
         build_watchlist(force_rebuild=True, run_ctx=run_ctx)
         from watchlist_cache import get_watchlist
         get_watchlist()
+        if run_ctx:
+            complete_scanner_execution_run(run_ctx)
         upsert_scanner_health("DAILY_BUILDER", status="OK", error_msg=None)
     except Exception as exc:
+        if run_ctx:
+            complete_scanner_execution_run(run_ctx, exception=exc)
         upsert_scanner_health("DAILY_BUILDER", status="DOWN", error_msg=str(exc))
         raise exc
 
