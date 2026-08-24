@@ -127,8 +127,9 @@ def _get_pool() -> Optional[pool.ThreadedConnectionPool]:
         if not db_url:
             return None
         # Configure pool size via env override if provided (strictly default to 10 to prevent Postgres client exhaustion)
-        maxconn = int(os.getenv("DB_MAXCONN", "10"))
-        minconn = int(os.getenv("DB_MINCONN", "1"))
+        # Configure pool size via env override if provided (default to 30 for high concurrency)
+        maxconn = int(os.getenv("DB_MAXCONN", "30"))
+        minconn = int(os.getenv("DB_MINCONN", "3"))
         _pool = pool.ThreadedConnectionPool(
             minconn=minconn,
             maxconn=maxconn,
@@ -165,7 +166,7 @@ def get_connection(timeout: int = 15):
     Acquires an internal semaphore before checking out a connection from the pool.
     This prevents busy loops from exhausting the pool and creating noisy logs.
     """
-    from psycopg2 import OperationalError, DatabaseError
+    from psycopg2 import OperationalError, DatabaseError, pool as ps_pool
 
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
@@ -181,10 +182,11 @@ def get_connection(timeout: int = 15):
     acquired = False
     try:
         global _conn_semaphore
+        max_cap = getattr(p, 'maxconn', 30)
         # Ensure semaphore exists (in case pool was created elsewhere)
         if _conn_semaphore is None:
             try:
-                _conn_semaphore = threading.BoundedSemaphore(value=getattr(p, 'maxconn', 10))
+                _conn_semaphore = threading.BoundedSemaphore(value=max_cap)
             except Exception:
                 _conn_semaphore = None
         if _conn_semaphore is not None:
@@ -192,29 +194,29 @@ def get_connection(timeout: int = 15):
             if not acquired:
                 raise OperationalError('Connection pool exhausted (acquire timeout)')
 
-        # Retry checkout up to 3 times if server returns "too many clients"
-        for attempt in range(3):
+        # Retry checkout up to 5 times if server returns "too many clients" or pool exhausted
+        for attempt in range(5):
             try:
                 conn = p.getconn()
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1")
                     cur.execute("SET TIME ZONE 'Asia/Kolkata'")
                 break
-            except OperationalError as oe:
+            except (OperationalError, ps_pool.PoolError) as oe:
                 if conn:
                     try:
                         p.putconn(conn, close=True)
                     except Exception: pass
                     conn = None
-                if "too many clients" in str(oe).lower() and attempt < 2:
-                    time.sleep(0.3)
+                if attempt < 4:
+                    time.sleep(0.25 * (attempt + 1))
                     continue
                 raise oe
 
         yield conn
-    except OperationalError as e:
+    except (OperationalError, ps_pool.PoolError) as e:
         # Circuit breaker: log and fail fast instead of hanging
-        logger.exception(f"🔴 DB connection failed (circuit breaker)")
+        logger.warning(f"⚠️ DB connection pool exhausted: {e}")
         if conn:
             try:
                 conn.rollback()
@@ -226,7 +228,7 @@ def get_connection(timeout: int = 15):
             conn = None
         raise
     except Exception as e:
-        logger.exception(f"🔴 DB operation failed")
+        logger.exception(f"🔴 DB operation failed: {e}")
         if conn:
             try:
                 conn.rollback()
