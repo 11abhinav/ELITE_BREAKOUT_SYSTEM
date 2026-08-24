@@ -15,7 +15,7 @@
 // because the SW's fetch() lacked the browser's session cookies & auth context.
 // ============================================================
 
-const CACHE_NAME = 'elite-breakout-v10'; // v10: bypass non-GET API requests to preserve POST body
+const CACHE_NAME = 'elite-breakout-v11'; // v11: bypass non-GET API requests to preserve POST body
 const STATIC_ASSETS = [
   '/static/manifest.json',
   '/static/icons/icon-192.png',
@@ -109,12 +109,7 @@ async function networkFirstNoCache(request) {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 45000);
-    const networkResponse = await fetch(request.url, {
-      method: request.method,
-      headers: request.headers,
-      credentials: 'same-origin',
-      signal: controller.signal
-    });
+    const networkResponse = await fetch(new Request(request, { signal: controller.signal }));
     clearTimeout(timeoutId);
     return networkResponse;
   } catch (err) {

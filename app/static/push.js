@@ -11,7 +11,7 @@
                        window.navigator.standalone === true;
 
   // ── Cache cleanup: delete all caches EXCEPT the currently active one ──
-  const CURRENT_CACHE = 'elite-breakout-v10';
+  const CURRENT_CACHE = 'elite-breakout-v11';
   if ('caches' in window) {
     caches.keys().then(keys => {
       keys.forEach(key => {
