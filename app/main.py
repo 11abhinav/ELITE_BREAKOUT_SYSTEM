@@ -1425,6 +1425,7 @@ def run_system_scheduler():
     evening_scanners_ran = False
     evening_batch_deadline_logged = False
     warmup_ran = False
+    last_accumulation_date = None
 
     last_earnings_date = None
     saturday_mb_refresh_ran = False
@@ -1575,6 +1576,16 @@ def run_system_scheduler():
                             logger.info("⏭️ MULTI_TF is STOPPED by Admin. Skipping candle-aligned cycle.")
                 
                 check_scanner_staleness(now)
+                
+            # 15:45 - Accumulation Scanner (Post-Close Scan)
+            if (now.hour > 15 or (now.hour == 15 and now.minute >= 45)) and last_accumulation_date != now.date():
+                last_accumulation_date = now.date()
+                if not is_scanner_stopped("ACCUMULATION"):
+                    logger.info("🕒 SCHEDULER | [15:45] Triggering ACCUMULATION scanner (Post-Close Scan)")
+                    import threading
+                    threading.Thread(target=_trigger_accumulation, kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"}, name="AccumulationScanner", daemon=True).start()
+                else:
+                    logger.info("⏭️ ACCUMULATION is STOPPED by Admin. Skipping 15:45 run.")
                 
             # 18:00 - Evening Scanners (EOD, Reversal, Pullback)
             if now.hour >= 18 and not evening_scanners_ran:

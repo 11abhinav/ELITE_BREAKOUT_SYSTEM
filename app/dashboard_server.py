@@ -2874,38 +2874,32 @@ def api_scanner_status():
             # Special case for Wealth Engine: It doesn't write to the alerts table.
             # We must parse its parquet file to get today's trades for the tooltip to work!
             if sc == "Wealth Engine":
-                global _wealth_trades_cache
-                if (now_ts - _wealth_trades_cache.get("timestamp", 0)) < 300:
-                    today_trades = _wealth_trades_cache.get("trades", [])
-                else:
-                    try:
-                        import os, pandas as pd
-                        from config import DATA_DIR
-                        wealth_path = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
-                        if os.path.exists(wealth_path):
-                            wdf = pd.read_parquet(wealth_path)
-                            # Filter for BUY signals
-                            buy_df = wdf[wdf["Signal_Code"] == "BUY"]
-                            today_trades = []
-                            for _, wrow in buy_df.iterrows():
-                                today_trades.append({
-                                    "symbol": wrow.get("Stock", ""),
-                                    "category": wrow.get("Portfolio_Bucket", ""),
-                                    "signals": wrow.get("Signal", ""),
-                                    "entry_price": wrow.get("cmp", 0),
-                                    "alert_time": today_str,
-                                    "stop_loss": None,
-                                    "target_price": None,
-                                    "exit_price": None,
-                                    "closed_at": None,
-                                    "pnl_pct": None,
-                                    "status": "OPEN",
-                                    "score": wrow.get("FM_Score", 0)
-                                })
-                            _wealth_trades_cache["timestamp"] = now_ts
-                            _wealth_trades_cache["trades"] = today_trades
-                    except Exception as e:
-                        logger.warning(f"⚠️ Failed to parse Wealth Engine trades for status dashboard: {e}")
+                try:
+                    import os, pandas as pd
+                    from config import DATA_DIR
+                    wealth_path = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
+                    if os.path.exists(wealth_path):
+                        wdf = pd.read_parquet(wealth_path)
+                        # Filter for BUY signals
+                        buy_df = wdf[wdf["Signal_Code"] == "BUY"]
+                        today_trades = []
+                        for _, wrow in buy_df.iterrows():
+                            today_trades.append({
+                                "symbol": wrow.get("Stock", ""),
+                                "category": wrow.get("Portfolio_Bucket", ""),
+                                "signals": wrow.get("Signal", ""),
+                                "entry_price": wrow.get("cmp", 0),
+                                "alert_time": today_str,
+                                "stop_loss": None,
+                                "target_price": None,
+                                "exit_price": None,
+                                "closed_at": None,
+                                "pnl_pct": None,
+                                "status": "OPEN",
+                                "score": wrow.get("FM_Score", 0)
+                            })
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to parse Wealth Engine trades for status dashboard: {e}")
 
             # [VERSION: AI_STATS_API_v1.0] Add dynamic fallback for AI Worker to align with Pledge Worker fallback
             processed_count = row.get("processed_count")
@@ -2920,32 +2914,25 @@ def api_scanner_status():
                     logger.exception("Failed to query fallback pledge stats")
             elif sc == "AI Worker" and (processed_count is None or total_count is None or total_count == 0):
                 try:
-                    global _cached_worker_symbols, _cached_worker_symbols_time
-                    # Cache the expensive symbol set for 5 minutes
-                    if not _cached_worker_symbols or (now_ts - _cached_worker_symbols_time) > 300:
-                        from database import get_ai_concall_stats
-                        from database import get_connection
-                        symbols_set = set()
-                        with get_connection() as conn:
-                            with conn.cursor() as cur:
-                                cur.execute('SELECT DISTINCT "Stock" FROM daily_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
-                                symbols_set.update(r[0] for r in cur.fetchall())
-                                cur.execute('SELECT DISTINCT "Stock" FROM daily_excluded_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
-                                symbols_set.update(r[0] for r in cur.fetchall())
-                        try:
-                            from constituent_service import ConstituentService
-                            if ConstituentService._cached_symbols:
-                                symbols_set.update(ConstituentService._cached_symbols)
-                            else:
-                                import threading
-                                threading.Thread(target=ConstituentService.fetch_constituents, daemon=True).start()
-                        except Exception:
-                            pass
-                        _cached_worker_symbols = symbols_set
-                        _cached_worker_symbols_time = now_ts
+                    from database import get_ai_concall_stats, get_connection
+                    symbols_set = set()
+                    with get_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute('SELECT DISTINCT "Stock" FROM daily_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
+                            symbols_set.update(r[0] for r in cur.fetchall())
+                            cur.execute('SELECT DISTINCT "Stock" FROM daily_excluded_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
+                            symbols_set.update(r[0] for r in cur.fetchall())
+                    try:
+                        from constituent_service import ConstituentService
+                        if ConstituentService._cached_symbols:
+                            symbols_set.update(ConstituentService._cached_symbols)
+                        else:
+                            import threading
+                            threading.Thread(target=ConstituentService.fetch_constituents, daemon=True).start()
+                    except Exception:
+                        pass
                     
-                    symbols = list(_cached_worker_symbols)
-                    from database import get_ai_concall_stats
+                    symbols = list(symbols_set)
                     stats = get_ai_concall_stats(symbols)
                     processed_count = stats.get("total_cached", 0)
                     total_count = len(symbols)
