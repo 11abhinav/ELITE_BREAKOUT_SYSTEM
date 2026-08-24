@@ -4725,75 +4725,6 @@ function getEarningsBadgeHtml(item) {
       return data;
     }
 
-function updateSehVersionDropdown(versions) {
-  const select = document.getElementById('seh-version-filter');
-  if (!select) return;
-  const currentVal = select.value || 'ALL';
-  let html = `<option value="ALL">All Versions</option>`;
-  const versionSet = new Set(versions);
-  if (!versionSet.has('v1')) versionSet.add('v1');
-  
-  for (const v of Array.from(versionSet).sort().reverse()) {
-    html += `<option value="${escapeHTML(v)}">${escapeHTML(v)}</option>`;
-  }
-  select.innerHTML = html;
-  select.value = versionSet.has(currentVal) ? currentVal : (currentVal === 'ALL' ? 'ALL' : 'ALL');
-}
-
-async function fetchScannerExecutionHistory(page = 1) {
-  currentSehPage = Math.max(1, page);
-  const scanner = document.getElementById('seh-scanner-filter')?.value || 'ALL';
-  const git_commit = document.getElementById('seh-commit-filter')?.value || 'ALL';
-  const lifecycle_status = document.getElementById('seh-lifecycle-filter')?.value || 'ALL';
-  const quality_status = document.getElementById('seh-quality-filter')?.value || 'ALL';
-  const date_range = document.getElementById('seh-date-filter')?.value || '7d';
-  const search = document.getElementById('seh-search-input')?.value || '';
-
-  const tbody = document.getElementById('seh-table-body');
-
-  try {
-    const url = `/api/scanner_execution_history?scanner=${encodeURIComponent(scanner)}&system_version=ALL&git_commit=${encodeURIComponent(git_commit)}&lifecycle_status=${encodeURIComponent(lifecycle_status)}&quality_status=${encodeURIComponent(quality_status)}&date_range=${encodeURIComponent(date_range)}&search=${encodeURIComponent(search)}&page=${currentSehPage}&per_page=20&_t=${Date.now()}`;
-    const res = await fetch(url, { cache: 'no-store' });
-      if (isAuto && data.trades && ALL_TRADES.length > 0) {
-        const oldTradesMap = new Map(ALL_TRADES.map(t => [t.symbol + '|' + (t.alert_time || t.entry_date), t]));
-        let hasUpdate = false;
-        for (const t of data.trades) {
-          const key = t.symbol + '|' + (t.alert_time || t.entry_date);
-          const oldT = oldTradesMap.get(key);
-
-          if (!oldT && t.status === 'OPEN') {
-            const ageHours = (new Date() - new Date((t.alert_time || t.entry_date).replace(' ', 'T'))) / (1000 * 60 * 60);
-            if (ageHours < 2) {
-              hasUpdate = true;
-              break;
-            }
-          } else if (oldT && oldT.status === 'OPEN' && t.status !== 'OPEN') {
-            hasUpdate = true;
-            break;
-          }
-        }
-        if (hasUpdate) {
-          triggerAlertFlashing();
-        }
-      }
-
-      ALL_TRADES = (data.trades || []).map(t => {
-        if (t.is_rejected) t.status = 'REJECTED';
-        return t;
-      });
-      EXIT_HISTORY_CACHE.clear();
-      populateFilters(ALL_TRADES);
-      renderTradeTable();
-      updateSim();
-
-      if (diagnosticsLoaded) {
-        loadDiagnostics();
-      }
-
-      document.getElementById('gen-time').textContent = 'Updated: ' + new Date().toLocaleTimeString('en-IN', {timeZone:'Asia/Kolkata'});
-      btn.classList.remove('spinning');
-    }
-
 // ── Viewer Tracking
 let viewerName = 'Admin';
 
@@ -4844,11 +4775,10 @@ async function fetchScannerExecutionHistory(page = 1) {
   const search = document.getElementById('seh-search-input')?.value || '';
 
   const tbody = document.getElementById('seh-table-body');
-  // Removed innerHTML Loading to prevent screen flashing during background refresh
 
   try {
-    const url = `/api/scanner_execution_history?scanner=${encodeURIComponent(scanner)}&system_version=ALL&git_commit=${encodeURIComponent(git_commit)}&lifecycle_status=${encodeURIComponent(lifecycle_status)}&quality_status=${encodeURIComponent(quality_status)}&date_range=${encodeURIComponent(date_range)}&search=${encodeURIComponent(search)}&page=${currentSehPage}&per_page=20`;
-    const res = await fetch(url);
+    const url = `/api/scanner_execution_history?scanner=${encodeURIComponent(scanner)}&system_version=ALL&git_commit=${encodeURIComponent(git_commit)}&lifecycle_status=${encodeURIComponent(lifecycle_status)}&quality_status=${encodeURIComponent(quality_status)}&date_range=${encodeURIComponent(date_range)}&search=${encodeURIComponent(search)}&page=${currentSehPage}&per_page=20&_t=${Date.now()}`;
+    const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (data.available_commits) {
