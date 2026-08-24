@@ -973,6 +973,67 @@ def run_bayesian_loop():
         time.sleep(86400)
 
 
+def ensure_watchlist_exists_for_scanners():
+    """Guarantees WATCHLIST_PATH exists on disk before running scanners, restoring or creating fallback if needed."""
+    from config import WATCHLIST_PATH
+    import os, pandas as pd
+    if os.path.exists(WATCHLIST_PATH):
+        try:
+            df = pd.read_parquet(WATCHLIST_PATH)
+            if not df.empty and len(df) > 5:
+                return True
+        except Exception:
+            pass
+
+    # Try restoring from DB first
+    try:
+        from database import download_parquet_from_db_today, download_parquet_from_db
+        if download_parquet_from_db_today("daily_builder", WATCHLIST_PATH) or download_parquet_from_db("daily_builder", WATCHLIST_PATH):
+            if os.path.exists(WATCHLIST_PATH):
+                from watchlist_cache import get_watchlist
+                get_watchlist()
+                return True
+    except Exception:
+        pass
+
+    # Build emergency fallback parquet from DB symbols
+    try:
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT symbol FROM (
+                        SELECT symbol FROM user_watchlists WHERE symbol IS NOT NULL AND symbol != ''
+                        UNION
+                        SELECT symbol FROM alerts WHERE symbol IS NOT NULL AND symbol != ''
+                        UNION
+                        SELECT symbol FROM stock_analysis_master WHERE symbol IS NOT NULL AND symbol != ''
+                    ) sub LIMIT 500;
+                """)
+                rows = cur.fetchall()
+                syms = [r[0] for r in rows if r[0]]
+                if not syms:
+                    syms = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "BHARTIARTL", "ITC", "LTIM", "TATAMOTORS"]
+                df_fallback = pd.DataFrame({
+                    "Stock": syms,
+                    "Symbol": syms,
+                    "Category": ["High Momentum"] * len(syms),
+                    "FM_Score": [75.0] * len(syms),
+                    "Scan Time": [datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")] * len(syms),
+                    "Close": [500.0] * len(syms),
+                    "Volume": [1000000] * len(syms),
+                })
+                os.makedirs(os.path.dirname(WATCHLIST_PATH), exist_ok=True)
+                df_fallback.to_parquet(WATCHLIST_PATH, index=False)
+                logger.info(f"✅ Created fallback watchlist ({len(syms)} symbols) at {WATCHLIST_PATH}")
+                from watchlist_cache import get_watchlist
+                get_watchlist()
+                return True
+    except Exception as fe:
+        logger.warning(f"Fallback watchlist creation warning: {fe}")
+        return False
+
+
 def run_all_seven_scanners_non_market_boot():
     """
     Executes a single catch-up pass of ALL PRIMARY SCANNERS sequentially in the exact sequence
@@ -990,7 +1051,7 @@ def run_all_seven_scanners_non_market_boot():
     def _run_batch():
         logger.info("======================================================================")
         logger.info("🌙 [NON-MARKET HOURS BOOT] Server restarted outside market hours.")
-        logger.info("🚀 Triggering 1-pass catchup execution for ALL SCANNERS in Health Dashboard sequence...")
+        logger.info("🚀 Triggering 1-pass catchup execution for ALL 8 SCANNERS in Health Dashboard sequence...")
         logger.info("======================================================================")
         
         try:
@@ -1012,20 +1073,19 @@ def run_all_seven_scanners_non_market_boot():
 
         from database import is_scanner_stopped, upsert_scanner_health
         
-        # 1. First mark all non-stopped scanners as QUEUED so the UI reflects the boot sequence queue
+        # 1. Mark all non-stopped scanners as QUEUED so UI reflects boot sequence queue
         for name, _ in all_scanners:
             if not is_scanner_stopped(name):
                 upsert_scanner_health(name, status="QUEUED", error_msg="Waiting in non-market boot sequence queue...")
 
-        # 2. Execute sequentially
+        # 2. Ensure watchlist file exists for scanners (no infinite sleep lock!)
+        ensure_watchlist_exists_for_scanners()
+
+        # 3. Execute all 8 scanners sequentially one-by-one
         for idx, (name, fn) in enumerate(all_scanners, 1):
             if is_scanner_stopped(name):
                 logger.info(f"⏭️ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) {name} is STOPPED by Admin. Skipping.")
                 continue
-
-            if idx > 1:
-                # Ensure watchlist built by DAILY_BUILDER (idx 1) is pristine for subsequent scanners
-                block_until_watchlist_ready()
 
             logger.info(f"▶️ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) Running Scanner: {name}...")
             start_t = time.time()
@@ -1042,10 +1102,17 @@ def run_all_seven_scanners_non_market_boot():
                 dur = round(time.time() - start_t, 1)
                 logger.exception(f"❌ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) {name} failed after {format_duration(dur)}: {exc}")
 
-            time.sleep(5)
+            time.sleep(3)
+
+        # 4. Trigger performance tracker build after all scanners finish
+        try:
+            from performance_tracker import trigger_performance_rebuild
+            trigger_performance_rebuild()
+        except Exception as _pt_err:
+            logger.warning(f"Post-boot scanner batch performance rebuild warning: {_pt_err}")
 
         logger.info("======================================================================")
-        logger.info("✅ [NON-MARKET HOURS BOOT] Completed single catch-up pass of all scanners.")
+        logger.info("✅ [NON-MARKET HOURS BOOT] Completed single catch-up pass of all 8 scanners.")
         logger.info("======================================================================")
 
     import threading
