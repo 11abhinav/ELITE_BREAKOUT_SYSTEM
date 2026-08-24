@@ -1976,14 +1976,9 @@ def save_alert_if_new(
     weights_str = json.dumps(sanitized_weights, default=str) if sanitized_weights is not None else None
 
 
-    # [FIX] Force fetch live price for accurate entry price across all scanners
-    try:
-        from live_prices import get_live_prices
-        prices = get_live_prices([symbol])
-        if symbol in prices:
-            entry_price = float(prices[symbol])
-    except Exception:
-        pass
+    # [FIX_REVERTED] Force fetching live price here caused critical bugs where Entry > T1
+    # because targets were calculated using the scanner's trigger price, not this delayed live price.
+    # We must use the entry_price passed into the function to maintain mathematical integrity.
 
 
     # Safety: DB stale-buy check removed in v6 as scanners now reliably handle stale
