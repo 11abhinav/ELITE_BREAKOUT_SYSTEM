@@ -1933,6 +1933,9 @@ def _run_multibagger_scanner_single():
         dur_mb_single = round(time.time() - start_mb_single, 1)
         time.sleep(15)
 
+        if run_ctx:
+            complete_scanner_execution_run(run_ctx)
+
         # Mark success in health table INSIDE the lock
         upsert_scanner_health(
             "MULTIBAGGER",
@@ -1964,7 +1967,9 @@ def _run_multibagger_scanner_single():
         telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_FAILED", error=str(e))
         telemetry.log_session_timeline(f"Multibagger Scanner Cycle Failed: {str(e)}")
         try:
-            from database import upsert_scanner_health
+            from database import upsert_scanner_health, complete_scanner_execution_run
+            if 'run_ctx' in locals() and run_ctx:
+                complete_scanner_execution_run(run_ctx, exception=e)
             upsert_scanner_health(
                 "MULTIBAGGER",
                 status="DOWN",

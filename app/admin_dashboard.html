@@ -2628,19 +2628,15 @@
     async function loadScannerStatus() {
       let stats = null;
       const urls = [
-        '/api/scanner_status',
+        `/api/scanner_status?_t=${Date.now()}`,
       ];
       for (const url of urls) {
         try {
-          const r = await fetch(url);
+          const r = await fetch(url, { cache: 'no-store' });
           if (r.ok) { stats = await r.json(); break; }
         } catch { }
       }
       if (!stats) stats = {};
-
-      // Note: External API health (data_fetch_health) is intentionally NOT injected here.
-      // Scanner health cards only reflect whether the scanner's own code completed its cycle.
-      // Data fetch issues are tracked separately in the Fetch Errors panel below.
 
       return stats;
     }
@@ -4690,7 +4686,7 @@ function getEarningsBadgeHtml(item) {
       // Trigger primary data load
       const dataPromise = loadData();
 
-      // Tab-Aware Lazy Background Updates (only fetch endpoint components relevant to active tab)
+      // Real-Time Background Updates (fetch health status and execution history on every poll)
       const promises = [
         loadScannerStatus().then(live => {
           if (live) {
@@ -4698,7 +4694,8 @@ function getEarningsBadgeHtml(item) {
             if (typeof renderScannerGrid === 'function') renderScannerGrid(window._scannerStats);
           }
         }),
-        loadCapitalInfo()
+        loadCapitalInfo(),
+        fetchScannerExecutionHistory(currentSehPage)
       ];
 
       const tab = activeAdminTab || 'signals-trades';
@@ -4716,7 +4713,6 @@ function getEarningsBadgeHtml(item) {
         promises.push(loadValidationHealth());
         promises.push(loadApiHealth());
         promises.push(fetchFetchErrors());
-        promises.push(fetchScannerExecutionHistory(currentSehPage));
       } else if (tab === 'db-explorer') {
         promises.push(fetchDatabaseTablesSummary());
         promises.push(loadAdvancedOutcomeAnalytics());
@@ -4725,9 +4721,39 @@ function getEarningsBadgeHtml(item) {
       Promise.all(promises).catch(e => console.error("Error refreshing background components:", e));
 
       const data = await dataPromise;
+      if (btn) btn.classList.remove('spinning');
+      return data;
+    }
 
+function updateSehVersionDropdown(versions) {
+  const select = document.getElementById('seh-version-filter');
+  if (!select) return;
+  const currentVal = select.value || 'ALL';
+  let html = `<option value="ALL">All Versions</option>`;
+  const versionSet = new Set(versions);
+  if (!versionSet.has('v1')) versionSet.add('v1');
+  
+  for (const v of Array.from(versionSet).sort().reverse()) {
+    html += `<option value="${escapeHTML(v)}">${escapeHTML(v)}</option>`;
+  }
+  select.innerHTML = html;
+  select.value = versionSet.has(currentVal) ? currentVal : (currentVal === 'ALL' ? 'ALL' : 'ALL');
+}
 
-      // Alert Diffing Logic
+async function fetchScannerExecutionHistory(page = 1) {
+  currentSehPage = Math.max(1, page);
+  const scanner = document.getElementById('seh-scanner-filter')?.value || 'ALL';
+  const git_commit = document.getElementById('seh-commit-filter')?.value || 'ALL';
+  const lifecycle_status = document.getElementById('seh-lifecycle-filter')?.value || 'ALL';
+  const quality_status = document.getElementById('seh-quality-filter')?.value || 'ALL';
+  const date_range = document.getElementById('seh-date-filter')?.value || '7d';
+  const search = document.getElementById('seh-search-input')?.value || '';
+
+  const tbody = document.getElementById('seh-table-body');
+
+  try {
+    const url = `/api/scanner_execution_history?scanner=${encodeURIComponent(scanner)}&system_version=ALL&git_commit=${encodeURIComponent(git_commit)}&lifecycle_status=${encodeURIComponent(lifecycle_status)}&quality_status=${encodeURIComponent(quality_status)}&date_range=${encodeURIComponent(date_range)}&search=${encodeURIComponent(search)}&page=${currentSehPage}&per_page=20&_t=${Date.now()}`;
+    const res = await fetch(url, { cache: 'no-store' });
       if (isAuto && data.trades && ALL_TRADES.length > 0) {
         const oldTradesMap = new Map(ALL_TRADES.map(t => [t.symbol + '|' + (t.alert_time || t.entry_date), t]));
         let hasUpdate = false;

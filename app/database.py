@@ -2658,6 +2658,8 @@ def upsert_scanner_health(
         # Normalize and sanitize status values to match DB CHECK constraint
         if status is not None:
             status = str(status).upper()
+            if status in ('COMPLETED', 'SUCCESS'):
+                status = 'OK'
         # [RULE 67] DEGRADED_FALLBACK is a valid operational status (historical data used).
         # Previously absent from allowed_statuses, silently remapped to IDLE.
         allowed_statuses = {'OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'DEGRADED_FALLBACK', 'STOPPED', 'PAUSED'}
@@ -7982,21 +7984,49 @@ def get_scanner_execution_history(
     try:
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 🧹 WATCHDOG AUTO-CLEANUP: Clean any orphaned RUNNING/QUEUED records older than 4 hours before rendering history
+                # 🧹 WATCHDOG AUTO-CLEANUP: Clean any orphaned RUNNING/QUEUED records with no heartbeat for > 15 minutes
                 try:
                     cur.execute("""
-                        UPDATE scanner_execution_history
-                        SET completed_at = NOW(),
-                            lifecycle_status = 'TIMEOUT_STALE',
-                            error_summary = 'Execution timed out after 4 hours of inactivity',
-                            error_details = 'Watchdog auto-cleaned stale RUNNING state without recent heartbeat'
+                        SELECT run_id, scanner_name, started_at, heartbeat_at, lifecycle_status
+                        FROM scanner_execution_history
                         WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                           AND (
-                              heartbeat_at < NOW() - INTERVAL '4 hours'
-                              OR (started_at < NOW() - INTERVAL '4 hours' AND (heartbeat_at IS NULL OR heartbeat_at = started_at))
+                              (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '15 minutes')
+                              OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '15 minutes')
                           );
                     """)
-                    conn.commit()
+                    orphaned_rows = cur.fetchall()
+                    if orphaned_rows:
+                        for orphan in orphaned_rows:
+                            r_id = orphan.get("run_id") or "UNKNOWN"
+                            sc_name = orphan.get("scanner_name") or "UNKNOWN"
+                            st_at = orphan.get("started_at")
+                            hb_at = orphan.get("heartbeat_at")
+                            logger.warning(
+                                f"🧹 [WATCHDOG CLEANUP] Cleaned orphaned RUNNING run {r_id[:8]} for scanner '{sc_name}' | "
+                                f"Reason: No heartbeat received for >15 minutes (started_at: {st_at}, heartbeat_at: {hb_at})"
+                            )
+
+                        cur.execute("""
+                            UPDATE scanner_execution_history
+                            SET completed_at = NOW(),
+                                lifecycle_status = 'TIMEOUT_STALE',
+                                error_summary = 'Execution timed out due to process crash or stopped heartbeat',
+                                error_details = 'Watchdog auto-cleaned stale RUNNING state: heartbeat inactive for >15 minutes'
+                            WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
+                              AND (
+                                  (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '15 minutes')
+                                  OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '15 minutes')
+                              );
+                        """)
+                        cur.execute("""
+                            UPDATE scanner_health
+                            SET status = 'DOWN',
+                                error_msg = 'Watchdog auto-cleaned orphaned RUNNING state (process crash/inactivity)'
+                            WHERE status = 'RUNNING'
+                              AND last_updated < NOW() - INTERVAL '15 minutes';
+                        """)
+                        conn.commit()
                 except Exception as _e_sweep:
                     logger.debug(f"Stale history auto-sweep warning: {_e_sweep}")
 

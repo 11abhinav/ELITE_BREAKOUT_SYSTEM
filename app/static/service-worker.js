@@ -3,7 +3,7 @@
 // Provides: offline caching, background sync, push notifications
 // ============================================================
 
-const CACHE_NAME = 'elite-breakout-v6-stream-bypass'; // bumped: stream SSE bypass + purge stale caches
+const CACHE_NAME = 'elite-breakout-v7-no-api-cache'; // bumped: zero API cache + purge stale caches
 const STATIC_ASSETS = [
   '/static/manifest.json',
   '/static/icons/icon-192.png',
@@ -14,7 +14,7 @@ const STATIC_ASSETS = [
 
 // ── INSTALL: Cache ONLY static assets (manifest, icons, fonts) ──
 self.addEventListener('install', event => {
-  console.log('[SW] Installing service worker v5...');
+  console.log('[SW] Installing service worker v7...');
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
       return cache.addAll(STATIC_ASSETS).catch(err => {
@@ -26,7 +26,7 @@ self.addEventListener('install', event => {
 
 // ── ACTIVATE: Clean ALL old caches & evict stale HTML entries ──
 self.addEventListener('activate', event => {
-  console.log('[SW] Activating service worker v5 & purging old caches...');
+  console.log('[SW] Activating service worker v7 & purging old caches...');
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
@@ -38,14 +38,14 @@ self.addEventListener('activate', event => {
         })
       )
     ).then(() => {
-      // Clean out any stale HTML page entries from current cache
+      // Clean out any stale HTML page or API entries from current cache
       return caches.open(CACHE_NAME).then(cache => {
         return cache.keys().then(requests => {
           return Promise.all(
             requests.map(req => {
               const u = req.url.toLowerCase();
-              if (u.includes('/admin') || u.includes('/wealth') || u.endsWith('/') || u.includes('/login')) {
-                console.log('[SW] Evicting stale HTML document:', req.url);
+              if (u.includes('/admin') || u.includes('/wealth') || u.endsWith('/') || u.includes('/login') || u.includes('/api/')) {
+                console.log('[SW] Evicting stale document/API entry:', req.url);
                 return cache.delete(req);
               }
             })
@@ -66,7 +66,7 @@ self.addEventListener('fetch', event => {
   }
 
   // ALWAYS go network-first for API calls and authenticated pages
-  // Never serve stale HTML trading pages — freshness is critical
+  // Never serve stale HTML trading pages or API data — freshness is critical
   if (url.pathname.startsWith('/api/') ||
       url.pathname.startsWith('/data/') ||
       url.pathname === '/' ||
@@ -86,11 +86,12 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Default: network first without HTML caching
+  // Default: network first without HTML/API caching
   event.respondWith(networkFirstNoHtmlCache(event.request));
 });
 
 async function networkFirstNoHtmlCache(request) {
+  const isApiRequest = request.url.includes('/api/') || request.url.includes('/data/');
   const isHtmlRequest = request.mode === 'navigate' ||
                         request.headers.get('accept')?.includes('text/html') ||
                         request.url.includes('/admin') ||
@@ -105,7 +106,7 @@ async function networkFirstNoHtmlCache(request) {
     clearTimeout(timeoutId);
 
     // NEVER cache HTML pages or API responses in CacheStorage
-    if (!isHtmlRequest && request.method === 'GET' && networkResponse.ok && request.url.startsWith('http')) {
+    if (!isHtmlRequest && !isApiRequest && request.method === 'GET' && networkResponse.ok && request.url.startsWith('http')) {
       const cache = await caches.open(CACHE_NAME);
       cache.put(request, networkResponse.clone());
     }

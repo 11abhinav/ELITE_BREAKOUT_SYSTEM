@@ -2993,7 +2993,11 @@ def api_scanner_status():
             result[sc]["status"] = f"QUEUED-{i + 1}"
             
         res_payload = json.dumps(serialize_datetimes(result))
-        return Response(res_payload, mimetype="application/json", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
+        return Response(res_payload, mimetype="application/json", headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        })
     except Exception as exc:
         logger.exception("❌ /api/scanner_status failed")
         return jsonify({}), 200
@@ -3051,7 +3055,11 @@ def api_scanner_execution_history():
             per_page=per_page
         )
         payload = json.dumps(serialize_datetimes(res))
-        return Response(payload, mimetype="application/json", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
+        return Response(payload, mimetype="application/json", headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        })
     except Exception as e:
         logger.exception("❌ Failed in /api/scanner_execution_history")
         return jsonify({"records": [], "total_records": 0, "page": 1, "per_page": 25, "total_pages": 1, "summary_stats": {}}), 200
