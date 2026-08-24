@@ -7785,6 +7785,11 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
             logger.warning(f"Failed to add new columns during boot cleanup: {e}")
         
         try:
+            c.execute("SELECT pg_advisory_unlock_all();")
+        except Exception:
+            pass
+
+        try:
             c.execute("""
                 UPDATE scanner_execution_history
                 SET completed_at = NOW(),

@@ -167,6 +167,7 @@ class ProcessLockImpl:
                     with self.db_conn.cursor() as cur:
                         if blocking:
                             last_logged_s = 0
+                            max_wait = timeout_val if timeout_val > 0 else 60.0
                             while True:
                                 cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
                                 locked = cur.fetchone()[0]
@@ -175,11 +176,15 @@ class ProcessLockImpl:
                                     if elapsed > 1.0:
                                         logger.info(f"✅ [{self.lock_name.upper()}] Acquired Postgres lock after {elapsed:.1f}s wait")
                                     break
-                                if timeout_val > 0 and elapsed >= timeout_val:
-                                    logger.warning(f"❌ [{self.lock_name.upper()}] Lock acquisition timed out after {elapsed:.1f}s")
-                                    fcntl.flock(self.lock_fd, fcntl.LOCK_UN)
-                                    self.thread_lock.release()
-                                    return False
+                                if elapsed >= max_wait:
+                                    logger.warning(f"⚠️ [{self.lock_name.upper()}] Advisory lock wait timed out ({elapsed:.1f}s >= {max_wait}s). Clearing stale locks.")
+                                    try:
+                                        cur.execute("SELECT pg_advisory_unlock_all()")
+                                    except Exception:
+                                        pass
+                                    cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
+                                    locked = cur.fetchone()[0]
+                                    break
                                 if int(elapsed) >= last_logged_s + 15:
                                     last_logged_s = int(elapsed)
                                     logger.info(f"⏳ [{self.lock_name.upper()}] Lock busy — waiting for active scanner to release... (elapsed: {last_logged_s}s)")
