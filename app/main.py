@@ -2381,6 +2381,14 @@ def _trigger_wealth_exit():
 if __name__ == "__main__":
     forensics.take_snapshot("startup")
 
+    # 0. SINGLE-THREADED DB INIT — Run DDL migrations on main thread BEFORE worker threads start
+    try:
+        from database import init_db
+        init_db()
+        logger.info("✅ [BOOT] Single-threaded DB schema initialization complete.")
+    except Exception as _init_err:
+        logger.warning(f"⚠️ Single-threaded init_db warning: {_init_err}")
+
     # 1. START FLASK DASHBOARD SERVER IMMEDIATELY (0ms latency for health checks & Coolify)
     if "--worker" not in sys.argv:
         try:

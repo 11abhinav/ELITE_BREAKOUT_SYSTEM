@@ -1412,47 +1412,42 @@ def init_db():
                 """)
                 
                 # ---------------------------------------------------------------------
-                # SCHEMA MIGRATIONS (ADD COLUMN IF NOT EXISTS)
+                # SCHEMA MIGRATIONS (ADD COLUMN IF NOT EXISTS) — Isolated per-column commits
                 # ---------------------------------------------------------------------
-                try:
-                    cur.execute("SET LOCAL lock_timeout = '3s'")
-                    # users table
-                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(100);")
-                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(100);")
-                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS mobile VARCHAR(20);")
-                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'user';")
-                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS account_status VARCHAR(20) DEFAULT 'pending';")
-                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT FALSE;")
-                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE;")
-                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_attempts INT DEFAULT 0;")
-                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;")
-                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ;")
-                    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS session_token UUID;")
-                    
-                    # stock_analysis_master table
-                    cur.execute("ALTER TABLE stock_analysis_master ADD COLUMN IF NOT EXISTS cmp NUMERIC(12,2);")
-                    cur.execute("ALTER TABLE stock_analysis_master ADD COLUMN IF NOT EXISTS cmp_updated_at TIMESTAMPTZ;")
-                    
-                    # user_watchlists table
-                    cur.execute("ALTER TABLE user_watchlists ADD COLUMN IF NOT EXISTS last_deep_analysis_at TIMESTAMPTZ;")
-                    cur.execute("ALTER TABLE user_watchlists ADD COLUMN IF NOT EXISTS deep_analysis_result TEXT;")
-                    
-                    # watchlist (multibagger)
-                    cur.execute("ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS bucket TEXT;")
-                    cur.execute("ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS status TEXT;")
-                    cur.execute("ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS notes TEXT;")
-                    cur.execute("ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS last_alert_price NUMERIC;")
-                    cur.execute("ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS last_alert_at TIMESTAMPTZ;")
-                    cur.execute("ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS last_updated TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;")
-                except Exception as mig_err:
-                    logger.warning(f"⚠️ Schema migration failed (some columns may not be added): {mig_err}")
-                    # CRITICAL: if migration fails (e.g. deadlock), transaction is aborted.
-                    # Must rollback before running any more DDL, otherwise every subsequent
-                    # statement will fail with "InFailedSqlTransaction".
+                migrations = [
+                    ("users", "first_name VARCHAR(100)"),
+                    ("users", "last_name VARCHAR(100)"),
+                    ("users", "mobile VARCHAR(20)"),
+                    ("users", "role TEXT DEFAULT 'user'"),
+                    ("users", "account_status VARCHAR(20) DEFAULT 'pending'"),
+                    ("users", "is_active BOOLEAN DEFAULT FALSE"),
+                    ("users", "must_change_password BOOLEAN DEFAULT FALSE"),
+                    ("users", "failed_login_attempts INT DEFAULT 0"),
+                    ("users", "locked_until TIMESTAMPTZ"),
+                    ("users", "last_login TIMESTAMPTZ"),
+                    ("users", "session_token UUID"),
+                    ("stock_analysis_master", "cmp NUMERIC(12,2)"),
+                    ("stock_analysis_master", "cmp_updated_at TIMESTAMPTZ"),
+                    ("user_watchlists", "last_deep_analysis_at TIMESTAMPTZ"),
+                    ("user_watchlists", "deep_analysis_result TEXT"),
+                    ("watchlist", "bucket TEXT"),
+                    ("watchlist", "status TEXT"),
+                    ("watchlist", "notes TEXT"),
+                    ("watchlist", "last_alert_price NUMERIC"),
+                    ("watchlist", "last_alert_at TIMESTAMPTZ"),
+                    ("watchlist", "last_updated TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP"),
+                ]
+                for tbl, col_def in migrations:
                     try:
-                        conn.rollback()
-                    except Exception:
-                        pass
+                        with conn.cursor() as mig_cur:
+                            mig_cur.execute(f"ALTER TABLE {tbl} ADD COLUMN IF NOT EXISTS {col_def};")
+                        conn.commit()
+                    except Exception as _m_err:
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
+                        logger.debug(f"Column migration notice ({tbl}.{col_def}): {_m_err}")
 
                 # 39. Trade analytics view — wrapped in own try/except with lock_timeout
                 # to prevent this DDL from blocking on AccessExclusiveLock when other workers
