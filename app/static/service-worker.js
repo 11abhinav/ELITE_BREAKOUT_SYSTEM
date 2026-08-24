@@ -15,7 +15,7 @@
 // because the SW's fetch() lacked the browser's session cookies & auth context.
 // ============================================================
 
-const CACHE_NAME = 'elite-breakout-v11'; // v11: bypass non-GET API requests to preserve POST body
+const CACHE_NAME = 'elite-breakout-v12'; // v12: bypass non-API/data/static page routes (/admin, /wealth) to preserve session auth
 const STATIC_ASSETS = [
   '/static/manifest.json',
   '/static/icons/icon-192.png',
@@ -24,7 +24,7 @@ const STATIC_ASSETS = [
 
 // ── INSTALL ──────────────────────────────────────────────────
 self.addEventListener('install', event => {
-  console.log('[SW] v11 Installing...');
+  console.log('[SW] v12 Installing...');
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
       return cache.addAll(STATIC_ASSETS).catch(err => {
@@ -36,7 +36,7 @@ self.addEventListener('install', event => {
 
 // ── ACTIVATE: Purge all old caches ───────────────────────────
 self.addEventListener('activate', event => {
-  console.log('[SW] v11 Activating, purging old caches...');
+  console.log('[SW] v12 Activating, purging old caches...');
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
@@ -61,9 +61,10 @@ self.addEventListener('fetch', event => {
     return; // browser handles natively
   }
 
-  // ② Bypass: ALL navigation requests (page loads, back/forward, redirects)
-  //    These need the browser's full cookie/auth stack.
-  if (req.mode === 'navigate') {
+  // ② Bypass: ALL navigation & HTML page requests (page loads, /admin, /wealth, redirects)
+  //    These MUST be handled natively by the browser with full cookie/auth/session stack.
+  if (req.mode === 'navigate' || req.destination === 'document' ||
+      (!url.pathname.startsWith('/api/') && !url.pathname.startsWith('/data/') && !url.pathname.startsWith('/static/'))) {
     return; // browser handles natively
   }
 
@@ -99,8 +100,8 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // ⑦ Everything else → network-first, not cached
-  event.respondWith(networkFirstNoCache(req));
+  // ⑦ Fallback → browser handles natively
+  return;
 });
 
 
