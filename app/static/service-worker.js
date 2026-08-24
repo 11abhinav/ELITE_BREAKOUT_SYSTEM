@@ -1,20 +1,30 @@
 // ============================================================
-// Elite Breakout System — Service Worker
-// Provides: offline caching, background sync, push notifications
+// Elite Breakout System — Service Worker v9
+// ──────────────────────────────────────────────────────────
+// Rules (in priority order):
+//   1. SSE / EventSource streams         → bypass (browser handles)
+//   2. Navigation (page loads/redirects) → bypass (browser handles with cookies & auth)
+//   3. Third-party non-CDN origins       → bypass (browser handles)
+//   4. /api/* and /data/*                → network-first, 45s timeout, never cached
+//   5. /static/* + approved CDNs         → cache-first (icons, fonts, chart.js)
+//   6. Everything else                   → network-first, never cached
+//
+// KEY FIX v9: Navigation requests are NEVER intercepted by the service worker.
+// Intercepting `mode === 'navigate'` caused Chrome to log:
+//   "[SW] Network request failed: https://elitebreakout.duckdns.org/wealth"
+// because the SW's fetch() lacked the browser's session cookies & auth context.
 // ============================================================
 
-const CACHE_NAME = 'elite-breakout-v8-sw-timeout-fix'; // bumped: 45s timeout + 3rd-party origin bypass
+const CACHE_NAME = 'elite-breakout-v9';
 const STATIC_ASSETS = [
   '/static/manifest.json',
   '/static/icons/icon-192.png',
   '/static/icons/icon-512.png',
-  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap',
-  'https://cdn.jsdelivr.net/npm/chart.js',
 ];
 
-// ── INSTALL: Cache ONLY static assets (manifest, icons, fonts) ──
+// ── INSTALL ──────────────────────────────────────────────────
 self.addEventListener('install', event => {
-  console.log('[SW] Installing service worker v8...');
+  console.log('[SW] v9 Installing...');
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
       return cache.addAll(STATIC_ASSETS).catch(err => {
@@ -24,140 +34,92 @@ self.addEventListener('install', event => {
   );
 });
 
-// ── ACTIVATE: Clean ALL old caches & evict stale HTML entries ──
+// ── ACTIVATE: Purge all old caches ───────────────────────────
 self.addEventListener('activate', event => {
-  console.log('[SW] Activating service worker v8 & purging old caches...');
+  console.log('[SW] v9 Activating, purging old caches...');
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
         keys.map(k => {
           if (k !== CACHE_NAME) {
-            console.log('[SW] Deleting legacy cache:', k);
+            console.log('[SW] Deleting old cache:', k);
             return caches.delete(k);
           }
         })
       )
-    ).then(() => {
-      // Clean out any stale HTML page or API entries from current cache
-      return caches.open(CACHE_NAME).then(cache => {
-        return cache.keys().then(requests => {
-          return Promise.all(
-            requests.map(req => {
-              const u = req.url.toLowerCase();
-              if (u.includes('/admin') || u.includes('/wealth') || u.endsWith('/') || u.includes('/login') || u.includes('/api/')) {
-                console.log('[SW] Evicting stale document/API entry:', req.url);
-                return cache.delete(req);
-              }
-            })
-          );
-        });
-      });
-    }).then(() => self.clients.claim())
+    ).then(() => self.clients.claim())
   );
 });
 
-// ── FETCH: Network-first for dynamic content, cache for static ──
+// ── FETCH: Strict bypass / routing rules ─────────────────────
 self.addEventListener('fetch', event => {
-  const url = new URL(event.request.url);
+  const req = event.request;
+  const url = new URL(req.url);
 
-  // Streaming endpoints (SSE / EventSource) MUST bypass service worker caching & timeouts
-  if (url.pathname.includes('/stream/') || event.request.headers.get('accept')?.includes('text/event-stream')) {
-    return; // Let browser handle EventSource native connection
+  // ① Bypass: SSE / EventSource streams
+  if (url.pathname.includes('/stream/') || req.headers.get('accept')?.includes('text/event-stream')) {
+    return; // no event.respondWith → browser handles natively
   }
 
-  // Non-origin third-party requests (e.g., actions.google.com sounds, external APIs) — let browser handle natively
+  // ② Bypass: ALL navigation requests (page loads, back/forward, redirects)
+  //    These need the browser's full cookie/auth stack.
+  //    Intercepting them causes the "[SW] Network request failed" error.
+  if (req.mode === 'navigate') {
+    return; // no event.respondWith → browser handles natively
+  }
+
+  // ③ Bypass: third-party origins (except approved CDNs)
   if (url.origin !== self.location.origin &&
       !url.hostname.includes('fonts.googleapis.com') &&
+      !url.hostname.includes('fonts.gstatic.com') &&
       !url.hostname.includes('cdn.jsdelivr.net')) {
+    return; // browser handles natively
+  }
+
+  // ④ API & data → network-first, 45s timeout, never cached
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/data/')) {
+    event.respondWith(networkFirstNoCache(req));
     return;
   }
 
-  // ALWAYS go network-first for API calls and authenticated pages
-  // Never serve stale HTML trading pages or API data — freshness is critical
-  if (url.pathname.startsWith('/api/') ||
-      url.pathname.startsWith('/data/') ||
-      url.pathname === '/' ||
-      url.pathname === '/admin' ||
-      url.pathname === '/wealth' ||
-      url.pathname === '/login' ||
-      event.request.mode === 'navigate') {
-    event.respondWith(networkFirstNoHtmlCache(event.request));
-    return;
-  }
-
-  // Cache-first ONLY for static assets (fonts, icons, scripts)
+  // ⑤ Static assets & CDNs → cache-first
   if (url.pathname.startsWith('/static/') ||
       url.hostname.includes('fonts.googleapis.com') ||
+      url.hostname.includes('fonts.gstatic.com') ||
       url.hostname.includes('cdn.jsdelivr.net')) {
-    event.respondWith(cacheFirst(event.request));
+    event.respondWith(cacheFirst(req));
     return;
   }
 
-  // Default: network first without HTML/API caching
-  event.respondWith(networkFirstNoHtmlCache(event.request));
+  // ⑥ Everything else → network-first, not cached
+  event.respondWith(networkFirstNoCache(req));
 });
 
-async function networkFirstNoHtmlCache(request) {
-  const isApiRequest = request.url.includes('/api/') || request.url.includes('/data/');
-  const isHtmlRequest = request.mode === 'navigate' ||
-                        request.headers.get('accept')?.includes('text/html') ||
-                        request.url.includes('/admin') ||
-                        request.url.includes('/wealth') ||
-                        request.url.endsWith('/') ||
-                        request.url.includes('/login');
-
+// ── Network-first: 45s timeout, never caches ─────────────────
+async function networkFirstNoCache(request) {
   try {
-    let networkResponse;
-    if (request.mode === 'navigate') {
-      // Navigation requests MUST use native fetch(request) to preserve browser credentials & navigation context
-      networkResponse = await fetch(request);
-    } else {
-      // API / Data requests use AbortController with 45s timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 45000);
-      networkResponse = await fetch(request.url, {
-        method: request.method,
-        headers: request.headers,
-        credentials: 'same-origin',
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-    }
-
-    // NEVER cache HTML pages or API responses in CacheStorage
-    if (!isHtmlRequest && !isApiRequest && request.method === 'GET' && networkResponse && networkResponse.ok && request.url.startsWith('http')) {
-      const cache = await caches.open(CACHE_NAME);
-      cache.put(request, networkResponse.clone());
-    }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45000);
+    const networkResponse = await fetch(request.url, {
+      method: request.method,
+      headers: request.headers,
+      credentials: 'same-origin',
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
     return networkResponse;
   } catch (err) {
-    if (isHtmlRequest) {
-      // Retry native fetch before serving offline page
-      try {
-        const retryResp = await fetch(request);
-        if (retryResp) return retryResp;
-      } catch (_e) {}
-
-      return new Response(offlineHTML(), {
-        headers: { 'Content-Type': 'text/html' }
-      });
-    }
-
     if (err.name !== 'AbortError') {
-      console.warn('[SW] Network request failed:', request.url);
+      console.warn('[SW] API request failed (offline?):', request.url);
     }
-
-    const cached = await caches.match(request);
-    if (cached) {
-      return cached;
-    }
-    return new Response(JSON.stringify({ status: "offline", message: "Request unavailable" }), {
-      status: 200,
+    return new Response(JSON.stringify({ status: 'offline', message: 'Network unavailable' }), {
+      status: 503,
       headers: { 'Content-Type': 'application/json' }
     });
   }
 }
 
+// ── Cache-first: for static assets with network fallback ──────
 async function cacheFirst(request) {
   const cached = await caches.match(request);
   if (cached) return cached;
@@ -210,6 +172,7 @@ self.addEventListener('push', event => {
   );
 });
 
+// ── NOTIFICATION CLICK ────────────────────────────────────────
 self.addEventListener('notificationclick', event => {
   event.notification.close();
 
@@ -219,8 +182,6 @@ self.addEventListener('notificationclick', event => {
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
-      // [BUG FIX] Don't use client.url.includes(self.location.origin) — it's unreliable on iOS PWA.
-      // Instead: try to focus any existing visible window, then navigate it, else open new window.
       for (const client of clientList) {
         if ('focus' in client) {
           return client.focus().then(c => c.navigate(targetUrl)).catch(() => {
@@ -232,41 +193,3 @@ self.addEventListener('notificationclick', event => {
     })
   );
 });
-
-// ── OFFLINE PAGE ─────────────────────────────────────────────
-function offlineHTML() {
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Elite Breakout — Offline</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background: #0b0e14; color: #e8eaf0;
-      font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
-      display: flex; flex-direction: column;
-      align-items: center; justify-content: center;
-      min-height: 100vh; padding: 24px; text-align: center;
-    }
-    .icon { font-size: 64px; margin-bottom: 24px; }
-    h1 { font-size: 24px; font-weight: 700; color: #00e5a0; margin-bottom: 12px; }
-    p { font-size: 15px; color: #94a3b8; max-width: 320px; line-height: 1.6; margin-bottom: 24px; }
-    button {
-      background: #00e5a0; color: #0b0e14; border: none;
-      padding: 14px 32px; border-radius: 12px; font-size: 15px;
-      font-weight: 700; cursor: pointer;
-    }
-    .last-data { font-size: 12px; color: #4b5563; margin-top: 20px; }
-  </style>
-</head>
-<body>
-  <div class="icon">📡</div>
-  <h1>You're Offline</h1>
-  <p>Elite Breakout needs an internet connection to show live scanner data and alerts.</p>
-  <button onclick="window.location.reload()">Try Again</button>
-  <div class="last-data">Last cached data may still be available after reconnecting.</div>
-</body>
-</html>`;
-}
