@@ -1410,7 +1410,7 @@ def run_system_scheduler():
         verify_scans(run_test_scans=False)
     else:
         logger.info("🌙 Startup during NON-MARKET HOURS — Executing single catch-up pass of ALL SEVEN SCANNERS...")
-        verify_scans(run_test_scans=True)
+        verify_scans(run_test_scans=False)  # User requested to remove test scans
         run_all_seven_scanners_non_market_boot()
         try:
             from telemetry_manager import telemetry
@@ -2417,17 +2417,9 @@ if __name__ == "__main__":
         except Exception as _sch_err:
             logger.error(f"❌ Failed to launch system scheduler thread: {_sch_err}")
 
-        # NON-MARKET HOURS CATCH-UP SCANNER RUN
-        try:
-            now_dt = datetime.now(ZoneInfo('Asia/Kolkata'))
-            now_time = now_dt.time()
-            mkt_start = datetime.strptime("09:15", "%H:%M").time()
-            mkt_end = datetime.strptime("15:30", "%H:%M").time()
-            if now_time < mkt_start or now_time > mkt_end or now_dt.weekday() in (5, 6):
-                logger.info(f"🌙 [NON-MARKET BOOT] Server boot detected at {now_dt.strftime('%H:%M:%S IST')} (Outside Market Hours). Triggering catch-up scan pass across all scanners...")
-                run_all_seven_scanners_non_market_boot()
-        except Exception as _nm_err:
-            logger.warning(f"⚠️ Non-market hours boot scan trigger warning: {_nm_err}")
+        # NON-MARKET HOURS CATCH-UP is handled entirely by the SystemScheduler thread
+        # to prevent concurrent executions.
+
 
         # WATCHDOG THREAD
         watchdog_thread = threading.Thread(target=run_watchdog, name="Watchdog", daemon=True)

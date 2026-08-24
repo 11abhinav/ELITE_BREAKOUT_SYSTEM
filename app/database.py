@@ -1415,6 +1415,7 @@ def init_db():
                 # SCHEMA MIGRATIONS (ADD COLUMN IF NOT EXISTS)
                 # ---------------------------------------------------------------------
                 try:
+                    cur.execute("SET LOCAL lock_timeout = '3s'")
                     # users table
                     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(100);")
                     cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(100);")
