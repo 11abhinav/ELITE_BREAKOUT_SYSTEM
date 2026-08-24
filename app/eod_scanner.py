@@ -395,6 +395,10 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
         ticker.columns = ticker.columns.get_level_values(0)
     ticker = ticker.loc[:, ~ticker.columns.duplicated()]
 
+    rename_map = {c: str(c).capitalize() for c in ticker.columns if str(c).lower() in ['open', 'high', 'low', 'close', 'volume']}
+    if rename_map:
+        ticker = ticker.rename(columns=rename_map)
+
     required_cols = ["Open", "High", "Low", "Close", "Volume"]
     for col in required_cols:
         if col not in ticker.columns:

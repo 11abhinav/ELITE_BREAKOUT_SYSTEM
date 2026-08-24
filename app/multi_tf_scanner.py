@@ -58,7 +58,7 @@ def _safe_float(val, default=0.0):
     except Exception:
         return default
 
-def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = None, pre_fetched_h1_df: pd.DataFrame = None, allow_live_fetch: bool = True) -> dict:
+def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = None, pre_fetched_h1_df: pd.DataFrame = None, allow_live_fetch: bool = True, fund_data: dict = None, **kwargs) -> dict:
     """
     Evaluates a single symbol against the production Multi-TF Intraday scanner rules.
     Attempts to fetch true 1H intraday data for Phase A trend permission verification when daily bars are supplied.

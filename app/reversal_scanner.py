@@ -261,7 +261,7 @@ def _is_finite(value: object) -> bool:
         return False
 
 def _latest_bar_timestamp(df: pd.DataFrame) -> Optional[pd.Timestamp]:
-    for column in ("Datetime", "Date", "Timestamp"):
+    for column in ("Datetime", "Date", "Timestamp", "datetime", "date", "timestamp"):
         if column in df.columns:
             values = pd.to_datetime(df[column], errors="coerce")
             if values.notna().any():

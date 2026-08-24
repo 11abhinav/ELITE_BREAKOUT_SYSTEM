@@ -79,10 +79,14 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
     Evaluates a single symbol against the production Multibagger V5 scanner rules.
     Runs full V5 composite scoring, quality/valuation/trend gates, Piotroski & promoter pledge checks, conviction tier classification, and target calculations without side effects.
     """
-    if df is None or df.empty or len(df) < 200:
+    if isinstance(df, dict) and fund_data is None:
+        fund_data = df
+        df = None
+
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty or len(df) < 200:
         return {
             "status": "NO",
-            "reasons": [f"Insufficient history: requires 200 bars, got {len(df) if df is not None else 0}"],
+            "reasons": [f"Insufficient history: requires 200 bars, got {len(df) if isinstance(df, pd.DataFrame) else 0}"],
             "score": 0.0,
             "qualified": False
         }

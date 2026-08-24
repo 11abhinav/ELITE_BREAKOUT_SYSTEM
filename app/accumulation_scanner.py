@@ -182,9 +182,9 @@ class AccumulationScanner:
         self,
         symbol: str,
         df: pd.DataFrame,
-        fund_data: Optional[Dict[str, Any]],
-        nifty_20d_ret: float,
-        run_id: str
+        fund_data: Optional[Dict[str, Any]] = None,
+        nifty_20d_ret: float = 0.0,
+        run_id: str = "default_run"
     ) -> Dict[str, Any]:
         """Evaluates single symbol against accumulation rules and SL/Target engine."""
         telemetry = AccumulationTelemetryContext(run_id=run_id, symbol=symbol)
