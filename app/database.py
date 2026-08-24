@@ -3940,7 +3940,7 @@ def deposit_funds(amount: float) -> float:
                 raise
 
 def get_capital_info() -> dict:
-    """Returns {base_capital, total_deposited, total_capital}. Initializes base capital if empty."""
+    """Returns total capital, deployed capital in open trades, available cash, and deposit metrics."""
     init_db()
     with get_connection() as conn:
         with conn.cursor() as cur:
@@ -3978,14 +3978,41 @@ def get_capital_info() -> dict:
                 row3 = cur.fetchone()
                 total = float((row3[0] if row3 else 0.0) or 0.0)
                 
+                # Get capital allocated to active open trades
+                cur.execute("""
+                    SELECT COALESCE(SUM(COALESCE(capital_allocated, COALESCE(shares_bought, 1) * COALESCE(entry_price, 0))), 0),
+                           COUNT(*)
+                    FROM alerts
+                    WHERE status IN ('OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING')
+                       OR status NOT IN ('WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED')
+                """)
+                row4 = cur.fetchone()
+                allocated = float((row4[0] if row4 else 0.0) or 0.0)
+                open_count = int((row4[1] if row4 else 0) or 0)
+                
+                available_cash = max(0.0, total - allocated)
+                used_pct = round((allocated / total * 100), 1) if total > 0 else 0.0
+                
                 return {
                     "base_capital": base,
                     "total_deposited": deposited,
-                    "total_capital": total
+                    "total_capital": total,
+                    "allocated_capital": allocated,
+                    "available_cash": available_cash,
+                    "used_pct": used_pct,
+                    "open_trades_count": open_count
                 }
             except Exception:
                 logger.exception("❌ get_capital_info failed")
-                return {"base_capital": 500000, "total_deposited": 0, "total_capital": 500000}
+                return {
+                    "base_capital": 500000.0,
+                    "total_deposited": 0.0,
+                    "total_capital": 500000.0,
+                    "allocated_capital": 0.0,
+                    "available_cash": 500000.0,
+                    "used_pct": 0.0,
+                    "open_trades_count": 0
+                }
 
 def get_all_data_fetch_health() -> list:
     """Return all rows from data_fetch_health as list of dicts."""

@@ -1669,7 +1669,8 @@ function updateSim() {
   let totalNet = currentEquity - cap;
 
   let totalFloating = 0;
-  let openTrades = ALL_TRADES.filter(t => t.status === 'OPEN');
+  const openStatuses = ['OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING'];
+  let openTrades = ALL_TRADES.filter(t => openStatuses.includes(t.status) || !['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED'].includes(t.status));
   openTrades.forEach(t => {
     if (t.current_price == null || t.current_price === 0) return;
     let allocPct = (t.score >= 90) ? 0.15 : 0.10;
@@ -1731,9 +1732,8 @@ function updateSim() {
   // Calculate Available Cash (Total Equity - Deployed Capital)
   let deployedCapital = 0;
   openTrades.forEach(t => {
-      if (t.entry_price && t.shares_bought) {
-          deployedCapital += t.entry_price * t.shares_bought;
-      }
+      let capAlloc = t.capital_allocated || (t.entry_price && t.shares_bought ? t.entry_price * t.shares_bought : 50000);
+      deployedCapital += capAlloc;
   });
   let totalEquity = cap + realBookedPnl + realOpenPnl;
   let availableCash = Math.max(0, totalEquity - deployedCapital);
