@@ -1026,13 +1026,13 @@
     }
   });
 
-  // ── PWA: Minimal Service Worker Registration for Install Prompts ──
+  // ── PWA: Service Worker Registration & Self-Healing ──
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
         .then(reg => {
           console.log('[PWA] Service worker registered (Install prompt ready)');
-          reg.update();
+          reg.update().catch(() => {});
         })
         .catch(err => console.error('[PWA] SW registration failed:', err));
 
@@ -1045,6 +1045,18 @@
       });
     });
   }
+
+  // Self-Healing: Purge stuck legacy SWs on fetch errors
+  window.addEventListener('error', function(e) {
+    if (e && e.message && (e.message.includes('503') || e.message.includes('502')) && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        regs.forEach(r => r.unregister());
+      });
+      if ('caches' in window) {
+        caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
+      }
+    }
+  }, true);
 </script>
 </body>
 </html>
