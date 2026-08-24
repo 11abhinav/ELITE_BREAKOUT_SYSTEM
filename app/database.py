@@ -5354,8 +5354,11 @@ def close_position(symbol: str, exit_price: float, exit_signal: str = None, forc
                         pnl_pct = (pnl_rs / entry_price * 100) if entry_price else 0
                         
                         now = datetime.now(IST)
-                        exit_date = now.strftime('%Y-%m-%d')
-                        exit_time = now.strftime('%H:%M:%S')
+                        # RCA: exit_time column is TIMESTAMPTZ. Passing a time-only string
+                        # (e.g. '10:34:05') causes InvalidDatetimeFormat in PostgreSQL.
+                        # Pass the full timezone-aware datetime; psycopg2 adapts it correctly.
+                        exit_date = now.date()
+                        exit_time = now
                         
                         # Update position as closed
                         cur.execute("""
@@ -5400,8 +5403,8 @@ def close_position_atomic(symbol: str, exit_price: float, exit_reason: str, posi
                         updated = cur.rowcount >= 1
                     else:
                         now = datetime.now(IST)
-                        exit_date = now.strftime('%Y-%m-%d')
-                        exit_time = now.strftime('%H:%M:%S')
+                        exit_date = now.date()
+                        exit_time = now
 
                         # Determine PnL outcome (WIN vs LOSS)
                         cur.execute("""
