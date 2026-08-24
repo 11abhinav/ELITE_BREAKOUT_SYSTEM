@@ -1005,6 +1005,7 @@ def run_all_seven_scanners_non_market_boot():
             logger.warning(f"⚠️ [NON-MARKET BOOT] Watchlist readiness check warning: {e}")
 
         all_scanners = [
+            ("DAILY_BUILDER", _trigger_daily_builder),
             ("MULTI_TF", _trigger_multi_tf),
             ("ACCUMULATION", _trigger_accumulation),
             ("EOD", _trigger_eod),
@@ -2226,24 +2227,25 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     return {"status": "ok", "message": f"{scanner_key} triggered — running in background"}
 
 
-def _trigger_daily_builder(trigger_type="MANUAL", scheduler_name="MANUAL"):
+def _trigger_daily_builder(force_rebuild: bool = False, trigger_type="MANUAL", scheduler_name="MANUAL"):
     import os
     import json
-    try:
-        from database import save_system_state
-        save_system_state("daily_builder_checkpoint", json.dumps({}))
-        if os.path.exists("data/temp_universe.parquet"):
-            os.remove("data/temp_universe.parquet")
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"Could not clear daily builder checkpoint: {e}")
+    if force_rebuild:
+        try:
+            from database import save_system_state
+            save_system_state("daily_builder_checkpoint", json.dumps({}))
+            if os.path.exists("data/temp_universe.parquet"):
+                os.remove("data/temp_universe.parquet")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Could not clear daily builder checkpoint: {e}")
         
     from daily_builder import main as build_watchlist
     from database import start_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health
     upsert_scanner_health("DAILY_BUILDER", status="RUNNING", error_msg="Building watchlist...")
     run_ctx = start_scanner_execution_run(scanner_name="DAILY_BUILDER", trigger_type=trigger_type, scheduler_name=scheduler_name)
     try:
-        build_watchlist(force_rebuild=True, run_ctx=run_ctx)
+        build_watchlist(force_rebuild=force_rebuild, run_ctx=run_ctx, trigger_type=trigger_type, scheduler_name=scheduler_name)
         from watchlist_cache import get_watchlist
         get_watchlist()
         if run_ctx:

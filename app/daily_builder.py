@@ -1127,13 +1127,13 @@ def main(force_rebuild: bool = False, run_ctx=None, trigger_type="SCHEDULED", sc
     if not _global_lock.acquire(blocking=False, owner_scanner="DAILY_BUILDER", operation="FULL_SCAN"):
         queued_at = time.monotonic()
         logger.info("⏳ [DAILY_BUILDER] Global scanner lock busy — marking QUEUED and waiting in queue...")
-        if created_ctx and run_ctx:
+        if run_ctx:
             from database import update_scanner_run_lifecycle
             update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
         upsert_scanner_health("DAILY_BUILDER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
         if not _global_lock.acquire(blocking=True, owner_scanner="DAILY_BUILDER", operation="FULL_SCAN"):
             raise RuntimeError("Failed to acquire global scanner lock.")
-        if created_ctx and run_ctx:
+        if run_ctx:
             from database import update_scanner_run_lifecycle
             update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
         logger.info(f"✅ [DAILY_BUILDER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
@@ -1189,7 +1189,7 @@ def main(force_rebuild: bool = False, run_ctx=None, trigger_type="SCHEDULED", sc
             pass
         _build_lock.release()
         _global_lock.release()
-        if run_ctx and not created_ctx:
+        if run_ctx:
             try:
                 from database import complete_scanner_execution_run
                 complete_scanner_execution_run(run_ctx)
