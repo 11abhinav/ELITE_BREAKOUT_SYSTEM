@@ -3,7 +3,7 @@
 // Provides: offline caching, background sync, push notifications
 // ============================================================
 
-const CACHE_NAME = 'elite-breakout-v7-no-api-cache'; // bumped: zero API cache + purge stale caches
+const CACHE_NAME = 'elite-breakout-v8-sw-timeout-fix'; // bumped: 45s timeout + 3rd-party origin bypass
 const STATIC_ASSETS = [
   '/static/manifest.json',
   '/static/icons/icon-192.png',
@@ -14,7 +14,7 @@ const STATIC_ASSETS = [
 
 // ── INSTALL: Cache ONLY static assets (manifest, icons, fonts) ──
 self.addEventListener('install', event => {
-  console.log('[SW] Installing service worker v7...');
+  console.log('[SW] Installing service worker v8...');
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
       return cache.addAll(STATIC_ASSETS).catch(err => {
@@ -26,7 +26,7 @@ self.addEventListener('install', event => {
 
 // ── ACTIVATE: Clean ALL old caches & evict stale HTML entries ──
 self.addEventListener('activate', event => {
-  console.log('[SW] Activating service worker v7 & purging old caches...');
+  console.log('[SW] Activating service worker v8 & purging old caches...');
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
@@ -65,6 +65,13 @@ self.addEventListener('fetch', event => {
     return; // Let browser handle EventSource native connection
   }
 
+  // Non-origin third-party requests (e.g., actions.google.com sounds, external APIs) — let browser handle natively
+  if (url.origin !== self.location.origin &&
+      !url.hostname.includes('fonts.googleapis.com') &&
+      !url.hostname.includes('cdn.jsdelivr.net')) {
+    return;
+  }
+
   // ALWAYS go network-first for API calls and authenticated pages
   // Never serve stale HTML trading pages or API data — freshness is critical
   if (url.pathname.startsWith('/api/') ||
@@ -100,8 +107,9 @@ async function networkFirstNoHtmlCache(request) {
                         request.url.includes('/login');
 
   try {
+    // 45-second timeout for network requests (accommodates slow 3G/4G connections & heavy JSON data)
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const timeoutId = setTimeout(() => controller.abort(), 45000);
     const networkResponse = await fetch(request, { signal: controller.signal });
     clearTimeout(timeoutId);
 
@@ -112,7 +120,9 @@ async function networkFirstNoHtmlCache(request) {
     }
     return networkResponse;
   } catch (err) {
-    console.warn('[SW] Network request failed or timed out:', request.url);
+    if (err.name !== 'AbortError') {
+      console.warn('[SW] Network request failed:', request.url);
+    }
     if (isHtmlRequest) {
       return new Response(offlineHTML(), {
         headers: { 'Content-Type': 'text/html' }
