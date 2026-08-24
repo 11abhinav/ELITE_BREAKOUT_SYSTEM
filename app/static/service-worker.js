@@ -3,7 +3,7 @@
 // Provides: offline caching, background sync, push notifications
 // ============================================================
 
-const CACHE_NAME = 'elite-breakout-v5-no-html-cache'; // bumped: purge stale HTML caches completely
+const CACHE_NAME = 'elite-breakout-v6-stream-bypass'; // bumped: stream SSE bypass + purge stale caches
 const STATIC_ASSETS = [
   '/static/manifest.json',
   '/static/icons/icon-192.png',
@@ -59,6 +59,11 @@ self.addEventListener('activate', event => {
 // ── FETCH: Network-first for dynamic content, cache for static ──
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
+
+  // Streaming endpoints (SSE / EventSource) MUST bypass service worker caching & timeouts
+  if (url.pathname.includes('/stream/') || event.request.headers.get('accept')?.includes('text/event-stream')) {
+    return; // Let browser handle EventSource native connection
+  }
 
   // ALWAYS go network-first for API calls and authenticated pages
   // Never serve stale HTML trading pages — freshness is critical
