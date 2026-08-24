@@ -972,6 +972,7 @@ def api_get_near_misses():
 
         try:
             rows = decorate_events(rows)
+            # Cache disabled: removed cache check
         except Exception as _ce_err:
             pass
 
@@ -981,21 +982,17 @@ def api_get_near_misses():
         return jsonify([])
 
 
-def invalidate_performance_cache():
-    global _PERFORMANCE_JSON_CACHE
-    _PERFORMANCE_JSON_CACHE = {"ts": 0.0, "payload": None}
+# Cache removal: invalidate_performance_cache function removed
 
 @app.route("/data/performance_data.json")
 @login_required
 def performance_json():
     """Serve the latest performance JSON for the dashboard to fetch, loaded from DB with 10s memory cache."""
-    global _PERFORMANCE_JSON_CACHE
+    # Cache variable removed; no global needed
     now_ts = time.time()
     force_rebuild = request.args.get("rebuild", "").lower() == "true"
     
-    if not force_rebuild and _PERFORMANCE_JSON_CACHE["payload"] is not None and (now_ts - _PERFORMANCE_JSON_CACHE["ts"]) < 30.0:
-        return Response(_PERFORMANCE_JSON_CACHE["payload"], mimetype="application/json")
-
+    # Cache disabled: removed cache check
     try:
         from database import get_system_state, get_all_alerts
         val = get_system_state("performance_data") if not force_rebuild else None
@@ -1024,7 +1021,7 @@ def performance_json():
             try:
                 parsed_val = json.loads(val) if isinstance(val, str) else val
                 if isinstance(parsed_val, dict) and len(parsed_val.get("trades", [])) > 0:
-                    _PERFORMANCE_JSON_CACHE = {"ts": now_ts, "payload": val}
+                    # Cache disabled: not storing
                     return Response(val, mimetype="application/json")
             except Exception:
                 pass
@@ -3082,6 +3079,7 @@ def api_scanner_execution_history():
         )
         payload = json.dumps(serialize_datetimes(res))
         if query_key == "ALL_ALL_1":
+            # Cache disabled: not storing
             _EXEC_HIST_CACHE = {"ts": now_ts, "payload": payload, "query": query_key}
         return Response(payload, mimetype="application/json")
     except Exception as e:

@@ -1731,16 +1731,45 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                             logger.warning(f"⚠️ [EXIT MONITOR] {symbol}: Incomplete data ({inv_msg}) — flagging as SELL_REVIEW (keeping position OPEN)")
                             if not is_test_mode:
                                 _persist_sell_review(alert_id, f"SELL_REVIEW: Incomplete Data ({inv_msg})")
-                                try:
-                                    from database import insert_notification
-                                    insert_notification("admin", f"⚠️ [SELL REVIEW] {symbol}: Incomplete Data", f"Multibagger position {symbol} flagged for Sell Review due to incomplete data: {inv_msg}. Position kept OPEN.")
-                                except Exception as _notif_err:
-                                    logger.warning(f"Could not insert admin notification for {symbol}: {_notif_err}")
-                                try:
-                                    from telegram_engine import queue_telegram_message
-                                    queue_telegram_message(f"⚠️ <b>[SELL REVIEW] {symbol}</b>\nExit evaluation deferred due to incomplete data: <i>{inv_msg}</i>.\nPosition remains OPEN under review.", symbol=symbol)
-                                except Exception as _tg_err:
-                                    logger.warning(f"Could not queue Telegram sell review message for {symbol}: {_tg_err}")
+                                
+                                # Use atomic throttling for admin notifications
+                                def _should_notify_sell_review(sym: str) -> bool:
+                                    try:
+                                        from database import get_connection
+                                        from datetime import datetime
+                                        today_str = datetime.now(IST).strftime("%Y-%m-%d")
+                                        key = f"sell_review_notif_{sym}"
+                                        with get_connection() as conn:
+                                            with conn.cursor() as cur:
+                                                cur.execute("""
+                                                    INSERT INTO system_state (key, value) 
+                                                    VALUES (%s, %s) 
+                                                    ON CONFLICT (key) DO UPDATE 
+                                                    SET value = EXCLUDED.value 
+                                                    WHERE system_state.value != EXCLUDED.value
+                                                    RETURNING value
+                                                """, (key, today_str))
+                                                row = cur.fetchone()
+                                                # If row is returned, it means the insert/update was successful -> first time today
+                                                if not row:
+                                                    return False
+                                            conn.commit()
+                                        return True
+                                    except Exception as _th_err:
+                                        logger.warning(f"Throttle check failed: {_th_err}")
+                                        return True
+
+                                if _should_notify_sell_review(symbol):
+                                    try:
+                                        from database import insert_notification
+                                        insert_notification("admin", f"⚠️ [SELL REVIEW] {symbol}: Incomplete Data", f"Multibagger position {symbol} flagged for Sell Review due to incomplete data: {inv_msg}. Position kept OPEN. We are looking into this.")
+                                    except Exception as _notif_err:
+                                        logger.warning(f"Could not insert admin notification for {symbol}: {_notif_err}")
+                                    try:
+                                        from telegram_engine import queue_telegram_message
+                                        queue_telegram_message(f"⚠️ <b>[SELL REVIEW] {symbol}</b>\nExit evaluation deferred due to incomplete data: <i>{inv_msg}</i>.\nPosition remains OPEN under review.", symbol=symbol)
+                                    except Exception as _tg_err:
+                                        logger.warning(f"Could not queue Telegram sell review message for {symbol}: {_tg_err}")
                         # Check CQS score decay (< 55)
                         elif cqs is not None and cqs < 55.0:
                             exit_triggered = True
@@ -2040,29 +2069,20 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     stage_tracker.start_stage(2, "Fundamentals DB Cache Validation & Fetch", f"Target: {len(shortlist)} stocks")
     fundamentals_list = []
 
-    # Check if any shortlisted stocks are missing from cache. If so, run instant TradingView bulk fetch (<3s)
-    missing_shortlist_syms = [p.symbol for p in shortlist if not get_cached_fundamentals(p.symbol, cache)]
+    def _is_fully_hydrated_v5(payload: dict) -> bool:
+        if not payload:
+            return False
+        # The cache entry must have these keys populated to be considered a fully hydrated V5 payload
+        required_keys = ['total_equity', 'market_cap', 'data_freshness', 'revenue_cagr_3y']
+        for k in required_keys:
+            if k not in payload:
+                return False
+        return True
+
+    # Check if any shortlisted stocks are missing or incomplete from cache
+    missing_shortlist_syms = [p.symbol for p in shortlist if not _is_fully_hydrated_v5(get_cached_fundamentals(p.symbol, cache))]
     if missing_shortlist_syms:
-        logger.info(f"⚡ [MULTIBAGGER BULK ENRICHMENT] {len(missing_shortlist_syms)}/{len(shortlist)} stocks missing from cache. Running TradingView bulk fetch for entire universe (<3s)...")
-        try:
-            from fundamentals_cache import fetch_tradingview_fundamentals_bulk
-            tv_data = fetch_tradingview_fundamentals_bulk()
-            if tv_data:
-                enriched_count = 0
-                for sym_name, tv_entry in tv_data.items():
-                    clean_s = sym_name.strip().upper()
-                    variants = [clean_s, clean_s.replace("&", "_"), clean_s.replace("-", "_"), clean_s.replace("_", "&"), clean_s.replace("_", "-")]
-                    for v in variants:
-                        if v not in cache:
-                            tv_c = dict(tv_entry)
-                            tv_c["symbol"] = v
-                            cache[v] = tv_c
-                            enriched_count += 1
-                if enriched_count > 0:
-                    logger.info(f"✅ [MULTIBAGGER BULK ENRICHMENT] Saved all {len(cache)} market universe symbols to DB cache.")
-                    save_fundamentals_cache(cache, sync_to_db=True)
-        except Exception as _tv_err:
-            logger.warning(f"⚠️ TradingView bulk enrichment failed: {_tv_err}")
+        logger.info(f"⚡ [MULTIBAGGER BULK ENRICHMENT] {len(missing_shortlist_syms)} stocks missing or incomplete from cache. Let them fall through to full YFinance hydration...")
     
     with ThreadPoolExecutor(max_workers=6) as executor:
         futures = {}
@@ -2070,7 +2090,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         for p in shortlist:
             sym = p.symbol
             cached = get_cached_fundamentals(sym, cache)
-            if cached:
+            if cached and _is_fully_hydrated_v5(cached):
                 cached_count += 1
                 fundamentals_list.append(cached)
             else:

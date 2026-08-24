@@ -971,8 +971,8 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
             h = get_scanner_health("Wealth Engine")
             if h and (h.get("status", "").startswith("QUEUED") or h.get("status") == "RUNNING"):
                 upsert_scanner_health("Wealth Engine", status="OK", error_msg=None)
-        except Exception:
-            pass
+        except Exception as _clear_err:
+            logger.error(f"⚠️ [WEALTH_ENGINE] Failed to clear RUNNING status in finally block: {_clear_err}")
         _scan_lock.release()
         _global_lock.release()
         if created_ctx:
@@ -1288,10 +1288,62 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
             drawdown_pct = ((entry_price - cmp) / entry_price) * 100.0
 
         if entry_price > 0 and drawdown_pct >= 20.0:
-            r["Hold_Score"] = 0
-            r["Exit_Code"] = "SELL"
-            r["Exit_Reason"] = f"Hard Drawdown Stop Triggered: -{drawdown_pct:.1f}% (>= 20.0% max loss threshold)"
-            return r
+            # [VERSION: SPLIT_GUARD_v2.0] Before firing the hard drawdown stop, verify if a corporate action occurred.
+            # 
+            # RCA: A stock split (e.g. 1:2) halves the market price mechanically. If we just compare DB entry_price
+            # to current market price, it falsely triggers a hard stop.
+            # Architecture: Hard drawdown detected -> Corporate-action check -> Confirmed split -> SPLIT_ADJUSTED -> NO SELL
+            _split_detected = False
+            try:
+                import yfinance as yf
+                from datetime import date as _date_type
+                entry_date_obj = _coerce_to_date(r.get("entry_date"))
+                yf_sym = f"{sym}.NS"
+                yf_ticker = yf.Ticker(yf_sym)
+                splits = yf_ticker.splits  # pd.Series: date → ratio
+                if splits is not None and not splits.empty:
+                    # Find splits that occurred between entry_date and today
+                    today_ist = datetime.now(IST).date()
+                    relevant = splits[
+                        (splits.index.date >= (entry_date_obj or today_ist)) &
+                        (splits.index.date <= today_ist)
+                    ] if entry_date_obj else splits[splits.index.date <= today_ist]
+                    
+                    if not relevant.empty:
+                        cum_factor = relevant.prod()
+                        if cum_factor > 1.0:
+                            _split_detected = True
+                            logger.warning(
+                                f"🔀 [SPLIT_GUARD] {sym}: Confirmed split(s) detected between entry and today "
+                                f"(factor={cum_factor:.4f}). Drawdown of {drawdown_pct:.1f}% is distorted by the split."
+                            )
+                            r["Hold_Score"] = base_hold_score
+                            r["Exit_Code"] = "SPLIT_ADJUSTED"
+                            r["Exit_Reason"] = f"Corporate Action Detected (Split Factor: {cum_factor:.2f}). Evaluator deferred until manual DB adjustment of price + quantity."
+                            
+                            # Alert admin for manual DB intervention
+                            try:
+                                from telegram_engine import queue_telegram_message
+                                msg = (
+                                    f"⚠️ <b>Action Required: Split Detected</b>\n"
+                                    f"<b>{sym}</b> has a confirmed split (Factor: {cum_factor:.2f}x).\n"
+                                    f"The automated hard drawdown stop was bypassed to prevent a false SELL.\n\n"
+                                    f"<b>Please manually adjust both alert_price and quantity in the DB to maintain the economic cost basis.</b>"
+                                )
+                                queue_telegram_message(msg, symbol=sym)
+                            except Exception:
+                                pass
+                                
+                            return r
+            except Exception as _split_err:
+                logger.warning(f"⚠️ [SPLIT_GUARD] Corporate action check failed for {sym}: {_split_err}")
+
+            if not _split_detected:
+                # Normal hard stop — not a split
+                r["Hold_Score"] = 0
+                r["Exit_Code"] = "SELL"
+                r["Exit_Reason"] = f"Hard Drawdown Stop Triggered: -{drawdown_pct:.1f}% (>= 20.0% max loss threshold)"
+                return r
 
         # 3. Tax Bonus Computation (Applied ONLY if no hard stop triggered)
         tax_info = {}

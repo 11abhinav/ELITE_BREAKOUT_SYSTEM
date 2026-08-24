@@ -28,7 +28,7 @@ def run_gates(symbol: str, raw_data: Dict[str, Any]) -> Tuple[bool, str]:
     market_cap = raw_data.get("market_cap")
     if raw_equity is None and market_cap is None:
         audit_engine.log(symbol, "Kill Gates", "Failed", "Incomplete Data (Missing Equity & Market Cap)", "total_equity", "None")
-        return False, "Incomplete Data"
+        return False, "Incomplete Data (Missing Equity & Market Cap)"
 
     # 1. Negative Equity
     if raw_equity is not None:
