@@ -10,10 +10,13 @@
     try {
       return await originalFetch.apply(this, args);
     } catch (e) {
-      console.warn("Network error caught by fortified fetch:", e);
-      return new Response(JSON.stringify({ error: "Network error (502/down)" }), {
-        status: 502,
-        statusText: "Bad Gateway",
+      if (e.name === 'AbortError') {
+        throw e;
+      }
+      console.warn("Network error caught by fetch handler:", e);
+      return new Response(JSON.stringify({ error: "Network connection lost", message: e.message }), {
+        status: 503,
+        statusText: "Service Unavailable",
         headers: { 'Content-Type': 'application/json' }
       });
     }
@@ -22,12 +25,15 @@
   const originalJson = Response.prototype.json;
   Response.prototype.json = async function() {
     const text = await this.text();
-    if (!text) return {};
+    if (!text || !text.trim()) return {};
     try {
       return JSON.parse(text);
     } catch (e) {
-      console.warn("JSON parse failed. Response was:", text.substring(0, 150));
-      return { error: "Invalid JSON from server. (Possible 502 Gateway)" };
+      if (this.status === 401) {
+        return { error: "Unauthorized", status: 401 };
+      }
+      console.warn("JSON parse failed for response status", this.status, ":", text.substring(0, 100));
+      return { error: "Invalid JSON response from server", status: this.status };
     }
   };
 })();
