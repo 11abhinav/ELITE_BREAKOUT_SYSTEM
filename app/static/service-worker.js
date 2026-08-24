@@ -24,7 +24,7 @@ const STATIC_ASSETS = [
 
 // ── INSTALL ──────────────────────────────────────────────────
 self.addEventListener('install', event => {
-  console.log('[SW] v9 Installing...');
+  console.log('[SW] v11 Installing...');
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
       return cache.addAll(STATIC_ASSETS).catch(err => {
@@ -36,7 +36,7 @@ self.addEventListener('install', event => {
 
 // ── ACTIVATE: Purge all old caches ───────────────────────────
 self.addEventListener('activate', event => {
-  console.log('[SW] v9 Activating, purging old caches...');
+  console.log('[SW] v11 Activating, purging old caches...');
   event.waitUntil(
     caches.keys().then(keys =>
       Promise.all(
