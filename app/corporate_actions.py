@@ -18,6 +18,69 @@ _SPLIT_FACTOR_CACHE: Dict[str, List[Dict[str, Any]]] = {}
 _CACHE_LAST_REFRESH: float = 0.0
 _CACHE_TTL_SECONDS: float = 3600.0  # 1 hour in-memory cache
 
+# ── Bulk split-factor map (loaded once from DB, keyed by symbol) ──────────────
+# Format: { "RELIANCE": [(ex_date, split_factor), ...], ... }
+_BULK_SPLIT_MAP: Dict[str, List] = {}
+_BULK_SPLIT_MAP_TS: float = 0.0
+_BULK_SPLIT_MAP_TTL: float = 3600.0  # 1 hour TTL
+
+
+def _load_bulk_split_map(force: bool = False) -> Dict[str, List]:
+    """Loads ALL corporate action split records from DB in a single query.
+    Returns dict keyed by symbol → list of (ex_date, split_factor) tuples.
+    This replaces 200+ per-symbol DB queries with ONE bulk SELECT.
+    """
+    global _BULK_SPLIT_MAP, _BULK_SPLIT_MAP_TS
+    now = time.monotonic()
+    if not force and _BULK_SPLIT_MAP and (now - _BULK_SPLIT_MAP_TS) < _BULK_SPLIT_MAP_TTL:
+        return _BULK_SPLIT_MAP
+
+    try:
+        init_corporate_actions_db()
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT symbol, ex_date, split_factor FROM corporate_actions_history "
+                    "WHERE split_factor > 1.0 ORDER BY ex_date ASC"
+                )
+                rows = cur.fetchall() or []
+        new_map: Dict[str, List] = {}
+        for r in rows:
+            sym = str(r[0]).strip().upper()
+            ex_date = r[1]
+            factor = float(r[2]) if r[2] else 1.0
+            if factor > 1.0:
+                new_map.setdefault(sym, []).append((ex_date, factor))
+        _BULK_SPLIT_MAP = new_map
+        _BULK_SPLIT_MAP_TS = now
+        logger.debug(f"[CorporateActions] Bulk split map loaded: {len(new_map)} symbols with splits")
+    except Exception as e:
+        logger.debug(f"[CorporateActions] Bulk split map load warning: {e}")
+
+    return _BULK_SPLIT_MAP
+
+
+def get_bulk_split_factor(symbol: str, entry_date: date, exit_date: Optional[date] = None) -> float:
+    """Fast per-symbol split factor lookup from the pre-loaded bulk map.
+    Zero DB calls — reads from in-memory dict loaded by _load_bulk_split_map().
+    Used by CorporateActionContributor.contribute() to avoid 200+ DB queries per request.
+    """
+    if not symbol:
+        return 1.0
+    clean_sym = symbol.strip().upper().replace(".NS", "").replace(".BO", "")
+    d_exit = exit_date or datetime.now().date()
+    if isinstance(d_exit, datetime):
+        d_exit = d_exit.date()
+
+    bulk = _load_bulk_split_map()
+    sym_rows = bulk.get(clean_sym, [])
+    cumulative = 1.0
+    for ex_date, factor in sym_rows:
+        ex_d = ex_date if isinstance(ex_date, date) else pd.to_datetime(str(ex_date)).date()
+        if entry_date < ex_d <= d_exit:
+            cumulative *= factor
+    return round(cumulative, 4)
+
 
 _CORP_DB_INITIALIZED = False
 

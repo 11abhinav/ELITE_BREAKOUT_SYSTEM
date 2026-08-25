@@ -3536,14 +3536,14 @@ _mb_watchlist_cache: dict = {}
 @app.route("/api/multibagger_watchlist", methods=["GET"])
 @login_required
 def get_multibagger_watchlist():
-    """Returns all watchlist entries for the Multibagger Watchlist tab (TTL-cached 10s)."""
+    """Returns all watchlist entries for the Multibagger Watchlist tab (TTL-cached 120s)."""
     global _mb_watchlist_cache
     import json
     status_filter = request.args.get("status", "")
     now_ts = time.time()
     cache_key = f"mb:{status_filter}"
     cached = _mb_watchlist_cache.get(cache_key)
-    if cached and (now_ts - cached["ts"]) < 10.0:
+    if cached and (now_ts - cached["ts"]) < 120.0:
         return Response(cached["payload"], mimetype="application/json")
 
     from database import get_connection, init_db
@@ -3633,16 +3633,17 @@ def get_multibagger_watchlist():
                         except Exception as csv_err:
                             logger.warning(f"Failed to read elite_fundamental_watchlist.csv fallback: {csv_err}")
 
-                try:
-                    from corporate_events import decorate_events
-                    rows = decorate_events(rows)
-                except Exception as _ce_err:
-                    pass
-
-                return rows
+                return rows  # DB connection released here before decorate_events
 
     try:
         rows = _fetch_rows()
+        # decorate_events runs AFTER the DB connection is released back to the pool
+        # CorporateActionContributor now uses bulk pre-loaded split map (zero per-symbol DB calls)
+        try:
+            from corporate_events import decorate_events
+            rows = decorate_events(rows)
+        except Exception as _ce_err:
+            pass
     except Exception as e:
         msg = str(e).lower()
         if "watchlist" in msg or "undefinedtable" in msg or "does not exist" in msg:

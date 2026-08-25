@@ -142,6 +142,13 @@ class CorporateEventCache:
             cls._last_refresh = now
             logger.info(f"✅ CorporateEventCache refreshed ({len(fresh_map)} symbols loaded).")
 
+        # Pre-warm the bulk split factor map in the same refresh cycle (ONE extra DB query, not 200+)
+        try:
+            from corporate_actions import _load_bulk_split_map
+            _load_bulk_split_map(force=force_refresh)
+        except Exception as _bsm_err:
+            logger.debug(f"Bulk split map pre-warm warning: {_bsm_err}")
+
         return cls._cache_map or {}
 
 
@@ -197,18 +204,20 @@ class EarningsContributor(EventContributor):
 
 
 class CorporateActionContributor(EventContributor):
-    """Evaluates stock splits and bonus events and produces semantic corporate action badges."""
+    """Evaluates stock splits and bonus events and produces semantic corporate action badges.
+    Uses bulk pre-loaded split map (zero DB calls per symbol) instead of per-symbol queries.
+    """
     def contribute(self, symbol: str, symbol_events: Dict[str, Any], calendar: TradingCalendar, current_date: date) -> List[Dict[str, Any]]:
         badges = []
         try:
-            from corporate_actions import get_cumulative_split_factor
+            from corporate_actions import get_bulk_split_factor
             from datetime import timedelta
             one_yr_ago = current_date - timedelta(days=365)
-            factor = get_cumulative_split_factor(symbol, one_yr_ago, current_date)
+            factor = get_bulk_split_factor(symbol, one_yr_ago, current_date)
             if factor > 1.0:
                 badges.append({
                     "type": "corporate_action",
-                    "label": f"Split {factor:.1f}x" if factor.is_integer() else f"Split {factor:.2f}x",
+                    "label": f"Split {factor:.1f}x" if float(factor).is_integer() else f"Split {factor:.2f}x",
                     "priority": int(EventPriority.SPLIT),
                     "status": "ACTIVE",
                     "metadata": {
