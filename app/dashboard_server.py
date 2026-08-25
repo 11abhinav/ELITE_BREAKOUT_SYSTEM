@@ -3002,10 +3002,16 @@ def api_scanner_status():
                     symbols_set = set()
                     with get_connection() as conn:
                         with conn.cursor() as cur:
-                            cur.execute('SELECT DISTINCT "Stock" FROM daily_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
-                            symbols_set.update(r[0] for r in cur.fetchall())
-                            cur.execute('SELECT DISTINCT "Stock" FROM daily_excluded_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
-                            symbols_set.update(r[0] for r in cur.fetchall())
+                            try:
+                                cur.execute('SELECT DISTINCT "Stock" FROM daily_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
+                                symbols_set.update(r[0] for r in cur.fetchall())
+                            except Exception:
+                                pass
+                            try:
+                                cur.execute('SELECT DISTINCT "Stock" FROM daily_excluded_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
+                                symbols_set.update(r[0] for r in cur.fetchall())
+                            except Exception:
+                                pass
                     try:
                         from constituent_service import ConstituentService
                         if ConstituentService._cached_symbols:

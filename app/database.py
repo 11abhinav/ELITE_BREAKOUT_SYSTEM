@@ -1337,6 +1337,21 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_user_watchlists_user_id ON user_watchlists(user_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_user_watchlists_user_added ON user_watchlists(user_id, added_at DESC)")
 
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS daily_watchlist (
+                        "Stock" TEXT PRIMARY KEY,
+                        "Company" TEXT,
+                        "Sector" TEXT,
+                        "added_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                    CREATE TABLE IF NOT EXISTS daily_excluded_watchlist (
+                        "Stock" TEXT PRIMARY KEY,
+                        "Company" TEXT,
+                        "Reason" TEXT,
+                        "added_at" TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+
                 # 38. stock_analysis_master
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS stock_analysis_master (
