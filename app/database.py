@@ -313,18 +313,24 @@ class _AdvisoryLockGuard:
     def __init__(self):
         self.conn_ctx = None
         self.conn = None
+        self.acquired = False
         try:
             db_url = os.getenv("DATABASE_URL")
             if db_url:
-                self.conn_ctx = get_connection()
+                self.conn_ctx = get_connection(timeout=3)
                 self.conn = self.conn_ctx.__enter__()
                 with self.conn.cursor() as cur:
-                    cur.execute("SELECT pg_advisory_lock(20240728)")
+                    cur.execute("SELECT pg_try_advisory_lock(20240728)")
+                    row = cur.fetchone()
+                    if row and row[0]:
+                        self.acquired = True
+                    else:
+                        logger.info("ℹ️ DB initialization lock currently held by another process. Skipping DDL execution.")
         except Exception as e:
-            logger.error(f"Failed to acquire advisory lock: {e}")
+            logger.warning(f"⚠️ Advisory lock check warning: {e}")
 
     def release(self):
-        if self.conn:
+        if self.conn and self.acquired:
             try:
                 with self.conn.cursor() as cur:
                     cur.execute("SELECT pg_advisory_unlock(20240728)")
@@ -357,6 +363,9 @@ def init_db():
             return
 
         _guard = _AdvisoryLockGuard()
+        if not _guard.acquired:
+            _DB_INITIALIZED = True
+            return
 
         with get_connection() as conn:
             with conn.cursor() as cur:
