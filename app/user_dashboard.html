@@ -3989,148 +3989,28 @@ function formatISTDate(isoStr) {
 let _watchlistFetchCacheUser = null;
 let _watchlistFetchCacheUser_ts = 0;
 
-function _fetchWatchlistUser() {
+function _fetchWatchlistUser(forceRefresh = false) {
   const now = Date.now();
-  if (_watchlistFetchCacheUser && (now - _watchlistFetchCacheUser_ts) < 30000) {
+  if (!forceRefresh && _watchlistFetchCacheUser && (now - _watchlistFetchCacheUser_ts) < 5000) {
     return _watchlistFetchCacheUser;
   }
   _watchlistFetchCacheUser_ts = now;
   _watchlistFetchCacheUser = fetch('/api/v1/user_watchlist')
-    .then(r => r.json())
-    .catch(() => []);
+    .then(r => {
+      if (!r.ok) throw new Error('HTTP error ' + r.status);
+      return r.json();
+    })
+    .catch(err => {
+      console.warn('_fetchWatchlistUser error:', err);
+      _watchlistFetchCacheUser = null;
+      _watchlistFetchCacheUser_ts = 0;
+      return [];
+    });
   return _watchlistFetchCacheUser;
 }
 
-function openInTradingView(symbol) {
-  // Map NSE symbol to TradingView format: NSE:RELIANCE
-  const tv_sym = encodeURIComponent('NSE:' + symbol.replace('.NS','').replace('.BO',''));
-  window.open('https://www.tradingview.com/chart/?symbol=' + tv_sym, '_blank');
-}
-
-
-
-function sortUserWatchlist(col) {
-  if (_userWlSortCol === col) {
-    _userWlSortAsc = !_userWlSortAsc;
-  } else {
-    _userWlSortCol = col;
-    _userWlSortAsc = (col === 'symbol');
-  }
-  _renderUserWatchlistTable();
-}
-
-function _renderUserWatchlistTable() {
-  const tbody = document.getElementById('user-watchlist-tbody');
-  if (!tbody) return;
-
-  ['symbol','cmp','health_score','status','added_at','last_scanned'].forEach(c => {
-    const el = document.getElementById('user-wl-sort-' + c);
-    if (el) el.textContent = (_userWlSortCol === c) ? (_userWlSortAsc ? '▲' : '▼') : '⇅';
-  });
-
-  const sorted = [..._userWlData].sort((a, b) => {
-    let av, bv;
-    if (_userWlSortCol === 'health_score') {
-      av = a.last_health_score !== null && a.last_health_score !== undefined ? Number(a.last_health_score) : (a.health_score !== null && a.health_score !== undefined ? Number(a.health_score) : null);
-      bv = b.last_health_score !== null && b.last_health_score !== undefined ? Number(b.last_health_score) : (b.health_score !== null && b.health_score !== undefined ? Number(b.health_score) : null);
-    } else if (_userWlSortCol === 'cmp') {
-      av = a.cmp !== null && a.cmp !== undefined ? Number(a.cmp) : (a.close_price !== null && a.close_price !== undefined ? Number(a.close_price) : null);
-      bv = b.cmp !== null && b.cmp !== undefined ? Number(b.cmp) : (b.close_price !== null && b.close_price !== undefined ? Number(b.close_price) : null);
-    } else if (_userWlSortCol === 'status') {
-      av = String(a.last_status || a.status || '').toUpperCase();
-      bv = String(b.last_status || b.status || '').toUpperCase();
-    } else if (_userWlSortCol === 'added_at') {
-      av = a.added_at ? new Date(a.added_at).getTime() : 0;
-      bv = b.added_at ? new Date(b.added_at).getTime() : 0;
-    } else if (_userWlSortCol === 'last_scanned') {
-      av = (a.last_deep_analysis_at || a.last_scanned_at) ? new Date(a.last_deep_analysis_at || a.last_scanned_at).getTime() : 0;
-      bv = (b.last_deep_analysis_at || b.last_scanned_at) ? new Date(b.last_deep_analysis_at || b.last_scanned_at).getTime() : 0;
-    } else {
-      av = a[_userWlSortCol];
-      bv = b[_userWlSortCol];
-    }
-
-    if (av == null || isNaN(av)) av = _userWlSortAsc ? Infinity : -Infinity;
-    if (bv == null || isNaN(bv)) bv = _userWlSortAsc ? Infinity : -Infinity;
-
-    if (typeof av === 'string') return _userWlSortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
-    return _userWlSortAsc ? av - bv : bv - av;
-  });
-
-  if (sorted.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--muted); padding:20px;">No stocks saved in your watchlist yet. Search any ticker above and click "Add to Watchlist".</td></tr>`;
-    updateUserWatchlistBatchBar();
-    return;
-  }
-
-  USER_WATCHLIST_ITEMS_CACHE = sorted;
-  tbody.innerHTML = sorted.map((item, idx) => {
-    let statusBadge = '';
-    const st = (item.last_status || 'MONITORING').toUpperCase();
-    if (st.includes('IN PROGRESS') || st.includes('PROCESSING')) {
-      statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(99,102,241,0.2); color:#818cf8; border:1px solid rgba(99,102,241,0.45); display:inline-flex; align-items:center; gap:4px; box-shadow:0 0 10px rgba(99,102,241,0.25);" title="Scanner Analysis In Progress..."><span style="display:inline-block; animation:spin 1s infinite linear;">⏳</span> IN PROGRESS</span>`;
-    } else if (st.includes('PROCESSED')) {
-      statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${item.symbol}')" title="Analysis Processed cleanly. Click to view breakdown.">✓ PROCESSED</span>`;
-    } else if (st.includes('CORE MET')) {
-      statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.45); display:inline-flex; align-items:center; gap:4px; box-shadow:0 0 10px rgba(245,158,11,0.25); cursor:pointer;" onclick="openSavedWatchlistAnalysis('${item.symbol}')" title="Core Condition Met. Click to view breakdown.">⚡ CORE MET</span>`;
-    } else if (st.includes('QUALIFIED')) {
-      statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${item.symbol}')" title="Qualified Signal. Click to view breakdown.">✓ ${item.last_status}</span>`;
-    } else if (st.includes('ALERT')) {
-      statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(217,119,6,0.2); color:#d97706; border:1px solid rgba(217,119,6,0.4); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${item.symbol}')" title="Alert Active.">🚨 ${item.last_status}</span>`;
-    } else {
-      statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${item.symbol}')" title="Monitoring Mode.">🔍 ${item.last_status}</span>`;
-    }
-
-    const cmp = (item.cmp !== null && item.cmp !== undefined && !isNaN(item.cmp)) ? item.cmp : ((item.close_price !== null && item.close_price !== undefined && !isNaN(item.close_price)) ? item.close_price : null);
-    const cmpAge = item.cmp_updated_at ? Math.round((Date.now() - new Date(item.cmp_updated_at).getTime()) / 60000) : null;
-    const cmpStale = cmpAge !== null && cmpAge > 30;
-    const cmpText = cmp != null
-      ? `<span style="font-family:var(--font-mono); font-weight:700; color:${cmpStale ? 'var(--muted)' : 'var(--accent)'}; font-size:13px;" title="${cmpAge !== null ? 'Updated ' + cmpAge + ' min ago' : ''}">₹${parseFloat(cmp).toFixed(2)}${cmpStale ? ' <span style="font-size:9px; color:var(--muted);">(stale)</span>' : ''}</span>`
-      : `<span style="color:var(--muted); font-size:12px;">—</span>`;
-
-    return `
-      <tr>
-        <td style="text-align:center;">
-          <input type="checkbox" class="user-wl-checkbox" value="${item.symbol}" onchange="updateUserWatchlistBatchBar()" style="cursor:pointer; width:16px; height:16px;">
-        </td>
-        <td class="font-bold">
-          <a href="#" onclick="openInTradingView('${item.symbol}'); return false;"
-             style="color:var(--accent); font-family:var(--font-mono); font-weight:800; font-size:13px; text-decoration:none;"
-             title="Open ${item.symbol} on TradingView">${item.symbol} 📈</a>${getEarningsBadgeHtml(item)}
-          <div style="font-size:10px; color:var(--muted);">${item.company_name || item.symbol}</div>
-        </td>
-        <td style="text-align:right; white-space:nowrap;">${cmpText}</td>
-        <td class="mono font-bold" style="color:var(--text); text-align:center;">
-          ${item.last_health_score !== null && item.last_health_score !== undefined && Number(item.last_health_score) > 0 
-            ? Number(item.last_health_score).toFixed(1) 
-            : '<span style="color:#60a5fa; font-size:11px; font-weight:700; display:inline-flex; align-items:center; gap:4px;" title="7-Stage Deep Diagnostic Scan processing in background..."><span style="display:inline-block; animation:spin 1s infinite linear;">⏳</span> Scanning...</span>'}
-        </td>
-
-        <td style="text-align:center;">${statusBadge}</td>
-        <td style="font-size:11px; color:var(--muted); text-align:center;">${formatISTDate(item.added_at)}</td>
-        <td style="font-size:11px; color:var(--muted); font-family:var(--font-mono); text-align:center;">
-          ${formatISTDateTime(item.last_deep_analysis_at || item.last_scanned_at)}
-          ${item.last_deep_analysis_at ? '<div style="font-size:9px; color:#10b981; font-weight:700;">💾 Saved Analysis</div>' : ''}
-        </td>
-        <td style="text-align:center; display:flex; justify-content:center; gap:6px;">
-          <button onclick="openSavedWatchlistAnalysis('${item.symbol}')" style="padding:4px 8px; background:linear-gradient(135deg,#10b981,#059669); color:#fff; border:none; border-radius:4px; font-weight:700; font-size:10px; cursor:pointer;" title="View Full 7-Stage Deep Analysis Breakdown">
-            🔍 View Analysis
-          </button>
-          <button onclick="triggerStockDiagnostic('${item.symbol}', true)" style="padding:4px 8px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:4px; font-weight:700; font-size:10px; cursor:pointer;" title="Execute Fresh Deep Analysis">
-            🔄 Re-Scan
-          </button>
-          <button onclick="removeFromWatchlist('${item.symbol}')" style="padding:4px 8px; background:rgba(220,38,38,0.1); color:var(--warn); border:1px solid rgba(220,38,38,0.2); border-radius:4px; font-weight:700; font-size:10px; cursor:pointer;">
-            🗑️
-          </button>
-        </td>
-      </tr>
-    `;
-  }).join('');
-  updateUserWatchlistBatchBar();
-}
-
-function loadUserWatchlist() {
-  _fetchWatchlistUser()
+function loadUserWatchlist(force = false) {
+  _fetchWatchlistUser(force)
     .then(items => {
       const watchlistItems = Array.isArray(items) ? items : [];
       document.querySelectorAll('#my-watchlist-count, #modal-watchlist-count').forEach(el => {
