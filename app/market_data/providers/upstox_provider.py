@@ -485,6 +485,7 @@ class UpstoxProvider(ProviderInterface):
                 json_ms = (time.perf_counter() - _t_json) * 1000
 
                 # [PHASE1_DIAG] Stage D: Quote Merge
+                _t_merge = time.perf_counter()
                 if res.status_code == 200:
                     quote_dict = data.get("data", {})
                     for key, quote in quote_dict.items():

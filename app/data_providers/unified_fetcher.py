@@ -323,12 +323,9 @@ class UnifiedFetcher:
                                         if orig not in ("NIFTY 50", "BANKNIFTY", "SENSEX", "^NSEI", "^NSEBANK", "^BSESN"):
                                             clean_orig = orig.replace(".NS", "").replace(".BO", "")
                                             cur.execute("""
-                                                SELECT COALESCE(m.cmp, b.close)
-                                                FROM (SELECT %s AS sym, %s AS clean_sym) s
-                                                LEFT JOIN stock_analysis_master m ON (m.symbol = s.sym OR m.symbol = s.clean_sym)
-                                                LEFT JOIN bhavcopy_cache b ON (b.symbol = s.sym OR b.symbol = s.clean_sym)
-                                                WHERE COALESCE(m.cmp, b.close) IS NOT NULL AND COALESCE(m.cmp, b.close) > 0
-                                                ORDER BY b.date DESC NULLS LAST
+                                                SELECT cmp
+                                                FROM stock_analysis_master
+                                                WHERE (symbol = %s OR symbol = %s) AND cmp IS NOT NULL AND cmp > 0
                                                 LIMIT 1
                                             """, (orig, clean_orig))
                                             row = cur.fetchone()
