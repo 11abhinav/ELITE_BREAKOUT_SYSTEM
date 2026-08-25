@@ -7032,7 +7032,7 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER", username: str = None) -> l
                 rows = cur.fetchall()
                 if not rows:
                     try:
-                        seed_syms = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "BHARTIARTL", "ITC", "LTIM", "TATAMOTORS"]
+                        seed_syms = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "BHARTIARTL", "ITC", "LTIM", "TMPV"]
                         for s in seed_syms:
                             cur.execute("""
                                 INSERT INTO user_watchlists (user_id, symbol, company_name, last_health_score, last_status, added_at)

@@ -746,7 +746,7 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     if (roce_val is None or roce_val <= 0.0 or roe_val is None or roe_val <= 0.0 or not fund_data or "score" not in fund_data) and is_deep_analysis:
         try:
             from fundamentals_cache import fetch_single_piotroski
-            lookup_sym = "TMCV" if sym_clean in ["TMCV", "TATAMOTORS"] else sym_clean
+            lookup_sym = "TMPV" if sym_clean in ["TMPV", "TATAMOTORS"] else sym_clean
             on_demand_fund = fetch_single_piotroski(lookup_sym) or {}
             if on_demand_fund and not on_demand_fund.get("failed"):
                 if not fund_data:

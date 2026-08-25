@@ -1048,6 +1048,7 @@ def _build_row(*, symbol, cats, path, row, close_price, market_cap, roe, opm, de
 # NSE symbols containing '&' (M&M, M&MFIN, J&KBANK, GVT&D) are stored as underscores
 # in TradingView but must keep '&' for Yahoo Finance — hyphens do NOT work.
 SYMBOL_CORRECTIONS = {
+    "TATAMOTORS": "TMPV",            # Demerged Tata Motors -> Tata Motors Passenger Vehicles
     "BAJAJ_AUTO": "BAJAJ-AUTO",      # Bajaj Auto Ltd - Yahoo uses hyphen
     "NAM_INDIA": "NAM-INDIA",        # Nippon Life India AMC - Yahoo uses hyphen
     "M_M": "M&M",                    # Mahindra & Mahindra - Yahoo uses ampersand

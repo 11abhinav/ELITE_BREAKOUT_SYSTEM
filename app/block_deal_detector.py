@@ -67,7 +67,7 @@ CORE_TOKENS: Dict[str, Set[str]] = {
     "ADANIPOWER": {"ADANI"},
     "ADANIPORTS": {"ADANI"},
     "TATAPOWER": {"TATA"},
-    "TATAMOTORS": {"TATA"},
+    "TMPV": {"TATA"},
     "TATASTEEL": {"TATA"},
     "TATACOMM": {"TATA"},
     "TATACHEM": {"TATA"},

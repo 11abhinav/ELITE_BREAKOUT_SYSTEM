@@ -1013,7 +1013,7 @@ def ensure_watchlist_exists_for_scanners():
                 rows = cur.fetchall()
                 syms = [r[0] for r in rows if r[0]]
                 if not syms:
-                    syms = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "BHARTIARTL", "ITC", "LTIM", "TATAMOTORS"]
+                    syms = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "BHARTIARTL", "ITC", "LTIM", "TMPV"]
                 df_fallback = pd.DataFrame({
                     "Stock": syms,
                     "Symbol": syms,

@@ -161,7 +161,7 @@ NSE_SECTOR_MAP: dict[str, str] = {
     "PAGEIND": "FMCG",
 
     # ── Auto ──────────────────────────────────────────────────────────────────────────
-    "MARUTI": "Auto", "TATAMOTORS": "Auto", "M&M": "Auto",
+    "MARUTI": "Auto", "TMPV": "Auto", "M&M": "Auto",
     "BAJAJ-AUTO": "Auto", "HEROMOTOCO": "Auto", "EICHERMOT": "Auto",
     "TVSMOTORS": "Auto", "ASHOKLEY": "Auto", "TIINDIA": "Auto",
     "MOTHERSON": "Auto", "BOSCHLTD": "Auto", "BHARATFORG": "Auto",
