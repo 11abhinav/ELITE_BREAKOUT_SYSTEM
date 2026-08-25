@@ -25,16 +25,32 @@ _BULK_SPLIT_MAP_TS: float = 0.0
 _BULK_SPLIT_MAP_TTL: float = 3600.0  # 1 hour TTL
 
 
+import threading as _threading
+_bulk_load_lock = _threading.Lock()
+_bulk_load_bg_started = False
+
+
 def _load_bulk_split_map(force: bool = False) -> Dict[str, List]:
     """Loads ALL corporate action split records from DB in a single query.
     Returns dict keyed by symbol → list of (ex_date, split_factor) tuples.
-    This replaces 200+ per-symbol DB queries with ONE bulk SELECT.
+    On cold start: triggers a background thread load and returns empty dict immediately.
+    This prevents blocking the HTTP handler for 15-55s on first request.
     """
-    global _BULK_SPLIT_MAP, _BULK_SPLIT_MAP_TS
+    global _BULK_SPLIT_MAP, _BULK_SPLIT_MAP_TS, _bulk_load_bg_started
     now = time.monotonic()
     if not force and _BULK_SPLIT_MAP and (now - _BULK_SPLIT_MAP_TS) < _BULK_SPLIT_MAP_TTL:
         return _BULK_SPLIT_MAP
 
+    # Cold start: kick off background load, return empty dict immediately
+    if not _BULK_SPLIT_MAP and not force:
+        with _bulk_load_lock:
+            if not _bulk_load_bg_started:
+                _bulk_load_bg_started = True
+                _threading.Thread(target=_load_bulk_split_map, kwargs={"force": True}, daemon=True, name="bulk-split-loader").start()
+                logger.info("[CorporateActions] Bulk split map loading in background thread...")
+        return _BULK_SPLIT_MAP  # empty dict — CorporateActionContributor returns no badge this request
+
+    # Foreground load (force=True from CorporateEventCache pre-warm or background thread)
     try:
         init_corporate_actions_db()
         with get_connection() as conn:
@@ -52,8 +68,8 @@ def _load_bulk_split_map(force: bool = False) -> Dict[str, List]:
             if factor > 1.0:
                 new_map.setdefault(sym, []).append((ex_date, factor))
         _BULK_SPLIT_MAP = new_map
-        _BULK_SPLIT_MAP_TS = now
-        logger.debug(f"[CorporateActions] Bulk split map loaded: {len(new_map)} symbols with splits")
+        _BULK_SPLIT_MAP_TS = time.monotonic()
+        logger.info(f"[CorporateActions] Bulk split map loaded: {len(new_map)} symbols with splits")
     except Exception as e:
         logger.debug(f"[CorporateActions] Bulk split map load warning: {e}")
 
@@ -200,6 +216,7 @@ def adjust_trade_for_corporate_actions(trade: dict) -> dict:
     Pure Functional Trade Adjuster:
     Before evaluating exit monitors / SL / targets on any trade payload:
     Adjusts cost basis, stop loss, targets, and share quantities by the cumulative split factor.
+    Uses pre-loaded bulk split map (zero DB calls) — fast path for HTTP handlers.
     Returns the mutated trade payload with updated prices, quantities, and metadata flags.
     """
     if not isinstance(trade, dict) or not trade.get("symbol"):
@@ -213,11 +230,13 @@ def adjust_trade_for_corporate_actions(trade: dict) -> dict:
     entry_d = trade.get("entry_date") or trade.get("alert_date") or trade.get("created_at")
     exit_d = trade.get("closed_at") or trade.get("exit_date")
 
-    factor = get_cumulative_split_factor(sym, entry_d, exit_d)
+    # Use bulk map (RAM) instead of per-symbol DB query
+    factor = get_bulk_split_factor(sym, entry_d, exit_d)
     if factor <= 1.0:
         trade["_corporate_actions_adjusted"] = True
         trade["split_factor"] = 1.0
         return trade
+
 
     logger.info(f"🔄 [CORPORATE ACTION ADJUSTMENT] {sym} | Entry: {entry_d} | Split Factor: {factor}x")
 
