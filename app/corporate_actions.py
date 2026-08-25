@@ -80,9 +80,20 @@ def get_bulk_split_factor(symbol: str, entry_date: date, exit_date: Optional[dat
     """Fast per-symbol split factor lookup from the pre-loaded bulk map.
     Zero DB calls — reads from in-memory dict loaded by _load_bulk_split_map().
     Used by CorporateActionContributor.contribute() to avoid 200+ DB queries per request.
+    Returns 1.0 (no adjustment) if entry_date is None or invalid (e.g. watchlist items without trade date).
     """
     if not symbol:
         return 1.0
+    # Guard: entry_date must be a valid date object for comparisons below.
+    # Watchlist items have no entry_date; return 1.0 (no adjustment) rather than crash.
+    if entry_date is None:
+        return 1.0
+    if not isinstance(entry_date, date):
+        try:
+            entry_date = pd.to_datetime(str(entry_date)).date()
+        except Exception:
+            return 1.0
+
     clean_sym = symbol.strip().upper().replace(".NS", "").replace(".BO", "")
     d_exit = exit_date or datetime.now().date()
     if isinstance(d_exit, datetime):

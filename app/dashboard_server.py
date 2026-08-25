@@ -1172,9 +1172,6 @@ def performance_json():
             for tf in trades_fallback:
                 adjust_trade_for_corporate_actions(tf)
             empty["trades"] = trades_fallback
-            empty["summary"]["total_alerts"] = len(trades_fallback)
-            open_statuses = ['OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING']
-            empty["summary"]["open_positions"] = len([t for t in trades_fallback if t["status"] in open_statuses or t["status"] not in ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED']])
     except Exception as _fa_err:
         logger.warning(f"Direct alerts fallback warning: {_fa_err}")
 
@@ -4054,10 +4051,11 @@ def api_breakout_watchlist():
             except Exception as e:
                 logger.warning(f"Failed to fetch live CMP for watchlist: {e}")
 
-
+        # Adjust split-adjusted cost basis — only for items that are actual held trades (have entry_date)
         from corporate_actions import adjust_trade_for_corporate_actions
         for item in data:
-            adjust_trade_for_corporate_actions(item)
+            if item.get("entry_date") or item.get("alert_date") or item.get("created_at"):
+                adjust_trade_for_corporate_actions(item)
 
         payload = json.dumps({"status": "success", "data": serialize_datetimes(data)}, default=str)
         _BREAKOUT_RESPONSE_CACHE = {"ts": now_sec, "payload": payload}

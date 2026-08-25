@@ -1501,7 +1501,7 @@ def run_system_scheduler():
     warmup_ran = False
     last_accumulation_date = now_boot.date() if not is_market_boot else None
 
-    last_earnings_date = None
+    last_earnings_date = None  # kept as unused placeholder to avoid potential NameError in continued loop
     saturday_mb_refresh_ran = False
     
     try:
@@ -1742,23 +1742,7 @@ def run_system_scheduler():
                 else:
                     logger.info("⏭️ MULTIBAGGER is STOPPED by Admin. Skipping 19:00 IST run.")
 
-            # 12:01 AM - 04:00 AM - Earnings Calendar Refresh (Daily off-peak window)
-            if 0 <= now.hour < 4 and last_earnings_date != now.date():
-                last_earnings_date = now.date()
-                if not is_scanner_stopped("Earnings Calendar"):
-                    def _run_earnings_post_market():
-                        try:
-                            logger.info("📅 SCHEDULER | [12:01 AM - 04:00 AM IST] Earnings Calendar off-peak refresh starting...")
-                            from earnings_calendar import run_earnings_calendar_refresh
-                            run_earnings_calendar_refresh()
-                        except RuntimeError as re:
-                            logger.info(f"⏭️ SCHEDULER | Earnings Calendar refresh skipped: {re}")
-                        except Exception as e:
-                            logger.error(f"❌ SCHEDULER | Earnings Calendar off-peak refresh failed: {e}")
-                    import threading as _t
-                    _t.Thread(target=_run_earnings_post_market, name="EarningsCalendar-PostMarket", daemon=True).start()
-                else:
-                    logger.info("⏭️ Earnings Calendar is STOPPED by Admin. Skipping 12:01 AM refresh.")
+            # Earnings Calendar removed — earnings data was unused and added latency.
 
             # Midnight session rotation — triggered once on date boundary
             if last_rotation_date != now.date():
@@ -1903,7 +1887,6 @@ def check_scanner_staleness(now):
 
 from ai_worker import run_worker_loop as run_ai_loop
 from pledge_worker import worker_loop as run_pledge_loop
-from earnings_calendar import run_worker_loop as run_earnings_loop
 
 def run_multibagger_exit_monitor():
     """Independent background daemon to monitor multibagger exits every 15 minutes."""
@@ -2056,7 +2039,6 @@ def _run_multibagger_scanner_single():
 RESTARTABLE_THREADS = {
     "AI Worker":          run_ai_loop,
     "Pledge Worker":      run_pledge_loop,
-    "Earnings Calendar":  run_earnings_loop,
     "SystemScheduler":    run_system_scheduler,
 }
 
@@ -2166,7 +2148,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "PERFORMANCE_TRACKER": _trigger_performance_tracker,
         "MULTIBAGGER_EXIT": _trigger_multibagger_exit,
         "WEALTH_EXIT": _trigger_wealth_exit,
-        "Earnings Calendar": _trigger_earnings_calendar,
+        "Earnings Calendar": None,  # removed
         "ACCUMULATION":  _trigger_accumulation,
     }
     
@@ -2187,7 +2169,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "PERFORMANCE_TRACKER": lambda: scanner_execution_lock,
         "MULTIBAGGER_EXIT": lambda: scanner_execution_lock,
         "WEALTH_EXIT": lambda: scanner_execution_lock,
-        "Earnings Calendar": lambda: __import__('earnings_calendar')._scan_lock,
+        "Earnings Calendar": lambda: None,  # removed
         "ACCUMULATION":  lambda: __import__('accumulation_scanner')._accumulation_run_lock,
     }
     
@@ -2356,9 +2338,8 @@ def _trigger_ai_worker():
 
 
 def _trigger_earnings_calendar():
-    from earnings_calendar import run_earnings_calendar_refresh
-    result = run_earnings_calendar_refresh()
-    return {"total_count": result.get("total_count", 0), "processed_count": result.get("updated_count", 0)}
+    # Earnings Calendar removed — no-op stub retained to prevent KeyError in admin UI
+    return {"total_count": 0, "processed_count": 0}
 
 def _trigger_performance_tracker():
     from performance_tracker import build_performance_data
