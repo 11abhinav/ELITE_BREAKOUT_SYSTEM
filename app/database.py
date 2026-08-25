@@ -7836,9 +7836,8 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
                     lifecycle_status = 'SERVER_RESTARTED',
                     error_summary = 'Server restarted while scan was in progress',
                     error_details = 'Automated boot cleanup detected unclosed RUNNING/QUEUED state from previous server process'
-                WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
-                  AND started_at < %s;
-            """, (_PROCESS_BOOT_TIME,))
+                WHERE lifecycle_status IN ('RUNNING', 'QUEUED');
+            """)
         except Exception as e:
             logger.warning(f"Failed to reset scanner_execution_history on boot: {e}")
             
@@ -8151,8 +8150,8 @@ def get_scanner_execution_history(
                                 error_details = 'Watchdog auto-cleaned stale RUNNING state: heartbeat inactive for >15 minutes'
                             WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                               AND (
-                                  (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '15 minutes')
-                                  OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '15 minutes')
+                                  (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '3 minutes')
+                                  OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '3 minutes')
                               );
                         """)
                         cur.execute("""
