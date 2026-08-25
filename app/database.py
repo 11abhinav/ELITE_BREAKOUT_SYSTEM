@@ -7186,14 +7186,15 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER", username: str = None) -> l
                     })
 
 
+                return results   # DB connection released here
+        # decorate_events runs AFTER connection returned to pool (uses pre-loaded bulk split map)
+        try:
+            from corporate_events import decorate_events
+            results = decorate_events(results)
+        except Exception as _ce_err:
+            logger.debug(f"Corporate event decoration warning for watchlist: {_ce_err}")
 
-                try:
-                    from corporate_events import decorate_events
-                    results = decorate_events(results)
-                except Exception as _ce_err:
-                    logger.debug(f"Corporate event decoration warning for watchlist: {_ce_err}")
-
-                return results
+        return results
     except Exception as e:
         logger.error(f"Failed to fetch user watchlist for {user_id}: {e}. Running simplified fallback query...")
         try:

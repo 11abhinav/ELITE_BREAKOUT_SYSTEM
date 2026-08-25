@@ -32,16 +32,32 @@ class CorporateEventRepository:
     @staticmethod
     def fetch_all_events() -> Dict[str, Dict[str, Any]]:
         """
-        Fetches all upcoming and recent earnings dates from DB into a bulk dictionary.
-        Returns:
-            { "TATAMOTORS": { "earnings_date": "2026-08-06", "date_status": "CONFIRMED" } }
+        Fetches earnings dates from DB SCOPED TO our alert/watchlist symbols only.
+        USER INSIGHT: Corporate events should only decorate symbols we actually track
+        (alerts, user_watchlists, watchlist, candidates) — NOT the whole NSE universe.
+        One JOIN query instead of SELECT * on full earnings_calendar.
+        Returns: { "TATAMOTORS": { "earnings_date": "2026-08-06", "date_status": "CONFIRMED" } }
         """
         events_map: Dict[str, Dict[str, Any]] = {}
         try:
             from database import get_connection
             with get_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute("SELECT symbol, earnings_date, date_status FROM earnings_calendar WHERE earnings_date IS NOT NULL")
+                    # Scoped to only our tracked symbols — one efficient JOIN/UNION query
+                    cur.execute("""
+                        SELECT ec.symbol, ec.earnings_date, ec.date_status
+                        FROM earnings_calendar ec
+                        WHERE ec.earnings_date IS NOT NULL
+                          AND ec.symbol IN (
+                              SELECT DISTINCT symbol FROM alerts WHERE symbol IS NOT NULL
+                              UNION
+                              SELECT DISTINCT symbol FROM user_watchlists WHERE symbol IS NOT NULL
+                              UNION
+                              SELECT DISTINCT symbol FROM watchlist WHERE symbol IS NOT NULL
+                              UNION
+                              SELECT DISTINCT symbol FROM candidates WHERE symbol IS NOT NULL
+                          )
+                    """)
                     rows = cur.fetchall()
                     for r in rows:
                         sym = str(r[0]).strip().upper()
@@ -72,14 +88,6 @@ class CorporateEventRepository:
                         }
         except Exception as _nse_err:
             logger.debug(f"NseEarningsProvider bulk merge warning: {_nse_err}")
-
-        # Tier-3: Zero-Yahoo bulk pre-fill for all tracked symbols missing from events_map
-        # This ensures major NSE 500 stocks (RELIANCE, TCS, INFY etc) always get earnings dates
-        # even when DB is unavailable or earnings_calendar table is empty.
-        try:
-            CorporateEventRepository._bulk_fill_non_yahoo(events_map)
-        except Exception as _fill_err:
-            logger.debug(f"Zero-Yahoo bulk fill warning: {_fill_err}")
 
         return events_map
 
