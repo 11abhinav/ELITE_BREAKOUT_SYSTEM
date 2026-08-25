@@ -127,23 +127,6 @@ def get_cumulative_split_factor(symbol: str, entry_date_val: Any, exit_date_val:
     except Exception as e:
         logger.warning(f"Error querying corporate_actions_history for {clean_sym}: {e}")
 
-    # Fallback to yfinance split detection if DB table has no record for this symbol
-    if cumulative_factor == 1.0:
-        try:
-            import yfinance as yf
-            yf_sym = f"{clean_sym}.NS"
-            t = yf.Ticker(yf_sym)
-            splits = t.splits
-            if splits is not None and not splits.empty:
-                for split_dt, factor in splits.items():
-                    s_date = pd.to_datetime(split_dt).date()
-                    if d_entry < s_date <= d_exit and factor > 1.0:
-                        f_val = float(factor)
-                        cumulative_factor *= f_val
-                        register_corporate_action(clean_sym, str(s_date), "SPLIT", f_val, "Auto-discovered via yfinance")
-        except Exception as _yf_err:
-            logger.debug(f"yfinance splits check warning for {clean_sym}: {_yf_err}")
-
     res_factor = round(cumulative_factor, 4)
     _SPLIT_FACTOR_CACHE[cache_key] = (res_factor, now_mono)
     return res_factor
