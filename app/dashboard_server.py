@@ -3678,7 +3678,8 @@ def get_multibagger_watchlist():
     try:
         serialized_rows = [safe(r) for r in rows]
         payload = json.dumps(serialized_rows, default=str)
-        _mb_watchlist_cache[cache_key] = {"ts": now_ts, "payload": payload}
+        if serialized_rows:
+            _mb_watchlist_cache[cache_key] = {"ts": now_ts, "payload": payload}
         return Response(payload, mimetype="application/json")
     except Exception as e:
         logger.exception("❌ Fatal error serializing multibagger watchlist JSON response")

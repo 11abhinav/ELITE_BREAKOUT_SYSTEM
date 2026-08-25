@@ -7077,6 +7077,14 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER", username: str = None) -> l
                                     SELECT 1 FROM user_watchlists WHERE user_id = 'DEFAULT_USER' AND symbol = %s
                                 );
                             """, (s, s, s))
+                            if user_id_str and user_id_str != 'DEFAULT_USER':
+                                cur.execute("""
+                                    INSERT INTO user_watchlists (user_id, symbol, company_name, last_health_score, last_status, added_at)
+                                    SELECT %s, %s, %s, 85.0, 'MONITORING', NOW()
+                                    WHERE NOT EXISTS (
+                                        SELECT 1 FROM user_watchlists WHERE user_id = %s AND symbol = %s
+                                    );
+                                """, (user_id_str, s, s, user_id_str, s))
                         conn.commit()
                         cur.execute("""
                             SELECT w.symbol, w.company_name, w.added_at,
