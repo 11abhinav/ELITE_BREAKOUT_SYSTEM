@@ -7724,6 +7724,14 @@ def log_resolution_event_db(provider: str, original_symbol: str, attempted_symbo
 
 _PROCESS_BOOT_TIME = datetime.now(ZoneInfo('Asia/Kolkata'))
 
+# [VERSION: ORPHAN_CLEANUP_THROTTLE_v1.0]
+# Rate-limit orphan cleanup in get_scanner_execution_history() to at most once every 5 minutes.
+# Without this, the admin history API (polled every ~5-10s by the dashboard) would run the
+# cleanup SQL + emit WARNING logs on every single request, flooding the log with repeated
+# "Cleaned orphaned RUNNING run" messages even after the rows are already fixed.
+_ORPHAN_CLEANUP_LAST_RUN_TS: float = 0.0
+_ORPHAN_CLEANUP_INTERVAL_S: float = 300.0  # 5 minutes
+
 def cleanup_orphaned_scanner_runs_on_boot(cur=None):
     """
     On server boot, finds any scanner runs left in 'RUNNING' or 'QUEUED' status
@@ -7832,18 +7840,7 @@ def is_scanner_actively_running(scanner_name: str, exclude_run_id: str = None, c
                     WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                       AND started_at < %s;
                 """, (_PROCESS_BOOT_TIME,))
-                cur.execute("""
-                    UPDATE scanner_execution_history
-                    SET completed_at = NOW(),
-                        lifecycle_status = 'TIMEOUT_STALE',
-                        error_summary = 'Execution timed out after 15 minutes of inactivity',
-                        error_details = 'Watchdog auto-cleaned stale RUNNING state without recent heartbeat'
-                    WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
-                      AND (
-                          heartbeat_at < NOW() - INTERVAL '15 minutes'
-                          OR (started_at < NOW() - INTERVAL '15 minutes' AND (heartbeat_at IS NULL OR heartbeat_at = started_at))
-                      );
-                """)
+                # [BUG FIX: DUPLICATE_UPDATE_REMOVED_v1.0] Previously this identical UPDATE ran twice (copy-paste error).
                 cur.execute("""
                     UPDATE scanner_execution_history
                     SET completed_at = NOW(),
@@ -7965,12 +7962,18 @@ def update_scanner_run_lifecycle(run_id: str, lifecycle_status: str):
         with get_connection() as conn:
             with conn.cursor() as cur:
                 if status_upper == "RUNNING":
-                    # [VERSION: RUNTIME_DURATION_FIX_v1.0] Reset started_at to NOW() when transitioning from QUEUED -> RUNNING.
-                    # This ensures duration_seconds measures 100% exclusively the actual scanner runtime, excluding queue lock wait time.
+                    # [VERSION: RUNTIME_DURATION_FIX_v2.0]
+                    # IMPORTANT: Do NOT reset started_at when transitioning QUEUED -> RUNNING.
+                    # Resetting started_at caused a new 15-minute orphan window to start from lock
+                    # acquisition time — so if the scanner crashed immediately after acquiring the
+                    # lock, the orphaned run would stay in RUNNING for a full 15 minutes before
+                    # the watchdog could clean it up (because heartbeat_at was just reset to NOW()).
+                    # Fix: Only reset heartbeat_at. started_at preserves the original queue time,
+                    # so the orphan window is counted from first attempt. A separate 'running_at'
+                    # column should be added for accurate runtime-only duration if needed.
                     cur.execute("""
                         UPDATE scanner_execution_history
                         SET lifecycle_status = 'RUNNING',
-                            started_at = NOW(),
                             heartbeat_at = NOW()
                         WHERE run_id = %s;
                     """, (run_id,))
@@ -8062,55 +8065,66 @@ def get_scanner_execution_history(
     try:
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # 🧹 WATCHDOG AUTO-CLEANUP: Clean any orphaned RUNNING/QUEUED records with no heartbeat for > 15 minutes
-                try:
-                    cur.execute("""
-                        SELECT run_id, scanner_name, started_at, heartbeat_at, lifecycle_status
-                        FROM scanner_execution_history
-                        WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
-                          AND (
-                              (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '15 minutes')
-                              OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '15 minutes')
-                          );
-                    """)
-                    orphaned_rows = cur.fetchall()
-                    if orphaned_rows:
-                        for orphan in orphaned_rows:
-                            r_id = orphan.get("run_id") or "UNKNOWN"
-                            sc_name = orphan.get("scanner_name") or "UNKNOWN"
-                            st_at = orphan.get("started_at")
-                            hb_at = orphan.get("heartbeat_at")
-                            logger.warning(
-                                f"🧹 [WATCHDOG CLEANUP] Cleaned orphaned RUNNING run {r_id[:8]} for scanner '{sc_name}' | "
-                                f"Reason: No heartbeat received for >15 minutes (started_at: {st_at}, heartbeat_at: {hb_at})"
-                            )
-
+                # [VERSION: ORPHAN_CLEANUP_THROTTLE_v1.0] 🧹 WATCHDOG AUTO-CLEANUP
+                # Throttled to once per 5 minutes — the scanner history API is polled every
+                # ~5-10s by the admin dashboard, which previously caused this cleanup to run
+                # (and log WARNING spam) on every single request, even after rows were cleaned.
+                import time as _time_mod
+                global _ORPHAN_CLEANUP_LAST_RUN_TS
+                _now_mono = _time_mod.monotonic()
+                if _now_mono - _ORPHAN_CLEANUP_LAST_RUN_TS >= _ORPHAN_CLEANUP_INTERVAL_S:
+                    try:
                         cur.execute("""
-                            UPDATE scanner_execution_history
-                            SET completed_at = NOW(),
-                                lifecycle_status = 'TIMEOUT_STALE',
-                                error_summary = 'Execution timed out due to process crash or stopped heartbeat',
-                                error_details = 'Watchdog auto-cleaned stale RUNNING state: heartbeat inactive for >15 minutes'
+                            SELECT run_id, scanner_name, started_at, heartbeat_at, lifecycle_status
+                            FROM scanner_execution_history
                             WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                               AND (
-                                  (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '3 minutes')
-                                  OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '3 minutes')
+                                  (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '15 minutes')
+                                  OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '15 minutes')
                               );
                         """)
-                        cur.execute("""
-                            UPDATE scanner_health
-                            SET status = 'DOWN',
-                                error_msg = 'Watchdog auto-cleaned orphaned RUNNING state (process crash/inactivity)'
-                            WHERE status = 'RUNNING'
-                              AND last_updated < NOW() - INTERVAL '15 minutes';
-                        """)
-                        conn.commit()
-                except Exception as _e_sweep:
-                    try:
-                        conn.rollback()
-                    except Exception:
-                        pass
-                    logger.debug(f"Stale history auto-sweep warning: {_e_sweep}")
+                        orphaned_rows = cur.fetchall()
+                        if orphaned_rows:
+                            # [BUG FIX] UPDATE runs first; log message fires AFTER commit so it only
+                            # appears when the change actually persisted. Previous code logged
+                            # "Cleaned" before the UPDATE, so failed UPDATEs still produced spam.
+                            cur.execute("""
+                                UPDATE scanner_execution_history
+                                SET completed_at = NOW(),
+                                    lifecycle_status = 'TIMEOUT_STALE',
+                                    error_summary = 'Execution timed out due to process crash or stopped heartbeat',
+                                    error_details = 'Watchdog auto-cleaned stale RUNNING state: heartbeat inactive for >15 minutes'
+                                WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
+                                  AND (
+                                      (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '15 minutes')
+                                      OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '15 minutes')
+                                  );
+                            """)
+                            cur.execute("""
+                                UPDATE scanner_health
+                                SET status = 'DOWN',
+                                    error_msg = 'Watchdog auto-cleaned orphaned RUNNING state (process crash/inactivity)'
+                                WHERE status = 'RUNNING'
+                                  AND last_updated < NOW() - INTERVAL '15 minutes';
+                            """)
+                            conn.commit()
+                            # Log AFTER successful commit — accurate report of what was cleaned
+                            for orphan in orphaned_rows:
+                                r_id = orphan.get("run_id") or "UNKNOWN"
+                                sc_name = orphan.get("scanner_name") or "UNKNOWN"
+                                st_at = orphan.get("started_at")
+                                hb_at = orphan.get("heartbeat_at")
+                                logger.warning(
+                                    f"🧹 [WATCHDOG CLEANUP] Cleaned orphaned RUNNING run {r_id[:8]} for scanner '{sc_name}' | "
+                                    f"Reason: No heartbeat received for >15 minutes (started_at: {st_at}, heartbeat_at: {hb_at})"
+                                )
+                        _ORPHAN_CLEANUP_LAST_RUN_TS = _now_mono
+                    except Exception as _e_sweep:
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
+                        logger.debug(f"Stale history auto-sweep warning: {_e_sweep}")
 
                 where_clauses = ["1=1"]
                 params = []
