@@ -226,17 +226,26 @@ def get_valid_scraper_keys():
     if not scraper_raw:
         return []
     
-    all_keys = [k.strip() for k in scraper_raw.split(",") if k.strip()]
     valid_keys = [k for k in all_keys if not _is_key_exhausted_today(k)]
     return valid_keys
 
 def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None):
-    """Executes a POST request to Fyers API. Tries ALL Crawlora keys FIRST, then ScraperAPI, then direct."""
+    """Executes a POST request to Fyers API. Tries Direct Connection FIRST (fast 5s), then ScraperAPI/Crawlora fallback if blocked."""
     global _active_working_scraper_key
     import urllib.parse
     headers = headers or {}
 
-    # 1. Crawlora Attempt (Primary - loops through all available Crawlora keys)
+    # 1. Direct Connection Attempt (Fast Primary - <200ms)
+    try:
+        res_direct = session.post(target_url, json=payload, headers=headers, timeout=5)
+        body_direct = res_direct.text.strip()
+        if res_direct.status_code == 200 and ("request_key" in body_direct or '"s":' in body_direct or "fyers" in body_direct.lower() or "access_token" in body_direct) and not body_direct.startswith("<!doctype") and not body_direct.startswith("<html"):
+            logger.info(f"⚡ [DIRECT SUCCESS] Fast POST to {target_url} succeeded (Status 200)!")
+            return res_direct
+    except Exception as direct_err:
+        logger.debug(f"Direct POST attempt to {target_url} failed: {direct_err}")
+
+    # 2. Crawlora Attempt (Secondary - loops through available Crawlora keys)
     try:
         from pledge_scraper import mark_crawlora_key_exhausted_today, _is_key_exhausted_today
         crawlora_raw = os.environ.get("CRAWLORA_API_KEY", "")
@@ -246,7 +255,7 @@ def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None)
             try:
                 masked_ckey = f"{crawlora_key[:4]}...{crawlora_key[-4:]}" if len(crawlora_key) > 8 else "CRAWLORA"
                 logger.info(f"🌐 Routing POST request via Crawlora Proxy ({masked_ckey}) for {target_url}...")
-                res_crawlora = session.post('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': target_url}, json=payload, headers=headers, timeout=60)
+                res_crawlora = session.post('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': target_url}, json=payload, headers=headers, timeout=15)
                 body_crawlora = res_crawlora.text.strip()
                 
                 if res_crawlora.status_code in (401, 403, 429) or "invalid key" in body_crawlora.lower() or "credit" in body_crawlora.lower() or "limit" in body_crawlora.lower():
@@ -261,13 +270,13 @@ def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None)
     except Exception as c_err_outer:
         logger.warning(f"Crawlora POST stage exception: {c_err_outer}")
 
-    # 2. ScraperAPI Proxy Attempt (Secondary Backup)
+    # 3. ScraperAPI Proxy Attempt (Tertiary Backup)
     valid_keys = get_valid_scraper_keys()
     for scraper_key in valid_keys:
         try:
             scraper_url = f"http://api.scraperapi.com?api_key={scraper_key}&keep_headers=true&url={urllib.parse.quote(target_url)}"
             logger.info(f"🌐 Routing POST request via ScraperAPI Proxy ({scraper_key[:5]}...) for {target_url}...")
-            res_scraper = session.post(scraper_url, json=payload, headers=headers, timeout=60)
+            res_scraper = session.post(scraper_url, json=payload, headers=headers, timeout=15)
             body_scraper = res_scraper.text.strip()
             
             if res_scraper.status_code in (401, 403, 429, 499) or "exhausted" in body_scraper.lower() or "unauthorized" in body_scraper.lower() or "multiple users" in body_scraper.lower():
@@ -288,21 +297,26 @@ def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None)
         except Exception as s_err:
             logger.warning(f"ScraperAPI proxy key attempt failed ({scraper_key[:5]}...): {s_err}")
 
-    # 3. Direct Connection Fallback
-    logger.info(f"Attempting direct POST connection to {target_url}...")
-    try:
-        return session.post(target_url, json=payload, headers=headers, timeout=10)
-    except Exception as direct_err:
-        logger.error(f"❌ Direct POST connection to {target_url} failed: {direct_err}")
-        raise
+    # Final attempt direct connection if all proxies failed
+    return session.post(target_url, json=payload, headers=headers, timeout=10)
 
 def fyers_get_with_scraper_fallback(session, target_url, headers=None):
-    """Executes a GET request to Fyers API. Tries ALL Crawlora keys FIRST, then ScraperAPI, then direct."""
+    """Executes a GET request to Fyers API. Tries Direct Connection FIRST (fast 5s), then ScraperAPI/Crawlora fallback if blocked."""
     global _active_working_scraper_key
     import urllib.parse
     headers = headers or {}
 
-    # 1. Crawlora Attempt (Primary - loops through all available Crawlora keys)
+    # 1. Direct Connection Attempt (Fast Primary - <200ms)
+    try:
+        res_direct = session.get(target_url, headers=headers, allow_redirects=False, timeout=5)
+        body_direct = res_direct.text.strip()
+        if (res_direct.status_code in (200, 301, 302, 303, 307, 308) or '"s":' in body_direct or "location" in res_direct.headers) and not body_direct.startswith("<!doctype") and not body_direct.startswith("<html"):
+            logger.info(f"⚡ [DIRECT SUCCESS] Fast GET to {target_url} succeeded (Status {res_direct.status_code})!")
+            return res_direct
+    except Exception as direct_err:
+        logger.debug(f"Direct GET attempt to {target_url} failed: {direct_err}")
+
+    # 2. Crawlora Attempt (Secondary - loops through available Crawlora keys)
     try:
         from pledge_scraper import mark_crawlora_key_exhausted_today, _is_key_exhausted_today
         crawlora_raw = os.environ.get("CRAWLORA_API_KEY", "")
@@ -312,7 +326,7 @@ def fyers_get_with_scraper_fallback(session, target_url, headers=None):
             try:
                 masked_ckey = f"{crawlora_key[:4]}...{crawlora_key[-4:]}" if len(crawlora_key) > 8 else "CRAWLORA"
                 logger.info(f"🌐 Routing GET request via Crawlora Proxy ({masked_ckey}) for {target_url}...")
-                res_crawlora = session.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': target_url}, headers=headers, allow_redirects=False, timeout=60)
+                res_crawlora = session.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': target_url}, headers=headers, allow_redirects=False, timeout=15)
                 body_crawlora = res_crawlora.text.strip()
                 
                 if res_crawlora.status_code in (401, 403, 429) or "invalid key" in body_crawlora.lower() or "credit" in body_crawlora.lower() or "limit" in body_crawlora.lower():
@@ -327,13 +341,13 @@ def fyers_get_with_scraper_fallback(session, target_url, headers=None):
     except Exception as c_err_outer:
         logger.warning(f"Crawlora GET stage exception: {c_err_outer}")
 
-    # 2. ScraperAPI Attempt (Secondary Backup)
+    # 3. ScraperAPI Attempt (Tertiary Backup)
     valid_keys = get_valid_scraper_keys()
     for scraper_key in valid_keys:
         try:
             scraper_url = f"http://api.scraperapi.com?api_key={scraper_key}&keep_headers=true&url={urllib.parse.quote(target_url)}"
             logger.info(f"🌐 Routing GET request via ScraperAPI Proxy ({scraper_key[:5]}...) for {target_url}...")
-            res_scraper = session.get(scraper_url, headers=headers, allow_redirects=False, timeout=60)
+            res_scraper = session.get(scraper_url, headers=headers, allow_redirects=False, timeout=15)
             body_scraper = res_scraper.text.strip()
             
             if res_scraper.status_code in (401, 403, 429, 499) or "exhausted" in body_scraper.lower() or "unauthorized" in body_scraper.lower() or "multiple users" in body_scraper.lower():
