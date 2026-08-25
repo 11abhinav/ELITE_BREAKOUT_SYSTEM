@@ -212,10 +212,16 @@ class UnifiedFetcher:
                                             sym_name = item.get("n")
                                             orig = fyers_map.get(sym_name)
                                             if orig:
+                                                val = item["v"]["lp"]
+                                                clean_orig = orig.replace(".NS", "").replace(".BO", "")
                                                 with results_lock:
-                                                    results[orig] = {"v": {"cmd": {"c": item["v"]["lp"]}}}
+                                                    results[orig] = {"v": {"cmd": {"c": val}}}
+                                                    results[clean_orig] = {"v": {"cmd": {"c": val}}}
+                                                    results[clean_orig + ".NS"] = {"v": {"cmd": {"c": val}}}
                                                     pending.discard(orig)
-                                                logger.debug(f"✅ [Fyers] Successfully fetched live quote for {orig} ({sym_name}): ₹{item['v']['lp']:.2f}")
+                                                    pending.discard(clean_orig)
+                                                    pending.discard(clean_orig + ".NS")
+                                                logger.debug(f"✅ [Fyers] Successfully fetched live quote for {orig} ({sym_name}): ₹{val:.2f}")
                                                 success_count += 1
                                     if success_count > 0:
                                         logger.info(f"✅ [Fyers] Fetched {success_count}/{len(fyers_map)} quotes successfully.")
@@ -238,10 +244,16 @@ class UnifiedFetcher:
                                                             sym_name = item.get("n")
                                                             orig = fyers_map.get(sym_name)
                                                             if orig:
+                                                                val = item["v"]["lp"]
+                                                                clean_orig = orig.replace(".NS", "").replace(".BO", "")
                                                                 with results_lock:
-                                                                    results[orig] = {"v": {"cmd": {"c": item["v"]["lp"]}}}
+                                                                    results[orig] = {"v": {"cmd": {"c": val}}}
+                                                                    results[clean_orig] = {"v": {"cmd": {"c": val}}}
+                                                                    results[clean_orig + ".NS"] = {"v": {"cmd": {"c": val}}}
                                                                     pending.discard(orig)
-                                                                logger.debug(f"✅ [Fyers] Successfully fetched live quote for {orig} ({sym_name}) on RETRY: ₹{item['v']['lp']:.2f}")
+                                                                    pending.discard(clean_orig)
+                                                                    pending.discard(clean_orig + ".NS")
+                                                                logger.debug(f"✅ [Fyers] Successfully fetched live quote for {orig} ({sym_name}) on RETRY: ₹{val:.2f}")
                                                                 success_count += 1
                                                     if success_count > 0:
                                                         logger.info(f"✅ [Fyers] Fetched {success_count}/{len(fyers_map)} quotes successfully on RETRY.")
@@ -273,16 +285,23 @@ class UnifiedFetcher:
                                     try:
                                         raw_key = upstox_fetcher._get_instrument_key(orig)
                                         clean_sym = raw_key.split(":")[-1].split("|")[-1]
-                                        quote_data = resp.get(orig) or resp.get(clean_sym) or resp.get(raw_key) or resp.get(raw_key.replace("|", ":"))
+                                        clean_orig = orig.replace(".NS", "").replace(".BO", "")
+                                        quote_data = (resp.get(orig) or resp.get(clean_orig) or resp.get(clean_orig + ".NS") or
+                                                      resp.get(clean_sym) or resp.get(raw_key) or resp.get(raw_key.replace("|", ":")))
                                         
                                         if quote_data and isinstance(quote_data, dict):
                                             val = quote_data.get("last_price") or quote_data.get("lp") or quote_data.get("cp")
                                             if (val is None or float(val or 0) <= 0) and "ohlc" in quote_data and isinstance(quote_data["ohlc"], dict):
                                                 val = quote_data["ohlc"].get("close") or quote_data["ohlc"].get("open")
                                             if val is not None and float(val) > 0:
-                                                results[orig] = {"v": {"cmd": {"c": float(val)}}}
-                                                logger.debug(f"✅ [Upstox] Successfully fetched live quote for {orig}: ₹{float(val):.2f}")
+                                                val_flt = float(val)
+                                                results[orig] = {"v": {"cmd": {"c": val_flt}}}
+                                                results[clean_orig] = {"v": {"cmd": {"c": val_flt}}}
+                                                results[clean_orig + ".NS"] = {"v": {"cmd": {"c": val_flt}}}
+                                                logger.debug(f"✅ [Upstox] Successfully fetched live quote for {orig}: ₹{val_flt:.2f}")
                                                 pending.discard(orig)
+                                                pending.discard(clean_orig)
+                                                pending.discard(clean_orig + ".NS")
                                                 success_count += 1
                                     except Exception as item_err:
                                         logger.error(f"❌ [Upstox] Quote parsing error for symbol {orig}: {item_err}", exc_info=True)
@@ -293,8 +312,8 @@ class UnifiedFetcher:
 
                 elif provider == "yahoo":
                     # ── DB CMP FALLBACK BEFORE YAHOO ─────────────────────────────
-                    # Try resolving pending stock symbols from Postgres DB master table first
-                    # so web scraping Yahoo Finance is strictly a last resort.
+                    # Try resolving pending stock symbols from Postgres DB master table & bhavcopy first
+                    # so web scraping Yahoo Finance is strictly a last resort for index tickers.
                     if pending:
                         try:
                             from database import get_connection
@@ -302,12 +321,26 @@ class UnifiedFetcher:
                                 with conn.cursor() as cur:
                                     for orig in list(pending):
                                         if orig not in ("NIFTY 50", "BANKNIFTY", "SENSEX", "^NSEI", "^NSEBANK", "^BSESN"):
-                                            cur.execute("SELECT cmp FROM stock_analysis_master WHERE symbol = %s AND cmp IS NOT NULL AND cmp > 0", (orig,))
+                                            clean_orig = orig.replace(".NS", "").replace(".BO", "")
+                                            cur.execute("""
+                                                SELECT COALESCE(m.cmp, b.close)
+                                                FROM (SELECT %s AS sym, %s AS clean_sym) s
+                                                LEFT JOIN stock_analysis_master m ON (m.symbol = s.sym OR m.symbol = s.clean_sym)
+                                                LEFT JOIN bhavcopy_cache b ON (b.symbol = s.sym OR b.symbol = s.clean_sym)
+                                                WHERE COALESCE(m.cmp, b.close) IS NOT NULL AND COALESCE(m.cmp, b.close) > 0
+                                                ORDER BY b.date DESC NULLS LAST
+                                                LIMIT 1
+                                            """, (orig, clean_orig))
                                             row = cur.fetchone()
                                             if row and row[0]:
-                                                results[orig] = {"v": {"cmd": {"c": float(row[0])}}}
+                                                val_flt = float(row[0])
+                                                results[orig] = {"v": {"cmd": {"c": val_flt}}}
+                                                results[clean_orig] = {"v": {"cmd": {"c": val_flt}}}
+                                                results[clean_orig + ".NS"] = {"v": {"cmd": {"c": val_flt}}}
                                                 pending.discard(orig)
-                                                logger.info(f"⚡ [DB CMP FALLBACK] Resolved quote for {orig} from PostgreSQL master: ₹{float(row[0]):.2f}")
+                                                pending.discard(clean_orig)
+                                                pending.discard(clean_orig + ".NS")
+                                                logger.info(f"⚡ [DB CMP FALLBACK] Resolved quote for {orig} from PostgreSQL master: ₹{val_flt:.2f}")
                         except Exception as db_err:
                             logger.warning(f"⚠️ DB CMP Fallback prior to Yahoo failed: {db_err}")
 
