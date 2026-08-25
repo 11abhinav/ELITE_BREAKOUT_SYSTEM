@@ -1001,31 +1001,56 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]
         clean_sym.replace(".NS", ""),
         clean_sym.replace(".BO", "")
     ]
+    
+    def _is_valid_payload(p: dict) -> bool:
+        if not p or not isinstance(p, dict) or p.get("failed", False):
+            return False
+        # Payload is valid if at least total_equity or market_cap or roe or score is present
+        return p.get("total_equity") is not None or p.get("market_cap") is not None or p.get("roe") is not None or p.get("score") is not None
+
+    # 1. Check local cache (fresh first)
     for v in variants:
         if v in cache:
             try:
                 data = cache[v]
-                if _is_fundamental_cache_fresh(data):
+                if _is_valid_payload(data) and _is_fundamental_cache_fresh(data):
                     res = {k: val for k, val in data.items() if k not in ("fetched_at", "date")}
                     res["symbol"] = clean_sym
                     return res
             except Exception as e:
                 logger.debug(f"Failed to parse cache entry for {v}: {e}")
-        
-    # Fallback to shared global fundamentals_cache (from Postgres DB)
+
+    # 2. Fallback to shared global fundamentals_cache (from Postgres DB)
     try:
         from fundamentals_cache import get_fundamentals
         for v in variants:
             g_fund = get_fundamentals(v)
-            if g_fund and not g_fund.get("failed", False):
-                if _is_fundamental_cache_fresh(g_fund):
-                    res = {k: val for k, val in g_fund.items() if k not in ("fetched_at", "date")}
-                    res["symbol"] = clean_sym
-                    return res
-                else:
-                    logger.debug(f"Global cache for {v} is stale.")
+            if _is_valid_payload(g_fund):
+                res = {k: val for k, val in g_fund.items() if k not in ("fetched_at", "date")}
+                res["symbol"] = clean_sym
+                return res
     except Exception as _g_err:
         logger.debug(f"Global fundamentals_cache fallback failed for {symbol}: {_g_err}")
+
+    # 3. Fallback to stock_analysis_master repository
+    try:
+        from database import get_stock_master_analysis
+        for v in variants:
+            m_res = get_stock_master_analysis(v)
+            if m_res and isinstance(m_res, dict):
+                fund_sub = m_res.get("fundamentals") or m_res.get("fundamental_metrics") or m_res
+                if _is_valid_payload(fund_sub):
+                    fund_sub["symbol"] = clean_sym
+                    return fund_sub
+    except Exception as _m_err:
+        logger.debug(f"Master analysis fallback failed for {symbol}: {_m_err}")
+
+    # 4. Secondary pass: accept slightly stale cache entry if valid payload exists (safer for exit monitoring than null data)
+    for v in variants:
+        if v in cache and _is_valid_payload(cache[v]):
+            res = {k: val for k, val in cache[v].items() if k not in ("fetched_at", "date")}
+            res["symbol"] = clean_sym
+            return res
 
     return None
 
