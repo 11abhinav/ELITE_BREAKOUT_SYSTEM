@@ -1821,17 +1821,25 @@ def api_macro_state():
 
 
 # ── Fetch errors API (admin) ─────────────────────────────────────────────────────
+_FETCH_ERRORS_CACHE = {"ts": 0, "payload": []}
+
 @app.route("/api/fetch_errors")
 @login_required
 def api_fetch_errors():
-    """Return recent aggregated fetch errors for admin triage."""
+    """Return recent aggregated fetch errors for admin triage (5s TTL cache to protect DB connection pool)."""
+    now_ts = time.time()
+    if (now_ts - _FETCH_ERRORS_CACHE["ts"]) < 5.0 and _FETCH_ERRORS_CACHE["payload"]:
+        return jsonify(_FETCH_ERRORS_CACHE["payload"])
     try:
         from database import get_all_fetch_errors
         rows = get_all_fetch_errors(200)
-        return jsonify(serialize_datetimes(rows))
-    except Exception:
-        logger.exception("❌ /api/fetch_errors failed")
-        return jsonify([]), 200
+        res = serialize_datetimes(rows)
+        _FETCH_ERRORS_CACHE["ts"] = now_ts
+        _FETCH_ERRORS_CACHE["payload"] = res
+        return jsonify(res)
+    except Exception as e:
+        logger.warning(f"❌ /api/fetch_errors warning: {e}")
+        return jsonify(_FETCH_ERRORS_CACHE.get("payload") or []), 200
 
 @app.route("/api/system_logs", methods=["GET"])
 @login_required
@@ -2339,10 +2347,15 @@ def get_validation_history(dataset):
         logger.exception(f"❌ /api/validation_history/{dataset} failed")
         return jsonify({"status": "success", "data": []})
 
+_DATA_FETCH_HEALTH_CACHE = {"ts": 0, "payload": []}
+
 @app.route("/api/data_fetch_health")
 @login_required
 def api_data_fetch_health():
-    """Return the health status of external data providers (cache/fetch failures)."""
+    """Return the health status of external data providers (5s TTL cache to protect DB connection pool)."""
+    now_ts = time.time()
+    if (now_ts - _DATA_FETCH_HEALTH_CACHE["ts"]) < 5.0 and _DATA_FETCH_HEALTH_CACHE["payload"]:
+        return jsonify(_DATA_FETCH_HEALTH_CACHE["payload"])
     try:
         from database import get_all_data_fetch_health
         rows = get_all_data_fetch_health() or []
@@ -2368,10 +2381,13 @@ def api_data_fetch_health():
         except Exception as _f_err:
             logger.warning(f"Failed to check Fyers token in health check: {_f_err}")
 
-        return jsonify(serialize_datetimes(rows))
+        res = serialize_datetimes(rows)
+        _DATA_FETCH_HEALTH_CACHE["ts"] = now_ts
+        _DATA_FETCH_HEALTH_CACHE["payload"] = res
+        return jsonify(res)
     except Exception as e:
-        logger.exception(f"❌ /api/data_fetch_health failed: {e}")
-        return jsonify([])
+        logger.warning(f"❌ /api/data_fetch_health warning: {e}")
+        return jsonify(_DATA_FETCH_HEALTH_CACHE.get("payload") or [])
 
 
 _todays_alerts_cache = {"ts": 0, "admin_payload": None, "user_payload": None}
@@ -2890,6 +2906,8 @@ def route_wealth():
     from config import BASE_DIR
     return send_file(os.path.join(BASE_DIR, "app", "wealth_dashboard.html"))
 
+_SCANNER_STATUS_CACHE = {"ts": 0, "payload": None}
+
 @app.route("/api/download_shortlist")
 @login_required
 def api_download_shortlist():
@@ -2925,14 +2943,12 @@ _wealth_trades_cache = {"timestamp": 0, "trades": []}
 @login_required
 def api_scanner_status():
     """
-    Return per-scanner health stats and today's trades — all sourced from Postgres.
-
-    [VERSION: DASHBOARD_PERF_FIX_v1.0] Replaced N+1 query pattern with single batch query.
-    Previously called get_scanner_today_trades() once per scanner (~10 separate DB round-trips).
-    Now uses get_all_scanners_today_trades() for 1 query total.
+    Return per-scanner health stats and today's trades (3s TTL cache to protect DB connection pool).
     """
-    import time
+    global _SCANNER_STATUS_CACHE
     now_ts = time.time()
+    if _SCANNER_STATUS_CACHE["payload"] is not None and (now_ts - _SCANNER_STATUS_CACHE["ts"]) < 3.0:
+        return Response(_SCANNER_STATUS_CACHE["payload"], mimetype="application/json")
     try:
         import os
         from database import get_all_scanner_health, get_all_scanners_today_trades
@@ -2941,7 +2957,6 @@ def api_scanner_status():
         today_str = datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d')
 
         health_rows = get_all_scanner_health()
-        # [PERF] Single batch query replaces N+1 loop
         all_today_trades = get_all_scanners_today_trades(today_str)
 
         result = {}
@@ -2949,8 +2964,6 @@ def api_scanner_status():
             sc = row["scanner_name"]
             today_trades = all_today_trades.get(sc, [])
             
-            # Special case for Wealth Engine: It doesn't write to the alerts table.
-            # We must parse its parquet file to get today's trades for the tooltip to work!
             if sc == "Wealth Engine":
                 try:
                     import os, pandas as pd
@@ -2958,39 +2971,32 @@ def api_scanner_status():
                     wealth_path = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
                     if os.path.exists(wealth_path):
                         wdf = pd.read_parquet(wealth_path)
-                        # Filter for BUY signals
-                        buy_df = wdf[wdf["Signal_Code"] == "BUY"]
-                        today_trades = []
-                        for _, wrow in buy_df.iterrows():
-                            today_trades.append({
-                                "symbol": wrow.get("Stock", ""),
-                                "category": wrow.get("Portfolio_Bucket", ""),
-                                "signals": wrow.get("Signal", ""),
-                                "entry_price": wrow.get("cmp", 0),
-                                "alert_time": today_str,
-                                "stop_loss": None,
-                                "target_price": None,
-                                "exit_price": None,
-                                "closed_at": None,
-                                "pnl_pct": None,
-                                "status": "OPEN",
-                                "score": wrow.get("FM_Score", 0)
-                            })
-                except Exception as e:
-                    logger.warning(f"⚠️ Failed to parse Wealth Engine trades for status dashboard: {e}")
+                        if not wdf.empty and "Alert Date" in wdf.columns:
+                            wdf["Alert Date"] = pd.to_datetime(wdf["Alert Date"]).dt.strftime('%Y-%m-%d')
+                            today_w = wdf[wdf["Alert Date"] == today_str]
+                            today_trades = [
+                                {
+                                    "symbol": r.get("Stock", ""),
+                                    "category": "WEALTH",
+                                    "signals": "Wealth Engine Selection",
+                                    "entry_price": float(r.get("Entry Price", 0)) if r.get("Entry Price") else None,
+                                    "alert_time": r.get("Alert Date", ""),
+                                    "stop_loss": float(r.get("SL", 0)) if r.get("SL") else None,
+                                    "target_price": float(r.get("Target", 0)) if r.get("Target") else None,
+                                    "status": "OPEN",
+                                    "score": float(r.get("Score", 0)) if r.get("Score") else None,
+                                    "closed_at": None,
+                                    "pnl_pct": None,
+                                }
+                                for _, r in today_w.iterrows()
+                            ]
+                except Exception as _we_err:
+                    logger.debug(f"Wealth trades parse warning: {_we_err}")
 
-            # [VERSION: AI_STATS_API_v1.0] Add dynamic fallback for AI Worker to align with Pledge Worker fallback
-            processed_count = row.get("processed_count")
-            total_count = row.get("total_count")
-            if sc == "Pledge Worker" and (processed_count is None or total_count is None or total_count == 0):
-                try:
-                    from database import get_promoter_pledge_stats
-                    stats = get_promoter_pledge_stats(None)
-                    processed_count = stats.get("processed_today", 0)
-                    total_count = stats.get("eligible_today", 0)
-                except Exception:
-                    logger.exception("Failed to query fallback pledge stats")
-            elif sc == "AI Worker" and (processed_count is None or total_count is None or total_count == 0):
+            processed_count = None
+            total_count = None
+            
+            if sc in ["Pledge Worker", "AI Worker"]:
                 try:
                     from database import get_ai_concall_stats, get_connection
                     symbols_set = set()
@@ -3071,13 +3077,13 @@ def api_scanner_status():
             result[sc]["status"] = f"QUEUED-{i + 1}"
             
         res_payload = json.dumps(serialize_datetimes(result))
-        return Response(res_payload, mimetype="application/json", headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
-            "Pragma": "no-cache",
-            "Expires": "0"
-        })
+        _SCANNER_STATUS_CACHE["ts"] = now_ts
+        _SCANNER_STATUS_CACHE["payload"] = res_payload
+        return Response(res_payload, mimetype="application/json")
     except Exception as exc:
-        logger.exception("❌ /api/scanner_status failed")
+        logger.warning(f"❌ /api/scanner_status warning: {exc}")
+        if _SCANNER_STATUS_CACHE["payload"] is not None:
+            return Response(_SCANNER_STATUS_CACHE["payload"], mimetype="application/json")
         return jsonify({}), 200
 
 

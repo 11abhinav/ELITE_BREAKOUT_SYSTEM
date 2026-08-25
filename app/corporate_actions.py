@@ -19,8 +19,13 @@ _CACHE_LAST_REFRESH: float = 0.0
 _CACHE_TTL_SECONDS: float = 3600.0  # 1 hour in-memory cache
 
 
+_CORP_DB_INITIALIZED = False
+
 def init_corporate_actions_db() -> None:
-    """Ensures corporate_actions_history table exists in PostgreSQL database."""
+    """Ensures corporate_actions_history table exists in PostgreSQL database (runs once)."""
+    global _CORP_DB_INITIALIZED
+    if _CORP_DB_INITIALIZED:
+        return
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -38,6 +43,7 @@ def init_corporate_actions_db() -> None:
                     CREATE INDEX IF NOT EXISTS idx_corp_actions_sym_date ON corporate_actions_history (symbol, ex_date);
                 """)
                 conn.commit()
+                _CORP_DB_INITIALIZED = True
     except Exception as e:
         logger.warning(f"Failed to init corporate_actions_history table: {e}")
 
@@ -56,6 +62,8 @@ def register_corporate_action(symbol: str, ex_date: str, action_type: str, split
                     DO UPDATE SET split_factor = EXCLUDED.split_factor, notes = EXCLUDED.notes;
                 """, (sym, ex_date, action_type.upper(), float(split_factor), notes))
                 conn.commit()
+        # Invalidate in-memory cache on write
+        _SPLIT_FACTOR_CACHE.clear()
         logger.info(f"✅ Registered corporate action for {sym}: {action_type} x{split_factor} on {ex_date}")
     except Exception as e:
         logger.error(f"Failed to register corporate action for {sym}: {e}")
@@ -64,11 +72,7 @@ def register_corporate_action(symbol: str, ex_date: str, action_type: str, split
 def get_cumulative_split_factor(symbol: str, entry_date_val: Any, exit_date_val: Any = None) -> float:
     """
     Computes cumulative corporate action factor (splits & bonuses) between entry_date and exit_date (or today).
-    Example:
-      If a stock had a 1:5 split (factor 5.0) on 2026-08-10, and entry_date was 2026-08-01:
-      Factor returned = 5.0.
-      If entry_date was 2026-08-15 (post-split):
-      Factor returned = 1.0.
+    Cached in-memory to prevent DB connection pool exhaustion.
     """
     if not symbol:
         return 1.0
@@ -96,9 +100,15 @@ def get_cumulative_split_factor(symbol: str, entry_date_val: Any, exit_date_val:
     if d_entry >= d_exit:
         return 1.0
 
+    cache_key = f"{clean_sym}:{d_entry}:{d_exit}"
+    now_mono = time.monotonic()
+    if cache_key in _SPLIT_FACTOR_CACHE:
+        c_val, c_ts = _SPLIT_FACTOR_CACHE[cache_key]
+        if (now_mono - c_ts) < _CACHE_TTL_SECONDS:
+            return c_val
+
     init_corporate_actions_db()
 
-    # Query DB for all splits/bonuses on this symbol
     cumulative_factor = 1.0
     try:
         with get_connection() as conn:
@@ -130,12 +140,13 @@ def get_cumulative_split_factor(symbol: str, entry_date_val: Any, exit_date_val:
                     if d_entry < s_date <= d_exit and factor > 1.0:
                         f_val = float(factor)
                         cumulative_factor *= f_val
-                        # Auto-persist to DB for fast future lookups
                         register_corporate_action(clean_sym, str(s_date), "SPLIT", f_val, "Auto-discovered via yfinance")
         except Exception as _yf_err:
             logger.debug(f"yfinance splits check warning for {clean_sym}: {_yf_err}")
 
-    return round(cumulative_factor, 4)
+    res_factor = round(cumulative_factor, 4)
+    _SPLIT_FACTOR_CACHE[cache_key] = (res_factor, now_mono)
+    return res_factor
 
 
 def adjust_trade_for_corporate_actions(trade: dict) -> dict:

@@ -128,8 +128,8 @@ def _get_pool() -> Optional[pool.ThreadedConnectionPool]:
             return None
         # Configure pool size via env override if provided (strictly default to 10 to prevent Postgres client exhaustion)
         # Configure pool size via env override if provided (default to 30 for high concurrency)
-        maxconn = int(os.getenv("DB_MAXCONN", "30"))
-        minconn = int(os.getenv("DB_MINCONN", "3"))
+        maxconn = int(os.getenv("DB_MAXCONN", "50"))
+        minconn = int(os.getenv("DB_MINCONN", "5"))
         _pool = pool.ThreadedConnectionPool(
             minconn=minconn,
             maxconn=maxconn,
@@ -160,7 +160,7 @@ atexit.register(close_pool)
 
 
 @contextmanager
-def get_connection(timeout: int = 15):
+def get_connection(timeout: int = 5):
     """Get DB connection with circuit breaker pattern.
 
     Acquires an internal semaphore before checking out a connection from the pool.
