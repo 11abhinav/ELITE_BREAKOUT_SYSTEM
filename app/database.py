@@ -1081,6 +1081,27 @@ def init_db():
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_global_notif_created ON global_notifications(created_at DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_global_notif_type ON global_notifications(type, created_at DESC)")
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS near_misses (
+                        id SERIAL PRIMARY KEY,
+                        symbol TEXT NOT NULL,
+                        scanner TEXT NOT NULL,
+                        breakout_type TEXT,
+                        gate_name TEXT NOT NULL,
+                        observed_value TEXT,
+                        threshold_value TEXT,
+                        delta_pct NUMERIC(6,2),
+                        score NUMERIC(5,2),
+                        entry_price NUMERIC(12,2),
+                        stop_loss NUMERIC(12,2),
+                        target_1 NUMERIC(12,2),
+                        logged_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                        logged_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        status VARCHAR(30) DEFAULT 'TRACKING',
+                        realized_rr NUMERIC(6,2),
+                        max_mfe_r NUMERIC(6,2)
+                    );
+                """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_date ON near_misses(logged_date DESC, scanner)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_user_messages_user_created ON user_messages(user_id, created_at DESC)")
 
@@ -7160,34 +7181,25 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER", username: str = None) -> l
                         "warning_msg": "",
                     })
 
-                # Batch-fetch live CMP for missing or stale symbols
+                # Batch-fetch live CMP for missing or stale symbols asynchronously in background thread
                 missing_cmp_syms = list(dict.fromkeys(missing_cmp_syms))
                 if missing_cmp_syms:
-                    try:
-                        from live_prices import get_live_prices
-                        live_map = get_live_prices(missing_cmp_syms)
-                        if live_map:
-                            now_iso = now_ist.isoformat()
-                            fresh_prices_to_persist = {}
-                            for item in results:
-                                s = item["symbol"]
-                                if s in live_map and live_map[s] is not None:
-                                    try:
-                                        p_val = float(live_map[s])
-                                        if p_val > 0:
-                                            item["cmp"] = p_val
-                                            item["cmp_updated_at"] = now_iso
-                                            fresh_prices_to_persist[s] = p_val
-                                    except (ValueError, TypeError):
-                                        pass
+                    def _bg_fetch_cmp(syms):
+                        try:
+                            from live_prices import get_live_prices
+                            live_map = get_live_prices(syms)
+                            if live_map:
+                                fresh_prices = {s: float(v) for s, v in live_map.items() if v is not None and float(v) > 0}
+                                if fresh_prices:
+                                    bulk_update_cmp(fresh_prices)
+                        except Exception as _bg_err:
+                            logger.debug(f"BG CMP fetch warning: {_bg_err}")
 
-                            if fresh_prices_to_persist:
-                                try:
-                                    bulk_update_cmp(fresh_prices_to_persist)
-                                except Exception:
-                                    pass
-                    except Exception as lerr:
-                        logger.warning(f"Could not fetch live CMP for missing/stale watchlist symbols: {lerr}")
+                    try:
+                        import threading
+                        threading.Thread(target=_bg_fetch_cmp, args=(missing_cmp_syms,), daemon=True).start()
+                    except Exception:
+                        pass
 
                 try:
                     from corporate_events import decorate_events
