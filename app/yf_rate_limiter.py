@@ -62,29 +62,12 @@ def acquire(timeout: Optional[float] = None, context: str = "Unknown") -> bool:
             time.sleep(sleep_time)
             continue  # Try again after sleeping
 
-        # Try to acquire semaphore — with heartbeat logging if we have to wait
-        sem_start = _now()
-        last_logged_sem = 0
-        while True:
-            acquired = _semaphore.acquire(timeout=1.0)
-            if acquired:
-                break
-            sem_waited = int(_now() - sem_start)
-            if sem_waited >= last_logged_sem + 10:
-                last_logged_sem = sem_waited
-                logger.info(f"⏳ [YF_RATE_LIMIT] Yahoo semaphore full ({_MAX_CONCURRENCY} slots busy) — queued for {sem_waited}s. (Context: {context})")
-            if timeout is not None and (_now() - sem_start) >= timeout:
-                return False
-        ok = True
-
-        # We got the semaphore. Check circuit one more time in case it tripped while we waited.
+        # NEW: Enforce min-interval BEFORE taking a semaphore slot
         with _lock:
             now = _now()
             if _circuit_tripped_until and now < _circuit_tripped_until:
-                _semaphore.release()
                 continue
-
-            # Enforce global minimal interval
+                
             since = now - _last_call_ts
             sleep_for = 0
             if since < _MIN_INTERVAL_S:
@@ -96,6 +79,26 @@ def acquire(timeout: Optional[float] = None, context: str = "Unknown") -> bool:
         if sleep_for > 0:
             logger.debug(f"⏱️ [YF_RATE_LIMIT] Enforcing min-interval spacing — sleeping {sleep_for*1000:.0f}ms. (Context: {context})")
             time.sleep(sleep_for)
+
+        # Try to acquire semaphore — with heartbeat logging if we have to wait
+        sem_start = _now()
+        last_logged_sem = 0
+        while True:
+            acquired = _semaphore.acquire(timeout=1.0)
+            if acquired:
+                break
+            sem_waited = int(_now() - sem_start)
+            if sem_waited >= last_logged_sem + 30:
+                last_logged_sem = sem_waited
+                logger.debug(f"⏳ [YF_RATE_LIMIT] Yahoo semaphore full ({_MAX_CONCURRENCY} slots busy) — queued for {sem_waited}s. (Context: {context})")
+            if timeout is not None and (_now() - sem_start) >= timeout:
+                return False
+        # We got the semaphore. Check circuit one more time in case it tripped while we waited.
+        with _lock:
+            now = _now()
+            if _circuit_tripped_until and now < _circuit_tripped_until:
+                _semaphore.release()
+                continue
 
         return True
 

@@ -989,6 +989,26 @@ def _is_fundamental_cache_fresh(data: dict) -> bool:
         logger.debug(f"Freshness check failed: {e}")
         return False
 
+def is_deep_v5_cache(data: dict) -> bool:
+    if not isinstance(data, dict) or not data:
+        return False
+
+    required = (
+        "total_equity",
+        "market_cap",
+        "revenue_cagr_3y",
+        "data_freshness",
+    )
+
+    for key in required:
+        value = data.get(key)
+        if value is None:
+            return False
+        if isinstance(value, str) and not value.strip():
+            return False
+
+    return True
+
 def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]]:
     clean_sym = symbol.strip().upper()
     variants = [
@@ -1673,16 +1693,12 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 # indefinitely until the cache is manually refreshed.
                 # Fix: if the cached entry is missing BOTH total_equity and market_cap,
                 # treat it as incomplete and attempt a live yfinance fetch before giving up.
-                fund = get_cached_fundamentals(symbol, cache)
-                _cache_incomplete = (
-                    fund is not None
-                    and fund.get("total_equity") is None
-                    and fund.get("market_cap") is None
-                )
-                if not fund or _cache_incomplete:
-                    if _cache_incomplete:
-                        logger.info(f"[EXIT MONITOR] {symbol}: cached entry has no equity/market_cap — attempting live fetch to avoid false SELL_REVIEW")
+                raw = cache.get(symbol, {})
+                if not is_deep_v5_cache(raw):
+                    logger.info(f"🔬 [EXIT MONITOR] Deep hydration required for {symbol}")
                     fund = fetch_ticker_fundamentals(symbol)
+                else:
+                    fund = get_cached_fundamentals(symbol, cache)
 
                 # [VERSION: MULTIBAGGER_EXIT_HIERARCHY_v1.0] Rule 1: Emergency Catastrophic Stop Loss ALWAYS runs first
                 # to protect capital against severe drawdown (>= 20-30% loss) even if fundamental data is missing or degraded.
@@ -2121,16 +2137,6 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     stage_tracker.start_stage(2, "Fundamentals DB Cache Validation & Fetch", f"Target: {len(shortlist)} stocks")
     fundamentals_list = []
 
-    def _is_fully_hydrated_v5(payload: dict) -> bool:
-        if not payload:
-            return False
-        # The cache entry must have these keys populated to be considered a fully hydrated V5 payload
-        required_keys = ['total_equity', 'market_cap', 'data_freshness', 'revenue_cagr_3y']
-        for k in required_keys:
-            if k not in payload:
-                return False
-        return True
-
     # Check if any shortlisted stocks are missing from cache. If so, run instant TradingView bulk fetch (<3s)
     missing_shortlist_syms = [p.symbol for p in shortlist if not get_cached_fundamentals(p.symbol, cache)]
     if missing_shortlist_syms:
@@ -2418,7 +2424,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
 
         # 3. Targeted Deep Hydration for Finalists
         # If the candidate made it past the pre-gates, we need strict V5 keys for the pipeline
-        if not _is_fully_hydrated_v5(raw_fundamentals):
+        if not is_deep_v5_cache(raw_fundamentals):
             logger.info(f"📥 [MULTIBAGGER POST-FILTER] {sym}: Passed pre-gates but missing V5 keys. Fetching deep YFinance fundamentals...")
             try:
                 deep_fund = fetch_ticker_fundamentals(sym)
