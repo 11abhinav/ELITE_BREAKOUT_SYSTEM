@@ -51,7 +51,7 @@ def extract_text_from_nse_pdf(pdf_url: str) -> str:
             logger.debug(f"Direct PDF fetch error: {direct_err}")
 
         if response is None:
-            from pledge_scraper import get_crawlora_api_key
+            from pledge_scraper import get_crawlora_api_key, mark_crawlora_key_exhausted_today, get_scraper_api_key, mark_key_exhausted_today
             crawlora_key = get_crawlora_api_key()
             if crawlora_key:
                 try:
@@ -59,11 +59,26 @@ def extract_text_from_nse_pdf(pdf_url: str) -> str:
                     last_status = c_resp.status_code
                     if c_resp.status_code == 200:
                         response = c_resp
+                    elif c_resp.status_code in (401, 429):
+                        mark_crawlora_key_exhausted_today(crawlora_key)
                 except Exception as crawlora_err:
                     logger.debug(f"Crawlora PDF fetch failed: {crawlora_err}")
 
         if response is None:
-            logger.error(f"❌ [PDF FETCH FAILURE] Failed to fetch PDF from {pdf_url} (Last HTTP Status: {last_status}) via direct session & Crawlora")
+            scraper_key = get_scraper_api_key()
+            if scraper_key:
+                try:
+                    s_resp = requests.get('https://api.scraperapi.com/', params={'api_key': scraper_key, 'url': pdf_url}, stream=True, timeout=30)
+                    last_status = s_resp.status_code
+                    if s_resp.status_code == 200:
+                        response = s_resp
+                    elif s_resp.status_code in (401, 403, 429):
+                        mark_key_exhausted_today(scraper_key)
+                except Exception as scraper_err:
+                    logger.debug(f"ScraperAPI PDF fetch failed: {scraper_err}")
+
+        if response is None:
+            logger.error(f"❌ [PDF FETCH FAILURE] Failed to fetch PDF from {pdf_url} (Last HTTP Status: {last_status}) via Crawlora & ScraperAPI")
             return ""
         
         # Write to a temp file

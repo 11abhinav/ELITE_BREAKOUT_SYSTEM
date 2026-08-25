@@ -167,11 +167,12 @@ def worker_loop():
     init_db()
     iteration = 0
     
-    if not os.getenv("SCRAPERAPI_KEY"):
-        logger.error("❌ SCRAPERAPI_KEY env var not set. Scraper daemon will pause.")
+    from pledge_scraper import get_crawlora_api_key, get_scraper_api_key
+    if not get_crawlora_api_key() and not get_scraper_api_key():
+        logger.error("❌ Neither CRAWLORA_API_KEY nor SCRAPERAPI_KEY env var set. Scraper daemon will pause.")
         while True:
             try:
-                upsert_scanner_health("Pledge Worker", "DOWN", error_msg="SCRAPERAPI_KEY env var is not set")
+                upsert_scanner_health("Pledge Worker", "DOWN", error_msg="Proxy API keys (Crawlora/ScraperAPI) not set")
             except Exception:
                 pass
             time.sleep(3600)
@@ -268,8 +269,8 @@ def worker_loop():
                 continue
 
         try:
-            if not get_scraper_api_key():
-                logger.warning("🚨 All Scraper API keys are exhausted. Pausing scraping daemon for 1 hour.")
+            if not get_crawlora_api_key() and not get_scraper_api_key():
+                logger.warning("🚨 All Crawlora & ScraperAPI keys are exhausted. Pausing scraping daemon for 1 hour.")
                 time.sleep(3600)
                 continue
                 
