@@ -153,9 +153,14 @@ class ProcessLockImpl:
             if db_url:
                 if self.db_conn is None:
                     try:
-                        from database import _get_pool
+                        from database import _get_pool, _conn_semaphore
                         p = _get_pool()
                         if p:
+                            if _conn_semaphore is not None:
+                                try:
+                                    _conn_semaphore.acquire(timeout=5.0)
+                                except Exception:
+                                    pass
                             self.db_conn = p.getconn()
                             self._pool_ref = p
                             self.db_conn.autocommit = True
@@ -235,6 +240,11 @@ class ProcessLockImpl:
             except Exception: pass
             self.db_conn = None
             self._pool_ref = None
+            try:
+                from database import _conn_semaphore
+                if _conn_semaphore is not None:
+                    _conn_semaphore.release()
+            except Exception: pass
 
     def release(self):
         with self._internal_lock:

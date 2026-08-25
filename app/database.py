@@ -201,6 +201,8 @@ def get_connection(timeout: int = 5):
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1")
                     cur.execute("SET TIME ZONE 'Asia/Kolkata'")
+                    cur.execute("SET idle_in_transaction_session_timeout = '10000'")
+                    cur.execute("SET statement_timeout = '30000'")
                 break
             except (OperationalError, ps_pool.PoolError) as oe:
                 if conn:
