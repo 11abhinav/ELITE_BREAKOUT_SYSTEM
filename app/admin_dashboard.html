@@ -2323,11 +2323,13 @@ var _userWatchlistData = [];
         }
         if (typeof fetchSignalLadder === 'function') fetchSignalLadder();
       } else if (tabId === 'watchlist-users') {
-        if (typeof loadUserWatchlist === 'function') loadUserWatchlist();
+        _watchlistFetchCache = null;
+        _watchlistFetchCache_ts = 0;
+        if (typeof loadUserWatchlist === 'function') loadUserWatchlist(true);
         if (typeof loadMultibaggerWatchlist === 'function') loadMultibaggerWatchlist();
         if (typeof searchUsers === 'function') searchUsers();
         if (typeof loadPendingUsers === 'function') loadPendingUsers();
-        if (typeof loadManualWatchlist === 'function') loadManualWatchlist();
+        if (typeof loadManualWatchlist === 'function') loadManualWatchlist(true);
         if (typeof loadNearMisses === 'function') loadNearMisses();
       } else if (tabId === 'health-errors') {
         if (typeof loadDiagnostics === 'function' && !diagnosticsLoaded) {
@@ -7541,9 +7543,9 @@ function formatISTDate(isoStr) {
 let _watchlistFetchCache = null;
 let _watchlistFetchCache_ts = 0;
 
-function _fetchWatchlist() {
+function _fetchWatchlist(forceRefresh = false) {
   const now = Date.now();
-  if (_watchlistFetchCache && (now - _watchlistFetchCache_ts) < 5000) {
+  if (!forceRefresh && _watchlistFetchCache && (now - _watchlistFetchCache_ts) < 5000) {
     return _watchlistFetchCache;
   }
   _watchlistFetchCache_ts = now;
@@ -7561,8 +7563,8 @@ function _fetchWatchlist() {
   return _watchlistFetchCache;
 }
 
-function loadUserWatchlist() {
-  _fetchWatchlist()
+function loadUserWatchlist(force = false) {
+  _fetchWatchlist(force)
     .then(items => {
       const watchlistItems = Array.isArray(items) ? items : [];
       document.querySelectorAll('#my-watchlist-count, #modal-watchlist-count').forEach(el => {
@@ -7799,11 +7801,11 @@ function _renderManualWatchlist() {
 }
 
   // [VERSION: MWL_SORT_v1.0] Uses shared _fetchWatchlist(), stores into _mwlData, delegates to _renderManualWatchlist()
-function loadManualWatchlist() {
+function loadManualWatchlist(force = false) {
   const tbody = document.getElementById('manual-watchlist-tbody');
   if (!tbody) return;
   // Removed innerHTML Loading to prevent screen flashing during background refresh
-  _fetchWatchlist()
+  _fetchWatchlist(force)
     .then(items => {
       const list = Array.isArray(items) ? items : [];
       const tbody = document.getElementById('manual-watchlist-tbody');
