@@ -4275,7 +4275,20 @@ function getEarningsBadgeHtml(item) {
 
     function populateFilters(trades) {
       const scanners = [...new Set(trades.map(t => t.scanner))].sort();
-      const statuses = [...new Set(trades.map(t => t.status))].sort();
+      
+      // Hardcode all possible status combinations so they are always filterable
+      const predefinedStatuses = [
+        { val: 'OPEN', label: 'Open' },
+        { val: 'WIN', label: 'Win (Full Profit)' },
+        { val: 'PARTIAL_WIN', label: 'Partial Win' },
+        { val: 'LOSS', label: 'Loss (Stopped Out)' },
+        { val: 'CLOSED_TODAY', label: 'Closed Today' },
+        { val: 'REJECTED', label: 'Rejected' },
+        { val: 'SELL_REVIEW', label: 'Sell Review' },
+        { val: 'EXPIRED', label: 'Expired' },
+        { val: 'NEUTRAL', label: 'Neutral' },
+        { val: 'CLOSED', label: 'Closed (Other)' }
+      ];
       
       const sEl = document.getElementById('filterScanner');
       const stEl = document.getElementById('filterStatus');
@@ -4285,7 +4298,15 @@ function getEarningsBadgeHtml(item) {
       if(stEl) while (stEl.options.length > 1) stEl.remove(1);
 
       scanners.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; sEl.appendChild(o); });
-      if(stEl) statuses.forEach(st => { const o = document.createElement('option'); o.value = st; o.textContent = st; stEl.appendChild(o); });
+      
+      if(stEl) {
+        predefinedStatuses.forEach(st => { 
+          const o = document.createElement('option'); 
+          o.value = st.val; 
+          o.textContent = st.label; 
+          stEl.appendChild(o); 
+        });
+      }
     }
 
     function renderCategoryStats() {
