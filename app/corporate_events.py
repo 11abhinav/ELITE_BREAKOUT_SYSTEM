@@ -115,31 +115,9 @@ class CorporateEventRepository:
     @staticmethod
     def _bulk_fill_non_yahoo(events_map: Dict[str, Dict[str, Any]]) -> None:
         """
-        [VERSION: ZERO_YAHOO_EARNINGS_PIPELINE_v1.0]
-        Tier-3 Zero-Yahoo fallback: for all tracked symbols NOT yet in events_map,
-        fetch earnings date via NseEarningsProvider (NSE + TradingView bulk) and populate
-        both events_map and NseEarningsProvider._bulk_cache instantly with ZERO yfinance calls.
+        Non-blocking bulk fill: Avoids blocking HTTP requests with synchronous per-symbol fetches.
         """
-        from earnings_calendar import NseEarningsProvider
-        tracked = CorporateEventRepository._get_tracked_symbols()
-        missing = [s for s in tracked if s not in events_map]
-        if not missing:
-            return
-
-        provider = NseEarningsProvider()
-        filled = 0
-        for sym in missing:
-            try:
-                ed, status = provider.fetch_earnings_date(sym)
-                if ed:
-                    ed_str = ed.strftime("%Y-%m-%d") if hasattr(ed, 'strftime') else str(ed)
-                    events_map[sym] = {"earnings_date": ed_str, "date_status": status}
-                    NseEarningsProvider._bulk_cache[sym] = (ed, status)
-                    filled += 1
-            except Exception as e:
-                logger.debug(f"Zero-Yahoo Tier-3 fetch failed for {sym}: {e}")
-        if filled:
-            logger.info(f"[CorporateEvents Tier-3] Populated {filled}/{len(missing)} missing symbols via Zero-Yahoo provider")
+        return
 
 
 class CorporateEventCache:
