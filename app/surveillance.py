@@ -92,22 +92,14 @@ def get_live_blacklist() -> set[str]:
                     api_key = get_scraper_api_key()
                     
                     def fetch_nse_json(url: str):
-                        from pledge_scraper import get_crawlora_api_key, mark_crawlora_key_exhausted_today, get_scraper_api_key, mark_key_exhausted_today
+                        from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
                         
-                        # 1. Crawlora Attempt (PRIMARY)
-                        crawlora_key = get_crawlora_api_key()
-                        if crawlora_key:
-                            try:
-                                c_payload = {'api_key': crawlora_key, 'url': url}
-                                c_resp = requests.get('https://api.crawlora.net/v1/scrape', params=c_payload, timeout=30)
-                                if c_resp.status_code == 200:
-                                    return c_resp.json()
-                                elif c_resp.status_code in (401, 429):
-                                    mark_crawlora_key_exhausted_today(crawlora_key)
-                                else:
-                                    logger.warning(f"⚠️ Crawlora returned status {c_resp.status_code} for {url}")
-                            except Exception as crawlora_err:
-                                logger.debug(f"Crawlora fetch failed for {url}: {crawlora_err}")
+                        # 1. Direct nsepython (PRIMARY)
+                        try:
+                            import nsepython
+                            return nsepython.nsefetch(url)
+                        except Exception as nse_err:
+                            logger.debug(f"nsepython fetch failed for {url}: {nse_err}")
 
                         # 2. ScraperAPI Attempt (SECONDARY BACKUP)
                         curr_key = get_scraper_api_key()
@@ -133,12 +125,7 @@ def get_live_blacklist() -> set[str]:
                             except Exception as scraper_err:
                                 logger.debug(f"ScraperAPI fetch failed for {url}: {scraper_err}")
                         
-                        # 3. Direct nsepython fallback
-                        try:
-                            import nsepython
-                            return nsepython.nsefetch(url)
-                        except Exception as nse_err:
-                            raise Exception(f"Failed to fetch {url} via Crawlora, ScraperAPI & nsepython fallback: {nse_err}")
+                        raise Exception(f"Failed to fetch {url} via nsepython and ScraperAPI fallback")
 
                     asm_res = fetch_nse_json("https://www.nseindia.com/api/reportASM")
                     if isinstance(asm_res, dict):

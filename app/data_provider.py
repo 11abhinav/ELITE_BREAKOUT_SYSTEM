@@ -693,7 +693,18 @@ class AutoSwitchingFetcher(DataFetcher):
                     
                     for s in actual_chunk:
                         res = prov_results.get(s)
-                        if res and res.dataframe is not None and getattr(res, 'quality_report', None) and res.quality_report.is_valid:
+                        
+                        # [VERSION: STALENESS_FALLBACK_v1.0] Reject if data is considered stale by market_utils
+                        is_stale = False
+                        if res and res.dataframe is not None and interval in ("1d", "daily"):
+                            try:
+                                from market_utils import evaluate_data_staleness
+                                last_ts = pd.to_datetime(res.dataframe['Date'].iloc[-1]) if 'Date' in res.dataframe.columns else pd.to_datetime(res.dataframe.index[-1])
+                                is_stale = evaluate_data_staleness(last_ts).get("is_stale", False)
+                            except Exception:
+                                pass
+
+                        if res and res.dataframe is not None and getattr(res, 'quality_report', None) and res.quality_report.is_valid and not is_stale:
                             results[s] = res
                             if s in missing_symbols:
                                 missing_symbols.remove(s)
@@ -745,7 +756,17 @@ class AutoSwitchingFetcher(DataFetcher):
                     succeeded_count = 0
                     for s in current_batch:
                         res = prov_results.get(s)
-                        if res and res.dataframe is not None and res.quality_report and res.quality_report.is_valid:
+                        
+                        is_stale = False
+                        if res and res.dataframe is not None and interval in ("1d", "daily"):
+                            try:
+                                from market_utils import evaluate_data_staleness
+                                last_ts = pd.to_datetime(res.dataframe['Date'].iloc[-1]) if 'Date' in res.dataframe.columns else pd.to_datetime(res.dataframe.index[-1])
+                                is_stale = evaluate_data_staleness(last_ts).get("is_stale", False)
+                            except Exception:
+                                pass
+
+                        if res and res.dataframe is not None and res.quality_report and res.quality_report.is_valid and not is_stale:
                             results[s] = res
                             if s in missing_symbols:
                                 missing_symbols.remove(s)

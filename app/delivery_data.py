@@ -70,7 +70,7 @@ def fetch_previous_day_delivery() -> dict[str, float]:
             while candidate.weekday() >= 5:
                 candidate -= timedelta(days=1)
                 
-            logger.info(f"🔄 Attempting to fetch Bhavcopy delivery data (Crawlora primary) for date: {candidate}")
+            logger.info(f"🔄 Attempting to fetch Bhavcopy delivery data for date: {candidate}")
             result = fetch_delivery_data(candidate)
             if result:
                 logger.info(f"📦 Previous-day delivery loaded | Date={candidate}")
@@ -153,12 +153,11 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
     with _get_robust_session() as session:
 
         for attempt in range(1, MAX_RETRIES + 1):
-            from pledge_scraper import get_crawlora_api_key, mark_crawlora_key_exhausted_today, get_scraper_api_key, mark_key_exhausted_today
-            crawlora_key = get_crawlora_api_key()
+            from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
             scraper_key = get_scraper_api_key()
 
-            if not crawlora_key and not scraper_key:
-                logger.warning("⚠️ No valid Crawlora or SCRAPERAPI_KEY found. Falling back to latest available DB Bhavcopy.")
+            if not scraper_key:
+                logger.warning("⚠️ No valid SCRAPERAPI_KEY found. Falling back to latest available DB Bhavcopy.")
                 latest = get_latest_bhavcopy_cache()
                 if latest:
                     registry.put(registry_key, latest)
@@ -168,33 +167,8 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
             response = None
             last_err_msg = None
             
-            # 1. Try Crawlora First
-            if crawlora_key:
-                try:
-                    c_payload = {'api_key': crawlora_key, 'url': target_url}
-                    logger.info(f"🔄 [Attempt {attempt}] Requesting Bhavcopy CSV via Crawlora: {target_url}")
-                    c_resp = session.get('https://api.crawlora.net/v1/scrape', params=c_payload, timeout=FETCH_TIMEOUT)
-                    if c_resp is not None and c_resp.status_code in [401, 403, 429]:
-                        logger.warning(f"⚠️ Crawlora key {crawlora_key[:5]}... exhausted or rate limited (HTTP {c_resp.status_code}).")
-                        mark_crawlora_key_exhausted_today(crawlora_key)
-                    elif c_resp is not None and c_resp.status_code == 404:
-                        logger.info(f"ℹ️ Bhavcopy {date_str} returned 404. Falling back to latest available DB Bhavcopy.")
-                        latest = get_latest_bhavcopy_cache()
-                        if latest:
-                            registry.put(registry_key, latest)
-                            return latest
-                        return {}
-                    elif c_resp is not None and c_resp.status_code == 200:
-                        response = c_resp
-                except Exception as crawlora_err:
-                    last_err_msg = str(crawlora_err)
-                    logger.debug(f"Crawlora Bhavcopy fetch failed: {crawlora_err}")
-            else:
-                if attempt == 1:
-                    logger.info("ℹ️ CRAWLORA_API_KEY is not set or empty in environment. Falling back to ScraperAPI.")
-
-            # 2. Fall back to ScraperAPI if Crawlora is missing or failed
-            if response is None and scraper_key:
+            # Try ScraperAPI
+            if scraper_key:
                 payload = {
                     'api_key': scraper_key,
                     'url': target_url,
@@ -221,7 +195,7 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
                     logger.warning(f"ScraperAPI Bhavcopy fetch failed: {scraper_err}")
 
             if response is None:
-                logger.warning(f"⚠️ Attempt {attempt} failed via both Crawlora and ScraperAPI. Retrying...")
+                logger.warning(f"⚠️ Attempt {attempt} failed via ScraperAPI. Retrying...")
                 if attempt == MAX_RETRIES and last_err_msg:
                     try:
                         mark_failure('nse_bhavcopy', last_err_msg)
@@ -347,7 +321,7 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
             else:
                 try:
                     from push_service import send_push_to_all
-                    send_push_to_all("⚠️ NSE API ERROR", f"Delivery (Bhavcopy) fetch failed for {date_str} via Crawlora & ScraperAPI")
+                    send_push_to_all("⚠️ NSE API ERROR", f"Delivery (Bhavcopy) fetch failed for {date_str} via ScraperAPI")
                 except Exception: pass
             
         latest = get_latest_bhavcopy_cache()

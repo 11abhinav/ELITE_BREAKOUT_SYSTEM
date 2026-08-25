@@ -66,28 +66,15 @@ def discover_trendlyne_url(symbol: str) -> str:
         
     fast_url = f"https://trendlyne.com/stock/{clean_symbol}/"
     
-    from pledge_scraper import get_crawlora_api_key, mark_crawlora_key_exhausted_today, get_scraper_api_key, mark_key_exhausted_today
-    crawlora_key = get_crawlora_api_key()
+    from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
     scraper_key = get_scraper_api_key()
     
-    if not crawlora_key and not scraper_key:
+    if not scraper_key:
         return fast_url
 
-    # 1. Attempt fast HEAD/GET request via Crawlora first, then ScraperAPI
+    # 1. Attempt fast HEAD/GET request via ScraperAPI
     res = None
-    if crawlora_key:
-        try:
-            c_payload = {'api_key': crawlora_key, 'url': fast_url}
-            res = requests.get('https://api.crawlora.net/v1/scrape', params=c_payload, timeout=15)
-            if res is not None and res.status_code in (401, 403, 429):
-                mark_crawlora_key_exhausted_today(crawlora_key)
-                res = None
-            elif res is not None and res.status_code == 200:
-                return fast_url
-        except Exception:
-            res = None
-
-    if res is None and scraper_key:
+    if scraper_key:
         payload = {'api_key': scraper_key, 'url': fast_url, 'render': 'false'}
         try:
             res = requests.get('https://api.scraperapi.com/', params=payload, timeout=10)
@@ -96,22 +83,12 @@ def discover_trendlyne_url(symbol: str) -> str:
         except Exception:
             pass
 
-    # 2. If direct URL 404s/fails, search Google via Crawlora first, then ScraperAPI
+    # 2. If direct URL 404s/fails, search Google via ScraperAPI
     logger.info(f"🔍 Direct URL failed for {clean_symbol}. Searching Google...")
     search_url = f"https://www.google.com/search?q=site:trendlyne.com/equity/+{clean_symbol}"
     
     search_res = None
-    if crawlora_key:
-        try:
-            c_payload = {'api_key': crawlora_key, 'url': search_url}
-            search_res = requests.get('https://api.crawlora.net/v1/scrape', params=c_payload, timeout=30)
-            if search_res is not None and search_res.status_code in (401, 403, 429):
-                mark_crawlora_key_exhausted_today(crawlora_key)
-                search_res = None
-        except Exception:
-            search_res = None
-
-    if search_res is None and scraper_key:
+    if scraper_key:
         payload = {'api_key': scraper_key, 'url': search_url, 'render': 'false'}
         try:
             search_res = requests.get('https://api.scraperapi.com/', params=payload, timeout=30)
@@ -167,12 +144,12 @@ def worker_loop():
     init_db()
     iteration = 0
     
-    from pledge_scraper import get_crawlora_api_key, get_scraper_api_key
-    if not get_crawlora_api_key() and not get_scraper_api_key():
-        logger.error("❌ Neither CRAWLORA_API_KEY nor SCRAPERAPI_KEY env var set. Scraper daemon will pause.")
+    from pledge_scraper import get_scraper_api_key
+    if not get_scraper_api_key():
+        logger.error("❌ SCRAPERAPI_KEY env var not set. Scraper daemon will pause.")
         while True:
             try:
-                upsert_scanner_health("Pledge Worker", "DOWN", error_msg="Proxy API keys (Crawlora/ScraperAPI) not set")
+                upsert_scanner_health("Pledge Worker", "DOWN", error_msg="Proxy API keys (ScraperAPI) not set")
             except Exception:
                 pass
             time.sleep(3600)
@@ -269,8 +246,8 @@ def worker_loop():
                 continue
 
         try:
-            if not get_crawlora_api_key() and not get_scraper_api_key():
-                logger.warning("🚨 All Crawlora & ScraperAPI keys are exhausted. Pausing scraping daemon for 1 hour.")
+            if not get_scraper_api_key():
+                logger.warning("🚨 ScraperAPI key is exhausted/missing. Pausing scraping daemon for 1 hour.")
                 time.sleep(3600)
                 continue
                 
@@ -303,39 +280,17 @@ def worker_loop():
                 prefix = "[RETRY]" if is_retry else f"[{i_total}/{len(stale_symbols)}]"
                 logger.info(f"{prefix} Scraping pledge for {sym} at {target_url}")
                 
-                from pledge_scraper import get_crawlora_api_key, mark_crawlora_key_exhausted_today, get_scraper_api_key, mark_key_exhausted_today
-                crawlora_key = get_crawlora_api_key()
+                from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
                 scraper_key = get_scraper_api_key()
                 
-                if not crawlora_key and not scraper_key:
-                    logger.error(f"❌ All Crawlora & ScraperAPI keys exhausted or missing during processing {sym}")
+                if not scraper_key:
+                    logger.error(f"❌ ScraperAPI key exhausted or missing during processing {sym}")
                     return "QUOTA_EXHAUSTED"
                     
                 res = None
                 
-                # 1. Try Crawlora First
-                if crawlora_key:
-                    try:
-                        c_payload = {'api_key': crawlora_key, 'url': target_url}
-                        masked_ckey = f"{crawlora_key[:4]}...{crawlora_key[-4:]}" if len(crawlora_key) > 8 else "CRAWLORA"
-                        logger.info(f"🌐 [CRAWLORA] Scraping pledge for {sym} (Key: [{masked_ckey}]): {target_url}")
-                        res = requests.get('https://api.crawlora.net/v1/scrape', params=c_payload, timeout=45)
-                        if res is not None and res.status_code in (401, 403, 429):
-                            logger.warning(f"⚠️ [CRAWLORA EXHAUSTED] HTTP {res.status_code} for key [{masked_ckey}] URL={target_url}. Reason: {res.text[:150]}. Marking key exhausted.")
-                            mark_crawlora_key_exhausted_today(crawlora_key)
-                            res = None
-                        elif res is not None and res.status_code == 200:
-                            logger.info(f"✅ [CRAWLORA SUCCESS] HTTP 200 for {sym} ({len(res.content)} bytes)")
-                        else:
-                            status_str = res.status_code if res else "No Response"
-                            logger.warning(f"⚠️ [CRAWLORA FAIL] HTTP {status_str} for {sym}: {res.text[:150] if res else ''}")
-                            res = None
-                    except Exception as crawlora_err:
-                        logger.warning(f"❌ [CRAWLORA ERROR] Exception for {sym}: {crawlora_err}")
-                        res = None
-
-                # 2. Fall back to ScraperAPI if Crawlora is missing or failed
-                if res is None and scraper_key:
+                # Try ScraperAPI
+                if scraper_key:
                     payload = {'api_key': scraper_key, 'url': target_url, 'render': 'false'}
                     masked_skey = f"{scraper_key[:4]}...{scraper_key[-4:]}" if len(scraper_key) > 8 else "SCRAPERAPI"
                     try:
@@ -362,7 +317,7 @@ def worker_loop():
                         logger.warning(f"❌ [SCRAPERAPI ERROR] Exception for {sym}: {e}")
                             
                 if res is None:
-                    logger.error(f"❌ No valid response received for {sym} from Crawlora or ScraperAPI")
+                    logger.error(f"❌ No valid response received for {sym} from ScraperAPI")
                     return "ERROR"
                 
                 try:

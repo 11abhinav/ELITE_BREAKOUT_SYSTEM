@@ -83,40 +83,21 @@ def get_institutional_buys() -> dict[str, list[str]]:
                 logger.info(f"🔄 Attempting to fetch {deal_type} deals from {url} (Attempt {attempt+1})")
                 r = session.get(url, timeout=15)
                 
-                # If direct request fails or gets HTML block page, try Crawlora FIRST, then ScraperAPI SECOND
+                # If direct request fails or gets HTML block page, try ScraperAPI
                 if r.status_code != 200 or "<html" in r.text.lower() or "<!doctype" in r.text.lower():
-                    from pledge_scraper import get_crawlora_api_key, mark_crawlora_key_exhausted_today, get_scraper_api_key, mark_key_exhausted_today
-                    crawlora_key = get_crawlora_api_key()
-                    if crawlora_key:
+                    from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
+                    scraper_key = get_scraper_api_key()
+                    if scraper_key:
                         try:
-                            masked_key = f"{crawlora_key[:4]}...{crawlora_key[-4:]}" if len(crawlora_key) > 8 else "CRAWLORA"
-                            logger.info(f"🌐 [CRAWLORA] Requesting {deal_type} deals (Key: [{masked_key}]): {url}")
-                            c_resp = requests.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': url}, timeout=30)
-                            if c_resp is not None and c_resp.status_code == 200:
-                                logger.info(f"✅ [CRAWLORA SUCCESS] HTTP 200 for {deal_type} deals ({len(c_resp.content)} bytes)")
-                                r = c_resp
-                            elif c_resp is not None and c_resp.status_code in (401, 429):
-                                mark_crawlora_key_exhausted_today(crawlora_key)
-                            else:
-                                status_str = c_resp.status_code if c_resp else "No Response"
-                                logger.warning(f"⚠️ [CRAWLORA FAIL] HTTP {status_str} for {deal_type} deals: {c_resp.text[:150] if c_resp else ''}")
-                        except Exception as crawlora_err:
-                            logger.warning(f"❌ [CRAWLORA ERROR] Crawlora fetch failed for {deal_type}: {crawlora_err}")
-
-                    # Fallback to ScraperAPI if Crawlora is missing or failed
-                    if r.status_code != 200 or "<html" in r.text.lower() or "<!doctype" in r.text.lower():
-                        scraper_key = get_scraper_api_key()
-                        if scraper_key:
-                            try:
-                                logger.info(f"🌐 [SCRAPERAPI BACKUP] Requesting {deal_type} deals: {url}")
-                                s_resp = requests.get("http://api.scraperapi.com", params={"api_key": scraper_key, "url": url}, timeout=30)
-                                if s_resp is not None and s_resp.status_code in (401, 403, 429):
-                                    mark_key_exhausted_today(scraper_key)
-                                elif s_resp is not None and s_resp.status_code == 200:
-                                    logger.info(f"✅ [SCRAPERAPI SUCCESS] HTTP 200 for {deal_type} deals ({len(s_resp.content)} bytes)")
-                                    r = s_resp
-                            except Exception as scraper_err:
-                                logger.warning(f"❌ [SCRAPERAPI ERROR] ScraperAPI fetch failed for {deal_type}: {scraper_err}")
+                            logger.info(f"🌐 [SCRAPERAPI BACKUP] Requesting {deal_type} deals: {url}")
+                            s_resp = requests.get("http://api.scraperapi.com", params={"api_key": scraper_key, "url": url}, timeout=30)
+                            if s_resp is not None and s_resp.status_code in (401, 403, 429):
+                                mark_key_exhausted_today(scraper_key)
+                            elif s_resp is not None and s_resp.status_code == 200:
+                                logger.info(f"✅ [SCRAPERAPI SUCCESS] HTTP 200 for {deal_type} deals ({len(s_resp.content)} bytes)")
+                                r = s_resp
+                        except Exception as scraper_err:
+                            logger.warning(f"❌ [SCRAPERAPI ERROR] ScraperAPI fetch failed for {deal_type}: {scraper_err}")
 
                 if r.status_code == 200:
                     text = r.text.strip()

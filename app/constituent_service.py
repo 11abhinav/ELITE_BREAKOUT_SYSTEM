@@ -100,27 +100,7 @@ class ConstituentService:
                         except Exception as direct_err:
                             logger.warning(f"⚠️ [NSE DIRECT FETCH FAIL] {name}: {direct_err}")
 
-                        # Attempt 2: Crawlora Proxy (SECONDARY BACKUP)
-                        try:
-                            from pledge_scraper import get_crawlora_api_key, mark_crawlora_key_exhausted_today
-                            crawlora_key = get_crawlora_api_key()
-                            if crawlora_key:
-                                masked_ckey = f"{crawlora_key[:4]}...{crawlora_key[-4:]}" if len(crawlora_key) > 8 else "CRAWLORA"
-                                logger.info(f"🌐 [CRAWLORA BACKUP] Fetching {name} constituents (Key: [{masked_ckey}]): {url}")
-                                c_resp = requests.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': url}, timeout=15)
-                                if c_resp is not None and c_resp.status_code == 200 and len(c_resp.content) > 100:
-                                    response = c_resp
-                                    logger.info(f"✅ [CRAWLORA SUCCESS] Downloaded {name} constituents ({len(c_resp.content)} bytes)")
-                                    break
-                                elif c_resp and c_resp.status_code in (401, 429):
-                                    mark_crawlora_key_exhausted_today(crawlora_key)
-                                else:
-                                    status_str = c_resp.status_code if c_resp else 'No Response'
-                                    logger.warning(f"⚠️ [CRAWLORA FAIL] HTTP {status_str} for {name}")
-                        except Exception as crawlora_err:
-                            logger.warning(f"⚠️ [CRAWLORA ERROR] Crawlora fallback for {name}: {crawlora_err}")
-
-                        # Attempt 3: ScraperAPI Proxy (TERTIARY BACKUP)
+                        # Attempt 2: ScraperAPI Proxy (SECONDARY BACKUP)
                         try:
                             from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
                             scraper_key = get_scraper_api_key()
