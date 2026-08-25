@@ -818,6 +818,12 @@ function playDing() {
 </div>
 
 <script>
+// GLOBAL WATCHLIST DATA STATE & CACHE (Hoisted to top of scope)
+var USER_WATCHLIST_ITEMS_CACHE = [];
+var _userWlData = [];
+var _userWlSortCol = 'added_at';
+var _userWlSortAsc = false;
+
 // ── CONSTANTS
 const C = {
   accent:'#00d4a1', accent2:'#4d7cfe', warn:'#ff4d6d', amber:'#f59e0b',
@@ -4004,9 +4010,7 @@ function openInTradingView(symbol) {
   window.open('https://www.tradingview.com/chart/?symbol=' + tv_sym, '_blank');
 }
 
-let _userWlData = [];
-let _userWlSortCol = 'added_at';
-let _userWlSortAsc = false;
+
 
 function sortUserWatchlist(col) {
   if (_userWlSortCol === col) {
@@ -4142,7 +4146,7 @@ function loadUserWatchlist() {
 }
 
 
-let USER_WATCHLIST_ITEMS_CACHE = [];
+
 
 function showAnalysisInfoModal(sym) {
   let modal = document.getElementById('stock-diagnostic-modal');
