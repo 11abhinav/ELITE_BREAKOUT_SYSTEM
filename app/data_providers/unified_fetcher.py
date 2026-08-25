@@ -276,9 +276,9 @@ class UnifiedFetcher:
                                         quote_data = resp.get(orig) or resp.get(clean_sym) or resp.get(raw_key) or resp.get(raw_key.replace("|", ":"))
                                         
                                         if quote_data and isinstance(quote_data, dict):
-                                            val = quote_data.get("last_price")
-                                            if val is None and "ohlc" in quote_data and isinstance(quote_data["ohlc"], dict):
-                                                val = quote_data["ohlc"].get("close")
+                                            val = quote_data.get("last_price") or quote_data.get("lp") or quote_data.get("cp")
+                                            if (val is None or float(val or 0) <= 0) and "ohlc" in quote_data and isinstance(quote_data["ohlc"], dict):
+                                                val = quote_data["ohlc"].get("close") or quote_data["ohlc"].get("open")
                                             if val is not None and float(val) > 0:
                                                 results[orig] = {"v": {"cmd": {"c": float(val)}}}
                                                 logger.debug(f"✅ [Upstox] Successfully fetched live quote for {orig}: ₹{float(val):.2f}")

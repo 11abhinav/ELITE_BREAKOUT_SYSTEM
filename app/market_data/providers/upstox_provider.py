@@ -485,15 +485,21 @@ class UpstoxProvider(ProviderInterface):
                 json_ms = (time.perf_counter() - _t_json) * 1000
 
                 # [PHASE1_DIAG] Stage D: Quote Merge
-                _t_merge = time.perf_counter()
                 if res.status_code == 200:
-                    for key, quote in data.get("data", {}).items():
+                    quote_dict = data.get("data", {})
+                    for key, quote in quote_dict.items():
                         results[key] = quote
                         results[key.replace(":", "|")] = quote
                         clean_sym = key.split(":")[-1].split("|")[-1]
                         results[clean_sym] = quote
                         if isinstance(quote, dict) and quote.get("symbol"):
                             results[str(quote["symbol"]).upper()] = quote
+                    
+                    for orig_sym in chunk:
+                        inst_key = self._get_instrument_key(orig_sym)
+                        matched_quote = quote_dict.get(inst_key) or quote_dict.get(inst_key.replace("|", ":"))
+                        if matched_quote:
+                            results[orig_sym] = matched_quote
                 else:
                     logger.error(f"Failed live quote batch fetch (Status {res.status_code})")
                 merge_ms = (time.perf_counter() - _t_merge) * 1000
