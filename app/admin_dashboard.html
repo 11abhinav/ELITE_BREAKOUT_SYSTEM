@@ -3,12 +3,17 @@
 
 <head>
 <script>
-// GLOBAL FETCH FORTIFICATION
+// GLOBAL FETCH FORTIFICATION & CREDENTIAL PRESERVATION
 (function() {
   const originalFetch = window.fetch;
   window.fetch = async function(...args) {
+    let resource = args[0];
+    let config = args[1] || {};
+    if (typeof config === 'object') {
+      config.credentials = 'include';
+    }
     try {
-      return await originalFetch.apply(this, args);
+      return await originalFetch.call(this, resource, config);
     } catch (e) {
       if (e.name === 'AbortError') {
         throw e;
@@ -27,12 +32,22 @@
     const text = await this.text();
     if (!text || !text.trim()) return {};
     try {
-      return JSON.parse(text);
+      const data = JSON.parse(text);
+      if (this.status === 401 || (data && data.error === "Unauthorized")) {
+        console.warn("🔒 Session expired / 401 Unauthorized detected — redirecting to /login");
+        window.location.href = "/login";
+        return { error: "Unauthorized", status: 401 };
+      }
+      return data;
     } catch (e) {
       if (this.status === 401) {
+        window.location.href = "/login";
         return { error: "Unauthorized", status: 401 };
       }
       console.warn("JSON parse failed for response status", this.status, ":", text.substring(0, 100));
+      return {};
+    }
+  };
       return { error: "Invalid JSON response from server", status: this.status };
     }
   };
@@ -1202,7 +1217,9 @@
     const originalFetch = window.fetch;
     window.fetch = async function (...args) {
       let [resource, config] = args;
-      if (config && ['POST', 'PUT', 'DELETE'].includes(config.method)) {
+      config = config || {};
+      config.credentials = 'include';
+      if (['POST', 'PUT', 'DELETE'].includes(config.method)) {
         config.headers = config.headers || {};
         if (globalCsrfToken && !config.headers['X-CSRFToken']) {
           config.headers['X-CSRFToken'] = globalCsrfToken;
@@ -1693,14 +1710,14 @@
               <span style="font-weight: 600; color: var(--text); font-size:16px;">🚀 Multibagger Watchlist</span>
             </div>
             <div style="color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px;">
-              <span id="mb-watchlist-status">Click to expand</span>
+              <span id="mb-watchlist-status">Click to collapse</span>
               <svg id="mb-watchlist-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2" style="transition: transform 0.2s;">
+                stroke-width="2" style="transition: transform 0.2s; transform: rotate(180deg);">
                 <polyline points="6 9 12 15 18 9" />
               </svg>
             </div>
           </div>
-          <div id="mb-watchlist-card-body" style="display: none; padding: 20px; background: var(--bg);">
+          <div id="mb-watchlist-card-body" style="display: block; padding: 20px; background: var(--bg);">
             <div style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
               <div style="flex: 1; min-width: 200px;">
                 <label style="display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600;">Status Filter</label>
