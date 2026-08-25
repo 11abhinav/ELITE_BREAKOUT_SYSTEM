@@ -217,12 +217,21 @@ def _check_eod_conditions(
     candle_body  = abs(candle_close - candle_open)
     upper_wick   = candle_high - max(candle_close, candle_open)
 
-    if candle_range <= 0:
-        return {"passed": False, "reason": "Zero candle range"}
+    if candle_range < 0:
+        return {"passed": False, "reason": "Negative candle range (corrupt data)"}
+    elif candle_range == 0:
+        if _safe_float(latest.get("Volume", 0)) <= 0:
+            return {"passed": False, "reason": "Zero range and zero volume (invalid candle)"}
+        # Otherwise it's a valid circuit candle (range=0, volume>0)
 
-    body_ratio  = candle_body / candle_range
-    close_pos   = (candle_close - candle_low) / candle_range
-    wick_ratio  = upper_wick / candle_range
+    if candle_range > 0:
+        body_ratio  = candle_body / candle_range
+        close_pos   = (candle_close - candle_low) / candle_range
+        wick_ratio  = upper_wick / candle_range
+    else:
+        body_ratio = 1.0
+        close_pos = 1.0
+        wick_ratio = 0.0
 
     if len(ticker) >= 22:
         avg_volume = float(ticker["Volume"].iloc[-21:-1].mean())
@@ -279,8 +288,21 @@ def _check_eod_conditions(
         pass  # Soft penalty, not hard reject
 
     # ── ATR expansion ──────────────────────────────────────────────────────
-    if candle_range / atr20 < EOD_ADVANCED_CONFIG.get("MIN_ATR_EXPANSION_RATIO", 0.9):
-        return {"passed": False, "reason": f"ATR expansion {candle_range/atr20:.2f} < {EOD_ADVANCED_CONFIG.get('MIN_ATR_EXPANSION_RATIO', 0.9)}"}
+    import circuit_helper
+    is_circuit = circuit_helper.is_valid_circuit_candle(
+        candle_range=candle_range,
+        volume=_safe_float(latest.get("Volume")),
+        close_price=candle_close
+    )
+    
+    if is_circuit:
+        atr_expansion = None
+    else:
+        atr_expansion = candle_range / atr20
+
+    min_atr_expansion = EOD_ADVANCED_CONFIG.get("MIN_ATR_EXPANSION_RATIO", 0.9)
+    if not is_circuit and atr_expansion is not None and atr_expansion < min_atr_expansion:
+        return {"passed": False, "reason": f"ATR expansion {atr_expansion:.2f} < {min_atr_expansion}"}
 
     # ── Trend alignment ────────────────────────────────────────────────────
     if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")):
@@ -1116,8 +1138,6 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                         telemetry_logger.record_reject(symbol, "LIQUIDITY", "ZERO_AVG_VOLUME", avg_volume if "avg_volume" in locals() else 0, 1, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
                                     return
 
-                                volume_ratio = _safe_float(latest.get("Volume")) / avg_volume
-
                                 candle_high  = _safe_float(latest.get("High"))
                                 candle_low   = _safe_float(latest.get("Low"))
                                 candle_open  = _safe_float(latest.get("Open"))
@@ -1126,15 +1146,26 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 candle_body  = abs(candle_close - candle_open)
                                 upper_wick   = candle_high - max(candle_close, candle_open)
 
-                                if candle_range <= 0:
+                                if candle_range < 0:
                                     with _batch_lock:
                                         rejection_counts["zero_candle_range"] += 1
                                         telemetry_logger.record_reject(symbol, "STRUCTURE", "ZERO_CANDLE_RANGE", 0, 1, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
                                     return
+                                elif candle_range == 0:
+                                    if _safe_float(latest.get("Volume", 0)) <= 0:
+                                        with _batch_lock:
+                                            rejection_counts["zero_candle_range"] += 1
+                                            telemetry_logger.record_reject(symbol, "STRUCTURE", "ZERO_CANDLE_RANGE", 0, 1, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
+                                        return
 
-                                body_ratio     = candle_body / candle_range
-                                close_position = (candle_close - candle_low) / candle_range
-                                wick_ratio     = upper_wick / candle_range
+                                if candle_range > 0:
+                                    body_ratio     = candle_body / candle_range
+                                    close_position = (candle_close - candle_low) / candle_range
+                                    wick_ratio     = upper_wick / candle_range
+                                else:
+                                    body_ratio = 1.0
+                                    close_position = 1.0
+                                    wick_ratio = 0.0
                                 rsi_val        = _safe_float(latest.get("RSI"))
 
                                 # [FIX P1-3] Converted hard candle gates to scoring penalties.
@@ -1232,13 +1263,26 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     technical_penalties["extended_breakout"] = min(max_pen, (atr_extension - max_ext) * pen_mult)
                 
                                 # ATR Expansion
+                                import circuit_helper
+                                is_circuit = circuit_helper.is_valid_circuit_candle(
+                                    candle_range=candle_range,
+                                    volume=_safe_float(latest.get("Volume")),
+                                    close_price=candle_close
+                                )
+                                
                                 min_atr_expansion = EOD_ADVANCED_CONFIG.get("MIN_ATR_EXPANSION_RATIO", 0.9)
-                                if candle_range / atr20 < min_atr_expansion:
-                                    logger.debug(f"REJECTION: {symbol} (Phase: ATR_EXPANSION, Reason: Candle range / ATR20 ({candle_range / atr20:.2f}) < {min_atr_expansion:.1f})")
-                                    with _batch_lock:
-                                        rejection_counts["no_atr_expansion"] += 1
-                                        telemetry_logger.record_reject(symbol, "STRUCTURE", "NO_ATR_EXPANSION", candle_range/atr20 if "candle_range" in locals() and "atr20" in locals() and atr20 > 0 else 0, 0.9, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
-                                    return
+                                
+                                if is_circuit:
+                                    atr_expansion = None
+                                    # Bypass check, do not reject.
+                                else:
+                                    atr_expansion = candle_range / atr20
+                                    if atr_expansion < min_atr_expansion:
+                                        logger.debug(f"REJECTION: {symbol} (Phase: ATR_EXPANSION, Reason: Candle range / ATR20 ({atr_expansion:.2f}) < {min_atr_expansion:.1f})")
+                                        with _batch_lock:
+                                            rejection_counts["no_atr_expansion"] += 1
+                                            telemetry_logger.record_reject(symbol, "STRUCTURE", "NO_ATR_EXPANSION", atr_expansion, min_atr_expansion, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
+                                        return
 
                                 # [FIX P1-2] Removed redundant BB_WIDTH_PCTILE check on the current bar.
                                 # The base_too_wide filter at line 776 already checks the PREVIOUS bar's

@@ -733,19 +733,43 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    candle_rng_pct = ((candle_high - candle_low) / close_price) * 100.0
-    if candle_rng_pct < MIN_CANDLE_RANGE_PCT:
+    candle_rng = candle_high - candle_low
+    if candle_rng < 0:
         return {
             "passed": False,
-            "reject_reason": f"Candle range {candle_rng_pct:.2f}% < {MIN_CANDLE_RANGE_PCT}% minimum volatility threshold",
-            "reject_code": "thin_spread",
-            "gate_type": "THRESHOLD",
-            "operator": "<",
+            "reject_reason": "Negative candle range (corrupt data)",
+            "reject_code": "corrupt_data",
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
             "context": {},
         }
+    elif candle_rng == 0:
+        if _safe_float(latest.get("Volume", 0)) <= 0:
+            return {
+                "passed": False,
+                "reject_reason": "Zero range and zero volume (invalid candle)",
+                "reject_code": "invalid_candle",
+                "score": 0,
+                "raw_score": 0,
+                "sl_result": {},
+                "context": {},
+            }
+        # Circuit candle allowed; bypass MIN_CANDLE_RANGE_PCT check.
+    else:
+        candle_rng_pct = (candle_rng / close_price) * 100.0
+        if candle_rng_pct < MIN_CANDLE_RANGE_PCT:
+            return {
+                "passed": False,
+                "reject_reason": f"Candle range {candle_rng_pct:.2f}% < {MIN_CANDLE_RANGE_PCT}% minimum volatility threshold",
+                "reject_code": "thin_spread",
+                "gate_type": "THRESHOLD",
+                "operator": "<",
+                "score": 0,
+                "raw_score": 0,
+                "sl_result": {},
+                "context": {},
+            }
 
     if "Volume" in df.columns:
         volume_series = pd.to_numeric(df["Volume"], errors="coerce")

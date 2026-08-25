@@ -512,11 +512,20 @@ def run_hourly_phase(is_test_mode=False, run_once=False, session=None):
             
                     # Hourly Trend Permission Logic: 9 > 20 > 50, Price > 200, ADX > 20
                     # AND price must be within -2.0% (above) to +5.0% (below) of the breakout level
+                    trend_type = "NONE"
                     if not is_fallback:
-                        ema_ok = (e9 > e20 and e20 > s50 and close > s200) or (close > s50 and close > s200 and e9 > e20)
+                        strict_trend = (e9 > e20 and e20 > s50 and close > s200)
+                        recovery_trend = (e9 > e20 and close > s50 and close > s200 and e20 <= s50)
+                        ema_ok = strict_trend or recovery_trend
+                        if strict_trend: trend_type = "STRICT"
+                        elif recovery_trend: trend_type = "RECOVERY"
                     else:
                         # Reduced trend gate for 50-199 bar symbols
-                        ema_ok = (e9 > e20 and e20 > s50) or (close > s50 and e9 > e20)
+                        strict_trend = (e9 > e20 and e20 > s50)
+                        recovery_trend = (e9 > e20 and close > s50 and e20 <= s50)
+                        ema_ok = strict_trend or recovery_trend
+                        if strict_trend: trend_type = "STRICT"
+                        elif recovery_trend: trend_type = "RECOVERY"
                         
                     from config import ADX_MIN_THRESHOLD
                     adx_ok = adx_val >= ADX_MIN_THRESHOLD
@@ -557,9 +566,9 @@ def run_hourly_phase(is_test_mode=False, run_once=False, session=None):
                                 'force': False
                             })
                         funnel["approved"] += 1
-                        logger.info(f"📍 PICKED [MULTI-TF: HOURLY_APPROVED]: {symbol} @ ₹{close:.2f} (Dist: {dist_to_breakout*100:.2f}%, ADX: {adx_val:.1f})")
+                        logger.info(f"📍 PICKED [MULTI-TF: HOURLY_APPROVED]: {symbol} @ ₹{close:.2f} (Dist: {dist_to_breakout*100:.2f}%, ADX: {adx_val:.1f}, Trend: {trend_type})")
                     else:
-                        logger.debug(f"REJECTION: {symbol} (Phase: 1H_TREND_PERMISSION, Reason: Failed 1H EMA/ADX/Distance gate (ema_ok={ema_ok}, adx_ok={adx_ok}, dist_ok={dist_ok}))")
+                        logger.debug(f"REJECTION: {symbol} (Phase: 1H_TREND_PERMISSION, Reason: Failed 1H EMA/ADX/Distance gate (ema_ok={ema_ok}, adx_ok={adx_ok}, dist_ok={dist_ok}, Trend={trend_type}))")
     
                 except Exception as e:
                     logger.exception(f"Fault isolation caught exception for Phase A: {e}")
@@ -1146,8 +1155,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                         elif trigger_mode == "INSIDE_BAR":
                             mother = df.iloc[-3]
                             is_inside = (
-                                float(prev["High"]) < float(mother["High"])
-                                and float(prev["Low"]) > float(mother["Low"])
+                                float(prev["High"]) <= float(mother["High"])
+                                and float(prev["Low"]) >= float(mother["Low"])
                             )
                             c_engulf = is_inside and close > float(prev["High"])
                         else:

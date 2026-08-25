@@ -1328,15 +1328,15 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
     if not shares and market_cap and price is not None and price > 0:
         shares = market_cap / price
     elif not shares:
-        shares = 1.0
+        shares = None
         
     eps = safe_float(info.get("trailingEps"))
     if not eps and pat is not None:
-        eps = pat / shares
+        eps = pat / shares if shares and shares > 0 else None
         
     bv = safe_float(info.get("bookValue"))
     if not bv and assets and total_liab:
-        bv = (assets - total_liab) / shares
+        bv = (assets - total_liab) / shares if shares and shares > 0 else None
         
     fcf = info.get("freeCashflow")
     if fcf is None and cfo is not None:
@@ -2611,6 +2611,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     with ThreadPoolExecutor(max_workers=8, thread_name_prefix="MB_Eval") as eval_exec:
         futures = [eval_exec.submit(_eval_item, f) for f in fundamentals_list]
         for fut in as_completed(futures):
+            if run_ctx:
+                run_ctx.heartbeat()
             fut.result()
 
     # Save the updated deep fundamentals cache (V5 hydrated) back to Postgres

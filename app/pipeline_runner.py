@@ -159,21 +159,30 @@ class PipelineRunner:
         wick_ratio = upper_wick / candle_range if candle_range > 0 else 0
         rsi_val = _safe_float(latest.get("RSI"))
         
+        import circuit_helper
+        is_circuit = circuit_helper.is_valid_circuit_candle(
+            candle_range=candle_range,
+            volume=_safe_float(latest.get("Volume")),
+            close_price=candle_close
+        )
+        min_atr_expansion = EOD_ADVANCED_CONFIG.get("MIN_ATR_EXPANSION_RATIO", 1.2)
+        atr_expansion = candle_range / _safe_float(latest.get("ATR20")) if _safe_float(latest.get("ATR20")) > 0 else 0
+        
         # Scanner logical checks from eod_scanner.py
         if not rejection_reason:
             if avg_volume <= 0: rejection_reason = "zero_avg_volume"
-            elif candle_range <= 0: rejection_reason = "zero_candle_range"
-            elif body_ratio < EOD_CONFIG["MIN_BODY_RATIO"]: rejection_reason = "weak_body"
-            elif candle_close <= candle_open: rejection_reason = "bearish_candle"
-            elif close_position < EOD_CONFIG["MIN_CLOSE_POSITION"]: rejection_reason = "weak_close_pos"
-            elif wick_ratio > EOD_CONFIG["MAX_UPPER_WICK"]: rejection_reason = "upper_wick"
+            elif candle_range <= 0 and not is_circuit: rejection_reason = "zero_candle_range"
+            elif body_ratio < EOD_CONFIG["MIN_BODY_RATIO"] and not is_circuit: rejection_reason = "weak_body"
+            elif candle_close <= candle_open and not is_circuit: rejection_reason = "bearish_candle"
+            elif close_position < EOD_CONFIG["MIN_CLOSE_POSITION"] and not is_circuit: rejection_reason = "weak_close_pos"
+            elif wick_ratio > EOD_CONFIG["MAX_UPPER_WICK"] and not is_circuit: rejection_reason = "upper_wick"
             elif volume_ratio < MIN_BREAKOUT_VOLUME_RATIO: rejection_reason = "low_volume"
             elif avg_volume < EOD_CONFIG["MIN_VOLUME_AVG"]: rejection_reason = "low_avg_volume"
             elif candle_close < MIN_STOCK_PRICE: rejection_reason = "penny_stock"
             elif not (EOD_CONFIG["MIN_RSI"] <= rsi_val <= EOD_CONFIG["MAX_RSI"]): rejection_reason = "rsi_range"
             elif _safe_float(latest.get("PRIOR_20D_HIGH")) <= 0 or candle_close <= (_safe_float(latest.get("PRIOR_20D_HIGH")) * (1.0 + (MIN_BREAKOUT_MARGIN.get("EOD", 0.0) / 100.0))): rejection_reason = "no_structural_breakout"
             elif _safe_float(latest.get("ATR20")) <= 0: rejection_reason = "missing_atr"
-            elif candle_range / _safe_float(latest.get("ATR20")) < EOD_ADVANCED_CONFIG.get("MIN_ATR_EXPANSION_RATIO", 1.2): rejection_reason = "no_atr_expansion"
+            elif not is_circuit and atr_expansion < min_atr_expansion: rejection_reason = "no_atr_expansion"
             elif _safe_float(latest.get("BB_WIDTH_PCTILE")) > EOD_ADVANCED_CONFIG.get("MAX_BB_WIDTH_PCTILE", 0.80): rejection_reason = "base_too_wide"
             elif not (candle_close > _safe_float(latest.get("SMA50")) > _safe_float(latest.get("SMA200"))): rejection_reason = "bad_trend_alignment"
             elif candle_close < _safe_float(latest.get("EMA20")): rejection_reason = "below_ema20"
