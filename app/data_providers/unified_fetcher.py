@@ -344,119 +344,12 @@ class UnifiedFetcher:
                         except Exception as db_err:
                             logger.warning(f"⚠️ DB CMP Fallback prior to Yahoo failed: {db_err}")
 
-                    if not pending:
-                        break
-
-                    logger.info(f"🔄 [Yahoo] Fetching live quotes for {len(pending)} symbols...")
-                    import yfinance as yf
-                    pending_list = list(pending)
-                    chunk_size = 40
-                    
-                    INDEX_YF_MAP = {
-                        "NIFTY 50": "^NSEI", "NIFTY": "^NSEI", "^NSEI": "^NSEI",
-                        "BANKNIFTY": "^NSEBANK", "^NSEBANK": "^NSEBANK",
-                        "SENSEX": "^BSESN", "^BSESN": "^BSESN"
-                    }
-                    
-                    for i in range(0, len(pending_list), chunk_size):
-                        chunk = pending_list[i:i+chunk_size]
-                        raw_yf_symbols = []
-                        for s in chunk:
-                            if s in INDEX_YF_MAP:
-                                raw_yf_symbols.append(INDEX_YF_MAP[s])
-                            elif s.startswith("^"):
-                                raw_yf_symbols.append(s)
-                            else:
-                                clean_s = s.replace(".NS", "").replace(".BO", "")
-                                raw_yf_symbols.append(f"{clean_s}.NS")
-                        yf_symbols = raw_yf_symbols
-                        try:
-                            yf_acquire(context="UnifiedFetcher.fetch_live_quotes | Yahoo")
-                            try:
-                                df = yf.download(" ".join(yf_symbols), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True, timeout=5)
-                            finally:
-                                yf_release()
-                                
-                            if not df.empty:
-                                for y_sym, orig in zip(yf_symbols, chunk):
-                                    try:
-                                        sub_df = None
-                                        if isinstance(df.columns, pd.MultiIndex):
-                                            if y_sym in df.columns.get_level_values(0):
-                                                sub_df = df[y_sym]
-                                            elif y_sym in df.columns.get_level_values(1):
-                                                sub_df = df.xs(y_sym, axis=1, level=1)
-                                        elif "Close" in df.columns:
-                                            sub_df = df
-                                            
-                                        if sub_df is not None and not sub_df.empty and "Close" in sub_df.columns:
-                                            val = float(sub_df["Close"].dropna().iloc[-1])
-                                            if val > 0:
-                                                clean_orig = orig.replace(".NS", "").replace(".BO", "")
-                                                results[orig] = {"v": {"cmd": {"c": val}}}
-                                                results[clean_orig] = {"v": {"cmd": {"c": val}}}
-                                                results[clean_orig + ".NS"] = {"v": {"cmd": {"c": val}}}
-                                                pending.discard(orig)
-                                                pending.discard(clean_orig)
-                                                pending.discard(clean_orig + ".NS")
-                                                logger.debug(f"✅ [Yahoo] Successfully fetched live quote for {orig} ({y_sym}): ₹{val:.2f}")
-                                    except Exception as item_err:
-                                        logger.error(f"❌ [Yahoo] Quote parsing error for symbol {orig} ({y_sym}): {item_err}", exc_info=True)
-                        except Exception as e:
-                            logger.error(f"❌ [Yahoo] Batch quote fetch failed for chunk of {len(chunk)} symbols: {e}", exc_info=True)
+                    # [VERSION: ZERO_YAHOO_LIVE_QUOTES_v1.0] Yahoo/BSE live price fetching disabled to prevent YFRateLimitError & network delays.
+                    # All remaining symbols are resolved directly from Postgres DB master table.
+                    pass
                         
                 elif provider == "bse":
-                    # Skip BSE provider if there are no pending symbols or if circuit is still open.
-                    # BSE provider for indices uses the same yfinance endpoint as Yahoo (^NSEI, ^NSEBANK, ^BSESN
-                    # map to the same Yahoo symbols regardless of .BO suffix), so retrying when Yahoo is rate-limited
-                    # just burns another full cooldown period on the same endpoint.
-                    from yf_rate_limiter import is_circuit_open
-                    if is_circuit_open():
-                        logger.warning("⚠️ [BSE] Skipping BSE fallback — Yahoo circuit still open. No point retrying same endpoint.")
-                    elif pending:
-                        logger.info(f"🔄 [BSE] Fetching live quotes for {len(pending)} symbols...")
-                        import yfinance as yf
-                        pending_list = list(pending)
-                        chunk_size = 40
-
-                        INDEX_BSE_MAP = {
-                            "NIFTY 50": "^NSEI", "NIFTY": "^NSEI", "^NSEI": "^NSEI",
-                            "BANKNIFTY": "^NSEBANK", "^NSEBANK": "^NSEBANK",
-                            "SENSEX": "^BSESN", "^BSESN": "^BSESN"
-                        }
-
-                        for i in range(0, len(pending_list), chunk_size):
-                            chunk = pending_list[i:i+chunk_size]
-                            yf_symbols = [INDEX_BSE_MAP.get(s, s + ".BO") for s in chunk]
-                            try:
-                                yf_acquire(context="UnifiedFetcher.fetch_live_quotes | BSE")
-                                try:
-                                    df = yf.download(" ".join(yf_symbols), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True, timeout=60)
-                                finally:
-                                    yf_release()
-
-                                if not df.empty:
-                                    for y_sym, orig in zip(yf_symbols, chunk):
-                                        try:
-                                            sub_df = None
-                                            if isinstance(df.columns, pd.MultiIndex):
-                                                if y_sym in df.columns.get_level_values(0):
-                                                    sub_df = df[y_sym]
-                                                elif y_sym in df.columns.get_level_values(1):
-                                                    sub_df = df.xs(y_sym, axis=1, level=1)
-                                            elif "Close" in df.columns:
-                                                sub_df = df
-
-                                            if sub_df is not None and not sub_df.empty and "Close" in sub_df.columns:
-                                                val = float(sub_df["Close"].dropna().iloc[-1])
-                                                if val > 0:
-                                                    results[orig] = {"v": {"cmd": {"c": val}}}
-                                                    logger.debug(f"✅ [BSE] Successfully resolved fallback live quote for {orig} ({y_sym}): ₹{val:.2f}")
-                                                    pending.discard(orig)
-                                        except Exception as item_err:
-                                            logger.warning(f"⚠️ [BSE] Quote parse error for {orig} ({y_sym}): {item_err}")
-                            except Exception as e:
-                                logger.warning(f"⚠️ [BSE] Batch quote fetch failed for chunk: {e}", exc_info=True)
+                    pass
 
         if pending:
             try:
