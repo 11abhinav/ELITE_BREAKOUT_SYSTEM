@@ -90,13 +90,23 @@ class ConstituentService:
                     response = None
                     max_retries = 2
                     for attempt in range(max_retries):
-                        # Attempt 1: Crawlora Proxy (PRIMARY)
+                        # Attempt 1: Direct Session fetch (PRIMARY - fast 100ms with browser headers)
+                        try:
+                            res = session.get(url, timeout=10)
+                            if res is not None and res.status_code == 200 and len(res.content) > 100:
+                                response = res
+                                logger.info(f"⚡ [NSE DIRECT SUCCESS] Downloaded {name} constituents ({len(res.content)} bytes)")
+                                break
+                        except Exception as direct_err:
+                            logger.warning(f"⚠️ [NSE DIRECT FETCH FAIL] {name}: {direct_err}")
+
+                        # Attempt 2: Crawlora Proxy (SECONDARY BACKUP)
                         try:
                             from pledge_scraper import get_crawlora_api_key, mark_crawlora_key_exhausted_today
                             crawlora_key = get_crawlora_api_key()
                             if crawlora_key:
                                 masked_ckey = f"{crawlora_key[:4]}...{crawlora_key[-4:]}" if len(crawlora_key) > 8 else "CRAWLORA"
-                                logger.info(f"🌐 [CRAWLORA] Fetching {name} constituents (Key: [{masked_ckey}]): {url}")
+                                logger.info(f"🌐 [CRAWLORA BACKUP] Fetching {name} constituents (Key: [{masked_ckey}]): {url}")
                                 c_resp = requests.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': url}, timeout=15)
                                 if c_resp is not None and c_resp.status_code == 200 and len(c_resp.content) > 100:
                                     response = c_resp
@@ -110,7 +120,7 @@ class ConstituentService:
                         except Exception as crawlora_err:
                             logger.warning(f"⚠️ [CRAWLORA ERROR] Crawlora fallback for {name}: {crawlora_err}")
 
-                        # Attempt 2: ScraperAPI Proxy (SECONDARY BACKUP)
+                        # Attempt 3: ScraperAPI Proxy (TERTIARY BACKUP)
                         try:
                             from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
                             scraper_key = get_scraper_api_key()
@@ -125,15 +135,6 @@ class ConstituentService:
                                     break
                         except Exception as scraper_err:
                             logger.warning(f"⚠️ [SCRAPERAPI ERROR] ScraperAPI fallback for {name}: {scraper_err}")
-
-                        # Attempt 3: Direct Session fetch (TERTIARY)
-                        try:
-                            res = session.get(url, timeout=10)
-                            if res and res.status_code == 200 and len(res.content) > 100:
-                                response = res
-                                break
-                        except Exception as direct_err:
-                            logger.warning(f"⚠️ [NSE DIRECT FETCH] Timeout/error for {name} (attempt {attempt+1}): {direct_err}")
 
                         if attempt < max_retries - 1:
                             time.sleep(2)
