@@ -323,11 +323,14 @@ class UnifiedFetcher:
                                         if orig not in ("NIFTY 50", "BANKNIFTY", "SENSEX", "^NSEI", "^NSEBANK", "^BSESN"):
                                             clean_orig = orig.replace(".NS", "").replace(".BO", "")
                                             cur.execute("""
-                                                SELECT cmp
-                                                FROM stock_analysis_master
-                                                WHERE (symbol = %s OR symbol = %s) AND cmp IS NOT NULL AND cmp > 0
-                                                LIMIT 1
-                                            """, (orig, clean_orig))
+                                                SELECT val FROM (
+                                                    SELECT cmp AS val, 1 AS prio FROM stock_analysis_master WHERE (symbol = %s OR symbol = %s) AND cmp IS NOT NULL AND cmp > 0
+                                                    UNION ALL
+                                                    SELECT latest_price AS val, 2 AS prio FROM watchlist WHERE (symbol = %s OR symbol = %s) AND latest_price IS NOT NULL AND latest_price > 0
+                                                    UNION ALL
+                                                    SELECT trigger_price AS val, 3 AS prio FROM alerts WHERE (symbol = %s OR symbol = %s) AND trigger_price IS NOT NULL AND trigger_price > 0
+                                                ) sub ORDER BY prio LIMIT 1;
+                                            """, (orig, clean_orig, orig, clean_orig, orig, clean_orig))
                                             row = cur.fetchone()
                                             if row and row[0]:
                                                 val_flt = float(row[0])
@@ -463,10 +466,14 @@ class UnifiedFetcher:
                         for orig in list(pending):
                             clean_orig = orig.replace(".NS", "").replace(".BO", "")
                             cur.execute("""
-                                SELECT cmp FROM stock_analysis_master
-                                WHERE (symbol = %s OR symbol = %s) AND cmp IS NOT NULL AND cmp > 0
-                                LIMIT 1
-                            """, (orig, clean_orig))
+                                SELECT val FROM (
+                                    SELECT cmp AS val, 1 AS prio FROM stock_analysis_master WHERE (symbol = %s OR symbol = %s) AND cmp IS NOT NULL AND cmp > 0
+                                    UNION ALL
+                                    SELECT latest_price AS val, 2 AS prio FROM watchlist WHERE (symbol = %s OR symbol = %s) AND latest_price IS NOT NULL AND latest_price > 0
+                                    UNION ALL
+                                    SELECT trigger_price AS val, 3 AS prio FROM alerts WHERE (symbol = %s OR symbol = %s) AND trigger_price IS NOT NULL AND trigger_price > 0
+                                ) sub ORDER BY prio LIMIT 1;
+                            """, (orig, clean_orig, orig, clean_orig, orig, clean_orig))
                             row = cur.fetchone()
                             if row and row[0]:
                                 val_flt = float(row[0])
