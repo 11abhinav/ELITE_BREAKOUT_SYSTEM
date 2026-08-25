@@ -1664,9 +1664,24 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 exit_triggered = False
                 exit_reason = ""
 
-                # Fetch fundamentals (using cache first)
+                # [VERSION: EXIT_MONITOR_INCOMPLETE_CACHE_FIX_v1.0]
+                # get_cached_fundamentals() returns a dict even for cache entries with
+                # total_equity=None AND market_cap=None (incomplete DB cache from a crash-interrupted
+                # fundamentals fetch). This truthy-but-empty dict bypasses the live fetch below,
+                # causing run_gates() → "Incomplete Data (Missing Equity & Market Cap)" kill gate
+                # to fire on EVERY exit monitor run — flagging ALL open positions as SELL_REVIEW
+                # indefinitely until the cache is manually refreshed.
+                # Fix: if the cached entry is missing BOTH total_equity and market_cap,
+                # treat it as incomplete and attempt a live yfinance fetch before giving up.
                 fund = get_cached_fundamentals(symbol, cache)
-                if not fund:
+                _cache_incomplete = (
+                    fund is not None
+                    and fund.get("total_equity") is None
+                    and fund.get("market_cap") is None
+                )
+                if not fund or _cache_incomplete:
+                    if _cache_incomplete:
+                        logger.info(f"[EXIT MONITOR] {symbol}: cached entry has no equity/market_cap — attempting live fetch to avoid false SELL_REVIEW")
                     fund = fetch_ticker_fundamentals(symbol)
 
                 # [VERSION: MULTIBAGGER_EXIT_HIERARCHY_v1.0] Rule 1: Emergency Catastrophic Stop Loss ALWAYS runs first
