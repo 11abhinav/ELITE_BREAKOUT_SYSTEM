@@ -7180,25 +7180,7 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER", username: str = None) -> l
                         "warning_msg": "",
                     })
 
-                # Batch-fetch live CMP for missing or stale symbols asynchronously in background thread
-                missing_cmp_syms = list(dict.fromkeys(missing_cmp_syms))
-                if missing_cmp_syms:
-                    def _bg_fetch_cmp(syms):
-                        try:
-                            from live_prices import get_live_prices
-                            live_map = get_live_prices(syms)
-                            if live_map:
-                                fresh_prices = {s: float(v) for s, v in live_map.items() if v is not None and float(v) > 0}
-                                if fresh_prices:
-                                    bulk_update_cmp(fresh_prices)
-                        except Exception as _bg_err:
-                            logger.debug(f"BG CMP fetch warning: {_bg_err}")
 
-                    try:
-                        import threading
-                        threading.Thread(target=_bg_fetch_cmp, args=(missing_cmp_syms,), daemon=True).start()
-                    except Exception:
-                        pass
 
                 try:
                     from corporate_events import decorate_events

@@ -373,7 +373,7 @@ class UnifiedFetcher:
                         try:
                             yf_acquire(context="UnifiedFetcher.fetch_live_quotes | Yahoo")
                             try:
-                                df = yf.download(" ".join(yf_symbols), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True, timeout=60)
+                                df = yf.download(" ".join(yf_symbols), period="1d", group_by="ticker", progress=False, threads=False, auto_adjust=True, timeout=5)
                             finally:
                                 yf_release()
                                 
