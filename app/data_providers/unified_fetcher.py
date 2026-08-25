@@ -292,6 +292,28 @@ class UnifiedFetcher:
                         logger.error(f"❌ [Upstox] Batch quote fetch failed: {e}", exc_info=True)
 
                 elif provider == "yahoo":
+                    # ── DB CMP FALLBACK BEFORE YAHOO ─────────────────────────────
+                    # Try resolving pending stock symbols from Postgres DB master table first
+                    # so web scraping Yahoo Finance is strictly a last resort.
+                    if pending:
+                        try:
+                            from database import get_connection
+                            with get_connection() as conn:
+                                with conn.cursor() as cur:
+                                    for orig in list(pending):
+                                        if orig not in ("NIFTY 50", "BANKNIFTY", "SENSEX", "^NSEI", "^NSEBANK", "^BSESN"):
+                                            cur.execute("SELECT cmp FROM stock_analysis_master WHERE symbol = %s AND cmp IS NOT NULL AND cmp > 0", (orig,))
+                                            row = cur.fetchone()
+                                            if row and row[0]:
+                                                results[orig] = {"v": {"cmd": {"c": float(row[0])}}}
+                                                pending.discard(orig)
+                                                logger.info(f"⚡ [DB CMP FALLBACK] Resolved quote for {orig} from PostgreSQL master: ₹{float(row[0]):.2f}")
+                        except Exception as db_err:
+                            logger.warning(f"⚠️ DB CMP Fallback prior to Yahoo failed: {db_err}")
+
+                    if not pending:
+                        break
+
                     logger.info(f"🔄 [Yahoo] Fetching live quotes for {len(pending)} symbols...")
                     import yfinance as yf
                     pending_list = list(pending)
