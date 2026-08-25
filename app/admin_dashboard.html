@@ -6707,10 +6707,10 @@ async function loadMultibaggerWatchlist() {
     mbWatchlistLoaded = true;
   } catch (e) {
     console.error('Failed to load multibagger watchlist:', e);
-    const body = document.getElementById('mb-watchlist-card-body');
+    const tbody = document.getElementById('mb-watchlist-body');
     const empty = document.getElementById('mb-watchlist-empty');
-    if(body) body.innerHTML = '';
-    if(empty) empty.style.display = 'block';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:30px; color:var(--red);">⚠️ Failed to load multibagger watchlist. Click Refresh to retry.</td></tr>';
+    if (empty) empty.style.display = 'none';
   }
 }
 
