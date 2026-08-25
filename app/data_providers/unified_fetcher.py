@@ -461,17 +461,27 @@ class UnifiedFetcher:
                 with get_connection() as conn:
                     with conn.cursor() as cur:
                         for orig in list(pending):
-                            cur.execute("SELECT cmp FROM stock_analysis_master WHERE symbol = %s AND cmp IS NOT NULL AND cmp > 0", (orig,))
+                            clean_orig = orig.replace(".NS", "").replace(".BO", "")
+                            cur.execute("""
+                                SELECT cmp FROM stock_analysis_master
+                                WHERE (symbol = %s OR symbol = %s) AND cmp IS NOT NULL AND cmp > 0
+                                LIMIT 1
+                            """, (orig, clean_orig))
                             row = cur.fetchone()
                             if row and row[0]:
-                                results[orig] = {"v": {"cmd": {"c": float(row[0])}}}
+                                val_flt = float(row[0])
+                                results[orig] = {"v": {"cmd": {"c": val_flt}}}
+                                results[clean_orig] = {"v": {"cmd": {"c": val_flt}}}
+                                results[clean_orig + ".NS"] = {"v": {"cmd": {"c": val_flt}}}
                                 pending.discard(orig)
-                                logger.info(f"⚡ [DB CMP FALLBACK] Resolved fallback quote for {orig} from stock_analysis_master: ₹{float(row[0]):.2f}")
+                                pending.discard(clean_orig)
+                                pending.discard(clean_orig + ".NS")
+                                logger.info(f"⚡ [DB CMP FALLBACK] Resolved fallback quote for {orig} from stock_analysis_master: ₹{val_flt:.2f}")
             except Exception as db_err:
                 logger.warning(f"⚠️ DB CMP Fallback failed: {db_err}")
 
         if pending:
-            logger.error(f"❌ Exhausted all providers for live quotes. Failed symbols: {len(pending)}")
+            logger.error(f"❌ Exhausted all providers for live quotes. Failed symbols ({len(pending)}): {sorted(list(pending))}")
             
         if self.registry.get_entry(dataset_id):
             self.registry.get_entry(dataset_id).provider_used = "live_batch"
