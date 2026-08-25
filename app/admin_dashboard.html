@@ -2426,10 +2426,10 @@ var _userWatchlistData = [];
       const m = { PROFIT: 'badge-win', WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', SELL_REVIEW: 'badge-review', NEUTRAL: 'badge-neutral', REJECTED: 'badge-rejected' };
       let html = `<span class="badge ${m[displayStatus] || 'badge-neutral'}">${displayStatus}</span>`;
       if (t && t.is_rejected && t.shadow_status && t.shadow_status !== 'SHADOW_OPEN') {
-        const isWin = t.shadow_status === 'SHADOW_WIN';
+        const isWin = t.shadow_status === 'SHADOW_WIN' || t.shadow_pnl_pct >= 0;
         const shColor = isWin ? '#00e5a0' : '#ff4d4d';
         const pnlStr = t.shadow_pnl_pct != null ? (t.shadow_pnl_pct >= 0 ? '+' : '') + t.shadow_pnl_pct + '%' : '';
-        const shText = isWin ? `SHADOW WIN ${pnlStr}` : `SHADOW LOSS ${pnlStr}`;
+        const shText = isWin ? `MISSED OPPORTUNITY ${pnlStr}` : `GOOD REJECTION ${pnlStr}`;
         html += ` <span style="font-size:10px; font-weight:bold; color:${shColor}; background:rgba(0,0,0,0.06); padding:2px 6px; border-radius:4px; margin-left:4px; border:1px solid ${shColor}44;" title="Counterfactual Shadow Outcome">👻 ${shText}</span>`;
       }
       return html;
