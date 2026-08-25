@@ -240,8 +240,8 @@ def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None)
     try:
         res_direct = session.post(target_url, json=payload, headers=headers, timeout=5)
         body_direct = res_direct.text.strip()
-        if res_direct.status_code == 200 and ("request_key" in body_direct or '"s":' in body_direct or "fyers" in body_direct.lower() or "access_token" in body_direct) and not body_direct.startswith("<!doctype") and not body_direct.startswith("<html"):
-            logger.info(f"⚡ [DIRECT SUCCESS] Fast POST to {target_url} succeeded (Status 200)!")
+        if res_direct.status_code in (200, 201) and not body_direct.startswith("<!doctype") and not body_direct.startswith("<html"):
+            logger.info(f"⚡ [DIRECT SUCCESS] Fast POST to {target_url} succeeded (Status {res_direct.status_code})!")
             return res_direct
     except Exception as direct_err:
         logger.debug(f"Direct POST attempt to {target_url} failed: {direct_err}")
@@ -263,7 +263,7 @@ def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None)
                     logger.warning(f"❌ Crawlora API key ({masked_ckey}) is EXHAUSTED/INVALID. Blacklisting key for today.")
                     mark_crawlora_key_exhausted_today(crawlora_key)
                     continue
-                elif (res_crawlora.status_code in (200, 201) or "request_key" in body_crawlora or '"s":' in body_crawlora or "fyers" in body_crawlora.lower()) and not body_crawlora.startswith("<!doctype") and not body_crawlora.startswith("<html"):
+                elif res_crawlora.status_code in (200, 201) and not body_crawlora.startswith("<!doctype") and not body_crawlora.startswith("<html"):
                     logger.info(f"✅ Crawlora Proxy ({masked_ckey}) successfully fetched POST {target_url}!")
                     return res_crawlora
             except Exception as c_err:
@@ -311,7 +311,7 @@ def fyers_get_with_scraper_fallback(session, target_url, headers=None):
     try:
         res_direct = session.get(target_url, headers=headers, allow_redirects=False, timeout=5)
         body_direct = res_direct.text.strip()
-        if (res_direct.status_code in (200, 301, 302, 303, 307, 308) or '"s":' in body_direct or "location" in res_direct.headers) and not body_direct.startswith("<!doctype") and not body_direct.startswith("<html"):
+        if (res_direct.status_code in (200, 301, 302, 303, 307, 308) or "location" in res_direct.headers) and not body_direct.startswith("<!doctype") and not body_direct.startswith("<html"):
             logger.info(f"⚡ [DIRECT SUCCESS] Fast GET to {target_url} succeeded (Status {res_direct.status_code})!")
             return res_direct
     except Exception as direct_err:
