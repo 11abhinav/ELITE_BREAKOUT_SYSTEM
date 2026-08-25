@@ -3598,7 +3598,7 @@ def get_multibagger_watchlist():
                                'MULTIBAGGER' AS bucket, 'ACTIVE' AS status, c.notes, c.entry_price AS last_alert_price,
                                c.alert_time AS last_alert_at, c.created_at AS last_updated
                         FROM candidates c
-                        WHERE c.scanner = 'MULTIBAGGER' OR c.breakout_type = 'MULTIBAGGER'
+                        WHERE c.scanner = 'MULTIBAGGER' OR c.breakout_type LIKE 'MULTIBAGGER%'
                         ORDER BY c.created_at DESC
                         LIMIT 200
                     """)
@@ -3612,7 +3612,7 @@ def get_multibagger_watchlist():
                                'MULTIBAGGER' AS bucket, 'ACTIVE' AS status, a.signals AS notes, a.entry_price AS last_alert_price,
                                a.alert_time AS last_alert_at, a.alert_time AS last_updated
                         FROM alerts a
-                        WHERE a.scanner = 'MULTIBAGGER' OR a.breakout_type = 'MULTIBAGGER'
+                        WHERE a.scanner = 'MULTIBAGGER' OR a.breakout_type LIKE 'MULTIBAGGER%'
                         ORDER BY a.alert_time DESC
                         LIMIT 200
                     """)
@@ -3628,8 +3628,10 @@ def get_multibagger_watchlist():
                             df = pd.read_csv(csv_path)
                             csv_rows = []
                             for _, r in df.iterrows():
-                                cmp_val = float(r.get("cmp", 0)) if pd.notna(r.get("cmp")) else None
-                                fm_score = float(r.get("FM_Score", 80)) if pd.notna(r.get("FM_Score")) else 80.0
+                                raw_cmp = r.get("CMP") if pd.notna(r.get("CMP")) else r.get("cmp")
+                                cmp_val = float(raw_cmp) if (raw_cmp is not None and pd.notna(raw_cmp)) else None
+                                raw_score = r.get("Fundamental Score") if pd.notna(r.get("Fundamental Score")) else r.get("FM_Score")
+                                fm_score = float(raw_score) if (raw_score is not None and pd.notna(raw_score)) else 80.0
                                 csv_rows.append({
                                     "symbol": str(r.get("Stock", "")).strip().upper(),
                                     "buy_zone_low": cmp_val,
@@ -3639,9 +3641,9 @@ def get_multibagger_watchlist():
                                     "growth_score": fm_score,
                                     "value_score": fm_score,
                                     "trend_score": fm_score,
-                                    "bucket": str(r.get("Portfolio_Bucket", "MULTIBAGGER")),
+                                    "bucket": str(r.get("Category", "MULTIBAGGER")),
                                     "status": "ACTIVE",
-                                    "notes": str(r.get("Signal", "Fundamental Compounder")),
+                                    "notes": str(r.get("Category Explanation", "Fundamental Compounder")),
                                     "last_alert_price": cmp_val,
                                     "last_alert_at": str(r.get("build_date", "")),
                                     "last_updated": str(r.get("build_date", ""))
