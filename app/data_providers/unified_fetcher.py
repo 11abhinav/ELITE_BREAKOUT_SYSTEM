@@ -24,12 +24,11 @@ class UnifiedFetcher:
         self.fyers = FyersFetcher()
 
     def fetch_historical(self, symbol: str, interval: str, period: str, consumer: str) -> Optional[pd.DataFrame]:
-        with network_fetch_lock:
-            logger.info(f"[{consumer}] Fetching {symbol} ({interval} / {period}) via UnifiedFetcher")
-            
-            dataset_id = f"price_{interval}"
-            if self.registry.get_entry(dataset_id):
-                self.registry.register_consumer(dataset_id, consumer)
+        logger.info(f"[{consumer}] Fetching {symbol} ({interval} / {period}) via UnifiedFetcher")
+        
+        dataset_id = f"price_{interval}"
+        if self.registry.get_entry(dataset_id):
+            self.registry.register_consumer(dataset_id, consumer)
             
         providers = self.selector.get_providers(dataset_id, fetch_type="historical")
         
@@ -306,20 +305,20 @@ class UnifiedFetcher:
                     
                     for i in range(0, len(pending_list), chunk_size):
                         chunk = pending_list[i:i+chunk_size]
-                        # ── FORMAT GATE: ensure every symbol is SYMBOL.NS or ^INDEX for Yahoo ──────────
                         raw_yf_symbols = []
-                        try:
-                            from symbol_resolution_engine import get_symbol_resolver
-                            resolver = get_symbol_resolver()
-                            for s in chunk:
-                                r = resolver.resolve(s, provider="yahoo")
-                                if r and r.is_valid and r.mapped_symbol:
-                                    raw_yf_symbols.append(r.mapped_symbol)
-                                else:
+                        for s in chunk:
+                            if s in INDEX_YF_MAP:
+                                raw_yf_symbols.append(INDEX_YF_MAP[s])
+                            else:
+                                try:
+                                    from symbol_resolution_engine import get_symbol_resolver
+                                    r = get_symbol_resolver().resolve(s, provider="yahoo")
+                                    if r and r.is_valid and r.mapped_symbol:
+                                        raw_yf_symbols.append(r.mapped_symbol)
+                                    else:
+                                        raw_yf_symbols.append(f"{s}.NS")
+                                except Exception:
                                     raw_yf_symbols.append(f"{s}.NS")
-                        except Exception:
-                            raw_yf_symbols = [INDEX_YF_MAP.get(s, s + ".NS") for s in chunk]
-                            logger.warning(f"⚠️ [Yahoo] Symbol resolver import failed for chunk of {len(chunk)} — using default .NS format")
                         yf_symbols = raw_yf_symbols
                         try:
                             yf_acquire(context="UnifiedFetcher.fetch_live_quotes | Yahoo")

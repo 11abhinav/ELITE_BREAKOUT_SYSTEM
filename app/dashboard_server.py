@@ -3193,11 +3193,31 @@ def api_indices():
                 
     except Exception as e:
         logger.error(f"Error fetching indices via UnifiedFetcher: {e}")
-        
+
+    # Fallback to direct yfinance if quotes map was incomplete or failed
+    if not data or len(data) < 3:
+        try:
+            import yfinance as yf
+            yf_map = {"NIFTY 50": "^NSEI", "BANKNIFTY": "^NSEBANK", "SENSEX": "^BSESN"}
+            df_idx = yf.download("^NSEI ^NSEBANK ^BSESN", period="2d", interval="1d", progress=False, timeout=10)
+            if not df_idx.empty and "Close" in df_idx.columns:
+                for label, yf_sym in yf_map.items():
+                    if label not in data:
+                        try:
+                            sub_close = df_idx["Close"][yf_sym].dropna()
+                            if len(sub_close) >= 1:
+                                curr = float(sub_close.iloc[-1])
+                                prev = float(sub_close.iloc[-2]) if len(sub_close) >= 2 else curr
+                                pct = round(((curr - prev) / prev) * 100, 2) if prev > 0 else 0.0
+                                data[label] = {"price": round(curr, 2), "pct_change": pct}
+                        except Exception:
+                            pass
+        except Exception as yf_err:
+            logger.warning(f"Direct yfinance fallback for indices failed: {yf_err}")
+
     if data:
         with _indices_lock:
-            # We already hold the lock, just update the global directly or via session manager
-            cache = _get_indices_cache() # This gets the reference to the dict
+            cache = _get_indices_cache()
             cache["timestamp"] = time.time()
             cache["data"] = data
             from data_registry import registry
