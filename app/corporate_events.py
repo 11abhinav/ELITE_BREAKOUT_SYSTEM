@@ -56,19 +56,20 @@ class CorporateEventRepository:
         except Exception as e:
             logger.warning(f"CorporateEventRepository DB fetch error: {e}")
 
-        # Tier-2: Merge NseEarningsProvider bulk in-memory cache (SME/NSE board meetings)
+        # Tier-2: Merge NseEarningsProvider bulk in-memory cache if already populated in background worker
         try:
             from earnings_calendar import NseEarningsProvider
-            NseEarningsProvider._refresh_bulk_cache_if_needed()
-            bulk = NseEarningsProvider._bulk_cache or {}
-            for sym, ed_dt in bulk.items():
+            bulk = getattr(NseEarningsProvider, "_bulk_cache", {}) or {}
+            for sym, ed_tuple in bulk.items():
                 clean_s = sym.strip().upper().replace('.NS', '').replace('.BO', '')
-                if clean_s not in events_map and ed_dt:
-                    ed_str = ed_dt.strftime("%Y-%m-%d") if hasattr(ed_dt, 'strftime') else str(ed_dt)
-                    events_map[clean_s] = {
-                        "earnings_date": ed_str,
-                        "date_status": "CONFIRMED"
-                    }
+                if clean_s not in events_map and ed_tuple:
+                    ed_val = ed_tuple[0] if isinstance(ed_tuple, (tuple, list)) else ed_tuple
+                    if ed_val:
+                        ed_str = ed_val.strftime("%Y-%m-%d") if hasattr(ed_val, 'strftime') else str(ed_val)
+                        events_map[clean_s] = {
+                            "earnings_date": ed_str,
+                            "date_status": "CONFIRMED"
+                        }
         except Exception as _nse_err:
             logger.debug(f"NseEarningsProvider bulk merge warning: {_nse_err}")
 
