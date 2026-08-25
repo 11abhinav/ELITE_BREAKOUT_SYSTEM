@@ -404,6 +404,21 @@ class UnifiedFetcher:
                                 logger.warning(f"⚠️ [BSE] Batch quote fetch failed for chunk: {e}", exc_info=True)
 
         if pending:
+            try:
+                from database import get_connection
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        for orig in list(pending):
+                            cur.execute("SELECT cmp FROM stock_analysis_master WHERE symbol = %s AND cmp IS NOT NULL AND cmp > 0", (orig,))
+                            row = cur.fetchone()
+                            if row and row[0]:
+                                results[orig] = {"v": {"cmd": {"c": float(row[0])}}}
+                                pending.discard(orig)
+                                logger.info(f"⚡ [DB CMP FALLBACK] Resolved fallback quote for {orig} from stock_analysis_master: ₹{float(row[0]):.2f}")
+            except Exception as db_err:
+                logger.warning(f"⚠️ DB CMP Fallback failed: {db_err}")
+
+        if pending:
             logger.error(f"❌ Exhausted all providers for live quotes. Failed symbols: {len(pending)}")
             
         if self.registry.get_entry(dataset_id):
