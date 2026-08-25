@@ -48,7 +48,7 @@ class IndicatorExecutor:
         # - Expected improvement: 28 symbols / 8 workers × ~4s = ~14s per TF thread (vs 112s sequential).
         # - Set INDICATOR_EXECUTION_MODE=sequential in .env to revert if instability is observed.
         import platform
-        _default_mode = "thread" if platform.system() == "Linux" else "sequential"
+        _default_mode = "thread"
         self.mode = mode or os.getenv("INDICATOR_EXECUTION_MODE", _default_mode)
         from config import SCAN_WORKER_THREADS
         self.max_workers = max_workers or int(os.getenv("INDICATOR_MAX_WORKERS", str(SCAN_WORKER_THREADS)))

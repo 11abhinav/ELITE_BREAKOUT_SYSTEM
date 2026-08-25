@@ -156,12 +156,12 @@ class UpstoxInstrumentMapper:
             )
             self.trigger_background_download()
 
-    def trigger_background_download(self):
+    def trigger_background_download(self, force: bool = False):
         """Downloads the Upstox complete master CSV in a background thread."""
         with self._lock:
             if self._is_downloading:
                 return
-            if (time.time() - self._last_download_ts) < (86400 * 3):  # Avoid downloading more than once per 3 days
+            if not force and (time.time() - self._last_download_ts) < (86400 * 3):  # Avoid downloading more than once per 3 days
                 return
             self._is_downloading = True
 

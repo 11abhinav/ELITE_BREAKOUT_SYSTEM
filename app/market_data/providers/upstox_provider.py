@@ -387,7 +387,7 @@ class UpstoxProvider(ProviderInterface):
                         if clean_sym.endswith(sfx):
                             clean_sym = clean_sym[:-len(sfx)]
                     mapper._symbol_map.pop(clean_sym, None)
-                    mapper.trigger_background_download()
+                    mapper.trigger_background_download(force=True)
                 except Exception as _inv_err:
                     logger.debug(f"Failed to invalidate stale key for {symbol}: {_inv_err}")
             logger.error(f"Upstox fetch HTTP error for {symbol}: {e}")

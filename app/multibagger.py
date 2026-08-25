@@ -2143,7 +2143,6 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         # Build set of all symbols that need to be evaluated (shortlist + open positions)
         all_syms_to_check = set([p.symbol for p in shortlist])
         try:
-            from database import get_connection
             with get_connection() as conn:
                 with conn.cursor() as cur:
                     # [RULE 67] Query PostgreSQL alerts table using valid schema columns (status and scanner).
@@ -2877,7 +2876,6 @@ def restore_healthy_multibagger_positions():
     """No-op: Closed positions stay closed. Exit monitors only evaluate open/sell_review positions."""
     return 0
     try:
-        from database import get_connection
         from psycopg2.extras import RealDictCursor
 
         with get_connection() as conn:
