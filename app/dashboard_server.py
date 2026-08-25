@@ -3549,14 +3549,24 @@ def api_concall_ai(symbol):
 
 # ── Multibagger Watchlist API ───────────────────────────────────────────────────────────
 
+_mb_watchlist_cache: dict = {}
+
 @app.route("/api/multibagger/watchlist", methods=["GET"])
 @app.route("/api/multibagger_watchlist", methods=["GET"])
 @login_required
 def get_multibagger_watchlist():
-    """Returns all watchlist entries for the Multibagger Watchlist tab."""
+    """Returns all watchlist entries for the Multibagger Watchlist tab (TTL-cached 10s)."""
+    global _mb_watchlist_cache
+    import json
+    status_filter = request.args.get("status", "")
+    now_ts = time.time()
+    cache_key = f"mb:{status_filter}"
+    cached = _mb_watchlist_cache.get(cache_key)
+    if cached and (now_ts - cached["ts"]) < 10.0:
+        return Response(cached["payload"], mimetype="application/json")
+
     from database import get_connection, init_db
     from psycopg2.extras import RealDictCursor
-    status_filter = request.args.get("status")
     
     def _fetch_rows():
         with get_connection() as conn:
@@ -3588,7 +3598,7 @@ def get_multibagger_watchlist():
                                'MULTIBAGGER' AS bucket, 'ACTIVE' AS status, c.notes, c.entry_price AS last_alert_price,
                                c.alert_time AS last_alert_at, c.created_at AS last_updated
                         FROM candidates c
-                        WHERE c.scanner = 'MULTIBAGGER' OR c.breakout_type ILIKE '%%MULTIBAGGER%%'
+                        WHERE c.scanner = 'MULTIBAGGER' OR c.breakout_type = 'MULTIBAGGER'
                         ORDER BY c.created_at DESC
                         LIMIT 200
                     """)
@@ -3602,7 +3612,7 @@ def get_multibagger_watchlist():
                                'MULTIBAGGER' AS bucket, 'ACTIVE' AS status, a.signals AS notes, a.entry_price AS last_alert_price,
                                a.alert_time AS last_alert_at, a.alert_time AS last_updated
                         FROM alerts a
-                        WHERE a.scanner = 'MULTIBAGGER' OR a.breakout_type ILIKE '%%MULTIBAGGER%%'
+                        WHERE a.scanner = 'MULTIBAGGER' OR a.breakout_type = 'MULTIBAGGER'
                         ORDER BY a.alert_time DESC
                         LIMIT 200
                     """)
@@ -3684,7 +3694,9 @@ def get_multibagger_watchlist():
             
     try:
         serialized_rows = [safe(r) for r in rows]
-        return jsonify(serialized_rows)
+        payload = json.dumps(serialized_rows, default=str)
+        _mb_watchlist_cache[cache_key] = {"ts": now_ts, "payload": payload}
+        return Response(payload, mimetype="application/json")
     except Exception as e:
         logger.exception("❌ Fatal error serializing multibagger watchlist JSON response")
         return jsonify([])
