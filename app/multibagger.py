@@ -989,18 +989,18 @@ def _is_fundamental_cache_fresh(data: dict) -> bool:
         logger.debug(f"Freshness check failed: {e}")
         return False
 
+REQUIRED_DEEP_V5_KEYS = {
+    "total_equity",
+    "market_cap",
+    "revenue_cagr_3y",
+    "data_freshness",
+}
+
 def is_deep_v5_cache(data: dict) -> bool:
     if not isinstance(data, dict) or not data:
         return False
 
-    required = {
-        "total_equity",
-        "market_cap",
-        "revenue_cagr_3y",
-        "data_freshness",
-    }
-
-    return required.issubset(data.keys())
+    return REQUIRED_DEEP_V5_KEYS.issubset(data.keys())
 
 def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]]:
     clean_sym = symbol.strip().upper()
