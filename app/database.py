@@ -7078,17 +7078,7 @@ def get_user_watchlist(user_id: str = "DEFAULT_USER", username: str = None) -> l
                 rows = cur.fetchall()
                 if not rows:
                     try:
-                        cur.execute("""
-                            SELECT DISTINCT symbol FROM (
-                                SELECT symbol FROM alerts WHERE symbol IS NOT NULL AND symbol != ''
-                                UNION
-                                SELECT symbol FROM stock_analysis_master WHERE symbol IS NOT NULL AND symbol != ''
-                            ) sub LIMIT 15;
-                        """)
-                        seed_rows = cur.fetchall()
-                        seed_syms = [r[0] for r in seed_rows if r[0]]
-                        if not seed_syms:
-                            seed_syms = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "BHARTIARTL", "ITC", "LTIM", "TATAMOTORS"]
+                        seed_syms = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "BHARTIARTL", "ITC", "LTIM", "TATAMOTORS"]
                         for s in seed_syms:
                             cur.execute("""
                                 INSERT INTO user_watchlists (user_id, symbol, company_name, last_health_score, last_status, added_at)
