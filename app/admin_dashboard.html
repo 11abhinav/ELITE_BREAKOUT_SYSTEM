@@ -3,6 +3,13 @@
 
 <head>
 <script>
+// GLOBAL WATCHLIST DATA STATE & CACHE (Hoisted to top of scope)
+var WATCHLIST_ITEMS_CACHE = [];
+var _mwlData = [];
+var _mwlSortCol = 'added_at';
+var _mwlSortAsc = false;
+var _userWatchlistData = [];
+
 // GLOBAL FETCH FORTIFICATION & CREDENTIAL PRESERVATION
 (function() {
   const originalFetch = window.fetch;
@@ -7603,9 +7610,6 @@ function openInTradingView(symbol) {
 }
 
 // [VERSION: MWL_SORT_v1.0] Sort state for manual watchlist
-let _mwlData = [];
-let _mwlSortCol = 'added_at';
-let _mwlSortAsc = false;
 
 function sortManualWatchlist(col) {
   if (_mwlSortCol === col) {
@@ -7932,7 +7936,7 @@ function loadUserWatchlist() {
     .catch(err => console.warn('Failed to load user watchlist:', err));
 }
 
-let WATCHLIST_ITEMS_CACHE = [];
+
 
 function showAnalysisInfoModal(sym) {
   let modal = document.getElementById('stock-diagnostic-modal');
