@@ -2226,7 +2226,7 @@ def update_partial_exit(
                         exit_hist = json.loads(exit_hist)
                     
                     exit_hist.append(exit_event)
-                    new_hist_json = json.dumps(exit_hist)
+                    new_hist_json = json.dumps(exit_hist, default=str)
                     
                     if execution_state:
                         cur.execute("""
@@ -2250,7 +2250,7 @@ def update_partial_exit(
                     
                     new_state = {"status": new_status, "stop_loss": new_sl, "remaining_shares": remaining_shares, "exit_event": exit_event}
                     cur.execute("INSERT INTO trade_audit_log (alert_id, action, old_state, new_state) VALUES (%s, %s, %s, %s)", 
-                                (alert_id, 'PARTIAL_EXIT', json.dumps(old_state), json.dumps(new_state)))
+                                (alert_id, 'PARTIAL_EXIT', json.dumps(old_state, default=str), json.dumps(new_state, default=str)))
                     conn.commit()
                     success = True
                     logger.info(f"🔄 Alert {alert_id} partial exit: {new_status} | Booked {shares_sold} | Floating {remaining_shares} | SL raised to {new_sl}")
@@ -2331,7 +2331,7 @@ def update_alert_outcome(
                     if cur.rowcount:
                         new_state = {"status": status, "exit_price": exit_price, "pnl_pct": pnl_pct, "pnl_rs": pnl_rs}
                         cur.execute("INSERT INTO trade_audit_log (alert_id, action, old_state, new_state) VALUES (%s, %s, %s, %s)", 
-                                    (alert_id, 'FINAL_EXIT', json.dumps(old_state), json.dumps(new_state)))
+                                    (alert_id, 'FINAL_EXIT', json.dumps(old_state, default=str), json.dumps(new_state, default=str)))
                         conn.commit()
                         success = True
                         
@@ -2442,7 +2442,7 @@ def reset_alert_for_recalculation(alert_id: int) -> bool:
                     
                     new_state = {"status": "OPEN", "stop_loss": reset_sl, "remaining_shares": shares_bought, "exit_history": None}
                     cur.execute("INSERT INTO trade_audit_log (alert_id, action, old_state, new_state) VALUES (%s, %s, %s, %s)", 
-                                (alert_id, 'RECALCULATE_RESET', json.dumps({"status": old_status}), json.dumps(new_state)))
+                                (alert_id, 'RECALCULATE_RESET', json.dumps({"status": old_status}, default=str), json.dumps(new_state, default=str)))
                     conn.commit()
                     success = True
                     logger.info(f"🔄 Alert {alert_id} reset to OPEN for recalculation. SL restored to {reset_sl}.")

@@ -2131,10 +2131,29 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 return False
         return True
 
-    # Check if any shortlisted stocks are missing or incomplete from cache
-    missing_shortlist_syms = [p.symbol for p in shortlist if not _is_fully_hydrated_v5(get_cached_fundamentals(p.symbol, cache))]
+    # Check if any shortlisted stocks are missing from cache. If so, run instant TradingView bulk fetch (<3s)
+    missing_shortlist_syms = [p.symbol for p in shortlist if not get_cached_fundamentals(p.symbol, cache)]
     if missing_shortlist_syms:
-        logger.info(f"⚡ [MULTIBAGGER BULK ENRICHMENT] {len(missing_shortlist_syms)} stocks missing or incomplete from cache. Let them fall through to full YFinance hydration...")
+        logger.info(f"⚡ [MULTIBAGGER BULK ENRICHMENT] {len(missing_shortlist_syms)}/{len(shortlist)} stocks missing from cache. Running TradingView bulk fetch for entire universe (<3s)...")
+        try:
+            from fundamentals_cache import fetch_tradingview_fundamentals_bulk
+            tv_data = fetch_tradingview_fundamentals_bulk()
+            if tv_data:
+                enriched_count = 0
+                for sym_name, tv_entry in tv_data.items():
+                    clean_s = sym_name.strip().upper()
+                    variants = [clean_s, clean_s.replace("&", "_"), clean_s.replace("-", "_"), clean_s.replace("_", "&"), clean_s.replace("_", "-")]
+                    for v in variants:
+                        if v not in cache:
+                            tv_c = dict(tv_entry)
+                            tv_c["symbol"] = v
+                            cache[v] = tv_c
+                            enriched_count += 1
+                if enriched_count > 0:
+                    logger.info(f"✅ [MULTIBAGGER BULK ENRICHMENT] Saved all {len(cache)} market universe symbols to DB cache.")
+                    save_fundamentals_cache(cache, sync_to_db=True)
+        except Exception as _tv_err:
+            logger.warning(f"⚠️ TradingView bulk enrichment failed: {_tv_err}")
     
     with ThreadPoolExecutor(max_workers=6) as executor:
         futures = {}
@@ -2154,7 +2173,9 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             
         for sym in all_syms_to_check:
             cached = get_cached_fundamentals(sym, cache)
-            if cached and _is_fully_hydrated_v5(cached):
+            # The shortlist pre-filter accepts incomplete cache (TV data). 
+            # Deep YF hydration happens post-filter for finalists only.
+            if cached:
                 # We only append to fundamentals_list if it's in the shortlist (for the Buy scanner)
                 if any(p.symbol == sym for p in shortlist):
                     cached_count += 1
@@ -2395,7 +2416,25 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             append_rejection(results, sym, status_code, reason, price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
             return
 
-        # 3. Run the V5 Pipeline
+        # 3. Targeted Deep Hydration for Finalists
+        # If the candidate made it past the pre-gates, we need strict V5 keys for the pipeline
+        if not _is_fully_hydrated_v5(raw_fundamentals):
+            logger.info(f"📥 [MULTIBAGGER POST-FILTER] {sym}: Passed pre-gates but missing V5 keys. Fetching deep YFinance fundamentals...")
+            try:
+                deep_fund = fetch_ticker_fundamentals(sym)
+                if deep_fund:
+                    # Merge fetched deep metrics into raw_fundamentals
+                    for k, v in deep_fund.items():
+                        if v is not None:
+                            raw_fundamentals[k] = v
+                    raw_fundamentals["fetched_at"] = datetime.now(IST).isoformat()
+                    # Optional: Store back to the in-memory cache for the chunk-saver
+                    with _eval_lock:
+                        cache[sym] = deep_fund
+            except Exception as e:
+                logger.warning(f"⚠️ [MULTIBAGGER POST-FILTER] Failed to fetch deep fundamentals for {sym}: {e}")
+
+        # 4. Run the V5 Pipeline
         # [VERSION: MULTIBAGGER_PIPELINE_GUARD_v1.1] Guard per-symbol pipeline execution with exception logging
         try:
             pipeline_result = run_pipeline_for_symbol(sym, raw_fundamentals, technicals)
