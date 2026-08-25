@@ -6468,26 +6468,26 @@ def bootstrap_admin(cur=None):
 
             force_bootstrap = os.getenv('BOOTSTRAP_AUTH', '').strip().strip("'").strip('"').lower() == 'true'
 
-            test_hash = generate_password_hash('test', method='scrypt')
-            active_cur.execute("""
-                INSERT INTO users (username, email, mobile, password_hash, role, is_active, must_change_password, account_status)
-                VALUES ('test', 'test@elitebreakout.temp', '9999999999', %s, 'admin', TRUE, FALSE, 'approved')
-                ON CONFLICT (username) DO UPDATE SET role = 'admin', is_active = TRUE, account_status = 'approved'
-            """, (test_hash,))
-            rows_inserted = active_cur.rowcount
-
-            if rows_inserted > 0:
+            if user_count == 0 or force_bootstrap:
+                # Need to bootstrap an admin
+                admin_hash = generate_password_hash('admin123', method='scrypt')
+                active_cur.execute("""
+                    INSERT INTO users (username, email, mobile, password_hash, role, is_active, must_change_password, account_status)
+                    VALUES ('admin', 'admin@elitebreakout.temp', '9999999999', %s, 'admin', TRUE, TRUE, 'approved')
+                    ON CONFLICT (username) DO UPDATE SET role = 'admin', is_active = TRUE, account_status = 'approved', password_hash = EXCLUDED.password_hash, must_change_password = TRUE
+                """, (admin_hash,))
+                
                 border = "=" * 68
                 logger.warning(border)
                 logger.warning("🚨  ADMIN ACCOUNT AUTO-CREATED / UPDATED  🚨")
                 logger.warning("   Reason   : Initial admin credential bootstrap")
                 logger.warning(border)
-                logger.warning("   USERNAME : test")
-                logger.warning("   PASSWORD : test")
+                logger.warning("   USERNAME : admin")
+                logger.warning("   PASSWORD : admin123")
                 logger.warning("   ⚠️  CHANGE THIS PASSWORD IMMEDIATELY AFTER FIRST LOGIN")
                 logger.warning(border)
             else:
-                logger.info("ℹ️  [BOOTSTRAP] Admin already existed — no changes made.")
+                pass # Silently skip if users exist and force_bootstrap is false
 
         if cur is not None:
             _execute_bootstrap(cur)
