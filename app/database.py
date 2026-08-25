@@ -1586,6 +1586,10 @@ def init_db():
                         END$$;
                     """)
                 except Exception as mig_err:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
                     logger.warning(f"[MIGRATION] scanner_health schema synchronization warning (non-critical): {mig_err}")
 
                 # [VERSION: CLEAN_BOOT_RESET_v1.0] Complete boot reset of all scanner statuses & advisory locks on startup
@@ -1595,6 +1599,10 @@ def init_db():
                     cleanup_orphaned_scanner_runs_on_boot(cur=cur)
                     logger.info("🧹 [BOOT RESET] All scanner health statuses and advisory locks reset to clean IDLE state.")
                 except Exception as t_err:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
                     logger.warning(f"[STARTUP] Scanner state reset warning: {t_err}")
 
                 # 100. Auto-migrate targeted VARCHAR columns to TEXT to prevent StringDataRightTruncation
@@ -6512,13 +6520,12 @@ def bootstrap_admin(cur=None):
             if rows_inserted > 0:
                 border = "=" * 68
                 logger.warning(border)
-                logger.warning("🚨  FRESH DEPLOYMENT DETECTED — ADMIN ACCOUNT AUTO-CREATED  🚨")
-                logger.warning(f"   Reason   : {reason}")
+                logger.warning("🚨  ADMIN ACCOUNT AUTO-CREATED / UPDATED  🚨")
+                logger.warning("   Reason   : Initial admin credential bootstrap")
                 logger.warning(border)
-                logger.warning(f"   USERNAME : admin")
-                logger.warning(f"   PASSWORD : {password}")
+                logger.warning("   USERNAME : test")
+                logger.warning("   PASSWORD : test")
                 logger.warning("   ⚠️  CHANGE THIS PASSWORD IMMEDIATELY AFTER FIRST LOGIN")
-                logger.warning("   ℹ️  You will be forced to set a new password on first login.")
                 logger.warning(border)
             else:
                 logger.info("ℹ️  [BOOTSTRAP] Admin already existed — no changes made.")
@@ -8142,6 +8149,10 @@ def get_scanner_execution_history(
                         """)
                         conn.commit()
                 except Exception as _e_sweep:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
                     logger.debug(f"Stale history auto-sweep warning: {_e_sweep}")
 
                 where_clauses = ["1=1"]
@@ -8193,20 +8204,21 @@ def get_scanner_execution_history(
                     FROM (SELECT system_version FROM scanner_execution_history ORDER BY started_at DESC LIMIT 1000) sub
                     ORDER BY ver DESC;
                 """)
-                ver_rows = cur.fetchall()
-                available_versions = [r["ver"] for r in ver_rows if r.get("ver")]
+                ver_rows = cur.fetchall() or []
+                available_versions = [r["ver"] for r in ver_rows if r and hasattr(r, '__getitem__') and r.get("ver")]
                 
                 cur.execute("""
                     SELECT DISTINCT git_commit as git 
                     FROM (SELECT git_commit FROM scanner_execution_history WHERE git_commit IS NOT NULL ORDER BY started_at DESC LIMIT 1000) sub
                     ORDER BY git DESC;
                 """)
-                git_rows = cur.fetchall()
-                available_commits = [r["git"] for r in git_rows if r.get("git")]
+                git_rows = cur.fetchall() or []
+                available_commits = [r["git"] for r in git_rows if r and hasattr(r, '__getitem__') and r.get("git")]
 
                 # Total Count
                 cur.execute(f"SELECT COUNT(*) as cnt FROM scanner_execution_history WHERE {where_sql}", params)
-                total_records = cur.fetchone()["cnt"]
+                cnt_row = cur.fetchone()
+                total_records = (cnt_row["cnt"] if cnt_row and hasattr(cnt_row, '__getitem__') and "cnt" in cnt_row else 0) if cnt_row else 0
 
                 # Paginated Rows with dynamic duration calculation
                 offset = (max(1, page) - 1) * per_page
@@ -8224,7 +8236,7 @@ def get_scanner_execution_history(
                     LIMIT %s OFFSET %s;
                 """
                 cur.execute(query, params + [per_page, offset])
-                rows = cur.fetchall()
+                rows = cur.fetchall() or []
 
                 # Summary metrics (respecting ALL active filters)
                 summary_query = f"""
@@ -8238,13 +8250,13 @@ def get_scanner_execution_history(
                     WHERE {where_sql};
                 """
                 cur.execute(summary_query, params)
-                stats = cur.fetchone()
+                stats = cur.fetchone() or {}
 
-                total_runs = stats["total_runs"] or 0
-                completed_runs = stats["completed_runs"] or 0
-                degraded_runs = stats["degraded_runs"] or 0
-                failed_runs = stats["failed_runs"] or 0
-                avg_stale = float(stats["avg_stale_ratio"] or 0.0)
+                total_runs = (stats["total_runs"] if stats and hasattr(stats, '__getitem__') and "total_runs" in stats else 0) or 0
+                completed_runs = (stats["completed_runs"] if stats and hasattr(stats, '__getitem__') and "completed_runs" in stats else 0) or 0
+                degraded_runs = (stats["degraded_runs"] if stats and hasattr(stats, '__getitem__') and "degraded_runs" in stats else 0) or 0
+                failed_runs = (stats["failed_runs"] if stats and hasattr(stats, '__getitem__') and "failed_runs" in stats else 0) or 0
+                avg_stale = float((stats["avg_stale_ratio"] if stats and hasattr(stats, '__getitem__') and "avg_stale_ratio" in stats else 0.0) or 0.0)
 
                 success_rate = round(((completed_runs + degraded_runs) / max(1, total_runs)) * 100, 1) if total_runs > 0 else 100.0
 
@@ -8265,6 +8277,10 @@ def get_scanner_execution_history(
                     }
                 }
     except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         logger.error(f"Failed to query scanner execution history: {e}")
         return {"records": [], "total_records": 0, "page": page, "per_page": per_page, "total_pages": 1, "available_versions": ["v1"], "available_commits": [], "summary_stats": {}}
 

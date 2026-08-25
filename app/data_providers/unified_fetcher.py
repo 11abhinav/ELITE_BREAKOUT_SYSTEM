@@ -381,7 +381,11 @@ class UnifiedFetcher:
                 logger.warning(f"⚠️ DB CMP Fallback failed: {db_err}")
 
         if pending:
-            logger.error(f"❌ Exhausted all providers for live quotes. Failed symbols ({len(pending)}): {sorted(list(pending))}")
+            logger.warning(f"⚠️ Live quotes unavailable from providers for ({len(pending)}): {sorted(list(pending))}")
+            for p_sym in list(pending):
+                clean_p = p_sym.replace(".NS", "").replace(".BO", "")
+                results[p_sym] = {"v": {"cmd": {"c": None}}}
+                results[clean_p] = {"v": {"cmd": {"c": None}}}
             
         if self.registry.get_entry(dataset_id):
             self.registry.get_entry(dataset_id).provider_used = "live_batch"
