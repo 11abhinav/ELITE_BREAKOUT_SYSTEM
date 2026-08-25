@@ -328,7 +328,7 @@ class UnifiedFetcher:
                                                     UNION ALL
                                                     SELECT latest_price AS val, 2 AS prio FROM watchlist WHERE (symbol = %s OR symbol = %s) AND latest_price IS NOT NULL AND latest_price > 0
                                                     UNION ALL
-                                                    SELECT trigger_price AS val, 3 AS prio FROM alerts WHERE (symbol = %s OR symbol = %s) AND trigger_price IS NOT NULL AND trigger_price > 0
+                                                    SELECT COALESCE(current_price, entry_price) AS val, 3 AS prio FROM alerts WHERE (symbol = %s OR symbol = %s) AND (current_price > 0 OR entry_price > 0)
                                                 ) sub ORDER BY prio LIMIT 1;
                                             """, (orig, clean_orig, orig, clean_orig, orig, clean_orig))
                                             row = cur.fetchone()
@@ -364,16 +364,11 @@ class UnifiedFetcher:
                         for s in chunk:
                             if s in INDEX_YF_MAP:
                                 raw_yf_symbols.append(INDEX_YF_MAP[s])
+                            elif s.startswith("^"):
+                                raw_yf_symbols.append(s)
                             else:
-                                try:
-                                    from symbol_resolution_engine import get_symbol_resolver
-                                    r = get_symbol_resolver().resolve(s, provider="yahoo")
-                                    if r and r.is_valid and r.mapped_symbol:
-                                        raw_yf_symbols.append(r.mapped_symbol)
-                                    else:
-                                        raw_yf_symbols.append(f"{s}.NS")
-                                except Exception:
-                                    raw_yf_symbols.append(f"{s}.NS")
+                                clean_s = s.replace(".NS", "").replace(".BO", "")
+                                raw_yf_symbols.append(f"{clean_s}.NS")
                         yf_symbols = raw_yf_symbols
                         try:
                             yf_acquire(context="UnifiedFetcher.fetch_live_quotes | Yahoo")
@@ -397,9 +392,14 @@ class UnifiedFetcher:
                                         if sub_df is not None and not sub_df.empty and "Close" in sub_df.columns:
                                             val = float(sub_df["Close"].dropna().iloc[-1])
                                             if val > 0:
+                                                clean_orig = orig.replace(".NS", "").replace(".BO", "")
                                                 results[orig] = {"v": {"cmd": {"c": val}}}
-                                                logger.debug(f"✅ [Yahoo] Successfully fetched live quote for {orig} ({y_sym}): ₹{val:.2f}")
+                                                results[clean_orig] = {"v": {"cmd": {"c": val}}}
+                                                results[clean_orig + ".NS"] = {"v": {"cmd": {"c": val}}}
                                                 pending.discard(orig)
+                                                pending.discard(clean_orig)
+                                                pending.discard(clean_orig + ".NS")
+                                                logger.debug(f"✅ [Yahoo] Successfully fetched live quote for {orig} ({y_sym}): ₹{val:.2f}")
                                     except Exception as item_err:
                                         logger.error(f"❌ [Yahoo] Quote parsing error for symbol {orig} ({y_sym}): {item_err}", exc_info=True)
                         except Exception as e:
@@ -471,7 +471,7 @@ class UnifiedFetcher:
                                     UNION ALL
                                     SELECT latest_price AS val, 2 AS prio FROM watchlist WHERE (symbol = %s OR symbol = %s) AND latest_price IS NOT NULL AND latest_price > 0
                                     UNION ALL
-                                    SELECT trigger_price AS val, 3 AS prio FROM alerts WHERE (symbol = %s OR symbol = %s) AND trigger_price IS NOT NULL AND trigger_price > 0
+                                    SELECT COALESCE(current_price, entry_price) AS val, 3 AS prio FROM alerts WHERE (symbol = %s OR symbol = %s) AND (current_price > 0 OR entry_price > 0)
                                 ) sub ORDER BY prio LIMIT 1;
                             """, (orig, clean_orig, orig, clean_orig, orig, clean_orig))
                             row = cur.fetchone()
