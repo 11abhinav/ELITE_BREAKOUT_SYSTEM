@@ -4227,7 +4227,7 @@ def api_symbols_master_list():
         return jsonify(res)
     except Exception as e:
         logger.exception("❌ Master symbol list endpoint error")
-        return jsonify([]), 500
+        return jsonify([]), 200
 
 
 def _run_deep_analysis_bg(sym, uid):
