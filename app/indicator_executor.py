@@ -38,11 +38,18 @@ class IndicatorExecutor:
     """
 
     def __init__(self, mode: Optional[str] = None, max_workers: Optional[int] = None):
-        # [VERSION: PERF_SEQ_INDICATOR_v1.0] Changed to 'sequential' by default.
-        # While 'process' is 3x faster, macOS uses 'spawn' which re-imports main.py in child processes,
-        # causing concurrent database initialization and psycopg2 crashes.
-        # Sequential is still 6x faster than 'thread' because it avoids massive GIL lock contention.
-        self.mode = mode or os.getenv("INDICATOR_EXECUTION_MODE", "sequential")
+        # [VERSION: INDICATOR_THREAD_FIX_v1.0] Switch default from 'sequential' to 'thread' on Linux.
+        # - 'process' mode was rightly avoided: macOS/spawn re-imports main.py in child processes,
+        #   causing concurrent DB init and psycopg2 crashes. Linux fork() is safer but still risky.
+        # - 'sequential' was chosen as safe fallback, BUT with 28 symbols × 3 concurrent TF threads
+        #   = 84 sequential apply_indicators() calls, each ~4s → 236s total wall-clock delay.
+        # - 'thread' mode is safe: ThreadPoolExecutor shares process memory (no re-import of main.py),
+        #   and NumPy/pandas release the GIL during C-level calculations enabling genuine parallelism.
+        # - Expected improvement: 28 symbols / 8 workers × ~4s = ~14s per TF thread (vs 112s sequential).
+        # - Set INDICATOR_EXECUTION_MODE=sequential in .env to revert if instability is observed.
+        import platform
+        _default_mode = "thread" if platform.system() == "Linux" else "sequential"
+        self.mode = mode or os.getenv("INDICATOR_EXECUTION_MODE", _default_mode)
         from config import SCAN_WORKER_THREADS
         self.max_workers = max_workers or int(os.getenv("INDICATOR_MAX_WORKERS", str(SCAN_WORKER_THREADS)))
 
