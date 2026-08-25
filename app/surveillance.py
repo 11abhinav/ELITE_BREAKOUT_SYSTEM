@@ -92,18 +92,24 @@ def get_live_blacklist() -> set[str]:
                     api_key = get_scraper_api_key()
                     
                     def fetch_nse_json(url: str):
-                        from config import CRAWLORA_API_KEY
-                        if CRAWLORA_API_KEY:
+                        from pledge_scraper import get_crawlora_api_key, mark_crawlora_key_exhausted_today, get_scraper_api_key, mark_key_exhausted_today
+                        
+                        # 1. Crawlora Attempt (PRIMARY)
+                        crawlora_key = get_crawlora_api_key()
+                        if crawlora_key:
                             try:
-                                c_payload = {'api_key': CRAWLORA_API_KEY, 'url': url}
+                                c_payload = {'api_key': crawlora_key, 'url': url}
                                 c_resp = requests.get('https://api.crawlora.net/v1/scrape', params=c_payload, timeout=30)
                                 if c_resp.status_code == 200:
                                     return c_resp.json()
+                                elif c_resp.status_code in (401, 429):
+                                    mark_crawlora_key_exhausted_today(crawlora_key)
                                 else:
                                     logger.warning(f"⚠️ Crawlora returned status {c_resp.status_code} for {url}")
                             except Exception as crawlora_err:
                                 logger.debug(f"Crawlora fetch failed for {url}: {crawlora_err}")
 
+                        # 2. ScraperAPI Attempt (SECONDARY BACKUP)
                         curr_key = get_scraper_api_key()
                         if curr_key:
                             try:
@@ -127,7 +133,7 @@ def get_live_blacklist() -> set[str]:
                             except Exception as scraper_err:
                                 logger.debug(f"ScraperAPI fetch failed for {url}: {scraper_err}")
                         
-                        # Fallback to direct nsepython fetch if ScraperAPI fails or is missing key
+                        # 3. Direct nsepython fallback
                         try:
                             import nsepython
                             return nsepython.nsefetch(url)

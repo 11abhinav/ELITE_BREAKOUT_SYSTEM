@@ -54,6 +54,9 @@ def get_crawlora_api_key() -> str:
 def mark_crawlora_key_exhausted_today(key: str):
     mark_key_exhausted_today(f"crawlora_{key}")
 
+# Alias for backward compatibility across modules
+get_crawlora_key = get_crawlora_api_key
+
 def _get_exhausted_keys_file():
     return os.path.join(DATA_DIR, "exhausted_keys.json")
 

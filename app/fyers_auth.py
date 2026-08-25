@@ -231,31 +231,37 @@ def get_valid_scraper_keys():
     return valid_keys
 
 def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None):
-    """Executes a POST request to Fyers API. Tries Crawlora FIRST, then ScraperAPI, then direct."""
+    """Executes a POST request to Fyers API. Tries ALL Crawlora keys FIRST, then ScraperAPI, then direct."""
     global _active_working_scraper_key
     import urllib.parse
     headers = headers or {}
 
-    # 1. Crawlora Attempt (Primary)
+    # 1. Crawlora Attempt (Primary - loops through all available Crawlora keys)
     try:
-        from pledge_scraper import get_crawlora_api_key, mark_crawlora_key_exhausted_today
-        crawlora_key = get_crawlora_api_key()
-        if crawlora_key:
-            logger.info(f"🌐 Routing POST request via Crawlora Proxy for {target_url}...")
-            res_crawlora = session.post('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': target_url}, json=payload, headers=headers, timeout=60)
-            body_crawlora = res_crawlora.text.strip()
-            
-            # Check if Crawlora API key itself is invalid or exhausted
-            if res_crawlora.status_code in (401, 429) and ("invalid key" in body_crawlora.lower() or "credit" in body_crawlora.lower() or "limit" in body_crawlora.lower()):
-                logger.warning(f"❌ Crawlora API key ({crawlora_key[:4]}...) is EXHAUSTED/INVALID. Marking key exhausted for today.")
-                mark_crawlora_key_exhausted_today(crawlora_key)
-            elif (res_crawlora.status_code in (200, 201) or "request_key" in body_crawlora or '"s":' in body_crawlora or "fyers" in body_crawlora.lower()) and not body_crawlora.startswith("<!doctype") and not body_crawlora.startswith("<html"):
-                logger.info(f"✅ Crawlora Proxy successfully fetched POST {target_url}!")
-                return res_crawlora
-    except Exception as c_err:
-        logger.warning(f"Crawlora POST attempt failed: {c_err}")
+        from pledge_scraper import mark_crawlora_key_exhausted_today, _is_key_exhausted_today
+        crawlora_raw = os.environ.get("CRAWLORA_API_KEY", "")
+        crawlora_keys = [k.strip() for k in crawlora_raw.split(',') if k.strip()]
+        valid_crawlora = [k for k in crawlora_keys if not _is_key_exhausted_today(f"crawlora_{k}")]
+        for crawlora_key in valid_crawlora:
+            try:
+                masked_ckey = f"{crawlora_key[:4]}...{crawlora_key[-4:]}" if len(crawlora_key) > 8 else "CRAWLORA"
+                logger.info(f"🌐 Routing POST request via Crawlora Proxy ({masked_ckey}) for {target_url}...")
+                res_crawlora = session.post('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': target_url}, json=payload, headers=headers, timeout=60)
+                body_crawlora = res_crawlora.text.strip()
+                
+                if res_crawlora.status_code in (401, 403, 429) or "invalid key" in body_crawlora.lower() or "credit" in body_crawlora.lower() or "limit" in body_crawlora.lower():
+                    logger.warning(f"❌ Crawlora API key ({masked_ckey}) is EXHAUSTED/INVALID. Blacklisting key for today.")
+                    mark_crawlora_key_exhausted_today(crawlora_key)
+                    continue
+                elif (res_crawlora.status_code in (200, 201) or "request_key" in body_crawlora or '"s":' in body_crawlora or "fyers" in body_crawlora.lower()) and not body_crawlora.startswith("<!doctype") and not body_crawlora.startswith("<html"):
+                    logger.info(f"✅ Crawlora Proxy ({masked_ckey}) successfully fetched POST {target_url}!")
+                    return res_crawlora
+            except Exception as c_err:
+                logger.warning(f"Crawlora POST attempt failed for {crawlora_key[:4]}: {c_err}")
+    except Exception as c_err_outer:
+        logger.warning(f"Crawlora POST stage exception: {c_err_outer}")
 
-    # 2. ScraperAPI Proxy Attempt (Secondary)
+    # 2. ScraperAPI Proxy Attempt (Secondary Backup)
     valid_keys = get_valid_scraper_keys()
     for scraper_key in valid_keys:
         try:
@@ -291,31 +297,37 @@ def fyers_post_with_scraper_fallback(session, target_url, payload, headers=None)
         raise
 
 def fyers_get_with_scraper_fallback(session, target_url, headers=None):
-    """Executes a GET request to Fyers API. Tries Crawlora FIRST, then ScraperAPI, then direct."""
+    """Executes a GET request to Fyers API. Tries ALL Crawlora keys FIRST, then ScraperAPI, then direct."""
     global _active_working_scraper_key
     import urllib.parse
     headers = headers or {}
 
-    # 1. Crawlora Attempt (Primary)
+    # 1. Crawlora Attempt (Primary - loops through all available Crawlora keys)
     try:
-        from pledge_scraper import get_crawlora_api_key, mark_crawlora_key_exhausted_today
-        crawlora_key = get_crawlora_api_key()
-        if crawlora_key:
-            logger.info(f"🌐 Routing GET request via Crawlora Proxy for {target_url}...")
-            res_crawlora = session.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': target_url}, headers=headers, allow_redirects=False, timeout=60)
-            body_crawlora = res_crawlora.text.strip()
-            
-            # Check if Crawlora API key itself is invalid or exhausted
-            if res_crawlora.status_code in (401, 429) and ("invalid key" in body_crawlora.lower() or "credit" in body_crawlora.lower() or "limit" in body_crawlora.lower()):
-                logger.warning(f"❌ Crawlora API key ({crawlora_key[:4]}...) is EXHAUSTED/INVALID. Marking key exhausted for today.")
-                mark_crawlora_key_exhausted_today(crawlora_key)
-            elif (res_crawlora.status_code in (200, 301, 302, 303, 307, 308) or '"s":' in body_crawlora or "location" in res_crawlora.headers) and not body_crawlora.startswith("<!doctype") and not body_crawlora.startswith("<html"):
-                logger.info(f"✅ Crawlora Proxy successfully fetched GET {target_url}!")
-                return res_crawlora
-    except Exception as c_err:
-        logger.warning(f"Crawlora GET attempt failed: {c_err}")
+        from pledge_scraper import mark_crawlora_key_exhausted_today, _is_key_exhausted_today
+        crawlora_raw = os.environ.get("CRAWLORA_API_KEY", "")
+        crawlora_keys = [k.strip() for k in crawlora_raw.split(',') if k.strip()]
+        valid_crawlora = [k for k in crawlora_keys if not _is_key_exhausted_today(f"crawlora_{k}")]
+        for crawlora_key in valid_crawlora:
+            try:
+                masked_ckey = f"{crawlora_key[:4]}...{crawlora_key[-4:]}" if len(crawlora_key) > 8 else "CRAWLORA"
+                logger.info(f"🌐 Routing GET request via Crawlora Proxy ({masked_ckey}) for {target_url}...")
+                res_crawlora = session.get('https://api.crawlora.net/v1/scrape', params={'api_key': crawlora_key, 'url': target_url}, headers=headers, allow_redirects=False, timeout=60)
+                body_crawlora = res_crawlora.text.strip()
+                
+                if res_crawlora.status_code in (401, 403, 429) or "invalid key" in body_crawlora.lower() or "credit" in body_crawlora.lower() or "limit" in body_crawlora.lower():
+                    logger.warning(f"❌ Crawlora API key ({masked_ckey}) is EXHAUSTED/INVALID. Blacklisting key for today.")
+                    mark_crawlora_key_exhausted_today(crawlora_key)
+                    continue
+                elif (res_crawlora.status_code in (200, 301, 302, 303, 307, 308) or '"s":' in body_crawlora or "location" in res_crawlora.headers) and not body_crawlora.startswith("<!doctype") and not body_crawlora.startswith("<html"):
+                    logger.info(f"✅ Crawlora Proxy ({masked_ckey}) successfully fetched GET {target_url}!")
+                    return res_crawlora
+            except Exception as c_err:
+                logger.warning(f"Crawlora GET attempt failed for {crawlora_key[:4]}: {c_err}")
+    except Exception as c_err_outer:
+        logger.warning(f"Crawlora GET stage exception: {c_err_outer}")
 
-    # 2. ScraperAPI Attempt (Secondary)
+    # 2. ScraperAPI Attempt (Secondary Backup)
     valid_keys = get_valid_scraper_keys()
     for scraper_key in valid_keys:
         try:
