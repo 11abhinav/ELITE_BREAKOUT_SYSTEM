@@ -786,6 +786,21 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         needs_full = False
             except Exception as e:
                 logger.warning(f"Failed to read disk cache for {sym}: {e}")
+                # [VERSION: CORRUPTED_CACHE_AUTOCLEAN_v1.0]
+                # Auto-delete corrupted/zero-byte parquet files so this warning only appears once.
+                # Without this, every scanner run would hit the same corrupt file indefinitely
+                # (e.g. "Parquet magic bytes not found" or "Parquet file size is 0 bytes").
+                # The corrupted file is caused by a mid-write crash/restart. Deleting it triggers
+                # a clean FULL re-fetch on this run, which writes a valid file for future runs.
+                try:
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                        logger.info(f"🗑️ [CACHE AUTOCLEANED] Deleted corrupted cache for {sym}: {file_path}")
+                    meta_path_clean = file_path.replace('.parquet', '.meta.json')
+                    if os.path.exists(meta_path_clean):
+                        os.remove(meta_path_clean)
+                except Exception as _del_err:
+                    logger.debug(f"Failed to auto-delete corrupted cache for {sym}: {_del_err}")
                 
         if needs_full:
             with local_lock:
