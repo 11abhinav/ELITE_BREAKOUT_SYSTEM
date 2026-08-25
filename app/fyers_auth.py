@@ -226,6 +226,7 @@ def get_valid_scraper_keys():
     if not scraper_raw:
         return []
     
+    all_keys = [k.strip() for k in scraper_raw.split(",") if k.strip()]
     valid_keys = [k for k in all_keys if not _is_key_exhausted_today(k)]
     return valid_keys
 
