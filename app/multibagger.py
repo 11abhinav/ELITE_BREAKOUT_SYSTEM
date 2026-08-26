@@ -393,26 +393,27 @@ def safe_float(val, default=0.0):
         return default
 
 def load_cache() -> dict:
-    """Load local fundamentals JSON cache file."""
+    """Load fundamentals cache, always preferring the freshest data from Postgres DB."""
     cache = {}
-    if not os.path.exists(CACHE_PATH):
-        try:
-            from database import download_parquet_from_db
-            if download_parquet_from_db("multibagger_cache", CACHE_PATH):
-                logger.info("☁️ [CACHE] Restored multibagger fundamentals cache from Postgres DB")
-            elif download_parquet_from_db("fundamentals_cache", CACHE_PATH):
-                logger.info("☁️ [CACHE] Restored shared fundamentals_cache from Postgres DB")
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to restore multibagger cache from DB: {e}")
-            
+    # [VERSION: CACHE_DB_FIRST_v1.0] Always attempt to restore from Postgres DB first.
+    # On Railway/cloud, the DB is the canonical store. Local file may be stale after restarts.
+    try:
+        from database import download_parquet_from_db
+        restored = download_parquet_from_db("multibagger_cache", CACHE_PATH)
+        if not restored:
+            download_parquet_from_db("fundamentals_cache", CACHE_PATH)
+    except Exception as e:
+        logger.debug(f"DB cache restore skipped: {e}")
+
     if os.path.exists(CACHE_PATH):
         try:
             with open(CACHE_PATH, "r") as f:
                 cache = json.load(f)
+            logger.info(f"⚡ [CACHE] Loaded {len(cache)} fundamentals entries from disk.")
         except Exception as e:
-            logger.warning(f"⚠️ Failed to load fundamentals cache: {e}")
+            logger.warning(f"⚠️ Failed to load fundamentals cache from disk: {e}")
 
-    # If cache is missing or small (< 100 entries), instantly enrich via TradingView Screener API (<3s)
+    # If cache is missing or small (<100 entries), instantly enrich via TradingView Screener API (<3s)
     if len(cache) < 100:
         try:
             from fundamentals_cache import fetch_tradingview_fundamentals_bulk
@@ -439,7 +440,12 @@ def save_fundamentals_cache(cache_data: dict, sync_to_db: bool = True):
     try:
         with open(CACHE_PATH, "w") as f:
             json.dump(cache_data, f, separators=(',', ':'))
-        logger.info(f"💾 Fundamentals cache saved with {len(cache_data)} entries.")
+        # [VERSION: CACHE_LOG_THROTTLE_v1.0] Use debug level for noisy chunk-saves (30+ per run).
+        # Only log at INFO on the final full save when sync_to_db=True.
+        if sync_to_db:
+            logger.info(f"💾 Fundamentals cache saved with {len(cache_data)} entries.")
+        else:
+            logger.debug(f"💾 Fundamentals cache saved with {len(cache_data)} entries.")
         
         if sync_to_db:
             # Backup to Postgres DB so it survives Railway restarts
@@ -1945,6 +1951,47 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
         except Exception as e:
             logger.error(f"Failed to sync deep fundamentals cache in Exit Monitor: {e}")
 
+def _prewarm_open_positions_cache(symbols: list, cache: dict) -> None:
+    """[VERSION: PREWARM_OPEN_POS_v1.0] Pre-warm DEEP_V5 fundamentals for SELL_REVIEW/OPEN positions.
+
+    Ensures exit monitor always has full YFinance-hydrated fundamentals for open positions
+    so it never hits YF rate limits during its 15-min cycles. Data is fetched once and
+    stored to DB cache — subsequent calls complete in <1ms via cache lookup.
+    """
+    if not symbols:
+        return
+    needs_hydration = [s for s in symbols if not is_deep_v5_cache(cache.get(s, {}) or {})]
+    if not needs_hydration:
+        logger.info(f"✅ [PREWARM] All {len(symbols)} open positions already have DEEP_V5 cache.")
+        return
+    logger.info(f"🔬 [PREWARM] {len(needs_hydration)}/{len(symbols)} open positions need deep hydration: {needs_hydration}")
+    cache_updated = False
+    for sym in needs_hydration:
+        try:
+            deep_f = fetch_ticker_fundamentals(sym)
+            if deep_f and not deep_f.get("failed") and (deep_f.get("total_equity") is not None or deep_f.get("market_cap") is not None):
+                now_iso = datetime.now(IST).isoformat()
+                existing = cache.get(sym) or {}
+                for k, v in deep_f.items():
+                    if v is not None:
+                        existing[k] = v
+                existing["fetched_at"] = now_iso
+                existing["cache_tier"] = DEEP_V5_CACHE_TIER
+                existing["symbol"] = sym
+                cache[sym] = existing
+                cache_updated = True
+                logger.info(f"✅ [PREWARM] {sym}: DEEP_V5 hydration complete (equity={deep_f.get('total_equity')}, mcap={deep_f.get('market_cap')})")
+            else:
+                logger.warning(f"⚠️ [PREWARM] {sym}: YFinance returned incomplete data — keeping existing cache.")
+        except Exception as e:
+            logger.warning(f"⚠️ [PREWARM] {sym}: Hydration failed — {e}")
+    if cache_updated:
+        try:
+            save_fundamentals_cache(cache, sync_to_db=True)
+            logger.info("💾 [PREWARM] Saved pre-warmed DEEP_V5 fundamentals to DB.")
+        except Exception as e:
+            logger.error(f"Failed to save pre-warmed cache: {e}")
+
 def run_standalone_exit_monitor(is_test_mode: bool = False, run_ctx=None):
     """Entry point for the 5-minute scheduler to check exits only."""
     try:
@@ -1974,7 +2021,7 @@ def run_standalone_exit_monitor(is_test_mode: bool = False, run_ctx=None):
             run_ctx.set_total_stocks(len(symbols))
             run_ctx.record_fresh_data(len(symbols))
             
-        price_data_map_raw = batch_download_market_data(symbols)
+        price_data_map_raw = batch_download_market_data(symbols, run_ctx=run_ctx)
         
         price_data_map = {}
         for sym, stock_data in price_data_map_raw.items():
@@ -1994,11 +2041,17 @@ def run_standalone_exit_monitor(is_test_mode: bool = False, run_ctx=None):
                     last_trade_date=getattr(stock_data, 'last_trade_date', '') or ''
                 )
                 
-        # 3. Use cache for fundamentals
-        from multibagger import load_cache as load_mb_cache
-        cache = load_mb_cache()
+        # 3. Use cache for fundamentals — always pull fresh from DB so exit monitor
+        # sees the DEEP_V5 data written by the last daily MULTIBAGGER screening scan.
+        # [VERSION: EXIT_CACHE_DB_FIRST_v1.0] Remove circular self-import. load_cache() is
+        # already defined in this module — no need to import from multibagger.
+        cache = load_cache()
         
-        # 4. Run the core exit logic
+        # 4. Pre-warm SELL_REVIEW/OPEN positions to DEEP_V5 before running exit logic.
+        # This ensures exit monitor never hits YFinance rate limits on 5-min cycles.
+        _prewarm_open_positions_cache(symbols, cache)
+        
+        # 5. Run the core exit logic
         run_exit_monitor(price_data_map, cache, is_test_mode)
         
     except Exception as e:
