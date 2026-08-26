@@ -799,21 +799,18 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         needs_full = False
             except Exception as e:
                 logger.warning(f"Failed to read disk cache for {sym}: {e}")
-                # [VERSION: CORRUPTED_CACHE_AUTOCLEAN_v1.0]
-                # Auto-delete corrupted/zero-byte parquet files so this warning only appears once.
-                # Without this, every scanner run would hit the same corrupt file indefinitely
-                # (e.g. "Parquet magic bytes not found" or "Parquet file size is 0 bytes").
-                # The corrupted file is caused by a mid-write crash/restart. Deleting it triggers
-                # a clean FULL re-fetch on this run, which writes a valid file for future runs.
+                # [VERSION: CORRUPTED_CACHE_QUARANTINE_v2.0]
+                # Quarantine corrupted/zero-byte parquet files to .corrupt.<timestamp> to preserve diagnostic evidence.
                 try:
                     if os.path.exists(file_path):
-                        os.remove(file_path)
-                        logger.info(f"🗑️ [CACHE AUTOCLEANED] Deleted corrupted cache for {sym}: {file_path}")
+                        corrupt_path = f"{file_path}.corrupt.{int(time.time())}"
+                        os.rename(file_path, corrupt_path)
+                        logger.info(f"☣️ [CACHE QUARANTINED] Preserved corrupted cache for {sym} to {corrupt_path}")
                     meta_path_clean = file_path.replace('.parquet', '.meta.json')
                     if os.path.exists(meta_path_clean):
                         os.remove(meta_path_clean)
                 except Exception as _del_err:
-                    logger.debug(f"Failed to auto-delete corrupted cache for {sym}: {_del_err}")
+                    logger.debug(f"Failed to quarantine corrupted cache for {sym}: {_del_err}")
                 
         if needs_full:
             with local_lock:
@@ -981,27 +978,28 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         # 1. Critical Cache Validation
                         reject_reason = None
                         is_delta_fetch = bool(range_from)
+                        op_mode = "INCREMENTAL_MERGE" if (cached_df is not None and not cached_df.empty and (is_delta_fetch or not needs_full)) else "FULL_REPLACE"
+
                         if new_report:
                             q_score = getattr(new_report, 'quality_score', 100)
-                            if not is_delta_fetch and not remote_is_current and isinstance(q_score, (int, float)) and q_score < 50:
+                            if op_mode == "FULL_REPLACE" and not remote_is_current and isinstance(q_score, (int, float)) and q_score < 50:
                                 reject_reason = "POOR_QUALITY_SCORE"
                             elif getattr(new_report, 'is_valid', True) is False:
                                 reject_reason = "INVALID_QUALITY_REPORT"
-                            elif not is_delta_fetch and getattr(new_report, 'row_count', 0) < cached_row_count * (1.0 - MAX_HISTORY_SHRINK):
+                            elif op_mode == "FULL_REPLACE" and getattr(new_report, 'row_count', 0) < cached_row_count * (1.0 - MAX_HISTORY_SHRINK):
                                 reject_reason = "HISTORICAL_SHRINK"
 
-
                         if reject_reason:
-                            logger.warning(f"Critical Cache Validation Failed for {sym}: {reject_reason}. REJECTING remote data to protect cache.")
-                            logger.info(f"CACHE_DECISION | Action=KEEP_CACHE | Reason={reject_reason} | Symbol={sym} | ExistingRows={cached_row_count} | IncomingRows={getattr(new_report, 'row_count', 0)} | Threshold={MAX_HISTORY_SHRINK*100}%")
+                            logger.warning(f"Critical Cache Validation Failed for {sym} (Mode={op_mode}): {reject_reason}. REJECTING remote data to protect cache.")
+                            logger.info(f"CACHE_DECISION | Action=KEEP_CACHE | Reason={reject_reason} | Symbol={sym} | Mode={op_mode} | ExistingRows={cached_row_count} | IncomingRows={getattr(new_report, 'row_count', 0)} | Threshold={MAX_HISTORY_SHRINK*100}%")
                             _mark_cache_staleness(cached_df)
                             all_data[sym] = cached_df
                             continue
-                        elif has_newer_bars or remote_is_current or range_from or remote_score >= cache_score or (not new_report and remote_score == cache_score):
+                        elif has_newer_bars or remote_is_current or op_mode == "INCREMENTAL_MERGE" or remote_score >= cache_score or (not new_report and remote_score == cache_score):
                             # Accept and Merge:
                             # - Remote has newer candles, OR
-                            # - Remote data is dated today (fresh, even if lower quality score), OR
-                            # - This is a DELTA range fetch, OR
+                            # - Remote data is dated today (fresh), OR
+                            # - Operation is INCREMENTAL_MERGE, OR
                             # - Remote quality >= cached quality
                             pass
                         else:
@@ -1235,7 +1233,10 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             elif not isinstance(all_data[sym].index, pd.RangeIndex):
                                 all_data[sym].index = all_data[sym].index.astype(str)
 
-                            all_data[sym].to_parquet(file_path, compression='snappy')
+                            import uuid
+                            tmp_file_path = f"{file_path}.tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}"
+                            all_data[sym].to_parquet(tmp_file_path, compression='snappy')
+                            os.replace(tmp_file_path, file_path)
 
                             meta_path = file_path.replace('.parquet', '.meta.json')
                             val_score = getattr(n_rep, 'quality_score', 100) if n_rep else 100

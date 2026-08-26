@@ -108,18 +108,19 @@ class FyersAdapter(BaseProviderAdapter):
         sym_raw = symbol.upper()
         force_bse = sym_raw.endswith(".BO") or sym_raw.startswith("BSE:")
         sym = sym_raw.replace(".NS", "").replace(".BO", "").replace("NSE:", "").replace("BSE:", "")
-        # 1. Index Symbol Lookup
-        if sym in ("NIFTY 50", "NIFTY", "NIFTY50", "NIFTY-50", "^NSEI"):
-            return ResolvedInstrument("INDEX:NSE:NIFTY50", sym, "fyers", "NSE:NIFTY50-INDEX", "NSE", "INDEX", 100, "MASTER")
-        if sym in ("BANKNIFTY", "BANK NIFTY", "NIFTYBANK", "^NSEBANK"):
-            return ResolvedInstrument("INDEX:NSE:BANKNIFTY", sym, "fyers", "NSE:NIFTYBANK-INDEX", "NSE", "INDEX", 100, "MASTER")
-        if sym in ("SENSEX", "^BSESN"):
-            return ResolvedInstrument("INDEX:BSE:SENSEX", sym, "fyers", "BSE:SENSEX-INDEX", "BSE", "INDEX", 100, "MASTER")
-        if sym in ("^CNXINFRA", "NIFTYINFRA", "NIFTY INFRA", "CNXINFRA"):
-            return ResolvedInstrument("INDEX:NSE:NIFTYINFRA", sym, "fyers", "NSE:NIFTYINFRA-INDEX", "NSE", "INDEX", 100, "MASTER")
+        
+        # 1. Authoritative Instrument Registry Lookup
+        try:
+            from instrument_registry import get_instrument_registry
+            reg_rec = get_instrument_registry().lookup(symbol)
+            if reg_rec and reg_rec.fyers_symbol:
+                inst_id = f"{reg_rec.asset_type}:{reg_rec.exchange}:{reg_rec.canonical_symbol}"
+                return ResolvedInstrument(inst_id, sym, "fyers", reg_rec.fyers_symbol, reg_rec.exchange, reg_rec.asset_type, 100, "REGISTRY")
+        except Exception as reg_err:
+            logger.debug(f"Registry lookup error for {symbol}: {reg_err}")
 
         # Standard equity fallback for clean symbols
-        if not sym.startswith("UNKNOWN"):
+        if not sym.startswith("UNKNOWN") and not str(symbol).startswith("^"):
             prefix = "BSE:" if force_bse else "NSE:"
             inst_id = metadata.instrument_id if metadata else f"EQ:{sym}"
             return ResolvedInstrument(inst_id, sym, "fyers", f"{prefix}{sym}-EQ", prefix.rstrip(":"), "EQ", 90, "MASTER")
@@ -128,6 +129,16 @@ class FyersAdapter(BaseProviderAdapter):
 
     def probe_candidates(self, symbol: str, metadata: Optional[InstrumentMetadata]) -> Optional[ResolvedInstrument]:
         sym = symbol.upper()
+        
+        # Asset Type Guard: Index symbols MUST NEVER probe equity candidates!
+        try:
+            from instrument_registry import get_instrument_registry
+            if get_instrument_registry().is_index(symbol):
+                logger.debug(f"🛑 [FyersProbe] Skipping equity candidate probing for index symbol '{symbol}'")
+                return None
+        except Exception:
+            pass
+
         # Build candidate probe list in priority order
         candidates = []
         target_series = metadata.series if metadata else "EQ"
@@ -199,18 +210,21 @@ class UpstoxAdapter(BaseProviderAdapter):
 
     def lookup_master(self, symbol: str, metadata: Optional[InstrumentMetadata]) -> Optional[ResolvedInstrument]:
         sym = symbol.upper()
-        # 1. Index Symbol Lookup
-        if sym in ("NIFTY 50", "NIFTY", "NIFTY50", "NIFTY-50", "^NSEI"):
-            return ResolvedInstrument("INDEX:NSE:NIFTY50", sym, "upstox", "NSE_INDEX|Nifty 50", "NSE", "INDEX", 100, "MASTER")
-        if sym in ("BANKNIFTY", "BANK NIFTY", "NIFTYBANK", "^NSEBANK"):
-            return ResolvedInstrument("INDEX:NSE:BANKNIFTY", sym, "upstox", "NSE_INDEX|Nifty Bank", "NSE", "INDEX", 100, "MASTER")
-        if sym in ("^CNXINFRA", "NIFTYINFRA", "NIFTY INFRA", "CNXINFRA"):
-            return ResolvedInstrument("INDEX:NSE:NIFTYINFRA", sym, "upstox", "NSE_INDEX|Nifty Infra", "NSE", "INDEX", 100, "MASTER")
+
+        # 1. Authoritative Instrument Registry Lookup
+        try:
+            from instrument_registry import get_instrument_registry
+            reg_rec = get_instrument_registry().lookup(symbol)
+            if reg_rec and reg_rec.upstox_instrument_key:
+                inst_id = f"{reg_rec.asset_type}:{reg_rec.exchange}:{reg_rec.canonical_symbol}"
+                return ResolvedInstrument(inst_id, sym, "upstox", reg_rec.upstox_instrument_key, reg_rec.exchange, reg_rec.asset_type, 100, "REGISTRY")
+        except Exception as reg_err:
+            logger.debug(f"Registry lookup error for {symbol}: {reg_err}")
 
         # 2. Upstox ISIN / Instrument Key Mapper Lookup
         try:
             from market_data.providers.upstox_instrument_mapper import mapper
-            key = mapper.get_instrument_key(sym, allow_fallback=not sym.startswith("UNKNOWN"))
+            key = mapper.get_instrument_key(sym, allow_fallback=not sym.startswith("UNKNOWN") and not sym.startswith("^"))
             if key:
                 inst_id = metadata.instrument_id if metadata else f"EQ:{sym}"
                 exch = "NSE" if "NSE" in key else "BSE"
@@ -222,6 +236,16 @@ class UpstoxAdapter(BaseProviderAdapter):
 
     def probe_candidates(self, symbol: str, metadata: Optional[InstrumentMetadata]) -> Optional[ResolvedInstrument]:
         sym = symbol.upper()
+
+        # Asset Type Guard: Index symbols MUST NEVER probe equity candidates!
+        try:
+            from instrument_registry import get_instrument_registry
+            if get_instrument_registry().is_index(symbol):
+                logger.debug(f"🛑 [UpstoxProbe] Skipping equity candidate probing for index symbol '{symbol}'")
+                return None
+        except Exception:
+            pass
+
         candidates = [f"NSE_EQ|{sym}", f"BSE_EQ|{sym}", f"NSE_BE|{sym}", f"NSE_BZ|{sym}"]
         try:
             from bse_mapping_utils import load_bse_mappings
@@ -257,14 +281,16 @@ class YahooAdapter(BaseProviderAdapter):
 
     def lookup_master(self, symbol: str, metadata: Optional[InstrumentMetadata]) -> Optional[ResolvedInstrument]:
         sym = symbol.upper()
-        if sym in ("NIFTY 50", "NIFTY", "NIFTY50", "NIFTY-50", "^NSEI"):
-            return ResolvedInstrument("INDEX:NSE:NIFTY50", sym, "yahoo", "^NSEI", "NSE", "INDEX", 100, "MASTER")
-        if sym in ("BANKNIFTY", "BANK NIFTY", "NIFTYBANK", "^NSEBANK"):
-            return ResolvedInstrument("INDEX:NSE:BANKNIFTY", sym, "yahoo", "^NSEBANK", "NSE", "INDEX", 100, "MASTER")
-        if sym in ("SENSEX", "^BSESN"):
-            return ResolvedInstrument("INDEX:BSE:SENSEX", sym, "yahoo", "^BSESN", "BSE", "INDEX", 100, "MASTER")
-        if sym in ("^CNXINFRA", "NIFTYINFRA", "NIFTY INFRA", "CNXINFRA"):
-            return ResolvedInstrument("INDEX:NSE:NIFTYINFRA", sym, "yahoo", "^CNXINFRA", "NSE", "INDEX", 100, "MASTER")
+
+        # 1. Authoritative Instrument Registry Lookup
+        try:
+            from instrument_registry import get_instrument_registry
+            reg_rec = get_instrument_registry().lookup(symbol)
+            if reg_rec and reg_rec.yahoo_symbol:
+                inst_id = f"{reg_rec.asset_type}:{reg_rec.exchange}:{reg_rec.canonical_symbol}"
+                return ResolvedInstrument(inst_id, sym, "yahoo", reg_rec.yahoo_symbol, reg_rec.exchange, reg_rec.asset_type, 100, "REGISTRY")
+        except Exception as reg_err:
+            logger.debug(f"Registry lookup error for {symbol}: {reg_err}")
 
         # Standard Yahoo format `.NS`
         cand = f"{sym}.NS"
@@ -273,6 +299,15 @@ class YahooAdapter(BaseProviderAdapter):
 
     def probe_candidates(self, symbol: str, metadata: Optional[InstrumentMetadata]) -> Optional[ResolvedInstrument]:
         sym = symbol.upper()
+
+        # Asset Type Guard: Index symbols MUST NEVER probe equity candidates!
+        try:
+            from instrument_registry import get_instrument_registry
+            if get_instrument_registry().is_index(symbol):
+                logger.debug(f"🛑 [YahooProbe] Skipping equity candidate probing for index symbol '{symbol}'")
+                return None
+        except Exception:
+            pass
         candidates = [f"{sym}.NS", f"{sym}.BO"]
         try:
             from bse_mapping_utils import load_bse_mappings
@@ -434,12 +469,21 @@ class SymbolResolutionService:
             return res
 
         # ── LEVEL 1.1: Exponential Backoff Negative Cache Check ──────────────────────
+        # Registered INDEX symbols and canonical registry entries bypass negative cache lockouts
+        try:
+            from instrument_registry import get_instrument_registry
+            reg_check = get_instrument_registry()
+            if reg_check.is_index(symbol) or reg_check.lookup(symbol) is not None:
+                store.negative_cache.pop(key, None)
+        except Exception:
+            pass
+
         if key in store.negative_cache:
-            expire_dt, fail_cnt = store.negative_cache[key]
+            expire_dt, fail_cnt, fail_reason = store.negative_cache[key]
             if datetime.now() < expire_dt:
                 latency_ms = (time.perf_counter() - t0) * 1000
                 self._record_telemetry("negative_hits", latency_ms)
-                return ResolvedInstrument("INVALID", sym_clean, prov, "", is_valid=False, error_message=f"Negative cache active until {expire_dt.strftime('%H:%M:%S')}")
+                return ResolvedInstrument("INVALID", sym_clean, prov, "", is_valid=False, error_message=f"Negative cache active ({fail_reason}) until {expire_dt.strftime('%H:%M:%S')}")
 
         # ── LEVEL 2 & 3: Single-Flight Protected Master Lookup & Probing ─────────────
         flight_lock = self._get_single_flight_lock(key)
@@ -491,13 +535,14 @@ class SymbolResolutionService:
                     pass
                 return resolved
 
-            # ── LEVEL 4: All Levels Failed → Store Negative Cache with Exponential Backoff
-            fail_count = store.negative_cache.get(key, (None, 0))[1] + 1
-            # Exponential backoff schedule: 1h -> 6h -> 24h -> 72h -> 7 days
+            # ── LEVEL 4: All Levels Failed → Store Typed Negative Cache with Exponential Backoff
+            fail_record = store.negative_cache.get(key, (None, 0, "NOT_FOUND"))
+            fail_count = fail_record[1] + 1
+            fail_reason = "MASTER_MISSING" if str(symbol).startswith("^") else "NOT_FOUND"
             hours_map = {1: 1, 2: 6, 3: 24, 4: 72}
             backoff_hours = hours_map.get(fail_count, 168)
             expire_dt = datetime.now() + timedelta(hours=backoff_hours)
-            store.negative_cache[key] = (expire_dt, fail_count)
+            store.negative_cache[key] = (expire_dt, fail_count, fail_reason)
 
             latency_ms = (time.perf_counter() - t0) * 1000
             logger.warning(f"🚫 [SymbolResolver] Unresolved {sym_clean} on {prov}. Negative caching for {backoff_hours}h.")

@@ -299,7 +299,7 @@ class DecisionContext:
             # Update the entry object with freshness for later use
             self.entries[str(k)].freshness = freshness
 
-    def capture_indicators(self, rsi: Any = None, sma20: Any = None, sma50: Any = None, sma100: Any = None, sma200: Any = None, ema9: Any = None, ema15: Any = None, ema20: Any = None, ema50: Any = None, ema200: Any = None, macd: Any = None, macd_signal: Any = None, macd_hist: Any = None, atr: Any = None, adx: Any = None, obv: Any = None, vol_ratio: Any = None, prior_20d_high: Any = None, bb_width_pctile: Any = None, retracement_pct: Any = None):
+    def capture_indicators(self, rsi: Any = None, sma20: Any = None, sma50: Any = None, sma100: Any = None, sma200: Any = None, ema9: Any = None, ema15: Any = None, ema20: Any = None, ema50: Any = None, ema200: Any = None, macd: Any = None, macd_signal: Any = None, macd_hist: Any = None, atr: Any = None, adx: Any = None, obv: Any = None, vol_ratio: Any = None, prior_20d_high: Any = None, bb_width_pctile: Any = None, retracement_pct: Any = None, **extra_kwargs: Any):
         """Captures standard calculated indicator fields and adds them to the decision manifest."""
         def _add_ind(name: str, val: Any, group: str = "INDICATOR"):
             if val is not None:
@@ -327,7 +327,12 @@ class DecisionContext:
         _add_ind("BB_WIDTH_PCTILE", bb_width_pctile)
         _add_ind("RETRACEMENT_PCT", retracement_pct)
 
-    def capture_fundamentals(self, roce: Any = None, roe: Any = None, debt_equity: Any = None, peg: Any = None, yoy_revenue: Any = None, yoy_profit: Any = None, piotroski_score: Any = None, promoter_pledge: Any = None, mcap: Any = None, altman_z: Any = None, category: Any = None, sector: Any = None):
+        # Safely capture any extra indicators passed dynamically
+        for ek, ev in extra_kwargs.items():
+            if ev is not None:
+                self.capture(str(ek).upper(), ev, origin="DERIVED", group="INDICATOR")
+
+    def capture_fundamentals(self, roce: Any = None, roe: Any = None, debt_equity: Any = None, peg: Any = None, yoy_revenue: Any = None, yoy_profit: Any = None, piotroski_score: Any = None, promoter_pledge: Any = None, mcap: Any = None, altman_z: Any = None, category: Any = None, sector: Any = None, **extra_kwargs: Any):
         """Captures fundamental evaluation metrics."""
         if roce is not None: self.capture("ROCE_PCT", roce, origin="EXTERNAL_API", group="FUNDAMENTAL")
         if roe is not None: self.capture("ROE_PCT", roe, origin="EXTERNAL_API", group="FUNDAMENTAL")
@@ -341,6 +346,9 @@ class DecisionContext:
         if altman_z is not None: self.capture("ALTMAN_Z", altman_z, origin="EXTERNAL_API", group="FUNDAMENTAL")
         if category is not None: self.capture("CATEGORY", category, origin="EXTERNAL_API", group="FUNDAMENTAL")
         if sector is not None: self.capture("SECTOR", sector, origin="EXTERNAL_API", group="FUNDAMENTAL")
+        for ek, ev in extra_kwargs.items():
+            if ev is not None:
+                self.capture(str(ek).upper(), ev, origin="EXTERNAL_API", group="FUNDAMENTAL")
 
     def capture_config(self, key: str, value: Any):
         """Captures configuration threshold."""
@@ -775,57 +783,66 @@ class GlobalScannerTelemetryEngine:
 
     def record_reject(self, symbol: str, last_stage: str = "PRE_CHECK", gate: str = "REJECTED", actual: Any = None, required: Any = None, start_time: float = None, scanner_name: str = None, run_id: str = None, gate_type: str = "THRESHOLD", operator: str = None, ctx: DecisionContext = None, **kwargs):
         """Helper recording rejected symbol into DecisionContext and emitting full terminal telemetry."""
-        ctx = ctx or self.get_or_create_context(symbol=symbol, scanner_name=scanner_name, run_id=run_id)
-        if "raw_market" in kwargs and isinstance(kwargs["raw_market"], dict):
-            ctx.capture_raw_market(**kwargs["raw_market"])
-        if "indicators" in kwargs and isinstance(kwargs["indicators"], dict):
-            ctx.capture_indicators(**kwargs["indicators"])
-        if "fundamentals" in kwargs and isinstance(kwargs["fundamentals"], dict):
-            ctx.capture_fundamentals(**kwargs["fundamentals"])
-        if "sl_target" in kwargs and isinstance(kwargs["sl_target"], dict):
-            ctx.capture_sl_target(**kwargs["sl_target"])
-        ctx.capture_gate(gate_name=gate, passed=False, actual_val=actual, threshold_val=required, operator_str=operator, reason=f"Rejected at stage {last_stage}", gate_type=gate_type, **kwargs)
-        
-        invalid_data_gates = ["NO_DATA", "STALE_DATA", "DUPLICATE", "MISSING_COL", "INVALID_TIMESTAMP", "INVALID_SNAPSHOT", "MISSING_SNAPSHOT", "NO_TRADING_ACTIVITY"]
-        if gate not in invalid_data_gates:
-            ctx.add_decision_input(name=gate, value=actual, source="GateCheck", as_of="Live", freshness="LIVE", required=True, valid=True)
-        else:
-            ctx.add_decision_input(name=gate, value=actual, source="GateCheck", as_of="Live", freshness="LIVE", required=True, valid=False)
+        try:
+            ctx = ctx or self.get_or_create_context(symbol=symbol, scanner_name=scanner_name, run_id=run_id)
+            if "raw_market" in kwargs and isinstance(kwargs["raw_market"], dict):
+                ctx.capture_raw_market(**kwargs["raw_market"])
+            if "indicators" in kwargs and isinstance(kwargs["indicators"], dict):
+                ctx.capture_indicators(**kwargs["indicators"])
+            if "fundamentals" in kwargs and isinstance(kwargs["fundamentals"], dict):
+                ctx.capture_fundamentals(**kwargs["fundamentals"])
+            if "sl_target" in kwargs and isinstance(kwargs["sl_target"], dict):
+                ctx.capture_sl_target(**kwargs["sl_target"])
+            ctx.capture_gate(gate_name=gate, passed=False, actual_val=actual, threshold_val=required, operator_str=operator, reason=f"Rejected at stage {last_stage}", gate_type=gate_type, **kwargs)
             
-        ctx.finalize(decision="REJECTED", primary_reason=f"{gate}_FAIL")
-        self.emit_terminal(ctx)
+            invalid_data_gates = ["NO_DATA", "STALE_DATA", "DUPLICATE", "MISSING_COL", "INVALID_TIMESTAMP", "INVALID_SNAPSHOT", "MISSING_SNAPSHOT", "NO_TRADING_ACTIVITY"]
+            if gate not in invalid_data_gates:
+                ctx.add_decision_input(name=gate, value=actual, source="GateCheck", as_of="Live", freshness="LIVE", required=True, valid=True)
+            else:
+                ctx.add_decision_input(name=gate, value=actual, source="GateCheck", as_of="Live", freshness="LIVE", required=True, valid=False)
+                
+            ctx.finalize(decision="REJECTED", primary_reason=f"{gate}_FAIL")
+            self.emit_terminal(ctx)
+        except Exception as _tel_err:
+            logger.warning(f"⚠️ Telemetry Exception Firewall caught error logging reject for {symbol}: {_tel_err}")
 
     def record_candidate(self, symbol: str, score: float = 0.0, sl: float = 0.0, target: float = 0.0, scanner_name: str = None, run_id: str = None, **kwargs):
         """Helper recording qualified candidate into DecisionContext and emitting full terminal telemetry."""
-        ctx = self.get_or_create_context(symbol=symbol, scanner_name=scanner_name, run_id=run_id)
-        if "raw_market" in kwargs and isinstance(kwargs["raw_market"], dict):
-            ctx.capture_raw_market(**kwargs["raw_market"])
-        if "indicators" in kwargs and isinstance(kwargs["indicators"], dict):
-            ctx.capture_indicators(**kwargs["indicators"])
-        if "fundamentals" in kwargs and isinstance(kwargs["fundamentals"], dict):
-            ctx.capture_fundamentals(**kwargs["fundamentals"])
-        ctx.capture_score("TOTAL", score, 100.0)
-        ctx.capture_sl_target(0.0, sl, target)
-        ctx.finalize(decision="SELECTED", primary_reason="ALL_REQUIRED_GATES_PASSED")
-        self.emit_terminal(ctx)
+        try:
+            ctx = self.get_or_create_context(symbol=symbol, scanner_name=scanner_name, run_id=run_id)
+            if "raw_market" in kwargs and isinstance(kwargs["raw_market"], dict):
+                ctx.capture_raw_market(**kwargs["raw_market"])
+            if "indicators" in kwargs and isinstance(kwargs["indicators"], dict):
+                ctx.capture_indicators(**kwargs["indicators"])
+            if "fundamentals" in kwargs and isinstance(kwargs["fundamentals"], dict):
+                ctx.capture_fundamentals(**kwargs["fundamentals"])
+            ctx.capture_score("TOTAL", score, 100.0)
+            ctx.capture_sl_target(0.0, sl, target)
+            ctx.finalize(decision="SELECTED", primary_reason="ALL_REQUIRED_GATES_PASSED")
+            self.emit_terminal(ctx)
+        except Exception as _tel_err:
+            logger.warning(f"⚠️ Telemetry Exception Firewall caught error logging candidate for {symbol}: {_tel_err}")
 
     def record_pass(self, symbol: str, score: float = 0.0, rr_ratio: float = 0.0, metrics: Dict[str, Any] = None, start_time: float = None, scanner_name: str = None, run_id: str = None, **kwargs):
         """Helper recording passed candidate into DecisionContext and emitting full terminal telemetry."""
-        ctx = self.get_or_create_context(symbol=symbol, scanner_name=scanner_name, run_id=run_id)
-        if "raw_market" in kwargs and isinstance(kwargs["raw_market"], dict):
-            ctx.capture_raw_market(**kwargs["raw_market"])
-        if "indicators" in kwargs and isinstance(kwargs["indicators"], dict):
-            ctx.capture_indicators(**kwargs["indicators"])
-        if "fundamentals" in kwargs and isinstance(kwargs["fundamentals"], dict):
-            ctx.capture_fundamentals(**kwargs["fundamentals"])
-        ctx.capture_score("TOTAL", float(score), 100.0)
-        if metrics and isinstance(metrics, dict):
-            for k, v in metrics.items():
-                ctx.capture(k, v, origin="CALCULATED", group="DERIVED")
-        if rr_ratio:
-            ctx.capture("RR_RATIO", float(rr_ratio), origin="CALCULATED", group="SL_TARGET")
-        ctx.finalize(decision="SELECTED", primary_reason="ALL_REQUIRED_GATES_PASSED")
-        self.emit_terminal(ctx)
+        try:
+            ctx = self.get_or_create_context(symbol=symbol, scanner_name=scanner_name, run_id=run_id)
+            if "raw_market" in kwargs and isinstance(kwargs["raw_market"], dict):
+                ctx.capture_raw_market(**kwargs["raw_market"])
+            if "indicators" in kwargs and isinstance(kwargs["indicators"], dict):
+                ctx.capture_indicators(**kwargs["indicators"])
+            if "fundamentals" in kwargs and isinstance(kwargs["fundamentals"], dict):
+                ctx.capture_fundamentals(**kwargs["fundamentals"])
+            ctx.capture_score("TOTAL", float(score), 100.0)
+            if metrics and isinstance(metrics, dict):
+                for k, v in metrics.items():
+                    ctx.capture(k, v, origin="CALCULATED", group="DERIVED")
+            if rr_ratio:
+                ctx.capture("RR_RATIO", float(rr_ratio), origin="CALCULATED", group="SL_TARGET")
+            ctx.finalize(decision="SELECTED", primary_reason="ALL_REQUIRED_GATES_PASSED")
+            self.emit_terminal(ctx)
+        except Exception as _tel_err:
+            logger.warning(f"⚠️ Telemetry Exception Firewall caught error logging pass for {symbol}: {_tel_err}")
 
     def flush(self, *args, **kwargs):
         """Flushes telemetry logs."""

@@ -79,6 +79,11 @@ class UnifiedFetcher:
             
             elif provider == "yahoo":
                 try:
+                    from yf_rate_limiter import safe_yf_call, is_circuit_open
+                    if is_circuit_open():
+                        logger.warning(f"🚦 [YahooGateway] Circuit OPEN — skipping Yahoo historical fetch for '{symbol}'")
+                        continue
+                        
                     import yfinance as yf
                     # ── FORMAT GATE: validate Yahoo format before download ──────────────────
                     try:
@@ -88,13 +93,12 @@ class UnifiedFetcher:
                     except Exception as fmt_err:
                         logger.error(f"🚫 [YahooFormat] Symbol resolution failed for '{symbol}': {fmt_err} — skipping Yahoo fetch for this symbol")
                         continue
-                    logger.info(f"🔄 [Yahoo] Falling back to {yf_symbol}")
-                    # [VERSION: UNIFIED_FETCHER_KEYERROR_FIX_v1.0] Rate-limited yf.download with strict timeouts & single-threading
-                    yf_acquire(context=f"UnifiedFetcher.fetch_historical | {yf_symbol}")
-                    try:
-                        df = yf.download(yf_symbol, interval=interval, period=period, progress=False, threads=False, auto_adjust=True, timeout=60)
-                    finally:
-                        yf_release()
+                        
+                    logger.info(f"🔄 [Yahoo] Controlled recovery fetch for {yf_symbol}")
+                    def _do_yf_download():
+                        return yf.download(yf_symbol, interval=interval, period=period, progress=False, threads=False, auto_adjust=True, timeout=30)
+                        
+                    df = safe_yf_call(_do_yf_download, symbol=yf_symbol, context="UnifiedFetcher.fetch_historical")
                         
                     if df is not None and not df.empty:
                         df = df.reset_index()
@@ -119,7 +123,7 @@ class UnifiedFetcher:
                             }
                         return df
                 except Exception as e:
-                    logger.error(f"❌ [Yahoo] Failed to fetch historical {symbol}: {e}", exc_info=True)
+                    logger.error(f"❌ [Yahoo] Failed to fetch historical {symbol}: {e}")
                     
             elif provider == "bse":
                 try:
