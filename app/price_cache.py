@@ -775,7 +775,31 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             
                     if not needs_full:
                         # Back up 1 day to ensure we get overlapping candles to avoid gaps
-                        range_from = (last_ts - timedelta(days=1)).strftime("%Y-%m-%d")
+                        raw_from_dt = (last_ts - timedelta(days=1))
+                        
+                        # [FIX: DELTA_OUTLIER_POISONING_v1.0] Cap range_from per interval.
+                        # Problem: If a symbol's disk cache was last updated 20+ days ago,
+                        # last_ts - 1 day produced a range_from of 24 days ago. SCOPED_DELTA_COALESCE
+                        # then coalesced ALL symbols in the batch to min_range_from (24 days ago),
+                        # forcing Upstox/Fyers to download 24 days of 5m/15m/30m/1h intraday data
+                        # for 40+ symbols. This caused the scan time to jump from 1min to 13+ mins!
+                        # Fix: Clamp range_from to the max reasonable delta window for each interval.
+                        max_delta_days = {
+                            "1m": 2,
+                            "5m": 3,
+                            "15m": 5,
+                            "30m": 7,
+                            "1h": 12,
+                            "60m": 12,
+                            "1d": 14,
+                        }.get(interval.lower(), 7)
+                        
+                        earliest_allowed_dt = (datetime.now(IST) - timedelta(days=max_delta_days))
+                        if raw_from_dt < earliest_allowed_dt:
+                            range_from = earliest_allowed_dt.strftime("%Y-%m-%d")
+                        else:
+                            range_from = raw_from_dt.strftime("%Y-%m-%d")
+
                         range_to = today_str
                         
                         group_key = (range_from, range_to)
