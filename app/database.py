@@ -7772,6 +7772,8 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
         try:
             c.execute("ALTER TABLE scanner_execution_history ADD COLUMN IF NOT EXISTS system_version VARCHAR(40);")
             c.execute("ALTER TABLE scanner_execution_history ADD COLUMN IF NOT EXISTS git_commit VARCHAR(64);")
+            c.execute("ALTER TABLE scanner_execution_history ADD COLUMN IF NOT EXISTS execution_started_at TIMESTAMPTZ;")
+            c.execute("UPDATE scanner_execution_history SET execution_started_at = started_at WHERE execution_started_at IS NULL AND lifecycle_status != 'QUEUED';")
         except Exception as e:
             logger.warning(f"Failed to add new columns during boot cleanup: {e}")
         
@@ -7918,12 +7920,13 @@ def start_scanner_execution_run(
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
+                exec_started_sql = "NOW()" if status_upper == "RUNNING" else "NULL"
+                cur.execute(f"""
                     INSERT INTO scanner_execution_history (
                         run_id, parent_run_id, retry_attempt, scanner_name,
                         lifecycle_status, quality_status, trigger_type, scheduler_name,
-                        system_version, git_commit, started_at, heartbeat_at, total_stocks
-                    ) VALUES (%s, %s, %s, %s, %s, 'NORMAL', %s, %s, %s, %s, NOW(), NOW(), %s);
+                        system_version, git_commit, started_at, execution_started_at, heartbeat_at, total_stocks
+                    ) VALUES (%s, %s, %s, %s, %s, 'NORMAL', %s, %s, %s, %s, NOW(), {exec_started_sql}, NOW(), %s);
                 """, (
                     ctx.run_id, ctx.parent_run_id, ctx.retry_attempt, ctx.scanner_name,
                     status_upper, ctx.trigger_type, ctx.scheduler_name, ctx.system_version, ctx.git_commit, ctx.total_stocks
@@ -7962,18 +7965,16 @@ def update_scanner_run_lifecycle(run_id: str, lifecycle_status: str):
         with get_connection() as conn:
             with conn.cursor() as cur:
                 if status_upper == "RUNNING":
-                    # [VERSION: RUNTIME_DURATION_FIX_v2.0]
-                    # IMPORTANT: Do NOT reset started_at when transitioning QUEUED -> RUNNING.
-                    # Resetting started_at caused a new 15-minute orphan window to start from lock
-                    # acquisition time — so if the scanner crashed immediately after acquiring the
-                    # lock, the orphaned run would stay in RUNNING for a full 15 minutes before
-                    # the watchdog could clean it up (because heartbeat_at was just reset to NOW()).
-                    # Fix: Only reset heartbeat_at. started_at preserves the original queue time,
-                    # so the orphan window is counted from first attempt. A separate 'running_at'
-                    # column should be added for accurate runtime-only duration if needed.
+                    # [VERSION: RUNTIME_DURATION_FIX_v3.0]
+                    # When transitioning QUEUED -> RUNNING, set execution_started_at = NOW()
+                    # (if not already set). started_at preserves the original queue entry time,
+                    # while execution_started_at records the exact lock acquisition timestamp.
+                    # duration_seconds is computed from execution_started_at, so queue wait time
+                    # is NEVER counted as scanner execution runtime.
                     cur.execute("""
                         UPDATE scanner_execution_history
                         SET lifecycle_status = 'RUNNING',
+                            execution_started_at = COALESCE(execution_started_at, NOW()),
                             heartbeat_at = NOW()
                         WHERE run_id = %s;
                     """, (run_id,))
@@ -8211,8 +8212,8 @@ def get_scanner_execution_history(
                 query = f"""
                     SELECT id, run_id, parent_run_id, retry_attempt, scanner_name,
                            lifecycle_status, quality_status, trigger_type, scheduler_name,
-                           system_version, git_commit, started_at, heartbeat_at, completed_at,
-                           EXTRACT(EPOCH FROM (COALESCE(completed_at, NOW()) - started_at))::float as duration_seconds,
+                           system_version, git_commit, started_at, execution_started_at, heartbeat_at, completed_at,
+                           EXTRACT(EPOCH FROM (COALESCE(completed_at, NOW()) - COALESCE(execution_started_at, started_at)))::float as duration_seconds,
                            total_stocks, fresh_data_count, stale_data_count, incomplete_data_count,
                            stale_ratio, alerts_generated, api_calls, cache_hits, cache_misses,
                            stop_reason, error_summary, error_details
