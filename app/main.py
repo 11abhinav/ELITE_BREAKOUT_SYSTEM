@@ -1945,7 +1945,15 @@ def _run_multibagger_scanner_single():
         
         start_mb_single = time.time()
         from database import start_scanner_execution_run, complete_scanner_execution_run
-        run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER", trigger_type="SCHEDULED", scheduler_name="CRON")
+        run_ctx = start_scanner_execution_run(
+            scanner_name="MULTIBAGGER",
+            trigger_type="SCHEDULED",
+            scheduler_name="CRON",
+            initial_status="QUEUED"   # [FIX: STATE_SYNC_v1.0] Pre-register as QUEUED in history
+                                       # immediately so history tab stays in sync with scanner_health,
+                                       # which is already marked QUEUED by the boot sequence.
+                                       # Transitions to RUNNING once global_lock is acquired below.
+        )
         
         from lock_utils import ProcessLock
         global_lock = ProcessLock("global_scanner_lock")
@@ -1953,15 +1961,17 @@ def _run_multibagger_scanner_single():
         if not global_lock.acquire(blocking=False):
             queued_at = time.monotonic()
             logger.info("⏳ [MULTIBAGGER] Global scanner lock busy — marking QUEUED and waiting for session build...")
-            if run_ctx:
-                update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
             upsert_scanner_health("MULTIBAGGER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
             global_lock.acquire(blocking=True)
             if run_ctx:
                 update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
             logger.info(f"✅ [MULTIBAGGER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Building Session...")
         else:
+            # Lock acquired immediately — transition history record to RUNNING right away
+            if run_ctx:
+                update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
             logger.info("✅ [MULTIBAGGER] Global lock acquired instantly. Building Session...")
+
 
         try:
             upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Building MarketDataSession...")

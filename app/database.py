@@ -8046,6 +8046,21 @@ def complete_scanner_execution_run(ctx, exception: Exception = None, stop_reason
     except Exception as e:
         logger.warning(f"Failed to complete scanner execution history for run {ctx.run_id}: {e}")
 
+    # [FIX: STATE_SYNC_v1.0] If execution FAILED or STOPPED, ensure scanner_health card is also
+    # marked DOWN so it doesn't stay stuck on QUEUED/RUNNING after a crash.
+    # This is a best-effort sync — individual scanner wrappers in main.py remain the primary
+    # source of truth for health status, but this catches cases where the wrapper itself crashes.
+    if lifecycle_status in ("FAILED", "STOPPED") and getattr(ctx, 'scanner_name', None):
+        try:
+            err_msg = (ctx.error_summary or "Scanner crashed before completing health update")[:500]
+            upsert_scanner_health(
+                ctx.scanner_name,
+                status="DOWN",
+                error_msg=f"[AUTO-SYNC] {err_msg}"
+            )
+        except Exception as _hs_err:
+            logger.debug(f"Health sync post-FAILED for {ctx.scanner_name}: {_hs_err}")
+
 
 def get_scanner_execution_history(
     scanner_name: str = None,
@@ -8105,7 +8120,7 @@ def get_scanner_execution_history(
                                 SET status = 'DOWN',
                                     error_msg = 'Watchdog auto-cleaned orphaned RUNNING state (process crash/inactivity)'
                                 WHERE status = 'RUNNING'
-                                  AND last_updated < NOW() - INTERVAL '15 minutes';
+                                  AND updated_at < NOW() - INTERVAL '15 minutes';
                             """)
                             conn.commit()
                             # Log AFTER successful commit — accurate report of what was cleaned
