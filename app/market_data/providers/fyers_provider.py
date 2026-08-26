@@ -38,8 +38,56 @@ class FyersProvider(ProviderInterface):
     def get_health_score(self) -> float:
         return self._health_score
         
-    def get_status(self) -> ProviderStatus:
-        return self._status
+    _FYERS_INDEX_MAP = {
+        "^NSEI": "NSE:NIFTY50-INDEX",
+        "NIFTY 50": "NSE:NIFTY50-INDEX",
+        "NIFTY50": "NSE:NIFTY50-INDEX",
+        "NIFTY-50": "NSE:NIFTY50-INDEX",
+        "^NSEBANK": "NSE:NIFTYBANK-INDEX",
+        "BANKNIFTY": "NSE:NIFTYBANK-INDEX",
+        "NIFTYBANK": "NSE:NIFTYBANK-INDEX",
+        "^CNXIT": "NSE:NIFTYIT-INDEX",
+        "NIFTYIT": "NSE:NIFTYIT-INDEX",
+        "^CNXAUTO": "NSE:NIFTYAUTO-INDEX",
+        "NIFTYAUTO": "NSE:NIFTYAUTO-INDEX",
+        "^CNXFMCG": "NSE:NIFTYFMCG-INDEX",
+        "NIFTYFMCG": "NSE:NIFTYFMCG-INDEX",
+        "^CNXPHARMA": "NSE:NIFTYPHARMA-INDEX",
+        "NIFTYPHARMA": "NSE:NIFTYPHARMA-INDEX",
+        "^CNXMETAL": "NSE:NIFTYMETAL-INDEX",
+        "NIFTYMETAL": "NSE:NIFTYMETAL-INDEX",
+        "^CNXREALTY": "NSE:NIFTYREALTY-INDEX",
+        "NIFTYREALTY": "NSE:NIFTYREALTY-INDEX",
+        "^CNXENERGY": "NSE:NIFTYENERGY-INDEX",
+        "NIFTYENERGY": "NSE:NIFTYENERGY-INDEX",
+        "^CNXINFRA": "NSE:NIFTYINFRA-INDEX",
+        "NIFTYINFRA": "NSE:NIFTYINFRA-INDEX",
+        "^CNXPSUBANK": "NSE:NIFTYPSUBANK-INDEX",
+        "NIFTYPSUBANK": "NSE:NIFTYPSUBANK-INDEX",
+        "^CNXMEDIA": "NSE:NIFTYMEDIA-INDEX",
+        "NIFTYMEDIA": "NSE:NIFTYMEDIA-INDEX",
+        "NIFTY MEDIA": "NSE:NIFTYMEDIA-INDEX",
+        "^CNXFIN": "NSE:FINNIFTY-INDEX",
+        "^CNXFINANCE": "NSE:FINNIFTY-INDEX",
+        "^CNXCONSUMPTION": "NSE:NIFTYCONSUMPTION-INDEX",
+        "^CNXCMDT": "NSE:NIFTYCOMMODITIES-INDEX",
+        "^CNXCOMMODITIES": "NSE:NIFTYCOMMODITIES-INDEX",
+        "^CNXMNC": "NSE:NIFTYMNC-INDEX",
+        "^CNXSERVICE": "NSE:NIFTYSERVSECTOR-INDEX",
+        "^NSMIDCP": "NSE:NIFTYMIDCAP100-INDEX",
+        "^CNXSMALLCAP": "NSE:NIFTYSMALLCAP100-INDEX",
+    }
+
+    def _get_fyers_symbol(self, symbol: str) -> str:
+        clean = str(symbol).strip().upper()
+        if clean in self._FYERS_INDEX_MAP:
+            return self._FYERS_INDEX_MAP[clean]
+        if clean.startswith("NSE:") or clean.startswith("BSE:"):
+            return clean
+        if clean.startswith("^"):
+            bare = clean.lstrip("^")
+            return f"NSE:{bare}-INDEX"
+        return f"NSE:{clean}-EQ"
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, range_from: datetime, range_to: datetime) -> NormalizedMarketData:
         import time
@@ -60,8 +108,10 @@ class FyersProvider(ProviderInterface):
             # Map intervals
             fyers_interval = {"1m": "1", "5m": "5", "15m": "15", "1h": "60", "1d": "1D"}.get(timeframe.lower(), "1D")
             
+            fyers_symbol = self._get_fyers_symbol(symbol)
+            
             data = {
-                "symbol": f"NSE:{symbol}-EQ",
+                "symbol": fyers_symbol,
                 "resolution": fyers_interval,
                 "date_format": "1",
                 "range_from": range_from.strftime("%Y-%m-%d"),

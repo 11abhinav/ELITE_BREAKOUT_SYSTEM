@@ -369,7 +369,7 @@ from strategy_policy import StrategyPolicyEngine
 # [VERSION: PERF_PROFILER_v1.0] Wrap Phase A so every run reports wall-clock time,
 # RSS delta, and any top-level exception via structured log — no behavioral change.
 @profile_timing("multi_tf_scanner.run_hourly_phase", log_to_file=True)
-def run_hourly_phase(is_test_mode=False, run_once=False, session=None):
+def run_hourly_phase(is_test_mode=False, run_once=False, session=None, run_ctx=None):
     """
     Phase A: Scans the entire fundamental universe on a 1H timeframe.
     Goal: Identify trend permission (Price > 200 EMA, 9 > 20 > 50 EMA, ADX > 20).
@@ -623,7 +623,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False, session=None):
 # [VERSION: PERF_PROFILER_v1.0] Wrap Phase B/C/D so each sub-hourly ladder cycle
 # reports its own timing + memory profile separately from Phase A.
 @profile_timing("multi_tf_scanner.run_lower_tf_phase", log_to_file=True)
-def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, session=None):
+def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, session=None, run_ctx=None):
     """
     Phase B, C & D: Sub-hourly updater.
     Iterates active watchlist items and advances them through the 4-phase signal ladder:
@@ -696,8 +696,11 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
         f_15m = fetch_exec.submit(_fetch_tf, "15m", "3d", "15m", needs_15m)
         f_5m  = fetch_exec.submit(_fetch_tf, "5m", "2d", "5m", needs_5m)
         data_30m = f_30m.result()
+        if run_ctx: run_ctx.heartbeat()
         data_15m = f_15m.result()
+        if run_ctx: run_ctx.heartbeat()
         data_5m  = f_5m.result()
+        if run_ctx: run_ctx.heartbeat()
     _t_fetch_intraday = time.perf_counter() - _t_start_fetch
     _t_30m = _t_fetch_intraday
     _t_15m = _t_fetch_intraday
@@ -1748,7 +1751,7 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
                 if run_ctx:
                     run_ctx.heartbeat(force=True)
                 if run_once or (ist_now.minute % 15 == 0):
-                    metrics_a = run_hourly_phase(is_test_mode=is_test_mode, run_once=run_once, session=session)
+                    metrics_a = run_hourly_phase(is_test_mode=is_test_mode, run_once=run_once, session=session, run_ctx=run_ctx)
                 else:
                     metrics_a = {"fetched": 0, "total": 0, "stale": 0, "approved": 0, "skipped": True}
                 if run_ctx:

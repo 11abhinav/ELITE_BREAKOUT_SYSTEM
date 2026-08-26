@@ -225,6 +225,7 @@ class UpstoxProvider(ProviderInterface):
         "^CNXSERVICE":      "NSE_INDEX|Nifty Services Sector",
         "^CNXMEDIA":        "NSE_INDEX|Nifty Media",
         "NIFTYMEDIA":       "NSE_INDEX|Nifty Media",
+        "NIFTY MEDIA":      "NSE_INDEX|Nifty Media",
         "^NIFTYHEALTHCARE": "NSE_INDEX|Nifty Healthcare Index",
     }
 
