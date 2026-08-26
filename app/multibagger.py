@@ -392,28 +392,53 @@ def safe_float(val, default=0.0):
     except Exception:
         return default
 
-def load_cache() -> dict:
-    """Load fundamentals cache, always preferring the freshest data from Postgres DB."""
+# [VERSION: CACHE_DB_SYNC_TTL_v1.0]
+# TTL (seconds) controlling how old the local cache file can be before we force-sync from DB.
+# Main scanner (force_db_sync=True): always syncs regardless of file age.
+# Exit monitor (force_db_sync=False): only syncs if file is older than this TTL (20 min).
+_CACHE_DB_SYNC_TTL_S = 1200  # 20 minutes
+
+def load_cache(force_db_sync: bool = False) -> dict:
+    """Load fundamentals cache with smart DB sync.
+
+    [VERSION: CACHE_DB_FIRST_v1.0 + CACHE_TTL_v1.1]
+    - force_db_sync=True (main scanner): always downloads from Postgres first.
+      Guarantees the daily 19:00 scan always has the freshest possible data.
+    - force_db_sync=False (exit monitor, every 15min): only syncs from Postgres
+      if the local file is older than _CACHE_DB_SYNC_TTL_S (20 min).
+      Avoids 1-3s DB round-trips on every 15-min exit cycle when cache is warm.
+    """
     cache = {}
-    # [VERSION: CACHE_DB_FIRST_v1.0] Always attempt to restore from Postgres DB first.
-    # On Railway/cloud, the DB is the canonical store. Local file may be stale after restarts.
-    try:
-        from database import download_parquet_from_db
-        restored = download_parquet_from_db("multibagger_cache", CACHE_PATH)
-        if not restored:
-            download_parquet_from_db("fundamentals_cache", CACHE_PATH)
-    except Exception as e:
-        logger.debug(f"DB cache restore skipped: {e}")
+
+    # Determine if DB sync is warranted
+    _should_sync = force_db_sync
+    if not _should_sync and os.path.exists(CACHE_PATH):
+        file_age_s = time.time() - os.path.getmtime(CACHE_PATH)
+        _should_sync = file_age_s > _CACHE_DB_SYNC_TTL_S
+        if _should_sync:
+            logger.info(f"⚡ [CACHE] Local file is {file_age_s/60:.0f}m old (>{_CACHE_DB_SYNC_TTL_S/60:.0f}m TTL) — syncing from DB.")
+    elif not _should_sync:
+        # File doesn't exist at all — must sync
+        _should_sync = True
+
+    if _should_sync:
+        try:
+            from database import download_parquet_from_db
+            restored = download_parquet_from_db("multibagger_cache", CACHE_PATH)
+            if not restored:
+                download_parquet_from_db("fundamentals_cache", CACHE_PATH)
+        except Exception as e:
+            logger.debug(f"DB cache restore skipped: {e}")
 
     if os.path.exists(CACHE_PATH):
         try:
             with open(CACHE_PATH, "r") as f:
                 cache = json.load(f)
-            logger.info(f"⚡ [CACHE] Loaded {len(cache)} fundamentals entries from disk.")
+            logger.info(f"⚡ [CACHE] Loaded {len(cache)} fundamentals entries (sync={'DB' if _should_sync else 'LOCAL'}).")
         except Exception as e:
             logger.warning(f"⚠️ Failed to load fundamentals cache from disk: {e}")
 
-    # If cache is missing or small (<100 entries), instantly enrich via TradingView Screener API (<3s)
+    # If cache is missing or tiny (<100 entries), instantly enrich via TradingView Screener API (<3s)
     if len(cache) < 100:
         try:
             from fundamentals_cache import fetch_tradingview_fundamentals_bulk
@@ -1952,26 +1977,56 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
             logger.error(f"Failed to sync deep fundamentals cache in Exit Monitor: {e}")
 
 def _prewarm_open_positions_cache(symbols: list, cache: dict) -> None:
-    """[VERSION: PREWARM_OPEN_POS_v1.0] Pre-warm DEEP_V5 fundamentals for SELL_REVIEW/OPEN positions.
+    """[VERSION: PREWARM_OPEN_POS_v1.1] Pre-warm DEEP_V5 fundamentals for SELL_REVIEW/OPEN positions.
 
     Ensures exit monitor always has full YFinance-hydrated fundamentals for open positions
-    so it never hits YF rate limits during its 15-min cycles. Data is fetched once and
-    stored to DB cache — subsequent calls complete in <1ms via cache lookup.
+    so it never hits YF rate limits during its 15-min cycles. Data is fetched ONCE and
+    stored to DB cache — subsequent calls complete in <1ms via local cache lookup.
+
+    Retry throttle: per-symbol, 2-hour cooldown on failed hydrations so YF is NOT
+    hammered every 15 min when rate-limited. Stored in cache as 'prewarm_attempted_at'.
     """
     if not symbols:
         return
-    needs_hydration = [s for s in symbols if not is_deep_v5_cache(cache.get(s, {}) or {})]
+
+    _PREWARM_RETRY_COOLDOWN_S = 7200  # 2 hours between retry attempts on failed hydrations
+    now_iso = datetime.now(IST).isoformat()
+    now_dt = datetime.now(IST)
+
+    needs_hydration = []
+    for s in symbols:
+        entry = cache.get(s) or {}
+        if is_deep_v5_cache(entry):
+            continue  # Already has DEEP_V5 — skip entirely
+        # Check retry cooldown for previously failed/incomplete hydrations
+        last_attempt_str = entry.get("prewarm_attempted_at")
+        if last_attempt_str:
+            try:
+                last_attempt = datetime.fromisoformat(last_attempt_str)
+                if last_attempt.tzinfo is None:
+                    last_attempt = last_attempt.replace(tzinfo=IST)
+                elapsed_s = (now_dt - last_attempt).total_seconds()
+                if elapsed_s < _PREWARM_RETRY_COOLDOWN_S:
+                    logger.debug(f"[PREWARM] {s}: Skipping retry (last attempt {elapsed_s/60:.0f}m ago, cooldown={_PREWARM_RETRY_COOLDOWN_S/60:.0f}m)")
+                    continue
+            except Exception:
+                pass
+        needs_hydration.append(s)
+
     if not needs_hydration:
-        logger.info(f"✅ [PREWARM] All {len(symbols)} open positions already have DEEP_V5 cache.")
+        logger.info(f"✅ [PREWARM] All {len(symbols)} open positions have DEEP_V5 cache or are in cooldown.")
         return
+
     logger.info(f"🔬 [PREWARM] {len(needs_hydration)}/{len(symbols)} open positions need deep hydration: {needs_hydration}")
     cache_updated = False
     for sym in needs_hydration:
+        # Stamp attempt timestamp BEFORE fetch so cooldown applies even if fetch fails
+        existing = dict(cache.get(sym) or {})
+        existing["prewarm_attempted_at"] = now_iso
+        cache[sym] = existing
         try:
             deep_f = fetch_ticker_fundamentals(sym)
             if deep_f and not deep_f.get("failed") and (deep_f.get("total_equity") is not None or deep_f.get("market_cap") is not None):
-                now_iso = datetime.now(IST).isoformat()
-                existing = cache.get(sym) or {}
                 for k, v in deep_f.items():
                     if v is not None:
                         existing[k] = v
@@ -1982,9 +2037,11 @@ def _prewarm_open_positions_cache(symbols: list, cache: dict) -> None:
                 cache_updated = True
                 logger.info(f"✅ [PREWARM] {sym}: DEEP_V5 hydration complete (equity={deep_f.get('total_equity')}, mcap={deep_f.get('market_cap')})")
             else:
-                logger.warning(f"⚠️ [PREWARM] {sym}: YFinance returned incomplete data — keeping existing cache.")
+                logger.warning(f"⚠️ [PREWARM] {sym}: YFinance incomplete — cooldown applied, will retry in {_PREWARM_RETRY_COOLDOWN_S/3600:.0f}h.")
+                cache_updated = True  # Still save the attempt timestamp to DB
         except Exception as e:
-            logger.warning(f"⚠️ [PREWARM] {sym}: Hydration failed — {e}")
+            logger.warning(f"⚠️ [PREWARM] {sym}: Hydration error — {e}. Cooldown applied.")
+            cache_updated = True  # Save attempt timestamp
     if cache_updated:
         try:
             save_fundamentals_cache(cache, sync_to_db=True)
@@ -2172,8 +2229,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     logger.info("🚀 Multibagger Scanner execution started...")
     init_db()
     
-    # Load fundamentals cache
-    cache = load_cache()
+    # Load fundamentals cache — force DB sync for main scanner so daily 19:00 scan
+    # always starts with the freshest possible data regardless of local file age.
+    # [VERSION: CACHE_DB_FIRST_v1.0] force_db_sync=True guarantees freshness for daily scan.
+    cache = load_cache(force_db_sync=True)
     
     # 1. Fetch constituents
     from constituent_service import fetch_constituents
