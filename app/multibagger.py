@@ -1038,25 +1038,21 @@ TV_BASELINE_CACHE_TIER = "TV_BASELINE"
 DEEP_V5_CACHE_TIER     = "DEEP_V5"
 
 def is_deep_v5_cache(data: dict) -> bool:
-    """Returns True only for fully YFinance-hydrated entries safe to pass directly to V5 pipeline.
+    """Returns True for hydrated entries safe to pass to V5 pipeline.
 
-    Uses AND semantics: cache_tier must equal DEEP_V5 AND total_equity must be non-None.
-    This prevents mislabeled/corrupt entries (e.g. a failed YF fetch that incorrectly
-    stamped DEEP_V5 before total_equity was confirmed) from bypassing hydration.
-
-    Backward-compat: pre-fix entries in DB cache have no cache_tier stamp. For those,
-    total_equity alone is a sufficient sentinel — TradingView NEVER populates it, so
-    if it is present and non-None, a real YFinance deep fetch must have occurred.
+    Uses AND semantics for tier stamp, checking either total_equity OR market_cap is present.
+    TradingView bulk fetch populates market_cap, ROE, PE, PB, and score.
+    YFinance deep fetch additionally populates total_equity.
+    As long as either total_equity OR market_cap is non-None, gate_engine will pass.
     """
     if not isinstance(data, dict) or not data:
         return False
     tier = data.get("cache_tier")
     equity = data.get("total_equity")
-    # New entries: both tier and equity must be valid
+    mcap = data.get("market_cap")
     if tier is not None:
-        return tier == DEEP_V5_CACHE_TIER and equity is not None
-    # Legacy entries (pre-fix, no cache_tier): fall back to equity-only sentinel
-    return equity is not None
+        return tier == DEEP_V5_CACHE_TIER and (equity is not None or mcap is not None)
+    return equity is not None or mcap is not None
 
 def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]]:
     clean_sym = symbol.strip().upper()
@@ -1977,14 +1973,14 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
             logger.error(f"Failed to sync deep fundamentals cache in Exit Monitor: {e}")
 
 def _prewarm_open_positions_cache(symbols: list, cache: dict) -> None:
-    """[VERSION: PREWARM_OPEN_POS_v1.1] Pre-warm DEEP_V5 fundamentals for SELL_REVIEW/OPEN positions.
+    """[VERSION: PREWARM_OPEN_POS_v1.2] Pre-warm DEEP_V5 fundamentals for SELL_REVIEW/OPEN positions.
 
-    Ensures exit monitor always has full YFinance-hydrated fundamentals for open positions
-    so it never hits YF rate limits during its 15-min cycles. Data is fetched ONCE and
-    stored to DB cache — subsequent calls complete in <1ms via local cache lookup.
+    Ensures exit monitor always has full hydrated fundamentals (market_cap + equity/ROE) for open positions
+    so it never hits YF rate limits during its 15-min cycles.
 
-    Retry throttle: per-symbol, 2-hour cooldown on failed hydrations so YF is NOT
-    hammered every 15 min when rate-limited. Stored in cache as 'prewarm_attempted_at'.
+    Smart cooldown: 2-hour retry throttle ONLY applies if market_cap is already valid.
+    If market_cap is None/missing (data-void entry), cooldown is bypassed and immediate
+    hydration (YFinance with TradingView bulk fallback) is performed.
     """
     if not symbols:
         return
@@ -1997,10 +1993,13 @@ def _prewarm_open_positions_cache(symbols: list, cache: dict) -> None:
     for s in symbols:
         entry = cache.get(s) or {}
         if is_deep_v5_cache(entry):
-            continue  # Already has DEEP_V5 — skip entirely
-        # Check retry cooldown for previously failed/incomplete hydrations
+            continue  # Already has DEEP_V5 / valid metrics — skip entirely
+
+        # Cooldown check: ONLY apply cooldown if market_cap is ALREADY valid in cache.
+        # If market_cap is None/missing, entry is broken — MUST NOT skip via cooldown!
+        has_valid_mcap = entry.get("market_cap") is not None and safe_float(entry.get("market_cap")) > 0
         last_attempt_str = entry.get("prewarm_attempted_at")
-        if last_attempt_str:
+        if has_valid_mcap and last_attempt_str:
             try:
                 last_attempt = datetime.fromisoformat(last_attempt_str)
                 if last_attempt.tzinfo is None:
@@ -2014,16 +2013,22 @@ def _prewarm_open_positions_cache(symbols: list, cache: dict) -> None:
         needs_hydration.append(s)
 
     if not needs_hydration:
-        logger.info(f"✅ [PREWARM] All {len(symbols)} open positions have DEEP_V5 cache or are in cooldown.")
+        logger.info(f"✅ [PREWARM] All {len(symbols)} open positions have valid fundamentals cache or are in cooldown.")
         return
 
-    logger.info(f"🔬 [PREWARM] {len(needs_hydration)}/{len(symbols)} open positions need deep hydration: {needs_hydration}")
+    logger.info(f"🔬 [PREWARM] {len(needs_hydration)}/{len(symbols)} open positions need hydration: {needs_hydration}")
     cache_updated = False
+
+    # Fetch TradingView bulk cache as fallback if needed
+    tv_bulk_cache = {}
+
     for sym in needs_hydration:
-        # Stamp attempt timestamp BEFORE fetch so cooldown applies even if fetch fails
         existing = dict(cache.get(sym) or {})
         existing["prewarm_attempted_at"] = now_iso
         cache[sym] = existing
+        hydrated = False
+
+        # Attempt 1: YFinance deep hydration
         try:
             deep_f = fetch_ticker_fundamentals(sym)
             if deep_f and not deep_f.get("failed") and (deep_f.get("total_equity") is not None or deep_f.get("market_cap") is not None):
@@ -2035,17 +2040,41 @@ def _prewarm_open_positions_cache(symbols: list, cache: dict) -> None:
                 existing["symbol"] = sym
                 cache[sym] = existing
                 cache_updated = True
-                logger.info(f"✅ [PREWARM] {sym}: DEEP_V5 hydration complete (equity={deep_f.get('total_equity')}, mcap={deep_f.get('market_cap')})")
-            else:
-                logger.warning(f"⚠️ [PREWARM] {sym}: YFinance incomplete — cooldown applied, will retry in {_PREWARM_RETRY_COOLDOWN_S/3600:.0f}h.")
-                cache_updated = True  # Still save the attempt timestamp to DB
+                hydrated = True
+                logger.info(f"✅ [PREWARM] {sym}: YFinance DEEP_V5 hydration complete (equity={deep_f.get('total_equity')}, mcap={deep_f.get('market_cap')})")
         except Exception as e:
-            logger.warning(f"⚠️ [PREWARM] {sym}: Hydration error — {e}. Cooldown applied.")
-            cache_updated = True  # Save attempt timestamp
+            logger.warning(f"⚠️ [PREWARM] {sym}: YFinance hydration error — {e}")
+
+        # Attempt 2: TradingView bulk fallback if YFinance returned incomplete data
+        if not hydrated and (existing.get("market_cap") is None or safe_float(existing.get("market_cap")) <= 0):
+            try:
+                if not tv_bulk_cache:
+                    from fundamentals_cache import fetch_tradingview_fundamentals_bulk
+                    tv_bulk_cache = fetch_tradingview_fundamentals_bulk()
+                
+                tv_entry = tv_bulk_cache.get(sym) or tv_bulk_cache.get(sym.strip().upper())
+                if tv_entry:
+                    for k, v in tv_entry.items():
+                        if v is not None and existing.get(k) is None:
+                            existing[k] = v
+                    existing["fetched_at"] = now_iso
+                    existing["cache_tier"] = DEEP_V5_CACHE_TIER
+                    existing["symbol"] = sym
+                    cache[sym] = existing
+                    cache_updated = True
+                    hydrated = True
+                    logger.info(f"✅ [PREWARM] {sym}: TradingView bulk fallback hydration complete (mcap={tv_entry.get('market_cap')})")
+            except Exception as tv_err:
+                logger.warning(f"⚠️ [PREWARM] {sym}: TradingView bulk fallback error — {tv_err}")
+
+        if not hydrated:
+            logger.warning(f"⚠️ [PREWARM] {sym}: Hydration incomplete — cooldown applied, will retry in {_PREWARM_RETRY_COOLDOWN_S/3600:.0f}h.")
+            cache_updated = True  # Still save the attempt timestamp
+
     if cache_updated:
         try:
             save_fundamentals_cache(cache, sync_to_db=True)
-            logger.info("💾 [PREWARM] Saved pre-warmed DEEP_V5 fundamentals to DB.")
+            logger.info("💾 [PREWARM] Saved pre-warmed fundamentals to DB.")
         except Exception as e:
             logger.error(f"Failed to save pre-warmed cache: {e}")
 
