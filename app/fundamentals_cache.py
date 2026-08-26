@@ -501,6 +501,7 @@ def fetch_tradingview_fundamentals_bulk() -> dict:
                 "revenue_cagr_3y": rev_growth,
                 "data_freshness": "LIVE",
                 "source": "TRADINGVIEW_BULK",
+                "cache_tier": "TV_BASELINE",
                 "failed": False
             }
             tv_dict[clean_sym] = entry

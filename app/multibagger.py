@@ -989,16 +989,35 @@ def _is_fundamental_cache_fresh(data: dict) -> bool:
         logger.debug(f"Freshness check failed: {e}")
         return False
 
-REQUIRED_DEEP_V5_KEYS = {
-    "market_cap",
-    "data_freshness",
-}
+# [FIX: CACHE_TIER_v1.0] Explicit semantic markers to distinguish TradingView shallow cache
+# from fully YFinance-hydrated deep V5 cache entries.
+# Architecture:
+#   TV fetch           → cache_tier = TV_BASELINE
+#   YFinance deep      → cache_tier = DEEP_V5  (only if total_equity is not None)
+# See is_deep_v5_cache() for rationale on AND vs OR semantics.
+TV_BASELINE_CACHE_TIER = "TV_BASELINE"
+DEEP_V5_CACHE_TIER     = "DEEP_V5"
 
 def is_deep_v5_cache(data: dict) -> bool:
+    """Returns True only for fully YFinance-hydrated entries safe to pass directly to V5 pipeline.
+
+    Uses AND semantics: cache_tier must equal DEEP_V5 AND total_equity must be non-None.
+    This prevents mislabeled/corrupt entries (e.g. a failed YF fetch that incorrectly
+    stamped DEEP_V5 before total_equity was confirmed) from bypassing hydration.
+
+    Backward-compat: pre-fix entries in DB cache have no cache_tier stamp. For those,
+    total_equity alone is a sufficient sentinel — TradingView NEVER populates it, so
+    if it is present and non-None, a real YFinance deep fetch must have occurred.
+    """
     if not isinstance(data, dict) or not data:
         return False
-
-    return REQUIRED_DEEP_V5_KEYS.issubset(data.keys())
+    tier = data.get("cache_tier")
+    equity = data.get("total_equity")
+    # New entries: both tier and equity must be valid
+    if tier is not None:
+        return tier == DEEP_V5_CACHE_TIER and equity is not None
+    # Legacy entries (pre-fix, no cache_tier): fall back to equity-only sentinel
+    return equity is not None
 
 def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]]:
     clean_sym = symbol.strip().upper()
@@ -1020,10 +1039,18 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]
         # A cached failure means we tried and failed, so it's a valid cache state.
         if p.get("failed") is True:
             return True
-            
-        # Shallow caches from TV are valid for Phase 1. 
-        # Check presence of keys, not just truthiness, to allow legitimate None values.
-        return "total_equity" in p or "market_cap" in p or "roe" in p or "score" in p
+
+        # [FIX: CACHE_VALIDITY_v1.0] Check value truthiness, NOT key existence.
+        # Using "key" in dict is wrong — a TradingView entry stores {"market_cap": None}
+        # which passes the key-in-dict check but carries no usable data. This caused
+        # large-caps (TCS, HINDUNILVR) with NaN market_cap_basic from TradingView to be
+        # accepted as valid, skipping YFinance deep hydration → V5 kill gate fires.
+        return (
+            p.get("total_equity") is not None
+            or p.get("market_cap") is not None
+            or p.get("roe") is not None
+            or p.get("score") is not None
+        )
 
     # 1. Check local cache (fresh first)
     for v in variants:
@@ -1394,6 +1421,10 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
         "is_financial": is_financial_sector(info.get("sector")),
         "data_freshness": "LIVE",
         "total_equity": total_equity,
+        # [FIX: CACHE_TIER_v1.0] Stamp as DEEP_V5 only when total_equity is confirmed non-None.
+        # A failed/partial YFinance response must NOT be promoted — it would poison the cache
+        # and prevent future re-hydration attempts for this symbol.
+        "cache_tier": DEEP_V5_CACHE_TIER if total_equity is not None else TV_BASELINE_CACHE_TIER,
         "score": (lambda: (__import__('fundamentals_cache').compute_piotroski(info, fin, balance_sheet=bs) if (info and fin is not None and not fin.empty) else None))(),
         "piotroski_score": (lambda: (__import__('fundamentals_cache').compute_piotroski(info, fin, balance_sheet=bs) if (info and fin is not None and not fin.empty) else None))(),
         "piotroski_f_score": (lambda: (__import__('fundamentals_cache').compute_piotroski(info, fin, balance_sheet=bs) if (info and fin is not None and not fin.empty) else None))()
@@ -2438,12 +2469,25 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             try:
                 deep_fund = fetch_ticker_fundamentals(sym)
                 if deep_fund:
-                    # Merge fetched deep metrics into raw_fundamentals
+                    # [FIX: CACHE_TIER_v1.0] Only promote to DEEP_V5 if YFinance actually
+                    # returned a non-None total_equity. A partial/failed fetch must stay as
+                    # TV_BASELINE so the next scan retries hydration instead of treating
+                    # corrupted data as authoritative.
+                    deep_equity = deep_fund.get("total_equity")
+                    resolved_tier = DEEP_V5_CACHE_TIER if deep_equity is not None else TV_BASELINE_CACHE_TIER
+                    deep_fund["cache_tier"] = resolved_tier
+                    # Merge fetched deep metrics into raw_fundamentals (None values skipped to
+                    # preserve any existing valid data already in raw_fundamentals from TV cache)
                     for k, v in deep_fund.items():
                         if v is not None:
                             raw_fundamentals[k] = v
                     raw_fundamentals["fetched_at"] = datetime.now(IST).isoformat()
-                    # Optional: Store back to the in-memory cache for the chunk-saver
+                    raw_fundamentals["cache_tier"] = resolved_tier
+                    if resolved_tier == DEEP_V5_CACHE_TIER:
+                        logger.debug(f"✅ [POST-FILTER] {sym}: Promoted to DEEP_V5 (total_equity={deep_equity:.0f})")
+                    else:
+                        logger.warning(f"⚠️ [POST-FILTER] {sym}: YFinance returned no total_equity — staying TV_BASELINE, will retry next run")
+                    # Store back to the in-memory cache for the chunk-saver
                     with _eval_lock:
                         cache[sym] = deep_fund
             except Exception as e:
