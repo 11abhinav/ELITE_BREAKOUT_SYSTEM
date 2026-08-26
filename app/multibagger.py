@@ -2207,6 +2207,7 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
             logger.warning("🛑 MULTIBAGGER Scanner is ALREADY actively running. Skipping duplicate execution.")
             if run_ctx:
                 complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
+            upsert_scanner_health("MULTIBAGGER", "IDLE", error_msg="Duplicate trigger skipped")
             return {}
         acquired_scan = True
 

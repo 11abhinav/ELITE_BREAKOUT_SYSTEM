@@ -1641,6 +1641,7 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
             logger.warning("🛑 Multi-TF Scanner is ALREADY actively running. Skipping duplicate execution.")
             if run_ctx:
                 complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
+            upsert_scanner_health("MULTI_TF", "IDLE", error_msg="Duplicate trigger skipped")
             return None
         acquired_scan = True
 

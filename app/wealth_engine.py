@@ -972,6 +972,7 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
             if run_ctx:
                 from database import complete_scanner_execution_run
                 complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
+            upsert_scanner_health("Wealth Engine", "IDLE", error_msg="Duplicate trigger skipped")
             return None
         acquired_scan = True
 
