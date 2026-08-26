@@ -6759,6 +6759,14 @@ def check_session_validity(user_id, session_token: str = None) -> bool:
                         """, (user_id_int, str(session_token) if session_token else ''))
                         conn.commit()
                         return False
+                    else:
+                        # Refresh last activity timestamp for active user session
+                        cur.execute("""
+                            UPDATE user_sessions
+                            SET logoff_time = NOW(), is_online = TRUE
+                            WHERE user_id = %s AND session_token = %s
+                        """, (user_id_int, str(session_token) if session_token else ''))
+                        conn.commit()
 
                 return True  # Valid active session
     except Exception as e:
