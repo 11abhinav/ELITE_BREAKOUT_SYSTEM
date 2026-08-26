@@ -133,10 +133,10 @@ class ProcessLockImpl:
         # 1. Acquire local Python RLock with heartbeat logging and UI health updates when waiting
         if blocking:
             last_logged_s = 0
-            # [VERSION: LOCK_LOG_THROTTLE_v1.0] UNKNOWN callers (internal/system locks) log at DEBUG every 60s
-            # to avoid spamming the console. Named scanners log at INFO every 15s.
+            # [VERSION: LOCK_LOG_THROTTLE_v2.0] UNKNOWN callers log at DEBUG every 60s.
+            # Named scanners log at INFO every 180s (3 minutes) as requested by user.
             _is_unknown = owner_scanner == "UNKNOWN"
-            _log_interval = 60 if _is_unknown else 15
+            _log_interval = 60 if _is_unknown else 180
             while True:
                 acquired_thread_lock = self.thread_lock.acquire(blocking=True, timeout=2.0)
                 if acquired_thread_lock:
@@ -221,22 +221,28 @@ class ProcessLockImpl:
                                     logger.warning(f"⚠️ [{self.lock_name.upper()}] Advisory lock wait timed out ({elapsed:.1f}s >= {max_wait}s) for {owner_scanner}.")
                                     locked = False
                                     break
-                                if int(elapsed) >= last_logged_s + 15:
+                                _pg_log_interval = 60 if owner_scanner == "UNKNOWN" else 180
+                                if int(elapsed) >= last_logged_s + _pg_log_interval:
                                     last_logged_s = int(elapsed)
-                                    logger.info(f"⏳ [{self.lock_name.upper()}] Postgres advisory lock busy — {owner_scanner} waiting... (elapsed: {last_logged_s}s)")
-                                    if owner_scanner != "UNKNOWN":
+                                    _msg = f"⏳ [{self.lock_name.upper()}] Postgres advisory lock busy — {owner_scanner} waiting... (elapsed: {last_logged_s}s)"
+                                    if owner_scanner == "UNKNOWN":
+                                        logger.debug(_msg)
+                                    else:
+                                        logger.info(_msg)
                                         try:
                                             from database import upsert_scanner_health
                                             upsert_scanner_health(owner_scanner, "QUEUED", error_msg=f"Waiting in queue for active scanner lock ({last_logged_s}s)...")
                                         except Exception:
                                             pass
-                                    run_ctx_obj = kwargs.get("run_ctx")
-                                    if run_ctx_obj:
-                                        try:
-                                            run_ctx_obj.heartbeat(force=True)
-                                        except Exception:
-                                            pass
-                                    time.sleep(1.0)
+
+                                # Continuously pulse DB heartbeat every 15 seconds during queue wait (independent of 3-min log printing)
+                                run_ctx_obj = kwargs.get("run_ctx")
+                                if run_ctx_obj and int(elapsed) % 15 == 0:
+                                    try:
+                                        run_ctx_obj.heartbeat(force=True)
+                                    except Exception:
+                                        pass
+                                time.sleep(1.0)
                         else:
                             cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
                             locked = cur.fetchone()[0]

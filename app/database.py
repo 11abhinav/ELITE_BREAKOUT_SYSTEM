@@ -8166,8 +8166,8 @@ def get_scanner_execution_history(
                             FROM scanner_execution_history
                             WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                               AND (
-                                  (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '15 minutes')
-                                  OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '15 minutes')
+                                  (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '20 minutes')
+                                  OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '20 minutes')
                               );
                         """)
                         orphaned_rows = cur.fetchall()
@@ -8180,11 +8180,11 @@ def get_scanner_execution_history(
                                 SET completed_at = NOW(),
                                     lifecycle_status = 'TIMEOUT_STALE',
                                     error_summary = 'Execution timed out due to process crash or stopped heartbeat',
-                                    error_details = 'Watchdog auto-cleaned stale RUNNING state: heartbeat inactive for >15 minutes'
+                                    error_details = 'Watchdog auto-cleaned stale RUNNING state: heartbeat inactive for >20 minutes'
                                 WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                                   AND (
-                                      (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '15 minutes')
-                                      OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '15 minutes')
+                                      (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '20 minutes')
+                                      OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '20 minutes')
                                   );
                             """)
                             cur.execute("""
@@ -8192,7 +8192,7 @@ def get_scanner_execution_history(
                                 SET status = 'DOWN',
                                     error_msg = 'Watchdog auto-cleaned orphaned RUNNING state (process crash/inactivity)'
                                 WHERE status = 'RUNNING'
-                                  AND updated_at < NOW() - INTERVAL '15 minutes';
+                                  AND updated_at < NOW() - INTERVAL '20 minutes';
                             """)
                             conn.commit()
                             # Log AFTER successful commit — accurate report of what was cleaned
@@ -8203,7 +8203,7 @@ def get_scanner_execution_history(
                                 hb_at = orphan.get("heartbeat_at")
                                 logger.warning(
                                     f"🧹 [WATCHDOG CLEANUP] Cleaned orphaned RUNNING run {r_id[:8]} for scanner '{sc_name}' | "
-                                    f"Reason: No heartbeat received for >15 minutes (started_at: {st_at}, heartbeat_at: {hb_at})"
+                                    f"Reason: No heartbeat received for >20 minutes (started_at: {st_at}, heartbeat_at: {hb_at})"
                                 )
                         _ORPHAN_CLEANUP_LAST_RUN_TS = _now_mono
                     except Exception as _e_sweep:
