@@ -133,6 +133,10 @@ class ProcessLockImpl:
         # 1. Acquire local Python RLock with heartbeat logging and UI health updates when waiting
         if blocking:
             last_logged_s = 0
+            # [VERSION: LOCK_LOG_THROTTLE_v1.0] UNKNOWN callers (internal/system locks) log at DEBUG every 60s
+            # to avoid spamming the console. Named scanners log at INFO every 15s.
+            _is_unknown = owner_scanner == "UNKNOWN"
+            _log_interval = 60 if _is_unknown else 15
             while True:
                 acquired_thread_lock = self.thread_lock.acquire(blocking=True, timeout=2.0)
                 if acquired_thread_lock:
@@ -141,11 +145,14 @@ class ProcessLockImpl:
                 if timeout_val > 0 and elapsed_wait >= timeout_val:
                     logger.warning(f"⚠️ [{self.lock_name.upper()}] Thread lock wait timed out ({elapsed_wait:.1f}s >= {timeout_val}s) for {owner_scanner}.")
                     return False
-                if int(elapsed_wait) >= last_logged_s + 15:
+                if int(elapsed_wait) >= last_logged_s + _log_interval:
                     last_logged_s = int(elapsed_wait)
                     active_owner = getattr(self, "lock_owner_scanner", "ACTIVE_SCANNER")
-                    logger.info(f"⏳ [{self.lock_name.upper()}] Lock held by {active_owner} — {owner_scanner} waiting in queue... (wait time: {last_logged_s}s)")
-                    if owner_scanner != "UNKNOWN":
+                    _msg = f"⏳ [{self.lock_name.upper()}] Lock held by {active_owner} — {owner_scanner} waiting in queue... (wait time: {last_logged_s}s)"
+                    if _is_unknown:
+                        logger.debug(_msg)
+                    else:
+                        logger.info(_msg)
                         try:
                             from database import upsert_scanner_health
                             upsert_scanner_health(owner_scanner, "QUEUED", error_msg=f"Waiting in queue for active scanner lock ({last_logged_s}s)...")
