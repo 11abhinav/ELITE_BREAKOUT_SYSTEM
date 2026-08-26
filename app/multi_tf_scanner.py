@@ -1587,11 +1587,15 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
     import time
     if is_scanner_stopped("MULTI_TF"):
         logger.info("🛑 Multi-TF Scanner is STOPPED by Admin. Skipping execution.")
-        return
+        if run_ctx:
+            complete_scanner_execution_run(run_ctx, status_override="STOPPED", stop_reason="Scanner stopped by admin")
+        return None
 
     if _scan_lock.locked():
         logger.warning("🛑 [DUPLICATE GUARD] Multi-TF Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
-        return
+        if run_ctx:
+            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner lock busy")
+        return None
 
     acquired_global = False
     acquired_scan = False

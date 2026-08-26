@@ -97,10 +97,14 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("EOD"):
         logger.info("🛑 EOD Scanner is STOPPED by Admin. Skipping execution.")
+        if run_ctx:
+            complete_scanner_execution_run(run_ctx, status_override="STOPPED", stop_reason="Scanner stopped by admin")
         return 0
 
     if _scan_lock.locked():
         logger.warning("🛑 [DUPLICATE GUARD] EOD Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
+        if run_ctx:
+            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner lock busy")
         return 0
 
     acquired_global = False
@@ -151,6 +155,7 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
             logger.warning("🛑 EOD Scanner is ALREADY actively running. Skipping duplicate execution.")
             if run_ctx:
                 complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
+            upsert_scanner_health("EOD", "IDLE", error_msg="Duplicate trigger skipped")
             return 0
         acquired_scan = True
 

@@ -8302,7 +8302,7 @@ def get_scanner_execution_history(
                         COUNT(*) as total_runs,
                         SUM(CASE WHEN lifecycle_status = 'COMPLETED' THEN 1 ELSE 0 END) as completed_runs,
                         SUM(CASE WHEN quality_status = 'DEGRADED' THEN 1 ELSE 0 END) as degraded_runs,
-                        SUM(CASE WHEN lifecycle_status IN ('FAILED', 'TIMED_OUT', 'SERVER_RESTARTED') THEN 1 ELSE 0 END) as failed_runs,
+                        SUM(CASE WHEN lifecycle_status IN ('FAILED', 'TIMED_OUT', 'TIMEOUT_STALE', 'SERVER_RESTARTED', 'DOWN', 'ERROR') THEN 1 ELSE 0 END) as failed_runs,
                         AVG(COALESCE(stale_ratio, 0.0)) as avg_stale_ratio
                     FROM scanner_execution_history
                     WHERE {where_sql};

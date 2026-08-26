@@ -916,10 +916,16 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("Wealth Engine"):
         logger.info("🛑 Wealth Engine is STOPPED by Admin. Skipping execution.")
+        if run_ctx:
+            from database import complete_scanner_execution_run
+            complete_scanner_execution_run(run_ctx, status_override="STOPPED", stop_reason="Scanner stopped by admin")
         return None
 
     if _scan_lock.locked():
         logger.warning("🛑 [DUPLICATE GUARD] Wealth Engine is ALREADY actively running in thread lock. Skipping duplicate trigger.")
+        if run_ctx:
+            from database import complete_scanner_execution_run
+            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner lock busy")
         return None
 
     acquired_global = False

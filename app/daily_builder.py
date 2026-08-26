@@ -1113,6 +1113,9 @@ def main(force_rebuild: bool = False, run_ctx=None, trigger_type="SCHEDULED", sc
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("DAILY_BUILDER"):
         logger.info("🛑 Daily Builder is STOPPED by Admin. Skipping execution.")
+        if run_ctx:
+            from database import complete_scanner_execution_run
+            complete_scanner_execution_run(run_ctx, status_override="STOPPED", stop_reason="Scanner stopped by admin")
         return
 
     acquired_global = False
