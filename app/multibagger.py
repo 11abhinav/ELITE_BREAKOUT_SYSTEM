@@ -2322,8 +2322,9 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             logger.info(f"💾 Final save: saving remaining newly fetched fundamentals to DB...")
             save_fundamentals_cache(cache, sync_to_db=True)
         
-        # Now that cache is fully populated concurrently, run exit monitor on open positions
-        run_exit_monitor(price_data_map, cache, is_test_mode)
+        # [VERSION: CLEANUP_v1.0] Exit monitoring for open positions is handled independently
+        # every 15 minutes by MULTIBAGGER_EXIT daemon. Main screening scan focuses purely on candidate screening.
+        logger.info("ℹ️ Main screening fundamentals loaded. Exit monitor is handled independently by MULTIBAGGER_EXIT daemon.")
                 
     # Save updated cache to JSON file
     save_fundamentals_cache(cache)
