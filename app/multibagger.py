@@ -1726,16 +1726,26 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 # indefinitely until the cache is manually refreshed.
                 # Fix: if the cached entry is missing BOTH total_equity and market_cap,
                 # treat it as incomplete and attempt a live yfinance fetch before giving up.
-                raw = cache.get(symbol, {})
+                raw = cache.get(symbol) or get_cached_fundamentals(symbol, cache) or {}
                 if not is_deep_v5_cache(raw):
                     logger.info(f"🔬 [EXIT MONITOR] Deep hydration required for {symbol}")
-                    fund = fetch_ticker_fundamentals(symbol)
-                    if fund:
-                        fund["fetched_at"] = datetime.now(IST).isoformat()
-                        cache[symbol] = fund
+                    deep_f = fetch_ticker_fundamentals(symbol)
+                    if deep_f and not deep_f.get("failed") and (deep_f.get("total_equity") is not None or deep_f.get("market_cap") is not None):
+                        now_iso = datetime.now(IST).isoformat()
+                        deep_f["fetched_at"] = now_iso
+                        # Merge valid YFinance deep metrics into raw baseline dict
+                        for k, v in deep_f.items():
+                            if v is not None:
+                                raw[k] = v
+                        raw["fetched_at"] = now_iso
+                        cache[symbol] = raw
                         cache_updated = True
+                        fund = raw
+                    else:
+                        logger.info(f"ℹ️ [EXIT MONITOR] Deep YFinance fetch for {symbol} unavailable/incomplete — utilizing baseline cached fundamentals")
+                        fund = raw
                 else:
-                    fund = get_cached_fundamentals(symbol, cache)
+                    fund = get_cached_fundamentals(symbol, cache) or raw
 
                 # [VERSION: MULTIBAGGER_EXIT_HIERARCHY_v1.0] Rule 1: Emergency Catastrophic Stop Loss ALWAYS runs first
                 # to protect capital against severe drawdown (>= 20-30% loss) even if fundamental data is missing or degraded.
