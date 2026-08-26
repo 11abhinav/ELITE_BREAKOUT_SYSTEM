@@ -321,43 +321,65 @@ class AccumulationScanner:
         if not _accumulation_run_lock.acquire(blocking=False):
             logger.info("⏳ ACCUMULATION scanner already running in another thread. Skipping.")
             return {"status": "SKIPPED", "reason": "ALREADY_RUNNING"}
-
         start_time = datetime.now(IST)
         run_id = f"acc_run_{start_time.strftime('%Y%m%d_%H%M%S')}"
-
-        # Initialize execution history tracking context early
-        run_ctx = start_scanner_execution_run(
-            scanner_name="ACCUMULATION",
-            trigger_type=trigger_type,
-            scheduler_name="SCHEDULER"
-        )
-
-        from lock_utils import ProcessLock
-        _global_lock = ProcessLock("global_scanner_lock")
-        if not _global_lock.acquire(blocking=False, owner_scanner="ACCUMULATION", operation="FULL_SCAN"):
-            logger.info("⏳ [ACCUMULATION] Global scanner lock busy — waiting in queue...")
-            from database import update_scanner_run_lifecycle
-            update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
-            upsert_scanner_health("ACCUMULATION", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-            if not _global_lock.acquire(blocking=True, owner_scanner="ACCUMULATION", operation="FULL_SCAN"):
-                raise RuntimeError("Failed to acquire global scanner lock.")
-            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
-
-        health = AccumulationHealthTracker(run_id=run_id, scanner=ACCUMULATION_SCANNER_NAME)
-        upsert_scanner_health("ACCUMULATION", status="RUNNING", today_alerts=0)
+        
+        acquired_global = False
+        acquired_scan = False
 
         try:
+            run_ctx = start_scanner_execution_run(
+                scanner_name="ACCUMULATION",
+                trigger_type=trigger_type,
+                scheduler_name="SCHEDULER"
+            )
+
+            from lock_utils import ProcessLock
+            _global_lock = ProcessLock("global_scanner_lock")
+            if not _global_lock.acquire(blocking=False, owner_scanner="ACCUMULATION", operation="FULL_SCAN"):
+                logger.info("⏳ [ACCUMULATION] Global scanner lock busy — waiting in queue...")
+                from database import update_scanner_run_lifecycle
+                update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
+                upsert_scanner_health("ACCUMULATION", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
+                
+                try:
+                    acquired_global = _global_lock.acquire(blocking=True, owner_scanner="ACCUMULATION", operation="FULL_SCAN")
+                except Exception as lock_err:
+                    logger.error(f"❌ [ACCUMULATION] Error acquiring global lock: {lock_err}")
+                    acquired_global = False
+
+                if not acquired_global:
+                    logger.error("❌ [ACCUMULATION] Failed to acquire global scanner lock after queue wait.")
+                    complete_scanner_execution_run(run_ctx, status_override="FAILED", stop_reason="Global lock acquire timeout")
+                    upsert_scanner_health("ACCUMULATION", "IDLE", error_msg="Lock acquisition timed out")
+                    return {"status": "FAILED", "reason": "LOCK_TIMEOUT"}
+            else:
+                acquired_global = True
+
+            from database import update_scanner_run_lifecycle
+            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
+            health = AccumulationHealthTracker(run_id=run_id, scanner=ACCUMULATION_SCANNER_NAME)
+            upsert_scanner_health("ACCUMULATION", status="RUNNING", today_alerts=0)
+
+            if not _accumulation_run_lock.acquire(blocking=False):
+                logger.warning("🛑 ACCUMULATION Scanner is ALREADY actively running. Skipping duplicate execution.")
+                complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
+                return {"status": "SKIPPED", "reason": "DUPLICATE_EXECUTION"}
+            acquired_scan = True
+
             health.transition("STARTING", status="RUNNING")
 
             # Check stop/pause controls
             if AccumulationControl.should_stop():
                 health.stop("CONTROL_STOP_REQUESTED")
                 upsert_scanner_health("ACCUMULATION", status="STOPPED", error_msg="Stopped by Admin")
+                complete_scanner_execution_run(run_ctx, status_override="STOPPED", stop_reason="Stopped by Admin")
                 return {"status": "STOPPED", "reason": "CONTROL_STOP_REQUESTED"}
 
             if not AccumulationControl.wait_if_paused():
                 health.stop("CONTROL_STOP_DURING_PAUSE")
                 upsert_scanner_health("ACCUMULATION", status="PAUSED", error_msg="Paused by Admin")
+                complete_scanner_execution_run(run_ctx, status_override="PAUSED", stop_reason="Paused by Admin")
                 return {"status": "STOPPED", "reason": "CONTROL_STOP_DURING_PAUSE"}
 
             # Load Watchlist
@@ -366,6 +388,7 @@ class AccumulationScanner:
             if wl_df is None or wl_df.empty:
                 health.fail(RuntimeError("Watchlist is empty"))
                 upsert_scanner_health("ACCUMULATION", status="DOWN", error_msg="Watchlist is empty")
+                complete_scanner_execution_run(run_ctx, status_override="FAILED", stop_reason="Watchlist is empty")
                 return {"status": "FAILED", "reason": "EMPTY_WATCHLIST"}
 
             symbols = wl_df["Stock"].dropna().tolist()

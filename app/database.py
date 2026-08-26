@@ -2896,6 +2896,25 @@ def get_all_scanner_health() -> list[dict]:
     except Exception as seed_err:
         logger.warning(f"Scanner health schedule sync warning: {seed_err}")
 
+    # Watchdog Auto-Healing: Auto-reset any stuck QUEUED or RUNNING status if global scanner lock is NOT held
+    try:
+        from lock_utils import ProcessLock
+        _g_lock = ProcessLock("global_scanner_lock")
+        if not _g_lock.locked():
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE scanner_health
+                        SET status = CASE WHEN last_success IS NOT NULL THEN 'OK' ELSE 'IDLE' END,
+                            error_msg = NULL,
+                            updated_at = NOW()
+                        WHERE (status LIKE 'QUEUED%' OR status = 'RUNNING')
+                          AND updated_at < NOW() - INTERVAL '3 minutes';
+                    """)
+                    conn.commit()
+    except Exception as heal_err:
+        logger.debug(f"Watchdog health auto-heal warning: {heal_err}")
+
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             try:
@@ -2966,9 +2985,13 @@ def normalize_scanner_name(scanner_name: str) -> str:
     return s
 
 
+_LOCAL_STOPPED_SCANNERS: set[str] = set()
+
 def is_scanner_stopped(scanner_name: str) -> bool:
     """Return True if scanner is currently STOPPED by Admin."""
     norm_name = normalize_scanner_name(scanner_name)
+    if norm_name in _LOCAL_STOPPED_SCANNERS:
+        return True
     try:
         init_db()
         with get_connection() as conn:
@@ -2976,15 +2999,22 @@ def is_scanner_stopped(scanner_name: str) -> bool:
                 cur.execute("SELECT status FROM scanner_health WHERE UPPER(scanner_name) = UPPER(%s) LIMIT 1", (norm_name,))
                 row = cur.fetchone()
                 if row and row[0]:
-                    return str(row[0]).upper() in ("STOPPED", "PAUSED")
+                    status_str = str(row[0]).upper()
+                    if status_str in ("STOPPED", "PAUSED"):
+                        _LOCAL_STOPPED_SCANNERS.add(norm_name)
+                        return True
+                    else:
+                        _LOCAL_STOPPED_SCANNERS.discard(norm_name)
+                        return False
     except Exception as e:
         logger.warning(f"is_scanner_stopped query failed for {scanner_name}: {e}")
-    return False
+    return norm_name in _LOCAL_STOPPED_SCANNERS
 
 
 def stop_scanner(scanner_name: str) -> bool:
     """Set scanner health status to PAUSED by Admin and update active history runs."""
     norm_name = normalize_scanner_name(scanner_name)
+    _LOCAL_STOPPED_SCANNERS.add(norm_name)
     upsert_scanner_health(norm_name, status="PAUSED", error_msg="Stopped by Admin")
     try:
         with get_connection() as conn:
@@ -3008,6 +3038,7 @@ def stop_scanner(scanner_name: str) -> bool:
 def resume_scanner(scanner_name: str) -> bool:
     """Resume scanner from PAUSED state back to IDLE/OK (preserving RUNNING if active)."""
     norm_name = normalize_scanner_name(scanner_name)
+    _LOCAL_STOPPED_SCANNERS.discard(norm_name)
     init_db()
     current_status = "IDLE"
     try:
@@ -5627,7 +5658,7 @@ def ping_user_session(user_id: int, ip_address: str):
         logger.exception(f"❌ Failed to ping user session {user_id}")
 
 def cleanup_stale_sessions():
-    """Mark sessions as offline if not pinged within 2 minutes."""
+    """Mark sessions as offline if not pinged within 2 minutes, and revoke sessions inactive for > 12 hours."""
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -5636,6 +5667,12 @@ def cleanup_stale_sessions():
                     SET is_online = FALSE
                     WHERE is_online = TRUE
                     AND EXTRACT(EPOCH FROM (now() - logoff_time::timestamptz)) > 120
+                """)
+                cur.execute("""
+                    UPDATE user_sessions
+                    SET is_online = FALSE, is_revoked = TRUE
+                    WHERE is_revoked = FALSE
+                    AND EXTRACT(EPOCH FROM (now() - COALESCE(logoff_time, login_time)::timestamptz)) > 43200
                 """)
                 conn.commit()
     except Exception as e:
@@ -6679,8 +6716,7 @@ def admin_reset_password(user_id: int, new_password: str, force_change: bool = F
 
 def check_session_validity(user_id, session_token: str = None) -> bool:
     """[MULTI-DEVICE] Check session validity against users & user_sessions tables.
-    Preserves sessions across redeploys, server restarts, and legacy session cookies.
-    Only invalidates if user account is deactivated or session was explicitly revoked by /logout.
+    Automatically revokes and closes sessions inactive for > 12 hours.
     """
     if not user_id:
         return False
@@ -6695,7 +6731,7 @@ def check_session_validity(user_id, session_token: str = None) -> bool:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT u.is_active, s.is_revoked
+                    SELECT u.is_active, s.is_revoked, s.logoff_time, s.login_time
                     FROM users u
                     LEFT JOIN user_sessions s ON u.user_id = s.user_id AND s.session_token = %s
                     WHERE u.user_id = %s
@@ -6704,10 +6740,25 @@ def check_session_validity(user_id, session_token: str = None) -> bool:
                 if not row or not row[0]:
                     return False  # Account deactivated or missing
 
-                # row[1] is is_revoked (or token from legacy mock)
-                is_revoked = row[1]
+                is_revoked, logoff_time, login_time = row[1], row[2], row[3]
                 if is_revoked is True or is_revoked == 1:
                     return False  # Explicitly logged out / revoked
+
+                # 12-hour inactivity auto-close (12 hours = 43200 seconds)
+                last_act = logoff_time if logoff_time is not None else login_time
+                if last_act is not None:
+                    if hasattr(last_act, 'tzinfo') and last_act.tzinfo is None:
+                        last_act = last_act.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+                    now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+                    if (now_ist - last_act).total_seconds() > 43200:
+                        logger.info(f"🔒 Session for user {user_id} expired due to 12+ hours of inactivity.")
+                        cur.execute("""
+                            UPDATE user_sessions
+                            SET is_online = FALSE, is_revoked = TRUE, logoff_time = NOW()
+                            WHERE user_id = %s AND session_token = %s
+                        """, (user_id_int, str(session_token) if session_token else ''))
+                        conn.commit()
+                        return False
 
                 return True  # Valid active session
     except Exception as e:

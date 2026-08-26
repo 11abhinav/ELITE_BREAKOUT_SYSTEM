@@ -1992,9 +1992,10 @@ _scan_lock = ProcessLock("multibagger")
 _global_lock = ProcessLock("global_scanner_lock")
 
 def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON"):
-    from database import is_scanner_stopped, upsert_scanner_health
+    from database import is_scanner_stopped, upsert_scanner_health, complete_scanner_execution_run, update_scanner_run_lifecycle
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     import time
+
     if is_scanner_stopped("MULTIBAGGER"):
         logger.info("🛑 Multibagger Scanner is STOPPED by Admin. Skipping execution.")
         return {}
@@ -2003,69 +2004,87 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
         logger.warning("🛑 [DUPLICATE GUARD] MULTIBAGGER Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
         return {}
 
-    created_ctx = False
-    if run_ctx is None:
-        try:
-            from database import start_scanner_execution_run
-            run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER", trigger_type=trigger_type, scheduler_name=scheduler_name)
-            created_ctx = True
-        except Exception as exc:
-            pass
-
-    queued_at = None
-    if not _global_lock.acquire(blocking=False, owner_scanner="MULTIBAGGER", operation="FULL_SCAN"):
-        queued_at = time.monotonic()
-        logger.info("⏳ [MULTIBAGGER] Global scanner lock busy — marking QUEUED and waiting in queue...")
-        if run_ctx:
-            from database import update_scanner_run_lifecycle
-            update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
-        upsert_scanner_health("MULTIBAGGER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-        if not _global_lock.acquire(blocking=True, owner_scanner="MULTIBAGGER", operation="FULL_SCAN"):
-            raise RuntimeError("Failed to acquire global scanner lock.")
-        if run_ctx:
-            from database import update_scanner_run_lifecycle
-            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
-        logger.info(f"✅ [MULTIBAGGER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
-
-    upsert_scanner_health("MULTIBAGGER", "RUNNING", error_msg="MULTIBAGGER scan in progress...")
-
-    if not _scan_lock.acquire(blocking=False):
-        _global_lock.release()
-        logger.warning("🛑 MULTIBAGGER Scanner is ALREADY actively running. Skipping duplicate execution.")
-        if run_ctx:
-            from database import complete_scanner_execution_run
-            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
-        return {}
-
-    _scan_start = print_scanner_start_banner("multibagger", queued_at=queued_at)
+    acquired_global = False
+    acquired_scan = False
+    _scan_start = None
 
     try:
-        return run_scanner(debug_limit, is_test_mode, session, run_ctx=run_ctx)
+        if run_ctx is None:
+            try:
+                from database import start_scanner_execution_run
+                run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER", trigger_type=trigger_type, scheduler_name=scheduler_name)
+            except Exception as exc:
+                logger.warning(f"⚠️ [MULTIBAGGER] Could not create run_ctx: {exc}")
+
+        queued_at = None
+        if not _global_lock.acquire(blocking=False, owner_scanner="MULTIBAGGER", operation="FULL_SCAN"):
+            queued_at = time.monotonic()
+            logger.info("⏳ [MULTIBAGGER] Global scanner lock busy — marking QUEUED and waiting in queue...")
+            if run_ctx:
+                update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
+            upsert_scanner_health("MULTIBAGGER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
+            
+            try:
+                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="MULTIBAGGER", operation="FULL_SCAN")
+            except Exception as lock_err:
+                logger.error(f"❌ [MULTIBAGGER] Error acquiring global lock: {lock_err}")
+                acquired_global = False
+
+            if not acquired_global:
+                logger.error("❌ [MULTIBAGGER] Failed to acquire global scanner lock after queue wait.")
+                if run_ctx:
+                    complete_scanner_execution_run(run_ctx, status_override="FAILED", stop_reason="Global lock acquire timeout")
+                upsert_scanner_health("MULTIBAGGER", "IDLE", error_msg="Lock acquisition timed out")
+                return {}
+        else:
+            acquired_global = True
+
+        if run_ctx:
+            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
+        if queued_at is not None:
+            logger.info(f"✅ [MULTIBAGGER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
+
+        upsert_scanner_health("MULTIBAGGER", "RUNNING", error_msg="MULTIBAGGER scan in progress...")
+
+        if not _scan_lock.acquire(blocking=False):
+            logger.warning("🛑 MULTIBAGGER Scanner is ALREADY actively running. Skipping duplicate execution.")
+            if run_ctx:
+                complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
+            return {}
+        acquired_scan = True
+
+        _scan_start = print_scanner_start_banner("multibagger", queued_at=queued_at)
+        res = run_scanner(debug_limit, is_test_mode, session, run_ctx=run_ctx)
+        
+        if run_ctx:
+            complete_scanner_execution_run(run_ctx, status_override="COMPLETED")
+        return res
     except Exception as e:
+        logger.exception(f"❌ [MULTIBAGGER] Unhandled exception during scan: {e}")
         if run_ctx:
             try:
-                from database import complete_scanner_execution_run
-                complete_scanner_execution_run(run_ctx, exception=e)
-            except Exception as exc:
-                logger.warning(f"⚠️ [MULTIBAGGER] Could not mark run complete on exception: {exc}")
+                complete_scanner_execution_run(run_ctx, status_override="FAILED", exception=e)
+            except Exception: pass
+        try:
+            upsert_scanner_health("MULTIBAGGER", status="DOWN", error_msg=str(e)[:250])
+        except Exception: pass
         raise
     finally:
-        print_scanner_end_banner("multibagger", _scan_start)
+        if _scan_start is not None:
+            print_scanner_end_banner("multibagger", _scan_start)
         try:
-            from database import get_scanner_health, upsert_scanner_health
+            from database import get_scanner_health
             h = get_scanner_health("MULTIBAGGER")
-            if h and (h.get("status", "").startswith("QUEUED") or h.get("status") == "RUNNING"):
+            if h and (str(h.get("status", "")).startswith("QUEUED") or str(h.get("status", "")).upper() == "RUNNING"):
                 upsert_scanner_health("MULTIBAGGER", status="OK", error_msg=None)
-        except Exception:
-            pass
-        _scan_lock.release()
-        _global_lock.release()
-        if run_ctx:
-            try:
-                from database import complete_scanner_execution_run
-                complete_scanner_execution_run(run_ctx)
-            except Exception as exc:
-                logger.warning(f"⚠️ [MULTIBAGGER] Could not mark run complete in finally: {exc}")
+        except Exception: pass
+
+        if acquired_scan:
+            try: _scan_lock.release()
+            except Exception: pass
+        if acquired_global:
+            try: _global_lock.release()
+            except Exception: pass
 
 def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=None, run_ctx=None):
     """Main scanning wrapper."""

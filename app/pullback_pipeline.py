@@ -362,78 +362,100 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
         return 0
 
     created_ctx = False
-    if run_ctx is None:
-        try:
-            from database import start_scanner_execution_run
-            run_ctx = start_scanner_execution_run(scanner_name="PULLBACK", trigger_type=trigger_type, scheduler_name=scheduler_name)
-            created_ctx = True
-        except Exception as exc:
-            pass
+    acquired_global = False
+    acquired_scan = False
+    _scan_start = None
 
-    queued_at = None
-    if not _global_lock.acquire(blocking=False, owner_scanner="PULLBACK", operation="FULL_SCAN"):
-        queued_at = time.monotonic()
-        logger.info("⏳ [PULLBACK] Global scanner lock busy — marking QUEUED and waiting in queue...")
-        if run_ctx:
-            from database import update_scanner_run_lifecycle
-            update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
-        upsert_scanner_health("PULLBACK", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-        if not _global_lock.acquire(blocking=True, owner_scanner="PULLBACK", operation="FULL_SCAN"):
-            raise RuntimeError("Failed to acquire global scanner lock.")
+    try:
+        if run_ctx is None:
+            try:
+                from database import start_scanner_execution_run
+                run_ctx = start_scanner_execution_run(scanner_name="PULLBACK", trigger_type=trigger_type, scheduler_name=scheduler_name)
+            except Exception as exc:
+                logger.warning(f"⚠️ [PULLBACK] Could not create run_ctx: {exc}")
+
+        queued_at = None
+        if not _global_lock.acquire(blocking=False, owner_scanner="PULLBACK", operation="FULL_SCAN"):
+            queued_at = time.monotonic()
+            logger.info("⏳ [PULLBACK] Global scanner lock busy — marking QUEUED and waiting in queue...")
+            if run_ctx:
+                from database import update_scanner_run_lifecycle
+                update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
+            upsert_scanner_health("PULLBACK", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
+            
+            try:
+                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="PULLBACK", operation="FULL_SCAN")
+            except Exception as lock_err:
+                logger.error(f"❌ [PULLBACK] Error acquiring global lock: {lock_err}")
+                acquired_global = False
+
+            if not acquired_global:
+                logger.error("❌ [PULLBACK] Failed to acquire global scanner lock after queue wait.")
+                if run_ctx:
+                    from database import complete_scanner_execution_run
+                    complete_scanner_execution_run(run_ctx, status_override="FAILED", stop_reason="Global lock acquire timeout")
+                upsert_scanner_health("PULLBACK", "IDLE", error_msg="Lock acquisition timed out")
+                return 0
+        else:
+            acquired_global = True
+
         if run_ctx:
             from database import update_scanner_run_lifecycle
             update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
-        logger.info(f"✅ [PULLBACK] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
+        if queued_at is not None:
+            logger.info(f"✅ [PULLBACK] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
-    upsert_scanner_health("PULLBACK", "RUNNING", error_msg="PULLBACK scan in progress...")
+        upsert_scanner_health("PULLBACK", "RUNNING", error_msg="PULLBACK scan in progress...")
 
-    if not _scan_lock.acquire(blocking=False):
-        _global_lock.release()
-        logger.warning("🛑 PULLBACK Scanner is ALREADY actively running. Skipping duplicate execution.")
-        if run_ctx:
-            from database import complete_scanner_execution_run
-            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
-        return 0
+        if not _scan_lock.acquire(blocking=False):
+            logger.warning("🛑 PULLBACK Scanner is ALREADY actively running. Skipping duplicate execution.")
+            if run_ctx:
+                from database import complete_scanner_execution_run
+                complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
+            return 0
+        acquired_scan = True
 
-    _scan_start = print_scanner_start_banner("pullback_scanner", queued_at=queued_at)
-
-    try:
+        _scan_start = print_scanner_start_banner("pullback_scanner", queued_at=queued_at)
         total = run_pullback_pipeline(force=force, session=session, run_ctx=run_ctx, used_fallback_data=used_fallback_data)
         if run_ctx and isinstance(total, dict) and "total_count" in total:
             run_ctx.set_total_stocks(total["total_count"])
             run_ctx.fresh_count = total["processed_count"]
             if "today_alerts" in total:
                 run_ctx.add_alert(total["today_alerts"])
+        if run_ctx:
+            from database import complete_scanner_execution_run
+            complete_scanner_execution_run(run_ctx, status_override="COMPLETED")
         return total
     except Exception as e:
+        logger.exception(f"❌ [PULLBACK] Unhandled exception during scan: {e}")
         if run_ctx:
             try:
                 from database import complete_scanner_execution_run
-                complete_scanner_execution_run(run_ctx, exception=e)
-            except Exception as exc:
-                logger.warning(f"⚠️ [PULLBACK] Could not mark run complete on exception: {exc}")
-        raise
+                complete_scanner_execution_run(run_ctx, status_override="FAILED", exception=e)
+            except Exception: pass
+        try:
+            upsert_scanner_health("PULLBACK", status="DOWN", error_msg=str(e)[:250])
+        except Exception: pass
+        raise e
     finally:
-        print_scanner_end_banner("pullback_scanner", _scan_start)
+        if _scan_start is not None:
+            print_scanner_end_banner("pullback_scanner", _scan_start)
         try:
             from database import get_scanner_health, upsert_scanner_health
             h = get_scanner_health("PULLBACK")
-            if h and (h.get("status", "").startswith("QUEUED") or h.get("status") == "RUNNING"):
-                # [RULE 67] Mirror EOD scanner pattern: do not overwrite DEGRADED_FALLBACK with OK.
+            if h and (str(h.get("status", "")).startswith("QUEUED") or str(h.get("status", "")).upper() == "RUNNING"):
                 if 'used_fallback_data' in locals() and used_fallback_data:
                     upsert_scanner_health("PULLBACK", status="DEGRADED_FALLBACK", error_msg="Historical fallback dataset was used")
                 else:
                     upsert_scanner_health("PULLBACK", status="OK", error_msg=None)
-        except Exception:
-            pass
-        _scan_lock.release()
-        _global_lock.release()
-        if run_ctx:
-            try:
-                from database import complete_scanner_execution_run
-                complete_scanner_execution_run(run_ctx)
-            except Exception as exc:
-                logger.warning(f"⚠️ [PULLBACK] Could not mark run complete in finally: {exc}")
+        except Exception: pass
+
+        if acquired_scan:
+            try: _scan_lock.release()
+            except Exception: pass
+        if acquired_global:
+            try: _global_lock.release()
+            except Exception: pass
 
 def _determine_dataset_date(sample_data: dict) -> Optional[str]:
     if not sample_data:

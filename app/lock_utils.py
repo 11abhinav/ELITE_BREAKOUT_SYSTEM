@@ -117,8 +117,8 @@ class ProcessLockImpl:
         self._acquire_time = 0.0
 
     def locked(self) -> bool:
-        """Check if the local thread lock is held."""
-        return self._recursion_depth > 0
+        """Check if the lock is held by any thread."""
+        return self.is_acquired or self._recursion_depth > 0
 
     def acquire(self, blocking: bool = False, timeout: float = -1, owner_scanner: str = "UNKNOWN", operation: str = "UNKNOWN", **kwargs) -> bool:
         current_thread = threading.current_thread().name
@@ -128,16 +128,38 @@ class ProcessLockImpl:
                 self._recursion_depth += 1
                 return True
 
-        timeout_val = float(timeout) if timeout is not None else -1.0
+        timeout_val = float(timeout) if timeout is not None and float(timeout) > 0 else (1800.0 if blocking else -1.0)
+
+        # 1. Acquire local Python RLock with heartbeat logging and UI health updates when waiting
         if blocking:
-            if not self.thread_lock.acquire(blocking=True, timeout=timeout_val if timeout_val > 0 else -1):
-                return False
+            last_logged_s = 0
+            while True:
+                acquired_thread_lock = self.thread_lock.acquire(blocking=True, timeout=2.0)
+                if acquired_thread_lock:
+                    break
+                elapsed_wait = time.monotonic() - wait_start_mono
+                if timeout_val > 0 and elapsed_wait >= timeout_val:
+                    logger.warning(f"⚠️ [{self.lock_name.upper()}] Thread lock wait timed out ({elapsed_wait:.1f}s >= {timeout_val}s) for {owner_scanner}.")
+                    return False
+                if int(elapsed_wait) >= last_logged_s + 15:
+                    last_logged_s = int(elapsed_wait)
+                    active_owner = getattr(self, "lock_owner_scanner", "ACTIVE_SCANNER")
+                    logger.info(f"⏳ [{self.lock_name.upper()}] Lock held by {active_owner} — {owner_scanner} waiting in queue... (wait time: {last_logged_s}s)")
+                    if owner_scanner != "UNKNOWN":
+                        try:
+                            from database import upsert_scanner_health
+                            upsert_scanner_health(owner_scanner, "QUEUED", error_msg=f"Waiting in queue for active scanner lock ({last_logged_s}s)...")
+                        except Exception:
+                            pass
         else:
             if not self.thread_lock.acquire(blocking=False):
                 return False
-            
+
+        # Reset wait timestamp AFTER acquiring thread lock before entering Postgres advisory lock loop
+        pg_wait_start_mono = time.monotonic()
+
         try:
-            # 1. Fallback local file lock for non-distributed edge cases
+            # 2. Fallback local file lock for non-distributed edge cases
             os.makedirs("data", exist_ok=True)
             if self.lock_fd is None:
                 self.lock_fd = os.open(self.lock_file, os.O_CREAT | os.O_RDWR)
@@ -148,7 +170,7 @@ class ProcessLockImpl:
                 
             fcntl.flock(self.lock_fd, flags)
 
-            # 2. True distributed PostgreSQL lock via controlled connection pool
+            # 3. True distributed PostgreSQL lock via controlled connection pool
             db_url = os.environ.get("DATABASE_URL")
             if db_url:
                 if self.db_conn is None:
@@ -172,27 +194,23 @@ class ProcessLockImpl:
                     with self.db_conn.cursor() as cur:
                         if blocking:
                             last_logged_s = 0
-                            max_wait = timeout_val if timeout_val > 0 else 60.0
+                            max_wait = timeout_val if timeout_val > 0 else 1800.0
                             while True:
                                 cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
                                 locked = cur.fetchone()[0]
-                                elapsed = time.monotonic() - wait_start_mono
+                                elapsed = time.monotonic() - pg_wait_start_mono
                                 if locked:
-                                    if elapsed > 1.0:
-                                        logger.info(f"✅ [{self.lock_name.upper()}] Acquired Postgres lock after {elapsed:.1f}s wait")
+                                    total_wait = time.monotonic() - wait_start_mono
+                                    if total_wait > 1.0:
+                                        logger.info(f"✅ [{self.lock_name.upper()}] Acquired Postgres lock for {owner_scanner} after {total_wait:.1f}s total wait")
                                     break
                                 if elapsed >= max_wait:
-                                    logger.warning(f"⚠️ [{self.lock_name.upper()}] Advisory lock wait timed out ({elapsed:.1f}s >= {max_wait}s). Clearing stale locks.")
-                                    try:
-                                        cur.execute("SELECT pg_advisory_unlock_all()")
-                                    except Exception:
-                                        pass
-                                    cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
-                                    locked = cur.fetchone()[0]
+                                    logger.warning(f"⚠️ [{self.lock_name.upper()}] Advisory lock wait timed out ({elapsed:.1f}s >= {max_wait}s) for {owner_scanner}.")
+                                    locked = False
                                     break
                                 if int(elapsed) >= last_logged_s + 15:
                                     last_logged_s = int(elapsed)
-                                    logger.info(f"⏳ [{self.lock_name.upper()}] Lock busy — waiting for active scanner to release... (elapsed: {last_logged_s}s)")
+                                    logger.info(f"⏳ [{self.lock_name.upper()}] Postgres advisory lock busy — {owner_scanner} waiting... (elapsed: {last_logged_s}s)")
                                 time.sleep(1.0)
                         else:
                             cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
@@ -214,7 +232,10 @@ class ProcessLockImpl:
             return True
         except (BlockingIOError, IOError):
             self._cleanup_db_conn()
-            self.thread_lock.release()
+            try:
+                self.thread_lock.release()
+            except Exception:
+                pass
             return False
         except Exception as e:
             # [VERSION: PROCESS_LOCK_EXC_FIX_v1.0] On DB or system exception, release thread lock and return False
