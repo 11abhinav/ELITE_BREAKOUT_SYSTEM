@@ -1137,7 +1137,7 @@ def main(force_rebuild: bool = False, run_ctx=None, trigger_type="SCHEDULED", sc
             upsert_scanner_health("DAILY_BUILDER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
             
             try:
-                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="DAILY_BUILDER", operation="FULL_SCAN")
+                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="DAILY_BUILDER", operation="FULL_SCAN", run_ctx=run_ctx)
             except Exception as lock_err:
                 logger.error(f"❌ [DAILY_BUILDER] Error acquiring global lock: {lock_err}")
                 acquired_global = False

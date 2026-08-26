@@ -2352,7 +2352,7 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
             upsert_scanner_health("REVERSAL", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
             
             try:
-                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="REVERSAL", operation="FULL_SCAN")
+                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="REVERSAL", operation="FULL_SCAN", run_ctx=run_ctx)
             except Exception as lock_err:
                 logger.error(f"❌ [REVERSAL] Error acquiring global lock: {lock_err}")
                 acquired_global = False

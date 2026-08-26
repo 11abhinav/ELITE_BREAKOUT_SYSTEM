@@ -343,7 +343,7 @@ class AccumulationScanner:
                 upsert_scanner_health("ACCUMULATION", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
                 
                 try:
-                    acquired_global = _global_lock.acquire(blocking=True, owner_scanner="ACCUMULATION", operation="FULL_SCAN")
+                    acquired_global = _global_lock.acquire(blocking=True, owner_scanner="ACCUMULATION", operation="FULL_SCAN", run_ctx=run_ctx)
                 except Exception as lock_err:
                     logger.error(f"❌ [ACCUMULATION] Error acquiring global lock: {lock_err}")
                     acquired_global = False
@@ -360,11 +360,6 @@ class AccumulationScanner:
             update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
             health = AccumulationHealthTracker(run_id=run_id, scanner=ACCUMULATION_SCANNER_NAME)
             upsert_scanner_health("ACCUMULATION", status="RUNNING", today_alerts=0)
-
-            if not _accumulation_run_lock.acquire(blocking=False):
-                logger.warning("🛑 ACCUMULATION Scanner is ALREADY actively running. Skipping duplicate execution.")
-                complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
-                return {"status": "SKIPPED", "reason": "DUPLICATE_EXECUTION"}
             acquired_scan = True
 
             health.transition("STARTING", status="RUNNING")
