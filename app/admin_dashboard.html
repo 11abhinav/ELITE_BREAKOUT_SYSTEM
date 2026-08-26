@@ -513,9 +513,10 @@ var _userWatchlistData = [];
     }
 
     .scanner-card.status-down {
-      border-left: 3px solid var(--warn);
-      background: linear-gradient(to right, rgba(220,38,38,0.03), var(--card));
-      animation: downPulse 3s infinite;
+      border: 2px solid #ef4444 !important;
+      border-left: 6px solid #ef4444 !important;
+      background: linear-gradient(to right, rgba(239,68,68,0.12), var(--card)) !important;
+      animation: downPulse 2s infinite !important;
     }
 
     .scanner-card.status-idle {
@@ -523,8 +524,8 @@ var _userWatchlistData = [];
     }
 
     @keyframes downPulse {
-      0%, 100% { box-shadow: none; }
-      50% { box-shadow: 0 0 16px rgba(220,38,38,0.1); }
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+      50% { box-shadow: 0 0 18px 3px rgba(239, 68, 68, 0.5); }
     }
     
     @keyframes runPulse {
@@ -561,7 +562,7 @@ var _userWatchlistData = [];
     .badge-ok   { background: rgba(5,150,105,.1); color: var(--win); border: 1px solid rgba(5,150,105,.2); }
     .badge-running { background: rgba(99,102,241,.1); color: var(--brand); border: 1px solid rgba(99,102,241,.2); }
     .badge-queued { background: rgba(245,158,11,.1); color: var(--amber); border: 1px solid rgba(245,158,11,.2); }
-    .badge-down { background: rgba(220,38,38,.1); color: var(--warn); border: 1px solid rgba(220,38,38,.2); }
+    .badge-down { background: #ef4444 !important; color: #ffffff !important; border: 1px solid #dc2626 !important; font-weight: 800 !important; letter-spacing: 0.5px !important; box-shadow: 0 0 10px rgba(239,68,68,0.6) !important; }
     .badge-stopped { background: rgba(255,170,0,.15); color: #ffaa00; border: 1px solid rgba(255,170,0,.4); }
     .badge-idle { background: var(--card3); color: var(--muted); border: 1px solid var(--border); }
     .status-stopped { border-color: rgba(255,170,0,.3) !important; background: rgba(255,170,0,.02); }
@@ -3020,10 +3021,18 @@ function getEarningsBadgeHtml(item) {
           const isAck = data.is_acknowledged !== false;
           const isStopped = data.status === 'STOPPED' || data.status === 'PAUSED';
 
-          // NEW LOGIC: Show RED if status=DOWN or DEGRADED and not acknowledged.
-          const isCriticalError = (data.status === 'DOWN' || data.status === 'DEGRADED') && !isAck;
-          const isDown = isCriticalError;
-          const isIdle = !data.last_success && data.status !== 'RUNNING' && !(data.status && data.status.startsWith('QUEUED'));
+          // CRITICAL FIX: If status is DOWN, DEGRADED, FAILED, CRASH, or contains DOWN/FAIL,
+          // it MUST ALWAYS render in PROMINENT RED regardless of acknowledgement!
+          const isDown = Boolean(data.status && (
+            data.status === 'DOWN' || 
+            data.status === 'DEGRADED' || 
+            data.status === 'FAILED' || 
+            data.status.includes('DOWN') || 
+            data.status.includes('FAIL') || 
+            data.status.includes('CRASH') || 
+            data.status.includes('ERROR')
+          ));
+          const isIdle = !data.last_success && data.status !== 'RUNNING' && !(data.status && data.status.startsWith('QUEUED')) && !isDown;
           const isRunning = data.status === 'RUNNING';
           const isQueued = data.status && data.status.startsWith('QUEUED');
           const isOk = data.status === 'OK';
@@ -3039,7 +3048,7 @@ function getEarningsBadgeHtml(item) {
           } else if (isDown) {
              statusClass = 'status-down';
              badgeClass = 'badge-down';
-             badgeText = data.status === 'DEGRADED' ? '● DEGRADED' : '● DOWN';
+             badgeText = '🔴 ' + (data.status || 'DOWN');
           } else if (isRunning) {
              statusClass = 'status-running';
              badgeClass = 'badge-running';

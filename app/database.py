@@ -2859,6 +2859,15 @@ def upsert_scanner_health(
     except Exception as exc:
         logger.warning(f"upsert_scanner_health skipped (DB unavailable): {exc}")
         return
+    finally:
+        # Auto-release global lock if scanner went DOWN or FAILED so queued scanners can acquire lock instantly
+        if status and str(status).upper() in ("DOWN", "FAILED"):
+            try:
+                from lock_utils import release_global_lock_if_held_by
+                release_global_lock_if_held_by(scanner_name)
+            except Exception as auto_rel_err:
+                logger.warning(f"Failed to auto-release lock for crashed scanner {scanner_name}: {auto_rel_err}")
+
 
 
 def get_all_scanner_health() -> list[dict]:

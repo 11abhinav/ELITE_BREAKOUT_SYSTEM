@@ -267,19 +267,19 @@ class ProcessLockImpl:
                     _conn_semaphore.release()
             except Exception: pass
 
-    def release(self):
+    def release(self, force: bool = False):
         with self._internal_lock:
             current_thread = threading.current_thread().name
-            if self._owner_thread != current_thread:
-                return
+            if not force and self._owner_thread is not None and self._owner_thread != current_thread:
+                logger.warning(f"⚠️ [{self.lock_name.upper()}] Lock release invoked by thread '{current_thread}', but lock owner is '{self._owner_thread}'. Forcing release for scanner '{self.lock_owner_scanner}'.")
             
             self._recursion_depth -= 1
-            if self._recursion_depth > 0:
+            if self._recursion_depth > 0 and not force:
                 return
 
             self.is_acquired = False
             self._owner_thread = None
-            held_time = time.monotonic() - self._acquire_time
+            held_time = (time.monotonic() - self._acquire_time) if getattr(self, "_acquire_time", None) else 0.0
             logger.info(f"🔓 [LOCK RELEASED] {self.lock_name} | Scanner: {self.lock_owner_scanner} | Op: {self.lock_owner_operation} | Held Time: {held_time:.2f}s")
             self.lock_owner_scanner = "UNKNOWN"
             self.lock_owner_operation = "UNKNOWN"
@@ -300,3 +300,15 @@ class ProcessLockImpl:
             self.thread_lock.release()
         except Exception:
             pass
+
+
+def release_global_lock_if_held_by(scanner_name: str):
+    """Safely force-release the global scanner lock if held by the specified scanner that went DOWN."""
+    try:
+        lock = ProcessLock("global_scanner_lock")
+        if lock.is_acquired or str(getattr(lock, "lock_owner_scanner", "")).upper() == scanner_name.upper():
+            logger.warning(f"🚨 [FAIL-SAFE AUTO-RELEASE] Force releasing global scanner lock held by crashed/down scanner: {scanner_name}")
+            lock.release(force=True)
+    except Exception as e:
+        logger.warning(f"Could not auto-release global lock for {scanner_name}: {e}")
+
