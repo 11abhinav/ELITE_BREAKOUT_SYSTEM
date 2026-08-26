@@ -978,7 +978,8 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         # 1. Critical Cache Validation
                         reject_reason = None
                         is_delta_fetch = bool(range_from)
-                        op_mode = "INCREMENTAL_MERGE" if (cached_df is not None and not cached_df.empty and (is_delta_fetch or not needs_full)) else "FULL_REPLACE"
+                        is_full_fetch = (group_key == "FULL")
+                        op_mode = "INCREMENTAL_MERGE" if (cached_df is not None and not cached_df.empty and not is_full_fetch) else "FULL_REPLACE"
 
                         if new_report:
                             q_score = getattr(new_report, 'quality_score', 100)
