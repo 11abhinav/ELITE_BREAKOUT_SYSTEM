@@ -1138,6 +1138,8 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                         telemetry_logger.record_reject(symbol, "LIQUIDITY", "ZERO_AVG_VOLUME", avg_volume if "avg_volume" in locals() else 0, 1, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
                                     return
 
+                                volume_ratio = _safe_float(latest.get("Volume", 0)) / avg_volume
+
                                 candle_high  = _safe_float(latest.get("High"))
                                 candle_low   = _safe_float(latest.get("Low"))
                                 candle_open  = _safe_float(latest.get("Open"))
