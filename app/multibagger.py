@@ -419,9 +419,13 @@ def load_cache() -> dict:
             logger.info("⚡ [LIGHTNING CACHE BUILD] Initializing bulk fundamentals via TradingView Screener API (<3s)...")
             tv_data = fetch_tradingview_fundamentals_bulk()
             if tv_data:
+                now_iso = datetime.now(IST).isoformat()
                 for sym, entry in tv_data.items():
                     if sym not in cache:
-                        cache[sym] = entry
+                        tv_c = dict(entry)
+                        tv_c["fetched_at"] = now_iso
+                        tv_c["cache_tier"] = TV_BASELINE_CACHE_TIER
+                        cache[sym] = tv_c
                 save_fundamentals_cache(cache, sync_to_db=True)
                 logger.info(f"⚡ [LIGHTNING CACHE BUILD] Complete! Loaded {len(cache)} fundamental entries in <3 seconds.")
         except Exception as tv_err:
@@ -2205,13 +2209,16 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             tv_data = fetch_tradingview_fundamentals_bulk()
             if tv_data:
                 enriched_count = 0
+                now_iso = datetime.now(IST).isoformat()
                 for sym_name, tv_entry in tv_data.items():
                     clean_s = sym_name.strip().upper()
                     variants = [clean_s, clean_s.replace("&", "_"), clean_s.replace("-", "_"), clean_s.replace("_", "&"), clean_s.replace("_", "-")]
                     for v in variants:
-                        if v not in cache:
+                        if v not in cache or not get_cached_fundamentals(v, cache):
                             tv_c = dict(tv_entry)
                             tv_c["symbol"] = v
+                            tv_c["fetched_at"] = now_iso
+                            tv_c["cache_tier"] = TV_BASELINE_CACHE_TIER
                             cache[v] = tv_c
                             enriched_count += 1
                 if enriched_count > 0:
