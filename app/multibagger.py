@@ -990,9 +990,7 @@ def _is_fundamental_cache_fresh(data: dict) -> bool:
         return False
 
 REQUIRED_DEEP_V5_KEYS = {
-    "total_equity",
     "market_cap",
-    "revenue_cagr_3y",
     "data_freshness",
 }
 

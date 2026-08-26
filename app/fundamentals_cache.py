@@ -434,6 +434,10 @@ def compute_tradingview_health_score(row: pd.Series) -> int:
     gm = row.get("gross_margin_ttm")
     om = row.get("operating_margin_ttm")
     
+    if pd.isna(roe) and pd.isna(roa) and pd.isna(de) and pd.isna(gm) and pd.isna(om):
+        return -1
+        
+    score = 0
     if pd.notna(roe) and roe > 0:
         score += 1
     if pd.notna(roa) and roa > 0:
@@ -482,6 +486,9 @@ def fetch_tradingview_fundamentals_bulk() -> dict:
             tv_health_score = compute_tradingview_health_score(row)
             roce = (roa * 1.35) if roa is not None else ((roe * 0.95) if roe is not None else None)
             
+            mcap = float(row.get("market_cap_basic")) if pd.notna(row.get("market_cap_basic")) else None
+            rev_growth = float(row.get("total_revenue_yoy_growth_ttm")) / 100.0 if pd.notna(row.get("total_revenue_yoy_growth_ttm")) else None
+            
             entry = {
                 "score": tv_health_score,
                 "date": today_str,
@@ -490,6 +497,9 @@ def fetch_tradingview_fundamentals_bulk() -> dict:
                 "debt_equity": de,
                 "pb_fallback": pb,
                 "pe_fallback": pe,
+                "market_cap": mcap,
+                "revenue_cagr_3y": rev_growth,
+                "data_freshness": "LIVE",
                 "source": "TRADINGVIEW_BULK",
                 "failed": False
             }
