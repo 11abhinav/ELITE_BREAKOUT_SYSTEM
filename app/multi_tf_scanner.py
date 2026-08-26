@@ -1743,15 +1743,26 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
                 
                 # 2. Hourly phase (Phase A): Only runs on 15-min candle boundaries or manual trigger
                 stage_tracker.start_stage(3, "Hourly Phase A (1H Trend Scanner)", "Scanning 1H trend permission")
+                # [VERSION: HEARTBEAT_MULTI_TF_v1.0] Pulse heartbeat before long Phase A so watchdog
+                # doesn't mark this run TIMEOUT_STALE during 30-min scans.
+                if run_ctx:
+                    run_ctx.heartbeat(force=True)
                 if run_once or (ist_now.minute % 15 == 0):
                     metrics_a = run_hourly_phase(is_test_mode=is_test_mode, run_once=run_once, session=session)
                 else:
                     metrics_a = {"fetched": 0, "total": 0, "stale": 0, "approved": 0, "skipped": True}
+                if run_ctx:
+                    run_ctx.heartbeat()
                 stage_tracker.end_stage(f"1H Approved: {metrics_a.get('approved', 0)}")
                 
                 # 3. Lower TF updater (Phases B, C & D): Runs EVERY 5 mins to deliver fast 5m breakout alerts
                 stage_tracker.start_stage(4, "Lower TF Phase B/C/D Scanner", "Evaluating 30m/15m/5m triggers")
+                # [VERSION: HEARTBEAT_MULTI_TF_v1.0] Pulse heartbeat before Phase B/C/D.
+                if run_ctx:
+                    run_ctx.heartbeat(force=True)
                 metrics_b = run_lower_tf_phase(regime_ctx=regime_ctx, is_test_mode=is_test_mode, run_once=run_once, session=session)
+                if run_ctx:
+                    run_ctx.heartbeat()
                 stage_tracker.end_stage(f"Lower TF Triggered: {metrics_b.get('triggered', 0) if isinstance(metrics_b, dict) else 0}")
             
             elapsed_time = (datetime.now(IST) - scan_start).total_seconds()

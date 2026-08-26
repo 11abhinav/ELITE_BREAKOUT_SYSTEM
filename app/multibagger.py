@@ -454,7 +454,7 @@ def save_fundamentals_cache(cache_data: dict, sync_to_db: bool = True):
         logger.exception(f"❌ Failed to save fundamentals cache")
 
 
-def batch_download_market_data(symbols: list, session=None) -> dict:
+def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dict:
     """Download historical price/volume data in bulk for all tickers using the unified price cache.
 
     [VERSION: MULTIBAGGER_CACHE_FIX_v1.0] Previously called fetcher.get_batch_ohlcv() directly,
@@ -486,6 +486,10 @@ def batch_download_market_data(symbols: list, session=None) -> dict:
         if is_scanner_stopped("MULTIBAGGER"):
             logger.warning("🛑 [MULTIBAGGER] Stop requested by Admin. Aborting market data download batch loop.")
             break
+        # [VERSION: HEARTBEAT_PHASE1_v1.0] Pulse heartbeat before each batch so watchdog
+        # does NOT mark this run as TIMEOUT_STALE during the 10-15 min Phase 1 price download.
+        if run_ctx:
+            run_ctx.heartbeat(force=True)
         with BatchMemoryTracker("MULTIBAGGER", batch_num, total_batches, len(chunk), collect_gc=True) as tracker:
 
             # 1. Fetch chunk DataFrames via session or price_cache
@@ -2141,7 +2145,9 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     import time
     _batch_start_t = time.perf_counter()
     symbols = list(set(symbols))
-    price_data_map = batch_download_market_data(symbols, session=session)
+    # [VERSION: HEARTBEAT_PHASE1_v1.0] Pass run_ctx so batch_download_market_data pulses
+    # a heartbeat per batch — prevents watchdog TIMEOUT_STALE on 10-15 min Phase 1 runs.
+    price_data_map = batch_download_market_data(symbols, session=session, run_ctx=run_ctx)
     _fetch_dur = time.perf_counter() - _batch_start_t
     if not price_data_map:
         logger.error("❌ Failed to download batch price data. Aborting scan.")
@@ -2277,8 +2283,14 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         fetched_count = 0
         try:
             import concurrent.futures
+            _hb_counter = 0
             for future in as_completed(futures, timeout=7200):
                 sym = futures[future]
+                # [VERSION: HEARTBEAT_PHASE2_v1.0] Pulse heartbeat every 10 completions
+                # so watchdog doesn't mark us TIMEOUT_STALE during long YF fetches.
+                _hb_counter += 1
+                if run_ctx and _hb_counter % 10 == 0:
+                    run_ctx.heartbeat()
                 try:
                     fund = future.result()
                     if fund:
