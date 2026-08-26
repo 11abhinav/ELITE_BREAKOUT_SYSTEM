@@ -103,7 +103,8 @@ def resume_durable_uploads():
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _load_queue() -> list:
-    """Load all jobs from the queue file. Returns [] if missing or corrupt."""
+    """Load all jobs from the queue file. Returns [] if missing. 
+    Quarantines corrupt files with admin warnings to preserve cache integrity."""
     if not os.path.exists(_QUEUE_PATH):
         return []
     try:
@@ -111,8 +112,16 @@ def _load_queue() -> list:
             data = json.load(f)
         if isinstance(data, list):
             return data
+        else:
+            raise ValueError(f"Queue data is not a list (got {type(data).__name__})")
     except Exception as e:
-        logger.warning(f"⚠️ [DURABLE_QUEUE] Failed to load queue file: {e}")
+        timestamp = datetime.now(IST).strftime("%Y%m%d_%H%M%S")
+        corrupt_path = f"{_QUEUE_PATH}.corrupt.{timestamp}"
+        logger.error(f"🚨 [DURABLE_QUEUE ADMIN WARNING] Corrupt queue file detected ({e}). Quarantining to '{corrupt_path}'.")
+        try:
+            os.replace(_QUEUE_PATH, corrupt_path)
+        except Exception as q_err:
+            logger.error(f"Failed to quarantine corrupt file: {q_err}")
     return []
 
 
@@ -159,6 +168,13 @@ def _process_job(job: dict) -> dict:
     _write_job(job)
 
     try:
+        if not os.path.exists(job["file_path"]):
+            job["status"] = _STATE_ABANDONED
+            job["error"] = f"Local payload file missing: {job['file_path']}"
+            logger.error(f"❌ [DURABLE_QUEUE] Job {job['job_id']} ABANDONED — local payload file '{job['file_path']}' missing.")
+            _write_job(job)
+            return job
+
         from database import upload_parquet_to_db
         success = upload_parquet_to_db(job["name"], job["file_path"])
         if success:

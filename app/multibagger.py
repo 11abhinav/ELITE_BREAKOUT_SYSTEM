@@ -1060,8 +1060,8 @@ def is_deep_v5_cache(data: dict) -> bool:
     equity = data.get("total_equity")
     mcap = data.get("market_cap")
     if tier is not None:
-        return tier == DEEP_V5_CACHE_TIER and (equity is not None or mcap is not None)
-    return equity is not None or mcap is not None
+        return tier == DEEP_V5_CACHE_TIER and equity is not None
+    return equity is not None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2688,37 +2688,6 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             append_rejection(results, sym, status_code, reason, price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
             return
 
-        # 3. Targeted Deep Hydration for Finalists
-        # If the candidate made it past the pre-gates, we need strict V5 keys for the pipeline
-        if not is_deep_v5_cache(raw_fundamentals):
-            logger.info(f"📥 [MULTIBAGGER POST-FILTER] {sym}: Passed pre-gates but missing V5 keys. Fetching deep YFinance fundamentals...")
-            try:
-                deep_fund = fetch_ticker_fundamentals(sym)
-                if deep_fund:
-                    # [FIX: CACHE_TIER_v1.0] Only promote to DEEP_V5 if YFinance actually
-                    # returned a non-None total_equity. A partial/failed fetch must stay as
-                    # TV_BASELINE so the next scan retries hydration instead of treating
-                    # corrupted data as authoritative.
-                    deep_equity = deep_fund.get("total_equity")
-                    resolved_tier = DEEP_V5_CACHE_TIER if deep_equity is not None else TV_BASELINE_CACHE_TIER
-                    deep_fund["cache_tier"] = resolved_tier
-                    # Merge fetched deep metrics into raw_fundamentals (None values skipped to
-                    # preserve any existing valid data already in raw_fundamentals from TV cache)
-                    for k, v in deep_fund.items():
-                        if v is not None:
-                            raw_fundamentals[k] = v
-                    raw_fundamentals["fetched_at"] = datetime.now(IST).isoformat()
-                    raw_fundamentals["cache_tier"] = resolved_tier
-                    if resolved_tier == DEEP_V5_CACHE_TIER:
-                        logger.debug(f"✅ [POST-FILTER] {sym}: Promoted to DEEP_V5 (total_equity={deep_equity:.0f})")
-                    else:
-                        logger.warning(f"⚠️ [POST-FILTER] {sym}: YFinance returned no total_equity — staying TV_BASELINE, will retry next run")
-                    # Store back to the in-memory cache for the chunk-saver
-                    with _eval_lock:
-                        cache[sym] = deep_fund
-            except Exception as e:
-                logger.warning(f"⚠️ [MULTIBAGGER POST-FILTER] Failed to fetch deep fundamentals for {sym}: {e}")
-
         # 4. Run the V5 Pipeline
         # [VERSION: MULTIBAGGER_PIPELINE_GUARD_v1.1] Guard per-symbol pipeline execution with exception logging
         try:
@@ -2890,264 +2859,275 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         logger.error(f"Failed to sync deep fundamentals cache to DB: {e}")
 
     # Process Top-N alerts
-        # [Gate 4] PASS 1 COMPLETE: Sort by tier, total_score desc, cqs desc
-        alert_candidates.sort(key=lambda x: (x.get("tier_val", 0), x["total_score"], x["cqs"]), reverse=True)
-        all_alert_candidates = list(alert_candidates)
+    # [Gate 4] PASS 1 COMPLETE: Sort by tier, total_score desc, cqs desc
+    alert_candidates.sort(key=lambda x: (x.get("tier_val", 0), x["total_score"], x["cqs"]), reverse=True)
+    all_alert_candidates = list(alert_candidates)
 
-        from config import SCANNER_MAX_ALERTS
-        max_alerts = SCANNER_MAX_ALERTS.get("MULTIBAGGER", 10)
-        _eval_dur = time.perf_counter() - _eval_start_t
-        logger.info(
-            f"⏱️ [MULTIBAGGER] Batch 1/1 Timing | "
-            f"Fetch {len(symbols)} symbols: {_fetch_dur:.2f}s | "
-            f"Pass 1 Evaluation: {_eval_dur:.2f}s"
-        )
+    from config import SCANNER_MAX_ALERTS
+    max_alerts = SCANNER_MAX_ALERTS.get("MULTIBAGGER", 10)
+    _eval_dur = time.perf_counter() - _eval_start_t
+    logger.info(
+        f"⏱️ [MULTIBAGGER] Batch 1/1 Timing | "
+        f"Fetch {len(symbols)} symbols: {_fetch_dur:.2f}s | "
+        f"Pass 1 Evaluation: {_eval_dur:.2f}s"
+    )
 
-        # [Gate 4] PASS 2: DYNAMIC FINALIST POOL & YFINANCE HYDRATION
-        finalist_pool = _build_finalist_pool(alert_candidates, base_n=25, score_buffer=5.0)
+    # [Gate 4] PASS 2: DYNAMIC FINALIST POOL & YFINANCE HYDRATION
+    finalist_pool = _build_finalist_pool(alert_candidates, base_n=25, score_buffer=5.0)
 
-        # Hydrate finalists
-        futures = {}
-        with ThreadPoolExecutor(max_workers=6) as executor:
-            for cand in finalist_pool:
-                sym = cand["symbol"]
-                cached = get_cached_fundamentals(sym, cache)
-                # Only hydrate if missing YFinance deep data
-                if cached and not is_deep_v5_cache(cached):
-                    futures[executor.submit(fetch_ticker_fundamentals, sym)] = cand
-
-            if futures:
-                logger.info(f"📥 [MULTIBAGGER PASS 2] Deep YFinance hydration for {len(futures)} finalists...")
-                for future in as_completed(futures, timeout=120):
-                    cand = futures[future]
-                    sym = cand["symbol"]
-                    try:
-                        fund = future.result()
-                        if fund and not fund.get("failed"):
-                            fund["fetched_at"] = datetime.now(IST).isoformat()
-                            cache[sym] = fund
-                            # Rerun V5 specifically for this finalist now that it has YFinance data
-                            # We unpack just the pipeline run to patch the candidate dict
-                            try:
-                                technicals = {
-                                    "price": cand["price"],
-                                    "sma_50": cand["_price_data"].sma_50,
-                                    "sma_200": cand["_price_data"].sma_200,
-                                    "atr": cand["_price_data"].atr_14
-                                }
-                                decision = run_pipeline_for_symbol(sym, fund, technicals)
-                                cand["pipeline_result"] = decision
-                                cand["raw_fundamentals"] = fund
-                                cand["total_score"] = decision.total_score
-                                cand["cqs"] = decision.quality.score
-                                cand["pas"] = decision.price_action.score
-                                cand["trend_score"] = decision.trend.score
-                                cand["tier"] = decision.classification
-                                cand["tier_val"] = 2 if "Prime" in decision.classification else 1
-                                logger.info(f"✅ Pass 2 Re-scored {sym} with DEEP_V5 data (Score: {cand['total_score']:.1f})")
-                            except Exception as re_err:
-                                logger.error(f"Failed Pass 2 V5 re-scoring for {sym}: {re_err}")
-                        else:
-                            logger.warning(f"⚠️ Pass 2 YFinance fallback failed for {sym}")
-                    except Exception as e:
-                        logger.error(f"❌ Error in Pass 2 fetch for {sym}: {e}")
-                
-                # Resave cache if we fetched deep data
-                save_fundamentals_cache(cache, sync_to_db=True)
-
-        # Post-hydration resort
-        finalist_pool.sort(key=lambda x: (x.get("tier_val", 0), x["total_score"], x["cqs"]), reverse=True)
-
-        # Determine Top-N from the finalist pool, applying data state rules
-        top_n = []
+    # Hydrate finalists
+    futures = {}
+    with ThreadPoolExecutor(max_workers=6) as executor:
         for cand in finalist_pool:
             sym = cand["symbol"]
-            
-            # [Gate 4] Enforce Data State Rule
-            fund = cand["raw_fundamentals"]
-            data_state = _classify_finalist_data_state(fund)
-            cand["decision_data_mode"] = data_state
+            cached = get_cached_fundamentals(sym, cache)
+            # Only hydrate if missing YFinance deep data
+            logger.info(f"DEBUG PASS2: {sym} cached={bool(cached)} is_deep={is_deep_v5_cache(cached) if cached else False}")
+            if cached and not is_deep_v5_cache(cached):
+                futures[executor.submit(fetch_ticker_fundamentals, sym)] = cand
 
-            if data_state == "DATA_INCOMPLETE":
-                logger.info(f"🚫 {sym} alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)")
-                cand["rejection_status"] = "DATA_INCOMPLETE"
-                cand["rejection_reason"] = "Missing critical baseline TV metrics"
-                continue
-
-            if len(top_n) >= max_alerts:
-                cand["rejection_status"] = "SUPPRESSED_TOP_N"
-                cand["rejection_reason"] = f"Exceeded MAX_ALERTS_PER_SCAN limit ({max_alerts})"
-                logger.info(f"🚫 {sym} alert SUPPRESSED_TOP_N: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['total_score']:.1f})")
-                continue
-                
-            top_n.append(cand)
-
-        logger.info(f"🏆 Top {len(top_n)} valid candidates selected after Pass 2.")
-        
-        # Batch fetch live prices
-        try:
-            from live_prices import get_live_prices
-            live_prices_dict = get_live_prices([c["symbol"] for c in top_n])
-        except Exception as e:
-            logger.warning(f"Failed to batch fetch live prices: {e}")
-            live_prices_dict = {}
-        
-        for cand in top_n:
-            try:
+        if futures:
+            logger.info(f"📥 [MULTIBAGGER PASS 2] Deep YFinance hydration for {len(futures)} finalists...")
+            for future in as_completed(futures, timeout=120):
+                cand = futures[future]
                 sym = cand["symbol"]
-                price = cand["price"]
-                
-                # [VERSION: MULTIBAGGER_LIVE_PRICE_GUARD_v1.1] Apply batched live price with finite & positivity check
-                live_p = live_prices_dict.get(sym)
                 try:
-                    parsed_p = float(live_p) if live_p is not None else float("nan")
-                except (TypeError, ValueError):
-                    parsed_p = float("nan")
-
-                if not math.isfinite(parsed_p) or parsed_p <= 0:
-                    logger.info(f"🚫 {sym} live price unavailable or invalid ({live_p}) — skipping alert")
-                    cand["rejection_status"] = "LIVE_PRICE_UNAVAILABLE"
-                    cand["rejection_reason"] = f"Could not verify current market price (got {live_p})"
-                    continue
-
-                price = float(parsed_p)
-                cand["price"] = price  # [FIX ISSUE-7] Update candidate price to validated live price
-
-                # [FIX MUL-14] Revalidate live price against buy zone.
-                pipeline_res = cand["pipeline_result"]
-                bz_low = pipeline_res.buy_zone.buy_zone_low if pipeline_res and pipeline_res.buy_zone else 0.0
-                bz_high = pipeline_res.buy_zone.buy_zone_high if pipeline_res and pipeline_res.buy_zone else 0.0
-                if bz_high > 0 and (price < bz_low or price > bz_high):
-                    logger.info(f"🚫 {sym} live price ₹{price:.2f} outside buy zone [₹{bz_low:.2f} - ₹{bz_high:.2f}] — skipping alert")
-                    # [FIX ISSUE-10] Track distinct rejection reason
-                    cand["rejection_status"] = "PRICE_MOVED"
-                    cand["rejection_reason"] = f"Live price ₹{price:.2f} outside buy zone [₹{bz_low:.2f} - ₹{bz_high:.2f}]"
-                    continue
-
-                # [FIX MUL-24] Recheck entry_confirmed against live price.
-                live_price_data = cand.get("_price_data")
-                if live_price_data is not None:
-                    from dataclasses import replace
-                    live_pd = replace(live_price_data, price=price, today_close=price)
-                    if not entry_confirmed(live_pd):
-                        logger.info(f"🚫 {sym} live price ₹{price:.2f} fails entry_confirmed recheck — skipping alert")
-                        # [FIX ISSUE-10] Track distinct rejection reason
-                        cand["rejection_status"] = "TECHNICAL_UNCONFIRMED"
-                        cand["rejection_reason"] = f"Live entry_confirmed failed at ₹{price:.2f}"
-                        continue
-
-                c_total = cand["total_score"]
-                c_cqs = cand["cqs"]
-                c_trend = cand["trend_score"]
-                c_pas = cand["pas"]
-                c_notes = cand["notes"]
-                raw_fund = cand["raw_fundamentals"]
-                c_tier = cand.get("tier") or (pipeline_res.classification if pipeline_res else "💎 High Quality")
-                
-                logger.info(f"🌟 Alert Triggered for {sym}! Price={price:.1f}. Reason: In Buy Zone")
-                
-                scaled_score = int(c_total)
-                
-                # Custom Capital Allocation based on tier
-                if c_tier == "🚀 Prime Multibagger":
-                    alloc = 100000.0
-                elif c_tier == "💎 High Quality":
-                    alloc = 50000.0
-                else:
-                    alloc = 25000.0
-                    
-                pos_shares = int(alloc / price) if price > 0 else 0
-                
-                inserted = False
-                context_dict = {
-                    "multibagger_meta": {
-                        "valuation_score": c_pas,
-                        "momentum_score": int(c_trend),
-                        "momentum_confidence": "HIGH" if c_cqs >= 75.0 else "MEDIUM",
-                        "data_quality": "LIVE",
-                        "pipeline_tier": c_tier,
-                        "decision_data_mode": cand.get("decision_data_mode", "UNKNOWN")
-                    }
-                }
-                
-                # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every triggered trade
-                _last_bar_date = "unknown"
-                try:
-                    _price_data = price_data_map.get(sym)
-                    if _price_data and hasattr(_price_data, 'timestamp'):
-                        _last_bar_date = str(_price_data.timestamp)[:10]
-                except Exception:
-                    pass
-                logger.info(
-                    f"✅ [MULTIBAGGER] PASSED ALL FILTERS: {sym} | "
-                    f"cqs={c_cqs:.1f} | pas={c_pas:.1f} | total_score={scaled_score:.1f} | "
-                    f"entry=₹{price:.2f} | last_bar={_last_bar_date} | category={c_tier}"
-                )
-                
-                # We use save_alert_if_new to insert into the main alerts table!
-                from zoneinfo import ZoneInfo
-                ist_now = datetime.now(ZoneInfo('Asia/Kolkata'))
-                
-                # [VERSION: MULTIBAGGER_ALERT_INSERT_GUARD_v1.1] Wrap DB alert insertion in try...except
-                try:
-                    inserted, reason, _, _ = save_alert_if_new(
-                        symbol=sym,
-                        breakout_type="MULTIBAGGER",
-                        alert_time=ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
-                        scanner="MULTIBAGGER",
-                        category=c_tier,
-                        entry_price=round(price, 2),
-                        stop_loss=0.0, # As requested: No SL for Multibagger
-                        target_price=0.0,
-                        signals="Value, Momentum, Quality",
-                        score=scaled_score,
-                        context=context_dict,
-                        capital_allocated=alloc,
-                        shares_bought=pos_shares
-                    )
-                except Exception as exc:
-                    logger.exception(f"{sym}: alert insertion failed: {exc}")
-                    inserted = False
-                    reason = "Database insertion failed"
-
-                # [FIX-8] Track insertion status AND rejection reason on the candidate
-                cand["inserted"] = inserted
-                if not inserted:
-                    cand["insert_reason"] = str(reason)
-                    if "duplicate" in str(reason).lower():
-                        cand["rejection_status"] = "DUPLICATE"
+                    deep_f = future.result()
+                    if deep_f and not deep_f.get("failed"):
+                        deep_equity = deep_f.get("total_equity")
+                        resolved_tier = DEEP_V5_CACHE_TIER if deep_equity is not None else TV_BASELINE_CACHE_TIER
+                        deep_f["cache_tier"] = resolved_tier
+                        
+                        fund = cand["raw_fundamentals"]
+                        for k, v in deep_f.items():
+                            if v is not None:
+                                fund[k] = v
+                        fund["fetched_at"] = datetime.now(IST).isoformat()
+                        fund["cache_tier"] = resolved_tier
+                        cache[sym] = fund
+                        
+                        # Rerun V5 specifically for this finalist now that it has YFinance data
+                        # We unpack just the pipeline run to patch the candidate dict
+                        try:
+                            technicals = {
+                                "price": cand["price"],
+                                "sma_50": cand["_price_data"].sma_50,
+                                "sma_200": cand["_price_data"].sma_200,
+                                "atr": cand["_price_data"].atr_14
+                            }
+                            decision = run_pipeline_for_symbol(sym, fund, technicals)
+                            cand["pipeline_result"] = decision
+                            cand["raw_fundamentals"] = fund
+                            cand["total_score"] = decision.composite_score
+                            cand["cqs"] = decision.quality.score
+                            cand["pas"] = decision.valuation.score
+                            cand["trend_score"] = decision.market_structure.score
+                            cand["tier"] = decision.classification
+                            cand["tier_val"] = 2 if "Prime" in decision.classification else 1
+                            logger.info(f"✅ Pass 2 Re-scored {sym} with DEEP_V5 data (Score: {cand['total_score']:.1f})")
+                        except Exception as re_err:
+                            logger.error(f"Failed Pass 2 V5 re-scoring for {sym}: {re_err}")
                     else:
-                        cand["rejection_status"] = "INSERT_FAILED"
-                    cand["rejection_reason"] = str(reason)
+                        logger.warning(f"⚠️ Pass 2 YFinance fallback failed for {sym}")
+                except Exception as e:
+                    logger.error(f"❌ Error in Pass 2 fetch for {sym}: {e}")
+            
+            # Resave cache if we fetched deep data
+            save_fundamentals_cache(cache, sync_to_db=True)
 
-                if inserted:
-                    for _r in results:
-                        if _r.symbol.upper() == sym.upper():
-                            _r.alert_inserted = True
-                            _r.price = round(price, 2)
-                            break
-                    from core.multibagger_pipeline import V5_CONFIG
-                    if V5_CONFIG.get("enable_telegram_alerts", True) and not is_test_mode:
-                        fv_val = safe_float(getattr(pipeline_res.valuation, 'fair_value', 0.0))
-                        mos_val = safe_float(getattr(pipeline_res.valuation, 'margin_of_safety', 0.0))
-                        msg = (
-                            f"🚀 <b>MULTIBAGGER ALERT | {sym}</b>\n"
-                            f"----------------------------------------\n"
-                            f"• Price: ₹{price:.1f}\n"
-                            f"• Classification: <b>{pipeline_res.classification}</b>\n"
-                            f"• Composite Score: {pipeline_res.composite_score:.1f}/100\n"
-                            f"• Confidence: {pipeline_res.confidence:.0f}%\n"
-                            f"• Fair Value: ₹{fv_val:.1f} (MoS: {mos_val:.1f}%)\n"
-                            f"• Buy Zone: ₹{pipeline_res.buy_zone.buy_zone_low:.1f} - ₹{pipeline_res.buy_zone.buy_zone_high:.1f}\n"
-                            f"• Sector: {raw_fund.get('sector', 'Unknown')}\n"
-                            f"\n<i>System V5 Architecture</i>"
-                        )
-                        queue_telegram_message(msg, symbol=sym)
-            except Exception as exc:
-                logger.exception(f"{cand.get('symbol', 'UNKNOWN')}: candidate processing failed: {exc}")
-                cand["rejection_status"] = "PROCESSING_FAILED"
-                cand["rejection_reason"] = "Candidate processing failed"
+    # Post-hydration resort
+    finalist_pool.sort(key=lambda x: (x.get("tier_val", 0), x["total_score"], x["cqs"]), reverse=True)
+
+    # Determine Top-N from the finalist pool, applying data state rules
+    top_n = []
+    for cand in finalist_pool:
+        sym = cand["symbol"]
+        
+        # [Gate 4] Enforce Data State Rule
+        fund = cand["raw_fundamentals"]
+        data_state = _classify_finalist_data_state(fund)
+        cand["decision_data_mode"] = data_state
+
+        if data_state == "DATA_INCOMPLETE":
+            logger.info(f"🚫 {sym} alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)")
+            cand["rejection_status"] = "DATA_INCOMPLETE"
+            cand["rejection_reason"] = "Missing critical baseline TV metrics"
+            continue
+
+        if len(top_n) >= max_alerts:
+            cand["rejection_status"] = "SUPPRESSED_TOP_N"
+            cand["rejection_reason"] = f"Exceeded MAX_ALERTS_PER_SCAN limit ({max_alerts})"
+            logger.info(f"🚫 {sym} alert SUPPRESSED_TOP_N: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['total_score']:.1f})")
+            continue
+            
+        top_n.append(cand)
+
+    logger.info(f"🏆 Top {len(top_n)} valid candidates selected after Pass 2.")
+    
+    # Batch fetch live prices
+    try:
+        from live_prices import get_live_prices
+        live_prices_dict = get_live_prices([c["symbol"] for c in top_n])
+    except Exception as e:
+        logger.warning(f"Failed to batch fetch live prices: {e}")
+        live_prices_dict = {}
+    
+    for cand in top_n:
+        try:
+            sym = cand["symbol"]
+            price = cand["price"]
+            
+            # [VERSION: MULTIBAGGER_LIVE_PRICE_GUARD_v1.1] Apply batched live price with finite & positivity check
+            live_p = live_prices_dict.get(sym)
+            try:
+                parsed_p = float(live_p) if live_p is not None else float("nan")
+            except (TypeError, ValueError):
+                parsed_p = float("nan")
+
+            if not math.isfinite(parsed_p) or parsed_p <= 0:
+                logger.info(f"🚫 {sym} live price unavailable or invalid ({live_p}) — skipping alert")
+                cand["rejection_status"] = "LIVE_PRICE_UNAVAILABLE"
+                cand["rejection_reason"] = f"Could not verify current market price (got {live_p})"
                 continue
+
+            price = float(parsed_p)
+            cand["price"] = price  # [FIX ISSUE-7] Update candidate price to validated live price
+
+            # [FIX MUL-14] Revalidate live price against buy zone.
+            pipeline_res = cand["pipeline_result"]
+            bz_low = pipeline_res.buy_zone.buy_zone_low if pipeline_res and pipeline_res.buy_zone else 0.0
+            bz_high = pipeline_res.buy_zone.buy_zone_high if pipeline_res and pipeline_res.buy_zone else 0.0
+            if bz_high > 0 and (price < bz_low or price > bz_high):
+                logger.info(f"🚫 {sym} live price ₹{price:.2f} outside buy zone [₹{bz_low:.2f} - ₹{bz_high:.2f}] — skipping alert")
+                # [FIX ISSUE-10] Track distinct rejection reason
+                cand["rejection_status"] = "PRICE_MOVED"
+                cand["rejection_reason"] = f"Live price ₹{price:.2f} outside buy zone [₹{bz_low:.2f} - ₹{bz_high:.2f}]"
+                continue
+
+            # [FIX MUL-24] Recheck entry_confirmed against live price.
+            live_price_data = cand.get("_price_data")
+            if live_price_data is not None:
+                from dataclasses import replace
+                live_pd = replace(live_price_data, price=price, today_close=price)
+                if not entry_confirmed(live_pd):
+                    logger.info(f"🚫 {sym} live price ₹{price:.2f} fails entry_confirmed recheck — skipping alert")
+                    # [FIX ISSUE-10] Track distinct rejection reason
+                    cand["rejection_status"] = "TECHNICAL_UNCONFIRMED"
+                    cand["rejection_reason"] = f"Live entry_confirmed failed at ₹{price:.2f}"
+                    continue
+
+            c_total = cand["total_score"]
+            c_cqs = cand["cqs"]
+            c_trend = cand["trend_score"]
+            c_pas = cand["pas"]
+            c_notes = cand["notes"]
+            raw_fund = cand["raw_fundamentals"]
+            c_tier = cand.get("tier") or (pipeline_res.classification if pipeline_res else "💎 High Quality")
+            
+            logger.info(f"🌟 Alert Triggered for {sym}! Price={price:.1f}. Reason: In Buy Zone")
+            
+            scaled_score = int(c_total)
+            
+            # Custom Capital Allocation based on tier
+            if c_tier == "🚀 Prime Multibagger":
+                alloc = 100000.0
+            elif c_tier == "💎 High Quality":
+                alloc = 50000.0
+            else:
+                alloc = 25000.0
+                
+            pos_shares = int(alloc / price) if price > 0 else 0
+            
+            inserted = False
+            context_dict = {
+                "multibagger_meta": {
+                    "valuation_score": c_pas,
+                    "momentum_score": int(c_trend),
+                    "momentum_confidence": "HIGH" if c_cqs >= 75.0 else "MEDIUM",
+                    "data_quality": "LIVE",
+                    "pipeline_tier": c_tier,
+                    "decision_data_mode": cand.get("decision_data_mode", "UNKNOWN")
+                }
+            }
+            
+            # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every triggered trade
+            _last_bar_date = "unknown"
+            try:
+                _price_data = price_data_map.get(sym)
+                if _price_data and hasattr(_price_data, 'timestamp'):
+                    _last_bar_date = str(_price_data.timestamp)[:10]
+            except Exception:
+                pass
+            logger.info(
+                f"✅ [MULTIBAGGER] PASSED ALL FILTERS: {sym} | "
+                f"cqs={c_cqs:.1f} | pas={c_pas:.1f} | total_score={scaled_score:.1f} | "
+                f"entry=₹{price:.2f} | last_bar={_last_bar_date} | category={c_tier}"
+            )
+            
+            # We use save_alert_if_new to insert into the main alerts table!
+            from zoneinfo import ZoneInfo
+            ist_now = datetime.now(ZoneInfo('Asia/Kolkata'))
+            
+            # [VERSION: MULTIBAGGER_ALERT_INSERT_GUARD_v1.1] Wrap DB alert insertion in try...except
+            try:
+                inserted, reason, _, _ = save_alert_if_new(
+                    symbol=sym,
+                    breakout_type="MULTIBAGGER",
+                    alert_time=ist_now.strftime("%Y-%m-%d %H:%M:%S+05:30"),
+                    scanner="MULTIBAGGER",
+                    category=c_tier,
+                    entry_price=round(price, 2),
+                    stop_loss=0.0, # As requested: No SL for Multibagger
+                    target_price=0.0,
+                    signals="Value, Momentum, Quality",
+                    score=scaled_score,
+                    context=context_dict,
+                    capital_allocated=alloc,
+                    shares_bought=pos_shares
+                )
+            except Exception as exc:
+                logger.exception(f"{sym}: alert insertion failed: {exc}")
+                inserted = False
+                reason = "Database insertion failed"
+
+            # [FIX-8] Track insertion status AND rejection reason on the candidate
+            cand["inserted"] = inserted
+            if not inserted:
+                cand["insert_reason"] = str(reason)
+                if "duplicate" in str(reason).lower():
+                    cand["rejection_status"] = "DUPLICATE"
+                else:
+                    cand["rejection_status"] = "INSERT_FAILED"
+                cand["rejection_reason"] = str(reason)
+
+            if inserted:
+                for _r in results:
+                    if _r.symbol.upper() == sym.upper():
+                        _r.alert_inserted = True
+                        _r.price = round(price, 2)
+                        break
+                from core.multibagger_pipeline import V5_CONFIG
+                if V5_CONFIG.get("enable_telegram_alerts", True) and not is_test_mode:
+                    fv_val = safe_float(getattr(pipeline_res.valuation, 'fair_value', 0.0))
+                    mos_val = safe_float(getattr(pipeline_res.valuation, 'margin_of_safety', 0.0))
+                    msg = (
+                        f"🚀 <b>MULTIBAGGER ALERT | {sym}</b>\n"
+                        f"----------------------------------------\n"
+                        f"• Price: ₹{price:.1f}\n"
+                        f"• Classification: <b>{pipeline_res.classification}</b>\n"
+                        f"• Composite Score: {pipeline_res.composite_score:.1f}/100\n"
+                        f"• Confidence: {pipeline_res.confidence:.0f}%\n"
+                        f"• Fair Value: ₹{fv_val:.1f} (MoS: {mos_val:.1f}%)\n"
+                        f"• Buy Zone: ₹{pipeline_res.buy_zone.buy_zone_low:.1f} - ₹{pipeline_res.buy_zone.buy_zone_high:.1f}\n"
+                        f"• Sector: {raw_fund.get('sector', 'Unknown')}\n"
+                        f"\n<i>System V5 Architecture</i>"
+                    )
+                    queue_telegram_message(msg, symbol=sym)
+        except Exception as exc:
+            logger.exception(f"{cand.get('symbol', 'UNKNOWN')}: candidate processing failed: {exc}")
+            cand["rejection_status"] = "PROCESSING_FAILED"
+            cand["rejection_reason"] = "Candidate processing failed"
+            continue
 
     # [FIX-1 + ISSUE-10] Reconcile statuses using all candidates (including those cut by Top-N).
     # Build rejected_map from all_alert_candidates, not the sliced alert_candidates.
