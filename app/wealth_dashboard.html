@@ -1793,5 +1793,28 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 </script>
 <script src="/static/shared_ui.js"></script>
+
+<script>
+// Auto-wrap all tables to ensure mobile scrollability
+document.addEventListener("DOMContentLoaded", function() {
+    document.querySelectorAll("table").forEach(tbl => {
+        const parent = tbl.parentElement;
+        if (parent && !parent.classList.contains("table-container") && !parent.classList.contains("table-responsive") && !parent.classList.contains("tbl-wrap") && !parent.style.overflowX) {
+            const wrapper = document.createElement("div");
+            wrapper.className = "table-responsive";
+            wrapper.style.overflowX = "auto";
+            wrapper.style.width = "100%";
+            wrapper.style.webkitOverflowScrolling = "touch";
+            parent.insertBefore(wrapper, tbl);
+            wrapper.appendChild(tbl);
+        } else if (parent) {
+            parent.style.overflowX = "auto";
+            parent.style.width = "100%";
+            parent.style.webkitOverflowScrolling = "touch";
+        }
+    });
+});
+</script>
+
 </body>
 </html>

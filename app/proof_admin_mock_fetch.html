@@ -1191,8 +1191,7 @@ var _userWatchlistData = [];
 
       .scanner-alert-tooltip { width: 90vw; }
 
-      table { display: table !important; width: 100% !important; min-width: auto; }
-      .table-container { display: block; width: 100% !important; max-width: 100vw !important; overflow-x: auto !important; -webkit-overflow-scrolling: touch; margin-bottom: 12px; }
+      table { display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
 
       #admin-chat-panel {
         width: calc(100vw - 40px) !important;
@@ -1503,11 +1502,9 @@ var _userWatchlistData = [];
             <option value="ALL">All Time</option>
             <option value="TODAY">Today</option>
             <option value="WEEK">This Week</option>
-            <option value="MONTH">This Month</option>
-            <option value="QUARTER">This Quarter</option>
-            <option value="YEAR">This Year</option>
             <option value="30D">Last 30 Days</option>
             <option value="90D">Last 90 Days</option>
+            <option value="YTD">YTD</option>
           </select>
           <select id="filterScanner">
             <option value="">All scanners</option>
@@ -2429,10 +2426,10 @@ var _userWatchlistData = [];
       const m = { PROFIT: 'badge-win', WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', SELL_REVIEW: 'badge-review', NEUTRAL: 'badge-neutral', REJECTED: 'badge-rejected' };
       let html = `<span class="badge ${m[displayStatus] || 'badge-neutral'}">${displayStatus}</span>`;
       if (t && t.is_rejected && t.shadow_status && t.shadow_status !== 'SHADOW_OPEN') {
-        const isWin = t.shadow_status === 'SHADOW_WIN' || t.shadow_pnl_pct >= 0;
+        const isWin = t.shadow_status === 'SHADOW_WIN';
         const shColor = isWin ? '#00e5a0' : '#ff4d4d';
         const pnlStr = t.shadow_pnl_pct != null ? (t.shadow_pnl_pct >= 0 ? '+' : '') + t.shadow_pnl_pct + '%' : '';
-        const shText = isWin ? `MISSED OPPORTUNITY ${pnlStr}` : `GOOD REJECTION ${pnlStr}`;
+        const shText = isWin ? `SHADOW WIN ${pnlStr}` : `SHADOW LOSS ${pnlStr}`;
         html += ` <span style="font-size:10px; font-weight:bold; color:${shColor}; background:rgba(0,0,0,0.06); padding:2px 6px; border-radius:4px; margin-left:4px; border:1px solid ${shColor}44;" title="Counterfactual Shadow Outcome">👻 ${shText}</span>`;
       }
       return html;
@@ -2984,13 +2981,49 @@ var _userWatchlistData = [];
     }
 
 function getEarningsBadgeHtml(item) {
-  // Earnings Calendar removed. Only show corporate action (split) badges from event_badges.
-  if (!item || !Array.isArray(item.event_badges) || item.event_badges.length === 0) return '';
-  for (const b of item.event_badges) {
-    if (b.type === 'corporate_action' && b.label) {
-      return `<span class="badge" style="background:rgba(147,51,234,0.25); color:#c084fc; border:1px solid rgba(147,51,234,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="${b.label}">🔀 ${b.label}</span>`;
+  if (!item) return '';
+  const sym = (item.symbol || item.Stock || item.Symbol || '').toString().toUpperCase();
+  let d = (item.days_to_earnings != null && item.days_to_earnings !== 999) ? parseInt(item.days_to_earnings, 10) : null;
+  let ed = item.earnings_date ? (String(item.earnings_date).split('T')[0] || item.earnings_date) : '';
+  let s = item.earnings_severity || (item.earnings_flag ? 'HIGH_SOON' : '');
+  let msg = item.warning_msg || (ed ? `Earnings Date: ${ed}` : 'Earnings Announcement');
+
+  // Fallback to event_badges array if available
+  if (d === null && !ed && Array.isArray(item.event_badges) && item.event_badges.length > 0) {
+    for (const b of item.event_badges) {
+      if (b.type === 'earnings' && b.metadata) {
+        if (b.metadata.days != null) d = parseInt(b.metadata.days, 10);
+        if (b.metadata.date) ed = String(b.metadata.date).split('T')[0];
+        if (b.metadata.date_status) s = b.metadata.date_status;
+        if (ed) msg = `Earnings Date: ${ed}`;
+        break;
+      }
     }
   }
+
+  // Restrict display: ONLY show badge if earnings are within NEXT 15 DAYS (0 to 15 days) or LAST 15 DAYS (-1 to -15 days)
+  if (d === null || isNaN(d)) return '';
+
+  // 1. EARNINGS TODAY / HIGH TODAY (0 days)
+  if (d === 0 || s === 'HIGH_TODAY') {
+    return `<span class="badge" style="background:rgba(239,68,68,0.25); color:#f87171; border:1px solid rgba(239,68,68,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(239,68,68,0.3);" title="${msg}">🔴 RESULTS TODAY</span>`;
+  }
+  // 2. RECENTLY DECLARED (LAST 15 DAYS: -1 to -15 DAYS AGO)
+  if (d >= -15 && d <= -1) {
+    const dayLabel = d === -1 ? 'YESTERDAY' : `${Math.abs(d)}D AGO`;
+    return `<span class="badge" style="background:rgba(16,185,129,0.25); color:#34d399; border:1px solid rgba(16,185,129,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(16,185,129,0.3);" title="${msg}">🟢 RESULTS OUT (${dayLabel})</span>`;
+  }
+  // 3. EARNINGS UPCOMING SOON (NEXT 1 to 3 DAYS)
+  if ((d >= 1 && d <= 3) || s === 'HIGH_SOON') {
+    const daysStr = `${d}D`;
+    return `<span class="badge" style="background:rgba(245,158,11,0.25); color:#fbbf24; border:1px solid rgba(245,158,11,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; box-shadow:0 0 8px rgba(245,158,11,0.3);" title="${msg}">🟠 RESULTS IN ${daysStr}</span>`;
+  }
+  // 4. UPCOMING EARNINGS IN NEXT 15 DAYS (4 to 15 DAYS)
+  if (d >= 4 && d <= 15) {
+    return `<span class="badge" style="background:rgba(59,130,246,0.25); color:#60a5fa; border:1px solid rgba(59,130,246,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="${msg}">📅 EARNINGS ${d}D</span>`;
+  }
+
+  // Outside +/- 15 days window: Hide badge to keep UI clean
   return '';
 }
 
@@ -4055,9 +4088,7 @@ function getEarningsBadgeHtml(item) {
       const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
       const todayStr = formatter.format(now);
       const todayStart = new Date(todayStr + 'T00:00:00');
-      const yearStart = new Date(now.getFullYear(), 0, 1);
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const quarterStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+      const ytd = new Date(now.getFullYear(), 0, 1);
       const d30 = new Date(now); d30.setDate(d30.getDate() - 30);
       const d90 = new Date(now); d90.setDate(d90.getDate() - 90);
       const weekStart = new Date(todayStart);
@@ -4084,9 +4115,7 @@ function getEarningsBadgeHtml(item) {
           const d = new Date((t.entry_date || '').replace(' ', 'T'));
           if (dateFilt === 'TODAY' && d <todayStart) return false;
           if (dateFilt === 'WEEK' && d <weekStart) return false;
-          if (dateFilt === 'MONTH' && d <monthStart) return false;
-          if (dateFilt === 'QUARTER' && d <quarterStart) return false;
-          if (dateFilt === 'YEAR' && d <yearStart) return false;
+          if (dateFilt === 'YTD' && d <ytd) return false;
           if (dateFilt === '30D' && d <d30) return false;
           if (dateFilt === '90D' && d <d90) return false;
         }
@@ -4282,20 +4311,7 @@ function getEarningsBadgeHtml(item) {
 
     function populateFilters(trades) {
       const scanners = [...new Set(trades.map(t => t.scanner))].sort();
-      
-      // Hardcode all possible status combinations so they are always filterable
-      const predefinedStatuses = [
-        { val: 'OPEN', label: 'Open' },
-        { val: 'WIN', label: 'Win (Full Profit)' },
-        { val: 'PARTIAL_WIN', label: 'Partial Win' },
-        { val: 'LOSS', label: 'Loss (Stopped Out)' },
-        { val: 'CLOSED_TODAY', label: 'Closed Today' },
-        { val: 'REJECTED', label: 'Rejected' },
-        { val: 'SELL_REVIEW', label: 'Sell Review' },
-        { val: 'EXPIRED', label: 'Expired' },
-        { val: 'NEUTRAL', label: 'Neutral' },
-        { val: 'CLOSED', label: 'Closed (Other)' }
-      ];
+      const statuses = [...new Set(trades.map(t => t.status))].sort();
       
       const sEl = document.getElementById('filterScanner');
       const stEl = document.getElementById('filterStatus');
@@ -4305,15 +4321,7 @@ function getEarningsBadgeHtml(item) {
       if(stEl) while (stEl.options.length > 1) stEl.remove(1);
 
       scanners.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; sEl.appendChild(o); });
-      
-      if(stEl) {
-        predefinedStatuses.forEach(st => { 
-          const o = document.createElement('option'); 
-          o.value = st.val; 
-          o.textContent = st.label; 
-          stEl.appendChild(o); 
-        });
-      }
+      if(stEl) statuses.forEach(st => { const o = document.createElement('option'); o.value = st; o.textContent = st; stEl.appendChild(o); });
     }
 
     function renderCategoryStats() {
@@ -6699,10 +6707,10 @@ async function loadMultibaggerWatchlist() {
     mbWatchlistLoaded = true;
   } catch (e) {
     console.error('Failed to load multibagger watchlist:', e);
-    const tbody = document.getElementById('mb-watchlist-body');
+    const body = document.getElementById('mb-watchlist-card-body');
     const empty = document.getElementById('mb-watchlist-empty');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; padding:30px; color:var(--red);">⚠️ Failed to load multibagger watchlist. Click Refresh to retry.</td></tr>';
-    if (empty) empty.style.display = 'none';
+    if(body) body.innerHTML = '';
+    if(empty) empty.style.display = 'block';
   }
 }
 
@@ -8472,6 +8480,27 @@ if (isIOS && !isInStandaloneMode && !localStorage.getItem('ios-hint-dismissed'))
   }, true);
 </script>
 <script src="/static/shared_ui.js"></script>
+
+<script>
+const origFetch = window.fetch;
+window.fetch = function(url, opts) {
+    if (typeof url === 'string' && url.includes('/api/v1/user_watchlist')) {
+        return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve([{"symbol": "DBEIL", "company_name": "Deepak Builders & Engineers India Limited", "added_at": "2026-08-25T09:12:37.735108+05:30", "last_scanned_at": "2026-08-25T09:12:45.620403+05:30", "last_health_score": null, "last_status": "MONITORING", "notes": "", "last_deep_analysis_at": "2026-08-25T09:12:45.620403+05:30", "deep_analysis_result": null, "close_price": null, "cmp": 6.58, "cmp_updated_at": "2026-08-25T09:50:21.716100+05:30", "earnings_flag": true, "days_to_earnings": 81, "earnings_date": "2026-11-14", "earnings_severity": "ESTIMATED", "warning_msg": "", "event_badges": [{"type": "earnings", "label": "E in 53d", "priority": 100, "status": "UPCOMING", "metadata": {"date": "2026-11-14", "days": 53, "date_status": "ESTIMATED"}}, {"type": "corporate_action", "label": "Split 10.0x", "priority": 70, "status": "ACTIVE", "metadata": {"split_factor": 10.0}}], "schema_version": 1}, {"symbol": "PFC", "company_name": "Power Finance Corporation Limited", "added_at": "2026-08-03T12:27:04.564523+05:30", "last_scanned_at": "2026-08-03T12:03:17.979421+05:30", "last_health_score": 89.5, "last_status": "QUALIFIED (WEALTH, MULTI-TF)", "notes": "", "last_deep_analysis_at": "2026-08-03T12:03:17.979421+05:30", "deep_analysis_result": {"symbol": "PFC", "company_name": "PFC", "sector": "Finance", "success": true, "is_in_watchlist": true, "is_deep_analysis": true, "watchlist_status": "QUALIFIED (WEALTH, MULTI-TF)", "close_price": 424.35, "volume_ratio": 2.11, "rsi": 55.5, "overall_health_score": 89.5, "technical_score": 100.0, "fundamental_score": 65.0, "rs_percentile": 100.0, "setup_qualified": true, "production_eligible": false, "selected_for_alert": false, "deficits": ["\ud83c\udf1f Pristine Setup: No significant technical or fundamental deficits detected! Stock is in prime alignment."], "funnel": {"daily_builder": {"status": "NO", "qualified": false, "reasons": ["JUNK BLOCKED: D/E 7.62 > 1.0 maximum leverage ceiling"]}, "eod_breakout": {"status": "NO", "reasons": ["Close \u20b9424.35 <= 20D High \u20b9433.00"], "score": 0.0, "qualified": false, "entry_price": 424.35, "atr_20": 0}, "multi_tf": {"status": "CORE MET (Phase A+B+C Entry Ready)", "reasons": ["1H Trend Permission Met (EMA Alignment | ADX 26.2 | Close \u20b9425.00 near Breakout \u20b9431.40)", "30m Phase B Squeeze-Released Met (recent squeeze detected)", "15m Phase C Entry Ready (Close \u20b9425.00 \u2265 EMA15 \u20b9424.31)", "5m Phase D Pending (Close \u20b9425.00 vs Breakout \u20b9431.40 | 5m Vol 1.20x)", "\u26a1 CORE CONDITION MET: Current Status: QUALIFIED (WEALTH, MULTI-TF) (Health Score: 89.5)"], "score": 75.0, "qualified": true, "entry_price": 425.0, "stop_loss": 420.405412339033, "target_1": 425.0, "target_2": null, "target_3": null, "target_4": null, "atr_20": 3.063058440644689}, "reversal": {"status": "NO", "reasons": ["Drop from 52W High 12.8% outside allowed band [20.0%, 45.0%]"], "score": 0, "raw_score": 0, "qualified": false}, "pullback": {"status": "NO", "reasons": ["Invalid pullback structure (Retracement 24.7%, Vol Ratio 1.65x outside 23.6%\u201361.8% bounds)"], "score": 0.0, "qualified": false, "entry_price": 424.35}, "wealth_engine": {"status": "CORE MET", "reasons": ["Wealth Engine Qualified (Opportunistic) | Close \u20b9424.35 > 200DMA \u20b9403.75", "\u26a1 CORE CONDITION MET: Current Status: QUALIFIED (WEALTH, MULTI-TF) (Health Score: 89.5)"], "buckets": ["Opportunistic"], "score": 50.0, "qualified": true, "entry_price": 424.35, "stop_loss": 411.1823018206023, "target_1": 424.35, "target_2": null, "target_3": null, "target_4": null, "atr_20": 8.77846545293183}, "multibagger": {"status": "NO", "reasons": ["Multibagger V5 Score 44.9 (Invalidated) | Pledge: 0.0%"], "score": 44.88, "qualified": false, "conviction_tier": "Watchlist", "entry_price": 424.35, "stop_loss": 411.1823018206023, "target_1": 424.35, "target_2": null, "target_3": null, "target_4": null, "atr_20": 8.77846545293183}}}, "close_price": 424.35, "cmp": 363.4, "cmp_updated_at": "2026-08-25T09:50:21.716100+05:30", "earnings_flag": true, "days_to_earnings": 72, "earnings_date": "2026-11-05", "earnings_severity": "ESTIMATED", "warning_msg": "", "event_badges": [{"type": "earnings", "label": "E in 49d", "priority": 100, "status": "UPCOMING", "metadata": {"date": "2026-11-05", "days": 49, "date_status": "ESTIMATED"}}], "schema_version": 1}, {"symbol": "TMPV", "company_name": "Tata Motors Passenger Vehicles Limited", "added_at": "2026-08-03T12:26:41.077936+05:30", "last_scanned_at": "2026-08-01T16:36:51.954266+05:30", "last_health_score": 60.0, "last_status": "QUALIFIED (MULTI-TF)", "notes": "", "last_deep_analysis_at": "2026-08-01T16:36:51.954266+05:30", "deep_analysis_result": {"symbol": "TMPV", "company_name": "TMPV", "sector": "GENERAL", "success": true, "is_in_watchlist": true, "is_deep_analysis": true, "watchlist_status": "QUALIFIED (MULTI-TF)", "close_price": 366.79998779296875, "volume_ratio": 0.06, "rsi": 74.5, "overall_health_score": 60.0, "technical_score": 50.0, "fundamental_score": 50.0, "rs_percentile": 100.0, "setup_qualified": true, "production_eligible": true, "selected_for_alert": false, "deficits": ["\ud83c\udf1f Pristine Setup: No significant technical or fundamental deficits detected! Stock is in prime alignment."], "funnel": {"daily_builder": {"status": "CORE MET", "qualified": true, "reasons": ["Price \u20b9366.80 (<\u20b9100 allowed for Stock Analyzer) | 20D Avg Turnover \u20b9264.2Cr \u2265 \u20b91.0Cr | Bars 247 \u2265 50"]}, "eod_breakout": {"status": "NO", "reasons": ["Volume ratio 0.05x < 1.8x"], "score": 0.0, "qualified": false, "entry_price": 366.79998779296875, "atr_20": 0}, "multi_tf": {"status": "CORE MET (1H Setup Approved)", "reasons": ["1H Trend Permission Met (EMA Alignment | ADX 37.0 | Close \u20b9339.55 near Breakout \u20b9341.95)", "30m Phase B Pending (no recent squeeze in lookback)", "15m Phase C Entry Ready (Close \u20b9339.55 \u2265 EMA15 \u20b9338.41)", "5m Phase D Pending (Close \u20b9339.55 vs Breakout \u20b9341.95 | 5m Vol 2.73x)", "\u26a1 CORE CONDITION MET: Current Status: QUALIFIED (MULTI-TF) (Health Score: 60.0)"], "score": 80.0, "qualified": true, "entry_price": 339.54998779296875, "stop_loss": 336.3517950321956, "target_1": 339.54998779296875, "target_2": null, "target_3": null, "target_4": null, "atr_20": 2.1321285071821032}, "reversal": {"status": "NO", "reasons": ["Insufficient historical bars (247 < 250 minimum)"], "score": 0, "raw_score": 0, "qualified": false}, "pullback": {"status": "NO", "reasons": ["Trend Failure: Close \u20b9366.80 is not aligned above SMA50 \u20b9357.52 > SMA200 \u20b9359.41"], "score": 0.0, "qualified": false, "entry_price": 366.79998779296875}, "wealth_engine": {"status": "NO", "reasons": ["Lacks Wealth Engine Setup (ROCE 0.0%, D/E 0.00)"], "buckets": [], "score": 50.0, "qualified": false, "entry_price": 366.79998779296875, "stop_loss": 350.5447259039548, "target_1": 366.79998779296875, "target_2": null, "target_3": null, "target_4": null, "atr_20": 10.83684125934262}, "multibagger": {"status": "WATCHLIST", "reasons": ["Multibagger V5 Score 50.9 (\ud83d\udfe1 Watchlist) | Pledge: 0.0%"], "score": 50.88, "qualified": false, "conviction_tier": "Watchlist", "entry_price": 366.79998779296875, "stop_loss": 350.5447259039548, "target_1": 366.79998779296875, "target_2": null, "target_3": null, "target_4": null, "atr_20": 10.83684125934262}}}, "close_price": 366.79998779296875, "cmp": 311.25, "cmp_updated_at": "2026-08-25T09:50:21.716100+05:30", "earnings_flag": true, "days_to_earnings": 71, "earnings_date": "2026-11-04", "earnings_severity": "ESTIMATED", "warning_msg": "", "event_badges": [{"type": "earnings", "label": "E in 48d", "priority": 100, "status": "UPCOMING", "metadata": {"date": "2026-11-04", "days": 48, "date_status": "ESTIMATED"}}], "schema_version": 1}])
+        });
+    }
+    return origFetch.apply(this, arguments);
+};
+
+window.addEventListener("DOMContentLoaded", function() {
+    setTimeout(function() {
+        if (typeof switchAdminTab === 'function') switchAdminTab('watchlist-users');
+        if (typeof loadManualWatchlist === 'function') loadManualWatchlist(true);
+    }, 400);
+});
+</script>
 
 <script>
 // Auto-wrap all tables to ensure mobile scrollability
