@@ -42,19 +42,29 @@ def load_cache() -> dict:
     return {}
 
 def save_cache(cache_data: dict, upload_to_db=False):
-    # Strip any None (null) values to prevent cache poisoning
+    # [RULE 67] Strip any None (null) values to prevent cache poisoning.
+    # Only non-None values are written to disk to avoid key-exists-but-None
+    # false positives in get_cached_fundamentals() validity checks.
     clean_cache = {k: v for k, v in cache_data.items() if v is not None}
     os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
-    with open(CACHE_FILE, "w") as f:
+    # Write local file atomically first — local file is the authoritative source of truth.
+    tmp_path = CACHE_FILE + ".tmp"
+    with open(tmp_path, "w") as f:
         json.dump(clean_cache, f, indent=2)
-        
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, CACHE_FILE)
+
     if upload_to_db:
+        # [RULE 67] DB upload is durable eventual persistence, NOT synchronous.
+        # Previously: upload_parquet_to_db() blocked the caller for 1-3s per chunk-save.
+        # Now: enqueue_durable_upload() returns immediately; background daemon retries
+        # on failure with exponential backoff and recovers across process restarts.
         try:
-            from database import upload_parquet_to_db
-            upload_parquet_to_db("fundamentals_cache", CACHE_FILE)
-            logger.info("☁️ [CACHE] Uploaded fundamentals_cache to Postgres DB")
+            from durable_upload_queue import enqueue_durable_upload
+            enqueue_durable_upload("fundamentals_cache", CACHE_FILE)
         except Exception as e:
-            logger.warning(f"⚠️ Failed to backup fundamentals cache to DB: {e}")
+            logger.warning(f"⚠️ Failed to enqueue fundamentals_cache DB upload: {e}")
 
 def init_fundamentals_registry():
     cache = load_cache()
@@ -489,6 +499,13 @@ def fetch_tradingview_fundamentals_bulk() -> dict:
             mcap = float(row.get("market_cap_basic")) if pd.notna(row.get("market_cap_basic")) else None
             rev_growth = float(row.get("total_revenue_yoy_growth_ttm")) / 100.0 if pd.notna(row.get("total_revenue_yoy_growth_ttm")) else None
             
+            # [RULE 67] Extract operating_margin_ttm as OCF proxy for Pass 1 scoring.
+            # Gate 3 amendment: operating_margin_ttm is already fetched by
+            # fetch_full_universe_for_valuation() — capture it here so PASS1_SCORE
+            # can apply the operating-cash-flow gate without a YFinance round-trip.
+            # NOTE: This is a proxy only. Pass 2 computes true OCF from YFinance balance sheet.
+            op_margin = float(row["operating_margin_ttm"]) if pd.notna(row.get("operating_margin_ttm")) else None
+
             entry = {
                 "score": tv_health_score,
                 "date": today_str,
@@ -499,6 +516,10 @@ def fetch_tradingview_fundamentals_bulk() -> dict:
                 "pe_fallback": pe,
                 "market_cap": mcap,
                 "revenue_cagr_3y": rev_growth,
+                # [Gate 3] OCF proxy from TradingView operating margin (TTM)
+                # Used in PASS1_SCORE only. True YFinance operating_cash_flow_ttm
+                # is fetched in Pass 2 for finalists.
+                "operating_margin_ttm": op_margin,
                 "data_freshness": "LIVE",
                 "source": "TRADINGVIEW_BULK",
                 "cache_tier": "TV_BASELINE",

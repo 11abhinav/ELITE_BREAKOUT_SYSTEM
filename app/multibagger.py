@@ -460,27 +460,36 @@ def load_cache(force_db_sync: bool = False) -> dict:
     return cache
 
 def save_fundamentals_cache(cache_data: dict, sync_to_db: bool = True):
-    """Write current fundamentals to local JSON cache file."""
+    """Write current fundamentals to local JSON cache file.
+
+    [Gate 4 - RULE 67] Local file is the authoritative source of truth.
+    DB upload is durable eventual persistence — always async via durable_upload_queue.
+    sync_to_db=True enqueues a durable upload job; it does NOT block the caller.
+    """
     os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
     try:
-        with open(CACHE_PATH, "w") as f:
+        # Atomic local write — tmp + os.replace() so a crash mid-write never corrupts cache
+        tmp_path = CACHE_PATH + ".tmp"
+        with open(tmp_path, "w") as f:
             json.dump(cache_data, f, separators=(',', ':'))
-        # [VERSION: CACHE_LOG_THROTTLE_v1.0] Use debug level for noisy chunk-saves (30+ per run).
-        # Only log at INFO on the final full save when sync_to_db=True.
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, CACHE_PATH)
+
         if sync_to_db:
             logger.info(f"💾 Fundamentals cache saved with {len(cache_data)} entries.")
         else:
             logger.debug(f"💾 Fundamentals cache saved with {len(cache_data)} entries.")
-        
+
         if sync_to_db:
-            # Backup to Postgres DB so it survives Railway restarts
+            # [Gate 4] Durable async DB upload — never blocks scanner or scoring loop.
+            # Replaced blocking upload_parquet_to_db() call which added 1-3s per chunk-save.
             try:
-                from database import upload_parquet_to_db
-                upload_parquet_to_db("multibagger_cache", CACHE_PATH)
-                logger.info("☁️ [CACHE] Uploaded multibagger fundamentals cache to Postgres DB")
+                from durable_upload_queue import enqueue_durable_upload
+                enqueue_durable_upload("multibagger_cache", CACHE_PATH)
             except Exception as e:
-                logger.warning(f"⚠️ Failed to backup multibagger cache to DB: {e}")
-            
+                logger.warning(f"⚠️ Failed to enqueue multibagger_cache DB upload: {e}")
+
     except Exception as e:
         logger.exception(f"❌ Failed to save fundamentals cache")
 
@@ -1053,6 +1062,83 @@ def is_deep_v5_cache(data: dict) -> bool:
     if tier is not None:
         return tier == DEEP_V5_CACHE_TIER and (equity is not None or mcap is not None)
     return equity is not None or mcap is not None
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# [Gate 4] TWO-PASS HELPER FUNCTIONS
+# ──────────────────────────────────────────────────────────────────────────────
+
+_CRITICAL_TV_FIELDS = ["roe", "debt_equity", "market_cap", "score"]
+
+def _classify_finalist_data_state(data: dict) -> str:
+    """Three-state finalist data classifier for Pass 2.
+
+    States:
+      DEEP_V5_CONFIRMED   — YFinance hydration succeeded (total_equity not None,
+                            cache_tier == DEEP_V5). Full V5 pipeline runs.
+      DEEP_V5_UNAVAILABLE — YFinance attempted but total_equity still None.
+                            Reduced-confidence path (Prime tier only) if all
+                            critical TV metrics are present.
+      DATA_INCOMPLETE     — One or more critical TV metrics are missing.
+                            Hard block: DATA_INCOMPLETE cannot generate a BUY.
+
+    [RULE 67] This function is the authoritative gate between Pass 2 hydration
+    and alert dispatch. Never bypass it.
+    """
+    if not isinstance(data, dict) or not data:
+        return "DATA_INCOMPLETE"
+
+    # DEEP_V5_CONFIRMED: YFinance hydration succeeded
+    if data.get("cache_tier") == DEEP_V5_CACHE_TIER and data.get("total_equity") is not None:
+        return "DEEP_V5_CONFIRMED"
+
+    # Check all critical TV fields are present (non-None)
+    missing = [
+        f for f in _CRITICAL_TV_FIELDS
+        if data.get(f) is None
+    ]
+    if missing:
+        logger.debug(f"[DATA_STATE] DATA_INCOMPLETE — missing critical fields: {missing}")
+        return "DATA_INCOMPLETE"
+
+    # All critical TV fields present but total_equity unavailable
+    return "DEEP_V5_UNAVAILABLE"
+
+
+def _build_finalist_pool(pass1_candidates: list, base_n: int = 25, score_buffer: float = 5.0) -> list:
+    """Dynamic finalist pool: top base_n candidates + any within score_buffer points of the cutoff.
+
+    [Gate 4] This is the ONLY code that selects which candidates receive
+    targeted YFinance deep hydration. Everyone else runs on TV_BASELINE only.
+
+    Args:
+        pass1_candidates: Sorted (desc) list of candidate dicts with 'total_score'.
+        base_n:           Minimum finalist count.
+        score_buffer:     Additional candidates within this many points of the base_n cutoff score.
+
+    Returns:
+        Finalist list (may be larger than base_n if several candidates cluster near the cutoff).
+    """
+    if not pass1_candidates:
+        return []
+
+    # Already sorted by (tier_val, total_score, cqs) desc from _eval_item
+    base_pool = pass1_candidates[:base_n]
+    if not base_pool:
+        return []
+
+    cutoff_score = base_pool[-1].get("total_score", 0.0)
+    buffer_pool = [
+        c for c in pass1_candidates[base_n:]
+        if c.get("total_score", 0.0) >= (cutoff_score - score_buffer)
+    ]
+
+    finalist_pool = base_pool + buffer_pool
+    logger.info(
+        f"🏆 [FINALIST POOL] base_n={base_n}, cutoff_score={cutoff_score:.1f}, "
+        f"buffer_within={score_buffer:.1f}pts → {len(buffer_pool)} extra → total={len(finalist_pool)}"
+    )
+    return finalist_pool
 
 def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]]:
     clean_sym = symbol.strip().upper()
@@ -2215,6 +2301,19 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
             return {}
         acquired_scan = True
 
+        # [Gate 4] NARROW LOCK: Release _global_lock immediately after marking RUNNING.
+        # All price fetching, fundamentals loading, Pass 1 scoring, Pass 2 deep hydration,
+        # and alert dispatch run WITHOUT holding the global lock.
+        # This prevents EOD, Reversal, and Multi-TF from queuing behind a 50-min Multibagger run.
+        # Lock will NOT be re-acquired at the end (acquired_global is set False so finally skips).
+        if acquired_global:
+            try:
+                _global_lock.release()
+                logger.info("🔓 [MULTIBAGGER] _global_lock released — other scanners may now start.")
+            except Exception as _lock_rel_err:
+                logger.warning(f"⚠️ [MULTIBAGGER] Failed to release _global_lock early: {_lock_rel_err}")
+            acquired_global = False  # Prevent double-release in finally
+
         _scan_start = print_scanner_start_banner("multibagger", queued_at=queued_at)
         res = run_scanner(debug_limit, is_test_mode, session, run_ctx=run_ctx)
         
@@ -2358,8 +2457,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     stage_tracker.end_stage(f"Shortlisted {len(shortlist)} liquid stocks")
     logger.info(f"📋 Shortlisted {len(shortlist)}/{len(price_data_map)} liquid stocks for fundamental screening.")
     
-    # 3. Phase 2: Fetch Fundamentals
-    stage_tracker.start_stage(2, "Fundamentals DB Cache Validation & Fetch", f"Target: {len(shortlist)} stocks")
+    # 3. Phase 2: Fetch Fundamentals (TV_BASELINE only)
+    stage_tracker.start_stage(2, "Fundamentals DB Cache Validation", f"Target: {len(shortlist)} stocks")
     fundamentals_list = []
 
     # Check if any shortlisted stocks are missing from cache. If so, run instant TradingView bulk fetch (<3s)
@@ -2389,103 +2488,35 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         except Exception as _tv_err:
             logger.warning(f"⚠️ TradingView bulk enrichment failed: {_tv_err}")
     
-    with ThreadPoolExecutor(max_workers=6) as executor:
-        futures = {}
-        cached_count = 0
+    # [Gate 4] PASS 1 SCREENING: Load available cache ONLY. No YFinance hydration yet.
+    cached_count = 0
+    all_syms_to_check = set([p.symbol for p in shortlist])
+    
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT symbol FROM alerts WHERE status IN ('OPEN', 'SELL_REVIEW') AND scanner = 'MULTIBAGGER' AND is_rejected = FALSE;")
+                for row in cur.fetchall():
+                    all_syms_to_check.add(row[0])
+    except Exception as e:
+        logger.error(f"Failed to fetch open positions for pre-hydration: {e}")
         
-        # Build set of all symbols that need to be evaluated (shortlist + open positions)
-        all_syms_to_check = set([p.symbol for p in shortlist])
-        try:
-            with get_connection() as conn:
-                with conn.cursor() as cur:
-                    # [RULE 67] Query PostgreSQL alerts table using valid schema columns (status and scanner).
-                    cur.execute("SELECT symbol FROM alerts WHERE status IN ('OPEN', 'SELL_REVIEW') AND scanner = 'MULTIBAGGER' AND is_rejected = FALSE;")
-                    for row in cur.fetchall():
-                        all_syms_to_check.add(row[0])
-        except Exception as e:
-            logger.error(f"Failed to fetch open positions for pre-hydration: {e}")
-            
-        for sym in all_syms_to_check:
-            cached = get_cached_fundamentals(sym, cache)
-            # The shortlist pre-filter accepts incomplete cache (TV data). 
-            # Deep YF hydration happens post-filter for finalists only.
-            if cached:
-                # We only append to fundamentals_list if it's in the shortlist (for the Buy scanner)
-                if any(p.symbol == sym for p in shortlist):
-                    cached_count += 1
-                    fundamentals_list.append(cached)
-            else:
-                futures[executor.submit(fetch_ticker_fundamentals, sym)] = sym
-                
-        if cached_count > 0:
-            logger.info(f"💾 Loaded fundamentals for {cached_count}/{len(shortlist)} shortlist stocks directly from DB cache.")
-            
-        fetch_total = len(futures)
-        if fetch_total > 0:
-            logger.info(f"📥 Fetching fresh fundamentals for the remaining {fetch_total} stocks (shortlist + open positions) via Yahoo Finance...")
+    for sym in all_syms_to_check:
+        cached = get_cached_fundamentals(sym, cache)
+        if cached:
+            if any(p.symbol == sym for p in shortlist):
+                cached_count += 1
+                fundamentals_list.append(cached)
         else:
-            logger.info("✅ All fundamentals were loaded from cache. No fetching required!")
-                
-        fetched_count = 0
-        try:
-            import concurrent.futures
-            _hb_counter = 0
-            for future in as_completed(futures, timeout=7200):
-                sym = futures[future]
-                # [VERSION: HEARTBEAT_PHASE2_v1.0] Pulse heartbeat every 10 completions
-                # so watchdog doesn't mark us TIMEOUT_STALE during long YF fetches.
-                _hb_counter += 1
-                if run_ctx and _hb_counter % 10 == 0:
-                    run_ctx.heartbeat()
-                try:
-                    fund = future.result()
-                    if fund:
-                        fundamentals_list.append(fund)
-                        # Update local cache memory
-                        cache[sym] = fund
-                        cache[sym]["fetched_at"] = datetime.now(IST).isoformat()
-                        fetched_count += 1
-                        
-                        if fetched_count % 10 == 0 or fetched_count == fetch_total:
-                            logger.info(f"⏳ Progress: Fetched {fetched_count}/{fetch_total} fresh fundamentals...")
-                        
-                        # Save in chunks to prevent data loss if restarted
-                        if fetched_count % 25 == 0:
-                            logger.info(f"💾 Intermediary chunk save: saving {fetched_count} newly fetched fundamentals to DB...")
-                            save_fundamentals_cache(cache, sync_to_db=True)
-                    else:
-                        logger.warning(f"⚠️ Failed to fetch fundamentals for {sym} (No data returned)")
-                        # [VERSION: CACHE_FAILURE_v1.0] Cache failures so we don't retry fetching permanently missing stocks every single day
-                        fail_fund = {"symbol": sym, "failed": True, "fetched_at": datetime.now(IST).isoformat()}
-                        cache[sym] = fail_fund
-                        fundamentals_list.append(fail_fund)
-                        
-                        # Still count as fetched so the chunk saves properly
-                        fetched_count += 1
-                        if fetched_count % 25 == 0:
-                            save_fundamentals_cache(cache, sync_to_db=True)
-                except Exception as e:
-                    logger.error(f"❌ Error fetching fundamentals for {sym}: {e}")
-                    # Cache the exception failure as well
-                    fail_fund = {"symbol": sym, "failed": True, "fetched_at": datetime.now(IST).isoformat()}
-                    cache[sym] = fail_fund
-                    fundamentals_list.append(fail_fund)
-                    fetched_count += 1
-                    if fetched_count % 25 == 0:
-                        save_fundamentals_cache(cache, sync_to_db=True)
-        except concurrent.futures.TimeoutError:
-            logger.error("❌ Timeout fetching fundamentals in multibagger. Aborting remaining fetches to prevent deadlock.")
-                
-        if fetched_count > 0:
-            logger.info(f"💾 Final save: saving remaining newly fetched fundamentals to DB...")
-            save_fundamentals_cache(cache, sync_to_db=True)
-        
-        # [VERSION: CLEANUP_v1.0] Exit monitoring for open positions is handled independently
-        # every 15 minutes by MULTIBAGGER_EXIT daemon. Main screening scan focuses purely on candidate screening.
-        logger.info("ℹ️ Main screening fundamentals loaded. Exit monitor is handled independently by MULTIBAGGER_EXIT daemon.")
+            # [Gate 4] If completely missing even after TV bulk, create a void entry so Pass 1 can gracefully reject it.
+            fail_fund = {"symbol": sym, "failed": True, "fetched_at": datetime.now(IST).isoformat()}
+            if any(p.symbol == sym for p in shortlist):
+                fundamentals_list.append(fail_fund)
+
+    logger.info(f"💾 Loaded fundamentals for {cached_count}/{len(shortlist)} shortlist stocks directly from DB cache.")
                 
     # Save updated cache to JSON file
-    save_fundamentals_cache(cache)
+    save_fundamentals_cache(cache, sync_to_db=False)
     
     # Enforce minimum 70% data integrity before proceeding
     total_expected = len(shortlist)
@@ -2859,13 +2890,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         logger.error(f"Failed to sync deep fundamentals cache to DB: {e}")
 
     # Process Top-N alerts
-    if alert_candidates:
-        # Sort by tier, total_score desc, cqs desc
+        # [Gate 4] PASS 1 COMPLETE: Sort by tier, total_score desc, cqs desc
         alert_candidates.sort(key=lambda x: (x.get("tier_val", 0), x["total_score"], x["cqs"]), reverse=True)
-        
-        # [FIX-1] Save full list BEFORE Top-N slicing so rejected_map can find
-        # candidates that were cut by the limit. Without this, suppressed candidates
-        # disappear and get misclassified as DUPLICATE during reconciliation.
         all_alert_candidates = list(alert_candidates)
 
         from config import SCANNER_MAX_ALERTS
@@ -2874,18 +2900,89 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         logger.info(
             f"⏱️ [MULTIBAGGER] Batch 1/1 Timing | "
             f"Fetch {len(symbols)} symbols: {_fetch_dur:.2f}s | "
-            f"Evaluation: {_eval_dur:.2f}s"
+            f"Pass 1 Evaluation: {_eval_dur:.2f}s"
         )
-        if len(alert_candidates) > max_alerts:
-            logger.info(f"Limiting MULTIBAGGER alerts from {len(alert_candidates)} to {max_alerts}")
-            for cand in alert_candidates[max_alerts:]:
+
+        # [Gate 4] PASS 2: DYNAMIC FINALIST POOL & YFINANCE HYDRATION
+        finalist_pool = _build_finalist_pool(alert_candidates, base_n=25, score_buffer=5.0)
+
+        # Hydrate finalists
+        futures = {}
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            for cand in finalist_pool:
+                sym = cand["symbol"]
+                cached = get_cached_fundamentals(sym, cache)
+                # Only hydrate if missing YFinance deep data
+                if cached and not is_deep_v5_cache(cached):
+                    futures[executor.submit(fetch_ticker_fundamentals, sym)] = cand
+
+            if futures:
+                logger.info(f"📥 [MULTIBAGGER PASS 2] Deep YFinance hydration for {len(futures)} finalists...")
+                for future in as_completed(futures, timeout=120):
+                    cand = futures[future]
+                    sym = cand["symbol"]
+                    try:
+                        fund = future.result()
+                        if fund and not fund.get("failed"):
+                            fund["fetched_at"] = datetime.now(IST).isoformat()
+                            cache[sym] = fund
+                            # Rerun V5 specifically for this finalist now that it has YFinance data
+                            # We unpack just the pipeline run to patch the candidate dict
+                            try:
+                                technicals = {
+                                    "price": cand["price"],
+                                    "sma_50": cand["_price_data"].sma_50,
+                                    "sma_200": cand["_price_data"].sma_200,
+                                    "atr": cand["_price_data"].atr_14
+                                }
+                                decision = run_pipeline_for_symbol(sym, fund, technicals)
+                                cand["pipeline_result"] = decision
+                                cand["raw_fundamentals"] = fund
+                                cand["total_score"] = decision.total_score
+                                cand["cqs"] = decision.quality.score
+                                cand["pas"] = decision.price_action.score
+                                cand["trend_score"] = decision.trend.score
+                                cand["tier"] = decision.classification
+                                cand["tier_val"] = 2 if "Prime" in decision.classification else 1
+                                logger.info(f"✅ Pass 2 Re-scored {sym} with DEEP_V5 data (Score: {cand['total_score']:.1f})")
+                            except Exception as re_err:
+                                logger.error(f"Failed Pass 2 V5 re-scoring for {sym}: {re_err}")
+                        else:
+                            logger.warning(f"⚠️ Pass 2 YFinance fallback failed for {sym}")
+                    except Exception as e:
+                        logger.error(f"❌ Error in Pass 2 fetch for {sym}: {e}")
+                
+                # Resave cache if we fetched deep data
+                save_fundamentals_cache(cache, sync_to_db=True)
+
+        # Post-hydration resort
+        finalist_pool.sort(key=lambda x: (x.get("tier_val", 0), x["total_score"], x["cqs"]), reverse=True)
+
+        # Determine Top-N from the finalist pool, applying data state rules
+        top_n = []
+        for cand in finalist_pool:
+            sym = cand["symbol"]
+            
+            # [Gate 4] Enforce Data State Rule
+            fund = cand["raw_fundamentals"]
+            data_state = _classify_finalist_data_state(fund)
+            cand["decision_data_mode"] = data_state
+
+            if data_state == "DATA_INCOMPLETE":
+                logger.info(f"🚫 {sym} alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)")
+                cand["rejection_status"] = "DATA_INCOMPLETE"
+                cand["rejection_reason"] = "Missing critical baseline TV metrics"
+                continue
+
+            if len(top_n) >= max_alerts:
                 cand["rejection_status"] = "SUPPRESSED_TOP_N"
                 cand["rejection_reason"] = f"Exceeded MAX_ALERTS_PER_SCAN limit ({max_alerts})"
-                logger.info(f"🚫 {cand['symbol']} alert SUPPRESSED_TOP_N: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['total_score']:.1f})")
-            alert_candidates = alert_candidates[:max_alerts]
+                logger.info(f"🚫 {sym} alert SUPPRESSED_TOP_N: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['total_score']:.1f})")
+                continue
+                
+            top_n.append(cand)
 
-        top_n = alert_candidates
-        logger.info(f"🏆 Top {len(alert_candidates)} valid candidates selected.")
+        logger.info(f"🏆 Top {len(top_n)} valid candidates selected after Pass 2.")
         
         # Batch fetch live prices
         try:
@@ -2968,7 +3065,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                         "momentum_score": int(c_trend),
                         "momentum_confidence": "HIGH" if c_cqs >= 75.0 else "MEDIUM",
                         "data_quality": "LIVE",
-                        "pipeline_tier": c_tier
+                        "pipeline_tier": c_tier,
+                        "decision_data_mode": cand.get("decision_data_mode", "UNKNOWN")
                     }
                 }
                 
