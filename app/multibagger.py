@@ -2182,7 +2182,7 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
             upsert_scanner_health("MULTIBAGGER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
             
             try:
-                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="MULTIBAGGER", operation="FULL_SCAN")
+                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="MULTIBAGGER", operation="FULL_SCAN", run_ctx=run_ctx)
             except Exception as lock_err:
                 logger.error(f"❌ [MULTIBAGGER] Error acquiring global lock: {lock_err}")
                 acquired_global = False

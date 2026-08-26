@@ -158,6 +158,12 @@ class ProcessLockImpl:
                             upsert_scanner_health(owner_scanner, "QUEUED", error_msg=f"Waiting in queue for active scanner lock ({last_logged_s}s)...")
                         except Exception:
                             pass
+                    run_ctx_obj = kwargs.get("run_ctx")
+                    if run_ctx_obj:
+                        try:
+                            run_ctx_obj.heartbeat(force=True)
+                        except Exception:
+                            pass
         else:
             if not self.thread_lock.acquire(blocking=False):
                 return False
@@ -218,7 +224,19 @@ class ProcessLockImpl:
                                 if int(elapsed) >= last_logged_s + 15:
                                     last_logged_s = int(elapsed)
                                     logger.info(f"⏳ [{self.lock_name.upper()}] Postgres advisory lock busy — {owner_scanner} waiting... (elapsed: {last_logged_s}s)")
-                                time.sleep(1.0)
+                                    if owner_scanner != "UNKNOWN":
+                                        try:
+                                            from database import upsert_scanner_health
+                                            upsert_scanner_health(owner_scanner, "QUEUED", error_msg=f"Waiting in queue for active scanner lock ({last_logged_s}s)...")
+                                        except Exception:
+                                            pass
+                                    run_ctx_obj = kwargs.get("run_ctx")
+                                    if run_ctx_obj:
+                                        try:
+                                            run_ctx_obj.heartbeat(force=True)
+                                        except Exception:
+                                            pass
+                                    time.sleep(1.0)
                         else:
                             cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
                             locked = cur.fetchone()[0]

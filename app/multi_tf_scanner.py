@@ -1612,7 +1612,7 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
             upsert_scanner_health("MULTI_TF", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
             
             try:
-                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="MULTI_TF", operation="FULL_SCAN")
+                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="MULTI_TF", operation="FULL_SCAN", run_ctx=run_ctx)
             except Exception as lock_err:
                 logger.error(f"❌ [MULTI_TF] Error acquiring global lock: {lock_err}")
                 acquired_global = False

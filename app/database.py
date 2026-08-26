@@ -8008,16 +8008,19 @@ def start_scanner_execution_run(
 
 
 def update_scanner_run_heartbeat(run_id: str):
-    """Updates the heartbeat_at timestamp for an active scanner run."""
+    """Updates the heartbeat_at timestamp for an active (RUNNING or QUEUED) scanner run."""
     if not run_id:
         return
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
+                # [VERSION: QUEUED_HEARTBEAT_FIX_v1.0] Update heartbeat_at for both RUNNING and QUEUED
+                # status so scanners waiting in global lock queue are NOT auto-cleaned as TIMEOUT_STALE
+                # by the watchdog after 15 minutes of queue wait.
                 cur.execute("""
                     UPDATE scanner_execution_history
                     SET heartbeat_at = NOW()
-                    WHERE run_id = %s AND lifecycle_status = 'RUNNING';
+                    WHERE run_id = %s AND lifecycle_status IN ('RUNNING', 'QUEUED');
                 """, (run_id,))
                 conn.commit()
     except Exception as e:
