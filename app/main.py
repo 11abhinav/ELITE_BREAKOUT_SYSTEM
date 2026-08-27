@@ -1495,7 +1495,7 @@ def run_system_scheduler():
     verify_scans_ran = False
     multibagger_ran = False
     last_multibagger_date = now_boot.date() if not is_market_boot else None
-    last_rotation_date = None
+    last_rotation_date = now_boot.date()
     evening_scanners_ran = True if not is_market_boot else False
     evening_batch_deadline_logged = False
     warmup_ran = False
