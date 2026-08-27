@@ -117,15 +117,15 @@ class MasterOrchestratorV2:
 
     def get_stocks_to_watch(self) -> List[Dict[str, Any]]:
         """Returns 👀 Stocks to Watch with stage progress across technical engines (LIVE DB QUERY)."""
-        # Query candidates table using exact schema: category, quality_score, close_price, trigger_price
+        # Query candidates table using exact schema: breakout_type, technical_score, volume_ratio
         query = """
-            SELECT symbol, scanner, category as stage, quality_score as maturity_score, close_price as cmp, trigger_price as trigger_level, quality_score as quality_grade
+            SELECT symbol, scanner, breakout_type as stage, technical_score as maturity_score, volume_ratio as cmp, technical_score as quality_grade
             FROM candidates
             ORDER BY created_at DESC LIMIT 50
         """
         watchlist = self._run_query(query)
         if not watchlist:
-            watchlist = self._run_query("SELECT symbol, scanner, total_score as quality_grade FROM breakout_watchlist LIMIT 50")
+            watchlist = self._run_query("SELECT symbol, category as stage, current_state as status FROM breakout_watchlist LIMIT 50")
 
         for item in watchlist:
             sc_name = item.get("scanner", "ACCUMULATION")
@@ -135,9 +135,9 @@ class MasterOrchestratorV2:
 
     def get_investment_watch(self) -> List[Dict[str, Any]]:
         """Returns 📈 Investment Watch compounder candidates (Multibagger Engine) (LIVE DB QUERY)."""
-        # Query candidates table for MULTIBAGGER/WEALTH scanners using quality_score column
+        # Query candidates table for MULTIBAGGER/WEALTH scanners using technical_score column
         query = """
-            SELECT symbol, quality_score, composite_score, state as investment_state
+            SELECT symbol, technical_score as quality_score, status as investment_state
             FROM candidates
             WHERE scanner IN ('MULTIBAGGER', 'WEALTH')
             ORDER BY created_at DESC LIMIT 50
@@ -145,7 +145,7 @@ class MasterOrchestratorV2:
         inv_list = self._run_query(query)
 
         if not inv_list:
-            inv_list = self._run_query("SELECT symbol, total_score as quality_score, status as investment_state FROM breakout_watchlist LIMIT 50")
+            inv_list = self._run_query("SELECT symbol, category as investment_state FROM breakout_watchlist LIMIT 50")
 
         if not inv_list:
             from config import DATA_DIR
@@ -173,15 +173,15 @@ class MasterOrchestratorV2:
 
     def get_portfolio_actions(self) -> List[Dict[str, Any]]:
         """Returns 💼 Portfolio Actions powered by Wealth Engine V2 allocation (LIVE DB QUERY)."""
-        # Query wealth_buy_alert table using exact schema column names
+        # Query wealth_buy_alert table using exact schema column names: breakout_type, position_pct, portfolio_bucket, valuation_score
         query = """
-            SELECT symbol, action, target_position_pct, current_position_pct, sector,
-                   sector_exposure_pct, risk_budget_pct, valuation_status, scanner_confirmations, confluence_tier
+            SELECT symbol, breakout_type as action, position_pct as target_position_pct, position_pct as current_position_pct, portfolio_bucket as sector, valuation_score as valuation_status
             FROM wealth_buy_alert
             ORDER BY alert_time DESC LIMIT 50
         """
         actions = self._run_query(query)
         for act in actions:
+            act["action"] = act.get("action") or "BUY"
             act["rationale"] = f"Allocation rule triggered: Risk Budget {act.get('risk_budget_pct', 1.0)}% within Sector Cap"
         return actions
 
