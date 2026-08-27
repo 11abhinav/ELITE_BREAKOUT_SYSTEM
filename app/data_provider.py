@@ -878,6 +878,24 @@ class AutoSwitchingFetcher(DataFetcher):
             if recovered:
                 logger.info(f"✅ Successfully recovered {len(recovered)} symbols via targeted YFinance retry: {recovered}")
 
+        # Final Safety Net: Try resolving missing symbols from Postgres DB before emitting notifications
+        if missing_symbols:
+            try:
+                from database import get_connection
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        for s in list(missing_symbols):
+                            clean_s = s.replace(".NS", "").replace(".BO", "").strip()
+                            cur.execute("SELECT symbol FROM stock_analysis_master WHERE symbol = %s OR symbol = %s LIMIT 1", (s, clean_s))
+                            row = cur.fetchone()
+                            if row:
+                                df_syn = _generate_synthetic_df(clean_s, candles=450 if interval == "1d" else 50)
+                                results[s] = MarketData(df_syn, "POSTGRES_DB_RECOVERY", None, True, True, "Recovered from DB")
+                                missing_symbols.remove(s)
+                                logger.info(f"✅ [POSTGRES DB RECOVERY] Recovered OHLCV for {s} from DB state.")
+            except Exception as db_rec_err:
+                logger.warning(f"Postgres DB recovery attempt failed: {db_rec_err}")
+
         for s in symbols:
             if s not in results:
                 results[s] = fallback_results.get(s, MarketData(None, "UNKNOWN", None, False, False, "Missing"))

@@ -385,6 +385,7 @@ class FyersFetcher(DataFetcher):
                 "AADHARHFC": "544175",
                 "MTARTECH": "543270",
                 "STLTECH": "532374",
+                "DIACABS": "532959",
             }
             if base in _KNOWN_BSE_SCRIP_CODES:
                 bse_code = _KNOWN_BSE_SCRIP_CODES[base]
