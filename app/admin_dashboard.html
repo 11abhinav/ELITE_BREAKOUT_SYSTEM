@@ -6660,9 +6660,9 @@ async function markNotificationSeen(id, symbol, title) {
                 return;
             }
 
-            // Wealth / position closed → redirect to wealth page
+            // Wealth / position closed → switch to Wealth tab natively
             if (upTitle.includes('WEALTH') || upTitle === 'POSITION CLOSED') {
-                window.location.href = '/wealth?sym=' + encodeURIComponent(symbol);
+                switchAdminTab('wealth-engine');
                 return;
             }
 

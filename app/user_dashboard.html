@@ -2620,9 +2620,14 @@ async function markNotificationSeen(id, symbol, title) {
                 return;
             }
 
-            // Wealth / position closed → redirect to wealth page
+            // Wealth / position closed → filter trade table on current screen
             if (upTitle.includes('WEALTH') || upTitle === 'POSITION CLOSED') {
-                window.location.href = '/wealth?sym=' + encodeURIComponent(symbol);
+                if (typeof switchUserTab === 'function') switchUserTab('trades-portfolio');
+                const filterInput = document.getElementById('filterSymbol');
+                if (filterInput) {
+                    filterInput.value = symbol;
+                    renderTradeTable();
+                }
                 return;
             }
 
