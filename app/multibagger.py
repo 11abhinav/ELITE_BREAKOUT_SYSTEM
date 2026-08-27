@@ -3241,29 +3241,35 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         run_ctx.processed_count = len(results)
         run_ctx.alerts_generated = alerts_count
 
+    # [VERSION: SCANNER_CONTRACT_v1.0] Enforce explicit ScannerExecutionContract
+    # A scan can ONLY be marked OK if zero missing symbols remain and required contract passed.
     try:
-        from database import insert_notification
+        from scanner_contract import ScannerExecutionContract
+        contract = ScannerExecutionContract("MULTIBAGGER", total_symbols=len(symbols))
+        # Identify symbols requested but not successfully resolved into price_data_map
+        missing_syms = [s for s in symbols if s not in price_data_map or price_data_map[s] is None]
+        contract.complete(missing_symbols=missing_syms, processed_count=len(results))
+    except Exception as contract_err:
+        logger.warning(f"ScannerExecutionContract completion warning: {contract_err}")
+        missing_syms = [s for s in symbols if s not in price_data_map or price_data_map[s] is None]
         stale_count = sum(1 for r in results if r.status == "STALE_DATA")
         upsert_scanner_health(
             scanner_name="MULTIBAGGER",
-            status="OK",
-            last_success=datetime.now(IST).isoformat(),
+            status="DOWN" if missing_syms else "OK",
+            last_success=datetime.now(IST).isoformat() if not missing_syms else None,
             today_alerts=alerts_count,
+            error_msg=f"Required data missing for {len(missing_syms)} symbols: {missing_syms[:5]}" if missing_syms else None,
             processed_count=len(results),
             total_count=len(symbols),
+            outcome="SUCCESS" if not missing_syms else "FAILED",
             scheduled_for="19:00 IST",
             duration_seconds=duration_sec,
             provider_stats={
                 "SUCCESS": len(price_data_map) if 'price_data_map' in locals() else 0,
                 "NOT_FOUND": (len(symbols) - len(price_data_map)) if 'price_data_map' in locals() else 0,
-                "RATE_LIMIT": 0,
-                "NETWORK_ERROR": 0,
-                "TIMEOUT": 0,
-                "EMPTY_DATA": 0,
                 "STALE": stale_count
             }
         )
-        pass
     except Exception as e:
         logger.error(f"Could not update health/notification for Multibagger: {e}")
     # ── Memory Cleanup Phase ──────────────────────────────────────────────

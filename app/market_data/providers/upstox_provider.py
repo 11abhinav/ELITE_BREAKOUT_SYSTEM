@@ -638,6 +638,7 @@ class UpstoxProvider(ProviderInterface):
                     last_progress_log_t = now_t
                     last_progress_log_n = completed
 
-        ok_count = sum(1 for v in results.values() if v and getattr(v, 'dataframe', None) is not None and not getattr(v.dataframe, 'empty', True))
-        logger.info(f"{prefix}📊 Upstox batch complete: {ok_count}/{len(symbols)} ok")
+        fetched_count = sum(1 for v in results.values() if v and getattr(v, 'dataframe', None) is not None and not getattr(v.dataframe, 'empty', True))
+        valid_count = sum(1 for v in results.values() if v and getattr(v, 'dataframe', None) is not None and getattr(getattr(v, 'quality_report', None), 'is_valid', False))
+        logger.info(f"{prefix}📊 Upstox batch fetch complete: {fetched_count}/{len(symbols)} fetched | {valid_count}/{len(symbols)} validated OK")
         return results
