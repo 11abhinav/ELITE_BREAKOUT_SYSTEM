@@ -154,6 +154,13 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
     Evaluates a single symbol against the production Pullback Continuation scanner rules.
     Runs trend alignment (Close > SMA50 > SMA200), swing pivot detection, impulse wave selection (gain >= 8%), retracement depth (23.6%-61.8%), resumption trigger candle, scoring, and target calculations without side effects.
     """
+    # [VERSION: IPO_SHORT_HISTORY_QUALIFICATION_v1.0]
+    # RULE 90 MANDATORY RATIONALE:
+    # - Data fetching ALWAYS requests full 1-year history (period="1y", interval="1d").
+    # - For established stocks, this yields ~250 trading candles.
+    # - For newly listed IPO stocks (e.g., listed 30 days ago), full history naturally yields all available candles (30 bars).
+    # - Minimum qualification threshold lowered from hardcoded 200 bars down to 15 bars so newly listed IPO stocks
+    #   can qualify for setup evaluation (SMA50/indicators adaptively calculate on available bars) rather than being discarded.
     if df is None or df.empty or len(df) < 15:
         return {
             "status": "NO",
