@@ -173,21 +173,13 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
                 complete_scanner_execution_run(run_ctx, status_override="FAILED", exception=e)
             except Exception: pass
         try:
-            upsert_scanner_health("EOD", status="DOWN", error_msg=str(e)[:250])
+            upsert_scanner_health("EOD", status="DOWN", error_msg=f"Scan crashed: {str(e)[:300]}")
+            insert_notification("error", "🚨 EOD Scanner CRASHED", f"Error: {str(e)[:400]}")
         except Exception: pass
         raise e
     finally:
         if _scan_start is not None:
             print_scanner_end_banner("eod_scanner", _scan_start)
-        try:
-            from database import get_scanner_health, upsert_scanner_health
-            h = get_scanner_health("EOD")
-            if h and (str(h.get("status", "")).startswith("QUEUED") or str(h.get("status", "")).upper() == "RUNNING"):
-                if 'used_fallback_data' in locals() and used_fallback_data:
-                    upsert_scanner_health("EOD", status="DEGRADED_FALLBACK", error_msg="Historical fallback dataset was used")
-                else:
-                    upsert_scanner_health("EOD", status="OK", error_msg=None)
-        except Exception: pass
 
         if acquired_scan:
             try: _scan_lock.release()

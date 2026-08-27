@@ -2356,18 +2356,14 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
                 complete_scanner_execution_run(run_ctx, status_override="FAILED", exception=e)
             except Exception: pass
         try:
-            upsert_scanner_health("MULTIBAGGER", status="DOWN", error_msg=str(e)[:250])
+            upsert_scanner_health("MULTIBAGGER", status="DOWN", error_msg=f"Scan crashed: {str(e)[:300]}")
+            from database import insert_notification
+            insert_notification("error", "🚨 MULTIBAGGER Scanner CRASHED", f"Error: {str(e)[:400]}")
         except Exception: pass
         raise
     finally:
         if _scan_start is not None:
             print_scanner_end_banner("multibagger", _scan_start)
-        try:
-            from database import get_scanner_health
-            h = get_scanner_health("MULTIBAGGER")
-            if h and (str(h.get("status", "")).startswith("QUEUED") or str(h.get("status", "")).upper() == "RUNNING"):
-                upsert_scanner_health("MULTIBAGGER", status="OK", error_msg=None)
-        except Exception: pass
 
         if acquired_scan:
             try: _scan_lock.release()

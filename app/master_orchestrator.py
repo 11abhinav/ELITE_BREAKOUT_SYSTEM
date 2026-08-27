@@ -195,7 +195,8 @@ class MasterOrchestratorV2:
                 for r in rows:
                     res.append({
                         "scanner": r.get("scanner_name", "ENGINE"),
-                        "status": r.get("status", "OK"),
+                        "status": r.get("status") or "UNKNOWN",
+                        "error_msg": r.get("error_msg"),
                         "last_run": r.get("last_success", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
                         "duration_sec": r.get("duration_seconds", 0.0),
                         "symbols_evaluated": r.get("symbols_evaluated", 1174),
@@ -210,7 +211,8 @@ class MasterOrchestratorV2:
         return [
             {
                 "scanner": eng,
-                "status": "OK",
+                "status": "DOWN",
+                "error_msg": "Database query failed",
                 "last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "duration_sec": 0.0,
                 "symbols_evaluated": 1174,

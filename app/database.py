@@ -2905,7 +2905,7 @@ def get_all_scanner_health() -> list[dict]:
     except Exception as seed_err:
         logger.warning(f"Scanner health schedule sync warning: {seed_err}")
 
-    # Watchdog Auto-Healing: Auto-reset any stuck QUEUED or RUNNING status if global scanner lock is NOT held
+    # Watchdog Auto-Healing: Mark any stuck QUEUED or RUNNING status as DOWN if global scanner lock is NOT held
     try:
         from lock_utils import ProcessLock
         _g_lock = ProcessLock("global_scanner_lock")
@@ -2914,8 +2914,9 @@ def get_all_scanner_health() -> list[dict]:
                 with conn.cursor() as cur:
                     cur.execute("""
                         UPDATE scanner_health
-                        SET status = CASE WHEN last_success IS NOT NULL THEN 'OK' ELSE 'IDLE' END,
-                            error_msg = NULL,
+                        SET status = 'DOWN',
+                            error_msg = 'Scanner execution timed out or process was terminated unexpectedly before completion',
+                            is_acknowledged = FALSE,
                             updated_at = NOW()
                         WHERE (status LIKE 'QUEUED%' OR status = 'RUNNING')
                           AND updated_at < NOW() - INTERVAL '3 minutes';

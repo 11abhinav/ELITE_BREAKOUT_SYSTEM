@@ -1668,18 +1668,14 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
                 complete_scanner_execution_run(run_ctx, status_override="FAILED", exception=e)
             except Exception: pass
         try:
-            upsert_scanner_health("MULTI_TF", status="DOWN", error_msg=str(e)[:250])
+            upsert_scanner_health("MULTI_TF", status="DOWN", error_msg=f"Scan crashed: {str(e)[:300]}")
+            from database import insert_notification
+            insert_notification("error", "🚨 MULTI_TF Scanner CRASHED", f"Error: {str(e)[:400]}")
         except Exception: pass
         raise e
     finally:
         if _scan_start is not None:
             print_scanner_end_banner("multi_tf_scanner", _scan_start)
-        try:
-            from database import get_scanner_health, upsert_scanner_health
-            h = get_scanner_health("MULTI_TF")
-            if h and (str(h.get("status", "")).startswith("QUEUED") or str(h.get("status", "")).upper() == "RUNNING"):
-                upsert_scanner_health("MULTI_TF", status="OK", error_msg=None)
-        except Exception: pass
 
         if acquired_scan:
             try: _scan_lock.release()

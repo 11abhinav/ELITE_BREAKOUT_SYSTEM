@@ -2404,21 +2404,14 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
                 complete_scanner_execution_run(run_ctx, status_override="FAILED", exception=e)
             except Exception: pass
         try:
-            upsert_scanner_health("REVERSAL", status="DOWN", error_msg=str(e)[:250])
+            upsert_scanner_health("REVERSAL", status="DOWN", error_msg=f"Scan crashed: {str(e)[:300]}")
+            from database import insert_notification
+            insert_notification("error", "🚨 REVERSAL Scanner CRASHED", f"Error: {str(e)[:400]}")
         except Exception: pass
         raise e
     finally:
         if _scan_start is not None:
             print_scanner_end_banner("reversal_scanner", _scan_start)
-        try:
-            from database import get_scanner_health, upsert_scanner_health
-            h = get_scanner_health("REVERSAL")
-            if h and (str(h.get("status", "")).startswith("QUEUED") or str(h.get("status", "")).upper() == "RUNNING"):
-                final_status = "OK"
-                if used_fallback_data:
-                    final_status = "DEGRADED_FALLBACK"
-                upsert_scanner_health("REVERSAL", status=final_status, error_msg=None)
-        except Exception: pass
 
         if acquired_scan:
             try: _scan_lock.release()
