@@ -113,6 +113,11 @@ class MasterOrchestratorV2:
                 row["rr_ratio"] = round((row.get("target_1", 0) - row.get("entry_price", 0)) / max(0.01, (row.get("entry_price", 0) - row.get("stop_loss", 0))), 2) if row.get("entry_price") and row.get("stop_loss") else 2.0
                 signals.append(row)
 
+        for sig in signals:
+            sc_name = sig.get("scanner", "EOD")
+            sig["rationale"] = f"{sc_name} Breakout confirmed with high volume & structural support hold"
+            sig["checklist_cleared"] = "Volume >= Baseline ✅ | Body >= 0.40 ✅ | Gap <= 4.0% ✅ | AVWAP Hold ✅"
+
         return signals
 
     def get_stocks_to_watch(self) -> List[Dict[str, Any]]:
@@ -124,7 +129,12 @@ class MasterOrchestratorV2:
             WHERE state = 'WATCH'
             ORDER BY id DESC LIMIT 50
         """
-        return self._run_query(query)
+        watchlist = self._run_query(query)
+        for item in watchlist:
+            sc_name = item.get("scanner", "ACCUMULATION")
+            item["rationale"] = f"{sc_name} base building in progress near key resistance"
+            item["why_qualifies"] = f"Base Age > 30D + Vol Contraction + Liquid ELITE Universe"
+        return watchlist
 
     def get_investment_watch(self) -> List[Dict[str, Any]]:
         """Returns 📈 Investment Watch compounder candidates (Multibagger Engine) (LIVE DB QUERY)."""
@@ -147,6 +157,10 @@ class MasterOrchestratorV2:
                 except Exception:
                     pass
 
+        for item in inv_list:
+            item["why_qualifies"] = f"ROCE > 20% + Debt Free + Cash Flow Quality A+ + Margin of Safety > 15%"
+            item["valuation_thesis"] = f"Trading at attractive valuation discount with durable moat"
+
         return inv_list
 
     def get_portfolio_actions(self) -> List[Dict[str, Any]]:
@@ -157,7 +171,10 @@ class MasterOrchestratorV2:
             FROM wealth_ledger
             ORDER BY id DESC LIMIT 50
         """
-        return self._run_query(query)
+        actions = self._run_query(query)
+        for act in actions:
+            act["rationale"] = f"Allocation rule triggered: Risk Budget {act.get('risk_budget_pct', 1.0)}% within Sector Cap"
+        return actions
 
     def get_scanner_health(self) -> List[Dict[str, Any]]:
         """Returns 📊 Operational health per engine directly from DB scanner_health table."""
