@@ -83,10 +83,10 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
         fund_data = df
         df = None
 
-    if df is None or not isinstance(df, pd.DataFrame) or df.empty or len(df) < 200:
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty or len(df) < 15:
         return {
             "status": "NO",
-            "reasons": [f"Insufficient history: requires 200 bars, got {len(df) if isinstance(df, pd.DataFrame) else 0}"],
+            "reasons": [f"Insufficient history: requires at least 15 bars, got {len(df) if isinstance(df, pd.DataFrame) else 0}"],
             "score": 0.0,
             "qualified": False
         }
@@ -96,8 +96,8 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
         ticker.columns = ticker.columns.get_level_values(0)
     ticker = ticker.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
 
-    if len(ticker) < 200:
-        return {"status": "NO", "reasons": [f"Insufficient valid bars: {len(ticker)} < 200 required"], "score": 0.0, "qualified": False}
+    if len(ticker) < 15:
+        return {"status": "NO", "reasons": [f"Insufficient valid bars: {len(ticker)} < 15 required"], "score": 0.0, "qualified": False}
 
     latest = ticker.iloc[-1]
     close_price = float(latest["Close"])
@@ -603,9 +603,8 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
                         if last_ts.date() == ist_now.date():
                             ticker_df = ticker_df.iloc[:-1]
                         
-                    # [FIX MUL-21 NEW] Require 200 bars for SMA200-based alerts.
-                    # SMA200 is meaningless with fewer bars — produces wild values.
-                    MIN_BARS = 200
+                    # [IPO COMPATIBILITY] Allow short-history IPO stocks with >= 15 bars
+                    MIN_BARS = 15
                     if len(ticker_df) < MIN_BARS:
                         continue
                         

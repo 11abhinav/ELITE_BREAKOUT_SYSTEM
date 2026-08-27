@@ -154,10 +154,10 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
     Evaluates a single symbol against the production Pullback Continuation scanner rules.
     Runs trend alignment (Close > SMA50 > SMA200), swing pivot detection, impulse wave selection (gain >= 8%), retracement depth (23.6%-61.8%), resumption trigger candle, scoring, and target calculations without side effects.
     """
-    if df is None or df.empty or len(df) < 200:
+    if df is None or df.empty or len(df) < 15:
         return {
             "status": "NO",
-            "reasons": [f"Insufficient historical price data ({len(df) if df is not None else 0} bars < 200 minimum)"],
+            "reasons": [f"Insufficient historical price data ({len(df) if df is not None else 0} bars < 15 minimum)"],
             "score": 0.0,
             "qualified": False
         }
@@ -168,8 +168,8 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
         historical_view.columns = historical_view.columns.get_level_values(0)
     historical_view = historical_view.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
 
-    if len(historical_view) < 180:
-        return {"status": "NO", "reasons": [f"Insufficient valid bars ({len(historical_view)} < 180)"], "score": 0.0, "qualified": False}
+    if len(historical_view) < 15:
+        return {"status": "NO", "reasons": [f"Insufficient valid bars ({len(historical_view)} < 15)"], "score": 0.0, "qualified": False}
 
     from indicator_manager import manager
     try:
@@ -727,7 +727,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                                 except Exception as e:
                                     return (None, "stale_data", "SUCCESS", None, sym)
 
-                        if df.empty or len(df) < effective_config.get("MIN_HISTORY", 200):
+                        if df.empty or len(df) < 15:
                             return (None, "insufficient_bars", "SUCCESS", None, sym)
 
                         df.attrs['adjusted'] = True
