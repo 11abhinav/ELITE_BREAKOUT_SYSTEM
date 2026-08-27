@@ -43,6 +43,50 @@ class CircuitOpenError(RuntimeError):
     pass
 
 
+class YahooSessionScraper:
+    """Maintains an authenticated Cookie + Crumb session for Yahoo Finance."""
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
+                cls._instance._session = None
+                cls._instance._crumb = None
+                cls._instance._last_warmup = 0.0
+            return cls._instance
+
+    def get_authenticated_session(self):
+        with self._lock:
+            now = time.time()
+            if self._session is not None and self._crumb is not None and (now - self._last_warmup) < 3600:
+                return self._session, self._crumb
+
+            try:
+                import requests
+                s = requests.Session()
+                s.headers.update({
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                    'Accept': '*/*',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                })
+                s.get('https://fc.yahoo.com', timeout=5)
+                r_crumb = s.get('https://query1.finance.yahoo.com/v1/test/getcrumb', timeout=5)
+                if r_crumb.status_code == 200 and r_crumb.text.strip():
+                    self._session = s
+                    self._crumb = r_crumb.text.strip()
+                    self._last_warmup = now
+                    logger.info(f"✅ [YahooSessionScraper] Authenticated Cookie+Crumb session ready (Crumb: {self._crumb[:5]}...).")
+                    return self._session, self._crumb
+            except Exception as e:
+                logger.warning(f"⚠️ [YahooSessionScraper] Session warmup warning: {e}")
+
+            return None, None
+
+yahoo_scraper = YahooSessionScraper()
+
+
 def _now() -> float:
     return time.monotonic()
 
