@@ -112,10 +112,22 @@ class UpstoxProvider(ProviderInterface):
         """
         df = pd.DataFrame(candles, columns=["Datetime", "Open", "High", "Low", "Close", "Volume", "OI"])
         df["Datetime"] = pd.to_datetime(df["Datetime"])
+        
+        # [VERSION: UPSTOX_TZ_FIX_v1.0] Convert UTC to IST before normalizing dates.
+        # Upstox API v3 emits daily timestamps in UTC (e.g. 18:30 UTC = 00:00 IST of trading day).
+        # Converting UTC to IST ensures August 27th 00:00 IST is not misclassified as August 26th stale data.
+        try:
+            if df["Datetime"].dt.tz is not None:
+                df["Datetime"] = df["Datetime"].dt.tz_convert("Asia/Kolkata")
+            else:
+                df["Datetime"] = df["Datetime"].dt.tz_localize("UTC").dt.tz_convert("Asia/Kolkata")
+        except Exception:
+            pass
+
         is_daily = timeframe.lower() in ("1d", "day", "1day", "d")
         if is_daily:
-            # Rename to 'Date' (date-only string) to match Fyers/Yahoo convention
-            df["Date"] = df["Datetime"].dt.normalize()  # midnight-normalised Timestamp
+            # Rename to 'Date' (date-only midnight Timestamp in IST)
+            df["Date"] = df["Datetime"].dt.normalize().dt.tz_localize(None)
             df = df.drop(columns=["Datetime"])
             df = df.sort_values("Date").reset_index(drop=True)
         else:
