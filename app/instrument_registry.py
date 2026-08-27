@@ -86,7 +86,7 @@ class InstrumentRegistry:
             InstrumentRecord("LOTUSDEV", "NSE", "EQ", isin="INE0V9Q01010", company_name="Sri Lotus Developers and Realty Ltd", first_trading_date="2026-06-01", fyers_symbol="NSE:LOTUSDEV-EQ", upstox_instrument_key="NSE_EQ|INE0V9Q01010", yahoo_symbol="LOTUSDEV.NS"),
             InstrumentRecord("MTARTECH", "NSE", "EQ", isin="INE864I01014", company_name="MTAR Technologies Ltd", first_trading_date="2021-03-15", fyers_symbol="NSE:MTARTECH-EQ", upstox_instrument_key="NSE_EQ|INE864I01014", yahoo_symbol="MTARTECH.NS"),
             InstrumentRecord("STLTECH", "NSE", "EQ", isin="INE089C01029", company_name="Sterlite Technologies Ltd", first_trading_date="2000-08-14", fyers_symbol="BSE:532374-EQ", upstox_instrument_key="NSE_EQ|INE089C01029", yahoo_symbol="STLTECH.NS"),
-            InstrumentRecord("DIACABS", "NSE", "EQ", isin="INE944H01026", company_name="Diamond Power Infrastructure Ltd", first_trading_date="2008-04-10", fyers_symbol="BSE:532959-EQ", upstox_instrument_key="NSE_EQ|INE944H01026", yahoo_symbol="DIACABS.NS"),
+            InstrumentRecord("DIACABS", "NSE", "EQ", isin="INE989C01038", company_name="Diamond Power Infrastructure Ltd", first_trading_date="2008-04-10", fyers_symbol="BSE:532959-EQ", upstox_instrument_key="NSE_EQ|INE989C01038", yahoo_symbol="DIACABS.NS"),
         ]
         for eq in special_equities:
             self._register(eq)

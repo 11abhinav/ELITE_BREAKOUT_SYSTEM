@@ -259,16 +259,7 @@ class UpstoxInstrumentMapper:
                 clean = clean[:-len(sfx)]
                 break
 
-        # 0. Check institutional InstrumentRegistry first for authoritative key
-        try:
-            from instrument_registry import get_instrument_registry
-            rec = get_instrument_registry().lookup(clean)
-            if rec and rec.upstox_instrument_key:
-                return rec.upstox_instrument_key
-        except Exception:
-            pass
-
-        # Check in-memory map (e.g. TCS -> NSE_EQ|INE467B01029 or ^NSEI -> NSE_INDEX|Nifty 50)
+        # 1. Check in-memory master map first (pre-loaded from Upstox master contract CSV)
         if clean in self._symbol_map:
             return self._symbol_map[clean]
 
@@ -279,6 +270,15 @@ class UpstoxInstrumentMapper:
         raw_no_caret = clean.lstrip("^")
         if raw_no_caret in self._symbol_map:
             return self._symbol_map[raw_no_caret]
+
+        # 2. Check institutional InstrumentRegistry if not found in master CSV
+        try:
+            from instrument_registry import get_instrument_registry
+            rec = get_instrument_registry().lookup(clean)
+            if rec and rec.upstox_instrument_key:
+                return rec.upstox_instrument_key
+        except Exception:
+            pass
 
         if not allow_fallback:
             return None
