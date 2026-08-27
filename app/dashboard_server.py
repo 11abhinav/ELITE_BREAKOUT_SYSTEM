@@ -847,6 +847,7 @@ def admin_index():
         r.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
         r.headers['Pragma'] = 'no-cache'
         r.headers['Expires'] = '0'
+        r.headers['X-Frame-Options'] = 'SAMEORIGIN'
         return r
     return Response(
         "<h2 style='font-family:monospace;color:#00e5a0;background:#0b0e14;margin:0;padding:40px'>"
