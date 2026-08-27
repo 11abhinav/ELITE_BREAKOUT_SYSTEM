@@ -111,7 +111,7 @@ class PriceProvider:
         self.rate_limiter = rate_limiter or RateLimiter()
         # Reactive circuit breaker timestamp (when set, no live calls until > this)
         self.cooldown_until = 0.0
-        self.cooldown_seconds = cooldown_seconds
+        self.cooldown_seconds = 15  # 15 seconds fast cooldown instead of 15 mins (900s)
         # retry policy
         self.max_retries = max_retries
 
@@ -143,8 +143,8 @@ class PriceProvider:
         if not tickers:
             return {}
         now = time.time()
-        # If circuit breaker is open, raise to let caller handle fallback
-        if now < self.cooldown_until:
+        # If circuit breaker is open, allow small fallback batches (<= 5 tickers) to attempt recovery with backoff
+        if now < self.cooldown_until and len(tickers) > 5:
             raise RuntimeError("Circuit open: cooling down due to recent rate limits")
 
         # Attempt with retries + jittered backoff for transient errors (including 429 patterns)
@@ -468,7 +468,7 @@ class PriceProvider:
                         poisoned_bo_symbols.append(t)
 
         # [VERSION: POISONED_MAPPING_FIX_v1.0] Reverse Fallback (BSE -> NSE)
-        if poisoned_bo_symbols and not circuit_open:
+        if poisoned_bo_symbols:
             logger.info(f"🗑️ price_provider: Handling {len(poisoned_bo_symbols)} poisoned BSE mappings and retrying via NSE...")
             try:
                 from bse_mapping_utils import mark_bse_invalid
@@ -502,7 +502,7 @@ class PriceProvider:
                 logger.warning(f"Failed during Reverse Fallback: {e}")
 
         # Normal NSE -> BSE Fallback
-        if missing_ns_to_bo and not circuit_open:
+        if missing_ns_to_bo:
             bo_symbols = list(missing_ns_to_bo.keys())
             logger.info(f"🔄 price_provider: {len(bo_symbols)} .NS symbols missing. Attempting .BO fallback...")
             try:
