@@ -1823,9 +1823,81 @@ var _userWatchlistData = [];
       </div>
       <!-- END TAB 1: SIGNALS & ALL TRADES -->
 
-      <!-- TAB WEALTH ENGINE (IFRAME) -->
+      <!-- TAB WEALTH ENGINE (NATIVE VIEW) -->
       <div id="tab-wealth-engine" class="tab-panel">
-        <iframe src="/wealth" style="width: 100%; height: calc(100vh - 120px); border: none; border-radius: 8px;"></iframe>
+
+        <!-- WEALTH KPI METRICS BAR -->
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:16px; margin-bottom:20px;">
+          <div class="card" style="padding:16px;">
+            <div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Wealth Strategy</div>
+            <div style="font-size:20px; font-weight:800; color:var(--accent); margin-top:4px;">Compounder Alpha</div>
+            <div style="font-size:12px; color:var(--win); font-weight:600; margin-top:2px;">Long-Term Wealth Accumulation</div>
+          </div>
+          <div class="card" style="padding:16px;">
+            <div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Active Allocations</div>
+            <div id="wealth-active-count" style="font-size:20px; font-weight:800; color:var(--text); margin-top:4px;">-</div>
+            <div style="font-size:12px; color:var(--muted); margin-top:2px;">Target Max: 25% Sector / 10% Stock</div>
+          </div>
+          <div class="card" style="padding:16px;">
+            <div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Allocation Mode</div>
+            <div style="font-size:20px; font-weight:800; color:var(--win); margin-top:4px;">DYNAMIC REBALANCING</div>
+            <div style="font-size:12px; color:var(--muted); margin-top:2px;">MoS & Valuation Gated</div>
+          </div>
+        </div>
+
+        <!-- PORTFOLIO ACTIONS TABLE -->
+        <div class="card" style="padding:20px; margin-bottom:20px;">
+          <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
+            <span>💼 Portfolio Actions (Wealth Allocation Engine)</span>
+            <button class="refresh-btn" onclick="loadWealthEngineTab(true)">🔄 Refresh Actions</button>
+          </div>
+          <div class="tbl-wrap">
+            <table id="tbl-portfolio-actions">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Action</th>
+                  <th>Target Pos %</th>
+                  <th>Current Pos %</th>
+                  <th>Sector</th>
+                  <th>Sector Exp %</th>
+                  <th>Risk Budget %</th>
+                  <th>Valuation Status</th>
+                  <th>Confirmations</th>
+                  <th>Confluence Tier</th>
+                </tr>
+              </thead>
+              <tbody id="wealth-portfolio-actions-tbody">
+                <tr><td colspan="10" style="text-align:center; padding:20px; color:var(--muted);">Loading Wealth Portfolio Actions...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- WEALTH HOLDINGS & WATCHLIST TABLE -->
+        <div class="card" style="padding:20px; margin-bottom:20px;">
+          <div class="card-title">💎 Wealth Watchlist & Holding Candidates</div>
+          <div class="tbl-wrap">
+            <table id="tbl-wealth-holdings">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Score</th>
+                  <th>CMP</th>
+                  <th>Buy Price</th>
+                  <th>P&L %</th>
+                  <th>Allocation %</th>
+                  <th>Thesis Health</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="wealth-holdings-tbody">
+                <tr><td colspan="8" style="text-align:center; padding:20px; color:var(--muted);">Loading Wealth Watchlist Data...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
       </div>
 
       <!-- TAB 2: WATCHLIST & USER MANAGEMENT -->
@@ -2522,6 +2594,8 @@ var _userWatchlistData = [];
       } else if (tabId === 'db-explorer') {
         if (typeof fetchDatabaseTablesSummary === 'function') fetchDatabaseTablesSummary();
         if (typeof loadAdvancedOutcomeAnalytics === 'function') loadAdvancedOutcomeAnalytics();
+      } else if (tabId === 'wealth-engine') {
+        if (typeof loadWealthEngineTab === 'function') loadWealthEngineTab(true);
       }
     }
 
@@ -8593,6 +8667,60 @@ function loadMasterSystemV2Data() {
         </tr>
       `).join('');
     }).catch(e => console.warn('Failed to load investment watch:', e));
+}
+
+function loadWealthEngineTab(forceRefresh) {
+  fetch('/api/v2/portfolio_actions')
+    .then(r => r.json())
+    .then(data => {
+      const tbody = document.getElementById('wealth-portfolio-actions-tbody');
+      if (!tbody) return;
+      if (!Array.isArray(data) || data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:20px; color:var(--muted);">No active portfolio rebalancing actions required.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = data.map(item => `
+        <tr>
+          <td style="font-weight:700; color:var(--accent);">${item.symbol || item.Stock}</td>
+          <td><span class="${item.action === 'BUY' || item.action === 'ADD_ON' ? 'badge-ok' : 'badge-queued'}">${item.action}</span></td>
+          <td>${item.target_position_pct}%</td>
+          <td>${item.current_position_pct || 0}%</td>
+          <td>${item.sector || '-'}</td>
+          <td>${item.sector_exposure_pct || 0}%</td>
+          <td>${item.risk_budget_pct || 1.0}%</td>
+          <td>${item.valuation_status || 'FAIR'}</td>
+          <td>${(item.scanner_confirmations || []).join(', ')}</td>
+          <td><span class="badge-ok">${item.confluence_tier || 'STANDARD'}</span></td>
+        </tr>
+      `).join('');
+    })
+    .catch(e => console.warn('Failed to load portfolio actions:', e));
+
+  fetch('/api/wealth')
+    .then(r => r.json())
+    .then(data => {
+      const tbody = document.getElementById('wealth-holdings-tbody');
+      const countEl = document.getElementById('wealth-active-count');
+      if (countEl && Array.isArray(data)) countEl.innerText = data.length;
+      if (!tbody) return;
+      if (!Array.isArray(data) || data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:20px; color:var(--muted);">No wealth compounder candidates currently active.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = data.map(item => `
+        <tr>
+          <td style="font-weight:700; color:var(--accent);">${item.Stock || item.symbol}</td>
+          <td>${item.score || item.quality_score || '-'}</td>
+          <td>₹${item.cmp || item.Close || item.close || '-'}</td>
+          <td>₹${item.buy_price || item.entry_price || '-'}</td>
+          <td style="color:${(item.pnl_pct || 0) >= 0 ? 'var(--win)' : 'var(--loss)'}; font-weight:700;">${item.pnl_pct ? (item.pnl_pct > 0 ? '+' : '') + item.pnl_pct + '%' : '-'}</td>
+          <td>${item.allocation_pct || item.weight_pct || 5.0}%</td>
+          <td>${item.thesis_health || 'HEALTHY'}</td>
+          <td><span class="badge-ok">${item.status || 'HOLDING'}</span></td>
+        </tr>
+      `).join('');
+    })
+    .catch(e => console.warn('Failed to load wealth engine data:', e));
 }
 
 // Initial watchlist & database summary load
