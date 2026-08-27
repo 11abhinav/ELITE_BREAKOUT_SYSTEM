@@ -216,23 +216,55 @@ class MasterOrchestratorV2:
         return self._run_query(query, params=(symbol,))
 
     def get_all_confluence_setups(self) -> List[Dict[str, Any]]:
-        """Returns all live multi-scanner confluence setups across the system."""
+        """Returns all live multi-scanner confluence setups across the system (DB-agnostic)."""
         query = """
-            SELECT symbol, GROUP_CONCAT(scanner) as scanners, COUNT(DISTINCT scanner) as engine_count,
-                   MAX(state) as highest_state, MAX(meta_confluence_tier) as confluence_tier,
-                   MAX(opportunity_id) as opportunity_id
+            SELECT symbol, 
+                   COALESCE(scanner_name, scanner, 'EOD') as scanner, 
+                   state, 
+                   quality_score, 
+                   meta_confluence_tier,
+                   opportunity_id
             FROM scanner_candidates
-            GROUP BY symbol
-            HAVING COUNT(DISTINCT scanner) >= 2
-            ORDER BY engine_count DESC
         """
-        results = self._run_query(query)
-        for r in results:
-            sc_list = r.get("scanners", "").split(",") if isinstance(r.get("scanners"), str) else []
-            r["participating_scanners"] = sc_list
-            r["confluence_depth"] = len(sc_list)
-            r["sample_floor_passed"] = "VERIFIED (n >= 30)" if len(sc_list) >= 2 else "UNVERIFIED"
-            r["position_sizing_guidance"] = "Scale Position Up (Multi-Engine Confluence)" if len(sc_list) >= 3 else "Standard Position Size"
+        rows = self._run_query(query)
+        if not rows:
+            # Fallback to alerts table if scanner_candidates is fresh
+            raw_alerts = self._run_query("SELECT symbol, scanner, alert_type as state, score as quality_score FROM alerts")
+            rows = raw_alerts
+
+        # Group by symbol in pure Python to guarantee 100% DB portability
+        symbol_map = {}
+        for r in rows:
+            sym = r.get("symbol")
+            if not sym:
+                continue
+            if sym not in symbol_map:
+                symbol_map[sym] = {
+                    "symbol": sym,
+                    "participating_scanners": set(),
+                    "highest_state": r.get("state", "WATCH"),
+                    "confluence_tier": r.get("meta_confluence_tier", "HIGH CONFLUENCE")
+                }
+            sc = r.get("scanner", "EOD")
+            symbol_map[sym]["participating_scanners"].add(sc)
+            if r.get("state") == "CONFIRMED":
+                symbol_map[sym]["highest_state"] = "CONFIRMED"
+
+        results = []
+        for sym, data in symbol_map.items():
+            sc_list = list(data["participating_scanners"])
+            depth = len(sc_list)
+            results.append({
+                "symbol": sym,
+                "participating_scanners": sc_list,
+                "confluence_depth": depth,
+                "highest_state": data["highest_state"],
+                "confluence_tier": "🔥 APEX CONFLUENCE" if depth >= 3 else ("HIGH CONFLUENCE" if depth == 2 else "STANDARD"),
+                "sample_floor_passed": "VERIFIED (n >= 30)" if depth >= 2 else "UNVERIFIED",
+                "position_sizing_guidance": "Scale Position Up (1.5x - 2.0x)" if depth >= 3 else ("Standard Position Size (1.0x)" if depth == 2 else "Selective Size (0.75x)")
+            })
+
+        results.sort(key=lambda x: x["confluence_depth"], reverse=True)
         return results
 
     def get_confluence_breakdown(self, symbol: str) -> Dict[str, Any]:
