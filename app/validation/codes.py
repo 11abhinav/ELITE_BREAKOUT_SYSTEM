@@ -16,6 +16,10 @@ class FailureCode(Enum):
     HIS003 = "Duplicate primary key"
     QLT001 = "Excessive missing values"
     SRC001 = "Provider unavailable"
+    HIS004 = "Insufficient history (< 50 bars)"
+    SYM001 = "Symbol not found"
+    RAT001 = "Rate limited by provider"
+    STL001 = "Stale data payload"
 
 @dataclass(frozen=True)
 class ValidationFailure:

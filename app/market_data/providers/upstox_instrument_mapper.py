@@ -283,8 +283,10 @@ class UpstoxInstrumentMapper:
         if not allow_fallback:
             return None
 
-        # Standard equity fallback
-        return f"NSE_EQ|{raw_no_caret}"
+        # [RULE 3C Architectural Fix] Do NOT manufacture fake NSE_EQ keys if symbol is not in Upstox master CSV or InstrumentRegistry.
+        # Returning None forces explicit RESOLUTION_FAILED status instead of generating bad API requests.
+        logger.warning(f"⚠️ [UPSTOX MAPPER] Symbol '{symbol}' not found in Upstox master contract CSV or InstrumentRegistry — returning RESOLUTION_FAILED.")
+        return None
 
 
 # Global accessor

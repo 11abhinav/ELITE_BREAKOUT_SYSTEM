@@ -31,31 +31,15 @@ import re
 
 logger = logging.getLogger(__name__)
 
-# ── Fyers valid patterns ───────────────────────────────────────────────────────
+# ── Fyers valid patterns (including -BE, -SM, -ST, -T, -A, -B, -M, -XC, -XD, -XT) ───────
 _FYERS_VALID_RE = re.compile(
-    r"^(NSE|BSE|MCX):[A-Z0-9&\.\-]+(-EQ|-SM|-ST|-A|-B|-T|-M|-X|-XC|-XD|-XT|-INDEX|-FUT|-OPT)$"
+    r"^(NSE|BSE|MCX):[A-Z0-9&\.\-]+(-EQ|-BE|-SM|-ST|-A|-B|-T|-M|-X|-XC|-XD|-XT|-INDEX|-FUT|-OPT)$"
 )
-_FYERS_BAD_SUFFIXES = ("-BE",)
-
-# ── Yahoo valid patterns ───────────────────────────────────────────────────────
-_YAHOO_VALID_RE = re.compile(r"^(\^[A-Z0-9]+|[A-Z0-9&\-\.]+\.(NS|BO))$")
-_YAHOO_VALID_INDICES = {"^NSEI", "^NSEBANK", "^BSESN"}
 
 
 def validate_fyers_symbol(sym: str) -> str:
     """
     Validates a Fyers API v3 symbol.
-
-    Rules (enforced by Fyers API):
-    1. Must start with 'NSE:', 'BSE:', or 'MCX:'.
-    2. Must end with a recognised series suffix (e.g. -EQ, -INDEX).
-    3. MUST NOT use the -BE suffix (those are NSE Trade-to-Trade designations
-       that the Fyers API rejects with code -403).
-    4. Bare BSE tickers without a suffix (e.g. 'BSE:ALKEM') are auto-corrected
-       to 'BSE:ALKEM-EQ'.
-
-    Returns the validated symbol (after auto-fixing bare BSE) or raises
-    ValueError with a clear message if the format is fundamentally wrong.
     """
     if not sym or not isinstance(sym, str):
         raise ValueError(f"Fyers symbol must be a non-empty string, got: {sym!r}")
@@ -66,12 +50,6 @@ def validate_fyers_symbol(sym: str) -> str:
     if re.match(r"^BSE:[A-Z0-9&\.]+$", sym):
         fixed = sym + "-EQ"
         logger.warning(f"🔧 [FyersFormat] Auto-fixed bare BSE symbol: {sym!r} → {fixed!r}")
-        sym = fixed
-
-    # Reject -BE series (Fyers API rejects these with code -403)
-    if sym.endswith("-BE"):
-        fixed = sym[:-3] + "-EQ"
-        logger.warning(f"🔧 [FyersFormat] Auto-fixed -BE series (invalid for Fyers): {sym!r} → {fixed!r}")
         sym = fixed
 
     if not _FYERS_VALID_RE.match(sym):

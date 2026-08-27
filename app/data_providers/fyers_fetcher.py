@@ -359,6 +359,15 @@ class FyersFetcher(DataFetcher):
 
         candidates = []
 
+        # 0. Check official Fyers Master Contract Resolver first (100% verified tradable symbols from Fyers public CDN)
+        try:
+            from data_providers.fyers_symbol_mapper import fyers_mapper
+            verified_fyers = fyers_mapper.get_fyers_symbol(base)
+            if verified_fyers:
+                candidates.append(verified_fyers)
+        except Exception as mapper_err:
+            logger.debug(f"Fyers symbol mapper error: {mapper_err}")
+
         # If base is numeric (BSE Scrip Code), prioritize BSE:5XXXXX-EQ
         if base.isdigit():
             candidates.append(f"BSE:{base}-EQ")
