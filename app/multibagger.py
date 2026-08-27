@@ -560,6 +560,9 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
         
         # 2. Convert DataFrames to StockPriceData
             for sym, md in batch_res.items():
+                # [VERSION: HEARTBEAT_PARSING_v1.0] Pulse heartbeat periodically during symbol parsing
+                if run_ctx:
+                    run_ctx.heartbeat()
                 from core_enums import ProviderResult
                 if md is None or isinstance(md, ProviderResult):
                     continue
@@ -2087,7 +2090,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
         except Exception as e:
             logger.error(f"Failed to sync deep fundamentals cache in Exit Monitor: {e}")
 
-def _prewarm_open_positions_cache(symbols: list, cache: dict) -> None:
+def _prewarm_open_positions_cache(symbols: list, cache: dict, run_ctx=None) -> None:
     """[VERSION: PREWARM_OPEN_POS_v1.2] Pre-warm DEEP_V5 fundamentals for SELL_REVIEW/OPEN positions.
 
     Ensures exit monitor always has full hydrated fundamentals (market_cap + equity/ROE) for open positions
@@ -2138,6 +2141,9 @@ def _prewarm_open_positions_cache(symbols: list, cache: dict) -> None:
     tv_bulk_cache = {}
 
     for sym in needs_hydration:
+        # [VERSION: HEARTBEAT_PREWARM_v1.0] Pulse heartbeat during pre-warm loop so watchdog does not mark TIMEOUT_STALE
+        if run_ctx:
+            run_ctx.heartbeat(force=True)
         existing = dict(cache.get(sym) or {})
         existing["prewarm_attempted_at"] = now_iso
         cache[sym] = existing
@@ -2387,6 +2393,14 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     logger.info("🚀 Multibagger Scanner execution started...")
     init_db()
     
+    # [VERSION: RUN_CTX_GUARD_v1.0] Guarantee run_ctx exists so heartbeats are always recorded in DB
+    if run_ctx is None:
+        try:
+            from database import start_scanner_execution_run
+            run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER", trigger_type="SCHEDULED", scheduler_name="CRON")
+        except Exception as _ctx_err:
+            logger.warning(f"⚠️ [MULTIBAGGER] Could not create fallback run_ctx: {_ctx_err}")
+
     # Load fundamentals cache — force DB sync for main scanner so daily 19:00 scan
     # always starts with the freshest possible data regardless of local file age.
     # [VERSION: CACHE_DB_FIRST_v1.0] force_db_sync=True guarantees freshness for daily scan.
@@ -2938,6 +2952,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         if futures:
             logger.info(f"📥 [MULTIBAGGER PASS 2] Deep YFinance hydration for {len(futures)} finalists...")
             for future in as_completed(futures, timeout=120):
+                # [VERSION: HEARTBEAT_PASS2_v1.0] Pulse heartbeat as each finalist completes hydration
+                # to prevent watchdog TIMEOUT_STALE during 10-15 min YFinance deep hydration runs.
+                if run_ctx:
+                    run_ctx.heartbeat(force=True)
                 cand = futures[future]
                 sym = cand["symbol"]
                 try:

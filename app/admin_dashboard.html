@@ -1302,7 +1302,30 @@ var _userWatchlistData = [];
         status.textContent = 'Click to expand';
       }
     }
-    
+
+    /* ─────────────────────────────────────────
+       V2 DASHBOARD NULL-SAFE FORMATTERS & TV LINK
+       ───────────────────────────────────────── */
+    function formatPrice(val) {
+      if (val === null || val === undefined || val === '' || isNaN(val) || !isFinite(val)) return '₹-';
+      return '₹' + Number(val).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function formatPct(val) {
+      if (val === null || val === undefined || val === '' || isNaN(val) || !isFinite(val)) return '-';
+      const num = Number(val);
+      return (num > 0 ? '+' : '') + num.toFixed(2) + '%';
+    }
+
+    function formatText(val, fallback = '-') {
+      if (val === null || val === undefined || val === '' || val === 'undefined' || val === 'NaN') return fallback;
+      return String(val);
+    }
+
+    function formatTvLink(tvSym, textSym) {
+      const sym = tvSym || ('NSE:' + (textSym || ''));
+      return `<a href="https://in.tradingview.com/chart/?symbol=${encodeURIComponent(sym)}" target="_blank" rel="noopener noreferrer" style="color:var(--accent); text-decoration:none; font-weight:700; background:rgba(0,212,161,0.12); padding:3px 8px; border-radius:4px; border:1px solid rgba(0,212,161,0.3); font-size:11px; display:inline-flex; align-items:center; gap:4px;" title="Open ${sym} Chart on TradingView">📊 TV</a>`;
+    }
   </script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
@@ -1455,6 +1478,8 @@ var _userWatchlistData = [];
               <thead>
                 <tr>
                   <th>Symbol</th>
+                  <th>Chart</th>
+                  <th>CMP</th>
                   <th>Scanner(s)</th>
                   <th>State</th>
                   <th>Entry Price</th>
@@ -1468,7 +1493,7 @@ var _userWatchlistData = [];
                 </tr>
               </thead>
               <tbody id="master-signals-tbody">
-                <tr><td colspan="11" style="text-align:center; padding:20px; color:var(--muted);">Loading Confirmed Signals...</td></tr>
+                <tr><td colspan="13" style="text-align:center; padding:20px; color:var(--muted);">Loading Confirmed Signals...</td></tr>
               </tbody>
             </table>
           </div>
@@ -1495,6 +1520,7 @@ var _userWatchlistData = [];
               <thead>
                 <tr>
                   <th>Symbol</th>
+                  <th>Chart</th>
                   <th>Scanner</th>
                   <th>Stage Progress</th>
                   <th>Maturity Score</th>
@@ -1506,7 +1532,7 @@ var _userWatchlistData = [];
                 </tr>
               </thead>
               <tbody id="stocks-watch-tbody">
-                <tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">Loading Stocks to Watch...</td></tr>
+                <tr><td colspan="10" style="text-align:center; padding:20px; color:var(--muted);">Loading Stocks to Watch...</td></tr>
               </tbody>
             </table>
           </div>
@@ -1533,6 +1559,8 @@ var _userWatchlistData = [];
               <thead>
                 <tr>
                   <th>Symbol</th>
+                  <th>Chart</th>
+                  <th>CMP</th>
                   <th>Business Quality</th>
                   <th>Growth Durability</th>
                   <th>Moat / Cash Quality</th>
@@ -1544,7 +1572,7 @@ var _userWatchlistData = [];
                 </tr>
               </thead>
               <tbody id="investment-watch-tbody">
-                <tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">Loading Investment Watch...</td></tr>
+                <tr><td colspan="11" style="text-align:center; padding:20px; color:var(--muted);">Loading Investment Watch...</td></tr>
               </tbody>
             </table>
           </div>
@@ -1571,6 +1599,8 @@ var _userWatchlistData = [];
               <thead>
                 <tr>
                   <th>Symbol</th>
+                  <th>Chart</th>
+                  <th>CMP</th>
                   <th>Scanner</th>
                   <th>Trigger Date</th>
                   <th>Rejected Gate</th>
@@ -1582,8 +1612,8 @@ var _userWatchlistData = [];
                   <th>Rejection Audit</th>
                 </tr>
               </thead>
-              <tbody id="missed-opps-tbody">
-                <tr><td colspan="10" style="text-align:center; padding:20px; color:var(--muted);">No forensic rejection data loaded.</td></tr>
+              <tbody id="near-misses-tbody">
+                <tr><td colspan="12" style="text-align:center; padding:20px; color:var(--muted);">No forensic rejection data loaded.</td></tr>
               </tbody>
             </table>
           </div>
@@ -1653,6 +1683,8 @@ var _userWatchlistData = [];
               <thead>
                 <tr>
                   <th>Symbol</th>
+                  <th>Chart</th>
+                  <th>CMP</th>
                   <th>Agreeing Specialist Engines</th>
                   <th>Confluence Depth</th>
                   <th>Meta Conviction Tier</th>
@@ -1661,7 +1693,7 @@ var _userWatchlistData = [];
                 </tr>
               </thead>
               <tbody id="confluence-matrix-tbody">
-                <tr><td colspan="6" style="text-align:center; padding:20px; color:var(--muted);">Loading Live Multi-Scanner Confluence Setups...</td></tr>
+                <tr><td colspan="8" style="text-align:center; padding:20px; color:var(--muted);">Loading Live Multi-Scanner Confluence Setups...</td></tr>
               </tbody>
             </table>
           </div>
@@ -1943,6 +1975,8 @@ var _userWatchlistData = [];
               <thead>
                 <tr>
                   <th>Symbol</th>
+                  <th>Chart</th>
+                  <th>CMP</th>
                   <th>Action</th>
                   <th>Target Pos %</th>
                   <th>Current Pos %</th>
@@ -1955,7 +1989,7 @@ var _userWatchlistData = [];
                 </tr>
               </thead>
               <tbody id="wealth-portfolio-actions-tbody">
-                <tr><td colspan="10" style="text-align:center; padding:20px; color:var(--muted);">Loading Wealth Portfolio Actions...</td></tr>
+                <tr><td colspan="12" style="text-align:center; padding:20px; color:var(--muted);">Loading Wealth Portfolio Actions...</td></tr>
               </tbody>
             </table>
           </div>
@@ -1969,6 +2003,7 @@ var _userWatchlistData = [];
               <thead>
                 <tr>
                   <th>Symbol</th>
+                  <th>Chart</th>
                   <th>Score</th>
                   <th>CMP</th>
                   <th>Buy Price</th>
@@ -1979,7 +2014,7 @@ var _userWatchlistData = [];
                 </tr>
               </thead>
               <tbody id="wealth-holdings-tbody">
-                <tr><td colspan="8" style="text-align:center; padding:20px; color:var(--muted);">Loading Wealth Watchlist Data...</td></tr>
+                <tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">Loading Wealth Watchlist Data...</td></tr>
               </tbody>
             </table>
           </div>
@@ -8638,7 +8673,7 @@ function loadNearMisses() {
     .then(res => res.json())
     .then(data => {
       if (!Array.isArray(data) || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--muted);">No near-miss alerts recorded in the selected window.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:24px; color:var(--muted);">No near-miss alerts recorded in the selected window.</td></tr>`;
         return;
       }
       tbody.innerHTML = data.map(item => {
@@ -8651,19 +8686,21 @@ function loadNearMisses() {
 
         return `
           <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
-            <td style="padding:10px 14px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${item.symbol}${getEarningsBadgeHtml(item)}</td>
-            <td style="padding:10px 14px; color:var(--muted); font-size:11px; font-weight:600;">${item.scanner}</td>
+            <td style="padding:10px 14px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}${getEarningsBadgeHtml(item)}</td>
+            <td style="padding:10px 14px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+            <td style="padding:10px 14px; font-weight:700; color:var(--text);">${formatPrice(item.cmp || item.entry_price)}</td>
+            <td style="padding:10px 14px; color:var(--muted); font-size:11px; font-weight:600;">${formatText(item.scanner)}</td>
             <td style="padding:10px 14px; font-family:var(--font-mono); font-size:11px;">
-              <span style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); padding:3px 8px; border-radius:6px; font-weight:700; display:inline-block; box-shadow: 0 0 8px rgba(245,158,11,0.2);">${item.gate_name}</span>
+              <span style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); padding:3px 8px; border-radius:6px; font-weight:700; display:inline-block; box-shadow: 0 0 8px rgba(245,158,11,0.2);">${formatText(item.gate_name)}</span>
             </td>
             <td style="padding:10px 14px; text-align:center; font-family:var(--font-mono); font-size:11px;">
-              <span style="color:#10b981; font-weight:700;">${item.observed_value}</span> / <span style="color:var(--muted);">${item.threshold_value}</span>
+              <span style="color:#10b981; font-weight:700;">${formatText(item.observed_value)}</span> / <span style="color:var(--muted);">${formatText(item.threshold_value)}</span>
             </td>
             <td style="padding:10px 14px; text-align:center; font-weight:700; font-size:11px; color:${deltaColor};">
-              -${item.delta_pct}%
+              ${formatPct(item.delta_pct)}
             </td>
             <td style="padding:10px 14px; text-align:right; font-family:var(--font-mono); font-size:11px;">
-              <span style="font-weight:700; color:var(--text);">${(item.entry_price != null && !isNaN(item.entry_price)) ? '₹' + parseFloat(item.entry_price).toFixed(2) : '₹-'}</span> | <span style="color:var(--muted);">SL: ${(item.stop_loss != null && !isNaN(item.stop_loss)) ? '₹' + parseFloat(item.stop_loss).toFixed(2) : '₹-'}</span> | <span style="color:var(--muted);">T1: ${(item.target_1 != null && !isNaN(item.target_1)) ? '₹' + parseFloat(item.target_1).toFixed(2) : '₹-'}</span>
+              <span style="font-weight:700; color:var(--text);">${formatPrice(item.entry_price)}</span> | <span style="color:var(--muted);">SL: ${formatPrice(item.stop_loss)}</span> | <span style="color:var(--muted);">T1: ${formatPrice(item.target_1)}</span>
             </td>
             <td style="padding:10px 14px; text-align:center;">${statusBadge}</td>
             <td style="padding:10px 14px; text-align:center; font-weight:700; font-family:var(--font-mono); color:${item.max_mfe_r > 0 ? '#10b981' : 'var(--muted)'};">
@@ -8678,7 +8715,7 @@ function loadNearMisses() {
     })
     .catch(err => {
       console.warn('Failed to load near misses:', err);
-      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--warn);">Failed to load near-miss diagnostics.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:24px; color:var(--warn);">Failed to load near-miss diagnostics.</td></tr>`;
     });
 }
 
@@ -8689,22 +8726,24 @@ function loadMasterSystemV2Data() {
       const tbody = document.getElementById('master-signals-tbody');
       if (!tbody) return;
       if (!Array.isArray(data) || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--muted);">No active confirmed signals.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:20px; color:var(--muted);">No active confirmed signals.</td></tr>`;
         return;
       }
       tbody.innerHTML = data.map(item => `
         <tr>
-          <td style="font-weight:700; color:var(--accent);">${item.symbol}</td>
+          <td style="font-weight:700; color:var(--accent);">${formatText(item.symbol)}</td>
+          <td>${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+          <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp || item.entry_price)}</td>
           <td>${(item.scanners || []).join(', ')}</td>
-          <td><span class="badge-ok">${item.state}</span></td>
-          <td>₹${item.entry_price || '-'}</td>
-          <td style="color:var(--loss);">₹${item.stop_loss || '-'}</td>
-          <td style="color:var(--win);">₹${item.target_1 || '-'}</td>
-          <td style="color:var(--win);">₹${item.target_2 || '-'}</td>
-          <td>${item.rr_ratio || '-'}</td>
-          <td>${item.quality_grade || '-'}</td>
-          <td><span class="badge-ok">${item.meta_confluence_tier}</span></td>
-          <td style="font-size:11px; color:var(--win);">${item.checklist_cleared || item.data_confidence || 'Passed All Checklist Rules'}</td>
+          <td><span class="badge-ok">${formatText(item.state)}</span></td>
+          <td>${formatPrice(item.entry_price)}</td>
+          <td style="color:var(--loss);">${formatPrice(item.stop_loss)}</td>
+          <td style="color:var(--win);">${formatPrice(item.target_1)}</td>
+          <td style="color:var(--win);">${formatPrice(item.target_2)}</td>
+          <td>${formatText(item.rr_ratio)}</td>
+          <td>${formatText(item.quality_grade)}</td>
+          <td><span class="badge-ok">${formatText(item.meta_confluence_tier)}</span></td>
+          <td style="font-size:11px; color:var(--win);">${formatText(item.checklist_cleared || item.why_qualifies)}</td>
         </tr>
       `).join('');
     }).catch(e => console.warn('Failed to load master alerts:', e));
@@ -8715,20 +8754,21 @@ function loadMasterSystemV2Data() {
       const tbody = document.getElementById('stocks-watch-tbody');
       if (!tbody) return;
       if (!Array.isArray(data) || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">No stocks currently in Watch stage.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:20px; color:var(--muted);">No stocks currently in Watch stage.</td></tr>`;
         return;
       }
       tbody.innerHTML = data.map(item => `
         <tr>
-          <td style="font-weight:700;">${item.symbol}</td>
-          <td>${item.scanner}</td>
-          <td>${item.stage}</td>
-          <td>${item.maturity_score}</td>
-          <td>₹${item.cmp}</td>
-          <td>₹${item.trigger_level}</td>
-          <td style="color:var(--amber);">${item.distance_pct}%</td>
-          <td style="color:var(--muted);">${item.primary_blocker}</td>
-          <td style="font-size:11px; color:var(--accent);">${item.why_qualifies || 'Base Building + Liquid ELITE Universe'}</td>
+          <td style="font-weight:700;">${formatText(item.symbol)}</td>
+          <td>${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+          <td>${formatText(item.scanner)}</td>
+          <td><span class="badge-queued">${formatText(item.stage)}</span></td>
+          <td>${formatText(item.maturity_score)}</td>
+          <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp)}</td>
+          <td>${formatPrice(item.trigger_level)}</td>
+          <td style="color:var(--amber); font-weight:700;">${formatPct(item.distance_pct)}</td>
+          <td style="color:var(--muted);">${formatText(item.primary_blocker)}</td>
+          <td style="font-size:11px; color:var(--accent);">${formatText(item.why_qualifies)}</td>
         </tr>
       `).join('');
     }).catch(e => console.warn('Failed to load stocks to watch:', e));
@@ -8739,20 +8779,22 @@ function loadMasterSystemV2Data() {
       const tbody = document.getElementById('investment-watch-tbody');
       if (!tbody) return;
       if (!Array.isArray(data) || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">No fundamental compounders in Investment Watch.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--muted);">No fundamental compounders in Investment Watch.</td></tr>`;
         return;
       }
       tbody.innerHTML = data.map(item => `
         <tr>
-          <td style="font-weight:700; color:var(--accent);">${item.symbol}</td>
-          <td>${item.business_quality}</td>
-          <td>${item.growth_durability}</td>
-          <td>${item.moat_cash_quality}</td>
-          <td>${item.valuation_grade}</td>
-          <td style="color:var(--win); font-weight:700;">+${item.margin_of_safety_pct}%</td>
-          <td>${item.thesis_health}</td>
-          <td><span class="badge-queued">${item.investment_state}</span></td>
-          <td style="font-size:11px; color:var(--win);">${item.why_qualifies || 'ROCE > 20% + Debt Free + Cash Flow Quality A+'}</td>
+          <td style="font-weight:700; color:var(--accent);">${formatText(item.symbol)}</td>
+          <td>${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+          <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp)}</td>
+          <td>${formatText(item.business_quality)}</td>
+          <td>${formatText(item.growth_durability)}</td>
+          <td>${formatText(item.moat_cash_quality)}</td>
+          <td>${formatText(item.valuation_grade)}</td>
+          <td style="color:var(--win); font-weight:700;">${formatPct(item.margin_of_safety_pct)}</td>
+          <td>${formatText(item.thesis_health)}</td>
+          <td><span class="badge-queued">${formatText(item.investment_state)}</span></td>
+          <td style="font-size:11px; color:var(--win);">${formatText(item.why_qualifies)}</td>
         </tr>
       `).join('');
     }).catch(e => console.warn('Failed to load investment watch:', e));
@@ -8765,21 +8807,23 @@ function loadWealthEngineTab(forceRefresh) {
       const tbody = document.getElementById('wealth-portfolio-actions-tbody');
       if (!tbody) return;
       if (!Array.isArray(data) || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:20px; color:var(--muted);">No active portfolio rebalancing actions required.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:20px; color:var(--muted);">No active portfolio rebalancing actions required.</td></tr>`;
         return;
       }
       tbody.innerHTML = data.map(item => `
         <tr>
-          <td style="font-weight:700; color:var(--accent);">${item.symbol || item.Stock}</td>
-          <td><span class="${item.action === 'BUY' || item.action === 'ADD_ON' ? 'badge-ok' : 'badge-queued'}">${item.action}</span></td>
-          <td>${item.target_position_pct}%</td>
-          <td>${item.current_position_pct || 0}%</td>
-          <td>${item.sector || '-'}</td>
-          <td>${item.sector_exposure_pct || 0}%</td>
-          <td>${item.risk_budget_pct || 1.0}%</td>
-          <td>${item.valuation_status || 'FAIR'}</td>
+          <td style="font-weight:700; color:var(--accent);">${formatText(item.symbol || item.Stock)}</td>
+          <td>${formatTvLink(item.tradingview_symbol, item.symbol || item.Stock)}</td>
+          <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp)}</td>
+          <td><span class="${item.action === 'BUY' || item.action === 'ADD_ON' ? 'badge-ok' : 'badge-queued'}">${formatText(item.action)}</span></td>
+          <td>${formatPct(item.target_position_pct)}</td>
+          <td>${formatPct(item.current_position_pct || 0)}</td>
+          <td>${formatText(item.sector)}</td>
+          <td>${formatPct(item.sector_exposure_pct || 0)}</td>
+          <td>${formatPct(item.risk_budget_pct || 1.0)}</td>
+          <td>${formatText(item.valuation_status || 'FAIR')}</td>
           <td>${(item.scanner_confirmations || []).join(', ')}</td>
-          <td><span class="badge-ok">${item.confluence_tier || 'STANDARD'}</span></td>
+          <td><span class="badge-ok">${formatText(item.confluence_tier || 'STANDARD')}</span></td>
         </tr>
       `).join('');
     })
@@ -8793,19 +8837,20 @@ function loadWealthEngineTab(forceRefresh) {
       if (countEl && Array.isArray(data)) countEl.innerText = data.length;
       if (!tbody) return;
       if (!Array.isArray(data) || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:20px; color:var(--muted);">No wealth compounder candidates currently active.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">No wealth compounder candidates currently active.</td></tr>`;
         return;
       }
       tbody.innerHTML = data.map(item => `
         <tr>
-          <td style="font-weight:700; color:var(--accent);">${item.Stock || item.symbol}</td>
-          <td>${item.score || item.quality_score || '-'}</td>
-          <td>₹${item.cmp || item.Close || item.close || '-'}</td>
-          <td>₹${item.buy_price || item.entry_price || '-'}</td>
-          <td style="color:${(item.pnl_pct || 0) >= 0 ? 'var(--win)' : 'var(--loss)'}; font-weight:700;">${item.pnl_pct ? (item.pnl_pct > 0 ? '+' : '') + item.pnl_pct + '%' : '-'}</td>
-          <td>${item.allocation_pct || item.weight_pct || 5.0}%</td>
-          <td>${item.thesis_health || 'HEALTHY'}</td>
-          <td><span class="badge-ok">${item.status || 'HOLDING'}</span></td>
+          <td style="font-weight:700; color:var(--accent);">${formatText(item.Stock || item.symbol)}</td>
+          <td>${formatTvLink(item.tradingview_symbol, item.Stock || item.symbol)}</td>
+          <td>${formatText(item.score || item.quality_score)}</td>
+          <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp || item.Close || item.close)}</td>
+          <td>${formatPrice(item.buy_price || item.entry_price)}</td>
+          <td style="color:${(item.pnl_pct || 0) >= 0 ? 'var(--win)' : 'var(--loss)'}; font-weight:700;">${formatPct(item.pnl_pct)}</td>
+          <td>${formatPct(item.allocation_pct || item.weight_pct || 5.0)}</td>
+          <td>${formatText(item.thesis_health || 'HEALTHY')}</td>
+          <td><span class="badge-ok">${formatText(item.status || 'HOLDING')}</span></td>
         </tr>
       `).join('');
     })
@@ -8819,17 +8864,19 @@ function loadConfluenceMatrixTab() {
       const tbody = document.getElementById('confluence-matrix-tbody');
       if (!tbody) return;
       if (!Array.isArray(data) || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--muted);">No active multi-scanner confluence setups right now.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:20px; color:var(--muted);">No active multi-scanner confluence setups right now.</td></tr>`;
         return;
       }
       tbody.innerHTML = data.map(item => `
         <tr>
-          <td style="font-weight:700; color:var(--accent);">${item.symbol}</td>
+          <td style="font-weight:700; color:var(--accent);">${formatText(item.symbol)}</td>
+          <td>${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+          <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp)}</td>
           <td>${(item.participating_scanners || []).join(', ')}</td>
           <td><span class="badge-ok">${item.confluence_depth} Engines</span></td>
-          <td><span class="badge-ok">${item.confluence_tier || 'HIGH CONFLUENCE'}</span></td>
-          <td style="font-size:11px; color:var(--win);">${item.sample_floor_passed || 'VERIFIED (n >= 30)'}</td>
-          <td style="font-size:11px; color:var(--accent); font-weight:700;">${item.position_sizing_guidance || 'Standard Position Size'}</td>
+          <td><span class="badge-ok">${formatText(item.confluence_tier || 'HIGH CONFLUENCE')}</span></td>
+          <td style="font-size:11px; color:var(--win);">${formatText(item.sample_floor_passed || 'VERIFIED (n >= 30)')}</td>
+          <td style="font-size:11px; color:var(--accent); font-weight:700;">${formatText(item.position_sizing_guidance || 'Standard Position Size')}</td>
         </tr>
       `).join('');
     })

@@ -7949,17 +7949,19 @@ def is_scanner_actively_running(scanner_name: str, exclude_run_id: str = None, c
                     WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                       AND started_at < %s;
                 """, (_PROCESS_BOOT_TIME,))
-                # [BUG FIX: DUPLICATE_UPDATE_REMOVED_v1.0] Previously this identical UPDATE ran twice (copy-paste error).
+                # [VERSION: WATCHDOG_THRESHOLD_v2.0] Increased inactivity threshold from 15 min to 25 min
+                # so multi-pass scanners (Multibagger, Multi-TF) undergoing YFinance rate-limit backoff retries
+                # are NOT prematurely marked TIMEOUT_STALE while active heartbeats continue.
                 cur.execute("""
                     UPDATE scanner_execution_history
                     SET completed_at = NOW(),
                         lifecycle_status = 'TIMEOUT_STALE',
-                        error_summary = 'Execution timed out after 15 minutes of inactivity',
+                        error_summary = 'Execution timed out after 25 minutes of inactivity',
                         error_details = 'Watchdog auto-cleaned stale RUNNING state without recent heartbeat'
                     WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                       AND (
-                          heartbeat_at < NOW() - INTERVAL '15 minutes'
-                          OR (started_at < NOW() - INTERVAL '15 minutes' AND (heartbeat_at IS NULL OR heartbeat_at = started_at))
+                          heartbeat_at < NOW() - INTERVAL '25 minutes'
+                          OR (started_at < NOW() - INTERVAL '25 minutes' AND (heartbeat_at IS NULL OR heartbeat_at = started_at))
                       );
                 """)
                 conn.commit()
@@ -8219,11 +8221,11 @@ def get_scanner_execution_history(
                                 SET completed_at = NOW(),
                                     lifecycle_status = 'TIMEOUT_STALE',
                                     error_summary = 'Execution timed out due to process crash or stopped heartbeat',
-                                    error_details = 'Watchdog auto-cleaned stale RUNNING state: heartbeat inactive for >20 minutes'
+                                    error_details = 'Watchdog auto-cleaned stale RUNNING state: heartbeat inactive for >25 minutes'
                                 WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                                   AND (
-                                      (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '20 minutes')
-                                      OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '20 minutes')
+                                      (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '25 minutes')
+                                      OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '25 minutes')
                                   );
                             """)
                             cur.execute("""
@@ -8231,7 +8233,7 @@ def get_scanner_execution_history(
                                 SET status = 'DOWN',
                                     error_msg = 'Watchdog auto-cleaned orphaned RUNNING state (process crash/inactivity)'
                                 WHERE status = 'RUNNING'
-                                  AND updated_at < NOW() - INTERVAL '20 minutes';
+                                  AND updated_at < NOW() - INTERVAL '25 minutes';
                             """)
                             conn.commit()
                             # Log AFTER successful commit — accurate report of what was cleaned
