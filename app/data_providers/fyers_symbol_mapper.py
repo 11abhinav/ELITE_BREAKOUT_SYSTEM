@@ -65,16 +65,30 @@ class FyersSymbolMapper:
                 reader = csv.reader(lines)
                 for row in reader:
                     if len(row) > 13:
-                        fyers_sym = row[9].strip()  # e.g., NSE:STLTECH-BE or BSE:DIACABS-T
-                        raw_ticker = row[13].strip().upper() # e.g., STLTECH
+                        fyers_sym = row[9].strip()   # e.g., NSE:MOTHERSON-EQ or NSE:MOTHERSON-D1
+                        raw_ticker = row[13].strip().upper() # e.g., MOTHERSON
                         isin = row[5].strip().upper() if len(row) > 5 else ""
 
                         if raw_ticker and fyers_sym:
-                            # Prioritize NSE series, then BE/SM/ST series
-                            if raw_ticker not in symbol_map or exch == "NSE":
+                            # Series Priority Ranking for Cash Equities:
+                            # -EQ > -BE > -SM > -ST > -T > -A > -B > Others (Warrants -W1, Debt -D1)
+                            def _series_rank(sym_str: str) -> int:
+                                if sym_str.endswith("-EQ"): return 100
+                                if sym_str.endswith("-BE"): return 90
+                                if sym_str.endswith("-SM"): return 80
+                                if sym_str.endswith("-ST"): return 85
+                                if sym_str.endswith("-T"):  return 70
+                                if sym_str.endswith("-A") or sym_str.endswith("-B"): return 60
+                                return 10 # Warrants, Debt, Bonds
+
+                            existing = symbol_map.get(raw_ticker)
+                            if not existing or _series_rank(fyers_sym) > _series_rank(existing):
                                 symbol_map[raw_ticker] = fyers_sym
+
                             if isin:
-                                isin_map[isin] = fyers_sym
+                                existing_isin = isin_map.get(isin)
+                                if not existing_isin or _series_rank(fyers_sym) > _series_rank(existing_isin):
+                                    isin_map[isin] = fyers_sym
 
             except Exception as e:
                 logger.warning(f"⚠️ Failed to download Fyers {exch} symbol master: {e}")
