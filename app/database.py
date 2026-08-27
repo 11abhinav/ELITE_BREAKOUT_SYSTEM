@@ -2905,22 +2905,35 @@ def get_all_scanner_health() -> list[dict]:
     except Exception as seed_err:
         logger.warning(f"Scanner health schedule sync warning: {seed_err}")
 
-    # Watchdog Auto-Healing: Mark any stuck QUEUED or RUNNING status as DOWN if global scanner lock is NOT held
+    # Watchdog Auto-Healing: Only mark stuck RUNNING threads (>15 mins) as DOWN if global scanner lock is NOT held
     try:
         from lock_utils import ProcessLock
         _g_lock = ProcessLock("global_scanner_lock")
         if not _g_lock.locked():
             with get_connection() as conn:
                 with conn.cursor() as cur:
+                    # Find stuck RUNNING scanners (>15 mins)
                     cur.execute("""
-                        UPDATE scanner_health
-                        SET status = 'DOWN',
-                            error_msg = 'Scanner execution timed out or process was terminated unexpectedly before completion',
-                            is_acknowledged = FALSE,
-                            updated_at = NOW()
-                        WHERE (status LIKE 'QUEUED%' OR status = 'RUNNING')
-                          AND updated_at < NOW() - INTERVAL '3 minutes';
+                        SELECT scanner_name FROM scanner_health
+                        WHERE status = 'RUNNING'
+                          AND updated_at < NOW() - INTERVAL '15 minutes';
                     """)
+                    stuck_rows = cur.fetchall()
+                    for r in stuck_rows:
+                        sc_name = r[0]
+                        cur.execute("""
+                            UPDATE scanner_health
+                            SET status = 'DOWN',
+                                error_msg = 'Scanner execution timed out or process was terminated unexpectedly before completion',
+                                is_acknowledged = FALSE,
+                                updated_at = NOW()
+                            WHERE scanner_name = %s;
+                        """, (sc_name,))
+                        # Insert failure trace record in scan_failures so UI history displays the failure
+                        cur.execute("""
+                            INSERT INTO scan_failures (scan_id, scanner_name, symbol, provider, failure_reason, failed_at)
+                            VALUES (%s, %s, 'SYSTEM', 'WATCHDOG', 'Scanner execution timed out or process was terminated unexpectedly before completion', NOW());
+                        """, (f"TIMEOUT_{sc_name}_{int(time.time())}", sc_name))
                     conn.commit()
     except Exception as heal_err:
         logger.debug(f"Watchdog health auto-heal warning: {heal_err}")
@@ -2941,6 +2954,31 @@ def get_all_scanner_health() -> list[dict]:
             except Exception:
                 logger.exception("❌ get_all_scanner_health failed")
                 return []
+
+
+def reset_all_scanners_on_boot() -> None:
+    """
+    Executed during server startup / main.py boot sequence.
+    Resets all scanner health rows in scanner_health DB table to clean 'OK' status
+    with error_msg = NULL, clearing any stale RUNNING / QUEUED / DOWN timeout flags from previous sessions.
+    This guarantees that on server restart, all scanner UI cards load cleanly as GREEN (OK / IDLE).
+    """
+    try:
+        init_db()
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE scanner_health
+                    SET status = 'OK',
+                        error_msg = NULL,
+                        is_acknowledged = TRUE,
+                        updated_at = NOW()
+                    WHERE status IN ('DOWN', 'RUNNING') OR status LIKE 'QUEUED%';
+                """)
+                conn.commit()
+        logger.info("🧹 [BOOT RESET] All scanner health statuses reset to clean OK state on server startup.")
+    except Exception as e:
+        logger.warning(f"Failed to reset scanner health on boot: {e}")
 
 
 def get_scanner_health(scanner_name: str) -> dict:

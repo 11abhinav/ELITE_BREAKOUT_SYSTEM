@@ -2374,9 +2374,10 @@ if __name__ == "__main__":
 
     # 0. SINGLE-THREADED DB INIT — Run DDL migrations on main thread BEFORE worker threads start
     try:
-        from database import init_db
+        from database import init_db, reset_all_scanners_on_boot
         init_db()
-        logger.info("✅ [BOOT] Single-threaded DB schema initialization complete.")
+        reset_all_scanners_on_boot()
+        logger.info("✅ [BOOT] Single-threaded DB schema initialization and scanner health boot reset complete.")
     except Exception as _init_err:
         logger.warning(f"⚠️ Single-threaded init_db warning: {_init_err}")
 
