@@ -259,6 +259,16 @@ class UpstoxInstrumentMapper:
                 clean = clean[:-len(sfx)]
                 break
 
+        # 0. Check if clean is ISIN (e.g. INE989C01038)
+        if clean.startswith("INE") and len(clean) == 12:
+            isin_key = f"NSE_EQ|{clean}"
+            if isin_key in self._symbol_map:
+                return isin_key
+            # Search values in _symbol_map for ISIN
+            for k, v in self._symbol_map.items():
+                if clean in v:
+                    return v
+
         # 1. Check in-memory master map first (pre-loaded from Upstox master contract CSV)
         if clean in self._symbol_map:
             return self._symbol_map[clean]
