@@ -242,8 +242,12 @@ class MasterOrchestratorV2:
         source = "scanner_candidates"
 
         if not watchlist:
+            # [RULE 67 CHANGE-RATIONALE]:
+            # The candidates table does not contain a 'current_price' column. Selecting NULL as cmp
+            # prevents a DatabaseError (column "current_price" does not exist) and delegates the CMP
+            # resolution to get_trusted_cmp() inside _ensure_contract_keys().
             query_fallback = """
-                SELECT symbol, scanner, breakout_type as stage, technical_score as maturity_score, current_price as cmp, technical_score as quality_grade
+                SELECT symbol, scanner, breakout_type as stage, technical_score as maturity_score, NULL as cmp, technical_score as quality_grade
                 FROM candidates
                 WHERE status != 'REJECTED'
                 ORDER BY created_at DESC LIMIT 50
@@ -264,8 +268,11 @@ class MasterOrchestratorV2:
 
     def get_investment_watch(self) -> List[Dict[str, Any]]:
         """Returns 📈 Investment Watch compounder candidates (Multibagger Engine) (LIVE DB QUERY)."""
+        # [RULE 67 CHANGE-RATIONALE]:
+        # Selecting NULL as cmp since candidates table lacks a 'current_price' column.
+        # CMP will be resolved dynamically via _ensure_contract_keys().
         query = """
-            SELECT symbol, technical_score as quality_score, status as investment_state, current_price as cmp
+            SELECT symbol, technical_score as quality_score, status as investment_state, NULL as cmp
             FROM candidates
             WHERE scanner IN ('MULTIBAGGER', 'WEALTH')
             ORDER BY created_at DESC LIMIT 50

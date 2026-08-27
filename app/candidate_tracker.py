@@ -53,9 +53,10 @@ _SCHEMA_INITIALIZED = False
 
 def init_candidate_schema() -> None:
     """
-    Creates scanner_candidates, candidate_snapshots, and near_miss_outcomes tables.
-    Also adds idempotency_key to the alerts table for duplicate alert prevention.
-    Thread-safe: runs exactly once per process lifetime.
+    [RULE 67 CHANGE-RATIONALE]:
+    Delegates all DDL execution logic for scanner_candidates, candidate_snapshots, and near_miss_outcomes
+    directly to `database.py:init_db()`. This avoids circular import paths and ensures clean, unified
+    initialization of all system database schemas.
     """
     global _SCHEMA_INITIALIZED
     if _SCHEMA_INITIALIZED:
@@ -64,170 +65,8 @@ def init_candidate_schema() -> None:
         if _SCHEMA_INITIALIZED:
             return
         init_db()
-        try:
-            with get_connection() as conn:
-                with conn.cursor() as cur:
+        _SCHEMA_INITIALIZED = True
 
-                    # ── scanner_candidates ──────────────────────────────────────────
-                    cur.execute("""
-                        CREATE TABLE IF NOT EXISTS scanner_candidates (
-                            candidate_id         BIGSERIAL PRIMARY KEY,
-                            setup_id             VARCHAR(128) UNIQUE NOT NULL,
-                            symbol               VARCHAR(50)  NOT NULL,
-                            scanner_name         VARCHAR(50)  NOT NULL,
-                            setup_type           VARCHAR(80)  NOT NULL,
-                            state                VARCHAR(30)  NOT NULL,
-                            structure_date       DATE         NOT NULL,
-
-                            detected_at          TIMESTAMPTZ  NOT NULL,
-                            triggered_at         TIMESTAMPTZ,
-                            confirmed_at         TIMESTAMPTZ,
-                            invalidated_at       TIMESTAMPTZ,
-                            expires_at           TIMESTAMPTZ,
-
-                            trigger_level        NUMERIC(12, 2),
-                            invalidation_level   NUMERIC(12, 2),
-                            next_required_event  TEXT,
-                            setup_reset_reason   VARCHAR(80),
-
-                            last_evaluated_at    TIMESTAMPTZ  NOT NULL,
-                            last_seen_price      NUMERIC(12, 2),
-                            last_seen_volume     NUMERIC(16, 2),
-
-                            distance_to_trigger_pct  NUMERIC(6, 2),
-                            distance_to_trigger_atr  NUMERIC(6, 2),
-                            extension_from_base_atr  NUMERIC(6, 2),
-
-                            quality_score        NUMERIC(6, 2),
-                            risk_score           NUMERIC(6, 2),
-                            reward_risk_ratio    NUMERIC(6, 2),
-
-                            stop_loss            NUMERIC(12, 2),
-                            target_1             NUMERIC(12, 2),
-                            target_2             NUMERIC(12, 2),
-                            target_3             NUMERIC(12, 2),
-
-                            confirmation_delay_bars  INTEGER DEFAULT 0,
-
-                            status_reason        TEXT,
-                            failure_reason_code  VARCHAR(50),
-
-                            cleared_checklists        JSONB,
-                            pending_checklists        JSONB,
-                            failed_checklists         JSONB,
-                            warning_checklists        JSONB,
-                            not_applicable_checklists JSONB,
-
-                            primary_blocker_type  VARCHAR(50),
-                            primary_blocker       JSONB,
-
-                            health_status         VARCHAR(30),
-                            health_reason         TEXT,
-                            last_change_summary   TEXT,
-
-                            reasons               JSONB,
-                            warnings              JSONB,
-                            metadata              JSONB,
-                            data_quality          JSONB,
-                            algorithm_version     VARCHAR(20),
-
-                            created_at            TIMESTAMPTZ DEFAULT NOW(),
-                            updated_at            TIMESTAMPTZ DEFAULT NOW()
-                        )
-                    """)
-
-                    cur.execute("""
-                        CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_setup_id
-                            ON scanner_candidates (setup_id)
-                    """)
-                    cur.execute("""
-                        CREATE INDEX IF NOT EXISTS idx_candidates_state
-                            ON scanner_candidates (state, scanner_name)
-                    """)
-                    cur.execute("""
-                        CREATE INDEX IF NOT EXISTS idx_candidates_symbol
-                            ON scanner_candidates (symbol)
-                    """)
-                    cur.execute("""
-                        CREATE INDEX IF NOT EXISTS idx_candidates_blocker_type
-                            ON scanner_candidates (primary_blocker_type)
-                    """)
-
-                    # ── candidate_snapshots ─────────────────────────────────────────
-                    cur.execute("""
-                        CREATE TABLE IF NOT EXISTS candidate_snapshots (
-                            snapshot_id          BIGSERIAL    PRIMARY KEY,
-                            candidate_id         BIGINT       NOT NULL
-                                                 REFERENCES scanner_candidates(candidate_id)
-                                                 ON DELETE CASCADE,
-                            snapshot_time        TIMESTAMPTZ  NOT NULL,
-                            snapshot_reason      VARCHAR(50)  NOT NULL,
-
-                            price                NUMERIC(12, 2),
-                            trigger_level        NUMERIC(12, 2),
-                            distance_to_trigger_pct  NUMERIC(6, 2),
-                            distance_to_trigger_atr  NUMERIC(6, 2),
-                            extension_from_base_atr  NUMERIC(6, 2),
-                            quality_score        NUMERIC(6, 2),
-                            volume_ratio         NUMERIC(6, 2),
-                            rs_rating            NUMERIC(6, 2),
-                            sector_rank          INTEGER,
-                            atr                  NUMERIC(10, 2),
-                            support_level        NUMERIC(12, 2),
-                            rr                   NUMERIC(6, 2),
-                            health_status        VARCHAR(30),
-                            health_reason        TEXT,
-                            cleared_json         JSONB,
-                            pending_json         JSONB,
-                            warnings_json        JSONB,
-                            not_applicable_json  JSONB
-                        )
-                    """)
-
-                    cur.execute("""
-                        CREATE INDEX IF NOT EXISTS idx_snapshots_candidate_time
-                            ON candidate_snapshots (candidate_id, snapshot_time DESC)
-                    """)
-
-                    # ── near_miss_outcomes ──────────────────────────────────────────
-                    cur.execute("""
-                        CREATE TABLE IF NOT EXISTS near_miss_outcomes (
-                            id               BIGSERIAL    PRIMARY KEY,
-                            near_miss_id     INTEGER      UNIQUE NOT NULL
-                                             REFERENCES near_misses(id) ON DELETE CASCADE,
-                            return_1d        NUMERIC(8, 2),
-                            return_3d        NUMERIC(8, 2),
-                            return_5d        NUMERIC(8, 2),
-                            return_10d       NUMERIC(8, 2),
-                            return_20d       NUMERIC(8, 2),
-                            return_60d       NUMERIC(8, 2),
-                            mfe              NUMERIC(8, 2),
-                            mae              NUMERIC(8, 2),
-                            hypothetical_r   NUMERIC(6, 2),
-                            rejection_verdict VARCHAR(30) NOT NULL,
-                            evaluated_at     TIMESTAMPTZ DEFAULT NOW()
-                        )
-                    """)
-
-                    # ── alerts: idempotency_key column ──────────────────────────────
-                    # Adds idempotency_key to the existing alerts table if missing.
-                    # The unique index prevents duplicate CONFIRMED_BUY alerts on retry.
-                    cur.execute("""
-                        ALTER TABLE alerts
-                            ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(200)
-                    """)
-                    cur.execute("""
-                        CREATE UNIQUE INDEX IF NOT EXISTS uq_alerts_idempotency
-                            ON alerts (idempotency_key)
-                            WHERE idempotency_key IS NOT NULL
-                    """)
-
-                    conn.commit()
-                    logger.info("✅ [candidate_tracker] V2 schema ready: scanner_candidates, candidate_snapshots, near_miss_outcomes, alerts.idempotency_key")
-        except Exception:
-            logger.exception("❌ [candidate_tracker] Schema initialization failed")
-        finally:
-            _SCHEMA_INITIALIZED = True
 
 
 # -------------------------------------------------------------------------------------

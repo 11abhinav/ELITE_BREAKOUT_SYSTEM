@@ -3610,11 +3610,15 @@ def get_multibagger_watchlist():
 
                 # Fallback Tier 1: If watchlist table has 0 rows, check candidates table for MULTIBAGGER candidates
                 if not rows:
+                    # [RULE 67 CHANGE-RATIONALE]:
+                    # The candidates table lacks 'entry_price', 'score', 'notes', and 'alert_time' columns.
+                    # Mapping existing columns (c.technical_score -> total_score/growth_score, c.market_context -> notes)
+                    # and using NULL for price/timestamp fields resolves the UndefinedColumn database error.
                     cur.execute("""
-                        SELECT c.symbol, c.entry_price AS buy_zone_low, c.entry_price * 1.1 AS buy_zone_high,
-                               c.entry_price AS latest_price, c.score AS total_score, c.score AS growth_score,
-                               'MULTIBAGGER' AS bucket, 'ACTIVE' AS status, c.notes, c.entry_price AS last_alert_price,
-                               c.alert_time AS last_alert_at, c.created_at AS last_updated
+                        SELECT c.symbol, NULL AS buy_zone_low, NULL AS buy_zone_high,
+                               NULL AS latest_price, c.technical_score AS total_score, c.technical_score AS growth_score,
+                               'MULTIBAGGER' AS bucket, 'ACTIVE' AS status, c.market_context AS notes, NULL AS last_alert_price,
+                               c.created_at AS last_alert_at, c.created_at AS last_updated
                         FROM candidates c
                         WHERE c.scanner = 'MULTIBAGGER' OR c.breakout_type LIKE 'MULTIBAGGER%'
                         ORDER BY c.created_at DESC
