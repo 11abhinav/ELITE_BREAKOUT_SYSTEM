@@ -705,12 +705,20 @@ class AutoSwitchingFetcher(DataFetcher):
                                 pass
 
                         if res and res.dataframe is not None and getattr(res, 'quality_report', None) and res.quality_report.is_valid and not is_stale:
+                            logger.info(f"✅ [{p_name.upper()} ACCEPTED] {s}: df_shape={res.dataframe.shape}, quality_valid=True, is_stale=False")
                             results[s] = res
                             if s in missing_symbols:
                                 missing_symbols.remove(s)
                             prov_stats["succeeded"] += 1
                             symbol_router.record_result(s, interval, p_name, is_success=True)
                         else:
+                            qr_valid = getattr(getattr(res, 'quality_report', None), 'is_valid', None)
+                            df_len = len(res.dataframe) if (res and res.dataframe is not None) else 0
+                            qr_errs = getattr(getattr(res, 'quality_report', None), 'errors', []) if res else []
+                            logger.warning(
+                                f"⚠️ [{p_name.upper()} REJECTED] {s}: df_len={df_len}, quality_valid={qr_valid}, is_stale={is_stale}, "
+                                f"error='{getattr(res, 'error', None)}', qr_errors={qr_errs}"
+                            )
                             prov_stats["failed"] += 1
                             err_msg = str(getattr(res, 'error', '') or '').lower() if res else "No data returned"
                             if "timeout" in err_msg:
@@ -766,13 +774,18 @@ class AutoSwitchingFetcher(DataFetcher):
                             except Exception:
                                 pass
 
-                        if res and res.dataframe is not None and res.quality_report and res.quality_report.is_valid and not is_stale:
+                        if res and res.dataframe is not None and getattr(res, 'quality_report', None) and res.quality_report.is_valid and not is_stale:
+                            logger.info(f"✅ [{prov_name.upper()} PREMIUM FALLBACK ACCEPTED] {s}: df_shape={res.dataframe.shape}")
                             results[s] = res
                             if s in missing_symbols:
                                 missing_symbols.remove(s)
                             succeeded_count += 1
                             symbol_router.record_fallback_event()
                             symbol_router.record_result(s, interval, prov_name, is_success=True)
+                        else:
+                            qr_valid = getattr(getattr(res, 'quality_report', None), 'is_valid', None)
+                            df_len = len(res.dataframe) if (res and res.dataframe is not None) else 0
+                            logger.warning(f"⚠️ [{prov_name.upper()} PREMIUM FALLBACK REJECTED] {s}: df_len={df_len}, quality_valid={qr_valid}, is_stale={is_stale}, error='{getattr(res, 'error', None)}'")
                             
                             # [VERSION: STICKY_RECOVERY_v1.0] Mark symbol sticky to working broker for all future runs
                             from symbol_router import RoutingState, ProviderErrorCode, RouteEntry
@@ -826,12 +839,16 @@ class AutoSwitchingFetcher(DataFetcher):
                     res = prov_results.get(s)
                     if res:
                         fallback_results[s] = res
-                        if res.dataframe is not None and res.quality_report and res.quality_report.is_valid:
+                        if res.dataframe is not None and getattr(res, 'quality_report', None) and res.quality_report.is_valid:
+                            logger.info(f"✅ [{prov_name.upper()} FALLBACK ACCEPTED] {s}: df_shape={res.dataframe.shape}")
                             results[s] = res
                             if s in missing_symbols:
                                 missing_symbols.remove(s)
                             prov_stats["succeeded"] += 1
                         else:
+                            qr_valid = getattr(getattr(res, 'quality_report', None), 'is_valid', None)
+                            df_len = len(res.dataframe) if (res and res.dataframe is not None) else 0
+                            logger.warning(f"⚠️ [{prov_name.upper()} FALLBACK REJECTED] {s}: df_len={df_len}, quality_valid={qr_valid}, error='{getattr(res, 'error', None)}'")
                             prov_stats["failed"] += 1
                             err_msg = str(getattr(res, 'error', '') or '').lower()
                             if "timeout" in err_msg:
