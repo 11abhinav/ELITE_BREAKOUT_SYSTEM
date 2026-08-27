@@ -1217,8 +1217,10 @@ def get_v2_portfolio_actions():
 
 @app.route("/api/v2/confluence_breakdown")
 @app.route("/api/v2/confluence_breakdown/<symbol>")
-def get_v2_confluence_breakdown(symbol: str = "RELIANCE"):
+def get_v2_confluence_breakdown(symbol: str = None):
     from master_orchestrator import orchestrator_v2
+    if not symbol:
+        return jsonify(orchestrator_v2.get_all_confluence_setups())
     return jsonify(orchestrator_v2.get_confluence_breakdown(symbol))
 
 @app.route("/api/v2/scanner_health")

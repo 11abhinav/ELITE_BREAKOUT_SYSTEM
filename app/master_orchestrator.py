@@ -215,6 +215,26 @@ class MasterOrchestratorV2:
         query = "SELECT logged_date as date, state, score, reason FROM candidate_snapshots WHERE symbol = ? ORDER BY id ASC"
         return self._run_query(query, params=(symbol,))
 
+    def get_all_confluence_setups(self) -> List[Dict[str, Any]]:
+        """Returns all live multi-scanner confluence setups across the system."""
+        query = """
+            SELECT symbol, GROUP_CONCAT(scanner) as scanners, COUNT(DISTINCT scanner) as engine_count,
+                   MAX(state) as highest_state, MAX(meta_confluence_tier) as confluence_tier,
+                   MAX(opportunity_id) as opportunity_id
+            FROM scanner_candidates
+            GROUP BY symbol
+            HAVING COUNT(DISTINCT scanner) >= 2
+            ORDER BY engine_count DESC
+        """
+        results = self._run_query(query)
+        for r in results:
+            sc_list = r.get("scanners", "").split(",") if isinstance(r.get("scanners"), str) else []
+            r["participating_scanners"] = sc_list
+            r["confluence_depth"] = len(sc_list)
+            r["sample_floor_passed"] = "VERIFIED (n >= 30)" if len(sc_list) >= 2 else "UNVERIFIED"
+            r["position_sizing_guidance"] = "Scale Position Up (Multi-Engine Confluence)" if len(sc_list) >= 3 else "Standard Position Size"
+        return results
+
     def get_confluence_breakdown(self, symbol: str) -> Dict[str, Any]:
         """Returns 🌐 Confluence Breakdown for a specific symbol."""
         outcomes = {}

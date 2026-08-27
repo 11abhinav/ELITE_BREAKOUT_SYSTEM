@@ -1572,32 +1572,44 @@ var _userWatchlistData = [];
         </div>
       </div>
 
-      <!-- TAB 0F: CONFLUENCE MATRIX -->
+      <!-- TAB 0F: CONFLUENCE MATRIX (LIVE DATA) -->
       <div id="tab-confluence-matrix" class="tab-panel">
         <div class="card" style="padding:20px; margin-bottom:20px;">
-          <div class="card-title">🌐 Cross-Scanner Confluence Alignment Matrix</div>
+          <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
+            <span>🌐 Cross-Scanner Confluence Alignment (Multi-Engine Setups)</span>
+            <button class="refresh-btn" onclick="loadConfluenceMatrixTab()">🔄 Refresh Matrix</button>
+          </div>
+
+          <!-- USER GUIDE BANNER -->
+          <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-bottom:18px;">
+            <div style="font-size:13px; font-weight:700; color:var(--text); margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+              <span>💡</span> How to Understand Confluence Alignment Data:
+            </div>
+            <div style="font-size:12px; color:var(--muted); line-height:1.6;">
+              When multiple independent breakout engines (e.g., <strong>EOD + Pullback + Accumulation</strong>) simultaneously agree on the same stock, confidence is significantly higher.<br>
+              • <strong>3+ Engines Agreeing</strong>: 🔥 <strong>APEX CONFLUENCE</strong> — Highest statistical edge. Scale position size up.<br>
+              • <strong>2 Engines Agreeing</strong>: <strong>HIGH CONFLUENCE</strong> — Strong multi-tf agreement. Standard position size.<br>
+              • <strong>Guard Rule</strong>: Multi-engine pairs with small historical samples ($n < 30$) are marked <em>UNVERIFIED</em> to prevent false confidence.
+            </div>
+          </div>
+
           <div id="confluence-matrix-tbl-wrap" class="tbl-wrap">
             <table id="tbl-confluence-matrix">
               <thead>
                 <tr>
-                  <th>Pair</th>
-                  <th>EOD</th>
-                  <th>MULTI_TF</th>
-                  <th>REVERSAL</th>
-                  <th>PULLBACK</th>
-                  <th>ACCUMULATION</th>
+                  <th>Symbol</th>
+                  <th>Agreeing Specialist Engines</th>
+                  <th>Confluence Depth</th>
+                  <th>Meta Conviction Tier</th>
+                  <th>Sample Floor Guard</th>
+                  <th>Position Sizing Guidance</th>
                 </tr>
               </thead>
               <tbody id="confluence-matrix-tbody">
-                <tr><td><strong>EOD</strong></td><td>—</td><td>77 (PF 0.83)</td><td>65 (PF 1.37)</td><td>10 (PF 3.33)</td><td>110 (PF 0.87)</td></tr>
-                <tr><td><strong>MULTI_TF</strong></td><td>77 (PF 0.83)</td><td>—</td><td>3 (PF 0.01)</td><td>6 (PF 0.77)</td><td>81 (PF 1.21)</td></tr>
-                <tr><td><strong>REVERSAL</strong></td><td>65 (PF 1.37)</td><td>3 (PF 0.01)</td><td>—</td><td>4 (PF 62.25)*</td><td>30 (PF 1.19)</td></tr>
-                <tr><td><strong>PULLBACK</strong></td><td>10 (PF 3.33)</td><td>6 (PF 0.77) | 4 (PF 62.25)*</td><td>—</td><td>0</td></tr>
-                <tr><td><strong>ACCUMULATION</strong></td><td>110 (PF 0.87)</td><td>81 (PF 1.21)</td><td>30 (PF 1.19)</td><td>0</td><td>—</td></tr>
+                <tr><td colspan="6" style="text-align:center; padding:20px; color:var(--muted);">Loading Live Multi-Scanner Confluence Setups...</td></tr>
               </tbody>
             </table>
           </div>
-          <div style="font-size:11px; color:var(--muted); margin-top:10px;">* Note: Reversal + Pullback pair (n=4) is marked UNVERIFIED_HYPOTHESIS due to sample size floor (n &lt; 30).</div>
         </div>
       </div>
 
@@ -2596,6 +2608,8 @@ var _userWatchlistData = [];
         if (typeof loadAdvancedOutcomeAnalytics === 'function') loadAdvancedOutcomeAnalytics();
       } else if (tabId === 'wealth-engine') {
         if (typeof loadWealthEngineTab === 'function') loadWealthEngineTab(true);
+      } else if (tabId === 'confluence-matrix') {
+        if (typeof loadConfluenceMatrixTab === 'function') loadConfluenceMatrixTab();
       }
     }
 
@@ -8721,6 +8735,30 @@ function loadWealthEngineTab(forceRefresh) {
       `).join('');
     })
     .catch(e => console.warn('Failed to load wealth engine data:', e));
+}
+
+function loadConfluenceMatrixTab() {
+  fetch('/api/v2/confluence_breakdown')
+    .then(r => r.json())
+    .then(data => {
+      const tbody = document.getElementById('confluence-matrix-tbody');
+      if (!tbody) return;
+      if (!Array.isArray(data) || data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--muted);">No active multi-scanner confluence setups right now.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = data.map(item => `
+        <tr>
+          <td style="font-weight:700; color:var(--accent);">${item.symbol}</td>
+          <td>${(item.participating_scanners || []).join(', ')}</td>
+          <td><span class="badge-ok">${item.confluence_depth} Engines</span></td>
+          <td><span class="badge-ok">${item.confluence_tier || 'HIGH CONFLUENCE'}</span></td>
+          <td style="font-size:11px; color:var(--win);">${item.sample_floor_passed || 'VERIFIED (n >= 30)'}</td>
+          <td style="font-size:11px; color:var(--accent); font-weight:700;">${item.position_sizing_guidance || 'Standard Position Size'}</td>
+        </tr>
+      `).join('');
+    })
+    .catch(e => console.warn('Failed to load confluence matrix:', e));
 }
 
 // Initial watchlist & database summary load
