@@ -782,10 +782,6 @@ class AutoSwitchingFetcher(DataFetcher):
                             succeeded_count += 1
                             symbol_router.record_fallback_event()
                             symbol_router.record_result(s, interval, prov_name, is_success=True)
-                        else:
-                            qr_valid = getattr(getattr(res, 'quality_report', None), 'is_valid', None)
-                            df_len = len(res.dataframe) if (res and res.dataframe is not None) else 0
-                            logger.warning(f"⚠️ [{prov_name.upper()} PREMIUM FALLBACK REJECTED] {s}: df_len={df_len}, quality_valid={qr_valid}, is_stale={is_stale}, error='{getattr(res, 'error', None)}'")
                             
                             # [VERSION: STICKY_RECOVERY_v1.0] Mark symbol sticky to working broker for all future runs
                             from symbol_router import RoutingState, ProviderErrorCode, RouteEntry
@@ -804,8 +800,12 @@ class AutoSwitchingFetcher(DataFetcher):
                             if prov_name in provider_telemetry:
                                 provider_telemetry[prov_name]["succeeded"] += 1
                             logger.info(f"✅ [Premium Fallback & Sticky Learner] {prov_name.upper()} successfully recovered data for {s} — Set sticky route to {target_state.value}")
-                        elif prov_name in provider_telemetry:
-                            provider_telemetry[prov_name]["failed"] += 1
+                        else:
+                            qr_valid = getattr(getattr(res, 'quality_report', None), 'is_valid', None)
+                            df_len = len(res.dataframe) if (res and res.dataframe is not None) else 0
+                            logger.warning(f"⚠️ [{prov_name.upper()} PREMIUM FALLBACK REJECTED] {s}: df_len={df_len}, quality_valid={qr_valid}, is_stale={is_stale}, error='{getattr(res, 'error', None)}'")
+                            if prov_name in provider_telemetry:
+                                provider_telemetry[prov_name]["failed"] += 1
                             err_msg = str(getattr(res, 'error', '') or '').lower() if res else "Fallback missing"
                             symbol_router.record_result(s, interval, prov_name, is_success=False, error_msg=err_msg)
                     if succeeded_count > 0:
