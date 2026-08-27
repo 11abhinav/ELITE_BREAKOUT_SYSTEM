@@ -855,13 +855,22 @@ class AutoSwitchingFetcher(DataFetcher):
             prov_stats["latency_s"] = round(time.time() - start_t, 3)
             provider_telemetry[prov_name] = prov_stats
 
-        # Log detailed per-provider telemetry summary
-        telemetry_summary = " | ".join([
-            f"{p}: {data.get('succeeded', 0)}/{data.get('requested', 0)} ok ({data.get('latency_s', 0.0)}s)"
-            for p, data in provider_telemetry.items()
-        ])
-        logger.info(f"📊 [BATCH_TELEMETRY] Caller={caller or 'Unknown'} | {telemetry_summary}")
-        
+        # 3.5 Last-Resort Recovery Phase: Retry remaining missing symbols individually via YFinance
+        if missing_symbols and len(missing_symbols) <= 20:
+            logger.info(f"🔄 Attempting targeted single-symbol recovery for {len(missing_symbols)} missing symbols via YFinance...")
+            recovered = []
+            for s in list(missing_symbols):
+                try:
+                    md = self.yfinance_fetcher.get_ohlcv(s, interval, period, retries=2, range_from=range_from, range_to=range_to)
+                    if md and md.dataframe is not None and getattr(md.dataframe, 'empty', False) is False:
+                        results[s] = md
+                        missing_symbols.remove(s)
+                        recovered.append(s)
+                except Exception as e:
+                    logger.warning(f"Single-symbol recovery failed for {s}: {e}")
+            if recovered:
+                logger.info(f"✅ Successfully recovered {len(recovered)} symbols via targeted YFinance retry: {recovered}")
+
         for s in symbols:
             if s not in results:
                 results[s] = fallback_results.get(s, MarketData(None, "UNKNOWN", None, False, False, "Missing"))
