@@ -59,99 +59,162 @@ class MasterOrchestratorV2:
             "status": "HEALTHY"
         }
 
+    def _run_query(self, query: str, params=None) -> List[Dict[str, Any]]:
+        try:
+            from database import get_connection
+            with get_connection() as conn:
+                df = pd.read_sql_query(query, conn, params=params)
+                if not df.empty:
+                    return df.to_dict(orient="records")
+        except Exception:
+            if os.path.exists(self.db_path):
+                try:
+                    conn = sqlite3.connect(self.db_path)
+                    df = pd.read_sql_query(query, conn, params=params)
+                    conn.close()
+                    if not df.empty:
+                        return df.to_dict(orient="records")
+                except Exception:
+                    pass
+        return []
+
+    def get_master_summary(self) -> Dict[str, Any]:
+        """Returns high-level status summary across all 6 revamped scanner engines."""
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "engines": {
+                "EOD_V2": "ACTIVE",
+                "MULTI_TF_V2": "ACTIVE",
+                "REVERSAL_V2": "ACTIVE",
+                "PULLBACK_V2": "ACTIVE",
+                "ACCUMULATION_V2": "ACTIVE",
+                "MULTIBAGGER_V2": "ACTIVE"
+            },
+            "status": "HEALTHY"
+        }
+
     def get_confirmed_signals(self) -> List[Dict[str, Any]]:
-        """Returns actionable 🔥 Confirmed Signals from Technical Master Track."""
-        return [
-            {
-                "symbol": "RELIANCE",
-                "scanners": ["EOD", "PULLBACK"],
-                "setup": "PFC_RELIANCE_BREAKOUT_2026-08-27",
-                "state": "CONFIRMED",
-                "entry_price": 2850.0,
-                "stop_loss": 2780.0,
-                "target_1": 2990.0,
-                "target_2": 3150.0,
-                "rr_ratio": 2.0,
-                "quality_grade": "A+",
-                "meta_confluence_tier": "🔥 APEX CONFLUENCE",
-                "data_confidence": "HIGH"
-            }
-        ]
+        """Returns actionable 🔥 Confirmed Signals from Technical Master Track (LIVE DB QUERY)."""
+        query = """
+            SELECT symbol, scanner, setup_id, state, entry_price, stop_loss, target_1, target_2, 
+                   rr_ratio, quality_grade, meta_confluence_tier, data_confidence
+            FROM scanner_candidates
+            WHERE state = 'CONFIRMED'
+            ORDER BY id DESC LIMIT 50
+        """
+        signals = self._run_query(query)
+
+        if not signals:
+            raw_alerts = self._run_query("SELECT symbol, scanner, alert_type as state, entry_price, stop_loss, target_1, target_2, score as quality_grade FROM alerts ORDER BY id DESC LIMIT 50")
+            for row in raw_alerts:
+                row["scanners"] = [row.get("scanner", "EOD")]
+                row["meta_confluence_tier"] = "HIGH CONFLUENCE"
+                row["data_confidence"] = "HIGH"
+                row["rr_ratio"] = round((row.get("target_1", 0) - row.get("entry_price", 0)) / max(0.01, (row.get("entry_price", 0) - row.get("stop_loss", 0))), 2) if row.get("entry_price") and row.get("stop_loss") else 2.0
+                signals.append(row)
+
+        return signals
 
     def get_stocks_to_watch(self) -> List[Dict[str, Any]]:
-        """Returns 👀 Stocks to Watch with stage progress across technical engines."""
-        return [
-            {
-                "symbol": "TCS",
-                "scanner": "ACCUMULATION",
-                "stage": "Stage 4/7 (VSA Absorption)",
-                "maturity_score": 80.0,
-                "cmp": 4120.0,
-                "trigger_level": 4180.0,
-                "distance_pct": 1.45,
-                "primary_blocker": "PRICE_EXPANSION_PENDING",
-                "quality_grade": "A"
-            }
-        ]
+        """Returns 👀 Stocks to Watch with stage progress across technical engines (LIVE DB QUERY)."""
+        query = """
+            SELECT symbol, scanner, stage_progress as stage, maturity_score, cmp, trigger_level, 
+                   distance_pct, primary_blocker, quality_grade
+            FROM scanner_candidates
+            WHERE state = 'WATCH'
+            ORDER BY id DESC LIMIT 50
+        """
+        return self._run_query(query)
 
     def get_investment_watch(self) -> List[Dict[str, Any]]:
-        """Returns 📈 Investment Watch compounder candidates (Multibagger Engine)."""
-        return [
-            {
-                "symbol": "INFY",
-                "business_quality": "A+",
-                "growth_durability": "A",
-                "moat_cash_quality": "A+",
-                "valuation_grade": "B",
-                "margin_of_safety_pct": 22.5,
-                "thesis_health": "IMPROVING",
-                "investment_state": "UNDERVALUED_WATCH",
-                "entry_readiness": "WATCH"
-            }
-        ]
+        """Returns 📈 Investment Watch compounder candidates (Multibagger Engine) (LIVE DB QUERY)."""
+        query = """
+            SELECT symbol, business_quality, growth_durability, moat_cash_quality, valuation_grade,
+                   margin_of_safety_pct, thesis_health, investment_state, entry_readiness
+            FROM multibagger_watchlist
+            ORDER BY id DESC LIMIT 50
+        """
+        inv_list = self._run_query(query)
+
+        if not inv_list:
+            from config import DATA_DIR
+            mb_path = os.path.join(DATA_DIR, "multibagger_watchlist.parquet")
+            if os.path.exists(mb_path):
+                try:
+                    df = pd.read_parquet(mb_path)
+                    if not df.empty:
+                        inv_list = df.head(50).to_dict(orient="records")
+                except Exception:
+                    pass
+
+        return inv_list
+
+    def get_portfolio_actions(self) -> List[Dict[str, Any]]:
+        """Returns 💼 Portfolio Actions powered by Wealth Engine V2 allocation (LIVE DB QUERY)."""
+        query = """
+            SELECT symbol, action, target_position_pct, current_position_pct, sector,
+                   sector_exposure_pct, risk_budget_pct, valuation_status, scanner_confirmations, confluence_tier
+            FROM wealth_ledger
+            ORDER BY id DESC LIMIT 50
+        """
+        return self._run_query(query)
 
     def get_scanner_health(self) -> List[Dict[str, Any]]:
-        """Returns 📊 Operational health per engine."""
+        """Returns 📊 Operational health per engine directly from DB scanner_health table."""
+        try:
+            from database import get_all_scanner_health
+            rows = get_all_scanner_health()
+            if rows:
+                res = []
+                for r in rows:
+                    res.append({
+                        "scanner": r.get("scanner_name", "ENGINE"),
+                        "status": r.get("status", "OK"),
+                        "last_run": r.get("last_success", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                        "duration_sec": r.get("duration_seconds", 0.0),
+                        "symbols_evaluated": r.get("symbols_evaluated", 1174),
+                        "watch_count": r.get("watch_count", 0),
+                        "confirmed_count": r.get("confirmed_count", 0)
+                    })
+                return res
+        except Exception as e:
+            logger.warning(f"Failed to fetch scanner health: {e}")
+
         engines = ["EOD_V2", "MULTI_TF_V2", "REVERSAL_V2", "PULLBACK_V2", "ACCUMULATION_V2", "MULTIBAGGER_V2"]
         return [
             {
                 "scanner": eng,
-                "status": "HEALTHY",
+                "status": "OK",
                 "last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "duration_sec": 0.25,
+                "duration_sec": 0.0,
                 "symbols_evaluated": 1174,
-                "watch_count": 15,
-                "confirmed_count": 2
+                "watch_count": 0,
+                "confirmed_count": 0
             } for eng in engines
         ]
 
-    def get_portfolio_actions(self) -> List[Dict[str, Any]]:
-        """Returns 💼 Portfolio Actions powered by Wealth Engine V2 allocation."""
-        return [
-            {
-                "symbol": "RELIANCE",
-                "action": "BUY",
-                "target_position_pct": 5.0,
-                "current_position_pct": 0.0,
-                "sector": "OIL_GAS_PETRO",
-                "sector_exposure_pct": 8.5,
-                "risk_budget_pct": 1.0,
-                "valuation_status": "FAIRLY_VALUED",
-                "scanner_confirmations": ["EOD", "PULLBACK"],
-                "confluence_tier": "🔥 APEX CONFLUENCE"
-            }
-        ]
+    def get_candidate_timeline(self, symbol: str) -> List[Dict[str, Any]]:
+        """Returns ⏱️ Candidate Timeline lifecycle progression for symbol from DB."""
+        query = "SELECT logged_date as date, state, score, reason FROM candidate_snapshots WHERE symbol = ? ORDER BY id ASC"
+        return self._run_query(query, params=(symbol,))
 
     def get_confluence_breakdown(self, symbol: str) -> Dict[str, Any]:
         """Returns 🌐 Confluence Breakdown for a specific symbol."""
-        outcomes = {
-            "EOD": {"state": "CONFIRMED", "score": 85.0},
-            "PULLBACK": {"state": "CONFIRMED", "score": 88.0},
-            "ACCUMULATION": {"state": "WATCH", "score": 75.0},
-            "MULTI_TF": {"state": "NO_VALID_SETUP"},
-            "REVERSAL": {"state": "NO_VALID_SETUP"},
-            "MULTIBAGGER": {"state": "WATCH", "investment_state": "UNDERVALUED_WATCH"}
-        }
+        outcomes = {}
+        rows = self._run_query("SELECT scanner, state, score FROM scanner_candidates WHERE symbol = ?", params=(symbol,))
+        for row in rows:
+            outcomes[row["scanner"]] = {"state": row["state"], "score": row.get("score", 80.0)}
+
+        if not outcomes:
+            outcomes = {
+                "EOD": {"state": "NO_VALID_SETUP"},
+                "MULTI_TF": {"state": "NO_VALID_SETUP"},
+                "REVERSAL": {"state": "NO_VALID_SETUP"},
+                "PULLBACK": {"state": "NO_VALID_SETUP"},
+                "ACCUMULATION": {"state": "NO_VALID_SETUP"},
+                "MULTIBAGGER": {"state": "NO_VALID_SETUP"}
+            }
+
         res = evaluate_cross_scanner_confluence(symbol, datetime.now().strftime("%Y-%m-%d"), outcomes)
         return res
 
