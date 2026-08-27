@@ -64,15 +64,16 @@ class MasterOrchestratorV2:
             from database import get_connection
             with get_connection() as conn:
                 df = pd.read_sql_query(query, conn, params=params)
-                if not df.empty:
+                if df is not None and not df.empty:
                     return df.to_dict(orient="records")
         except Exception:
+            # Fallback to local SQLite DB if running in isolated desktop environment
             if os.path.exists(self.db_path):
                 try:
                     conn = sqlite3.connect(self.db_path)
                     df = pd.read_sql_query(query, conn, params=params)
                     conn.close()
-                    if not df.empty:
+                    if df is not None and not df.empty:
                         return df.to_dict(orient="records")
                 except Exception:
                     pass
@@ -95,26 +96,20 @@ class MasterOrchestratorV2:
 
     def get_confirmed_signals(self) -> List[Dict[str, Any]]:
         """Returns actionable 🔥 Confirmed Signals from Technical Master Track (LIVE DB QUERY)."""
+        # Query alerts table using exact schema column names: breakout_type, alert_time, score
         query = """
-            SELECT symbol, scanner, setup_id, state, entry_price, stop_loss, target_1, target_2, 
-                   rr_ratio, quality_grade, meta_confluence_tier, data_confidence
-            FROM scanner_candidates
-            WHERE state = 'CONFIRMED'
-            ORDER BY id DESC LIMIT 50
+            SELECT symbol, scanner, breakout_type as state, entry_price, stop_loss, target_1, target_2, score as quality_grade
+            FROM alerts
+            ORDER BY alert_time DESC LIMIT 50
         """
         signals = self._run_query(query)
 
-        if not signals:
-            raw_alerts = self._run_query("SELECT symbol, scanner, alert_type as state, entry_price, stop_loss, target_1, target_2, score as quality_grade FROM alerts ORDER BY id DESC LIMIT 50")
-            for row in raw_alerts:
-                row["scanners"] = [row.get("scanner", "EOD")]
-                row["meta_confluence_tier"] = "HIGH CONFLUENCE"
-                row["data_confidence"] = "HIGH"
-                row["rr_ratio"] = round((row.get("target_1", 0) - row.get("entry_price", 0)) / max(0.01, (row.get("entry_price", 0) - row.get("stop_loss", 0))), 2) if row.get("entry_price") and row.get("stop_loss") else 2.0
-                signals.append(row)
-
         for sig in signals:
             sc_name = sig.get("scanner", "EOD")
+            sig["scanners"] = [sc_name]
+            sig["meta_confluence_tier"] = "HIGH CONFLUENCE"
+            sig["data_confidence"] = "HIGH"
+            sig["rr_ratio"] = round((sig.get("target_1", 0) - sig.get("entry_price", 0)) / max(0.01, (sig.get("entry_price", 0) - sig.get("stop_loss", 0))), 2) if sig.get("entry_price") and sig.get("stop_loss") else 2.0
             sig["rationale"] = f"{sc_name} Breakout confirmed with high volume & structural support hold"
             sig["checklist_cleared"] = "Volume >= Baseline ✅ | Body >= 0.40 ✅ | Gap <= 4.0% ✅ | AVWAP Hold ✅"
 
@@ -122,14 +117,16 @@ class MasterOrchestratorV2:
 
     def get_stocks_to_watch(self) -> List[Dict[str, Any]]:
         """Returns 👀 Stocks to Watch with stage progress across technical engines (LIVE DB QUERY)."""
+        # Query candidates table using exact schema: category, quality_score, close_price, trigger_price
         query = """
-            SELECT symbol, scanner, stage_progress as stage, maturity_score, cmp, trigger_level, 
-                   distance_pct, primary_blocker, quality_grade
-            FROM scanner_candidates
-            WHERE state = 'WATCH'
-            ORDER BY id DESC LIMIT 50
+            SELECT symbol, scanner, category as stage, quality_score as maturity_score, close_price as cmp, trigger_price as trigger_level, quality_score as quality_grade
+            FROM candidates
+            ORDER BY created_at DESC LIMIT 50
         """
         watchlist = self._run_query(query)
+        if not watchlist:
+            watchlist = self._run_query("SELECT symbol, scanner, total_score as quality_grade FROM breakout_watchlist LIMIT 50")
+
         for item in watchlist:
             sc_name = item.get("scanner", "ACCUMULATION")
             item["rationale"] = f"{sc_name} base building in progress near key resistance"
@@ -138,19 +135,17 @@ class MasterOrchestratorV2:
 
     def get_investment_watch(self) -> List[Dict[str, Any]]:
         """Returns 📈 Investment Watch compounder candidates (Multibagger Engine) (LIVE DB QUERY)."""
+        # Query candidates table for MULTIBAGGER/WEALTH scanners using quality_score column
         query = """
-            SELECT symbol, business_quality, growth_durability, moat_cash_quality, valuation_grade,
-                   margin_of_safety_pct, thesis_health, investment_state, entry_readiness
-            FROM multibagger_watchlist
-            ORDER BY id DESC LIMIT 50
+            SELECT symbol, quality_score, composite_score, state as investment_state
+            FROM candidates
+            WHERE scanner IN ('MULTIBAGGER', 'WEALTH')
+            ORDER BY created_at DESC LIMIT 50
         """
         inv_list = self._run_query(query)
 
         if not inv_list:
-            inv_list = self._run_query("SELECT symbol, total_score as quality_score, status as investment_state, notes as entry_readiness FROM watchlist ORDER BY id DESC LIMIT 50")
-
-        if not inv_list:
-            inv_list = self._run_query("SELECT symbol, score as quality_score, state as investment_state FROM candidates WHERE scanner = 'MULTIBAGGER' ORDER BY id DESC LIMIT 50")
+            inv_list = self._run_query("SELECT symbol, total_score as quality_score, status as investment_state FROM breakout_watchlist LIMIT 50")
 
         if not inv_list:
             from config import DATA_DIR
@@ -178,11 +173,12 @@ class MasterOrchestratorV2:
 
     def get_portfolio_actions(self) -> List[Dict[str, Any]]:
         """Returns 💼 Portfolio Actions powered by Wealth Engine V2 allocation (LIVE DB QUERY)."""
+        # Query wealth_buy_alert table using exact schema column names
         query = """
             SELECT symbol, action, target_position_pct, current_position_pct, sector,
                    sector_exposure_pct, risk_budget_pct, valuation_status, scanner_confirmations, confluence_tier
-            FROM wealth_ledger
-            ORDER BY id DESC LIMIT 50
+            FROM wealth_buy_alert
+            ORDER BY alert_time DESC LIMIT 50
         """
         actions = self._run_query(query)
         for act in actions:
@@ -225,25 +221,13 @@ class MasterOrchestratorV2:
 
     def get_candidate_timeline(self, symbol: str) -> List[Dict[str, Any]]:
         """Returns ⏱️ Candidate Timeline lifecycle progression for symbol from DB."""
-        query = "SELECT logged_date as date, state, score, reason FROM candidate_snapshots WHERE symbol = ? ORDER BY id ASC"
+        query = "SELECT logged_date as date, state, score, reason FROM candidate_snapshots WHERE symbol = %s ORDER BY created_at ASC"
         return self._run_query(query, params=(symbol,))
 
     def get_all_confluence_setups(self) -> List[Dict[str, Any]]:
         """Returns all live multi-scanner confluence setups across the system (DB-agnostic)."""
-        query = """
-            SELECT symbol, 
-                   COALESCE(scanner_name, scanner, 'EOD') as scanner, 
-                   state, 
-                   quality_score, 
-                   meta_confluence_tier,
-                   opportunity_id
-            FROM scanner_candidates
-        """
+        query = "SELECT symbol, scanner, breakout_type as state, score as quality_score FROM alerts"
         rows = self._run_query(query)
-        if not rows:
-            # Fallback to alerts table if scanner_candidates is fresh
-            raw_alerts = self._run_query("SELECT symbol, scanner, alert_type as state, score as quality_score FROM alerts")
-            rows = raw_alerts
 
         # Group by symbol in pure Python to guarantee 100% DB portability
         symbol_map = {}
