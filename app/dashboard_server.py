@@ -1189,6 +1189,44 @@ def health():
     }), 200
 
 
+# ── PHASE 4 V2 MASTER ORCHESTRATION ROUTES ──
+@app.route("/api/v2/master_summary")
+def get_v2_master_summary():
+    from master_orchestrator import orchestrator_v2
+    return jsonify(orchestrator_v2.get_master_summary())
+
+@app.route("/api/v2/master_alerts")
+def get_v2_master_alerts():
+    from master_orchestrator import orchestrator_v2
+    return jsonify(orchestrator_v2.get_confirmed_signals())
+
+@app.route("/api/v2/stocks_to_watch")
+def get_v2_stocks_to_watch():
+    from master_orchestrator import orchestrator_v2
+    return jsonify(orchestrator_v2.get_stocks_to_watch())
+
+@app.route("/api/v2/investment_watch")
+def get_v2_investment_watch():
+    from master_orchestrator import orchestrator_v2
+    return jsonify(orchestrator_v2.get_investment_watch())
+
+@app.route("/api/v2/portfolio_actions")
+def get_v2_portfolio_actions():
+    from master_orchestrator import orchestrator_v2
+    return jsonify(orchestrator_v2.get_portfolio_actions())
+
+@app.route("/api/v2/confluence_breakdown")
+@app.route("/api/v2/confluence_breakdown/<symbol>")
+def get_v2_confluence_breakdown(symbol: str = "RELIANCE"):
+    from master_orchestrator import orchestrator_v2
+    return jsonify(orchestrator_v2.get_confluence_breakdown(symbol))
+
+@app.route("/api/v2/scanner_health")
+def get_v2_scanner_health():
+    from master_orchestrator import orchestrator_v2
+    return jsonify(orchestrator_v2.get_scanner_health())
+
+
 def _detect_git_commit_hash() -> str:
     env_commit = os.getenv("GIT_COMMIT") or os.getenv("COOLIFY_COMMIT_SHA") or os.getenv("COMMIT_SHA")
     if env_commit:
@@ -2900,8 +2938,7 @@ def api_pledge_worker_mode():
 @app.route("/wealth")
 @login_required
 def route_wealth():
-    from config import BASE_DIR
-    return send_file(os.path.join(BASE_DIR, "app", "wealth_dashboard.html"))
+    return redirect("/admin?tab=wealth-engine")
 
 _SCANNER_STATUS_CACHE = {"ts": 0, "payload": None}
 

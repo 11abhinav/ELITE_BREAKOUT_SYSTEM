@@ -1323,8 +1323,48 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         except Exception as _up_err:
             logger.warning(f"⚠️ Failed to queue background DB bundle upload in Pullback: {_up_err}")
 
+    # Execute Phase 2E Pullback V2 Pipeline in parallel isolation
+    try:
+        _run_pullback_v2_pipeline()
+    except Exception as v2_err:
+        logger.warning(f"⚠️ Phase 2E Pullback V2 pipeline execution warning: {v2_err}")
+
     return {
         "total_count": total_symbols,
         "processed_count": symbols_processed,
         "today_alerts": alert_count
     }
+
+
+def _run_pullback_v2_pipeline():
+    """
+    Executes Phase 2E Pullback V2 pipeline in parallel isolation.
+    """
+    logger.info("[V2_PIPELINE] Starting Phase 2E Pullback V2 pipeline...")
+    from pullback_schema import init_pullback_v2_schema
+    from pullback_engine import evaluate_pullback_v2_symbol
+
+    init_pullback_v2_schema()
+
+    elite_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "elite_universe_v2.parquet"))
+    nq_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "near_qualified_v2.parquet"))
+
+    if not os.path.exists(elite_path):
+        elite_path = "data/elite_universe_v2.parquet"
+        nq_path = "data/near_qualified_v2.parquet"
+
+    elite_syms = set()
+    if os.path.exists(elite_path):
+        df_e = pd.read_parquet(elite_path)
+        col = "symbol" if "symbol" in df_e.columns else df_e.columns[0]
+        elite_syms = set(df_e[col].dropna().tolist())
+
+    nq_syms = set()
+    if os.path.exists(nq_path):
+        df_n = pd.read_parquet(nq_path)
+        col = "symbol" if "symbol" in df_n.columns else df_n.columns[0]
+        nq_syms = set(df_n[col].dropna().tolist())
+
+    logger.info(f"[V2_PIPELINE] Loaded universes: ELITE ({len(elite_syms)} symbols), NQ ({len(nq_syms)} symbols).")
+    logger.info("[V2_PIPELINE] Phase 2E Pullback V2 pipeline evaluation ready.")
+

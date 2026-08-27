@@ -1937,6 +1937,109 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
                 raise
             time.sleep(60)
 
+def _run_multi_tf_v2_pipeline():
+    """
+    Parallel Isolated Execution for Phase 2C Multi-TF Scanner V2.
+    Evaluates Weekly Thesis, Daily Setup, and Hourly Trigger states.
+    Zero side effects on V1 execution. Writes exclusively to V2 schema tables.
+    """
+    try:
+        logger.info("🚀 [MULTI_TF V2] Starting parallel isolated execution cycle...")
+        from multi_tf_schema import init_multi_tf_v2_schema
+        from multi_tf_engine import evaluate_multi_tf_v2_symbol
+        from candidate_tracker import save_candidate
+        
+        init_multi_tf_v2_schema()
+
+        # Load ELITE and Near-Qualified V2 Parquets
+        elite_path = "data/elite_universe_v2.parquet"
+        nq_path = "data/near_qualified_v2.parquet"
+
+        elite_syms = set()
+        nq_syms = set()
+
+        if os.path.exists(elite_path):
+            df_e = pd.read_parquet(elite_path)
+            col = "Stock" if "Stock" in df_e.columns else df_e.columns[0]
+            elite_syms = {str(s).upper() for s in df_e[col].dropna()}
+
+        if os.path.exists(nq_path):
+            df_nq = pd.read_parquet(nq_path)
+            col = "Stock" if "Stock" in df_nq.columns else df_nq.columns[0]
+            nq_syms = {str(s).upper() for s in df_nq[col].dropna()}
+
+        target_syms = sorted(list(elite_syms | nq_syms))
+        if not target_syms:
+            logger.info("ℹ️ [MULTI_TF V2] No target universe found. Skipping cycle.")
+            return
+
+        logger.info(f"📋 [MULTI_TF V2] Processing {len(target_syms)} universe symbols ({len(elite_syms)} ELITE, {len(nq_syms)} NQ)...")
+
+        # Load price data via price cache
+        watchlist_df = pd.DataFrame([{"Stock": s} for s in target_syms])
+        hourly_map = fetch_watchlist_data(watchlist_df, period="1mo", interval="1h", requester="MULTI_TF_V2") or {}
+        daily_map = fetch_watchlist_data(watchlist_df, period="1y", interval="1d", requester="MULTI_TF_V2") or {}
+
+        v2_results = {"WATCH": 0, "TRIGGER": 0, "CONFIRMED": 0, "MISSED": 0, "NQ_OBSERVATION_ONLY": 0}
+
+        for sym in target_syms:
+            h_df = hourly_map.get(sym)
+            d_df = daily_map.get(sym)
+
+            if d_df is None or d_df.empty or len(d_df) < 50:
+                continue
+
+            # Resample daily data to weekly dataframe
+            w_df = d_df.resample("W-FRI").agg({
+                "Open": "first",
+                "High": "max",
+                "Low": "min",
+                "Close": "last",
+                "Volume": "sum"
+            }).dropna()
+
+            is_nq = sym in nq_syms and sym not in elite_syms
+
+            res_v2 = evaluate_multi_tf_v2_symbol(
+                symbol=sym,
+                weekly_df=w_df,
+                daily_df=d_df,
+                hourly_df=h_df,
+                is_nq_universe=is_nq,
+                provisional_vol_threshold=1.8
+            )
+
+            state = res_v2.get("state", "NO_VALID_SETUP")
+            if state in v2_results:
+                v2_results[state] += 1
+
+            if state in ("WATCH", "CONFIRMED", "IMMEDIATE_TRIGGER_ZONE"):
+                # Save V2 Candidate snapshot using Phase-1 tracker
+                try:
+                    save_candidate(
+                        symbol=sym,
+                        scanner_name="MULTI_TF_V2",
+                        state=state,
+                        entry_price=res_v2.get("entry_price", 0.0),
+                        stop_loss=res_v2.get("entry_price", 0.0) * 0.965,
+                        target=res_v2.get("entry_price", 0.0) * 1.07,
+                        score=res_v2.get("score", 70.0),
+                        quality_grade=res_v2.get("quality_grade", "B"),
+                        setup_id=res_v2.get("setup_id", f"PFC_{sym}_MULTI_TF_{date.today()}")
+                    )
+                except Exception as save_err:
+                    logger.debug(f"V2 candidate save error for {sym}: {save_err}")
+
+        logger.info(
+            f"✅ [MULTI_TF V2] Cycle Complete: WATCH={v2_results['WATCH']} | "
+            f"CONFIRMED={v2_results['CONFIRMED']} | MISSED={v2_results['MISSED']} | "
+            f"NQ_OBSERVATION={v2_results['NQ_OBSERVATION_ONLY']}"
+        )
+    except Exception as e:
+        logger.exception(f"❌ [MULTI_TF V2] Pipeline execution error: {e}")
+
+
 if __name__ == "__main__":
+
     logging.basicConfig(level=logging.INFO)
     start(run_once=True)

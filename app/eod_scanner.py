@@ -2047,6 +2047,33 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                 except Exception:
                     pass
 
+        # ── Phase 2B: Parallel EOD V2 Pipeline Execution ([INV-1] Isolated) ───────
+        try:
+            logger.info("🚀 [EOD_V2_PIPELINE] Starting parallel Phase 2B EOD V2 pipeline...")
+            from eod_v2_schema import init_eod_v2_schemas
+            from eod_v2_engine import process_eod_v2_pipeline
+            init_eod_v2_schemas()
+
+            v2_elite_df = None
+            v2_nq_df = None
+            if os.path.exists("data/elite_universe_v2.parquet"):
+                v2_elite_df = pd.read_parquet("data/elite_universe_v2.parquet")
+            if os.path.exists("data/near_qualified_v2.parquet"):
+                v2_nq_df = pd.read_parquet("data/near_qualified_v2.parquet")
+
+            v2_res = process_eod_v2_pipeline(
+                elite_df=v2_elite_df,
+                nq_df=v2_nq_df,
+                price_data_map=all_ticker_data if 'all_ticker_data' in locals() else {}
+            )
+            logger.info(
+                f"✅ [EOD_V2_PIPELINE] Complete | WATCH={len(v2_res.get('watch', []))} "
+                f"CONFIRMED={len(v2_res.get('confirmed', []))} MISSED={len(v2_res.get('missed', []))} "
+                f"NQ_OBS={len(v2_res.get('nq_obs', []))}"
+            )
+        except Exception as _eod_v2_err:
+            logger.warning(f"⚠️ [EOD_V2_PIPELINE] EOD V2 execution failed (non-fatal): {_eod_v2_err}")
+
         try:
             from funnel_telemetry import log_funnel_metrics
             log_funnel_metrics("EOD", market_regime, len(watchlist), rejection_counts, total_alerts)

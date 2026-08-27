@@ -1404,30 +1404,205 @@ var _userWatchlistData = [];
 
     <div class="container">
 
-      <!-- 5-TAB NAVIGATION HEADER BAR -->
+      <!-- 9-TAB MASTER SYSTEM NAVIGATION BAR -->
       <div class="admin-tabs-bar">
-        <button class="admin-tab-btn active" data-tab="signals-trades" onclick="switchAdminTab('signals-trades')">
-          <span>🚀</span> Signals & All Trades
+        <button class="admin-tab-btn active" data-tab="master-signals" onclick="switchAdminTab('master-signals')">
+          <span>🔥</span> Confirmed Signals
+        </button>
+        <button class="admin-tab-btn" data-tab="stocks-watch" onclick="switchAdminTab('stocks-watch')">
+          <span>👀</span> Stocks to Watch
+        </button>
+        <button class="admin-tab-btn" data-tab="investment-watch" onclick="switchAdminTab('investment-watch')">
+          <span>📈</span> Investment Watch
+        </button>
+        <button class="admin-tab-btn" data-tab="missed-opps" onclick="switchAdminTab('missed-opps')">
+          <span>📉</span> Missed Opportunities
+        </button>
+        <button class="admin-tab-btn" data-tab="universe-health" onclick="switchAdminTab('universe-health')">
+          <span>⚠️</span> Universe Health
+        </button>
+        <button class="admin-tab-btn" data-tab="confluence-matrix" onclick="switchAdminTab('confluence-matrix')">
+          <span>🌐</span> Confluence Matrix
+        </button>
+        <button class="admin-tab-btn" data-tab="signals-trades" onclick="switchAdminTab('signals-trades')">
+          <span>🚀</span> All Signals
         </button>
         <button class="admin-tab-btn" data-tab="wealth-engine" onclick="switchAdminTab('wealth-engine')">
           <span>💎</span> Wealth Dashboard
         </button>
-        <button class="admin-tab-btn" data-tab="watchlist-users" onclick="switchAdminTab('watchlist-users')">
-          <span>⭐</span> Watchlist & User Management
-        </button>
         <button class="admin-tab-btn" data-tab="health-errors" onclick="switchAdminTab('health-errors')">
-          <span>🛡️</span> Scanner Health & Errors
-        </button>
-        <button class="admin-tab-btn" data-tab="db-explorer" onclick="switchAdminTab('db-explorer')">
-          <span>📊</span> Data & DB Explorer
-        </button>
-        <button class="admin-tab-btn" data-tab="settings" onclick="switchAdminTab('settings')">
-          <span>⚙️</span> System Settings & Controls
+          <span>🛡️</span> Scanner Health
         </button>
       </div>
 
+      <!-- TAB 0A: MASTER CONFIRMED SIGNALS -->
+      <div id="tab-master-signals" class="tab-panel active">
+        <div class="card" style="padding:20px; margin-bottom:20px;">
+          <div class="card-title">🔥 Confirmed Signals (Technical Master Track)</div>
+          <div id="master-signals-tbl-wrap" class="tbl-wrap">
+            <table id="tbl-master-signals">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Scanner(s)</th>
+                  <th>State</th>
+                  <th>Entry Price</th>
+                  <th>Stop Loss</th>
+                  <th>Target 1</th>
+                  <th>Target 2</th>
+                  <th>R:R</th>
+                  <th>Quality</th>
+                  <th>Confluence Tier</th>
+                  <th>Confidence</th>
+                </tr>
+              </thead>
+              <tbody id="master-signals-tbody">
+                <tr><td colspan="11" style="text-align:center; padding:20px; color:var(--muted);">Loading Confirmed Signals...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 0B: STOCKS TO WATCH -->
+      <div id="tab-stocks-watch" class="tab-panel">
+        <div class="card" style="padding:20px; margin-bottom:20px;">
+          <div class="card-title">👀 Stocks to Watch (Stage Progress Tracking)</div>
+          <div id="stocks-watch-tbl-wrap" class="tbl-wrap">
+            <table id="tbl-stocks-watch">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Scanner</th>
+                  <th>Stage Progress</th>
+                  <th>Maturity Score</th>
+                  <th>CMP</th>
+                  <th>Trigger Level</th>
+                  <th>Distance %</th>
+                  <th>Primary Blocker</th>
+                  <th>Quality Grade</th>
+                </tr>
+              </thead>
+              <tbody id="stocks-watch-tbody">
+                <tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">Loading Stocks to Watch...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 0C: INVESTMENT WATCH -->
+      <div id="tab-investment-watch" class="tab-panel">
+        <div class="card" style="padding:20px; margin-bottom:20px;">
+          <div class="card-title">📈 Investment Watch (Multibagger Fundamental Engine)</div>
+          <div id="investment-watch-tbl-wrap" class="tbl-wrap">
+            <table id="tbl-investment-watch">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Business Quality</th>
+                  <th>Growth Durability</th>
+                  <th>Moat / Cash Quality</th>
+                  <th>Valuation Grade</th>
+                  <th>Margin of Safety %</th>
+                  <th>Thesis Health</th>
+                  <th>Investment State</th>
+                  <th>Readiness</th>
+                </tr>
+              </thead>
+              <tbody id="investment-watch-tbody">
+                <tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">Loading Investment Watch...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 0D: MISSED OPPORTUNITIES -->
+      <div id="tab-missed-opps" class="tab-panel">
+        <div class="card" style="padding:20px; margin-bottom:20px;">
+          <div class="card-title">📉 Missed Opportunities (Forensic Post-Rejection Analysis)</div>
+          <div id="missed-opps-tbl-wrap" class="tbl-wrap">
+            <table id="tbl-missed-opps">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Scanner</th>
+                  <th>Trigger Date</th>
+                  <th>Rejected Gate</th>
+                  <th>Quality Grade</th>
+                  <th>Forward +1D</th>
+                  <th>Forward +5D</th>
+                  <th>Forward +20D</th>
+                  <th>Forward MFE</th>
+                  <th>Rejection Audit</th>
+                </tr>
+              </thead>
+              <tbody id="missed-opps-tbody">
+                <tr><td colspan="10" style="text-align:center; padding:20px; color:var(--muted);">No forensic rejection data loaded.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 0E: UNIVERSE HEALTH -->
+      <div id="tab-universe-health" class="tab-panel">
+        <div class="card" style="padding:20px; margin-bottom:20px;">
+          <div class="card-title">⚠️ Universe Health (ELITE vs NQ vs EXCLUDED)</div>
+          <div id="universe-health-tbl-wrap" class="tbl-wrap">
+            <table id="tbl-universe-health">
+              <thead>
+                <tr>
+                  <th>Universe Tier</th>
+                  <th>Symbol Count</th>
+                  <th>Share of Universe</th>
+                  <th>Primary Exclusion Reason</th>
+                  <th>Data Confidence Distribution</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="universe-health-tbody">
+                <tr><td>ELITE Universe</td><td>248</td><td>21.1%</td><td>Passed Quality Checklist</td><td>HIGH / MEDIUM</td><td><span class="badge-ok">ACTIVE</span></td></tr>
+                <tr><td>NEAR_QUALIFIED (NQ)</td><td>205</td><td>17.5%</td><td>Observation Only (Pre-Watch)</td><td>LOW / PROVISIONAL</td><td><span class="badge-queued">OBSERVATION</span></td></tr>
+                <tr><td>EXCLUDED Universe</td><td>721</td><td>61.4%</td><td>Quality / Data Fail</td><td>UNADMITTED</td><td><span class="badge-idle">EXCLUDED</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 0F: CONFLUENCE MATRIX -->
+      <div id="tab-confluence-matrix" class="tab-panel">
+        <div class="card" style="padding:20px; margin-bottom:20px;">
+          <div class="card-title">🌐 Cross-Scanner Confluence Alignment Matrix</div>
+          <div id="confluence-matrix-tbl-wrap" class="tbl-wrap">
+            <table id="tbl-confluence-matrix">
+              <thead>
+                <tr>
+                  <th>Pair</th>
+                  <th>EOD</th>
+                  <th>MULTI_TF</th>
+                  <th>REVERSAL</th>
+                  <th>PULLBACK</th>
+                  <th>ACCUMULATION</th>
+                </tr>
+              </thead>
+              <tbody id="confluence-matrix-tbody">
+                <tr><td><strong>EOD</strong></td><td>—</td><td>77 (PF 0.83)</td><td>65 (PF 1.37)</td><td>10 (PF 3.33)</td><td>110 (PF 0.87)</td></tr>
+                <tr><td><strong>MULTI_TF</strong></td><td>77 (PF 0.83)</td><td>—</td><td>3 (PF 0.01)</td><td>6 (PF 0.77)</td><td>81 (PF 1.21)</td></tr>
+                <tr><td><strong>REVERSAL</strong></td><td>65 (PF 1.37)</td><td>3 (PF 0.01)</td><td>—</td><td>4 (PF 62.25)*</td><td>30 (PF 1.19)</td></tr>
+                <tr><td><strong>PULLBACK</strong></td><td>10 (PF 3.33)</td><td>6 (PF 0.77) | 4 (PF 62.25)*</td><td>—</td><td>0</td></tr>
+                <tr><td><strong>ACCUMULATION</strong></td><td>110 (PF 0.87)</td><td>81 (PF 1.21)</td><td>30 (PF 1.19)</td><td>0</td><td>—</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="font-size:11px; color:var(--muted); margin-top:10px;">* Note: Reversal + Pullback pair (n=4) is marked UNVERIFIED_HYPOTHESIS due to sample size floor (n &lt; 30).</div>
+        </div>
+      </div>
+
       <!-- TAB 1: SIGNALS & ALL TRADES -->
-      <div id="tab-signals-trades" class="tab-panel active">
+      <div id="tab-signals-trades" class="tab-panel">
 
       <!-- P&L AND PORTFOLIO BAR -->
       <div
@@ -8344,8 +8519,91 @@ function loadNearMisses() {
     });
 }
 
+function loadMasterSystemV2Data() {
+  fetch('/api/v2/master_alerts')
+    .then(r => r.json())
+    .then(data => {
+      const tbody = document.getElementById('master-signals-tbody');
+      if (!tbody) return;
+      if (!Array.isArray(data) || data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--muted);">No active confirmed signals.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = data.map(item => `
+        <tr>
+          <td style="font-weight:700; color:var(--accent);">${item.symbol}</td>
+          <td>${(item.scanners || []).join(', ')}</td>
+          <td><span class="badge-ok">${item.state}</span></td>
+          <td>₹${item.entry_price || '-'}</td>
+          <td style="color:var(--loss);">₹${item.stop_loss || '-'}</td>
+          <td style="color:var(--win);">₹${item.target_1 || '-'}</td>
+          <td style="color:var(--win);">₹${item.target_2 || '-'}</td>
+          <td>${item.rr_ratio || '-'}</td>
+          <td>${item.quality_grade || '-'}</td>
+          <td><span class="badge-ok">${item.meta_confluence_tier}</span></td>
+          <td>${item.data_confidence}</td>
+        </tr>
+      `).join('');
+    }).catch(e => console.warn('Failed to load master alerts:', e));
+
+  fetch('/api/v2/stocks_to_watch')
+    .then(r => r.json())
+    .then(data => {
+      const tbody = document.getElementById('stocks-watch-tbody');
+      if (!tbody) return;
+      if (!Array.isArray(data) || data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">No stocks currently in Watch stage.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = data.map(item => `
+        <tr>
+          <td style="font-weight:700;">${item.symbol}</td>
+          <td>${item.scanner}</td>
+          <td>${item.stage}</td>
+          <td>${item.maturity_score}</td>
+          <td>₹${item.cmp}</td>
+          <td>₹${item.trigger_level}</td>
+          <td style="color:var(--amber);">${item.distance_pct}%</td>
+          <td style="color:var(--muted);">${item.primary_blocker}</td>
+          <td>${item.quality_grade}</td>
+        </tr>
+      `).join('');
+    }).catch(e => console.warn('Failed to load stocks to watch:', e));
+
+  fetch('/api/v2/investment_watch')
+    .then(r => r.json())
+    .then(data => {
+      const tbody = document.getElementById('investment-watch-tbody');
+      if (!tbody) return;
+      if (!Array.isArray(data) || data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">No fundamental compounders in Investment Watch.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = data.map(item => `
+        <tr>
+          <td style="font-weight:700; color:var(--accent);">${item.symbol}</td>
+          <td>${item.business_quality}</td>
+          <td>${item.growth_durability}</td>
+          <td>${item.moat_cash_quality}</td>
+          <td>${item.valuation_grade}</td>
+          <td style="color:var(--win); font-weight:700;">+${item.margin_of_safety_pct}%</td>
+          <td>${item.thesis_health}</td>
+          <td><span class="badge-queued">${item.investment_state}</span></td>
+          <td>${item.entry_readiness}</td>
+        </tr>
+      `).join('');
+    }).catch(e => console.warn('Failed to load investment watch:', e));
+}
+
 // Initial watchlist & database summary load
 document.addEventListener('DOMContentLoaded', () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const requestedTab = urlParams.get('tab') || window.location.hash.replace('#', '');
+  if (requestedTab && typeof switchAdminTab === 'function') {
+    switchAdminTab(requestedTab);
+  } else {
+    loadMasterSystemV2Data();
+  }
   loadUserWatchlist();
   loadManualWatchlist();
   fetchDatabaseTablesSummary();

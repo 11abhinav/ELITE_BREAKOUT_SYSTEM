@@ -52,6 +52,14 @@ OUTPUT_PARQUET = WATCHLIST_PATH
 OUTPUT_CSV     = WATCHLIST_PATH.replace(".parquet", ".csv")
 EXCLUSION_CSV  = OUTPUT_CSV.replace(".csv", "_excluded.csv")
 
+# ── V2 OUTPUT PATHS (never touch V1 paths above) ──────────────────────────────────────
+# [INV-1] V2 writes ONLY to these paths. OUTPUT_PARQUET / OUTPUT_CSV / EXCLUSION_CSV
+#         are V1-owned and must never be modified by V2 code.
+OUTPUT_PARQUET_V2      = "data/elite_universe_v2.parquet"
+OUTPUT_NEAR_QUALIFIED_V2 = "data/near_qualified_v2.parquet"
+# DB: daily_watchlist_v2, daily_excluded_watchlist_v2, universe_watch
+#     (created by daily_builder_schema.init_all_v2_schemas)
+
 # =====================================================================================
 # SECTOR ROUTING
 # =====================================================================================
@@ -265,8 +273,8 @@ def fetch_universe() -> pd.DataFrame:
     logger.info("📡 Fetching NSE stocks and forensic accounting data from TradingView...")
 
     fields = [
-        "name", "sector", "close", "average_volume_30d_calc",
-        "market_cap_basic", "return_on_equity_fy", "operating_margin", 
+        "name", "sector", "industry", "close", "average_volume_30d_calc",
+        "market_cap_basic", "return_on_equity_fy", "operating_margin",
         "debt_to_equity_fq", "return_on_assets_fq", "return_on_invested_capital_fq", "earnings_per_share_basic_ttm",
         "gross_profit_yoy_growth_ttm", "gross_profit_qoq_growth_fq",
         "earnings_per_share_diluted_yoy_growth_ttm", "earnings_per_share_diluted_qoq_growth_fq",
@@ -1083,6 +1091,552 @@ def normalize_symbol(symbol: str) -> str:
         logger.debug(f"normalize_symbol: automatically replacing '_' with '-' for {symbol}")
     return symbol.replace("_", "-")
 
+
+# =====================================================================================
+# FINANCIAL INDUSTRY → SUB-PATH ROUTING  (V2 only)
+# [INV-5] Routing table is final; confirmed via live API probe (Q1 resolved).
+# =====================================================================================
+
+INDUSTRY_TO_SUB_PATH: dict[str, str] = {
+    # BANK
+    "Major Banks":                  "BANK",
+    "Regional Banks":               "BANK",
+    "Banks":                        "BANK",
+    "Bank":                         "BANK",
+    "Savings Banks":                "BANK",
+    # NBFC_HFC
+    "Finance/Rental/Leasing":       "NBFC_HFC",
+    "Consumer Financial Services":  "NBFC_HFC",
+    "Housing Finance":              "NBFC_HFC",
+    "Finance Companies":            "NBFC_HFC",
+    "Financial Conglomerates":      "NBFC_HFC",
+    "Investment Banks/Brokers":     "NBFC_HFC",
+    # INSURANCE
+    "Life/Health Insurance":        "INSURANCE",
+    "Property/Casualty Insurance":  "INSURANCE",
+    "Insurance":                    "INSURANCE",
+    "Multi-Line Insurance":         "INSURANCE",
+    "Specialty Insurance":          "INSURANCE",
+    "Insurance Brokers/Services":   "INSURANCE",
+    # AMC
+    "Investment Managers":          "AMC",
+    "Diversified Financial Services":"AMC",
+    # NON_FINANCIAL overrides for sector='Finance'
+    "Real Estate Development":       "NON_FINANCIAL",
+    "Real Estate Investment Trusts": "NON_FINANCIAL",
+}
+
+def _v2_industry_to_path(sector: str, industry: str) -> str:
+    """
+    Maps (sector, industry) → V2 financial sub-path.
+    Falls back to FINANCIAL_UNCLASSIFIED if sector is financial but industry unknown.
+    Returns NON_FINANCIAL for non-financial sectors.
+    """
+    if sector not in FINANCIAL_SECTORS:
+        return "NON_FINANCIAL"
+    path = INDUSTRY_TO_SUB_PATH.get(industry or "")
+    if path:
+        return path
+    # Financial sector but unknown industry
+    logger.warning(
+        f"[V2] Financial sector '{sector}' has unrecognised industry '{industry}' "
+        f"→ FINANCIAL_UNCLASSIFIED (will score as NBFC_HFC fallback)"
+    )
+    return "FINANCIAL_UNCLASSIFIED"
+
+
+def _v2_classify_single(row: dict) -> dict:
+    """
+    Evaluates a single universe row through the V2 pipeline.
+
+    Returns a dict with keys:
+      symbol, path, universe_status, universe_quality_score, data_confidence,
+      quality_tier, near_qualified_mode, exclusion_class, primary_exclusion_code,
+      secondary_exclusion_codes, gap_quality_factors, gap_count,
+      fundamental_profile (JSON str), checklist (JSON str),
+      institutional_interest, delivery_pct_5d, has_institutional_buyers,
+      block_deals_30d, is_turnaround, corporate_action_flag, build_date.
+
+    [INV-1] Never writes to alerts, near_misses, or any V1 table.
+    [INV-2] data_confidence is always populated alongside universe_quality_score.
+    [INV-3] fundamental_profile is the frozen handoff contract.
+    [INV-5] Score threshold and gap tolerances use provisional values only.
+    """
+    import json as _json
+    from datetime import datetime, timezone
+
+    try:
+        from universe_quality_score import (
+            score_nonfin, score_bank, score_nbfc, score_insurance, score_amc,
+            get_institutional_context,
+        )
+        from universe_checklist import (
+            build_universe_checklist, determine_eligibility, format_eligibility_report,
+        )
+    except Exception as _imp_err:
+        logger.error(f"[V2] Import failure: {_imp_err}")
+        return {}
+
+    symbol    = normalize_symbol(str(row.get("name", "UNKNOWN")))
+    sector    = str(row.get("sector", ""))
+    industry  = str(row.get("industry", "") or "")
+    path      = _v2_industry_to_path(sector, industry)
+    build_dt  = str(datetime.now(IST).date())
+
+    # ── Stage 2: Augment with fundamentals_cache (same source as V1) ──────────────
+    try:
+        from fundamentals_cache import get_fundamentals
+        fund_data = get_fundamentals(symbol)
+    except Exception:
+        fund_data = {}
+
+    # Merge TV row + cache into a flat metrics dict
+    metrics: dict = dict(row)
+    for k, v in fund_data.items():
+        if k not in metrics or metrics[k] is None:
+            metrics[k] = v
+
+    # Surveillance fields from module-level blacklist
+    metrics["asm_listed"]            = symbol in _BLACKLIST_SYMBOLS
+    metrics["gsm_listed"]            = False   # ASM/GSM not split in V1 blacklist
+    metrics["promoter_blacklisted"]  = symbol in _BLACKLIST_SYMBOLS
+
+    # Institutional context from module-level globals
+    with _classify_lock:
+        metrics["delivery_pct_5d"]         = _DELIVERY_DATA.get(symbol, 0.0)
+        metrics["has_institutional_buyers"] = len(_INST_BUYS.get(symbol, [])) > 0
+        metrics["block_deals_30d"]          = len(_INST_BUYS.get(symbol, []))
+
+    # Re-key some TradingView column names to match universe_quality_score expectations
+    _tv_key_map = {
+        "operating_margin":             "operating_margin_ttm",
+        "debt_to_equity_fq":            "debt_equity",
+        "return_on_equity_fy":          "return_on_equity_fy",   # same
+        "return_on_assets_fq":          "return_on_assets_fq",   # same
+        "return_on_invested_capital_fq":"return_on_invested_capital_fq",  # same
+    }
+    for tv_key, v2_key in _tv_key_map.items():
+        if v2_key not in metrics and tv_key in metrics:
+            metrics[v2_key] = metrics[tv_key]
+
+    # ── Stage 5: Financial sub-routing → score ────────────────────────────────────
+    _score_fn_map = {
+        "NON_FINANCIAL":          score_nonfin,
+        "BANK":                   score_bank,
+        "NBFC_HFC":               score_nbfc,
+        "INSURANCE":              score_insurance,
+        "AMC":                    score_amc,
+        "FINANCIAL_UNCLASSIFIED": score_nbfc,   # conservative fallback
+    }
+    score_fn = _score_fn_map.get(path, score_nonfin)
+    score_breakdown = score_fn(metrics)
+
+    # ── Stage 3/4/6: Checklist (pre-filter, surveillance, junk gates) ─────────────
+    cl_path = path if path != "FINANCIAL_UNCLASSIFIED" else "NBFC_HFC"
+    checklist = build_universe_checklist(symbol, metrics, cl_path)
+
+    # ── Stage 7: Corporate-action stub (full detection in Phase 2A final) ─────────
+    # V1 doesn't track corporate actions; V2 marks them as None for now.
+    corporate_action_flag = None
+
+    # ── Stage 8/9/10: Eligibility decision ───────────────────────────────────────
+    inst_ctx = get_institutional_context(metrics)
+    decision = determine_eligibility(checklist, score_breakdown, inst_ctx, None)
+
+    # Anomaly guard (Tier 1: exclude, Tier 2: flag but pass)
+    # [INV-5] Thresholds from spec §3.4: > 1000% → STATISTICAL_ANOMALY, 500–1000% → BASE_EFFECT
+    yoy_rev    = metrics.get("total_revenue_yoy_growth_ttm")
+    yoy_profit = metrics.get("earnings_per_share_diluted_yoy_growth_ttm")
+    try:
+        if yoy_rev is not None and yoy_profit is not None:
+            if float(yoy_rev) > 1000.0 or float(yoy_profit) > 1000.0:
+                # Tier 1: override to EXCLUDED
+                from universe_checklist import STATUS_EXCLUDED, DATA_FAIL
+                decision.universe_status       = STATUS_EXCLUDED
+                decision.exclusion_class       = DATA_FAIL
+                decision.primary_exclusion_code = "STATISTICAL_ANOMALY"
+                decision.fundamental_profile   = None
+            elif float(yoy_rev) > 500.0 or float(yoy_profit) > 500.0:
+                # Tier 2: flag only — BASE_EFFECT note added to checklist
+                from universe_checklist import ChecklistCriterion, WARNING
+                checklist.add(ChecklistCriterion(
+                    name="Anomaly Guard (Tier 2)",
+                    status=WARNING,
+                    note=f"BASE_EFFECT flag: YoY Rev={yoy_rev:.0f}% or Profit={yoy_profit:.0f}% > 500%. "
+                         "Score is included but treat with caution.",
+                ))
+    except (TypeError, ValueError):
+        pass
+
+    # ── Serialise ─────────────────────────────────────────────────────────────────
+    fp_json = None
+    if decision.fundamental_profile is not None:
+        try:
+            fp_json = _json.dumps(decision.fundamental_profile.as_dict())
+        except Exception:
+            fp_json = None
+
+    checklist_json = None
+    try:
+        checklist_json = _json.dumps(checklist.as_dict())
+    except Exception:
+        pass
+
+    return {
+        "symbol":                   symbol,
+        "build_date":               build_dt,
+        "financial_sub_path":       path,
+        "universe_status":          decision.universe_status,
+        "quality_tier":             decision.quality_tier or None,
+        "near_qualified_mode":      decision.near_qualified_mode or None,
+        "exclusion_class":          decision.exclusion_class or None,
+        "primary_exclusion_code":   decision.primary_exclusion_code or None,
+        "secondary_exclusion_codes": _json.dumps(decision.secondary_exclusion_codes),
+        "gap_quality_factors":      _json.dumps(decision.gap_quality_factors),
+        "gap_count":                decision.gap_count,
+        "universe_quality_score":   score_breakdown.total,
+        # [INV-2] data_confidence always alongside score
+        "data_confidence":          score_breakdown.data_coverage.overall_data_confidence,
+        "business_quality":         score_breakdown.business_quality,
+        "growth_quality":           score_breakdown.growth_quality,
+        "valuation_context":        score_breakdown.valuation_context,
+        "governance":               score_breakdown.governance,
+        "business_quality_coverage": score_breakdown.data_coverage.business_quality_coverage,
+        "growth_quality_coverage":   score_breakdown.data_coverage.growth_quality_coverage,
+        "valuation_coverage":        score_breakdown.data_coverage.valuation_coverage,
+        "governance_coverage":       score_breakdown.data_coverage.governance_coverage,
+        # [INV-3] fundamental_profile — frozen contract
+        "fundamental_profile":      fp_json,
+        # Institutional context (NOT in score)
+        "institutional_interest":   inst_ctx.get("institutional_interest"),
+        "delivery_pct_5d":          inst_ctx.get("delivery_pct_5d"),
+        "has_institutional_buyers": inst_ctx.get("has_institutional_buyers"),
+        "block_deals_30d":          inst_ctx.get("block_deals_30d"),
+        # Checklist
+        "checklist":                checklist_json,
+        # Flags
+        "is_turnaround":            checklist.turnaround,
+        "corporate_action_flag":    corporate_action_flag,
+        "corporate_action_detail":  None,
+        # Provenance
+        "universe_freshness":       "LIVE",
+        "is_survivorship_corrected": False,
+        "algorithm_version":         "v2.0",
+        # Shell risk provisional flag
+        "shell_risk_provisional":   decision.primary_exclusion_code == "SHELL_RISK",
+        # Market data snapshot
+        "price":                    metrics.get("close"),
+        "market_cap_cr":            (metrics.get("market_cap_basic") or 0) / 1e7 or None,
+    }
+
+
+def _run_v2_pipeline(universe_df: "pd.DataFrame") -> None:
+    """
+    Runs the full Daily Builder V2 pipeline on the pre-loaded universe_df.
+
+    Writes ONLY to:
+      data/elite_universe_v2.parquet
+      data/near_qualified_v2.parquet
+      daily_watchlist_v2 table
+      daily_excluded_watchlist_v2 table
+      universe_watch table (UNIVERSE_DEGRADATION_WATCH)
+
+    [INV-1] Never writes to OUTPUT_PARQUET, OUTPUT_CSV, EXCLUSION_CSV,
+            daily_watchlist, daily_excluded_watchlist, alerts, near_misses.
+    [INV-4] Does not modify universe_df or any V1 module-level state.
+
+    Errors are caught by the caller and logged — V1 build is never aborted.
+    """
+    import json as _json
+    import time as _time
+    import threading
+    from datetime import datetime
+
+    _v2_start = _time.perf_counter()
+    logger.info("[V2_PIPELINE] Starting Phase 2A Daily Builder V2 pipeline...")
+
+    # ── Schema init (idempotent) ──────────────────────────────────────────────────
+    try:
+        from daily_builder_schema import init_all_v2_schemas
+        init_all_v2_schemas()
+    except Exception as _schema_err:
+        logger.warning(f"[V2_PIPELINE] Schema init failed (non-fatal): {_schema_err}")
+
+    # ── [INV-1] Pre-run alert count snapshot ─────────────────────────────────────
+    # Success criterion #4: alerts row count must be unchanged after V2 run.
+    _alerts_before = None
+    try:
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM alerts")
+                _alerts_before = cur.fetchone()[0]
+    except Exception:
+        pass  # Table may not exist in test env
+
+    # ── V2 classification ─────────────────────────────────────────────────────────
+    records = universe_df.to_dict("records")
+    total   = len(records)
+
+    try:
+        from config import SCAN_WORKER_THREADS
+    except ImportError:
+        SCAN_WORKER_THREADS = 8
+
+    workers = max(1, min(os.cpu_count() or 8, SCAN_WORKER_THREADS))
+    v2_results: list[dict] = []
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_v2_classify_single, rec) for rec in records]
+        for future in as_completed(futures):
+            try:
+                res = future.result()
+                if res:
+                    v2_results.append(res)
+            except Exception as _fe:
+                logger.debug(f"[V2_PIPELINE] Classification error (skipped): {_fe}")
+
+    logger.info(f"[V2_PIPELINE] Classification complete: {len(v2_results)}/{total} processed")
+
+    # ── Partition into ELITE, NEAR_QUALIFIED, EXCLUDED ───────────────────────────
+    from universe_checklist import STATUS_ELITE, STATUS_NEAR_QUALIFIED, STATUS_EXCLUDED
+
+    elite_rows   = [r for r in v2_results if r.get("universe_status") == STATUS_ELITE]
+    nq_rows      = [r for r in v2_results if r.get("universe_status") == STATUS_NEAR_QUALIFIED]
+    excl_rows    = [r for r in v2_results if r.get("universe_status") == STATUS_EXCLUDED]
+
+    logger.info(
+        f"[V2_PIPELINE] ELITE={len(elite_rows)} | NQ={len(nq_rows)} | "
+        f"EXCLUDED={len(excl_rows)}"
+    )
+
+    # data_confidence distribution (INV-2 diagnostic)
+    all_admitted = elite_rows + nq_rows
+    if all_admitted:
+        conf_dist = {}
+        for r in all_admitted:
+            conf_dist[r.get("data_confidence", "UNKNOWN")] = conf_dist.get(r.get("data_confidence", "UNKNOWN"), 0) + 1
+        logger.info(f"[V2_PIPELINE] data_confidence distribution (admitted): {conf_dist}")
+
+    # SHELL_RISK / TURNAROUND counts
+    shell_risk_count  = sum(1 for r in excl_rows if r.get("primary_exclusion_code") == "SHELL_RISK")
+    turnaround_count  = sum(1 for r in v2_results if r.get("is_turnaround"))
+    logger.info(f"[V2_PIPELINE] SHELL_RISK={shell_risk_count} (PROVISIONAL) | TURNAROUND={turnaround_count}")
+
+    # Exclusion class distribution
+    excl_class_dist = {}
+    for r in excl_rows:
+        ec = r.get("exclusion_class") or "UNKNOWN"
+        excl_class_dist[ec] = excl_class_dist.get(ec, 0) + 1
+    logger.info(f"[V2_PIPELINE] Exclusion class distribution: {excl_class_dist}")
+
+    # Financial sub-path distribution
+    path_dist = {}
+    for r in v2_results:
+        p = r.get("financial_sub_path") or "NON_FINANCIAL"
+        path_dist[p] = path_dist.get(p, 0) + 1
+    logger.info(f"[V2_PIPELINE] Financial sub-path distribution: {path_dist}")
+
+    # ── Write elite_universe_v2.parquet ──────────────────────────────────────────
+    if elite_rows:
+        try:
+            elite_df = pd.DataFrame(elite_rows).sort_values(
+                "universe_quality_score", ascending=False
+            ).reset_index(drop=True)
+            os.makedirs("data", exist_ok=True)
+            tmp_v2 = f"{OUTPUT_PARQUET_V2}.{os.getpid()}_{threading.get_ident()}.tmp"
+            elite_df.to_parquet(tmp_v2, index=False)
+            os.replace(tmp_v2, OUTPUT_PARQUET_V2)
+            logger.info(f"[V2_PIPELINE] elite_universe_v2.parquet saved ({len(elite_df)} rows)")
+        except Exception as _pw:
+            logger.warning(f"[V2_PIPELINE] Failed to write elite_universe_v2.parquet: {_pw}")
+    else:
+        logger.warning("[V2_PIPELINE] No ELITE stocks — elite_universe_v2.parquet not written")
+
+    # ── Write near_qualified_v2.parquet ──────────────────────────────────────────
+    if nq_rows:
+        try:
+            nq_df = pd.DataFrame(nq_rows).sort_values(
+                "universe_quality_score", ascending=False
+            ).reset_index(drop=True)
+            tmp_nq = f"{OUTPUT_NEAR_QUALIFIED_V2}.{os.getpid()}_{threading.get_ident()}.tmp"
+            nq_df.to_parquet(tmp_nq, index=False)
+            os.replace(tmp_nq, OUTPUT_NEAR_QUALIFIED_V2)
+            logger.info(f"[V2_PIPELINE] near_qualified_v2.parquet saved ({len(nq_df)} rows)")
+        except Exception as _nqw:
+            logger.warning(f"[V2_PIPELINE] Failed to write near_qualified_v2.parquet: {_nqw}")
+    else:
+        # [INV-5] Zero NQ is valid — no synthetic record
+        logger.info("[V2_PIPELINE] NQ=0 this run — near_qualified_v2.parquet not written (valid outcome)")
+
+    # ── Write daily_watchlist_v2 + daily_excluded_watchlist_v2 to DB (background) ─
+    def _bg_v2_db_write(elite_rows_copy, nq_rows_copy, excl_rows_copy):
+        """[INV-1] Writes ONLY to V2 tables — daily_watchlist and daily_excluded_watchlist untouched."""
+        try:
+            from database import save_df_to_table, get_connection
+            admitted = elite_rows_copy + nq_rows_copy
+            if admitted:
+                save_df_to_table("daily_watchlist_v2", pd.DataFrame(admitted))
+                logger.info(f"[V2_PIPELINE] daily_watchlist_v2 saved ({len(admitted)} rows)")
+            if excl_rows_copy:
+                excl_save = pd.DataFrame(excl_rows_copy)
+                save_df_to_table("daily_excluded_watchlist_v2", excl_save)
+                logger.info(f"[V2_PIPELINE] daily_excluded_watchlist_v2 saved ({len(excl_rows_copy)} rows)")
+        except Exception as _dbe:
+            logger.warning(f"[V2_PIPELINE] DB write failed (non-fatal): {_dbe}")
+
+    try:
+        from database import submit_background_upload
+        submit_background_upload(
+            _bg_v2_db_write,
+            list(elite_rows), list(nq_rows), list(excl_rows)
+        )
+    except Exception as _bge:
+        logger.warning(f"[V2_PIPELINE] Could not queue DB background upload: {_bge}")
+
+    # ── UNIVERSE_DEGRADATION_WATCH sweep ─────────────────────────────────────────
+    # Stocks that were ELITE or NQ within 30 trading days but are now EXCLUDED
+    # are logged in universe_watch for monitoring.
+    try:
+        _sweep_degradation_watch(elite_rows, nq_rows, excl_rows)
+    except Exception as _dwe:
+        logger.warning(f"[V2_PIPELINE] Degradation watch sweep failed (non-fatal): {_dwe}")
+
+    # ── [INV-1] Post-run alert count assertion ────────────────────────────────────
+    if _alerts_before is not None:
+        try:
+            from database import get_connection
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT COUNT(*) FROM alerts")
+                    _alerts_after = cur.fetchone()[0]
+            if _alerts_after != _alerts_before:
+                logger.error(
+                    f"[V2_PIPELINE] [INV-1 VIOLATION] alerts table row count changed: "
+                    f"before={_alerts_before}, after={_alerts_after}. "
+                    f"V2 must never write to alerts. INVESTIGATE IMMEDIATELY."
+                )
+            else:
+                logger.info(f"[V2_PIPELINE] [INV-1] alerts table unchanged ({_alerts_after} rows) ✅")
+        except Exception:
+            pass
+
+    _v2_dur = _time.perf_counter() - _v2_start
+    logger.info(
+        f"[V2_PIPELINE] Complete in {_v2_dur:.2f}s | "
+        f"ELITE={len(elite_rows)} NQ={len(nq_rows)} EXCLUDED={len(excl_rows)} "
+        f"SHELL_RISK={shell_risk_count}(PROVISIONAL) TURNAROUND={turnaround_count}"
+    )
+
+
+def _sweep_degradation_watch(
+    elite_rows: list[dict],
+    nq_rows: list[dict],
+    excl_rows: list[dict],
+) -> None:
+    """
+    UNIVERSE_DEGRADATION_WATCH sweep.
+
+    A stock enters universe_watch when:
+      - It was ELITE or NQ within the last N=30 trading days
+      - It is now EXCLUDED
+      - It is above the junk floor (score ≥ 20)
+      - It still clears hard eligibility gates
+
+    [INV-4] This table is V2-only. Never confused with STOCKS_TO_WATCH (Phase 1).
+    [INV-5] Lookback N=30 is provisional (Q4). Calibrated from replay.
+    """
+    try:
+        from database import get_connection
+        from datetime import date, timedelta
+
+        N_TRADING_DAYS = 30  # provisional Q4 — calibrate from replay
+        JUNK_FLOOR_SCORE = 20  # below this → genuinely junk, not watch
+
+        # Build sets for this run
+        elite_symbols = {r["symbol"] for r in elite_rows}
+        nq_symbols    = {r["symbol"] for r in nq_rows}
+        excl_map      = {r["symbol"]: r for r in excl_rows}
+
+        # Recovery: previously-watched stocks that are now ELITE or NQ
+        admitted_symbols = elite_symbols | nq_symbols
+
+        today = str(date.today())
+
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # 1. Mark recoveries for previously-watched stocks
+                if admitted_symbols:
+                    for sym in admitted_symbols:
+                        cur.execute(
+                            """
+                            UPDATE universe_watch
+                            SET is_active = FALSE, recovery_date = %s,
+                                recovery_status = %s
+                            WHERE symbol = %s AND is_active = TRUE
+                            """,
+                            (today,
+                             "RECOVERED_ELITE" if sym in elite_symbols else "RECOVERED_NQ",
+                             sym)
+                        )
+
+                # 2. Check which excluded stocks were recently ELITE/NQ
+                cutoff = str(date.today() - timedelta(days=N_TRADING_DAYS * 1.5))
+                cur.execute(
+                    """
+                    SELECT DISTINCT symbol FROM daily_watchlist_v2
+                    WHERE universe_status IN ('ELITE', 'NEAR_QUALIFIED')
+                    AND build_date >= %s
+                    """,
+                    (cutoff,)
+                )
+                recently_admitted = {row[0] for row in cur.fetchall()}
+
+                # 3. Insert/update degradation watch for qualifying excluded stocks
+                for sym, excl_row in excl_map.items():
+                    if sym not in recently_admitted:
+                        continue
+                    score = excl_row.get("universe_quality_score", 0) or 0
+                    excl_class = excl_row.get("exclusion_class") or ""
+                    if score < JUNK_FLOOR_SCORE:
+                        continue  # below junk floor — not a degradation watch candidate
+                    if excl_class in ("SURVEILLANCE", "HARD_BLOCK") and excl_row.get("primary_exclusion_code") not in ("SHELL_RISK",):
+                        continue  # hard regulatory block — not a degradation candidate
+
+                    cur.execute(
+                        """
+                        INSERT INTO universe_watch (
+                            symbol, first_watch_date, last_seen_date,
+                            current_score, primary_gap_code, degradation_reason,
+                            degradation_severity, is_active, algorithm_version
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, 'v2.0')
+                        ON CONFLICT (symbol, first_watch_date)
+                        DO UPDATE SET
+                            last_seen_date = EXCLUDED.last_seen_date,
+                            current_score  = EXCLUDED.current_score,
+                            consecutive_builds = universe_watch.consecutive_builds + 1
+                        """,
+                        (
+                            sym, today, today,
+                            score,
+                            excl_row.get("primary_exclusion_code") or "UNKNOWN",
+                            "PROFITABILITY",  # simplified; full categorization in Phase 2A final
+                            "MINOR" if score >= 35 else ("MODERATE" if score >= 25 else "MAJOR"),
+                        )
+                    )
+
+            conn.commit()
+
+        logger.info(
+            f"[V2_PIPELINE] UNIVERSE_DEGRADATION_WATCH sweep complete | "
+            f"recently_admitted candidates checked: {len(recently_admitted)} | "
+            f"excluded this run: {len(excl_map)}"
+        )
+    except Exception as _dw_err:
+        logger.warning(f"[V2_PIPELINE] Degradation watch DB sweep failed: {_dw_err}")
+
+
 # =====================================================================================
 # DISPATCHER
 # =====================================================================================
@@ -1098,6 +1652,7 @@ def classify_stock(row: pd.Series) -> dict:
     except Exception as e:
         logger.exception(f"❌ EXCEPTION [{symbol}]")
         return None
+
 
 # =====================================================================================
 # MAIN
@@ -1507,6 +2062,16 @@ def _main_impl(force_rebuild: bool = False):
         
         if not _SECTOR_MEDIANS:
             logger.warning("⚠️ _SECTOR_MEDIANS is empty — market_share_gainer will be disabled this run")
+
+        # ── V2 PIPELINE (parallel path) ───────────────────────────────────────
+        # [INV-1] Writes ONLY to V2 destinations. V1 path continues below, unmodified.
+        # [INV-4] V1 classify_stock loop below is NOT affected by V2 execution.
+        try:
+            _run_v2_pipeline(universe_df)
+        except Exception as _v2_err:
+            # V2 is a shadow run — never allow it to abort the V1 build.
+            logger.error(f"❌ [V2_PIPELINE] V2 pipeline failed (V1 build continues): {_v2_err}", exc_info=True)
+        # ── END V2 PIPELINE ───────────────────────────────────────────────────
 
         fin_mask = universe_df["sector"].isin(FINANCIAL_SECTORS)
         logger.info(f"📊 [CLASSIFY] Classifying {len(universe_df)} stocks... (Non-Financial: {(~fin_mask).sum()} | Financial: {fin_mask.sum()})")

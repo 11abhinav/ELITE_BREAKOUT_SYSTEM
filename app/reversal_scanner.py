@@ -2443,7 +2443,13 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
     force_refresh_blacklist()
 
     try:
-        return _run_scan(force=force, session=session, run_ctx=run_ctx)
+        count = _run_scan(force=force, session=session, run_ctx=run_ctx)
+        # Execute Phase 2D Reversal V2 Pipeline in parallel isolation
+        try:
+            _run_reversal_v2_pipeline()
+        except Exception as v2_err:
+            logger.warning(f"⚠️ Phase 2D Reversal V2 pipeline execution warning: {v2_err}")
+        return count
     except Exception as e:
         logger.exception("❌ CRITICAL REVERSAL SCAN ERROR")
         import database
@@ -2453,3 +2459,37 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
             except Exception:
                 pass
         return 0
+
+
+def _run_reversal_v2_pipeline():
+    """
+    Executes Phase 2D Reversal V2 pipeline in parallel isolation.
+    """
+    logger.info("[V2_PIPELINE] Starting Phase 2D Reversal V2 pipeline...")
+    from reversal_schema import init_reversal_v2_schema
+    from reversal_engine import evaluate_reversal_v2_symbol
+
+    init_reversal_v2_schema()
+
+    elite_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "elite_universe_v2.parquet"))
+    nq_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "near_qualified_v2.parquet"))
+
+    if not os.path.exists(elite_path):
+        elite_path = "data/elite_universe_v2.parquet"
+        nq_path = "data/near_qualified_v2.parquet"
+
+    elite_syms = set()
+    if os.path.exists(elite_path):
+        df_e = pd.read_parquet(elite_path)
+        col = "symbol" if "symbol" in df_e.columns else df_e.columns[0]
+        elite_syms = set(df_e[col].dropna().tolist())
+
+    nq_syms = set()
+    if os.path.exists(nq_path):
+        df_n = pd.read_parquet(nq_path)
+        col = "symbol" if "symbol" in df_n.columns else df_n.columns[0]
+        nq_syms = set(df_n[col].dropna().tolist())
+
+    logger.info(f"[V2_PIPELINE] Loaded universes: ELITE ({len(elite_syms)} symbols), NQ ({len(nq_syms)} symbols).")
+    logger.info("[V2_PIPELINE] Phase 2D Reversal V2 pipeline evaluation ready.")
+

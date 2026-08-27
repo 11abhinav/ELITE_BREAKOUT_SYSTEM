@@ -1769,6 +1769,13 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
             
         logger.info(f"🔄 Evaluating exits for {len(open_positions)} open MULTIBAGGER positions...")
         
+        # [VERSION: EXIT_MONITOR_NOTIFY_DEFER_v1.0]
+        # Symbols flagged SELL_REVIEW due to incomplete data in this run.
+        # Notifications are deferred until after the full evaluation loop so that
+        # symbols that self-heal (deep fetch succeeds + auto-clear fires) in the
+        # same run do NOT trigger false-alarm admin notifications.
+        _deferred_incomplete_data_syms = []  # list of (symbol, inv_msg)
+
         # [VERSION: MULTIBAGGER_EXIT_BATCH_v1.1] Only fetch open positions missing from price_data_map
         open_symbols = [pos["symbol"] for pos in open_positions]
         exit_prices = {}
@@ -1955,45 +1962,11 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                             logger.warning(f"⚠️ [EXIT MONITOR] {symbol}: Incomplete data ({inv_msg}) — flagging as SELL_REVIEW (keeping position OPEN)")
                             if not is_test_mode:
                                 _persist_sell_review(alert_id, f"SELL_REVIEW: Incomplete Data ({inv_msg})")
-                                
-                                # Use atomic throttling for admin notifications
-                                def _should_notify_sell_review(sym: str) -> bool:
-                                    try:
-                                        from database import get_connection
-                                        from datetime import datetime
-                                        today_str = datetime.now(IST).strftime("%Y-%m-%d")
-                                        key = f"sell_review_notif_{sym}"
-                                        with get_connection() as conn:
-                                            with conn.cursor() as cur:
-                                                cur.execute("""
-                                                    INSERT INTO system_state (key, value) 
-                                                    VALUES (%s, %s) 
-                                                    ON CONFLICT (key) DO UPDATE 
-                                                    SET value = EXCLUDED.value 
-                                                    WHERE system_state.value != EXCLUDED.value
-                                                    RETURNING value
-                                                """, (key, today_str))
-                                                row = cur.fetchone()
-                                                # If row is returned, it means the insert/update was successful -> first time today
-                                                if not row:
-                                                    return False
-                                            conn.commit()
-                                        return True
-                                    except Exception as _th_err:
-                                        logger.warning(f"Throttle check failed: {_th_err}")
-                                        return True
-
-                                if _should_notify_sell_review(symbol):
-                                    try:
-                                        from database import insert_notification
-                                        insert_notification("admin", f"⚠️ [SELL REVIEW] {symbol}: Incomplete Data", f"Multibagger position {symbol} flagged for Sell Review due to incomplete data: {inv_msg}. Position kept OPEN. We are looking into this.")
-                                    except Exception as _notif_err:
-                                        logger.warning(f"Could not insert admin notification for {symbol}: {_notif_err}")
-                                    try:
-                                        from telegram_engine import queue_telegram_message
-                                        queue_telegram_message(f"⚠️ <b>[SELL REVIEW] {symbol}</b>\nExit evaluation deferred due to incomplete data: <i>{inv_msg}</i>.\nPosition remains OPEN under review.", symbol=symbol)
-                                    except Exception as _tg_err:
-                                        logger.warning(f"Could not queue Telegram sell review message for {symbol}: {_tg_err}")
+                                # [VERSION: EXIT_MONITOR_NOTIFY_DEFER_v1.0]
+                                # Notification is deferred to AFTER the auto-clear check below.
+                                # If the deep fetch resolves the data within this same run, the
+                                # auto-clear fires (status returns to OPEN) and no false alarm is sent.
+                                _deferred_incomplete_data_syms.append((symbol, inv_msg))
                         # Check CQS score decay (< 55)
                         elif cqs is not None and cqs < 55.0:
                             exit_triggered = True
@@ -2008,7 +1981,10 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                         # Auto-resolution: If position was in SELL_REVIEW but now passes quality gate cleanly, restore to OPEN
                         if current_status == "SELL_REVIEW" and not is_test_mode:
                             _clear_sell_review_to_open(alert_id, symbol)
-                        
+                            # [VERSION: EXIT_MONITOR_NOTIFY_DEFER_v1.0]
+                            # Remove this symbol from deferred notifications — it self-healed in this run.
+                            _deferred_incomplete_data_syms[:] = [(s, m) for s, m in _deferred_incomplete_data_syms if s != symbol]
+
                 # Handle triggered exit
                 if exit_triggered:
                     logger.warning(f"🚨 SELL TRIGGERED for {symbol}: {exit_reason}")
@@ -2050,6 +2026,53 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                     
     except Exception as e:
         logger.exception(f"❌ Failed to complete exit monitoring")
+
+    # [VERSION: EXIT_MONITOR_NOTIFY_DEFER_v1.0]
+    # Send admin notifications for symbols that are STILL in SELL_REVIEW at end of run.
+    # Self-healing symbols (auto-cleared in this run) were removed from this list above.
+    if _deferred_incomplete_data_syms and not is_test_mode:
+        def _should_notify_sell_review(sym: str) -> bool:
+            try:
+                today_str = datetime.now(IST).strftime("%Y-%m-%d")
+                key = f"sell_review_notif_{sym}"
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            INSERT INTO system_state (key, value)
+                            VALUES (%s, %s)
+                            ON CONFLICT (key) DO UPDATE
+                            SET value = EXCLUDED.value
+                            WHERE system_state.value != EXCLUDED.value
+                            RETURNING value
+                        """, (key, today_str))
+                        row = cur.fetchone()
+                        if not row:
+                            return False
+                    conn.commit()
+                return True
+            except Exception as _th_err:
+                logger.warning(f"Throttle check failed: {_th_err}")
+                return True
+
+        for _sym, _inv_msg in _deferred_incomplete_data_syms:
+            if _should_notify_sell_review(_sym):
+                try:
+                    from database import insert_notification
+                    insert_notification(
+                        "admin",
+                        f"⚠️ [SELL REVIEW] {_sym}: Incomplete Data",
+                        f"Multibagger position {_sym} flagged for Sell Review due to incomplete data: {_inv_msg}. Position kept OPEN. We are looking into this."
+                    )
+                except Exception as _notif_err:
+                    logger.warning(f"Could not insert admin notification for {_sym}: {_notif_err}")
+                try:
+                    from telegram_engine import queue_telegram_message
+                    queue_telegram_message(
+                        f"⚠️ <b>[SELL REVIEW] {_sym}</b>\nExit evaluation deferred due to incomplete data: <i>{_inv_msg}</i>.\nPosition remains OPEN under review.",
+                        symbol=_sym
+                    )
+                except Exception as _tg_err:
+                    logger.warning(f"Could not queue Telegram sell review message for {_sym}: {_tg_err}")
 
     if cache_updated:
         try:
@@ -2681,6 +2704,30 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             append_rejection(results, sym, "VOLUME_UNAVAILABLE", "Volume data unavailable", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
             return
             
+        # [VERSION: ENTRY_SCANNER_DEEP_HYDRATION_v1.0]
+        # Open/SELL_REVIEW positions may have only TV_BASELINE-tier cache data if their
+        # prewarm has expired or was never completed. TV_BASELINE lacks YFinance-deep fields
+        # (fcf_margin, cfo_pat_ratio, altman_z, interest_coverage_ratio, revenue_cagr_3y)
+        # that passes_multibagger_quality_gate() requires. Without hydration these positions
+        # get rejected as "Data Void" with only promoter pledge populated.
+        # Fix: for symbols that are currently OPEN or SELL_REVIEW, apply the same
+        # is_deep_v5_cache → fetch_ticker_fundamentals() guard the exit monitor uses.
+        if sym in open_symbols and not is_deep_v5_cache(raw_fundamentals):
+            try:
+                deep_f = fetch_ticker_fundamentals(sym)
+                if deep_f and not deep_f.get("failed") and (deep_f.get("total_equity") is not None or deep_f.get("market_cap") is not None):
+                    now_iso = datetime.now(IST).isoformat()
+                    for k, v in deep_f.items():
+                        if v is not None:
+                            raw_fundamentals[k] = v
+                    raw_fundamentals["fetched_at"] = now_iso
+                    cache[sym] = raw_fundamentals
+                    logger.info(f"🔬 [ENTRY SCANNER] {sym}: Deep-hydrated open position (equity={deep_f.get('total_equity')}, mcap={deep_f.get('market_cap')})")
+                else:
+                    logger.info(f"ℹ️ [ENTRY SCANNER] {sym}: Deep hydration unavailable — proceeding with baseline cache")
+            except Exception as _hydrate_err:
+                logger.warning(f"[ENTRY SCANNER] {sym}: Deep hydration failed: {_hydrate_err}")
+
         ok, reason = passes_multibagger_quality_gate(raw_fundamentals)
         if not ok:
             logger.debug(f"REJECTION: {sym} (Phase: QUALITY_GATE, Reason: {reason})")
