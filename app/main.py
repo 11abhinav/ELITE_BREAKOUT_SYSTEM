@@ -48,6 +48,8 @@ _PROCESS_START_TIME = _time.monotonic()
 
 logger = logging.getLogger(__name__)
 
+from database import upsert_scanner_health, insert_notification
+
 # Print high-visibility deployment version & process PID banner on startup
 try:
     from config import SYSTEM_DEPLOYMENT_VERSION
@@ -583,6 +585,7 @@ def block_until_watchlist_ready():
 # force=True must NOT be removed — doing so causes the scanners to silently
 # enter test_mode and discard all alert results whenever they run before 21:00.
 def _run_eod_with_retries(today_str, session=None, used_fallback=False):
+    from database import upsert_scanner_health, insert_notification
     retry_count = 0
     while True:
         # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run
@@ -680,6 +683,7 @@ def _run_eod_with_retries(today_str, session=None, used_fallback=False):
 
 
 def _run_reversal_with_retries(today_str, session=None, used_fallback=False):
+    from database import upsert_scanner_health, insert_notification
     retry_count = 0
     while True:
         # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run
@@ -775,6 +779,7 @@ def _run_reversal_with_retries(today_str, session=None, used_fallback=False):
 
 
 def _run_pullback_with_retries(today_str, session=None, used_fallback=False):
+    from database import upsert_scanner_health, insert_notification
     retry_count = 0
     while True:
         # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run

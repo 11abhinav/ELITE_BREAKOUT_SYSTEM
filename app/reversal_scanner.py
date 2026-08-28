@@ -47,6 +47,7 @@ from collections import defaultdict
 from zoneinfo import ZoneInfo
 from datetime import date, datetime, time as dtime, timedelta
 from typing import Any, Optional
+from database import upsert_scanner_health
 
 from scanner_telemetry import DecisionContext, telemetry_engine
 from technical_indicators import apply_indicators
@@ -1452,6 +1453,7 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
     """Execute a single reversal scan pass. Called inside the scheduling loop."""
     from database import (
         is_scanner_stopped,
+        upsert_scanner_health,
         get_latest_weights,
         get_recent_alerts_for_scanner,
         delete_todays_alerts_for_scanner,
