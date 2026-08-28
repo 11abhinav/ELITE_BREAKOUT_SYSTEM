@@ -445,16 +445,22 @@ class CacheFreshnessPolicy:
 
 class DailyPolicy(CacheFreshnessPolicy):
     """
-    Daily 1D Cache Freshness Policy.
-    Uses institutional trading calendar helper `get_expected_latest_closed_daily_bar`.
+    Daily Cache Freshness Policy.
     During active market hours or pre-market, the latest completed daily session is from the previous trading day.
+    During off-market hours (night/weekend), daily cache within 3 calendar days is considered fresh to avoid redundant downloads.
     """
     def is_fresh(self, last_ts: pd.Timestamp, now_dt: datetime = None) -> bool:
         if now_dt is None:
             now_dt = datetime.now(IST)
-        from market_utils import get_expected_latest_closed_daily_bar
+        from market_utils import get_expected_latest_closed_daily_bar, is_market_open
         expected_closed_bar = get_expected_latest_closed_daily_bar(now_dt)
-        return last_ts.date() >= expected_closed_bar
+        if last_ts.date() >= expected_closed_bar:
+            return True
+        if not is_market_open(now_dt):
+            days_behind = (now_dt.date() - last_ts.date()).days
+            if days_behind <= 3:
+                return True
+        return False
 
 
 # =====================================================================================
