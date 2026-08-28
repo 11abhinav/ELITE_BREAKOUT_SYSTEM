@@ -1234,18 +1234,16 @@ def get_v2_scanner_health():
 @login_required
 def get_v2_universe_health():
     """
-    [RULE 67 CHANGE-RATIONALE]:
-    Dynamically counts daily watchlist admissions (ELITE, NEAR_QUALIFIED) and excluded stocks from
-    daily_watchlist_v2 and daily_excluded_watchlist_v2 database tables. Replaces the old static
-    hardcoded universe health counts. Returns both build_date and metrics in a structured dictionary.
-    If the database tables are empty, it cleanly returns {"build_date": "N/A", "metrics": []} to show
-    no data / blank state per user requirements.
+    [VERSION: UNIVERSE_HEALTH_FALLBACK_v1.0]
+    Dynamically counts daily watchlist admissions (ELITE, NEAR_QUALIFIED) and excluded stocks.
+    Primary source: DB tables daily_watchlist_v2 & daily_excluded_watchlist_v2.
+    Secondary fallback: Local parquet & CSV files (elite_fundamental_watchlist.parquet,
+    near_qualified_v2.parquet, elite_fundamental_watchlist_excluded.csv).
     """
     try:
         from database import get_connection
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # Check if v2 tables exist first to avoid exceptions
                 cur.execute("""
                     SELECT EXISTS (
                         SELECT FROM information_schema.tables 
@@ -1254,67 +1252,134 @@ def get_v2_universe_health():
                     )
                 """)
                 v2_exists = cur.fetchone()[0]
-                if not v2_exists:
-                    return jsonify({"build_date": "N/A", "metrics": []})
+                if v2_exists:
+                    cur.execute("SELECT MAX(build_date) FROM daily_watchlist_v2")
+                    latest_date_row = cur.fetchone()
+                    latest_date = latest_date_row[0] if latest_date_row else None
 
-                # [VERSION: UNIVERSE_HEALTH_DATE_FILTER_v1.0] Query and filter counts strictly by the latest build_date to prevent historical record count accumulation.
-                cur.execute("SELECT MAX(build_date) FROM daily_watchlist_v2")
-                latest_date_row = cur.fetchone()
-                latest_date = latest_date_row[0] if latest_date_row else None
+                    if latest_date:
+                        cur.execute("SELECT COUNT(*) FROM daily_watchlist_v2 WHERE universe_status = 'ELITE' AND build_date = %s", (latest_date,))
+                        elite_count = cur.fetchone()[0] or 0
 
-                if not latest_date:
-                    return jsonify({"build_date": "N/A", "metrics": []})
+                        cur.execute("SELECT COUNT(*) FROM daily_watchlist_v2 WHERE universe_status = 'NEAR_QUALIFIED' AND build_date = %s", (latest_date,))
+                        nq_count = cur.fetchone()[0] or 0
 
-                cur.execute("SELECT COUNT(*) FROM daily_watchlist_v2 WHERE universe_status = 'ELITE' AND build_date = %s", (latest_date,))
-                elite_count = cur.fetchone()[0] or 0
+                        cur.execute("SELECT COUNT(*) FROM daily_excluded_watchlist_v2 WHERE build_date = %s", (latest_date,))
+                        excluded_count = cur.fetchone()[0] or 0
 
-                cur.execute("SELECT COUNT(*) FROM daily_watchlist_v2 WHERE universe_status = 'NEAR_QUALIFIED' AND build_date = %s", (latest_date,))
-                nq_count = cur.fetchone()[0] or 0
+                        total = elite_count + nq_count + excluded_count
+                        if total > 0:
+                            def fmt_pct(val):
+                                return f"{(val / total * 100):.1f}%"
 
-                cur.execute("SELECT COUNT(*) FROM daily_excluded_watchlist_v2 WHERE build_date = %s", (latest_date,))
-                excluded_count = cur.fetchone()[0] or 0
+                            build_date_str = latest_date.strftime("%Y-%m-%d") if hasattr(latest_date, "strftime") else str(latest_date)
 
-                total = elite_count + nq_count + excluded_count
-                if total == 0:
-                    return jsonify({"build_date": "N/A", "metrics": []})
-
-                def fmt_pct(val):
-                    return f"{(val / total * 100):.1f}%"
-
-                build_date_str = latest_date.strftime("%Y-%m-%d") if hasattr(latest_date, "strftime") else str(latest_date)
-
-                return jsonify({
-                    "build_date": build_date_str,
-                    "metrics": [
-                        {
-                            "tier": "ELITE Universe",
-                            "count": elite_count,
-                            "share": fmt_pct(elite_count),
-                            "reason": "Passed Quality Checklist",
-                            "confidence": "HIGH / MEDIUM",
-                            "status": "ACTIVE"
-                        },
-                        {
-                            "tier": "NEAR_QUALIFIED (NQ)",
-                            "count": nq_count,
-                            "share": fmt_pct(nq_count),
-                            "reason": "Observation Only (Pre-Watch)",
-                            "confidence": "LOW / PROVISIONAL",
-                            "status": "OBSERVATION"
-                        },
-                        {
-                            "tier": "EXCLUDED Universe",
-                            "count": excluded_count,
-                            "share": fmt_pct(excluded_count),
-                            "reason": "Quality / Data Fail",
-                            "confidence": "UNADMITTED",
-                            "status": "EXCLUDED"
-                        }
-                    ]
-                })
+                            return jsonify({
+                                "build_date": build_date_str,
+                                "metrics": [
+                                    {
+                                        "tier": "ELITE Universe",
+                                        "count": elite_count,
+                                        "share": fmt_pct(elite_count),
+                                        "reason": "Passed Quality Checklist",
+                                        "confidence": "HIGH / MEDIUM",
+                                        "status": "ACTIVE"
+                                    },
+                                    {
+                                        "tier": "NEAR_QUALIFIED (NQ)",
+                                        "count": nq_count,
+                                        "share": fmt_pct(nq_count),
+                                        "reason": "Observation Only (Pre-Watch)",
+                                        "confidence": "LOW / PROVISIONAL",
+                                        "status": "OBSERVATION"
+                                    },
+                                    {
+                                        "tier": "EXCLUDED Universe",
+                                        "count": excluded_count,
+                                        "share": fmt_pct(excluded_count),
+                                        "reason": "Quality / Data Fail",
+                                        "confidence": "UNADMITTED",
+                                        "status": "EXCLUDED"
+                                    }
+                                ]
+                            })
     except Exception as e:
-        logger.warning(f"Failed to fetch universe health: {e}")
-        return jsonify({"build_date": "N/A", "metrics": []})
+        logger.warning(f"DB universe health query failed: {e}")
+
+    # Fallback to local parquet/CSV watchlist files if DB tables are unpopulated
+    try:
+        import os
+        import pandas as pd
+        from config import DATA_DIR, WATCHLIST_PATH
+
+        elite_count = 0
+        nq_count = 0
+        excluded_count = 0
+        build_date_str = "N/A"
+
+        if os.path.exists(WATCHLIST_PATH):
+            try:
+                df_e = pd.read_parquet(WATCHLIST_PATH)
+                elite_count = len(df_e)
+                mtime = os.path.getmtime(WATCHLIST_PATH)
+                build_date_str = datetime.fromtimestamp(mtime, IST).strftime("%Y-%m-%d")
+            except Exception:
+                pass
+
+        nq_path = os.path.join(DATA_DIR, "near_qualified_v2.parquet")
+        if os.path.exists(nq_path):
+            try:
+                df_nq = pd.read_parquet(nq_path)
+                nq_count = len(df_nq)
+            except Exception:
+                pass
+
+        excl_path = os.path.join(DATA_DIR, "elite_fundamental_watchlist_excluded.csv")
+        if os.path.exists(excl_path):
+            try:
+                df_ex = pd.read_csv(excl_path)
+                excluded_count = len(df_ex)
+            except Exception:
+                pass
+
+        total = elite_count + nq_count + excluded_count
+        if total > 0:
+            def fmt_pct(val):
+                return f"{(val / total * 100):.1f}%"
+
+            return jsonify({
+                "build_date": build_date_str,
+                "metrics": [
+                    {
+                        "tier": "ELITE Universe",
+                        "count": elite_count,
+                        "share": fmt_pct(elite_count),
+                        "reason": "Passed Quality Checklist",
+                        "confidence": "HIGH / MEDIUM",
+                        "status": "ACTIVE"
+                    },
+                    {
+                        "tier": "NEAR_QUALIFIED (NQ)",
+                        "count": nq_count,
+                        "share": fmt_pct(nq_count),
+                        "reason": "Observation Only (Pre-Watch)",
+                        "confidence": "LOW / PROVISIONAL",
+                        "status": "OBSERVATION"
+                    },
+                    {
+                        "tier": "EXCLUDED Universe",
+                        "count": excluded_count,
+                        "share": fmt_pct(excluded_count),
+                        "reason": "Quality / Data Fail",
+                        "confidence": "UNADMITTED",
+                        "status": "EXCLUDED"
+                    }
+                ]
+            })
+    except Exception as fe:
+        logger.warning(f"Parquet fallback for universe health failed: {fe}")
+
+    return jsonify({"build_date": "N/A", "metrics": []})
 
 
 
