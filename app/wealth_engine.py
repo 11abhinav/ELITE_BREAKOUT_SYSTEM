@@ -1257,6 +1257,133 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
     
     return candidate_df
 
+# Cached DataFrames in module-level memory for fast 0ms lookups in 5m intraday loop
+_orphan_fundamental_cache = {}
+_orphan_cache_timestamp = 0.0
+
+def resolve_orphan_fundamental_data(symbol: str) -> dict | None:
+    """
+    [VERSION: ORPHAN_ENRICHMENT_v1.0]
+    Resolves canonical fundamental metrics and calculates V5 FM_Score / RS_Rating
+    for open portfolio positions that are not in today's active watchlist.
+    
+    Prevents false "SELL_REVIEW: Incomplete Data" alerts for valid holdings that dropped
+    out of the active daily screening universe.
+    
+    Data lookup precedence (0ms local cache -> parquet cache -> DB stock_analysis_master):
+      1. Local universe parquets (data/temp_universe.parquet, data/elite_universe_v2.parquet, etc.)
+      2. DB stock_analysis_master (deep_analysis_result JSON)
+      3. DB parquet_cache (daily_builder / daily_builder_excluded)
+    """
+    if not symbol:
+        return None
+
+    import os
+    import json
+    import time
+    import pandas as pd
+    from config import DATA_DIR, WATCHLIST_PATH
+
+    clean_sym = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
+    
+    # Generate canonical alias candidates to match TradingView / Screener / Yahoo formats
+    try:
+        from daily_builder import normalize_symbol
+        norm_sym = normalize_symbol(clean_sym)
+    except Exception:
+        norm_sym = clean_sym
+    
+    possible_keys = list(dict.fromkeys([
+        clean_sym,
+        norm_sym,
+        clean_sym.replace('_', '-'),
+        clean_sym.replace('-', '_'),
+        clean_sym.replace(' ', '-'),
+    ]))
+    
+    # 1. Search in cached local universe DataFrames (temp_universe.parquet, etc.)
+    found_row_dict = None
+    
+    # Load / refresh local parquet cache if older than 15 minutes
+    global _orphan_fundamental_cache, _orphan_cache_timestamp
+    now_mono = time.monotonic()
+    if now_mono - _orphan_cache_timestamp > 900 or not _orphan_fundamental_cache:
+        merged_cache = {}
+        for fname in ["temp_universe.parquet", "elite_universe_v2.parquet", "near_qualified_v2.parquet", "elite_fundamental_watchlist_excluded.csv"]:
+            fpath = os.path.join(DATA_DIR, fname)
+            if os.path.exists(fpath):
+                try:
+                    if fname.endswith(".parquet"):
+                        c_df = pd.read_parquet(fpath)
+                    else:
+                        c_df = pd.read_csv(fpath)
+                    sym_col = "Stock" if "Stock" in c_df.columns else ("Symbol" if "Symbol" in c_df.columns else None)
+                    if sym_col and not c_df.empty:
+                        for _, r_data in c_df.iterrows():
+                            s_val = str(r_data[sym_col]).strip().upper()
+                            if s_val and s_val not in merged_cache:
+                                merged_cache[s_val] = r_data.to_dict()
+                except Exception as _ce:
+                    logger.debug(f"Could not read {fname} for orphan cache: {_ce}")
+        _orphan_fundamental_cache = merged_cache
+        _orphan_cache_timestamp = now_mono
+
+    for key in possible_keys:
+        if key in _orphan_fundamental_cache:
+            found_row_dict = dict(_orphan_fundamental_cache[key])
+            break
+
+    # 2. Fallback to DB stock_analysis_master if not found in local parquets
+    if not found_row_dict:
+        try:
+            from database import fetch_deep_analysis_from_master
+            for key in possible_keys:
+                master_res = fetch_deep_analysis_from_master(key)
+                if master_res and isinstance(master_res, dict):
+                    found_row_dict = master_res.get("raw_data") or master_res
+                    break
+        except Exception as _dbe:
+            logger.debug(f"DB master lookup for orphan {symbol} failed: {_dbe}")
+
+    if not found_row_dict:
+        return None
+
+    # Standardize Stock field
+    found_row_dict["Stock"] = symbol
+    
+    # 3. Score using canonical apply_core_engine_scores() & V5 mapping
+    try:
+        scores = apply_core_engine_scores(found_row_dict)
+        found_row_dict["FM_Score"] = scores.get("CIS", 0.0)
+        found_row_dict["Valuation_Score"] = scores.get("RVS", 0.0)
+        found_row_dict["Consistency_Score"] = scores.get("BQS", 0.0)
+        found_row_dict["Reliability"] = scores.get("Reliability", 0.0)
+        
+        # Determine RS_Rating if rs_6m present, else fallback to neutral 50.0
+        rs_6m_val = found_row_dict.get("rs_6m")
+        if rs_6m_val is not None and not pd.isna(rs_6m_val):
+            try:
+                found_row_dict["RS_Rating"] = max(0.0, min(100.0, 50.0 + float(rs_6m_val) * 1.5))
+            except (ValueError, TypeError):
+                found_row_dict["RS_Rating"] = 50.0
+        else:
+            found_row_dict["RS_Rating"] = 50.0
+
+        try:
+            from macro_utils import get_nifty_52w_dist
+            nifty_dist = get_nifty_52w_dist() or 0.0
+        except Exception:
+            nifty_dist = 0.0
+            
+        found_row_dict["Portfolio_Bucket"] = determine_portfolio_bucket(found_row_dict, nifty_dist)
+        found_row_dict["orphan_enriched"] = True
+        logger.info(f"✅ [ORPHAN ENRICHMENT] Enriched {symbol} (FM_Score={found_row_dict['FM_Score']:.1f}, RS_Rating={found_row_dict['RS_Rating']:.1f}, Bucket={found_row_dict['Portfolio_Bucket']})")
+        return found_row_dict
+    except Exception as _se:
+        logger.warning(f"⚠️ Scoring orphan {symbol} failed during enrichment: {_se}")
+        return None
+
+
 # =====================================================================================
 # LAYER 3: PORTFOLIO MANAGEMENT
 # =====================================================================================
@@ -1331,14 +1458,11 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         import pandas as pd
         if pd.isna(r.get("FM_Score")) or pd.isna(r.get("RS_Rating")):
             r["Hold_Score"] = base_hold_score
-            r["Exit_Code"] = "SELL_REVIEW"
-            r["Exit_Reason"] = "Incomplete Data (Missing Fundamentals/Orphaned)"
-            try:
-                from telegram_engine import queue_telegram_message
-                msg = f"⚠️ <b>Incomplete Data</b>\n<b>{sym}</b> is missing core fundamental data (e.g. FM_Score) in Wealth Engine.\nHold Score could not be reliably calculated.\nMoved to SELL_REVIEW."
-                queue_telegram_message(msg, symbol=sym)
-            except Exception:
-                pass
+            r["Exit_Code"] = "DATA_STALE"
+            if r.get("orphan_enrichment_failed", False):
+                r["Exit_Reason"] = "Orphan Position — Fundamental data genuinely unavailable in master/cache"
+            else:
+                r["Exit_Reason"] = "Incomplete Data (Missing FM_Score/RS_Rating) — Exit evaluation deferred"
             return r
         
         # 2. Hard Risk Stop (Calculated BEFORE Tax Bonus)
@@ -2402,12 +2526,22 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 row = wealth_df[wealth_df["Stock"] == sym].iloc[0].to_dict()
             elif sym in tech_df["Stock"].values:
                 row = tech_df[tech_df["Stock"] == sym].iloc[0].to_dict()
+                if pd.isna(row.get("FM_Score")) or pd.isna(row.get("RS_Rating")):
+                    enriched = resolve_orphan_fundamental_data(sym)
+                    if enriched:
+                        for k, v in enriched.items():
+                            if k not in row or row[k] is None or (isinstance(row[k], float) and pd.isna(row[k])):
+                                row[k] = v
+                    else:
+                        row["orphan_enrichment_failed"] = True
             else:
-                # [VERSION: WEALTH_PREV_CLOSE_RESOLVE_v1.0] Orphan holding — no watchlist row.
-                # Row starts with only the symbol; all technical metadata (including prev_close)
-                # is absent. The prev_close resolution block below will populate it from
-                # all_historical_data so _generate_exit_signal() can evaluate the exit correctly.
                 row = {"Stock": sym}
+                enriched = resolve_orphan_fundamental_data(sym)
+                if enriched:
+                    for k, v in enriched.items():
+                        row[k] = v
+                else:
+                    row["orphan_enrichment_failed"] = True
             row["entry_price"] = p_info["entry_price"]
             row["entry_date"] = p_info["entry_date"]
 
@@ -2753,7 +2887,16 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
         # Update position CMPs and check exit triggers
         portfolio_rows = []
         for sym, p_info in portfolio_dict.items():
-            row = wealth_df[wealth_df["Stock"] == sym].iloc[0].to_dict() if sym in wealth_df["Stock"].values else {"Stock": sym}
+            if sym in wealth_df["Stock"].values:
+                row = wealth_df[wealth_df["Stock"] == sym].iloc[0].to_dict()
+            else:
+                row = {"Stock": sym}
+                enriched = resolve_orphan_fundamental_data(sym)
+                if enriched:
+                    for k, v in enriched.items():
+                        row[k] = v
+                else:
+                    row["orphan_enrichment_failed"] = True
             row["entry_price"] = p_info["entry_price"]
             row["entry_date"] = p_info["entry_date"]
             row["position_source"] = p_info.get("source", "ALERT")
