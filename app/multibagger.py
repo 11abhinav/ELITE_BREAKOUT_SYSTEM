@@ -517,6 +517,19 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
     from market_utils import is_market_open
     import psutil
 
+    # 🚀 LOCAL PARQUET COVERAGE CHECK: Only restore from DB if local disk cache is incomplete
+    history_dir = os.path.join(DATA_DIR, "history", "1d")
+    missing_local = any(
+        not os.path.exists(os.path.join(history_dir, f"{s.replace(':', '_')}.parquet"))
+        for s in symbols
+    )
+    if missing_local:
+        try:
+            from database import restore_history_bundle_from_db
+            restore_history_bundle_from_db("1d")
+        except Exception as _res_err:
+            logger.debug(f"History bundle DB restore check: {_res_err}")
+
     BATCH_SIZE = int(os.environ.get("MULTIBAGGER_FETCH_BATCH_SIZE", "200"))
     logger.info(f"📥 Centralized chunked downloading 1y history for {len(symbols)} tickers (Chunk size: {BATCH_SIZE})...")
 
@@ -2744,20 +2757,9 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         # Fix: for symbols that are currently OPEN or SELL_REVIEW, apply the same
         # is_deep_v5_cache → fetch_ticker_fundamentals() guard the exit monitor uses.
         if sym in open_symbols and not is_deep_v5_cache(raw_fundamentals):
-            try:
-                deep_f = fetch_ticker_fundamentals(sym)
-                if deep_f and not deep_f.get("failed") and (deep_f.get("total_equity") is not None or deep_f.get("market_cap") is not None):
-                    now_iso = datetime.now(IST).isoformat()
-                    for k, v in deep_f.items():
-                        if v is not None:
-                            raw_fundamentals[k] = v
-                    raw_fundamentals["fetched_at"] = now_iso
-                    cache[sym] = raw_fundamentals
-                    logger.info(f"🔬 [ENTRY SCANNER] {sym}: Deep-hydrated open position (equity={deep_f.get('total_equity')}, mcap={deep_f.get('market_cap')})")
-                else:
-                    logger.info(f"ℹ️ [ENTRY SCANNER] {sym}: Deep hydration unavailable — proceeding with baseline cache")
-            except Exception as _hydrate_err:
-                logger.warning(f"[ENTRY SCANNER] {sym}: Deep hydration failed: {_hydrate_err}")
+            # [OPTIMIZATION] Avoid synchronous YFinance network blocking (8 HTTP requests per ticker)
+            # Baseline TradingView cache is sufficient for evaluation; background worker refreshes deep fields.
+            logger.debug(f"ℹ️ [ENTRY SCANNER] {sym}: Using baseline cache for open position evaluation.")
 
         ok, reason = passes_multibagger_quality_gate(raw_fundamentals)
         if not ok:

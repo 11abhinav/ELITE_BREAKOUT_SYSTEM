@@ -32,7 +32,7 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
         "enterprise_value_ebitda_ratio", "dividend_yield_recent"
     ]
     
-    # Check local cache freshness first (72 hours TTL)
+    # Check local cache freshness first (72 hours TTL) or temp_universe.parquet
     def load_valid_cache():
         if os.path.exists(UNIVERSE_CACHE_PATH):
             try:
@@ -46,6 +46,17 @@ def fetch_full_universe_for_valuation() -> pd.DataFrame:
                     return df
             except Exception as e:
                 logger.warning(f"Failed to read local universe cache: {e}")
+        if os.path.exists("data/temp_universe.parquet"):
+            try:
+                mtime = os.path.getmtime("data/temp_universe.parquet")
+                age_hours = (time.time() - mtime) / 3600
+                if age_hours < 24:
+                    df_temp = pd.read_parquet("data/temp_universe.parquet")
+                    if not df_temp.empty and "sector" in df_temp.columns:
+                        logger.info(f"⚡ [VALUATION UTILS] Reusing fresh temp_universe.parquet for peer medians (age={age_hours:.1f}h < 24h, <10ms).")
+                        return df_temp
+            except Exception:
+                pass
         return None
 
     cached_df = load_valid_cache()
