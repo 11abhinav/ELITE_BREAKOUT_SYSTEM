@@ -9,7 +9,7 @@ _DEAD_TTL = 3600 * 24  # 24 hours
 _MAX_DEAD_CACHE_SIZE = 1000
 
 _recent_quotes_cache = {}
-_RECENT_TTL = 30  # 30 seconds for concurrent timeframe syncing
+_RECENT_TTL = 60  # 60 seconds shared TTL across all scanners & dashboard endpoints
 import threading
 _live_prices_lock = threading.Lock()
 
@@ -33,10 +33,30 @@ def _cleanup_dead_symbols_cache():
             del cache[k]
         logger.info(f"🧹 Evicted {len(expired_keys)} expired and {len(oldest_keys)} oldest entries from _dead_symbols_cache.")
 
+def _store_symbol_aliases_in_cache(sym: str, val: float, now_ts: float):
+    """Store symbol and all canonical/exchange aliases in _recent_quotes_cache to prevent cache bypasses."""
+    if val is None or float(val) <= 0:
+        return
+    clean_sym = str(sym).replace('.NS', '').replace('.BO', '').replace('BSE:', '').replace('NSE:', '').strip().upper()
+    aliases = {sym, clean_sym, f"{clean_sym}.NS", f"NSE:{clean_sym}", f"BSE:{clean_sym}"}
+    for alias in aliases:
+        _recent_quotes_cache[alias] = {"price": float(val), "ts": now_ts}
+
+def bulk_warmup_live_prices(symbols: List[str]) -> Dict[str, float]:
+    """
+    [STANDARD 6: SHARED LIVE PRICE LAYER]
+    Pre-fetches live quotes for a list of symbols in ONE single bulk API call before scanner loops begin.
+    Populates _recent_quotes_cache in RAM so all subsequent single-symbol lookups hit memory in 0ms.
+    """
+    if not symbols:
+        return {}
+    return get_live_prices(symbols)
+
 def get_live_prices(symbols: List[str]) -> Dict[str, float]:
     """
     Fetches real-time Last Traded Price (CMP) for a list of standard NSE symbols.
     Routes through UnifiedFetcher for provider enforcement and telemetry.
+    Uses alias matching to maximize shared cache hits and eliminate 1-symbol network roundtrips.
     """
     if not symbols:
         return {}
@@ -47,10 +67,12 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
     prices = {}
     
     with _live_prices_lock:
-        # Check recent fast-cache first
+        # Check recent fast-cache first (with alias normalization)
         for s in symbols:
-            if s in _recent_quotes_cache and (now - _recent_quotes_cache[s]["ts"]) < _RECENT_TTL:
-                prices[s] = _recent_quotes_cache[s]["price"]
+            clean_s = str(s).replace('.NS', '').replace('.BO', '').replace('BSE:', '').replace('NSE:', '').strip().upper()
+            cached_entry = _recent_quotes_cache.get(s) or _recent_quotes_cache.get(clean_s) or _recent_quotes_cache.get(f"{clean_s}.NS") or _recent_quotes_cache.get(f"NSE:{clean_s}")
+            if cached_entry and (now - cached_entry["ts"]) < _RECENT_TTL:
+                prices[s] = cached_entry["price"]
             else:
                 if s not in cache or (now - cache.get(s, 0)) >= _DEAD_TTL:
                     valid_symbols.append(s)
@@ -73,7 +95,7 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
                 
     with _live_prices_lock:
         for sym, val in new_prices.items():
-            _recent_quotes_cache[sym] = {"price": val, "ts": now}
+            _store_symbol_aliases_in_cache(sym, val, now)
             
         # Clean up stale entries to prevent memory leak
         stale_keys = [k for k, v in _recent_quotes_cache.items() if (now - v["ts"]) > _RECENT_TTL * 2]

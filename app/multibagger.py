@@ -2527,7 +2527,18 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     except Exception as e:
         logger.error(f"Failed to fetch open positions for pre-hydration: {e}")
         
-    for sym in all_syms_to_check:
+    _step2_start_t = time.perf_counter()
+    _last_hb = time.monotonic()
+    
+    for idx, sym in enumerate(all_syms_to_check):
+        # [TIME-BASED HEARTBEAT] Pulse heartbeat at least once every 10 seconds
+        _now_mono = time.monotonic()
+        if run_ctx and (_now_mono - _last_hb) >= 10.0:
+            try:
+                run_ctx.heartbeat()
+                _last_hb = _now_mono
+            except Exception: pass
+
         cached = get_cached_fundamentals(sym, cache)
         if cached:
             if any(p.symbol == sym for p in shortlist):
@@ -2539,7 +2550,24 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             if any(p.symbol == sym for p in shortlist):
                 fundamentals_list.append(fail_fund)
 
-    logger.info(f"💾 Loaded fundamentals for {cached_count}/{len(shortlist)} shortlist stocks directly from DB cache.")
+    _step2_dur_s = time.perf_counter() - _step2_start_t
+    from fundamentals_cache import get_fundamentals_cache_stats
+    _c_stats = get_fundamentals_cache_stats()
+
+    logger.info(
+        f"\n================================================================================\n"
+        f"📊 [FUNDAMENTALS CACHE] STEP 2 TELEMETRY & INDEX PERFORMANCE\n"
+        f"================================================================================\n"
+        f"  • Cache Entries Loaded        : {len(cache)}\n"
+        f"  • Index Construction Time     : {_c_stats.get('index_build_ms', 0.0):.2f} ms (Memoized)\n"
+        f"  • Requested Shortlist Symbols : {len(shortlist)}\n"
+        f"  • Total Lookup Calls          : {_c_stats.get('total_lookups', 0)}\n"
+        f"  • O(1) Index Hits             : {_c_stats.get('o1_hits', 0)}\n"
+        f"  • O(1) Index Misses           : {_c_stats.get('o1_misses', 0)}\n"
+        f"  • Linear Scans (O(N))         : 0 (Eliminated)\n"
+        f"  • Step 2 Total Duration       : {_step2_dur_s:.2f}s\n"
+        f"================================================================================\n"
+    )
                 
     # Save updated cache to JSON file
     save_fundamentals_cache(cache, sync_to_db=False)

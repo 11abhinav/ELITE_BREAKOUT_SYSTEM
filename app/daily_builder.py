@@ -2093,9 +2093,15 @@ def _main_impl(force_rebuild: bool = False):
         records = universe_df.to_dict('records')
         winners = []
         
+        _last_hb = time.monotonic()
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [executor.submit(classify_stock, rec) for rec in records]
             for future in as_completed(futures):
+                if run_ctx and (time.monotonic() - _last_hb) >= 10.0:
+                    try:
+                        run_ctx.heartbeat()
+                        _last_hb = time.monotonic()
+                    except Exception: pass
                 try:
                     res = future.result()
                     if res is not None:

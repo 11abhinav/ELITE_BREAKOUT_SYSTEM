@@ -425,7 +425,13 @@ def run_hourly_phase(is_test_mode=False, run_once=False, session=None, run_ctx=N
     logger.info(f"📥 [MULTI_TF] Bulk pre-fetching 1H data (10d) for {len(watchlist)} symbols...")
     all_1h_ticker_data = fetch_watchlist_data(watchlist, period="10d", interval="1h", requester="MULTI_TF_1H")
 
+    _last_hb = time.monotonic()
     for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
+        if run_ctx and (time.monotonic() - _last_hb) >= 10.0:
+            try:
+                run_ctx.heartbeat()
+                _last_hb = time.monotonic()
+            except Exception: pass
         with BatchMemoryTracker(SCANNER_MULTI_TF, batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
             
             # Slice chunk symbols from bulk pre-fetched dictionary

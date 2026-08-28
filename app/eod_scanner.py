@@ -609,6 +609,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
     from zoneinfo import ZoneInfo
     IST = ZoneInfo("Asia/Kolkata")
     start_time = datetime.now(IST)
+    _last_hb = time.monotonic()
     total_alerts = 0
     total_fetched_count = 0
     duration_sec = 0.0
@@ -1735,6 +1736,11 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                             futures = [executor.submit(_process_row, idx, row) for idx, row in enumerate(chunk_df.itertuples(index=False), start=1)]
                             for f in as_completed(futures):
                                 f.result() # Raise any exceptions caught in thread
+                    if run_ctx and (time.monotonic() - _last_hb) >= 10.0:
+                        try:
+                            run_ctx.heartbeat()
+                            _last_hb = time.monotonic()
+                        except Exception: pass
                     logger.info(f"⏳ [EOD SCANNER] Evaluated Batch {batch_num}/{total_batches} ({min(batch_num * BATCH_SIZE, len(watchlist))}/{len(watchlist)} stocks) | Candidates found so far: {len(approved_candidates)}")
 
             # ── MAX ALERTS ENFORCEMENT & PERSISTENCE ──────────────────────────────────────────

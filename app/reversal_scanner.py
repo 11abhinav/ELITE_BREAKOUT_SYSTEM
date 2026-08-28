@@ -1601,6 +1601,13 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
         and dtime(9, 15) <= ist_now.time() <= dtime(15, 30)
     )
     all_symbols = scan_watchlist["Stock"].tolist()
+    # [STANDARD 6: SHARED LIVE PRICE WARMUP] Bulk pre-fetch live quotes for all symbols in 1 batched call
+    try:
+        from live_prices import bulk_warmup_live_prices
+        bulk_warmup_live_prices(all_symbols)
+    except Exception as _lp_err:
+        logger.warning(f"⚠️ Live prices bulk warmup warning: {_lp_err}")
+
     requested_symbols = set([_canonical_symbol(s) for s in all_symbols if s])
     snapshot_by_symbol = {}
     snapshot_fetch_failed = False
@@ -1638,6 +1645,8 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
     stage_tracker.end_stage(f"Pledge: {len(pledge_map)}, Delivery: {len(prev_delivery_map)}")
     stage_tracker.start_stage(3, "Price Fetch & Reversal Pattern Evaluation", f"Batch size: {BATCH_SIZE}")
 
+    _last_hb = time.monotonic()
+
     with MemoryProfiler("Process Symbols"):
 
         for batch_num, chunk_df in enumerate(chunk_iterable(scan_watchlist, BATCH_SIZE), start=1):
@@ -1664,6 +1673,12 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                     all_ticker_data = fetch_watchlist_data(chunk_df, interval="1d", period="1y", requester="REVERSAL")
                     
                 _fetch_dur = time.perf_counter() - _batch_start_t
+
+                if run_ctx and (time.monotonic() - _last_hb) >= 10.0:
+                    try:
+                        run_ctx.heartbeat()
+                        _last_hb = time.monotonic()
+                    except Exception: pass
 
             except Exception as fetch_err:
                 logger.error(f"❌ [REVERSAL] Batch {batch_num} fetch error: {fetch_err}")

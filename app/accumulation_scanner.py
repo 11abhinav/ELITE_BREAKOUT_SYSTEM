@@ -402,7 +402,13 @@ class AccumulationScanner:
 
             # Batch processing loop
             batches = [symbols[i:i + self.batch_size] for i in range(0, len(symbols), self.batch_size)]
+            _last_hb = time.monotonic()
             for b_idx, batch in enumerate(batches, start=1):
+                if run_ctx and (time.monotonic() - _last_hb) >= 10.0:
+                    try:
+                        run_ctx.heartbeat()
+                        _last_hb = time.monotonic()
+                    except Exception: pass
                 # Cooperative Stop / Pause check at every batch boundary
                 if AccumulationControl.should_stop():
                     health.stop("ADMIN_STOP_MID_BATCH")

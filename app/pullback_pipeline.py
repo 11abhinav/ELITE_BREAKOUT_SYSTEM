@@ -621,8 +621,14 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     symbols_processed = 0
     if session is not None:
         logger.info(f"📦 [PULLBACK] Using MarketDataSession | {session.metadata.valid_symbols} symbols pre-fetched")
+    _last_hb = time.monotonic()
     with MemoryProfiler("Pullback Scanner Process"):
         for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):
+            if run_ctx and (time.monotonic() - _last_hb) >= 10.0:
+                try:
+                    run_ctx.heartbeat()
+                    _last_hb = time.monotonic()
+                except Exception: pass
             with BatchMemoryTracker("PULLBACK", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
                 import time
                 _batch_start_t = time.perf_counter()

@@ -1974,9 +1974,13 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         from config import SCAN_WORKER_THREADS
         stage_tracker.start_stage(4, "Indicator Calculation & Scoring", f"Workers={SCAN_WORKER_THREADS}")
 
-        _t_hist_total = time.perf_counter()
-        _t_indicator_total_ms = 0.0
+        _last_hb = time.monotonic()
         for batch_num, chunk in enumerate(chunk_iterable(all_symbols_to_fetch, BATCH_SIZE), start=1):
+            if run_ctx and (time.monotonic() - _last_hb) >= 10.0:
+                try:
+                    run_ctx.heartbeat()
+                    _last_hb = time.monotonic()
+                except Exception: pass
             with BatchMemoryTracker("WealthPhaseA", batch_num, total_batches, len(chunk), collect_gc=True) as tracker:
                 # Slice chunk historical data from bulk pre-fetched dictionary
                 chunk_historical_data = {sym: all_historical_data[sym] for sym in chunk if sym in all_historical_data}

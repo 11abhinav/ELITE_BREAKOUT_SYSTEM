@@ -610,23 +610,64 @@ def get_piotroski_score(symbol: str) -> int:
     f_dict = get_fundamentals(symbol)
     return f_dict.get("score", -1)
 
+_norm_cache_index = {}
+_norm_cache_id = None
+_cache_stats = {"total_lookups": 0, "o1_hits": 0, "o1_misses": 0, "linear_scans": 0, "index_build_ms": 0.0}
+
+def get_fundamentals_cache_stats() -> dict:
+    """Returns telemetry statistics for fundamentals cache lookups."""
+    return dict(_cache_stats)
+
+def _get_normalized_cache_index(cache: dict) -> dict:
+    global _norm_cache_index, _norm_cache_id, _cache_stats
+    current_id = id(cache)
+    if _norm_cache_id == current_id and _norm_cache_index:
+        return _norm_cache_index
+    try:
+        import time as _t_mod
+        _t0 = _t_mod.perf_counter()
+        from valuation_utils import normalize_id
+        idx = {}
+        for k, v in cache.items():
+            if v and isinstance(v, dict):
+                norm_k = normalize_id(k)
+                if norm_k:
+                    idx[norm_k] = v
+        _norm_cache_index = idx
+        _norm_cache_id = current_id
+        _dur_ms = (_t_mod.perf_counter() - _t0) * 1000.0
+        _cache_stats["index_build_ms"] = round(_dur_ms, 2)
+        logger.info(f"⚡ [FUNDAMENTALS INDEX] Built O(1) normalized index for {len(_norm_cache_index)} entries in {_dur_ms:.2f}ms (memoized for cache id={current_id})")
+        return _norm_cache_index
+    except Exception as e:
+        logger.warning(f"Failed to build normalized index: {e}")
+        return {}
+
 def get_fundamentals(symbol: str) -> dict:
+    global _cache_stats
+    _cache_stats["total_lookups"] += 1
     from data_registry import registry
     cache = registry.get("fundamentals_cache")
     if not cache:
         cache = load_cache()
     if not cache:
+        _cache_stats["o1_misses"] += 1
         return {}
     res = cache.get(symbol)
     if res:
+        _cache_stats["o1_hits"] += 1
         return res
-    # [VERSION: FUNDAMENTALS_NORM_FIX_v1.0] Canonical fallback lookup for BSE/SME/NS suffix variations
+    # [VERSION: O1_NORM_CACHE_FIX_v1.1] Instant O(1) normalized lookup with memoized index
     try:
-        from valuation_utils import normalize_id  # [FIX: IMPORT_VALIDITY] normalize_id is defined in valuation_utils, not symbol_router
+        from valuation_utils import normalize_id
         norm_s = normalize_id(symbol)
-        for k, v in cache.items():
-            if normalize_id(k) == norm_s:
-                return v
+        if norm_s:
+            norm_idx = _get_normalized_cache_index(cache)
+            found = norm_idx.get(norm_s)
+            if found:
+                _cache_stats["o1_hits"] += 1
+                return found
     except Exception:
         pass
+    _cache_stats["o1_misses"] += 1
     return {}
