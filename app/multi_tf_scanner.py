@@ -404,7 +404,7 @@ def run_hourly_phase(is_test_mode=False, run_once=False, session=None, run_ctx=N
     _wl_hash = hashlib.md5("|".join(_wl_stocks).encode()).hexdigest()[:12]
     logger.info(f"📋 [MULTI_TF] Targeted universe fingerprint: {len(watchlist)} stocks | hash={_wl_hash}")
 
-    import gc, time
+    import gc
     BATCH_SIZE = int(os.environ.get("MULTI_TF_FETCH_BATCH_SIZE", "200"))
     
     stale_1h = 0
@@ -705,8 +705,6 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
             return {}
 
     logger.info(f"⚡ [MULTI_TF] Pre-fetching 30m ({len(needs_30m)}), 15m ({len(needs_15m)}), and 5m ({len(needs_5m)}) timeframes...")
-    import time
-    
     _t_start_fetch = time.perf_counter()
     with concurrent.futures.ThreadPoolExecutor(max_workers=3, thread_name_prefix="MTF_Fetch") as fetch_exec:
         f_30m = fetch_exec.submit(_fetch_tf, "30m", "5d", "30m", needs_30m)
@@ -1601,7 +1599,6 @@ _global_lock = ProcessLock("global_scanner_lock")
 def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON", session=None):
     from database import is_scanner_stopped, upsert_scanner_health, complete_scanner_execution_run
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
-    import time
     if is_scanner_stopped("MULTI_TF"):
         logger.info("🛑 Multi-TF Scanner is STOPPED by Admin. Skipping execution.")
         if run_ctx:

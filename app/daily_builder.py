@@ -1663,7 +1663,6 @@ _build_lock = ProcessLock("daily_builder")
 _global_lock = ProcessLock("global_scanner_lock")
 
 def main(force_rebuild: bool = False, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON"):
-    import time
     from database import is_scanner_stopped, upsert_scanner_health
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("DAILY_BUILDER"):
@@ -1992,7 +1991,6 @@ def _main_impl(force_rebuild: bool = False):
         os.makedirs(os.path.dirname(OUTPUT_PARQUET), exist_ok=True)
 
         logger.info("🔍 [FETCH] Fetching TradingView universe (symbol list + fundamentals)...")
-        import time
         _fetch_start_t = time.perf_counter()
         universe_df = fetch_universe()
         _fetch_dur = time.perf_counter() - _fetch_start_t

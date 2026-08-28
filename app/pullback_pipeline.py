@@ -359,7 +359,6 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
     """
     from database import is_scanner_stopped, upsert_scanner_health
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
-    import time
     if is_scanner_stopped("PULLBACK"):
         logger.info("🛑 Pullback Scanner is STOPPED by Admin. Skipping execution.")
         if run_ctx:

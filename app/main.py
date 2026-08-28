@@ -30,7 +30,6 @@ IST = ZoneInfo("Asia/Kolkata")
 def ist_converter(*args):
     timestamp = args[-1] if args else None
     if timestamp is None:
-        import time
         timestamp = time.time()
     return datetime.fromtimestamp(timestamp, IST).timetuple()
 
@@ -1971,7 +1970,6 @@ def _run_multibagger_scanner_single():
             logger.info("🛑 Multibagger scanner is ALREADY queued or actively running in database/thread lock. Skipping duplicate trigger...")
             return
             
-        import time
         from telemetry_manager import telemetry
         telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_START")
         
