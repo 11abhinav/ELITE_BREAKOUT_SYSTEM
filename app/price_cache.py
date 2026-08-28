@@ -1679,22 +1679,20 @@ def get_cached_df(symbol: str, interval: str = "1d", period: str = "1y") -> pd.D
 
 def get_cached_price_details(symbol: str) -> Tuple[Optional[float], str, bool, Optional[str]]:
     """
-    [VERSION: CMP_CACHE_PROVENANCE_v1.0] [RULE 67 CHANGE-RATIONALE]
-    Resolves price details including price value, provenance source, live flag, and timestamp.
-    Enables the dashboard to differentiate between real-time ticks and daily cached historical closes.
+    [VERSION: CMP_CACHE_PROVENANCE_v1.1] [RULE 67 CHANGE-RATIONALE]
+    Resolves price details from RAM live cache or daily Parquet cache.
+    Uses RAM-only get_cached_live_price to eliminate single-symbol network calls.
     """
     from datetime import datetime
     from zoneinfo import ZoneInfo
     
-    # 1. Check live prices first
+    # 1. Check live prices RAM cache first (non-blocking)
     try:
-        from live_prices import get_live_prices
-        live_map = get_live_prices([symbol])
-        if live_map and symbol in live_map:
-            p = live_map[symbol]
-            if p is not None and float(p) > 0:
-                now_str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S')
-                return float(p), "LIVE_TICK", True, now_str
+        from live_prices import get_cached_live_price
+        p = get_cached_live_price(symbol)
+        if p is not None and float(p) > 0:
+            now_str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S')
+            return float(p), "LIVE_TICK", True, now_str
     except Exception:
         pass
 

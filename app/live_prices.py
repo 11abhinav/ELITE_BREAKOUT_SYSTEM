@@ -52,14 +52,90 @@ def bulk_warmup_live_prices(symbols: List[str]) -> Dict[str, float]:
         return {}
     return get_live_prices(symbols)
 
-def get_live_prices(symbols: List[str]) -> Dict[str, float]:
+def get_cached_live_price(symbol: str) -> Optional[float]:
+    """
+    [RAM-ONLY CMP LOOKUP]
+    Checks _recent_quotes_cache for a fresh CMP quote (< 60s) without making network requests.
+    Returns float price if found, otherwise None.
+    """
+    if not symbol:
+        return None
+    now = time.time()
+    clean_s = str(symbol).replace('.NS', '').replace('.BO', '').replace('BSE:', '').replace('NSE:', '').strip().upper()
+    with _live_prices_lock:
+        cached_entry = (
+            _recent_quotes_cache.get(symbol) or 
+            _recent_quotes_cache.get(clean_s) or 
+            _recent_quotes_cache.get(f"{clean_s}.NS") or 
+            _recent_quotes_cache.get(f"NSE:{clean_s}")
+        )
+        if cached_entry and (now - cached_entry["ts"]) < _RECENT_TTL:
+            return cached_entry["price"]
+    return None
+
+ALLOWED_SINGLE_SYMBOL_PURPOSES = {
+    "TRADE_EXECUTION_VERIFY", 
+    "MANUAL_USER_ANALYSIS", 
+    "ALERT_PERSISTENCE"
+}
+
+_quote_access_metrics = {
+    "single_symbol_external_attempts": 0,
+    "single_symbol_external_blocked": 0,
+    "single_symbol_external_allowed": 0,
+    "bulk_external_requests": 0,
+    "bulk_symbols_requested": 0,
+}
+
+def get_quote_access_audit_stats() -> dict:
+    """Returns a snapshot of quote access circuit breaker metrics."""
+    with _live_prices_lock:
+        return dict(_quote_access_metrics)
+
+def reset_quote_access_audit_stats():
+    """Resets audit counters for a clean scanner test run."""
+    with _live_prices_lock:
+        for k in _quote_access_metrics:
+            _quote_access_metrics[k] = 0
+
+def get_live_prices(symbols: List[str], purpose: str = "UNSPECIFIED") -> Dict[str, float]:
     """
     Fetches real-time Last Traded Price (CMP) for a list of standard NSE symbols.
     Routes through UnifiedFetcher for provider enforcement and telemetry.
     Uses alias matching to maximize shared cache hits and eliminate 1-symbol network roundtrips.
+
+    [INVARIANT 4 CIRCUIT BREAKER]: Single-symbol network requests are blocked unless
+    explicitly authorized via ALLOWED_SINGLE_SYMBOL_PURPOSES.
     """
     if not symbols:
         return {}
+
+    with _live_prices_lock:
+        if len(symbols) == 1:
+            _quote_access_metrics["single_symbol_external_attempts"] += 1
+        else:
+            _quote_access_metrics["bulk_external_requests"] += 1
+            _quote_access_metrics["bulk_symbols_requested"] += len(symbols)
+
+    # Invariant 4 Circuit Breaker Enforcement
+    if len(symbols) == 1 and purpose not in ALLOWED_SINGLE_SYMBOL_PURPOSES:
+        with _live_prices_lock:
+            _quote_access_metrics["single_symbol_external_blocked"] += 1
+
+        import inspect
+        caller_frame = inspect.currentframe().f_back
+        caller_info = f"{os.path.basename(caller_frame.f_code.co_filename)}:{caller_frame.f_lineno}->{caller_frame.f_code.co_name}" if caller_frame else "UNKNOWN"
+        sym = symbols[0]
+        ram_price = get_cached_live_price(sym)
+        logger.warning(
+            f"🚨 [QUOTE_ACCESS_VIOLATION_BLOCKED] Single-symbol external quote request attempted & blocked! "
+            f"symbol='{sym}' purpose='{purpose}' caller='{caller_info}'. Returning RAM cache quote ({ram_price}) — network HTTP request BLOCKED."
+        )
+        return {sym: ram_price} if ram_price is not None else {}
+
+    if len(symbols) == 1:
+        with _live_prices_lock:
+            _quote_access_metrics["single_symbol_external_allowed"] += 1
 
     now = time.time()
     cache = _get_dead_symbols()
@@ -81,7 +157,7 @@ def get_live_prices(symbols: List[str]) -> Dict[str, float]:
         return prices
 
     # Delegate complex fallback, mapping, and chunking to UnifiedFetcher
-    results = fetcher.fetch_live_quotes(valid_symbols, consumer="live_prices")
+    results = fetcher.fetch_live_quotes(valid_symbols, consumer=f"live_prices:{purpose}")
     
     new_prices = {}
     for sym, quote in results.items():
