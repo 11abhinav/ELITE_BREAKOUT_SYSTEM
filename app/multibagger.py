@@ -521,10 +521,22 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
 
     # 🚀 LOCAL PARQUET COVERAGE CHECK: Only restore from DB if local disk cache is incomplete
     history_dir = os.path.join(DATA_DIR, "history", "1d")
-    missing_local = any(
-        not os.path.exists(os.path.join(history_dir, f"{s.replace(':', '_')}.parquet"))
-        for s in symbols
-    )
+
+    def _has_parquet(s: str) -> bool:
+        clean_s = s.split(":")[-1].strip()
+        variants = [
+            clean_s,
+            clean_s.replace("&", "_"),
+            clean_s.replace("-", "_"),
+            clean_s.replace("&", "-"),
+            clean_s.replace("-EQ", ""),
+            clean_s.replace("_EQ", ""),
+            f"{clean_s}.NS",
+            f"{clean_s.replace('&', '_')}.NS"
+        ]
+        return any(os.path.exists(os.path.join(history_dir, f"{v}.parquet")) for v in variants)
+
+    missing_local = any(not _has_parquet(s) for s in symbols)
     if missing_local:
         try:
             from database import restore_history_bundle_from_db
@@ -1165,7 +1177,7 @@ def _build_finalist_pool(pass1_candidates: list, base_n: int = 25, score_buffer:
     return finalist_pool
 
 def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]]:
-    clean_sym = symbol.strip().upper()
+    clean_sym = symbol.split(":")[-1].strip().upper()
     variants = [
         clean_sym,
         clean_sym.replace("&", "_"),
