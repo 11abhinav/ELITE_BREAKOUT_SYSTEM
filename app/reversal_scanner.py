@@ -787,6 +787,7 @@ def _evaluate_candidate(
                 "sl_result": {},
                 "context": {},
             }
+        # Rule: REV-001
         avg_vol_20d = float(recent_volume.mean())
         if avg_vol_20d < MIN_AVG_DAILY_VOLUME:
             return {
@@ -819,6 +820,7 @@ def _evaluate_candidate(
             "context": {},
         }
 
+    # Rule: REV-001
     drop_pct = ((high_52w - close_price) / high_52w) * 100.0
     cat_str = fund_data.get("Category", "") if fund_data else ""
     is_quality_cat = any(kw in cat_str.lower() for kw in ("wealth", "blue chip", "debt-free"))
@@ -858,6 +860,21 @@ def _evaluate_candidate(
                 "sl_result": {},
                 "context": {},
             }
+
+    # Rule: REV-001
+    # 2. Trend Structure Reclaim: Close >= SMA50
+    if close_price < sma50:
+        return {
+            "passed": False,
+            "reject_reason": f"Trend Structure Reclaim Fail: Close ₹{close_price:.2f} < SMA50 ₹{sma50:.2f} (mandatory recovery gate)",
+            "reject_code": "sma50_filter",
+            "gate_type": "THRESHOLD",
+            "operator": "<",
+            "score": 0,
+            "raw_score": 0,
+            "sl_result": {},
+            "context": {},
+        }
 
     _rc = regime_ctx or {}
     regime = _rc.get("current_regime") or _rc.get("trend") or "NEUTRAL"
@@ -1053,33 +1070,38 @@ def _evaluate_candidate(
                     "context": {},
                 }
 
-    macd_passed = _macd_momentum_present(df, atr_val=atr_val)
-    if not macd_passed:
+    # Rule: REV-001
+    # 4. MACD Momentum: Bullish MACD histogram crossover occurring within the last 10 trading bars
+    macd = df.get("MACD")
+    sig = df.get("MACD_SIGNAL")
+    macd_crossover_passed = False
+    if macd is not None and sig is not None and len(df) >= 2:
+        for i in range(len(df) - 1, max(0, len(df) - 11), -1):
+            if macd.iloc[i] > sig.iloc[i] and macd.iloc[i-1] <= sig.iloc[i-1]:
+                macd_crossover_passed = True
+                break
+    
+    if not macd_crossover_passed:
         return {
             "passed": False,
-            "reject_reason": "MACD below signal without a sufficiently strong improving histogram",
+            "reject_reason": "MACD Momentum Fail: No bullish MACD histogram crossover within the last 10 bars",
             "reject_code": "macd_stale",
-            "actual": False,
-            "threshold": True,
-            "gate_type": "BOOLEAN",
-            "operator": "==",
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
             "context": {},
         }
 
-    # [FIX REVERSAL_VOL_CONTRADICTION] Pass volume gate if today's volume >= 1.5x OR rolling max volume ratio >= 2.0x
-    min_gate_vol = 1.5
-    vol_pass = (vol_ratio is not None and vol_ratio >= min_gate_vol) or (vol_ratio_max >= MIN_VOLUME_RATIO)
-    if is_synthetic_no_vol or not vol_pass:
-        reason = "Missing volume data on synthetic bar" if is_synthetic_no_vol or vol_ratio is None else f"Volume ratio {vol_ratio if vol_ratio else 0.0:.2f}x (5D max {vol_ratio_max:.2f}x) < {min_gate_vol}x threshold"
+    # Rule: REV-001
+    # 5. Volume Confirmation: Volume ratio >= 2.0x 20-day average
+    if is_synthetic_no_vol or vol_ratio is None or vol_ratio < MIN_VOLUME_RATIO:
+        reason = "Missing volume data on synthetic bar" if is_synthetic_no_vol or vol_ratio is None else f"Volume ratio {vol_ratio:.2f}x < {MIN_VOLUME_RATIO}x threshold"
         return {
             "passed": False,
             "reject_reason": reason,
             "reject_code": "low_volume",
             "actual": vol_ratio if vol_ratio else 0.0,
-            "threshold": min_gate_vol,
+            "threshold": MIN_VOLUME_RATIO,
             "gate_type": "THRESHOLD",
             "operator": "<",
             "score": 0,
