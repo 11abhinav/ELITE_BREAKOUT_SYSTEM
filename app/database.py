@@ -134,7 +134,11 @@ def _get_pool() -> Optional[pool.ThreadedConnectionPool]:
             minconn=minconn,
             maxconn=maxconn,
             dsn=db_url,
-            connect_timeout=10  # 10s connection timeout for Railway/Coolify Postgres
+            connect_timeout=10,  # 10s connection timeout for Railway/Coolify Postgres
+            keepalives=1,
+            keepalives_idle=30,
+            keepalives_interval=10,
+            keepalives_count=3
         )
         try:
             # Initialize semaphore to mirror pool capacity
