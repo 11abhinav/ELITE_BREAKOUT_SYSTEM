@@ -907,7 +907,6 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                 for _batch_run in range(1):
                     with BatchMemoryTracker("EOD", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
                         import pandas as pd
-                        import time
                         _batch_start_t = time.perf_counter()
                         # [VERSION: MARKET_DATA_SESSION_v1.0] Serve from session when available;
                         # fall back to independent fetch otherwise.

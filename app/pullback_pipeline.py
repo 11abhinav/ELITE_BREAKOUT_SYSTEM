@@ -630,7 +630,6 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                     _last_hb = time.monotonic()
                 except Exception: pass
             with BatchMemoryTracker("PULLBACK", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
-                import time
                 _batch_start_t = time.perf_counter()
                 # [VERSION: MARKET_DATA_SESSION_v1.0] Serve from session when available.
                 if session is not None:

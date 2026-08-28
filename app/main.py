@@ -603,8 +603,8 @@ def _run_eod_with_retries(today_str, session=None, used_fallback=False):
                         try:
                             from dateutil.parser import isoparse
                             ls_dt = isoparse(last_success_str)
-                            start_time, _ = WINDOWS["eod"]
-                            if ls_dt.time() >= start_time:
+                            win_start_time, _ = WINDOWS["eod"]
+                            if ls_dt.time() >= win_start_time:
                                 already_ran = True
                                 break
                             else:
@@ -699,8 +699,8 @@ def _run_reversal_with_retries(today_str, session=None, used_fallback=False):
                         try:
                             from dateutil.parser import isoparse
                             ls_dt = isoparse(last_success_str)
-                            start_time, _ = WINDOWS["reversal"]
-                            if ls_dt.time() >= start_time:
+                            win_start_time, _ = WINDOWS["reversal"]
+                            if ls_dt.time() >= win_start_time:
                                 already_ran = True
                                 break
                             else:
@@ -795,8 +795,8 @@ def _run_pullback_with_retries(today_str, session=None, used_fallback=False):
                         try:
                             from dateutil.parser import isoparse
                             ls_dt = isoparse(last_success_str)
-                            start_time, _ = WINDOWS["eod"]
-                            if ls_dt.time() >= start_time:
+                            win_start_time, _ = WINDOWS["eod"]
+                            if ls_dt.time() >= win_start_time:
                                 already_ran = True
                                 break
                             else:
