@@ -1230,6 +1230,80 @@ def get_v2_scanner_health():
     return jsonify(orchestrator_v2.get_scanner_health())
 
 
+@app.route("/api/v2/universe_health")
+@login_required
+def get_v2_universe_health():
+    """
+    [RULE 67 CHANGE-RATIONALE]:
+    Dynamically counts daily watchlist admissions (ELITE, NEAR_QUALIFIED) and excluded stocks from
+    daily_watchlist_v2 and daily_excluded_watchlist_v2 database tables. Replaces the old static
+    hardcoded universe health counts. If the database tables are empty, it cleanly returns [] to show
+    no data / blank state per user requirements.
+    """
+    try:
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # Check if v2 tables exist first to avoid exceptions
+                cur.execute("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_schema = 'public' 
+                        AND table_name = 'daily_watchlist_v2'
+                    )
+                """)
+                v2_exists = cur.fetchone()[0]
+                if not v2_exists:
+                    return jsonify([])
+
+                cur.execute("SELECT COUNT(*) FROM daily_watchlist_v2 WHERE universe_status = 'ELITE'")
+                elite_count = cur.fetchone()[0] or 0
+
+                cur.execute("SELECT COUNT(*) FROM daily_watchlist_v2 WHERE universe_status = 'NEAR_QUALIFIED'")
+                nq_count = cur.fetchone()[0] or 0
+
+                cur.execute("SELECT COUNT(*) FROM daily_excluded_watchlist_v2")
+                excluded_count = cur.fetchone()[0] or 0
+
+                total = elite_count + nq_count + excluded_count
+                if total == 0:
+                    return jsonify([])
+
+                def fmt_pct(val):
+                    return f"{(val / total * 100):.1f}%"
+
+                return jsonify([
+                    {
+                        "tier": "ELITE Universe",
+                        "count": elite_count,
+                        "share": fmt_pct(elite_count),
+                        "reason": "Passed Quality Checklist",
+                        "confidence": "HIGH / MEDIUM",
+                        "status": "ACTIVE"
+                    },
+                    {
+                        "tier": "NEAR_QUALIFIED (NQ)",
+                        "count": nq_count,
+                        "share": fmt_pct(nq_count),
+                        "reason": "Observation Only (Pre-Watch)",
+                        "confidence": "LOW / PROVISIONAL",
+                        "status": "OBSERVATION"
+                    },
+                    {
+                        "tier": "EXCLUDED Universe",
+                        "count": excluded_count,
+                        "share": fmt_pct(excluded_count),
+                        "reason": "Quality / Data Fail",
+                        "confidence": "UNADMITTED",
+                        "status": "EXCLUDED"
+                    }
+                ])
+    except Exception as e:
+        logger.warning(f"Failed to fetch universe health: {e}")
+        return jsonify([])
+
+
+
 def _detect_git_commit_hash() -> str:
     env_commit = os.getenv("GIT_COMMIT") or os.getenv("COOLIFY_COMMIT_SHA") or os.getenv("COMMIT_SHA")
     if env_commit:
