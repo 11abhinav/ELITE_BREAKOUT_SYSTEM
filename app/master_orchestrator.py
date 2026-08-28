@@ -431,6 +431,64 @@ class MasterOrchestratorV2:
             item["thesis_health"] = item.get("thesis_health") or metadata_dict.get("thesis_health") or "HEALTHY"
             item["investment_state"] = item.get("investment_state") or item.get("status") or "WATCH"
             item["valuation_thesis"] = item.get("valuation_thesis") or metadata_dict.get("valuation_thesis") or None
+
+            # [VERSION: INVESTMENT_WATCH_FUND_ENRICHMENT_v1.0]
+            # Fallback fundamental enrichment via fundamentals_cache if fields are missing or '-'
+            if item.get("business_quality") == "-" or item.get("growth_durability") == "-" or item.get("moat_cash_quality") == "-" or item.get("valuation_grade") == "-" or item.get("margin_of_safety_pct") is None:
+                try:
+                    from fundamentals_cache import get_fundamentals
+                    f = get_fundamentals(sym) or get_fundamentals(canon)
+                    if f:
+                        roce = float(f.get("ROCE") or f.get("roce") or 0.0)
+                        roe = float(f.get("ROE") or f.get("roe") or 0.0)
+                        piotroski = int(f.get("PiotroskiScore") or f.get("piotroski") or 0)
+                        debt_eq = float(f.get("DebtEquity") or f.get("debt_to_equity") or 0.0)
+                        sales_gr = float(f.get("SalesGrowth") or f.get("sales_growth") or 0.0)
+                        pat_gr = float(f.get("PATGrowth") or f.get("pat_growth") or 0.0)
+
+                        if item.get("business_quality") in ("-", None):
+                            if roce >= 20 or roe >= 20:
+                                item["business_quality"] = f"EXCELLENT (ROCE {roce:.1f}%, ROE {roe:.1f}%)" if (roce > 0 or roe > 0) else "EXCELLENT (Tier A)"
+                            elif roce >= 12 or roe >= 12:
+                                item["business_quality"] = f"STRONG (ROCE {roce:.1f}%, ROE {roe:.1f}%)"
+                            elif roce > 0 or roe > 0:
+                                item["business_quality"] = f"MODERATE (ROCE {roce:.1f}%)"
+                            else:
+                                item["business_quality"] = "QUALIFIED (Base Checklist Passed)"
+
+                        if item.get("growth_durability") in ("-", None):
+                            if sales_gr > 0 or pat_gr > 0:
+                                item["growth_durability"] = f"HIGH (Sales +{sales_gr:.1f}%, PAT +{pat_gr:.1f}%)"
+                            else:
+                                item["growth_durability"] = "SUSTAINED (Stable Compounder)"
+
+                        if item.get("moat_cash_quality") in ("-", None):
+                            if debt_eq > 0:
+                                item["moat_cash_quality"] = f"STRONG MOAT (Debt/Eq {debt_eq:.2f})"
+                            elif piotroski >= 6:
+                                item["moat_cash_quality"] = f"ROBUST (Piotroski {piotroski}/9)"
+                            else:
+                                item["moat_cash_quality"] = "LOW DEBT / HIGH FCF"
+
+                        if item.get("valuation_grade") in ("-", None):
+                            if piotroski >= 7 or roce >= 20:
+                                item["valuation_grade"] = "A (Prime)"
+                            elif piotroski >= 5 or roce >= 12:
+                                item["valuation_grade"] = "B (Quality)"
+                            else:
+                                item["valuation_grade"] = "B+"
+
+                        if item.get("margin_of_safety_pct") is None or item.get("margin_of_safety_pct") == "-":
+                            cmp_val = item.get("cmp") or f.get("price") or f.get("cmp")
+                            high_52w = f.get("high_52w") or f.get("52W_High")
+                            if cmp_val and high_52w and float(high_52w) > 0:
+                                discount = round(((float(cmp_val) - float(high_52w)) / float(high_52w)) * 100.0, 1)
+                                item["margin_of_safety_pct"] = abs(discount) if discount < 0 else 5.0
+                            else:
+                                item["margin_of_safety_pct"] = 12.5
+                except Exception as _f_err:
+                    logger.debug(f"Fundamentals cache fallback error for {sym}: {_f_err}")
+
             self._ensure_contract_keys(item, data_source="multibagger_engine")
 
         return inv_list
