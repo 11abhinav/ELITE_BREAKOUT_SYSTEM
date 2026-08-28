@@ -1421,7 +1421,7 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                                 logger.info(
                                     f"✅ [MULTI_TF] PASSED ALL FILTERS: {symbol} | "
                                     f"trigger={trigger_type} | vol_ratio={vol_ratio:.2f} | "
-                                    f"entry=₹{close:.2f} | sl=₹{final_sl:.2f} | t1=₹{sl_result.get('target_1')} | "
+                                    f"entry=₹{close:.2f} | sl=₹{round(float(final_sl or 0.0))} | t1=₹{round(float(sl_result.get('target_1') or 0.0))} | "
                                     f"last_bar={_last_bar_date} | category={cat}"
                                 )
                                 logger.info(f"🔔 {symbol} EXECUTED! TRADE_ACTIVE alert generated via {trigger_type}.")

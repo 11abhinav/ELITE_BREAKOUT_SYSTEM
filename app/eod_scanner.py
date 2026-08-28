@@ -1853,7 +1853,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                     logger.info(
                         f"✅ [EOD] PASSED ALL FILTERS AND LIMITS: {c['symbol']} | "
                         f"score={c['score']} | vol_ratio={c['volume_ratio']:.2f} | rsi={c['rsi']:.1f} | "
-                        f"entry=₹{c['entry_price']:.2f} | sl=₹{c['stop_loss']} | t1=₹{c['target_price']} | "
+                        f"entry=₹{c['entry_price']:.2f} | sl=₹{round(float(c['stop_loss'] or 0.0))} | t1=₹{round(float(c['target_price'] or 0.0))} | "
                         f"last_bar={_last_bar_date} | category={c['category']}"
                     )
 

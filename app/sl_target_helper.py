@@ -1077,10 +1077,13 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     s_f_s = _compute_structural_failure_stop(sl_data["raw_sl"], eff_atr, [s[0] for s in supports])
     
     explanation = targets.get("t1_cluster").analysis.explanation if targets and targets.get("t1_cluster") and getattr(targets.get("t1_cluster"), "analysis", None) else {}
+    def _r2(v):
+        return round(float(v)) if v is not None else None
+
     return {
-        "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
-        "target_1": t1, "target_2": t2, "target_3": t3, "target_4": targets.get("t4"),
-        "structural_failure_stop": s_f_s,
+        "engine_version": "SL_ENGINE_V7", "stop_loss": _r2(sl_data["raw_sl"]),
+        "target_1": _r2(t1), "target_2": _r2(t2), "target_3": _r2(t3), "target_4": _r2(targets.get("t4")),
+        "structural_failure_stop": _r2(s_f_s),
         "target_quality": tq_score,
         "natural_rr": natural_rr_val,
         "sl_method": sl_data["sl_method"], "t_method": f"TrendExtension [T1:{t1_src}]",
@@ -1181,10 +1184,13 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
     s_f_s = _compute_structural_failure_stop(sl_data["raw_sl"], eff_atr, [s[0] for s in supports])
     
     explanation = targets.get("t1_cluster").analysis.explanation if targets and targets.get("t1_cluster") and getattr(targets.get("t1_cluster"), "analysis", None) else {}
+    def _r2(v):
+        return round(float(v)) if v is not None else None
+
     return {
-        "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
-        "target_1": t1, "target_2": t2, "target_3": t3, "target_4": targets.get("t4"),
-        "structural_failure_stop": s_f_s,
+        "engine_version": "SL_ENGINE_V7", "stop_loss": _r2(sl_data["raw_sl"]),
+        "target_1": _r2(t1), "target_2": _r2(t2), "target_3": _r2(t3), "target_4": _r2(targets.get("t4")),
+        "structural_failure_stop": _r2(s_f_s),
         "target_quality": tq_score,
         "natural_rr": natural_rr_val,
         "sl_method": sl_data["sl_method"], "t_method": f"ClusterConsensus [T1:{t1_src}]",
@@ -1245,10 +1251,13 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     )
     s_f_s = _compute_structural_failure_stop(sl_data["raw_sl"], eff_atr, [s[0] for s in supports])
     
+    def _r2(v):
+        return round(float(v)) if v is not None else None
+
     return {
-        "engine_version": "SL_ENGINE_V7", "stop_loss": sl_data["raw_sl"],
-        "target_1": t1, "target_2": t2, "target_3": t3, "target_4": None,
-        "structural_failure_stop": s_f_s,
+        "engine_version": "SL_ENGINE_V7", "stop_loss": _r2(sl_data["raw_sl"]),
+        "target_1": _r2(t1), "target_2": _r2(t2), "target_3": _r2(t3), "target_4": None,
+        "structural_failure_stop": _r2(s_f_s),
         "target_quality": tq_score,
         "natural_rr": natural_rr_val,
         "sl_method": sl_data["sl_method"], "t_method": f"MeanReversion [T1]",
