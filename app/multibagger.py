@@ -2336,18 +2336,9 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
             return {}
         acquired_scan = True
 
-        # [Gate 4] NARROW LOCK: Release _global_lock immediately after marking RUNNING.
-        # All price fetching, fundamentals loading, Pass 1 scoring, Pass 2 deep hydration,
-        # and alert dispatch run WITHOUT holding the global lock.
-        # This prevents EOD, Reversal, and Multi-TF from queuing behind a 50-min Multibagger run.
-        # Lock will NOT be re-acquired at the end (acquired_global is set False so finally skips).
-        if acquired_global:
-            try:
-                _global_lock.release()
-                logger.info("🔓 [MULTIBAGGER] _global_lock released — other scanners may now start.")
-            except Exception as _lock_rel_err:
-                logger.warning(f"⚠️ [MULTIBAGGER] Failed to release _global_lock early: {_lock_rel_err}")
-            acquired_global = False  # Prevent double-release in finally
+        # [Gate 4] Strict sequential execution: Do NOT release _global_lock early.
+        # This prevents any other scanner from running concurrently with Multibagger.
+        # The lock will be released cleanly in the finally block at the end of start().
 
         _scan_start = print_scanner_start_banner("multibagger", queued_at=queued_at)
         res = run_scanner(debug_limit, is_test_mode, session, run_ctx=run_ctx)
