@@ -1656,6 +1656,29 @@ var _userWatchlistData = [];
               </tbody>
             </table>
           </div>
+
+          <!-- INLINE UNIVERSE DETAILS PANEL -->
+          <div id="universe-inline-details-card" style="margin-top: 24px; background: var(--card2); border: 1px solid var(--border); border-radius: 12px; padding: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+              <h3 id="universe-details-title" style="font-size: 15px; font-weight: 700; color: var(--text); margin: 0; display: flex; align-items: center; gap: 8px;">
+                <span>📋</span> Detailed Universe Breakdown: <span id="universe-tier-badge" class="badge-ok" style="font-size:12px; margin-left:6px;">ELITE</span>
+              </h3>
+              <div style="display: flex; gap: 8px;">
+                <button class="refresh-btn" onclick="loadInlineUniverseData('ELITE')" style="padding: 5px 12px; font-weight: 600;">ELITE</button>
+                <button class="refresh-btn" onclick="loadInlineUniverseData('NEAR_QUALIFIED')" style="padding: 5px 12px; font-weight: 600;">NEAR_QUALIFIED (NQ)</button>
+                <button class="refresh-btn" onclick="loadInlineUniverseData('EXCLUDED')" style="padding: 5px 12px; font-weight: 600;">EXCLUDED</button>
+              </div>
+            </div>
+            
+            <div id="universe-details-meta" style="margin-bottom: 14px; font-size: 12px; color: var(--muted); background: var(--card); padding: 10px 14px; border-radius: 6px; border: 1px solid var(--border); font-family: var(--font-mono);"></div>
+
+            <div class="tbl-wrap" style="max-height: 480px; overflow-y: auto;">
+              <table style="width: 100%;">
+                <thead id="universe-details-thead" style="position: sticky; top: 0; background: var(--card2); z-index: 2;"></thead>
+                <tbody id="universe-details-tbody"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -8903,7 +8926,7 @@ function loadMasterSystemV2Data() {
         
         return `
           <tr>
-            <td style="font-weight:700; color:var(--accent);">${formatText(item.tier)} <button class="btn btn-small" onclick="openUniverseModal('${item.tier}')" style="margin-left: 10px; font-size: 0.7em; padding: 3px 8px; cursor: pointer;">View Details</button></td>
+            <td style="font-weight:700; color:var(--accent);">${formatText(item.tier)} <button class="btn btn-small" onclick="loadInlineUniverseData('${item.tier}')" style="margin-left: 10px; font-size: 0.75em; padding: 4px 10px; cursor: pointer; background: var(--card2); border: 1px solid var(--border); color: var(--text); border-radius: 4px;">View Details ↓</button></td>
             <td style="font-weight:700; font-family:var(--font-mono);">${item.count}</td>
             <td style="font-family:var(--font-mono);">${item.share}</td>
             <td>${formatText(item.reason)}</td>
@@ -8912,6 +8935,9 @@ function loadMasterSystemV2Data() {
           </tr>
         `;
       }).join('');
+
+      // Auto-load ELITE tier inline details on load
+      loadInlineUniverseData('ELITE');
     }).catch(e => console.warn('Failed to load universe health:', e));
 }
 
@@ -9276,101 +9302,83 @@ document.addEventListener("DOMContentLoaded", function() {
 });
 </script>
 
-<!-- Universe Data Modal -->
-<div id="universeDataModal" class="modal" style="display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; overflow:auto; background-color:rgba(0,0,0,0.8);">
-  <div class="modal-content" style="background-color:var(--bg-card); margin:5% auto; padding:20px; border:1px solid var(--border); width:90%; max-width:1000px; border-radius:8px; position:relative;">
-    <span class="close-btn" onclick="closeUniverseModal()" style="color:var(--muted); float:right; font-size:28px; font-weight:bold; cursor:pointer;">&times;</span>
-    <h2 id="universeModalTitle" style="color:var(--text); margin-bottom:15px; font-size:1.4em;">Universe Details</h2>
-    <div id="universeModalMeta" style="margin-bottom: 15px; font-size: 0.9em; color: var(--muted); background-color: var(--bg-body); padding: 10px; border-radius: 4px; border: 1px solid var(--border);"></div>
-    <div style="overflow-x:auto; max-height: 60vh; overflow-y:auto;">
-      <table id="universeModalTable" style="width:100%; text-align:left; border-collapse:collapse; min-width:600px;">
-        <thead id="universeModalThead" style="position:sticky; top:0; background:var(--bg-table-hdr); z-index:2;">
-        </thead>
-        <tbody id="universeModalTbody">
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
 <script>
-function openUniverseModal(tierStr) {
-  const modal = document.getElementById('universeDataModal');
-  const title = document.getElementById('universeModalTitle');
-  const thead = document.getElementById('universeModalThead');
-  const tbody = document.getElementById('universeModalTbody');
-  
-  modal.style.display = 'block';
-  
+function loadInlineUniverseData(tierStr) {
+  const badge = document.getElementById('universe-tier-badge');
+  const thead = document.getElementById('universe-details-thead');
+  const tbody = document.getElementById('universe-details-tbody');
+  const metaDiv = document.getElementById('universe-details-meta');
+
+  if (!tbody) return;
+
   let tier = '';
   if (tierStr.includes('ELITE')) tier = 'ELITE';
   else if (tierStr.includes('NEAR')) tier = 'NEAR_QUALIFIED';
   else if (tierStr.includes('EXCLUDED')) tier = 'EXCLUDED';
-  
-  title.innerText = tier + ' Universe Data';
-  document.getElementById('universeModalMeta').innerHTML = '';
-  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px;">Loading data...</td></tr>';
-  
+  else tier = tierStr;
+
+  if (badge) {
+    badge.innerText = tier;
+    if (tier === 'ELITE') badge.className = 'badge-ok';
+    else if (tier === 'NEAR_QUALIFIED') badge.className = 'badge-queued';
+    else badge.className = 'badge-idle';
+  }
+
+  metaDiv.innerHTML = '<span style="color:var(--muted);">Loading details...</span>';
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--muted);">Fetching universe records...</td></tr>';
+
   fetch('/api/v2/universe_data?tier=' + tier)
     .then(r => r.json())
     .then(data => {
       if (!data.data || data.data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px;">No data available.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--muted);">No records available for ' + tier + '.</td></tr>';
+        metaDiv.innerHTML = '<strong>Tier:</strong> ' + tier + ' | <strong>Records:</strong> 0';
         return;
       }
-      
+
       if (data.meta) {
-        document.getElementById('universeModalMeta').innerHTML = `
-          <span style="margin-right: 15px;"><strong>Tier:</strong> ${data.meta.tier}</span>
-          <span style="margin-right: 15px;"><strong>Snapshot:</strong> ${data.meta.snapshot}</span>
-          <span style="margin-right: 15px;"><strong>Source:</strong> ${data.meta.source}</span>
-          <span><strong>Records:</strong> ${data.meta.records}</span>
+        metaDiv.innerHTML = `
+          <span style="margin-right: 18px;"><strong>Tier:</strong> ${data.meta.tier}</span>
+          <span style="margin-right: 18px;"><strong>Snapshot:</strong> ${data.meta.snapshot}</span>
+          <span style="margin-right: 18px;"><strong>Source:</strong> ${data.meta.source}</span>
+          <span><strong>Total Records:</strong> ${data.meta.records.toLocaleString()}</span>
         `;
       }
-      
+
       let htmlHead = '';
       let htmlBody = '';
-      
+
       if (tier === 'ELITE' || tier === 'NEAR_QUALIFIED') {
-        htmlHead = `<tr><th style="padding:10px;">Symbol</th><th style="padding:10px;">Score</th><th style="padding:10px;">Confidence</th><th style="padding:10px;">Bus. Quality</th>${tier === 'NEAR_QUALIFIED' ? '<th style="padding:10px;">NQ Mode</th>' : ''}</tr>`;
+        htmlHead = `<tr><th style="padding:10px;">Symbol</th><th style="padding:10px;">Quality Score</th><th style="padding:10px;">Data Confidence</th><th style="padding:10px;">Business Quality</th>${tier === 'NEAR_QUALIFIED' ? '<th style="padding:10px;">NQ Mode</th>' : ''}</tr>`;
         htmlBody = data.data.map(r => `
           <tr style="border-bottom:1px solid var(--border);">
-            <td style="padding:8px; font-weight:bold; color:var(--accent);">${r.symbol || ''}</td>
-            <td style="padding:8px; font-family:var(--font-mono);">${r.score || ''}</td>
-            <td style="padding:8px;">${r.confidence || ''}</td>
-            <td style="padding:8px;">${r.business_quality || ''}</td>
-            ${tier === 'NEAR_QUALIFIED' ? `<td style="padding:8px;">${r.nq_mode || ''}</td>` : ''}
+            <td style="padding:8px; font-weight:bold; color:var(--accent); font-family:var(--font-mono);">${r.symbol || ''}</td>
+            <td style="padding:8px; font-family:var(--font-mono); font-weight:700;">${r.score != null ? r.score : '—'}</td>
+            <td style="padding:8px;"><span class="badge-ok">${r.confidence || 'HIGH'}</span></td>
+            <td style="padding:8px;">${r.business_quality || '—'}</td>
+            ${tier === 'NEAR_QUALIFIED' ? `<td style="padding:8px; color:var(--amber); font-family:var(--font-mono);">${r.nq_mode || 'PRE_WATCH'}</td>` : ''}
           </tr>
         `).join('');
       } else {
-        htmlHead = `<tr><th style="padding:10px;">Symbol</th><th style="padding:10px;">Score</th><th style="padding:10px;">Exclusion Class</th><th style="padding:10px;">Primary Reason</th></tr>`;
+        htmlHead = `<tr><th style="padding:10px;">Symbol</th><th style="padding:10px;">Quality Score</th><th style="padding:10px;">Exclusion Class</th><th style="padding:10px;">Primary Exclusion Reason</th></tr>`;
         htmlBody = data.data.map(r => `
           <tr style="border-bottom:1px solid var(--border);">
-            <td style="padding:8px; font-weight:bold; color:var(--accent);">${r.symbol || ''}</td>
-            <td style="padding:8px; font-family:var(--font-mono);">${r.score || ''}</td>
-            <td style="padding:8px;">${r.exclusion_class || ''}</td>
-            <td style="padding:8px;">${r.primary_exclusion_code || ''}</td>
+            <td style="padding:8px; font-weight:bold; color:var(--text); font-family:var(--font-mono);">${r.symbol || ''}</td>
+            <td style="padding:8px; font-family:var(--font-mono);">${r.score != null ? r.score : '—'}</td>
+            <td style="padding:8px;"><span class="badge-idle">${r.exclusion_class || 'BLOCKED'}</span></td>
+            <td style="padding:8px; color:var(--warn); font-size:12px;">${r.primary_exclusion_code || '—'}</td>
           </tr>
         `).join('');
       }
-      
+
       thead.innerHTML = htmlHead;
       tbody.innerHTML = htmlBody;
     })
     .catch(err => {
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:red;">Error fetching data.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--warn);">Failed to load inline details.</td></tr>';
+      metaDiv.innerHTML = '<span style="color:var(--warn);">Error loading universe data.</span>';
     });
 }
-
-function closeUniverseModal() {
-  document.getElementById('universeDataModal').style.display = 'none';
-}
-window.addEventListener('click', function(event) {
-  const modal = document.getElementById('universeDataModal');
-  if (event.target == modal) {
-    modal.style.display = 'none';
-  }
-});
 </script>
 
 </body>
