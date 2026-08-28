@@ -987,7 +987,14 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                                 reject_reason = "POOR_QUALITY_SCORE"
                             elif getattr(new_report, 'is_valid', True) is False:
                                 reject_reason = "INVALID_QUALITY_REPORT"
-                            elif op_mode == "FULL_REPLACE" and getattr(new_report, 'row_count', 0) < cached_row_count * (1.0 - MAX_HISTORY_SHRINK):
+                            elif (op_mode == "FULL_REPLACE" and 
+                                  interval.lower() in ("1d", "daily") and 
+                                  getattr(new_report, 'row_count', 0) < cached_row_count * (1.0 - MAX_HISTORY_SHRINK)):
+                                # [RULE 67 CHANGE-RATIONALE]:
+                                # Restrict HISTORICAL_SHRINK checks strictly to daily data. 
+                                # For intraday intervals, short full fetches (e.g. 5d window) naturally 
+                                # return fewer rows than the cache capacity (e.g. 750), leading to false-positive 
+                                # rejects and persistent stale data deadlock warnings.
                                 reject_reason = "HISTORICAL_SHRINK"
 
                         if reject_reason:
