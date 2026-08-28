@@ -587,8 +587,8 @@ def _is_cache_long_enough(cached_df: pd.DataFrame, period: str, sym: str = "", i
     if is_intraday_or_short and len(cached_df) >= 30:
         return True
         
-    # Daily (1d) optimization: If cached daily dataframe already has >= 100 candles, allow DELTA updates without forcing full re-downloads
-    if interval.lower() in ("1d", "daily") and len(cached_df) >= 100:
+    # Daily (1d) optimization: If cached daily dataframe already has >= 30 candles, allow DELTA updates without forcing full re-downloads
+    if interval.lower() in ("1d", "daily") and len(cached_df) >= 30:
         return True
     try:
         if 'Date' in cached_df.columns:
@@ -725,66 +725,64 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                     if is_invalid:
                         is_up_to_date = False
                         logger.warning(f"CACHE_POLICY | {sym} is marked INVALID (score={cached_df.attrs.get('quality_score')}). Forcing retry despite timestamp {last_ts}.")
-                    
-                    if is_up_to_date:
-                        if is_long_enough:
-                            # [VERSION: V5_ACQUISITION_ROUTING_V1.0] Enforce Cache Invariants: schema_version, indicator_version, ohlcv_hash
-                            meta_valid = False
-                            if os.path.exists(meta_path):
-                                try:
-                                    with open(meta_path, "r") as f:
-                                        meta = json.load(f)
-                                    if (meta.get("schema_version") == CACHE_SCHEMA_VERSION and 
-                                        meta.get("indicator_version") == INDICATOR_VERSION and
-                                        meta.get("ohlcv_hash") == compute_ohlcv_hash(cached_df)):
-                                        meta_valid = True
-                                except Exception:
-                                    pass
 
-                            if not cached_df.empty and (not meta_valid or "EMA20" not in cached_df.columns):
-                                from technical_indicators import apply_indicators
-                                cached_df = apply_indicators(cached_df, timeframe=interval)
-                                try:
-                                    cached_df.to_parquet(file_path)
-                                    new_meta = {
-                                        "schema_version": CACHE_SCHEMA_VERSION,
-                                        "indicator_version": INDICATOR_VERSION,
-                                        "ohlcv_hash": compute_ohlcv_hash(cached_df),
-                                        "generated_at": time.time(),
-                                        "row_count": len(cached_df)
-                                    }
-                                    with open(meta_path, "w") as f:
-                                        json.dump(new_meta, f)
-                                except Exception as e:
-                                    logger.warning(f"Failed to resave enriched cache for {sym}: {e}")
-                                    
-                            with local_lock:
-                                all_data[sym] = cached_df
-                                fresh_count_container[0] += 1
-                            needs_full = False
-                            return
-                        else:
-                            # It's up to date but not long enough (e.g. 5d requested before, but now 1y requested)
-                            needs_full = True
+                    # Determine maximum allowed delta gap per interval before forcing FULL re-fetch
+                    max_delta_days = {
+                        "1m": 2,
+                        "5m": 3,
+                        "15m": 5,
+                        "30m": 7,
+                        "1h": 12,
+                        "60m": 12,
+                        "1d": 20,  # 20 calendar days (~14 trading sessions)
+                    }.get(interval.lower(), 7)
+
+                    earliest_allowed_dt = (datetime.now(IST) - timedelta(days=max_delta_days))
+                    is_recent_enough = (last_ts >= earliest_allowed_dt)
+                    is_usable = (is_long_enough and is_recent_enough)
+                    
+                    if is_up_to_date and is_usable:
+                        # [VERSION: V5_ACQUISITION_ROUTING_V1.0] Enforce Cache Invariants: schema_version, indicator_version, ohlcv_hash
+                        meta_valid = False
+                        if os.path.exists(meta_path):
+                            try:
+                                with open(meta_path, "r") as f:
+                                    meta = json.load(f)
+                                if (meta.get("schema_version") == CACHE_SCHEMA_VERSION and 
+                                    meta.get("indicator_version") == INDICATOR_VERSION and
+                                    meta.get("ohlcv_hash") == compute_ohlcv_hash(cached_df)):
+                                    meta_valid = True
+                            except Exception:
+                                pass
+
+                        if not cached_df.empty and (not meta_valid or "EMA20" not in cached_df.columns):
+                            from technical_indicators import apply_indicators
+                            cached_df = apply_indicators(cached_df, timeframe=interval)
+                            try:
+                                cached_df.to_parquet(file_path)
+                                new_meta = {
+                                    "schema_version": CACHE_SCHEMA_VERSION,
+                                    "indicator_version": INDICATOR_VERSION,
+                                    "ohlcv_hash": compute_ohlcv_hash(cached_df),
+                                    "generated_at": time.time(),
+                                    "row_count": len(cached_df)
+                                }
+                                with open(meta_path, "w") as f:
+                                    json.dump(new_meta, f)
+                            except Exception as e:
+                                logger.warning(f"Failed to resave enriched cache for {sym}: {e}")
+                                
+                        with local_lock:
+                            all_data[sym] = cached_df
+                            fresh_count_container[0] += 1
+                        needs_full = False
+                        return
+                    elif is_usable:
+                        # Not up to date, but cache is long enough and recent enough -> DELTA fetch only
+                        needs_full = False
                     else:
-                        # Not up to date. Check if cache is fresh enough for an incremental DELTA fetch.
-                        # If last_ts is older than max_delta_days, doing a DELTA fetch would leave a data gap
-                        # in candles between last_ts and today. Force a clean FULL re-fetch instead.
-                        max_delta_days = {
-                            "1m": 2,
-                            "5m": 3,
-                            "15m": 5,
-                            "30m": 7,
-                            "1h": 12,
-                            "60m": 12,
-                            "1d": 14,
-                        }.get(interval.lower(), 7)
-                        
-                        earliest_allowed_dt = (datetime.now(IST) - timedelta(days=max_delta_days))
-                        if is_long_enough and last_ts >= earliest_allowed_dt:
-                            needs_full = False
-                        else:
-                            needs_full = True
+                        # Cache missing, has < 30 bars, or last_ts is older than max_delta_days -> FULL fetch required
+                        needs_full = True
                             
                     if not needs_full:
                         # Back up 1 day to ensure we get overlapping candles to avoid gaps
