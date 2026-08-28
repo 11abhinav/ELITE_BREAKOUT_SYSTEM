@@ -204,45 +204,102 @@ class ProcessLockImpl:
                         self.db_conn = None
 
                 if self.db_conn is not None:
-                    with self.db_conn.cursor() as cur:
-                        if blocking:
-                            last_logged_s = 0
-                            max_wait = timeout_val if timeout_val > 0 else 1800.0
-                            while True:
-                                cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
-                                locked = cur.fetchone()[0]
-                                elapsed = time.monotonic() - pg_wait_start_mono
-                                if locked:
-                                    total_wait = time.monotonic() - wait_start_mono
-                                    if total_wait > 1.0:
-                                        logger.info(f"✅ [{self.lock_name.upper()}] Acquired Postgres lock for {owner_scanner} after {total_wait:.1f}s total wait")
-                                    break
-                                if elapsed >= max_wait:
-                                    logger.warning(f"⚠️ [{self.lock_name.upper()}] Advisory lock wait timed out ({elapsed:.1f}s >= {max_wait}s) for {owner_scanner}.")
-                                    locked = False
-                                    break
-                                _pg_log_interval = 60 if owner_scanner == "UNKNOWN" else 180
-                                if int(elapsed) >= last_logged_s + _pg_log_interval:
-                                    last_logged_s = int(elapsed)
-                                    _msg = f"⏳ [{self.lock_name.upper()}] Postgres advisory lock busy — {owner_scanner} waiting... (elapsed: {last_logged_s}s)"
-                                    if owner_scanner == "UNKNOWN":
-                                        logger.debug(_msg)
-                                    else:
-                                        logger.info(_msg)
+                    # [VERSION: LOCK_CONN_RECONNECT_v1.0] Wrap the advisory lock polling loop at the
+                    # cursor level. If the DB server closes the idle lock connection mid-queue-wait
+                    # (e.g. after 15+ min of MULTI_TF holding the lock), catch OperationalError,
+                    # discard the dead connection, check out a fresh one, and continue polling.
+                    # Without this fix, a dead lock connection causes acquire() to return False,
+                    # marking queued scanners (EOD, REVERSAL, PULLBACK) as FAILED.
+                    _lock_conn_retries = 0
+                    _lock_conn_max_retries = 5
+                    _lock_cursor_ok = True
+                    while _lock_cursor_ok:
+                        try:
+                            with self.db_conn.cursor() as cur:
+                                if blocking:
+                                    last_logged_s = 0
+                                    max_wait = timeout_val if timeout_val > 0 else 1800.0
+                                    while True:
+                                        cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
+                                        locked = cur.fetchone()[0]
+                                        elapsed = time.monotonic() - pg_wait_start_mono
+                                        if locked:
+                                            total_wait = time.monotonic() - wait_start_mono
+                                            if total_wait > 1.0:
+                                                logger.info(f"✅ [{self.lock_name.upper()}] Acquired Postgres lock for {owner_scanner} after {total_wait:.1f}s total wait")
+                                            break
+                                        if elapsed >= max_wait:
+                                            logger.warning(f"⚠️ [{self.lock_name.upper()}] Advisory lock wait timed out ({elapsed:.1f}s >= {max_wait}s) for {owner_scanner}.")
+                                            locked = False
+                                            break
+                                        _pg_log_interval = 60 if owner_scanner == "UNKNOWN" else 180
+                                        if int(elapsed) >= last_logged_s + _pg_log_interval:
+                                            last_logged_s = int(elapsed)
+                                            _msg = f"⏳ [{self.lock_name.upper()}] Postgres advisory lock busy — {owner_scanner} waiting... (elapsed: {last_logged_s}s)"
+                                            if owner_scanner == "UNKNOWN":
+                                                logger.debug(_msg)
+                                            else:
+                                                logger.info(_msg)
+                                                try:
+                                                    from database import upsert_scanner_health
+                                                    upsert_scanner_health(owner_scanner, "QUEUED", error_msg=f"Waiting in queue for active scanner lock ({last_logged_s}s)...")
+                                                except Exception:
+                                                    pass
+
+                                        # Continuously pulse DB heartbeat every 15 seconds during queue wait (independent of 3-min log printing)
+                                        run_ctx_obj = kwargs.get("run_ctx")
+                                        if run_ctx_obj and int(elapsed) % 15 == 0:
+                                            try:
+                                                run_ctx_obj.heartbeat(force=True)
+                                            except Exception:
+                                                pass
+                                        time.sleep(1.0)
+                                else:
+                                    cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
+                                    locked = cur.fetchone()[0]
+
+                                if not locked:
+                                    raise BlockingIOError("Could not acquire Postgres distributed lock")
+
+                            _lock_cursor_ok = False  # Exited cursor block cleanly — done
+
+                        except BlockingIOError:
+                            raise  # Propagate intentional lock failures
+
+                        except Exception as _conn_err:
+                            # Dead connection: discard and get a fresh one from the pool
+                            _lock_conn_retries += 1
+                            if _lock_conn_retries > _lock_conn_max_retries:
+                                logger.error(f"❌ [{self.lock_name.upper()}] Lock connection failed {_lock_conn_retries} times for {owner_scanner}. Giving up.")
+                                raise
+                            logger.warning(f"⚠️ [{self.lock_name.upper()}] Lock connection dropped mid-wait for {owner_scanner} (attempt {_lock_conn_retries}/{_lock_conn_max_retries}): {_conn_err}. Reconnecting...")
+                            try:
+                                if getattr(self, '_pool_ref', None):
+                                    self._pool_ref.putconn(self.db_conn, close=True)
+                                else:
+                                    self.db_conn.close()
+                            except Exception:
+                                pass
+                            self.db_conn = None
+                            # Re-acquire a fresh connection from pool
+                            try:
+                                from database import _get_pool, _conn_semaphore
+                                p = _get_pool()
+                                if p:
+                                    if _conn_semaphore is not None:
                                         try:
-                                            from database import upsert_scanner_health
-                                            upsert_scanner_health(owner_scanner, "QUEUED", error_msg=f"Waiting in queue for active scanner lock ({last_logged_s}s)...")
+                                            _conn_semaphore.acquire(timeout=5.0)
                                         except Exception:
                                             pass
-
-                                # Continuously pulse DB heartbeat every 15 seconds during queue wait (independent of 3-min log printing)
-                                run_ctx_obj = kwargs.get("run_ctx")
-                                if run_ctx_obj and int(elapsed) % 15 == 0:
-                                    try:
-                                        run_ctx_obj.heartbeat(force=True)
-                                    except Exception:
-                                        pass
-                                time.sleep(1.0)
+                                    self.db_conn = p.getconn()
+                                    self._pool_ref = p
+                                    self.db_conn.autocommit = True
+                                    logger.info(f"🔄 [{self.lock_name.upper()}] Lock connection refreshed for {owner_scanner}. Resuming queue wait...")
+                                else:
+                                    raise RuntimeError("Could not get pool for lock reconnect")
+                            except Exception as _reconnect_err:
+                                logger.error(f"❌ [{self.lock_name.upper()}] Failed to reconnect lock connection for {owner_scanner}: {_reconnect_err}")
+                                raise
                         else:
                             cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
                             locked = cur.fetchone()[0]
@@ -262,7 +319,7 @@ class ProcessLockImpl:
                 logger.info(f"🔒 [LOCK ACQUIRED] {self.lock_name} | Scanner: {owner_scanner} | Op: {operation} | Wait Time: {wait_time:.2f}s")
             return True
         except (BlockingIOError, IOError):
-            self._cleanup_db_conn()
+            self._cleanup_db_conn(close=True)
             try:
                 self.thread_lock.release()
             except Exception:
@@ -271,14 +328,14 @@ class ProcessLockImpl:
         except Exception as e:
             # [VERSION: PROCESS_LOCK_EXC_FIX_v1.0] On DB or system exception, release thread lock and return False
             logger.error(f"Error acquiring distributed lock {self.lock_name}: {e}")
-            self._cleanup_db_conn()
+            self._cleanup_db_conn(close=True)
             try:
                 self.thread_lock.release()
             except Exception:
                 pass
             return False
 
-    def _cleanup_db_conn(self):
+    def _cleanup_db_conn(self, close=False):
         if self.db_conn is not None:
             try:
                 with self.db_conn.cursor() as cur:
@@ -286,7 +343,7 @@ class ProcessLockImpl:
             except Exception: pass
             try:
                 if getattr(self, '_pool_ref', None):
-                    self._pool_ref.putconn(self.db_conn)
+                    self._pool_ref.putconn(self.db_conn, close=close)
                 else:
                     self.db_conn.close()
             except Exception: pass
