@@ -48,11 +48,13 @@ _PROCESS_START_TIME = _time.monotonic()
 
 logger = logging.getLogger(__name__)
 
-# Print high-visibility deployment version banner on startup
+# Print high-visibility deployment version & process PID banner on startup
 try:
     from config import SYSTEM_DEPLOYMENT_VERSION
+    _pid = os.getpid()
     logger.info("======================================================================")
     logger.info(f"🚀 DEPLOYMENT VERSION: {SYSTEM_DEPLOYMENT_VERSION}")
+    logger.info(f"⚙️ Process PID: {_pid}")
     logger.info(f"📅 Server Startup Time: {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S IST')}")
     logger.info("======================================================================")
 except Exception:

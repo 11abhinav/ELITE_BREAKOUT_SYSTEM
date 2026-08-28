@@ -3003,12 +3003,16 @@ def upsert_scanner_health(
                     final_params = insert_vals + params
                     set_sql = ", ".join(set_clauses)
                     
+                    # [ATOMIC CONDITIONAL UPDATE]: Prevent stale run writes at SQL engine level
                     cur.execute(f"""
                         INSERT INTO scanner_health
                             ({insert_cols_str})
                         VALUES ({insert_placeholders})
                         ON CONFLICT (scanner_name) DO UPDATE
                             SET {set_sql}
+                            WHERE scanner_health.active_run_id IS NULL 
+                               OR EXCLUDED.active_run_id IS NULL 
+                               OR scanner_health.active_run_id = EXCLUDED.active_run_id
                     """, final_params)
                     conn.commit()
                 except Exception as exc:
@@ -3017,7 +3021,6 @@ def upsert_scanner_health(
                         try:
                             with conn.cursor() as fix_cur:
                                 fix_cur.execute("ALTER TABLE scanner_health DROP CONSTRAINT IF EXISTS chk_scanner_status;")
-                                # [RULE 67] Include DEGRADED_FALLBACK so the constraint allows historical-fallback state.
                                 fix_cur.execute("ALTER TABLE scanner_health ADD CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'DEGRADED_FALLBACK', 'PAUSED', 'STOPPED') OR status LIKE 'QUEUED%') NOT VALID;")
                                 fix_cur.execute(f"""
                                     INSERT INTO scanner_health
@@ -3025,6 +3028,9 @@ def upsert_scanner_health(
                                     VALUES ({insert_placeholders})
                                     ON CONFLICT (scanner_name) DO UPDATE
                                         SET {set_sql}
+                                        WHERE scanner_health.active_run_id IS NULL 
+                                           OR EXCLUDED.active_run_id IS NULL 
+                                           OR scanner_health.active_run_id = EXCLUDED.active_run_id
                                 """, final_params)
                             conn.commit()
                             return
