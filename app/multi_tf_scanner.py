@@ -136,6 +136,17 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
 
     # [VERSION: MULTI_TF_PATCH_v1.9] ADX hard gate removed in favor of scoring model
 
+    # Rule: MTF-001
+    # Hourly RSI Confirmation
+    hourly_rsi = _safe_float(latest.get("RSI"))
+    min_rsi = MULTI_TF_CONFIG.get("MIN_RSI", 52)
+    max_rsi = MULTI_TF_CONFIG.get("MAX_RSI", 87)
+    if hourly_rsi is not None:
+        if hourly_rsi < min_rsi or hourly_rsi > max_rsi:
+            checks.append(f"Hourly RSI Confirmation Fail: RSI {hourly_rsi:.1f} outside configured band [{min_rsi}, {max_rsi}]")
+    else:
+        checks.append("Hourly RSI is missing or NaN")
+
     if prior_high <= 0:
         checks.append("Invalid prior 20-day high level")
     else:
