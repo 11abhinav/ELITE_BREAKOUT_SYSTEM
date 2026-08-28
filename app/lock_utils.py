@@ -451,7 +451,7 @@ def release_global_lock_if_held_by(scanner_name: str):
     """Safely force-release the global scanner lock if held by the specified scanner that went DOWN."""
     try:
         lock = ProcessLock("global_scanner_lock")
-        if lock.is_acquired or str(getattr(lock, "lock_owner_scanner", "")).upper() == scanner_name.upper():
+        if lock.is_acquired and str(getattr(lock, "lock_owner_scanner", "")).upper() == scanner_name.upper():
             logger.warning(f"🚨 [FAIL-SAFE AUTO-RELEASE] Force releasing global scanner lock held by crashed/down scanner: {scanner_name}")
             lock.release(force=True)
     except Exception as e:
