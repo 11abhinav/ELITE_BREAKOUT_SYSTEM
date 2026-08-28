@@ -617,8 +617,6 @@ def _run_eod_with_retries(today_str, session=None, used_fallback=False):
         
         try:
             logger.info(f"📊 EOD SCAN | Starting scan for {today_str}...")
-            from database import upsert_scanner_health
-            upsert_scanner_health("EOD", status="RUNNING", error_msg="EOD scan in progress...")
             import eod_scanner
             start_time = time.time()
             with MemoryProfiler("EOD_SCANNER", force_gc_cleanup=True):
@@ -714,8 +712,6 @@ def _run_reversal_with_retries(today_str, session=None, used_fallback=False):
         
         try:
             logger.info(f"🔄 REVERSAL SCAN | Starting scan for {today_str}...")
-            from database import upsert_scanner_health
-            upsert_scanner_health("REVERSAL", status="RUNNING", error_msg="Reversal scan in progress...")
             import reversal_scanner
             start_time = time.time()
             with MemoryProfiler("REVERSAL", force_gc_cleanup=True):

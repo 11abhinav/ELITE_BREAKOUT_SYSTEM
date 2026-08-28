@@ -128,13 +128,13 @@ class ProcessLockImpl:
                 self._recursion_depth += 1
                 return True
 
-        timeout_val = float(timeout) if timeout is not None and float(timeout) > 0 else (1800.0 if blocking else -1.0)
+        # [VERSION: SEQUENTIAL_LOCK_FIRST_EXECUTION_v1.0]
+        # Never time out arbitrarily when blocking=True. Keep waiting indefinitely until lock is released.
+        timeout_val = float(timeout) if timeout is not None and float(timeout) > 0 else -1.0
 
         # 1. Acquire local Python RLock with heartbeat logging and UI health updates when waiting
         if blocking:
             last_logged_s = 0
-            # [VERSION: LOCK_LOG_THROTTLE_v2.0] UNKNOWN callers log at DEBUG every 60s.
-            # Named scanners log at INFO every 180s (3 minutes) as requested by user.
             _is_unknown = owner_scanner == "UNKNOWN"
             _log_interval = 60 if _is_unknown else 180
             while True:
@@ -158,12 +158,32 @@ class ProcessLockImpl:
                             upsert_scanner_health(owner_scanner, "QUEUED", error_msg=f"Waiting in queue for active scanner lock ({last_logged_s}s)...")
                         except Exception:
                             pass
-                    run_ctx_obj = kwargs.get("run_ctx")
-                    if run_ctx_obj:
-                        try:
-                            run_ctx_obj.heartbeat(force=True)
-                        except Exception:
-                            pass
+                
+                # 30-minute lock wait admin notification
+                if elapsed_wait >= 1800.0 and not getattr(self, "_30m_wait_notified", False):
+                    self._30m_wait_notified = True
+                    try:
+                        from database import insert_notification
+                        insert_notification(
+                            "warning",
+                            f"⚠️ Lock Wait Warning: {owner_scanner}",
+                            f"Scanner '{owner_scanner}' has been waiting in queue for lock '{self.lock_name}' for over 30 minutes. Please review system logs."
+                        )
+                        from push_service import send_push_to_all
+                        send_push_to_all(
+                            title=f"⚠️ Lock Wait Warning: {owner_scanner}",
+                            body=f"Scanner '{owner_scanner}' waiting for lock >30 min. Please review logs.",
+                            bypass_throttle=True
+                        )
+                    except Exception as _notif_err:
+                        logger.warning(f"Failed to dispatch 30m lock wait notification: {_notif_err}")
+
+                run_ctx_obj = kwargs.get("run_ctx")
+                if run_ctx_obj:
+                    try:
+                        run_ctx_obj.heartbeat(force=True)
+                    except Exception:
+                        pass
         else:
             if not self.thread_lock.acquire(blocking=False):
                 return False
@@ -204,12 +224,6 @@ class ProcessLockImpl:
                         self.db_conn = None
 
                 if self.db_conn is not None:
-                    # [VERSION: LOCK_CONN_RECONNECT_v1.0] Wrap the advisory lock polling loop at the
-                    # cursor level. If the DB server closes the idle lock connection mid-queue-wait
-                    # (e.g. after 15+ min of MULTI_TF holding the lock), catch OperationalError,
-                    # discard the dead connection, check out a fresh one, and continue polling.
-                    # Without this fix, a dead lock connection causes acquire() to return False,
-                    # marking queued scanners (EOD, REVERSAL, PULLBACK) as FAILED.
                     _lock_conn_retries = 0
                     _lock_conn_max_retries = 5
                     _lock_cursor_ok = True
@@ -218,7 +232,6 @@ class ProcessLockImpl:
                             with self.db_conn.cursor() as cur:
                                 if blocking:
                                     last_logged_s = 0
-                                    max_wait = timeout_val if timeout_val > 0 else 1800.0
                                     while True:
                                         cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
                                         locked = cur.fetchone()[0]
@@ -228,8 +241,8 @@ class ProcessLockImpl:
                                             if total_wait > 1.0:
                                                 logger.info(f"✅ [{self.lock_name.upper()}] Acquired Postgres lock for {owner_scanner} after {total_wait:.1f}s total wait")
                                             break
-                                        if elapsed >= max_wait:
-                                            logger.warning(f"⚠️ [{self.lock_name.upper()}] Advisory lock wait timed out ({elapsed:.1f}s >= {max_wait}s) for {owner_scanner}.")
+                                        if timeout_val > 0 and elapsed >= timeout_val:
+                                            logger.warning(f"⚠️ [{self.lock_name.upper()}] Advisory lock wait timed out ({elapsed:.1f}s >= {timeout_val}s) for {owner_scanner}.")
                                             locked = False
                                             break
                                         _pg_log_interval = 60 if owner_scanner == "UNKNOWN" else 180
@@ -246,7 +259,26 @@ class ProcessLockImpl:
                                                 except Exception:
                                                     pass
 
-                                        # Continuously pulse DB heartbeat every 15 seconds during queue wait (independent of 3-min log printing)
+                                        # 30-minute advisory lock wait admin notification
+                                        total_elapsed_wait = time.monotonic() - wait_start_mono
+                                        if total_elapsed_wait >= 1800.0 and not getattr(self, "_30m_wait_notified", False):
+                                            self._30m_wait_notified = True
+                                            try:
+                                                from database import insert_notification
+                                                insert_notification(
+                                                    "warning",
+                                                    f"⚠️ Lock Wait Warning: {owner_scanner}",
+                                                    f"Scanner '{owner_scanner}' has been waiting in queue for Postgres advisory lock '{self.lock_name}' for over 30 minutes. Please review system logs."
+                                                )
+                                                from push_service import send_push_to_all
+                                                send_push_to_all(
+                                                    title=f"⚠️ Lock Wait Warning: {owner_scanner}",
+                                                    body=f"Scanner '{owner_scanner}' waiting for lock >30 min. Please review logs.",
+                                                    bypass_throttle=True
+                                                )
+                                            except Exception as _notif_err:
+                                                logger.warning(f"Failed to dispatch 30m lock wait notification: {_notif_err}")
+
                                         run_ctx_obj = kwargs.get("run_ctx")
                                         if run_ctx_obj and int(elapsed) % 15 == 0:
                                             try:

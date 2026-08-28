@@ -359,7 +359,8 @@ class AccumulationScanner:
             from database import update_scanner_run_lifecycle
             update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
             health = AccumulationHealthTracker(run_id=run_id, scanner=ACCUMULATION_SCANNER_NAME)
-            upsert_scanner_health("ACCUMULATION", status="RUNNING", today_alerts=0)
+            from lock_utils import print_scanner_start_banner
+            print_scanner_start_banner("ACCUMULATION")
             acquired_scan = True
 
             health.transition("STARTING", status="RUNNING")

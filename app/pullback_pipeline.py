@@ -418,8 +418,6 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
         if queued_at is not None:
             logger.info(f"✅ [PULLBACK] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
-        upsert_scanner_health("PULLBACK", "RUNNING", error_msg="PULLBACK scan in progress...")
-
         if not _scan_lock.acquire(blocking=False):
             logger.warning("🛑 PULLBACK Scanner is ALREADY actively running. Skipping duplicate execution.")
             if run_ctx:

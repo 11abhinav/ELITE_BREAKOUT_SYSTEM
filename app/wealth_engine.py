@@ -971,8 +971,6 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
         if queued_at is not None:
             logger.info(f"✅ [WEALTH ENGINE] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
-        upsert_scanner_health("Wealth Engine", "RUNNING", error_msg="Wealth Engine scan in progress...")
-
         if not _scan_lock.acquire(blocking=False):
             logger.warning("⏭️ Wealth Engine scan skipped — previous run still in progress.")
             if run_ctx:

@@ -2326,8 +2326,6 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
         if queued_at is not None:
             logger.info(f"✅ [MULTIBAGGER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
-        upsert_scanner_health("MULTIBAGGER", "RUNNING", error_msg="MULTIBAGGER scan in progress...")
-
         if not _scan_lock.acquire(blocking=False):
             logger.warning("🛑 MULTIBAGGER Scanner is ALREADY actively running. Skipping duplicate execution.")
             if run_ctx:

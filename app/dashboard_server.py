@@ -1402,9 +1402,14 @@ def get_v2_universe_health():
 @app.route("/api/v2/universe_data")
 @login_required
 def get_v2_universe_data():
-    tier = request.args.get("tier")
-    if not tier or tier not in ["ELITE", "NEAR_QUALIFIED", "EXCLUDED"]:
-        return jsonify({"error": "Invalid tier specified"}), 400
+    raw_tier = request.args.get("tier", "")
+    tier = "ELITE"
+    if "NEAR" in raw_tier.upper():
+        tier = "NEAR_QUALIFIED"
+    elif "EXCL" in raw_tier.upper():
+        tier = "EXCLUDED"
+    elif "ELITE" in raw_tier.upper():
+        tier = "ELITE"
         
     try:
         from database import get_connection
@@ -1412,7 +1417,10 @@ def get_v2_universe_data():
             with conn.cursor() as cur:
                 if tier in ["ELITE", "NEAR_QUALIFIED"]:
                     cur.execute("SELECT MAX(build_date) FROM daily_watchlist_v2")
-                    latest_date = cur.fetchone()[0]
+                    latest_date_row = cur.fetchone()
+                    latest_date = latest_date_row[0] if latest_date_row else None
+                    
+                    rows = []
                     if latest_date:
                         cur.execute("""
                             SELECT symbol, universe_quality_score, data_confidence, business_quality, near_qualified_mode
@@ -1420,15 +1428,30 @@ def get_v2_universe_data():
                             WHERE universe_status = %s AND build_date = %s
                             ORDER BY universe_quality_score DESC
                         """, (tier, latest_date))
-                        
+                        rows = cur.fetchall()
+
+                    if not rows:
+                        cur.execute("""
+                            SELECT symbol, universe_quality_score, data_confidence, business_quality, near_qualified_mode
+                            FROM daily_watchlist_v2 
+                            WHERE universe_status = %s
+                            ORDER BY universe_quality_score DESC LIMIT 1000
+                        """, (tier,))
+                        rows = cur.fetchall()
+
+                    if rows:
                         columns = ["symbol", "score", "confidence", "business_quality", "nq_mode"]
-                        data = [dict(zip(columns, row)) for row in cur.fetchall()]
-                        meta = {"tier": tier, "snapshot": latest_date.strftime("%Y-%m-%d") if hasattr(latest_date, "strftime") else str(latest_date), "source": "PostgreSQL", "records": len(data)}
+                        data = [dict(zip(columns, row)) for row in rows]
+                        snap_str = latest_date.strftime("%Y-%m-%d") if hasattr(latest_date, "strftime") and latest_date else "Latest"
+                        meta = {"tier": tier, "snapshot": snap_str, "source": "PostgreSQL", "records": len(data)}
                         return jsonify({"data": data, "meta": meta})
                     
                 else: # EXCLUDED
                     cur.execute("SELECT MAX(build_date) FROM daily_excluded_watchlist_v2")
-                    latest_date = cur.fetchone()[0]
+                    latest_date_row = cur.fetchone()
+                    latest_date = latest_date_row[0] if latest_date_row else None
+
+                    rows = []
                     if latest_date:
                         cur.execute("""
                             SELECT symbol, universe_quality_score, primary_exclusion_code, exclusion_class
@@ -1436,34 +1459,65 @@ def get_v2_universe_data():
                             WHERE build_date = %s
                             ORDER BY universe_quality_score DESC NULLS LAST
                         """, (latest_date,))
-                        
+                        rows = cur.fetchall()
+
+                    if not rows:
+                        cur.execute("""
+                            SELECT symbol, universe_quality_score, primary_exclusion_code, exclusion_class
+                            FROM daily_excluded_watchlist_v2
+                            ORDER BY universe_quality_score DESC NULLS LAST LIMIT 1000
+                        """)
+                        rows = cur.fetchall()
+
+                    if rows:
                         columns = ["symbol", "score", "primary_exclusion_code", "exclusion_class"]
-                        data = [dict(zip(columns, row)) for row in cur.fetchall()]
-                        meta = {"tier": tier, "snapshot": latest_date.strftime("%Y-%m-%d") if hasattr(latest_date, "strftime") else str(latest_date), "source": "PostgreSQL", "records": len(data)}
+                        data = [dict(zip(columns, row)) for row in rows]
+                        snap_str = latest_date.strftime("%Y-%m-%d") if hasattr(latest_date, "strftime") and latest_date else "Latest"
+                        meta = {"tier": tier, "snapshot": snap_str, "source": "PostgreSQL", "records": len(data)}
                         return jsonify({"data": data, "meta": meta})
     except Exception as e:
         logger.warning(f"DB universe data query failed for {tier}: {e}")
 
-    # Fallback to local parquet/CSV
+    # Fallback to local parquet/CSV if DB table is unpopulated or missing
     try:
         import os, pandas as pd
         from config import DATA_DIR, WATCHLIST_PATH
-        if tier == "ELITE" and os.path.exists(WATCHLIST_PATH):
-            mtime = os.path.getmtime(WATCHLIST_PATH)
-            build_date_str = datetime.fromtimestamp(mtime, IST).strftime("%Y-%m-%d")
-            df = pd.read_parquet(WATCHLIST_PATH).fillna("")
-            cols = ["symbol", "universe_quality_score", "data_confidence", "business_quality"]
-            data = df[[c for c in cols if c in df.columns]].rename(columns={"universe_quality_score": "score", "data_confidence": "confidence"}).to_dict('records')
-            meta = {"tier": tier, "snapshot": build_date_str, "source": "Parquet Fallback", "records": len(data)}
-            return jsonify({"data": data, "meta": meta})
+        if tier == "ELITE":
+            elite_p = os.path.join(DATA_DIR, "elite_universe_v2.parquet")
+            if not os.path.exists(elite_p):
+                elite_p = WATCHLIST_PATH
+            if os.path.exists(elite_p):
+                mtime = os.path.getmtime(elite_p)
+                build_date_str = datetime.fromtimestamp(mtime, IST).strftime("%Y-%m-%d")
+                df = pd.read_parquet(elite_p).fillna("")
+                cols = ["symbol", "universe_quality_score", "quality_score", "score", "data_confidence", "business_quality"]
+                matched_cols = [c for c in cols if c in df.columns]
+                sub_df = df[matched_cols].copy()
+                if "universe_quality_score" in sub_df.columns:
+                    sub_df = sub_df.rename(columns={"universe_quality_score": "score"})
+                elif "quality_score" in sub_df.columns:
+                    sub_df = sub_df.rename(columns={"quality_score": "score"})
+                if "data_confidence" in sub_df.columns:
+                    sub_df = sub_df.rename(columns={"data_confidence": "confidence"})
+                data = sub_df.to_dict('records')
+                meta = {"tier": tier, "snapshot": build_date_str, "source": "Parquet Fallback", "records": len(data)}
+                return jsonify({"data": data, "meta": meta})
         elif tier == "NEAR_QUALIFIED":
             p = os.path.join(DATA_DIR, "near_qualified_v2.parquet")
             if os.path.exists(p):
                 mtime = os.path.getmtime(p)
                 build_date_str = datetime.fromtimestamp(mtime, IST).strftime("%Y-%m-%d")
                 df = pd.read_parquet(p).fillna("")
-                cols = ["symbol", "universe_quality_score", "data_confidence", "business_quality", "near_qualified_mode"]
-                data = df[[c for c in cols if c in df.columns]].rename(columns={"universe_quality_score": "score", "data_confidence": "confidence", "near_qualified_mode": "nq_mode"}).to_dict('records')
+                cols = ["symbol", "universe_quality_score", "quality_score", "score", "data_confidence", "business_quality", "near_qualified_mode"]
+                matched_cols = [c for c in cols if c in df.columns]
+                sub_df = df[matched_cols].copy()
+                if "universe_quality_score" in sub_df.columns:
+                    sub_df = sub_df.rename(columns={"universe_quality_score": "score"})
+                if "data_confidence" in sub_df.columns:
+                    sub_df = sub_df.rename(columns={"data_confidence": "confidence"})
+                if "near_qualified_mode" in sub_df.columns:
+                    sub_df = sub_df.rename(columns={"near_qualified_mode": "nq_mode"})
+                data = sub_df.to_dict('records')
                 meta = {"tier": tier, "snapshot": build_date_str, "source": "Parquet Fallback", "records": len(data)}
                 return jsonify({"data": data, "meta": meta})
         elif tier == "EXCLUDED":
@@ -1472,14 +1526,18 @@ def get_v2_universe_data():
                 mtime = os.path.getmtime(p)
                 build_date_str = datetime.fromtimestamp(mtime, IST).strftime("%Y-%m-%d")
                 df = pd.read_csv(p).fillna("")
-                cols = ["symbol", "universe_quality_score", "primary_exclusion_code", "exclusion_class"]
-                data = df[[c for c in cols if c in df.columns]].rename(columns={"universe_quality_score": "score"}).to_dict('records')
+                cols = ["symbol", "universe_quality_score", "quality_score", "score", "primary_exclusion_code", "exclusion_class"]
+                matched_cols = [c for c in cols if c in df.columns]
+                sub_df = df[matched_cols].copy()
+                if "universe_quality_score" in sub_df.columns:
+                    sub_df = sub_df.rename(columns={"universe_quality_score": "score"})
+                data = sub_df.to_dict('records')
                 meta = {"tier": tier, "snapshot": build_date_str, "source": "CSV Fallback", "records": len(data)}
                 return jsonify({"data": data, "meta": meta})
     except Exception as e:
         logger.warning(f"Fallback universe data failed for {tier}: {e}")
         
-    return jsonify({"data": []})
+    return jsonify({"data": [], "meta": {"tier": tier, "snapshot": "N/A", "source": "Empty", "records": 0}})
 
 
 

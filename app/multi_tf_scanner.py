@@ -1650,8 +1650,6 @@ def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDU
         if queued_at is not None:
             logger.info(f"✅ [MULTI_TF] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
-        upsert_scanner_health("MULTI_TF", "RUNNING", error_msg="Multi-TF scan in progress...")
-
         if not _scan_lock.acquire(blocking=False):
             logger.warning("🛑 Multi-TF Scanner is ALREADY actively running. Skipping duplicate execution.")
             if run_ctx:
