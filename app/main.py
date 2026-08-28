@@ -48,10 +48,10 @@ _PROCESS_START_TIME = _time.monotonic()
 logger = logging.getLogger(__name__)
 
 from database import upsert_scanner_health, insert_notification
+from config import DATA_DIR, WATCHLIST_PATH, SYSTEM_DEPLOYMENT_VERSION
 
 # Print high-visibility deployment version & process PID banner on startup
 try:
-    from config import SYSTEM_DEPLOYMENT_VERSION
     _pid = os.getpid()
     logger.info("======================================================================")
     logger.info(f"🚀 DEPLOYMENT VERSION: {SYSTEM_DEPLOYMENT_VERSION}")
@@ -1400,6 +1400,7 @@ def run_system_scheduler():
         logger.info("🕒 SCHEDULER | Verifying file readiness for today's scan")
         now = datetime.now(IST)
         today_str = now.strftime("%Y-%m-%d")
+        WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
 
         # 0. Restore Historical Parquet Cache from DB (<0.5s cold boot restoration)
         try:

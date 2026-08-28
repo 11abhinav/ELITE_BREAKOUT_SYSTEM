@@ -537,8 +537,9 @@ class AccumulationScanner:
                     print_scanner_end_banner("ACCUMULATION", _scan_start, run_id=run_id)
                 except Exception:
                     pass
-            try:
-                _global_lock.release()
-            except Exception:
-                pass
+            if 'acquired_global' in locals() and acquired_global and '_global_lock' in locals():
+                try:
+                    _global_lock.release()
+                except Exception:
+                    pass
             _accumulation_run_lock.release()
