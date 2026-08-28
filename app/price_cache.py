@@ -666,8 +666,21 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
     today_str = datetime.now(IST).strftime("%Y-%m-%d")
     fresh_count = 0
     
-    # 🚀 COLD START ACCELERATION: If disk cache is missing for symbols, attempt DB bundle restore (<0.5s)
-    missing_any_disk = any(not os.path.exists(os.path.join(history_dir, f"{s.replace(':', '_')}.parquet")) for s in symbols)
+    def _has_parquet_file(s: str) -> bool:
+        clean_s = str(s).split(":")[-1].strip()
+        variants = [
+            clean_s,
+            clean_s.replace("&", "_"),
+            clean_s.replace("-", "_"),
+            clean_s.replace("&", "-"),
+            clean_s.replace("-EQ", ""),
+            clean_s.replace("_EQ", ""),
+            f"{clean_s}.NS",
+            f"{clean_s.replace('&', '_')}.NS"
+        ]
+        return any(os.path.exists(os.path.join(history_dir, f"{v}.parquet")) for v in variants)
+
+    missing_any_disk = any(not _has_parquet_file(s) for s in symbols)
     if missing_any_disk:
         try:
             from database import restore_history_bundle_from_db
@@ -1665,15 +1678,27 @@ def get_cached_df(symbol: str, interval: str = "1d", period: str = "1y") -> pd.D
                 if isinstance(df, pd.DataFrame) and not df.empty:
                     return df
 
-    # Disk fallback
-    file_path = os.path.join(DATA_DIR, "history", interval, f"{symbol.replace(':', '_')}.parquet")
-    if os.path.exists(file_path):
-        try:
-            df = pd.read_parquet(file_path)
-            if not df.empty:
-                return df
-        except Exception:
-            pass
+    # Disk fallback (variant-aware)
+    clean_s = str(symbol).split(":")[-1].strip()
+    variants = [
+        clean_s,
+        clean_s.replace("&", "_"),
+        clean_s.replace("-", "_"),
+        clean_s.replace("&", "-"),
+        clean_s.replace("-EQ", ""),
+        clean_s.replace("_EQ", ""),
+        f"{clean_s}.NS",
+        f"{clean_s.replace('&', '_')}.NS"
+    ]
+    for v in variants:
+        file_path = os.path.join(DATA_DIR, "history", interval, f"{v}.parquet")
+        if os.path.exists(file_path):
+            try:
+                df = pd.read_parquet(file_path)
+                if df is not None and not df.empty:
+                    return df
+            except Exception:
+                pass
     return None
 
 
