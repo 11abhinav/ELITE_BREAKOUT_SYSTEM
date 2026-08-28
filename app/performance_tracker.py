@@ -385,6 +385,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             event = {"type": "T1_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
             
             new_rem = rem_shares - shares_to_sell
+            # Rule: SL-002
             new_sl = t["entry_price"] if new_rem > 0 else sl  # Raise to Breakeven only if remaining shares exist
             new_status = "PARTIAL_WIN_1"
             execution_state = "PARTIAL_1_HIT"
@@ -432,6 +433,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             event = {"type": "T2_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
             
             new_rem = rem_shares - shares_to_sell
+            # Rule: SL-002
             new_sl = t1 if new_rem > 0 else sl  # Raise to T1 only if remaining shares exist
             new_status = "PARTIAL_WIN_2"
             execution_state = "PARTIAL_2_HIT"
