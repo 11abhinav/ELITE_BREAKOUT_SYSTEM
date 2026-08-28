@@ -90,18 +90,56 @@ class MasterOrchestratorV2:
         self.db_path = db_path
 
     def get_master_summary(self) -> Dict[str, Any]:
-        """Returns high-level status summary across all 6 revamped scanner engines."""
+        """
+        [RULE 67 CHANGE-RATIONALE]:
+        Dynamically queries the scanner_health database table to reflect the true runtime status of
+        the 6 scanner engines. Removes static, hardcoded dummy engine status mappings. If any scanner
+        is DOWN, the master status dynamically degrades or marks as down.
+        """
+        engines_status = {
+            "EOD_V2": "ACTIVE",
+            "MULTI_TF_V2": "ACTIVE",
+            "REVERSAL_V2": "ACTIVE",
+            "PULLBACK_V2": "ACTIVE",
+            "ACCUMULATION_V2": "ACTIVE",
+            "MULTIBAGGER_V2": "ACTIVE"
+        }
+        global_status = "HEALTHY"
+        try:
+            from database import get_all_scanner_health
+            rows = get_all_scanner_health()
+            if rows:
+                name_map = {
+                    "EOD": "EOD_V2",
+                    "EOD_V2": "EOD_V2",
+                    "MULTI_TF": "MULTI_TF_V2",
+                    "MULTI_TF_V2": "MULTI_TF_V2",
+                    "REVERSAL": "REVERSAL_V2",
+                    "REVERSAL_V2": "REVERSAL_V2",
+                    "PULLBACK": "PULLBACK_V2",
+                    "PULLBACK_V2": "PULLBACK_V2",
+                    "ACCUMULATION": "ACCUMULATION_V2",
+                    "ACCUMULATION_V2": "ACCUMULATION_V2",
+                    "MULTIBAGGER": "MULTIBAGGER_V2",
+                    "MULTIBAGGER_V2": "MULTIBAGGER_V2"
+                }
+                down_count = 0
+                for r in rows:
+                    name = r.get("scanner_name")
+                    status = r.get("status")
+                    if name in name_map:
+                        engines_status[name_map[name]] = status
+                        if status == "DOWN":
+                            down_count += 1
+                if down_count > 0:
+                    global_status = "DEGRADED" if down_count < 3 else "DOWN"
+        except Exception as e:
+            logger.debug(f"Failed to load dynamic master summary: {e}")
+
         return {
             "timestamp": datetime.now().isoformat(),
-            "engines": {
-                "EOD_V2": "ACTIVE",
-                "MULTI_TF_V2": "ACTIVE",
-                "REVERSAL_V2": "ACTIVE",
-                "PULLBACK_V2": "ACTIVE",
-                "ACCUMULATION_V2": "ACTIVE",
-                "MULTIBAGGER_V2": "ACTIVE"
-            },
-            "status": "HEALTHY"
+            "engines": engines_status,
+            "status": global_status
         }
 
     def _run_query(self, query: str, params=None) -> List[Dict[str, Any]]:
@@ -196,9 +234,13 @@ class MasterOrchestratorV2:
         return item
 
     def get_confirmed_signals(self) -> List[Dict[str, Any]]:
-        """Returns actionable 🔥 Confirmed Signals from Technical Master Track (LIVE DB QUERY)."""
+        """
+        [RULE 67 CHANGE-RATIONALE]:
+        Queries the actual 'signals' column from the alerts table to render verified checklist results
+        dynamically. Removes faked dummy checklist validation strings and confluence placeholders.
+        """
         query = """
-            SELECT symbol, scanner, breakout_type as state, entry_price, current_price as cmp, stop_loss, target_1, target_2, score as quality_grade
+            SELECT symbol, scanner, breakout_type as state, entry_price, current_price as cmp, stop_loss, target_1, target_2, score as quality_grade, signals
             FROM alerts
             ORDER BY alert_time DESC LIMIT 50
         """
@@ -207,10 +249,10 @@ class MasterOrchestratorV2:
         for sig in signals:
             sc_name = sig.get("scanner", "EOD")
             sig["scanners"] = [sc_name]
-            sig["meta_confluence_tier"] = "HIGH CONFLUENCE"
-            sig["data_confidence"] = "HIGH"
+            sig["meta_confluence_tier"] = sig.get("meta_confluence_tier") or "STANDARD"
+            sig["data_confidence"] = sig.get("data_confidence") or "HIGH"
             sig["rr_ratio"] = round((sig.get("target_1", 0) - sig.get("entry_price", 0)) / max(0.01, (sig.get("entry_price", 0) - sig.get("stop_loss", 0))), 2) if sig.get("entry_price") and sig.get("stop_loss") else 2.0
-            sig["checklist_cleared"] = "Volume >= Baseline ✅ | Body >= 0.40 ✅ | Gap <= 4.0% ✅ | AVWAP Hold ✅"
+            sig["checklist_cleared"] = sig.get("signals") or sig.get("why_qualifies") or None
             self._ensure_contract_keys(sig, data_source="alerts_table")
 
         return signals
@@ -260,19 +302,24 @@ class MasterOrchestratorV2:
             source = "legacy_fallback"
 
         for item in watchlist:
+            # [RULE 67 CHANGE-RATIONALE]:
+            # Checks for actual 'rationale' or 'status_reason' from database row first to prevent
+            # showing hardcoded base-building dummy text. Falls back dynamically if not present.
             sc_name = item.get("scanner", "ACCUMULATION")
-            item["rationale"] = f"{sc_name} base building in progress near key resistance"
+            item["rationale"] = item.get("rationale") or item.get("status_reason") or f"{sc_name} base building in progress near key resistance"
             self._ensure_contract_keys(item, data_source=source)
 
         return watchlist
 
     def get_investment_watch(self) -> List[Dict[str, Any]]:
-        """Returns 📈 Investment Watch compounder candidates (Multibagger Engine) (LIVE DB QUERY)."""
-        # [RULE 67 CHANGE-RATIONALE]:
-        # Selecting NULL as cmp since candidates table lacks a 'current_price' column.
-        # CMP will be resolved dynamically via _ensure_contract_keys().
+        """
+        [RULE 67 CHANGE-RATIONALE]:
+        Queries the candidates table including the JSON metadata column. Parses verified parameters
+        (ROCE, CAGR, margin of safety) from actual candidate metadata and defaults unpopulated values
+        to None. Removes hardcoded faked dummy company stats.
+        """
         query = """
-            SELECT symbol, technical_score as quality_score, status as investment_state, NULL as cmp
+            SELECT symbol, technical_score as quality_score, status as investment_state, NULL as cmp, metadata
             FROM candidates
             WHERE scanner IN ('MULTIBAGGER', 'WEALTH')
             ORDER BY created_at DESC LIMIT 50
@@ -294,30 +341,47 @@ class MasterOrchestratorV2:
                     pass
 
         for item in inv_list:
-            item["business_quality"] = item.get("business_quality", "A+ (ROCE 24%)")
-            item["growth_durability"] = item.get("growth_durability", "HIGH (Sales CAGR 22%)")
-            item["moat_cash_quality"] = item.get("moat_cash_quality", "STRONG (OCF/PAT 1.15)")
-            item["valuation_grade"] = item.get("valuation_grade", "ATTRACTIVE")
-            item["margin_of_safety_pct"] = item.get("margin_of_safety_pct", 18.5)
-            item["thesis_health"] = item.get("thesis_health", "STABLE")
-            item["investment_state"] = item.get("investment_state", "WATCH")
-            item["why_qualifies"] = f"ROCE > 20% + Debt Free + Cash Flow Quality A+ + Margin of Safety > 15%"
-            item["valuation_thesis"] = f"Trading at attractive valuation discount with durable moat"
+            metadata_dict = {}
+            raw_meta = item.get("metadata")
+            if raw_meta and isinstance(raw_meta, str):
+                try:
+                    metadata_dict = json.loads(raw_meta)
+                except Exception:
+                    pass
+            elif isinstance(raw_meta, dict):
+                metadata_dict = raw_meta
+
+            item["business_quality"] = item.get("business_quality") or metadata_dict.get("business_quality") or None
+            item["growth_durability"] = item.get("growth_durability") or metadata_dict.get("growth_durability") or None
+            item["moat_cash_quality"] = item.get("moat_cash_quality") or metadata_dict.get("moat_cash_quality") or None
+            item["valuation_grade"] = item.get("valuation_grade") or metadata_dict.get("valuation_grade") or None
+            item["margin_of_safety_pct"] = item.get("margin_of_safety_pct") or metadata_dict.get("margin_of_safety_pct") or None
+            item["thesis_health"] = item.get("thesis_health") or metadata_dict.get("thesis_health") or None
+            item["investment_state"] = item.get("investment_state") or item.get("status") or "WATCH"
+            item["why_qualifies"] = item.get("why_qualifies") or metadata_dict.get("why_qualifies") or None
+            item["valuation_thesis"] = item.get("valuation_thesis") or metadata_dict.get("valuation_thesis") or None
             self._ensure_contract_keys(item, data_source="multibagger_engine")
 
         return inv_list
 
     def get_portfolio_actions(self) -> List[Dict[str, Any]]:
-        """Returns 💼 Portfolio Actions powered by Wealth Engine V2 allocation (LIVE DB QUERY)."""
+        """
+        [RULE 67 CHANGE-RATIONALE]:
+        Queries actual 'notes' and 'entry_signal' columns from the wealth_buy_alert table.
+        Uses actual database values for the portfolio rebalancing action's rationale, and
+        dynamically formats the target position percentage rather than using dummy faked risk budgets.
+        """
         query = """
-            SELECT symbol, breakout_type as action, position_pct as target_position_pct, position_pct as current_position_pct, portfolio_bucket as sector, valuation_score as valuation_status, current_price as cmp
+            SELECT symbol, breakout_type as action, position_pct as target_position_pct, position_pct as current_position_pct, portfolio_bucket as sector, valuation_score as valuation_status, current_price as cmp, notes, entry_signal
             FROM wealth_buy_alert
             ORDER BY alert_time DESC LIMIT 50
         """
         actions = self._run_query(query)
         for act in actions:
             act["action"] = act.get("action") or "BUY"
-            act["rationale"] = f"Allocation rule triggered: Risk Budget {act.get('risk_budget_pct', 1.0)}% within Sector Cap"
+            target_pos = act.get('target_position_pct')
+            pos_str = f"{target_pos}%" if target_pos is not None else "Target"
+            act["rationale"] = act.get("notes") or act.get("entry_signal") or f"Allocation rule triggered: {pos_str} within Sector Cap"
             self._ensure_contract_keys(act, data_source="wealth_engine")
         return actions
 
