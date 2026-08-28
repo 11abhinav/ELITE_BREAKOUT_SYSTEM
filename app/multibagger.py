@@ -544,6 +544,24 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
         except Exception as _res_err:
             logger.debug(f"History bundle DB restore check: {_res_err}")
 
+    # 🚀 OFF-MARKET INSTANT PARQUET LOAD: If local disk cache is complete and market is closed,
+    # load directly from disk without triggering network delta calls (<0.5s)
+    ist_now = datetime.now(IST)
+    if not is_market_open(ist_now):
+        from price_cache import get_cached_df
+        disk_results = {}
+        all_found = True
+        for s in symbols:
+            df_sym = get_cached_df(s, interval="1d", period="1y")
+            if df_sym is not None and not df_sym.empty:
+                disk_results[s] = df_sym
+            else:
+                all_found = False
+                break
+        if all_found and len(disk_results) == len(symbols):
+            logger.info(f"⚡ [MULTIBAGGER DISK ACCELERATION] Loaded all {len(disk_results)} symbols directly from disk cache in <0.5s (Market Closed).")
+            return disk_results
+
     BATCH_SIZE = int(os.environ.get("MULTIBAGGER_FETCH_BATCH_SIZE", "200"))
     logger.info(f"📥 Centralized chunked downloading 1y history for {len(symbols)} tickers (Chunk size: {BATCH_SIZE})...")
 
