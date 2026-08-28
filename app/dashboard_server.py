@@ -3015,7 +3015,26 @@ def api_pledge_worker_mode():
 @app.route("/wealth")
 @login_required
 def route_wealth():
-    return redirect("/admin?tab=wealth-engine")
+    """
+    [RULE 67 CHANGE-RATIONALE]:
+    Serves the dedicated wealth_dashboard.html page directly. Bypasses the old redirect to
+    the admin tab (/admin?tab=wealth-engine), which lacked the multi-category watchlist
+    sections (Core, Growth, Opportunistic) and the standalone Wealth Engine metrics.
+    """
+    WEALTH_DASHBOARD_PATH = get_html_path("wealth_dashboard.html")
+    if WEALTH_DASHBOARD_PATH and os.path.exists(WEALTH_DASHBOARD_PATH):
+        r = make_response(send_file(WEALTH_DASHBOARD_PATH))
+        r.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        r.headers['Pragma'] = 'no-cache'
+        r.headers['Expires'] = '0'
+        r.headers['X-Frame-Options'] = 'SAMEORIGIN'
+        return r
+    return Response(
+        "<h2 style='font-family:monospace;color:#00e5a0;background:#0b0e14;margin:0;padding:40px'>"
+        "⚠️ wealth_dashboard.html not found.</h2>",
+        mimetype="text/html",
+        status=404
+    )
 
 _SCANNER_STATUS_CACHE = {"ts": 0, "payload": None}
 
