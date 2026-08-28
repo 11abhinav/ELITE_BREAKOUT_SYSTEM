@@ -9266,6 +9266,7 @@ document.addEventListener("DOMContentLoaded", function() {
   <div class="modal-content" style="background-color:var(--bg-card); margin:5% auto; padding:20px; border:1px solid var(--border); width:90%; max-width:1000px; border-radius:8px; position:relative;">
     <span class="close-btn" onclick="closeUniverseModal()" style="color:var(--muted); float:right; font-size:28px; font-weight:bold; cursor:pointer;">&times;</span>
     <h2 id="universeModalTitle" style="color:var(--text); margin-bottom:15px; font-size:1.4em;">Universe Details</h2>
+    <div id="universeModalMeta" style="margin-bottom: 15px; font-size: 0.9em; color: var(--muted); background-color: var(--bg-body); padding: 10px; border-radius: 4px; border: 1px solid var(--border);"></div>
     <div style="overflow-x:auto; max-height: 60vh; overflow-y:auto;">
       <table id="universeModalTable" style="width:100%; text-align:left; border-collapse:collapse; min-width:600px;">
         <thead id="universeModalThead" style="position:sticky; top:0; background:var(--bg-table-hdr); z-index:2;">
@@ -9292,6 +9293,7 @@ function openUniverseModal(tierStr) {
   else if (tierStr.includes('EXCLUDED')) tier = 'EXCLUDED';
   
   title.innerText = tier + ' Universe Data';
+  document.getElementById('universeModalMeta').innerHTML = '';
   tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px;">Loading data...</td></tr>';
   
   fetch('/api/v2/universe_data?tier=' + tier)
@@ -9300,6 +9302,15 @@ function openUniverseModal(tierStr) {
       if (!data.data || data.data.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px;">No data available.</td></tr>';
         return;
+      }
+      
+      if (data.meta) {
+        document.getElementById('universeModalMeta').innerHTML = `
+          <span style="margin-right: 15px;"><strong>Tier:</strong> ${data.meta.tier}</span>
+          <span style="margin-right: 15px;"><strong>Snapshot:</strong> ${data.meta.snapshot}</span>
+          <span style="margin-right: 15px;"><strong>Source:</strong> ${data.meta.source}</span>
+          <span><strong>Records:</strong> ${data.meta.records}</span>
+        `;
       }
       
       let htmlHead = '';
