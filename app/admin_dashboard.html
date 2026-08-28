@@ -5734,6 +5734,15 @@ async function initDashboard() {
           if (data && data.etag !== lastSummaryEtag) {
             lastSummaryEtag = data.etag;
             refreshScannerStatus();
+            /* 
+             * [RULE 67 CHANGE-RATIONALE]:
+             * Link alerts fetching to the Server-Sent Events stream. When the backend 
+             * scanner finishes execution and updates the snapshot, instantly pull new alerts 
+             * to display them in real time on the web app, matching mobile notifications.
+             */
+            if (typeof fetchTodaysAlertsAndBlink_Admin === 'function') {
+              fetchTodaysAlertsAndBlink_Admin();
+            }
           }
         } catch(err) {}
       }, false);
@@ -6211,7 +6220,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   </style>
   <script>
-const ALERT_FETCH_INTERVAL_ADMIN = 60 * 1000;
+/* 
+ * [RULE 67 CHANGE-RATIONALE]:
+ * Reduce fallback alert polling interval from 60 seconds to 10 seconds 
+ * to ensure alerts are pulled quickly if the SSE stream connection drops.
+ */
+const ALERT_FETCH_INTERVAL_ADMIN = 10 * 1000;
 
 let isFirstAdminAlertFetch = true;
 let lastAdminAlertCount = 0;
