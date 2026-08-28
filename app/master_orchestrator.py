@@ -456,12 +456,28 @@ class MasterOrchestratorV2:
             ORDER BY alert_time DESC LIMIT 50
         """
         actions = self._run_query(query)
+        is_fallback = False
+        if not actions:
+            is_fallback = True
+            query_fb = """
+                SELECT symbol, 'WATCHLIST_BASELINE' as action, 5.0 as target_position_pct, 0.0 as current_position_pct, 'ELITE_COMPOUNDER' as sector, quality_tier as valuation_status, price as cmp, business_quality as notes, 'Passed Quality Checklist (Tier ' || quality_tier || ')' as entry_signal
+                FROM daily_watchlist_v2
+                WHERE universe_status = 'ELITE'
+                ORDER BY universe_quality_score DESC LIMIT 20
+            """
+            actions = self._run_query(query_fb)
+
         for act in actions:
-            act["action"] = act.get("action") or "BUY"
-            target_pos = act.get('target_position_pct')
-            pos_str = f"{target_pos}%" if target_pos is not None else "Target"
-            act["rationale"] = act.get("notes") or act.get("entry_signal") or f"Allocation rule triggered: {pos_str} within Sector Cap"
-            self._ensure_contract_keys(act, data_source="wealth_engine")
+            act["is_fallback"] = is_fallback
+            if is_fallback:
+                act["action"] = "WATCHLIST_BASELINE"
+                act["rationale"] = f"Baseline ELITE Compounder: {act.get('notes') or 'Quality Universe Candidate'} (No live buy alert today)"
+            else:
+                act["action"] = act.get("action") or "BUY"
+                target_pos = act.get('target_position_pct')
+                pos_str = f"{target_pos}%" if target_pos is not None else "Target"
+                act["rationale"] = act.get("notes") or act.get("entry_signal") or f"Allocation rule triggered: {pos_str} within Sector Cap"
+            self._ensure_contract_keys(act, data_source="daily_watchlist_v2_fallback" if is_fallback else "wealth_engine")
         return actions
 
     def get_scanner_health(self) -> List[Dict[str, Any]]:
@@ -509,6 +525,11 @@ class MasterOrchestratorV2:
         """Returns all live multi-scanner confluence setups across the system (DB-agnostic)."""
         query = "SELECT symbol, scanner, breakout_type as state, score as quality_score, current_price as cmp FROM alerts"
         rows = self._run_query(query)
+        is_fallback = False
+        if not rows:
+            is_fallback = True
+            query_fb = "SELECT symbol, scanner_name as scanner, state, quality_score, last_seen_price as cmp FROM scanner_candidates WHERE state IN ('CANDIDATE', 'ARMED', 'DEVELOPING') AND COALESCE(quality_score, 75) >= 70.0 LIMIT 50"
+            rows = self._run_query(query_fb)
 
         symbol_map = {}
         for r in rows:
@@ -520,7 +541,7 @@ class MasterOrchestratorV2:
                     "symbol": sym,
                     "participating_scanners": set(),
                     "highest_state": r.get("state", "WATCH"),
-                    "confluence_tier": r.get("meta_confluence_tier", "HIGH CONFLUENCE"),
+                    "confluence_tier": r.get("meta_confluence_tier", "BASELINE_CONFLUENCE" if is_fallback else "HIGH CONFLUENCE"),
                     "cmp": r.get("cmp")
                 }
             sc = r.get("scanner", "EOD")
@@ -537,12 +558,14 @@ class MasterOrchestratorV2:
                 "participating_scanners": sc_list,
                 "confluence_depth": depth,
                 "highest_state": data["highest_state"],
-                "confluence_tier": "🔥 APEX CONFLUENCE" if depth >= 3 else ("HIGH CONFLUENCE" if depth == 2 else "STANDARD"),
+                "confluence_tier": "OBSERVATION CONFLUENCE" if is_fallback else ("🔥 APEX CONFLUENCE" if depth >= 3 else ("HIGH CONFLUENCE" if depth == 2 else "STANDARD")),
                 "sample_floor_passed": "VERIFIED (n >= 30)" if depth >= 2 else "UNVERIFIED",
-                "position_sizing_guidance": "Scale Position Up (1.5x - 2.0x)" if depth >= 3 else ("Standard Position Size (1.0x)" if depth == 2 else "Selective Size (0.75x)"),
-                "cmp": data.get("cmp")
+                "position_sizing_guidance": "Baseline Monitoring Only" if is_fallback else ("Scale Position Up (1.5x - 2.0x)" if depth >= 3 else ("Standard Position Size (1.0x)" if depth == 2 else "Selective Size (0.75x)")),
+                "cmp": data.get("cmp"),
+                "is_fallback": is_fallback,
+                "setup_type": "BASELINE_CONFLUENCE" if is_fallback else "LIVE_CONFLUENCE"
             }
-            self._ensure_contract_keys(item, data_source="confluence_engine")
+            self._ensure_contract_keys(item, data_source="scanner_candidates_fallback" if is_fallback else "confluence_engine")
             results.append(item)
 
         results.sort(key=lambda x: x["confluence_depth"], reverse=True)

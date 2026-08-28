@@ -973,6 +973,23 @@ def api_get_near_misses():
                     """, (cutoff_date,))
                 rows = [dict(r) for r in cur.fetchall()]
 
+                if not rows:
+                    cur.execute("""
+                        SELECT id, symbol, 'EOD' as scanner, 'EXCLUDED' as breakout_type, primary_exclusion_code as gate_name,
+                               universe_quality_score as observed_value, 60.0 as threshold_value, 5.0 as delta_pct,
+                               universe_quality_score as score, NULL as entry_price, NULL as stop_loss, NULL as target_1,
+                               build_date as logged_at, build_date as logged_date, 'FORENSIC_EXCLUSION_FALLBACK' as status, NULL as realized_rr, NULL as max_mfe_r,
+                               true as is_fallback
+                        FROM daily_excluded_watchlist_v2
+                        WHERE (
+                            (universe_quality_score >= 45.0 AND COALESCE(exclusion_class, 'SOFT_FAIL') NOT IN ('HARD_FAIL', 'JUNK_DATA', 'SERIOUS_GOVERNANCE_FAIL'))
+                            OR primary_exclusion_code IN ('NEAR_LIQUIDITY', 'MIN_BASE_AGE_FAIL', 'VOLATILITY_SPIKE_FAIL')
+                        )
+                        AND COALESCE(exclusion_class, '') NOT IN ('HARD_FAIL', 'JUNK_DATA', 'SERIOUS_GOVERNANCE_FAIL')
+                        ORDER BY universe_quality_score DESC NULLS LAST LIMIT 50
+                    """)
+                    rows = [dict(r) for r in cur.fetchall()]
+
         try:
             rows = decorate_events(rows)
             # Cache disabled: removed cache check

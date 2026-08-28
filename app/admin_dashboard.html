@@ -2720,7 +2720,14 @@ var _userWatchlistData = [];
       triggerActiveTabFetch(tabId);
     }
 
+    const _activeTabLoadingMap = {};
     function triggerActiveTabFetch(tabId) {
+      const now = Date.now();
+      if (_activeTabLoadingMap[tabId] && (now - _activeTabLoadingMap[tabId] < 2000)) {
+        return; // Idempotency: skip redundant fetch within 2s
+      }
+      _activeTabLoadingMap[tabId] = now;
+
       if (tabId === 'signals-trades') {
         if (typeof ALL_TRADES !== 'undefined' && ALL_TRADES.length > 0 && typeof renderTradeTable === 'function') {
           renderTradeTable();
@@ -2747,6 +2754,12 @@ var _userWatchlistData = [];
         if (typeof fetchScannerExecutionHistory === 'function') fetchScannerExecutionHistory(1);
         if (typeof loadValidationHealth === 'function') loadValidationHealth();
         if (typeof loadApiHealth === 'function') loadApiHealth();
+      } else if (tabId === 'master-signals' || tabId === 'stocks-watch' || tabId === 'investment-watch') {
+        if (typeof loadMasterSystemV2Data === 'function') loadMasterSystemV2Data();
+      } else if (tabId === 'missed-opps') {
+        if (typeof loadNearMisses === 'function') loadNearMisses();
+      } else if (tabId === 'universe-health') {
+        if (typeof refreshUniverseHealth === 'function') refreshUniverseHealth();
       } else if (tabId === 'db-explorer') {
         if (typeof fetchDatabaseTablesSummary === 'function') fetchDatabaseTablesSummary();
         if (typeof loadAdvancedOutcomeAnalytics === 'function') loadAdvancedOutcomeAnalytics();
@@ -8726,11 +8739,13 @@ function loadNearMisses() {
       }
       tbody.innerHTML = data.map(item => {
         const deltaColor = item.delta_pct <= 3.0 ? '#ef4444' : (item.delta_pct <= 6.0 ? '#f59e0b' : '#3b82f6');
-        const statusBadge = item.status === 'TARGET_HIT' 
-          ? `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🎯 TARGET HIT</span>`
-          : (item.status === 'STOP_HIT'
-            ? `<span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🛑 STOP HIT</span>`
-            : `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">⏳ TRACKING</span>`);
+        const statusBadge = item.is_fallback || item.status === 'FORENSIC_EXCLUSION_FALLBACK'
+          ? `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🔍 FORENSIC EXCLUSION</span>`
+          : (item.status === 'TARGET_HIT' 
+            ? `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🎯 TARGET HIT</span>`
+            : (item.status === 'STOP_HIT'
+              ? `<span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🛑 STOP HIT</span>`
+              : `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">⏳ TRACKING</span>`));
 
         return `
           <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
@@ -8915,7 +8930,7 @@ function loadWealthEngineTab(forceRefresh) {
           <td style="font-weight:700; color:var(--accent);">${formatText(item.symbol || item.Stock)}</td>
           <td>${formatTvLink(item.tradingview_symbol, item.symbol || item.Stock)}</td>
           <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp)}</td>
-          <td><span class="${item.action === 'BUY' || item.action === 'ADD_ON' ? 'badge-ok' : 'badge-queued'}">${formatText(item.action)}</span></td>
+          <td><span class="${item.is_fallback ? 'badge-review' : (item.action === 'BUY' || item.action === 'ADD_ON' ? 'badge-ok' : 'badge-queued')}">${item.is_fallback ? 'BASELINE / NO LIVE ALERT' : formatText(item.action)}</span></td>
           <td>${formatPct(item.target_position_pct)}</td>
           <td>${formatPct(item.current_position_pct || 0)}</td>
           <td>${formatText(item.sector)}</td>
@@ -9068,8 +9083,8 @@ function loadConfluenceMatrixTab() {
           <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp)}</td>
           <td>${(item.participating_scanners || []).join(', ')}</td>
           <td><span class="badge-ok">${item.confluence_depth} Engines</span></td>
-          <td><span class="badge-ok">${formatText(item.confluence_tier || 'HIGH CONFLUENCE')}</span></td>
-          <td style="font-size:11px; color:var(--win);">${formatText(item.sample_floor_passed || 'VERIFIED (n >= 30)')}</td>
+          <td><span class="${item.is_fallback ? 'badge-queued' : 'badge-ok'}">${formatText(item.confluence_tier || 'HIGH CONFLUENCE')}</span></td>
+          <td style="font-size:11px; color:${item.is_fallback ? 'var(--muted)' : 'var(--win)'};">${item.is_fallback ? 'BASELINE OBSERVATION' : formatText(item.sample_floor_passed || 'VERIFIED (n >= 30)')}</td>
           <td style="font-size:11px; color:var(--accent); font-weight:700;">${formatText(item.position_sizing_guidance || 'Standard Position Size')}</td>
         </tr>
       `).join('');
