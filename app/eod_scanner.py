@@ -860,7 +860,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
 
         stage_tracker.end_stage(f"Pledge: {len(pledge_map)}, Delivery: {len(delivery_map)}")
 
-        import gc, time
+        import gc
         BATCH_SIZE = int(os.environ.get("EOD_FETCH_BATCH_SIZE", "200"))
         
         from config import ALERT_COOLDOWN_MINUTES

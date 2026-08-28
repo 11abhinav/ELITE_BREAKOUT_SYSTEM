@@ -1653,7 +1653,6 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
 
         for batch_num, chunk_df in enumerate(chunk_iterable(scan_watchlist, BATCH_SIZE), start=1):
             try:
-                import time
                 _batch_start_t = time.perf_counter()
                 # [VERSION: MARKET_DATA_SESSION_v1.0] Serve from session when available;
                 # fall back to independent per-batch fetch otherwise.
@@ -2361,7 +2360,6 @@ _global_lock = ProcessLock("global_scanner_lock")
 def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON", used_fallback_data: bool = False) -> int:
     from database import is_scanner_stopped, upsert_scanner_health
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
-    import time
     if is_scanner_stopped("REVERSAL"):
         logger.info("🛑 Reversal Scanner is STOPPED by Admin. Skipping execution.")
         if run_ctx:

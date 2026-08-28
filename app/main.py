@@ -1135,7 +1135,7 @@ def run_all_seven_scanners_non_market_boot():
                             SET status = 'IDLE',
                                 error_msg = 'Boot sequence completed — status reset from QUEUED',
                                 updated_at = NOW()
-                            WHERE (status = 'QUEUED' OR status LIKE 'QUEUED%')
+                            WHERE (status = 'QUEUED' OR status LIKE 'QUEUED%%')
                               AND scanner_name = ANY(%s);
                         """, (scanner_names,))
                     conn.commit()
