@@ -502,24 +502,165 @@ def save_fundamentals_cache(cache_data: dict, sync_to_db: bool = True):
         logger.exception(f"❌ Failed to save fundamentals cache")
 
 
-def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dict:
-    """Download historical price/volume data in bulk for all tickers using the unified price cache.
+def _parse_single_symbol_price_data(sym: str, md: Any, ist_now: datetime, strip_forming: bool = False) -> Optional[StockPriceData]:
+    from core_enums import ProviderResult
+    if md is None or isinstance(md, ProviderResult):
+        return None
 
-    [VERSION: MULTIBAGGER_CACHE_FIX_v1.0] Previously called fetcher.get_batch_ohlcv() directly,
-    bypassing price_cache entirely. This caused two problems:
-    1. Every call re-fetched all symbols from YFinance with no caching (double-fetch observed in logs).
-    2. The exit monitor and main scanner both fetched independently even within the same run.
-    Now routes through fetch_unified_historical → fetch_watchlist_data → price_cache, which:
-    - Caches 1D data until market close (TTL = seconds until 15:30 IST)
-    - Shares the cache with EOD, Reversal, and Wealth Engine (1d, 1y key)
-    - Eliminates redundant YFinance calls within the same scan cycle
-    """
+    ticker_df = md.dataframe if hasattr(md, "dataframe") else md
+    if ticker_df is None or getattr(ticker_df, "empty", True):
+        return None
+
+    try:
+        ticker_df = ticker_df.dropna(subset=["Close"])
+        if ticker_df.empty:
+            return None
+
+        if "Date" in ticker_df.columns:
+            ticker_df = ticker_df.set_index("Date")
+        elif "Datetime" in ticker_df.columns:
+            ticker_df = ticker_df.set_index("Datetime")
+
+        if isinstance(ticker_df.index, pd.DatetimeIndex):
+            if ticker_df.index.tz is None:
+                ticker_df.index = ticker_df.index.tz_localize(IST)
+            else:
+                ticker_df.index = ticker_df.index.tz_convert(IST)
+
+        real_time_close_series = ticker_df["Close"]
+        real_time_close = float(real_time_close_series.iloc[-1])
+        if len(real_time_close_series) >= 2:
+            real_time_prev = float(real_time_close_series.iloc[-2])
+            real_time_change = ((real_time_close - real_time_prev) / real_time_prev) * 100.0 if real_time_prev > 0 else 0.0
+        else:
+            real_time_change = 0.0
+
+        forming_bar_open = 0.0
+        forming_bar_close = 0.0
+        is_market_open_bar = False
+        if len(ticker_df) > 0:
+            last_ts = ticker_df.index[-1]
+            if last_ts.date() == ist_now.date():
+                is_market_open_bar = True
+                forming_bar_open = float(ticker_df["Open"].iloc[-1]) if "Open" in ticker_df.columns else 0.0
+                forming_bar_close = float(ticker_df["Close"].iloc[-1]) if "Close" in ticker_df.columns else 0.0
+
+        if strip_forming and len(ticker_df) > 0:
+            last_ts = ticker_df.index[-1]
+            if last_ts.date() == ist_now.date():
+                ticker_df = ticker_df.iloc[:-1]
+
+        MIN_BARS = 15
+        if len(ticker_df) < MIN_BARS:
+            return None
+
+        _latest_ohlcv = ticker_df.iloc[-1]
+        _o = _latest_ohlcv.get("Open", 0.0)
+        _h = _latest_ohlcv.get("High", 0.0)
+        _l = _latest_ohlcv.get("Low", 0.0)
+        _c = _latest_ohlcv.get("Close", 0.0)
+        _v = _latest_ohlcv.get("Volume", 0.0)
+        if _o == _h == _l == _c and _v == 0.0:
+            return None
+
+        last_trade_date = str(ticker_df.index[-1].date())
+
+        close_series = ticker_df["Close"]
+        vol_series = ticker_df["Volume"] if "Volume" in ticker_df.columns else pd.Series([0]*len(ticker_df))
+
+        if is_market_open_bar and forming_bar_open > 0:
+            today_open = forming_bar_open
+            today_close = forming_bar_close if forming_bar_close > 0 else real_time_close
+        else:
+            today_open = float(ticker_df["Open"].iloc[-1]) if "Open" in ticker_df.columns and len(ticker_df) > 0 else 0.0
+            today_close = float(close_series.iloc[-1]) if len(close_series) > 0 else 0.0
+
+        close_price = real_time_close
+        change_pct = real_time_change
+
+        close_yesterday = float(close_series.iloc[-2]) if len(close_series) >= 2 else float(close_series.iloc[-1])
+
+        if "High" in ticker_df.columns and "Low" in ticker_df.columns:
+            high_52w = float(ticker_df["High"].max())
+            low_52w = float(ticker_df["Low"].min())
+        else:
+            high_52w = float(close_series.max())
+            low_52w = float(close_series.min())
+
+        recent_20 = ticker_df.tail(20)
+        if not recent_20.empty and "Volume" in recent_20.columns:
+            avg_turnover = float((recent_20["Volume"] * recent_20["Close"]).mean())
+        else:
+            avg_turnover = 0.0
+
+        hist_idx_6m = min(120, len(close_series) - 1)
+        close_6m_ago = float(close_series.iloc[-(hist_idx_6m + 1)])
+        mom_6m = ((close_price - close_6m_ago) / close_6m_ago) if close_6m_ago > 0 else 0.0
+
+        high_20d = float(close_series.tail(20).max())
+        high_60d = float(close_series.tail(60).max()) if len(close_series) >= 60 else high_20d
+
+        hist_idx = min(60, len(close_series) - 1)
+        close_3m_ago = float(close_series.iloc[-(hist_idx + 1)])
+        mom_3m = ((close_price - close_3m_ago) / close_3m_ago) if close_3m_ago > 0 else 0.0
+
+        latest_volume = float(vol_series.iloc[-1])
+        volume_sma20 = float(vol_series.tail(20).mean()) if len(vol_series) >= 20 else latest_volume
+
+        from indicator_manager import manager
+        bundle = manager.compute_base_indicators(ticker_df, sym)
+
+        sma_20 = float(bundle.sma_20.iloc[-1]) if bundle.sma_20 is not None and not bundle.sma_20.empty else close_price
+        sma_50 = float(bundle.sma_50.iloc[-1]) if bundle.sma_50 is not None and not bundle.sma_50.empty else close_price
+        sma_200 = float(bundle.sma_200.iloc[-1]) if bundle.sma_200 is not None and not bundle.sma_200.empty else close_price
+        sma_200_yesterday = float(bundle.sma_200.iloc[-2]) if bundle.sma_200 is not None and len(bundle.sma_200) >= 2 else sma_200
+
+        atr_14 = float(bundle.atr_14.iloc[-1]) if bundle.atr_14 is not None and not bundle.atr_14.empty else (close_price * 0.05)
+        ema_20 = float(bundle.ema_20.iloc[-1]) if bundle.ema_20 is not None and not bundle.ema_20.empty else close_price
+
+        closes_below_sma200_count = 0
+        if len(close_series) >= 5 and bundle.sma_200 is not None and len(bundle.sma_200.dropna()) >= 5:
+            last_5_closes = close_series.iloc[-5:]
+            last_5_smas = bundle.sma_200.iloc[-5:]
+            closes_below_sma200_count = sum(1 for c, s in zip(last_5_closes, last_5_smas) if c < s)
+
+        return StockPriceData(
+            symbol=sym,
+            price=close_price,
+            change_pct=change_pct,
+            low_52w=low_52w,
+            high_52w=high_52w,
+            turnover_20d=avg_turnover,
+            sma_20=sma_20,
+            sma_50=sma_50,
+            sma_200=sma_200,
+            high_20d=high_20d,
+            high_60d=high_60d,
+            mom_3m=mom_3m,
+            mom_6m=mom_6m,
+            latest_volume=latest_volume,
+            volume_sma20=volume_sma20,
+            close_yesterday=close_yesterday,
+            sma_200_yesterday=sma_200_yesterday,
+            atr_14=atr_14,
+            ema_20=ema_20,
+            closes_below_sma200_count=closes_below_sma200_count,
+            last_trade_date=last_trade_date,
+            today_open=today_open,
+            today_close=today_close
+        )
+    except Exception as e:
+        logger.debug(f"Error parsing market data for {sym}: {e}")
+        return None
+
+
+def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dict:
+    """Download historical price/volume data in bulk for all tickers using the unified price cache."""
     from price_cache import fetch_unified_historical
     from market_utils import is_market_open
     from config import DATA_DIR
     import psutil
 
-    # 🚀 LOCAL PARQUET COVERAGE CHECK: Only restore from DB if local disk cache is incomplete
     history_dir = os.path.join(DATA_DIR, "history", "1d")
 
     def _has_parquet(s: str) -> bool:
@@ -554,12 +695,17 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
         for s in symbols:
             df_sym = get_cached_df(s, interval="1d", period="1y")
             if df_sym is not None and not df_sym.empty:
-                disk_results[s] = df_sym
+                parsed_spd = _parse_single_symbol_price_data(s, df_sym, ist_now, strip_forming=False)
+                if parsed_spd is not None:
+                    disk_results[s] = parsed_spd
+                else:
+                    all_found = False
+                    break
             else:
                 all_found = False
                 break
         if all_found and len(disk_results) == len(symbols):
-            logger.info(f"⚡ [MULTIBAGGER DISK ACCELERATION] Loaded all {len(disk_results)} symbols directly from disk cache in <0.5s (Market Closed).")
+            logger.info(f"⚡ [MULTIBAGGER DISK ACCELERATION] Loaded and parsed all {len(disk_results)} StockPriceData objects directly from disk cache in <0.5s (Market Closed).")
             return disk_results
 
     BATCH_SIZE = int(os.environ.get("MULTIBAGGER_FETCH_BATCH_SIZE", "200"))
