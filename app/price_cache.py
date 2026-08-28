@@ -693,8 +693,27 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
     local_lock = threading.Lock()
     fresh_count_container = [0]
 
+    def _resolve_parquet_file_path(s: str) -> str:
+        clean_s = str(s).split(":")[-1].strip()
+        variants = [
+            clean_s,
+            clean_s.replace("&", "_"),
+            clean_s.replace("-", "_"),
+            clean_s.replace("&", "-"),
+            clean_s.replace("-EQ", ""),
+            clean_s.replace("_EQ", ""),
+            f"{clean_s}.NS",
+            f"{clean_s.replace('&', '_')}.NS"
+        ]
+        for v in variants:
+            f_path = os.path.join(history_dir, f"{v}.parquet")
+            if os.path.exists(f_path):
+                return f_path
+        clean_base = clean_s.replace("-EQ", "").replace("&", "_")
+        return os.path.join(history_dir, f"{clean_base}.parquet")
+
     def process_symbol(sym):
-        file_path = os.path.join(history_dir, f"{sym.replace(':', '_')}.parquet")
+        file_path = _resolve_parquet_file_path(sym)
         needs_full = True
         cached_df = None
         
