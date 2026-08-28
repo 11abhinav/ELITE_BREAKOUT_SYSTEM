@@ -1738,9 +1738,9 @@ def main(force_rebuild: bool = False, run_ctx=None, trigger_type="SCHEDULED", sc
             except Exception as check_err:
                 logger.warning(f"⚠️ DB re-run guard check failed in main(): {check_err}. Proceeding with build.")
 
-        upsert_scanner_health("DAILY_BUILDER", "RUNNING", error_msg="DAILY_BUILDER scan in progress...")
+        upsert_scanner_health("DAILY_BUILDER", "RUNNING", error_msg="DAILY_BUILDER scan in progress...", run_id=run_ctx.run_id if run_ctx else None)
 
-        _scan_start = print_scanner_start_banner("daily_builder", queued_at=queued_at)
+        _scan_start = print_scanner_start_banner("daily_builder", queued_at=queued_at, run_id=run_ctx.run_id if run_ctx else None)
         _main_wrapper(force_rebuild, run_ctx=run_ctx)
         
         if run_ctx:
@@ -1754,12 +1754,12 @@ def main(force_rebuild: bool = False, run_ctx=None, trigger_type="SCHEDULED", sc
                 complete_scanner_execution_run(run_ctx, status_override="FAILED", exception=e)
             except Exception: pass
         try:
-            upsert_scanner_health("DAILY_BUILDER", status="DOWN", error_msg=str(e)[:250])
+            upsert_scanner_health("DAILY_BUILDER", status="DOWN", error_msg=str(e)[:250], run_id=run_ctx.run_id if run_ctx else None)
         except Exception: pass
         raise e
     finally:
         if _scan_start is not None:
-            print_scanner_end_banner("daily_builder", _scan_start)
+            print_scanner_end_banner("daily_builder", _scan_start, run_id=run_ctx.run_id if run_ctx else None)
         try:
             from database import get_scanner_health, upsert_scanner_health
             h = get_scanner_health("DAILY_BUILDER")

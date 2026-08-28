@@ -360,7 +360,7 @@ class AccumulationScanner:
             update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
             health = AccumulationHealthTracker(run_id=run_id, scanner=ACCUMULATION_SCANNER_NAME)
             from lock_utils import print_scanner_start_banner
-            print_scanner_start_banner("ACCUMULATION")
+            _scan_start = print_scanner_start_banner("ACCUMULATION", run_id=run_id)
             acquired_scan = True
 
             health.transition("STARTING", status="RUNNING")
@@ -525,6 +525,12 @@ class AccumulationScanner:
                 complete_scanner_execution_run(run_ctx, exception=exc)
             return {"status": "FAILED", "error": str(exc)}
         finally:
+            if '_scan_start' in locals() and _scan_start:
+                try:
+                    from lock_utils import print_scanner_end_banner
+                    print_scanner_end_banner("ACCUMULATION", _scan_start, run_id=run_id)
+                except Exception:
+                    pass
             try:
                 _global_lock.release()
             except Exception:

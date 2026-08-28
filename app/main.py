@@ -1999,7 +1999,7 @@ def _run_multibagger_scanner_single():
 
 
         try:
-            upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Building MarketDataSession...")
+            upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Building MarketDataSession...", run_id=run_ctx.run_id if run_ctx else None)
             try:
                 from market_data_session import MarketDataSession
                 from constituent_service import fetch_constituents
@@ -2034,7 +2034,8 @@ def _run_multibagger_scanner_single():
             total_count=stats.get("total_count"),
             processed_count=stats.get("processed_count"),
             today_alerts=stats.get("today_alerts", 0),
-            duration_seconds=dur_mb_single
+            duration_seconds=dur_mb_single,
+            run_id=run_ctx.run_id if run_ctx else None
         )
         # Rebuild performance data on scanner completion (debounced, async)
         try:
@@ -2063,7 +2064,8 @@ def _run_multibagger_scanner_single():
                 "MULTIBAGGER",
                 status="DOWN",
                 error_msg=str(e)[:500],
-                scheduled_for="Daily 19:00 IST"
+                scheduled_for="Daily 19:00 IST",
+                run_id=run_ctx.run_id if 'run_ctx' in locals() and run_ctx else None
             )
             from push_service import send_push_to_all
             send_push_to_all("❌ MULTIBAGGER Scanner DOWN", f"Crash: {str(e)[:100]}", bypass_throttle=True)

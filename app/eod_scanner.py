@@ -159,7 +159,7 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
             return 0
         acquired_scan = True
 
-        _scan_start = print_scanner_start_banner("eod_scanner", queued_at=queued_at)
+        _scan_start = print_scanner_start_banner("eod_scanner", queued_at=queued_at, run_id=run_ctx.run_id if run_ctx else None)
         total = _start_wrapper(force, session=session, run_ctx=run_ctx, used_fallback_data=used_fallback_data)
         if run_ctx and isinstance(total, int):
             run_ctx.add_alert(total)
@@ -173,13 +173,13 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
                 complete_scanner_execution_run(run_ctx, status_override="FAILED", exception=e)
             except Exception: pass
         try:
-            upsert_scanner_health("EOD", status="DOWN", error_msg=f"Scan crashed: {str(e)[:300]}")
+            upsert_scanner_health("EOD", status="DOWN", error_msg=f"Scan crashed: {str(e)[:300]}", run_id=run_ctx.run_id if run_ctx else None)
             insert_notification("error", "🚨 EOD Scanner CRASHED", f"Error: {str(e)[:400]}")
         except Exception: pass
         raise e
     finally:
         if _scan_start is not None:
-            print_scanner_end_banner("eod_scanner", _scan_start)
+            print_scanner_end_banner("eod_scanner", _scan_start, run_id=run_ctx.run_id if run_ctx else None)
 
         if acquired_scan:
             try: _scan_lock.release()

@@ -623,9 +623,11 @@ def init_db():
                         outcome TEXT DEFAULT NULL,
                         provider_stats JSONB DEFAULT NULL,
                         duration_seconds REAL DEFAULT 0.0,
+                        active_run_id VARCHAR(64) DEFAULT NULL,
                         CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'PAUSED', 'STOPPED') OR status LIKE 'QUEUED%')
                     )
                 """)
+                cur.execute("ALTER TABLE scanner_health ADD COLUMN IF NOT EXISTS active_run_id VARCHAR(64);")
 
                 # 11. wealth_score_history
                 cur.execute("""
@@ -2812,15 +2814,29 @@ def upsert_scanner_health(
     provider_stats: dict = None,  # JSON dict of provider outcome counts
     duration_seconds: float = None, # Time taken for the scan
     retry_count: int = None,      # Number of retries attempted
+    run_id: str = None,           # Optional current run_id for execution ownership validation
 ) -> None:
     """
     Insert or update a scanner's health record in the scanner_health table.
-    Canonicalizes scanner names and auto-recovers.
+    Canonicalizes scanner names, enforces active_run_id ownership, and logs status transitions.
     """
     scanner_name = normalize_scanner_name(scanner_name)
     try:
         init_db()
         now_str = datetime.now(IST).isoformat()
+
+        # Fetch current status and active_run_id for transition logging & ownership check
+        old_status, active_run_id = "UNKNOWN", None
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT status, active_run_id FROM scanner_health WHERE scanner_name = %s;", (scanner_name,))
+                    row = cur.fetchone()
+                    if row:
+                        old_status = row.get("status", "UNKNOWN") if isinstance(row, dict) else row[0]
+                        active_run_id = row.get("active_run_id") if isinstance(row, dict) else (row[1] if len(row) > 1 else None)
+        except Exception:
+            pass
 
         # Sanitize dict inputs passed accidentally to numeric parameters
         if isinstance(today_alerts, dict):
@@ -2837,14 +2853,31 @@ def upsert_scanner_health(
             status = str(status).upper()
             if status in ('COMPLETED', 'SUCCESS'):
                 status = 'OK'
-        # [RULE 67] DEGRADED_FALLBACK is a valid operational status (historical data used).
-        # Previously absent from allowed_statuses, silently remapped to IDLE.
+        
         allowed_statuses = {'OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'DEGRADED_FALLBACK', 'STOPPED', 'PAUSED'}
         if status == 'ERROR':
             status = 'DOWN'
         elif status is not None and status not in allowed_statuses and not status.startswith('QUEUED'):
             logger.warning(f"upsert_scanner_health: unknown status '{status}' provided — mapping to 'IDLE'")
             status = 'IDLE'
+
+        # 🔍 EXECUTION OWNERSHIP GUARD:
+        # If run_id is supplied on a terminal status update (OK/DOWN/IDLE) and active_run_id is set,
+        # reject updates from older/stale execution runs.
+        if run_id and status in ('OK', 'DOWN', 'IDLE') and active_run_id and active_run_id != run_id:
+            logger.warning(f"🛑 [EXECUTION OWNERSHIP REJECTED] Stale write ignored for {scanner_name}: current active_run_id='{active_run_id}', write run_id='{run_id}'")
+            return
+
+        # 🔍 FORENSIC DB MUTATION LOGGING (old_status -> new_status)
+        import os as _os_mod, threading as _th_mod, traceback as _tb_mod
+        _pid = _os_mod.getpid()
+        _th_name = _th_mod.current_thread().name
+        _stack = _tb_mod.extract_stack(limit=4)
+        _caller = f"{_os_mod.path.basename(_stack[-2].filename)}:{_stack[-2].lineno}->{_stack[-2].name}" if len(_stack) >= 2 else "unknown"
+        logger.info(
+            f"🏥 [SCANNER_HEALTH_MUTATION] scanner='{scanner_name}' transition='{old_status} -> {status}' "
+            f"run_id='{run_id or active_run_id}' caller='{_caller}' pid={_pid} thread='{_th_name}'"
+        )
 
         error_severity = None
         is_ack = None
@@ -2912,6 +2945,11 @@ def upsert_scanner_health(
                     if retry_count is not None:
                         set_clauses.append("retry_count = %s")
                         params.append(retry_count)
+                    if run_id is not None:
+                        set_clauses.append("active_run_id = %s")
+                        params.append(run_id)
+                    elif status in ('OK', 'DOWN', 'IDLE'):
+                        set_clauses.append("active_run_id = NULL")
                     
                     set_clauses.append("updated_at = %s")
                     params.append(now_str)
@@ -8048,7 +8086,7 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
                 SET status = 'IDLE',
                     error_msg = 'Server restarted — health status reset to IDLE',
                     updated_at = NOW()
-                WHERE status IN ('RUNNING', 'QUEUED', 'STOPPED', 'PAUSED') OR status LIKE 'QUEUED%';
+                WHERE UPPER(status) IN ('RUNNING', 'QUEUED', 'STOPPED', 'PAUSED') OR UPPER(status) LIKE 'QUEUED%';
             """)
             return c.rowcount
         except Exception as e:

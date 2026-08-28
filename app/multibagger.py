@@ -1702,11 +1702,6 @@ def run_scanner(debug_limit: int = None, is_test_mode: bool = False, session=Non
                 logger.error(f"🛑 [MULTIBAGGER] Aborting run: No build manifest or watchlist file found for {today_str}.")
                 upsert_scanner_health("MULTIBAGGER", "DOWN", error_msg=f"Upstream manifest invalid/missing for {today_str}")
                 return {}
-    except Exception as e:
-        logger.warning(f"⚠️ [MULTIBAGGER] Failed to validate upstream manifest: {e}. Proceeding cautiously.")
-    
-    upsert_scanner_health("MULTIBAGGER", "RUNNING")
-    
     # Delegate to the actual scanning logic
     return _start_wrapper(debug_limit, is_test_mode, session, run_ctx)
 

@@ -21,28 +21,54 @@ IST = ZoneInfo("Asia/Kolkata")
 # ─────────────────────────────────────────────────────────────────────────────
 # SCANNER IDENTITY CONFIG  — unique emoji + display name per scanner
 # ─────────────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# SCANNER IDENTITY CONFIG  — unique emoji + display name per scanner
+# ─────────────────────────────────────────────────────────────────────────────
 SCANNER_CONFIG = {
     "wealth_engine":      {"emoji": "💰", "display": "WEALTH ENGINE",      "db_name": "Wealth Engine"},
+    "WEALTH_ENGINE":      {"emoji": "💰", "display": "WEALTH ENGINE",      "db_name": "Wealth Engine"},
     "multi_tf_scanner":   {"emoji": "📊", "display": "MULTI-TF SCANNER",    "db_name": "MULTI_TF"},
+    "MULTI_TF":           {"emoji": "📊", "display": "MULTI-TF SCANNER",    "db_name": "MULTI_TF"},
     "eod_scanner":        {"emoji": "🌙", "display": "EOD SCANNER",          "db_name": "EOD"},
+    "EOD":                {"emoji": "🌙", "display": "EOD SCANNER",          "db_name": "EOD"},
     "reversal_scanner":   {"emoji": "🔄", "display": "REVERSAL SCANNER",     "db_name": "REVERSAL"},
+    "REVERSAL":           {"emoji": "🔄", "display": "REVERSAL SCANNER",     "db_name": "REVERSAL"},
     "pullback_scanner":   {"emoji": "📉", "display": "PULLBACK SCANNER",     "db_name": "PULLBACK"},
+    "PULLBACK":           {"emoji": "📉", "display": "PULLBACK SCANNER",     "db_name": "PULLBACK"},
     "multibagger":        {"emoji": "🚀", "display": "MULTIBAGGER SCANNER",   "db_name": "MULTIBAGGER"},
+    "MULTIBAGGER":        {"emoji": "🚀", "display": "MULTIBAGGER SCANNER",   "db_name": "MULTIBAGGER"},
+    "accumulation":       {"emoji": "📦", "display": "ACCUMULATION SCANNER", "db_name": "ACCUMULATION"},
+    "ACCUMULATION":       {"emoji": "📦", "display": "ACCUMULATION SCANNER", "db_name": "ACCUMULATION"},
+    "daily_builder":      {"emoji": "🏗️", "display": "DAILY BUILDER",       "db_name": "DAILY_BUILDER"},
+    "DAILY_BUILDER":      {"emoji": "🏗️", "display": "DAILY BUILDER",       "db_name": "DAILY_BUILDER"},
 }
 
 _BAR_LEN = 30
 
 
-def print_scanner_start_banner(scanner_key: str, queued_at: float = None) -> float:
+def _resolve_scanner_identity(scanner_key: str):
+    """Canonicalize scanner key and return (emoji, display_name, canonical_db_name). Fail fast if unmapped."""
+    from database import normalize_scanner_name
+    canonical_db_name = normalize_scanner_name(scanner_key)
+    cfg = SCANNER_CONFIG.get(scanner_key) or SCANNER_CONFIG.get(canonical_db_name)
+    if not cfg:
+        # Fallback to normalized name if valid string
+        if canonical_db_name and canonical_db_name != "UNKNOWN":
+            cfg = {"emoji": "⚙️", "display": canonical_db_name, "db_name": canonical_db_name}
+        else:
+            raise RuntimeError(f"🚨 [FAIL-FAST] Unknown scanner lifecycle key: '{scanner_key}'")
+    emoji = cfg.get("emoji", "⚙️")
+    display = cfg.get("display", canonical_db_name)
+    db_name = cfg.get("db_name") or canonical_db_name
+    return emoji, display, db_name
+
+
+def print_scanner_start_banner(scanner_key: str, queued_at: float = None, run_id: str = None) -> float:
     """
     Print a vivid START banner and immediately mark scanner as RUNNING in DB.
-    This fixes the QUEUED-stuck UI bug — status transitions QUEUED → RUNNING
-    the instant the global lock is acquired, before any scan logic runs.
-    Returns the current monotonic timestamp so callers can compute runtime.
+    Transitions status QUEUED → RUNNING the instant the global lock is acquired.
     """
-    cfg = SCANNER_CONFIG.get(scanner_key, {"emoji": "⚙️", "display": scanner_key.upper(), "db_name": None})
-    emoji, display = cfg["emoji"], cfg["display"]
-    db_name = cfg.get("db_name")
+    emoji, display, db_name = _resolve_scanner_identity(scanner_key)
     bar = emoji * _BAR_LEN
     ts = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
     
@@ -55,31 +81,36 @@ def print_scanner_start_banner(scanner_key: str, queued_at: float = None) -> flo
     logger.info(f"&&&&& {display} STARTED — {ts}{queue_wait_str} &&&&&")
     logger.info(bar)
     
-    # ✅ CRITICAL FIX: Immediately transition QUEUED → RUNNING in DB so UI reflects reality
-    if db_name:
-        try:
-            from database import upsert_scanner_health
-            upsert_scanner_health(db_name, "RUNNING", error_msg="Scan in progress...")
-            logger.info(f"🟢 [{display}] Status updated: RUNNING (was QUEUED{queue_wait_str})")
-        except Exception as _e:
-            logger.warning(f"⚠️ Could not update scanner status to RUNNING: {_e}")
+    # ✅ Immediately transition QUEUED → RUNNING in DB
+    try:
+        from database import upsert_scanner_health
+        upsert_scanner_health(db_name, "RUNNING", error_msg="Scan in progress...", run_id=run_id)
+        logger.info(f"🟢 [{display}] Status updated: RUNNING (was QUEUED{queue_wait_str})")
+    except Exception as _e:
+        logger.warning(f"⚠️ Could not update scanner status to RUNNING: {_e}")
     
     return time.monotonic()
 
 
-def print_scanner_end_banner(scanner_key: str, start_mono: float) -> None:
+def print_scanner_end_banner(scanner_key: str, start_mono: float, run_id: str = None, status: str = "OK", error_msg: str = None) -> None:
     """
-    Print a vivid END banner for the given scanner.
+    Print a vivid END banner for the given scanner and update scanner_health to OK/DOWN in DB.
     Must be called BEFORE releasing any locks so log order is guaranteed.
     """
-    cfg = SCANNER_CONFIG.get(scanner_key, {"emoji": "⚙️", "display": scanner_key.upper()})
-    emoji, display = cfg["emoji"], cfg["display"]
+    emoji, display, db_name = _resolve_scanner_identity(scanner_key)
     bar = emoji * _BAR_LEN
     ts = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
     runtime = time.monotonic() - start_mono
     logger.info(bar)
     logger.info(f"##### {display} ENDED — {ts} | Runtime: {runtime:.0f}s #####")
     logger.info(bar)
+
+    try:
+        from database import upsert_scanner_health
+        upsert_scanner_health(db_name, status=status, error_msg=error_msg, duration_seconds=runtime, run_id=run_id)
+        logger.info(f"✅ [{display}] Status updated: {status} (Completed in {runtime:.0f}s)")
+    except Exception as _e:
+        logger.warning(f"⚠️ Could not update scanner status to {status}: {_e}")
 
 _process_locks = {}
 _process_locks_guard = threading.Lock()

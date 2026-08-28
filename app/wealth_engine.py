@@ -980,7 +980,7 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
             return None
         acquired_scan = True
 
-        _scan_start = print_scanner_start_banner("wealth_engine", queued_at=queued_at)
+        _scan_start = print_scanner_start_banner("wealth_engine", queued_at=queued_at, run_id=run_ctx.run_id if run_ctx else None)
         res = _run_wealth_scan_wrapper(is_test_mode=is_test_mode, run_ctx=run_ctx, session=session)
         
         if run_ctx:
@@ -995,14 +995,14 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
                 complete_scanner_execution_run(run_ctx, status_override="FAILED", exception=e)
             except Exception: pass
         try:
-            upsert_scanner_health("Wealth Engine", status="DOWN", error_msg=f"Scan crashed: {str(e)[:300]}")
+            upsert_scanner_health("Wealth Engine", status="DOWN", error_msg=f"Scan crashed: {str(e)[:300]}", run_id=run_ctx.run_id if run_ctx else None)
             from database import insert_notification
             insert_notification("error", "🚨 Wealth Engine CRASHED", f"Error: {str(e)[:400]}")
         except Exception: pass
         raise
     finally:
         if _scan_start is not None:
-            print_scanner_end_banner("wealth_engine", _scan_start)
+            print_scanner_end_banner("wealth_engine", _scan_start, run_id=run_ctx.run_id if run_ctx else None)
 
         if acquired_scan:
             try: _scan_lock.release()
