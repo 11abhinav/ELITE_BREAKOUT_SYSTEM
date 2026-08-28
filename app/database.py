@@ -164,7 +164,7 @@ atexit.register(close_pool)
 
 
 @contextmanager
-def get_connection(timeout: int = 5):
+def get_connection(timeout: int = 20):
     """Get DB connection with circuit breaker pattern.
 
     Acquires an internal semaphore before checking out a connection from the pool.
@@ -186,7 +186,7 @@ def get_connection(timeout: int = 5):
     acquired = False
     try:
         global _conn_semaphore
-        max_cap = getattr(p, 'maxconn', 30)
+        max_cap = getattr(p, 'maxconn', 50)
         # Ensure semaphore exists (in case pool was created elsewhere)
         if _conn_semaphore is None:
             try:
@@ -196,7 +196,7 @@ def get_connection(timeout: int = 5):
         if _conn_semaphore is not None:
             acquired = _conn_semaphore.acquire(timeout=timeout)
             if not acquired:
-                raise OperationalError('Connection pool exhausted (acquire timeout)')
+                logger.warning("⚠️ Semaphore checkout timeout (20s) — attempting direct pool checkout fallback")
 
         # Retry checkout up to 5 times if server returns "too many clients" or pool exhausted
         for attempt in range(5):

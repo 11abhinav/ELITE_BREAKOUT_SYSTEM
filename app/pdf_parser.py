@@ -43,7 +43,7 @@ def extract_text_from_nse_pdf(pdf_url: str) -> str:
             if r.status_code == 200:
                 response = r
             elif r.status_code == 404:
-                logger.error(f"❌ [PDF FETCH FAILURE] HTTP 404 Not Found — PDF does not exist on NSE archives: {pdf_url}")
+                logger.warning(f"⚠️ [PDF NOT FOUND] HTTP 404 Not Found — PDF does not exist on NSE archives: {pdf_url}")
                 return ""
             else:
                 logger.warning(f"⚠️ [PDF FETCH WARN] HTTP {r.status_code} received from NSE archives for: {pdf_url}")
