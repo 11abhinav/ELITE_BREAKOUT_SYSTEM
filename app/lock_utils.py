@@ -300,12 +300,6 @@ class ProcessLockImpl:
                             except Exception as _reconnect_err:
                                 logger.error(f"❌ [{self.lock_name.upper()}] Failed to reconnect lock connection for {owner_scanner}: {_reconnect_err}")
                                 raise
-                        else:
-                            cur.execute("SELECT pg_try_advisory_lock(%s)", (self.lock_key,))
-                            locked = cur.fetchone()[0]
-                        
-                        if not locked:
-                            raise BlockingIOError("Could not acquire Postgres distributed lock")
 
             with self._internal_lock:
                 self.is_acquired = True
