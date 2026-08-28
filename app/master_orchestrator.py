@@ -88,14 +88,23 @@ class MasterOrchestratorV2:
 
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
+        self._cache = {}
+
+    def _get_cached(self, key: str, ttl_sec: float, func):
+        import time
+        now = time.time()
+        cached = self._cache.get(key)
+        if cached and (now - cached["ts"]) < ttl_sec:
+            return cached["data"]
+        res = func()
+        self._cache[key] = {"ts": now, "data": res}
+        return res
 
     def get_master_summary(self) -> Dict[str, Any]:
-        """
-        [RULE 67 CHANGE-RATIONALE]:
-        Dynamically queries the scanner_health database table to reflect the true runtime status of
-        the 6 scanner engines. Removes static, hardcoded dummy engine status mappings. If any scanner
-        is DOWN, the master status dynamically degrades or marks as down.
-        """
+        """[RULE 67 CHANGE-RATIONALE]: Returns dynamic master status with 3s TTL cache to eliminate API lag."""
+        return self._get_cached("master_summary", 3.0, self._get_master_summary_uncached)
+
+    def _get_master_summary_uncached(self) -> Dict[str, Any]:
         engines_status = {
             "EOD_V2": "ACTIVE",
             "MULTI_TF_V2": "ACTIVE",
@@ -242,11 +251,10 @@ class MasterOrchestratorV2:
         return item
 
     def get_confirmed_signals(self) -> List[Dict[str, Any]]:
-        """
-        [RULE 67 CHANGE-RATIONALE]:
-        Queries the actual 'signals' column from the alerts table to render verified checklist results
-        dynamically. Removes faked dummy checklist validation strings and confluence placeholders.
-        """
+        """[RULE 67 CHANGE-RATIONALE]: Returns confirmed signals with 3s TTL cache to protect DB connection pool."""
+        return self._get_cached("confirmed_signals", 3.0, self._get_confirmed_signals_uncached)
+
+    def _get_confirmed_signals_uncached(self) -> List[Dict[str, Any]]:
         query = """
             SELECT symbol, scanner, breakout_type as state, entry_price, current_price as cmp, stop_loss, target_1, target_2, score as quality_grade, signals
             FROM alerts
@@ -266,13 +274,10 @@ class MasterOrchestratorV2:
         return signals
 
     def get_stocks_to_watch(self) -> List[Dict[str, Any]]:
-        """
-        [RULE 67 CHANGE-RATIONALE]:
-        Queries scanner_candidates authoritative source first for active watch states (WATCH, CANDIDATE, ARMED, DEVELOPING).
-        If scanner_candidates is empty/unavailable, falls back to legacy candidates/watchlist table and explicitly
-        tags provenance data_source = 'legacy_fallback'.
-        Applies distance precedence and guarantees non-null API schema structure.
-        """
+        """[RULE 67 CHANGE-RATIONALE]: Returns stocks to watch with 3s TTL cache to protect DB connection pool."""
+        return self._get_cached("stocks_to_watch", 3.0, self._get_stocks_to_watch_uncached)
+
+    def _get_stocks_to_watch_uncached(self) -> List[Dict[str, Any]]:
         query_v2 = """
             SELECT 
                 symbol, 
@@ -292,10 +297,6 @@ class MasterOrchestratorV2:
         source = "scanner_candidates"
 
         if not watchlist:
-            # [RULE 67 CHANGE-RATIONALE]:
-            # The candidates table does not contain a 'current_price' column. Selecting NULL as cmp
-            # prevents a DatabaseError (column "current_price" does not exist) and delegates the CMP
-            # resolution to get_trusted_cmp() inside _ensure_contract_keys().
             query_fallback = """
                 SELECT symbol, scanner, breakout_type as stage, technical_score as maturity_score, NULL as cmp, technical_score as quality_grade
                 FROM candidates
@@ -310,9 +311,6 @@ class MasterOrchestratorV2:
             source = "legacy_fallback"
 
         for item in watchlist:
-            # [RULE 67 CHANGE-RATIONALE]:
-            # Checks for actual 'rationale' or 'status_reason' from database row first to prevent
-            # showing hardcoded base-building dummy text. Falls back dynamically if not present.
             sc_name = item.get("scanner", "ACCUMULATION")
             item["rationale"] = item.get("rationale") or item.get("status_reason") or f"{sc_name} base building in progress near key resistance"
             self._ensure_contract_keys(item, data_source=source)
@@ -320,12 +318,10 @@ class MasterOrchestratorV2:
         return watchlist
 
     def get_investment_watch(self) -> List[Dict[str, Any]]:
-        """
-        [RULE 67 CHANGE-RATIONALE]:
-        Queries the candidates table including the JSON metadata column. Parses verified parameters
-        (ROCE, CAGR, margin of safety) from actual candidate metadata and defaults unpopulated values
-        to None. Removes hardcoded faked dummy company stats.
-        """
+        """[RULE 67 CHANGE-RATIONALE]: Returns investment watch with 3s TTL cache to protect DB connection pool."""
+        return self._get_cached("investment_watch", 3.0, self._get_investment_watch_uncached)
+
+    def _get_investment_watch_uncached(self) -> List[Dict[str, Any]]:
         query = """
             SELECT symbol, technical_score as quality_score, status as investment_state, NULL as cmp, metadata
             FROM candidates
@@ -348,10 +344,6 @@ class MasterOrchestratorV2:
                 except Exception:
                     pass
 
-        # [VERSION: INVESTMENT_WATCH_FUNDAMENTALS_v2.0] [RULE 67 CHANGE-RATIONALE]
-        # Resolve all symbols using SecurityIdentityResolver to support canonical formats,
-        # then fetch and enrich Watchlists dynamically from daily_watchlist_v2.
-        # Track lookup_status with three states: RESOLVED, NOT_IN_UNIVERSE, or LOOKUP_FAILED.
         resolved_symbols = []
         symbol_to_canonical = {}
         for item in inv_list:
@@ -444,12 +436,10 @@ class MasterOrchestratorV2:
         return inv_list
 
     def get_portfolio_actions(self) -> List[Dict[str, Any]]:
-        """
-        [RULE 67 CHANGE-RATIONALE]:
-        Queries actual 'notes' and 'entry_signal' columns from the wealth_buy_alert table.
-        Uses actual database values for the portfolio rebalancing action's rationale, and
-        dynamically formats the target position percentage rather than using dummy faked risk budgets.
-        """
+        """[RULE 67 CHANGE-RATIONALE]: Returns portfolio actions with 3s TTL cache to protect DB connection pool."""
+        return self._get_cached("portfolio_actions", 3.0, self._get_portfolio_actions_uncached)
+
+    def _get_portfolio_actions_uncached(self) -> List[Dict[str, Any]]:
         query = """
             SELECT symbol, breakout_type as action, position_pct as target_position_pct, position_pct as current_position_pct, portfolio_bucket as sector, valuation_score as valuation_status, current_price as cmp, notes, entry_signal
             FROM wealth_buy_alert
@@ -481,7 +471,10 @@ class MasterOrchestratorV2:
         return actions
 
     def get_scanner_health(self) -> List[Dict[str, Any]]:
-        """Returns 📊 Operational health per engine directly from DB scanner_health table."""
+        """[RULE 67 CHANGE-RATIONALE]: Returns scanner health with 3s TTL cache to protect DB connection pool."""
+        return self._get_cached("scanner_health", 3.0, self._get_scanner_health_uncached)
+
+    def _get_scanner_health_uncached(self) -> List[Dict[str, Any]]:
         try:
             from database import get_all_scanner_health
             rows = get_all_scanner_health()
@@ -522,7 +515,10 @@ class MasterOrchestratorV2:
         return self._run_query(query, params=(symbol,))
 
     def get_all_confluence_setups(self) -> List[Dict[str, Any]]:
-        """Returns all live multi-scanner confluence setups across the system (DB-agnostic)."""
+        """[RULE 67 CHANGE-RATIONALE]: Returns confluence setups with 3s TTL cache to protect DB connection pool."""
+        return self._get_cached("confluence_setups", 3.0, self._get_all_confluence_setups_uncached)
+
+    def _get_all_confluence_setups_uncached(self) -> List[Dict[str, Any]]:
         query = "SELECT symbol, scanner, breakout_type as state, score as quality_score, current_price as cmp FROM alerts"
         rows = self._run_query(query)
         is_fallback = False

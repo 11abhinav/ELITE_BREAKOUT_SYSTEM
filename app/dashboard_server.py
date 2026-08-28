@@ -1247,16 +1247,20 @@ def get_v2_scanner_health():
     return jsonify(orchestrator_v2.get_scanner_health())
 
 
+_UNIVERSE_HEALTH_CACHE = {"ts": 0, "payload": None}
+
 @app.route("/api/v2/universe_health")
 @login_required
 def get_v2_universe_health():
     """
     [VERSION: UNIVERSE_HEALTH_FALLBACK_v1.0]
     Dynamically counts daily watchlist admissions (ELITE, NEAR_QUALIFIED) and excluded stocks.
-    Primary source: DB tables daily_watchlist_v2 & daily_excluded_watchlist_v2.
-    Secondary fallback: Local parquet & CSV files (elite_fundamental_watchlist.parquet,
-    near_qualified_v2.parquet, elite_fundamental_watchlist_excluded.csv).
+    Uses 10s TTL response cache to eliminate DB load during UI polling.
     """
+    global _UNIVERSE_HEALTH_CACHE
+    now_ts = time.time()
+    if _UNIVERSE_HEALTH_CACHE["payload"] is not None and (now_ts - _UNIVERSE_HEALTH_CACHE["ts"]) < 10.0:
+        return Response(_UNIVERSE_HEALTH_CACHE["payload"], mimetype="application/json")
     try:
         from database import get_connection
         with get_connection() as conn:
@@ -1291,7 +1295,7 @@ def get_v2_universe_health():
 
                             build_date_str = latest_date.strftime("%Y-%m-%d") if hasattr(latest_date, "strftime") else str(latest_date)
 
-                            return jsonify({
+                            res_payload = json.dumps({
                                 "build_date": build_date_str,
                                 "metrics": [
                                     {
@@ -1320,6 +1324,9 @@ def get_v2_universe_health():
                                     }
                                 ]
                             })
+                            _UNIVERSE_HEALTH_CACHE["ts"] = now_ts
+                            _UNIVERSE_HEALTH_CACHE["payload"] = res_payload
+                            return Response(res_payload, mimetype="application/json")
     except Exception as e:
         logger.warning(f"DB universe health query failed: {e}")
 
@@ -1364,7 +1371,7 @@ def get_v2_universe_health():
             def fmt_pct(val):
                 return f"{(val / total * 100):.1f}%"
 
-            return jsonify({
+            res_payload = json.dumps({
                 "build_date": build_date_str,
                 "metrics": [
                     {
@@ -1393,6 +1400,9 @@ def get_v2_universe_health():
                     }
                 ]
             })
+            _UNIVERSE_HEALTH_CACHE["ts"] = now_ts
+            _UNIVERSE_HEALTH_CACHE["payload"] = res_payload
+            return Response(res_payload, mimetype="application/json")
     except Exception as fe:
         logger.warning(f"Parquet fallback for universe health failed: {fe}")
 
@@ -2169,7 +2179,7 @@ def api_macro_state():
 
 
 
-# ── Fetch errors API (admin) ─────────────────────────────────────────────────────
+# ── Fetch errors & System logs API (admin) ───────────────────────────────────────
 _FETCH_ERRORS_CACHE = {"ts": 0, "payload": []}
 
 @app.route("/api/fetch_errors")
@@ -2190,9 +2200,16 @@ def api_fetch_errors():
         logger.warning(f"❌ /api/fetch_errors warning: {e}")
         return jsonify(_FETCH_ERRORS_CACHE.get("payload") or []), 200
 
+_SYSTEM_LOGS_CACHE = {"ts": 0, "payload": None}
+
 @app.route("/api/system_logs", methods=["GET"])
 @login_required
 def api_system_logs():
+    """Return unacknowledged system logs (5s TTL cache to prevent DB load on rapid UI polling)."""
+    global _SYSTEM_LOGS_CACHE
+    now_ts = time.time()
+    if _SYSTEM_LOGS_CACHE["payload"] is not None and (now_ts - _SYSTEM_LOGS_CACHE["ts"]) < 5.0:
+        return Response(_SYSTEM_LOGS_CACHE["payload"], mimetype="application/json")
     try:
         from database import get_connection
         from psycopg2.extras import RealDictCursor
@@ -2221,10 +2238,13 @@ def api_system_logs():
                         log['first_seen'] = log['first_seen'].strftime('%Y-%m-%d %I:%M:%S %p')
                     if log['last_seen']:
                         log['last_seen'] = log['last_seen'].strftime('%Y-%m-%d %I:%M:%S %p')
-        return jsonify(logs), 200
+        payload = json.dumps(logs)
+        _SYSTEM_LOGS_CACHE = {"ts": now_ts, "payload": payload}
+        return Response(payload, mimetype="application/json")
     except Exception as e:
         logger.debug(f"Failed to fetch system logs: {e}")
         return jsonify([])
+
 @app.route("/api/system_logs/acknowledge", methods=["POST"])
 @login_required
 def acknowledge_system_log():
@@ -2238,6 +2258,7 @@ def acknowledge_system_log():
             with conn.cursor() as cur:
                 cur.execute("UPDATE system_logs SET is_acknowledged = TRUE WHERE message = %s AND module = %s", (message, module))
             conn.commit()
+        _SYSTEM_LOGS_CACHE["ts"] = 0.0  # Invalidate system logs cache
         return jsonify({"status": "success"})
     except Exception as e:
         logger.exception(f"Failed to acknowledge system log")
@@ -2252,6 +2273,7 @@ def clear_all_system_logs():
             with conn.cursor() as cur:
                 cur.execute("UPDATE system_logs SET is_acknowledged = TRUE WHERE is_acknowledged = FALSE")
             conn.commit()
+        _SYSTEM_LOGS_CACHE["ts"] = 0.0  # Invalidate system logs cache
         return jsonify({"status": "success"})
     except Exception as e:
         logger.exception("Failed to clear all system logs")
