@@ -4640,8 +4640,9 @@ def save_df_to_table(table_name: str, df: pd.DataFrame):
                 return
 
             # 2. Identify date column
+            # [VERSION: DB_PATCH_v1.2] Add 'build_date' as first candidate to support V2 tables daily_watchlist_v2 / daily_excluded_watchlist_v2 idempotency
             date_col = None
-            for candidate in ["date", "run_date", "created_at", "added_at", "updated_at"]:
+            for candidate in ["build_date", "date", "run_date", "created_at", "added_at", "updated_at"]:
                 if candidate in db_cols:
                     date_col = db_cols[candidate]
                     break
@@ -4650,9 +4651,10 @@ def save_df_to_table(table_name: str, df: pd.DataFrame):
             if date_col:
                 date_col_safe = date_col.replace("%", "%%")
                 table_name_safe = table_name.replace("%", "%%")
-                # [VERSION: DB_PATCH_v1.1] Explicitly delete NULL dates to prevent orphaned rows from throwing UniqueViolations
-                cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" IS NULL OR "{date_col_safe}" < %s', (today_str,))
-                # Also delete today's data just to be safe from duplicates on retry
+                # [VERSION: DB_PATCH_v1.3] [RULE 67 CHANGE-RATIONALE]
+                # Delete NULL dates and today's dates to allow retry idempotency on the same day.
+                # Do NOT delete older dates (< today_str) to retain previous build dates.
+                cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" IS NULL')
                 cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" = %s', (today_str,))
             else:
                 cur.execute(f"TRUNCATE TABLE {table_name}")

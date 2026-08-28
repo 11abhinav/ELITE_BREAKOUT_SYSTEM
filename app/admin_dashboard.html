@@ -1630,8 +1630,9 @@ var _userWatchlistData = [];
             <div style="font-size:12px; font-weight:700; color:var(--loss); margin-bottom:4px; display:flex; align-items:center; gap:6px;">
               <span>💡</span> SCREEN PURPOSE & HOW TO USE:
             </div>
-            <div style="font-size:12px; color:var(--muted); line-height:1.5;">
-              <strong>Market Breadth & Isolation Monitor</strong>: Shows how the 1,174 NSE/BSE stock universe is segmented into ELITE (248 liquid trading stocks), NEAR_QUALIFIED (205 observation stocks), and EXCLUDED (721 blocked stocks). Ensures illiquid junk stocks never trigger alerts.
+            <!-- [VERSION: UNIVERSE_HEALTH_DESC_v1.0] [RULE 67 CHANGE-RATIONALE] Universe Health dynamic description element id added to update metrics dynamically via script. -->
+            <div id="universe-health-desc" style="font-size:12px; color:var(--muted); line-height:1.5;">
+              <strong>Market Breadth & Isolation Monitor</strong>: Shows how the NSE/BSE stock universe is segmented into ELITE (liquid trading stocks), NEAR_QUALIFIED (observation stocks), and EXCLUDED (blocked stocks). Ensures illiquid junk stocks never trigger alerts.
             </div>
           </div>
 
@@ -8817,16 +8818,38 @@ function loadMasterSystemV2Data() {
   // [RULE 67 CHANGE-RATIONALE]:
   // Added fetch to get dynamic universe health data from /api/v2/universe_health.
   // Replaces the old static hardcoded values in the UI, rendering counts in real-time.
+  // [VERSION: UNIVERSE_HEALTH_DYNAMIC_v1.0] [RULE 67 CHANGE-RATIONALE]
+  // Update the Universe Health description banner dynamically based on counts returned from `/api/v2/universe_health`
+  // so the numbers displayed match the database in real-time.
   fetch('/api/v2/universe_health')
     .then(r => r.json())
     .then(data => {
       const tbody = document.getElementById('universe-health-tbody');
       if (!tbody) return;
-      if (!Array.isArray(data) || data.length === 0) {
+      
+      const descDiv = document.getElementById('universe-health-desc');
+      let metrics = [];
+      let buildDate = 'Unknown';
+      if (data && data.metrics) {
+        metrics = data.metrics;
+        buildDate = data.build_date || 'Unknown';
+      } else if (Array.isArray(data)) {
+        metrics = data;
+      }
+
+      if (descDiv && metrics.length === 3) {
+        const elite = metrics[0].count;
+        const nq = metrics[1].count;
+        const excl = metrics[2].count;
+        const total = elite + nq + excl;
+        descDiv.innerHTML = `<strong>Market Breadth & Isolation Monitor</strong> (Build: ${buildDate}): Shows how the ${total.toLocaleString()} NSE/BSE stock universe is segmented into ELITE (${elite.toLocaleString()} liquid trading stocks), NEAR_QUALIFIED (${nq.toLocaleString()} observation stocks), and EXCLUDED (${excl.toLocaleString()} blocked stocks). Ensures illiquid junk stocks never trigger alerts.`;
+      }
+
+      if (!Array.isArray(metrics) || metrics.length === 0) {
         tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--muted);">No universe health metrics available.</td></tr>`;
         return;
       }
-      tbody.innerHTML = data.map(item => {
+      tbody.innerHTML = metrics.map(item => {
         let statusBadge = `<span class="badge-idle">${item.status}</span>`;
         if (item.status === 'ACTIVE') statusBadge = `<span class="badge-ok">${item.status}</span>`;
         else if (item.status === 'OBSERVATION') statusBadge = `<span class="badge-queued">${item.status}</span>`;

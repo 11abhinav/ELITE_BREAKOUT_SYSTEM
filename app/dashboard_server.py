@@ -1237,7 +1237,8 @@ def get_v2_universe_health():
     [RULE 67 CHANGE-RATIONALE]:
     Dynamically counts daily watchlist admissions (ELITE, NEAR_QUALIFIED) and excluded stocks from
     daily_watchlist_v2 and daily_excluded_watchlist_v2 database tables. Replaces the old static
-    hardcoded universe health counts. If the database tables are empty, it cleanly returns [] to show
+    hardcoded universe health counts. Returns both build_date and metrics in a structured dictionary.
+    If the database tables are empty, it cleanly returns {"build_date": "N/A", "metrics": []} to show
     no data / blank state per user requirements.
     """
     try:
@@ -1254,53 +1255,66 @@ def get_v2_universe_health():
                 """)
                 v2_exists = cur.fetchone()[0]
                 if not v2_exists:
-                    return jsonify([])
+                    return jsonify({"build_date": "N/A", "metrics": []})
 
-                cur.execute("SELECT COUNT(*) FROM daily_watchlist_v2 WHERE universe_status = 'ELITE'")
+                # [VERSION: UNIVERSE_HEALTH_DATE_FILTER_v1.0] Query and filter counts strictly by the latest build_date to prevent historical record count accumulation.
+                cur.execute("SELECT MAX(build_date) FROM daily_watchlist_v2")
+                latest_date_row = cur.fetchone()
+                latest_date = latest_date_row[0] if latest_date_row else None
+
+                if not latest_date:
+                    return jsonify({"build_date": "N/A", "metrics": []})
+
+                cur.execute("SELECT COUNT(*) FROM daily_watchlist_v2 WHERE universe_status = 'ELITE' AND build_date = %s", (latest_date,))
                 elite_count = cur.fetchone()[0] or 0
 
-                cur.execute("SELECT COUNT(*) FROM daily_watchlist_v2 WHERE universe_status = 'NEAR_QUALIFIED'")
+                cur.execute("SELECT COUNT(*) FROM daily_watchlist_v2 WHERE universe_status = 'NEAR_QUALIFIED' AND build_date = %s", (latest_date,))
                 nq_count = cur.fetchone()[0] or 0
 
-                cur.execute("SELECT COUNT(*) FROM daily_excluded_watchlist_v2")
+                cur.execute("SELECT COUNT(*) FROM daily_excluded_watchlist_v2 WHERE build_date = %s", (latest_date,))
                 excluded_count = cur.fetchone()[0] or 0
 
                 total = elite_count + nq_count + excluded_count
                 if total == 0:
-                    return jsonify([])
+                    return jsonify({"build_date": "N/A", "metrics": []})
 
                 def fmt_pct(val):
                     return f"{(val / total * 100):.1f}%"
 
-                return jsonify([
-                    {
-                        "tier": "ELITE Universe",
-                        "count": elite_count,
-                        "share": fmt_pct(elite_count),
-                        "reason": "Passed Quality Checklist",
-                        "confidence": "HIGH / MEDIUM",
-                        "status": "ACTIVE"
-                    },
-                    {
-                        "tier": "NEAR_QUALIFIED (NQ)",
-                        "count": nq_count,
-                        "share": fmt_pct(nq_count),
-                        "reason": "Observation Only (Pre-Watch)",
-                        "confidence": "LOW / PROVISIONAL",
-                        "status": "OBSERVATION"
-                    },
-                    {
-                        "tier": "EXCLUDED Universe",
-                        "count": excluded_count,
-                        "share": fmt_pct(excluded_count),
-                        "reason": "Quality / Data Fail",
-                        "confidence": "UNADMITTED",
-                        "status": "EXCLUDED"
-                    }
-                ])
+                build_date_str = latest_date.strftime("%Y-%m-%d") if hasattr(latest_date, "strftime") else str(latest_date)
+
+                return jsonify({
+                    "build_date": build_date_str,
+                    "metrics": [
+                        {
+                            "tier": "ELITE Universe",
+                            "count": elite_count,
+                            "share": fmt_pct(elite_count),
+                            "reason": "Passed Quality Checklist",
+                            "confidence": "HIGH / MEDIUM",
+                            "status": "ACTIVE"
+                        },
+                        {
+                            "tier": "NEAR_QUALIFIED (NQ)",
+                            "count": nq_count,
+                            "share": fmt_pct(nq_count),
+                            "reason": "Observation Only (Pre-Watch)",
+                            "confidence": "LOW / PROVISIONAL",
+                            "status": "OBSERVATION"
+                        },
+                        {
+                            "tier": "EXCLUDED Universe",
+                            "count": excluded_count,
+                            "share": fmt_pct(excluded_count),
+                            "reason": "Quality / Data Fail",
+                            "confidence": "UNADMITTED",
+                            "status": "EXCLUDED"
+                        }
+                    ]
+                })
     except Exception as e:
         logger.warning(f"Failed to fetch universe health: {e}")
-        return jsonify([])
+        return jsonify({"build_date": "N/A", "metrics": []})
 
 
 

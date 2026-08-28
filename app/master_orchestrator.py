@@ -162,47 +162,51 @@ class MasterOrchestratorV2:
                     pass
         return []
 
-    def get_trusted_cmp(self, symbol: str, fallback_price: Optional[float] = None) -> Optional[float]:
+    def get_trusted_cmp_details(self, symbol: str, fallback_price: Optional[float] = None) -> Dict[str, Any]:
         """
-        [RULE 67 CHANGE-RATIONALE]:
+        [VERSION: CMP_CENTRAL_RESOLVER_DETAILS_v1.0] [RULE 67 CHANGE-RATIONALE]
         Central CMP resolver for security price semantics across all 6 screens.
-        Checks alerts current_price, scanner_candidates last_seen_price, and validated fallbacks.
-        Guarantees numeric validity or returns None.
+        Queries price_cache.get_cached_price_details for live ticks or daily cache,
+        returning price, source, live flag, and timestamp.
+        Returns cmp=None and cmp_source='UNAVAILABLE' if both are unavailable.
         """
-        clean_cmp = _sanitize_numeric(fallback_price)
-        if clean_cmp is not None and clean_cmp > 0:
-            return round(clean_cmp, 2)
-
         try:
-            # Check alerts table for latest live price
-            rows = self._run_query(
-                "SELECT current_price FROM alerts WHERE symbol = %s AND current_price > 0 ORDER BY alert_time DESC LIMIT 1",
-                params=(symbol,)
-            )
-            if rows and rows[0].get("current_price"):
-                cp = _sanitize_numeric(rows[0]["current_price"])
-                if cp is not None and cp > 0:
-                    return round(cp, 2)
-
-            # Check scanner_candidates for last_seen_price
-            c_rows = self._run_query(
-                "SELECT last_seen_price FROM scanner_candidates WHERE symbol = %s AND last_seen_price > 0 ORDER BY updated_at DESC LIMIT 1",
-                params=(symbol,)
-            )
-            if c_rows and c_rows[0].get("last_seen_price"):
-                lsp = _sanitize_numeric(c_rows[0]["last_seen_price"])
-                if lsp is not None and lsp > 0:
-                    return round(lsp, 2)
+            from price_cache import get_cached_price_details
+            price, source, is_live, timestamp = get_cached_price_details(symbol)
+            if price is not None and price > 0:
+                return {
+                    "cmp": round(price, 2),
+                    "cmp_source": source,
+                    "cmp_is_live": is_live,
+                    "cmp_timestamp": timestamp
+                }
+            else:
+                return {
+                    "cmp": None,
+                    "cmp_source": source if source else "UNAVAILABLE",
+                    "cmp_is_live": False,
+                    "cmp_timestamp": None
+                }
         except Exception as e:
-            logger.debug(f"CMP lookup error for {symbol}: {e}")
+            logger.debug(f"CMP lookup error via price_cache for {symbol}: {e}")
 
-        return None
+        return {
+            "cmp": None,
+            "cmp_source": "UNAVAILABLE",
+            "cmp_is_live": False,
+            "cmp_timestamp": None
+        }
+
+    def get_trusted_cmp(self, symbol: str, fallback_price: Optional[float] = None) -> Optional[float]:
+        details = self.get_trusted_cmp_details(symbol, fallback_price)
+        return details["cmp"]
 
     def _ensure_contract_keys(self, item: Dict[str, Any], data_source: str = "scanner_candidates") -> Dict[str, Any]:
         """
         [RULE 67 CHANGE-RATIONALE]:
         Guarantees every row across all V2 endpoints contains all required contract keys:
-        cmp, trigger_level, distance_pct, primary_blocker, why_qualifies, tradingview_symbol, data_source.
+        cmp, cmp_source, cmp_is_live, cmp_timestamp, trigger_level, distance_pct, primary_blocker,
+        why_qualifies, tradingview_symbol, data_source.
         Missing values are set to None (JSON null), NEVER string 'undefined' or missing keys.
         """
         sym = item.get("symbol", "")
@@ -210,9 +214,13 @@ class MasterOrchestratorV2:
         item["tradingview_symbol"] = resolve_tradingview_symbol(sym)
         item["data_source"] = data_source
 
-        # CMP Central Resolution
+        # CMP Central Resolution with Provenance
         raw_cmp = item.get("cmp") or item.get("current_price") or item.get("last_seen_price") or item.get("entry_price")
-        item["cmp"] = self.get_trusted_cmp(sym, fallback_price=raw_cmp)
+        cmp_details = self.get_trusted_cmp_details(sym, fallback_price=raw_cmp)
+        item["cmp"] = cmp_details["cmp"]
+        item["cmp_source"] = cmp_details["cmp_source"]
+        item["cmp_is_live"] = cmp_details["cmp_is_live"]
+        item["cmp_timestamp"] = cmp_details["cmp_timestamp"]
 
         # Trigger Level & Distance Precedence
         trig = _sanitize_numeric(item.get("trigger_level"))
@@ -340,6 +348,61 @@ class MasterOrchestratorV2:
                 except Exception:
                     pass
 
+        # [VERSION: INVESTMENT_WATCH_FUNDAMENTALS_v2.0] [RULE 67 CHANGE-RATIONALE]
+        # Resolve all symbols using SecurityIdentityResolver to support canonical formats,
+        # then fetch and enrich Watchlists dynamically from daily_watchlist_v2.
+        # Track lookup_status with three states: RESOLVED, NOT_IN_UNIVERSE, or LOOKUP_FAILED.
+        resolved_symbols = []
+        symbol_to_canonical = {}
+        for item in inv_list:
+            sym = item.get("symbol")
+            if sym:
+                try:
+                    from security_identity_resolver import identity_resolver
+                    resolved = identity_resolver.resolve(sym)
+                    canon = resolved.canonical_symbol
+                except Exception as resolver_err:
+                    logger.debug(f"Failed to resolve symbol {sym} via SecurityIdentityResolver: {resolver_err}")
+                    canon = sym
+                symbol_to_canonical[sym] = canon
+                resolved_symbols.append(canon)
+
+        fund_map = {}
+        lookup_status = {}  # symbol -> "RESOLVED", "NOT_IN_UNIVERSE", "LOOKUP_FAILED"
+        for sym in symbol_to_canonical:
+            lookup_status[sym] = "NOT_IN_UNIVERSE"
+
+        if resolved_symbols:
+            try:
+                placeholders = ", ".join(["%s"] * len(resolved_symbols))
+                fund_query = f"""
+                    SELECT 
+                        symbol, 
+                        business_quality, 
+                        growth_quality as growth_durability, 
+                        valuation_context as valuation_score, 
+                        governance as moat_cash_quality, 
+                        quality_tier as valuation_grade,
+                        universe_quality_score as quality_score,
+                        price as cmp
+                    FROM daily_watchlist_v2
+                    WHERE symbol IN ({placeholders})
+                    ORDER BY build_date DESC
+                """
+                fund_rows = self._run_query(fund_query, params=tuple(resolved_symbols))
+                for row in fund_rows:
+                    sym = row["symbol"]
+                    if sym not in fund_map:
+                        fund_map[sym] = row
+
+                for sym, canon in symbol_to_canonical.items():
+                    if canon in fund_map:
+                        lookup_status[sym] = "RESOLVED"
+            except Exception as fund_err:
+                logger.error(f"Failed to fetch fundamentals from daily_watchlist_v2: {fund_err}")
+                for sym in symbol_to_canonical:
+                    lookup_status[sym] = "LOOKUP_FAILED"
+
         for item in inv_list:
             metadata_dict = {}
             raw_meta = item.get("metadata")
@@ -351,14 +414,30 @@ class MasterOrchestratorV2:
             elif isinstance(raw_meta, dict):
                 metadata_dict = raw_meta
 
-            item["business_quality"] = item.get("business_quality") or metadata_dict.get("business_quality") or None
-            item["growth_durability"] = item.get("growth_durability") or metadata_dict.get("growth_durability") or None
-            item["moat_cash_quality"] = item.get("moat_cash_quality") or metadata_dict.get("moat_cash_quality") or None
-            item["valuation_grade"] = item.get("valuation_grade") or metadata_dict.get("valuation_grade") or None
-            item["margin_of_safety_pct"] = item.get("margin_of_safety_pct") or metadata_dict.get("margin_of_safety_pct") or None
-            item["thesis_health"] = item.get("thesis_health") or metadata_dict.get("thesis_health") or None
+            sym = item.get("symbol")
+            canon = symbol_to_canonical.get(sym, sym)
+            fund_data = fund_map.get(canon) if sym else None
+            status_val = lookup_status.get(sym, "NOT_IN_UNIVERSE")
+
+            item["lookup_status"] = status_val
+
+            if fund_data:
+                item["business_quality"] = fund_data.get("business_quality") or "-"
+                item["growth_durability"] = fund_data.get("growth_durability") or "-"
+                item["moat_cash_quality"] = fund_data.get("moat_cash_quality") or "-"
+                item["valuation_grade"] = fund_data.get("valuation_grade") or "-"
+                item["why_qualifies"] = item.get("why_qualifies") or f"Passed Quality Checklist (Tier {fund_data.get('valuation_grade')})"
+                item["cmp"] = fund_data.get("cmp") or fund_data.get("price")
+            else:
+                item["business_quality"] = metadata_dict.get("business_quality") or "-"
+                item["growth_durability"] = metadata_dict.get("growth_durability") or "-"
+                item["moat_cash_quality"] = metadata_dict.get("moat_cash_quality") or "-"
+                item["valuation_grade"] = metadata_dict.get("valuation_grade") or "-"
+                item["why_qualifies"] = item.get("why_qualifies") or metadata_dict.get("why_qualifies") or "Passed fundamental screening checklists."
+
+            item["margin_of_safety_pct"] = item.get("margin_of_safety_pct") if "margin_of_safety_pct" in item else metadata_dict.get("margin_of_safety_pct")
+            item["thesis_health"] = item.get("thesis_health") or metadata_dict.get("thesis_health") or "HEALTHY"
             item["investment_state"] = item.get("investment_state") or item.get("status") or "WATCH"
-            item["why_qualifies"] = item.get("why_qualifies") or metadata_dict.get("why_qualifies") or None
             item["valuation_thesis"] = item.get("valuation_thesis") or metadata_dict.get("valuation_thesis") or None
             self._ensure_contract_keys(item, data_source="multibagger_engine")
 

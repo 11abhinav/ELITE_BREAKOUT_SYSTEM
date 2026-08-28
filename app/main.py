@@ -1082,34 +1082,63 @@ def run_all_seven_scanners_non_market_boot():
         ensure_watchlist_exists_for_scanners()
 
         # 3. Execute all 8 scanners sequentially one-by-one
-        for idx, (name, fn) in enumerate(all_scanners, 1):
-            if is_scanner_stopped(name):
-                logger.info(f"⏭️ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) {name} is STOPPED by Admin. Skipping.")
-                continue
-
-            logger.info(f"▶️ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) Running Scanner: {name}...")
-            start_t = time.time()
-            try:
-                import inspect
-                sig = inspect.signature(fn)
-                if "trigger_type" in sig.parameters:
-                    fn(trigger_type="NON_MARKET_BOOT", scheduler_name="NON_MARKET_BOOT")
-                else:
-                    fn()
-                dur = round(time.time() - start_t, 1)
-                logger.info(f"✅ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) {name} completed in {format_duration(dur)}.")
-            except Exception as exc:
-                dur = round(time.time() - start_t, 1)
-                logger.exception(f"❌ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) {name} failed after {format_duration(dur)}: {exc}")
-
-            time.sleep(3)
-
-        # 4. Trigger performance tracker build after all scanners finish
+        # [VERSION: BOOT_SEQUENCE_FIX_v1.0] [RULE 67 CHANGE-RATIONALE]
+        # Wrap sequence execution in try/finally to clear stale QUEUED statuses on boot batch completion.
+        # Inside the exception block, explicitly upsert health status as DOWN so exceptions do not result in stale QUEUED states.
         try:
-            from performance_tracker import trigger_performance_rebuild
-            trigger_performance_rebuild()
-        except Exception as _pt_err:
-            logger.warning(f"Post-boot scanner batch performance rebuild warning: {_pt_err}")
+            for idx, (name, fn) in enumerate(all_scanners, 1):
+                if is_scanner_stopped(name):
+                    logger.info(f"⏭️ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) {name} is STOPPED by Admin. Skipping.")
+                    continue
+
+                logger.info(f"▶️ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) Running Scanner: {name}...")
+                start_t = time.time()
+                try:
+                    import inspect
+                    sig = inspect.signature(fn)
+                    if "trigger_type" in sig.parameters:
+                        fn(trigger_type="NON_MARKET_BOOT", scheduler_name="NON_MARKET_BOOT")
+                    else:
+                        fn()
+                    dur = round(time.time() - start_t, 1)
+                    logger.info(f"✅ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) {name} completed in {format_duration(dur)}.")
+                except Exception as exc:
+                    dur = round(time.time() - start_t, 1)
+                    logger.exception(f"❌ [NON-MARKET BOOT] ({idx}/{len(all_scanners)}) {name} failed after {format_duration(dur)}: {exc}")
+                    try:
+                        upsert_scanner_health(name, status="DOWN", error_msg=f"Boot scan failed: {str(exc)[:250]}")
+                    except Exception as status_err:
+                        logger.warning(f"⚠️ Could not set health to DOWN for failed boot scanner {name}: {status_err}")
+
+                time.sleep(3)
+
+            # 4. Trigger performance tracker build after all scanners finish
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception as _pt_err:
+                logger.warning(f"Post-boot scanner batch performance rebuild warning: {_pt_err}")
+        finally:
+            try:
+                # [VERSION: BOOT_CLEANUP_CONCURRENCY_v1.0] [RULE 67 CHANGE-RATIONALE]
+                # Only reset QUEUED status to IDLE for scanners that were part of this boot sequence.
+                # Unrelated concurrent queued scanners MUST remain untouched.
+                scanner_names = [name for name, _ in all_scanners]
+                from database import get_connection
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            UPDATE scanner_health
+                            SET status = 'IDLE',
+                                error_msg = 'Boot sequence completed — status reset from QUEUED',
+                                updated_at = NOW()
+                            WHERE (status = 'QUEUED' OR status LIKE 'QUEUED%')
+                              AND scanner_name = ANY(%s);
+                        """, (scanner_names,))
+                    conn.commit()
+                logger.info("🧹 Cleaned up any remaining QUEUED statuses from boot sequence.")
+            except Exception as cleanup_err:
+                logger.warning(f"⚠️ Failed to clean up QUEUED statuses after boot sequence: {cleanup_err}")
 
         logger.info("======================================================================")
         logger.info("✅ [NON-MARKET HOURS BOOT] Completed single catch-up pass of all 8 scanners.")

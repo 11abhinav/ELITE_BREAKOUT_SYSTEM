@@ -1679,26 +1679,47 @@ def get_cached_df(symbol: str, interval: str = "1d", period: str = "1y") -> pd.D
     return None
 
 
-def get_cached_price(symbol: str) -> Optional[float]:
-    """Fast in-memory or cached price lookup for a single symbol."""
+def get_cached_price_details(symbol: str) -> Tuple[Optional[float], str, bool, Optional[str]]:
+    """
+    [VERSION: CMP_CACHE_PROVENANCE_v1.0] [RULE 67 CHANGE-RATIONALE]
+    Resolves price details including price value, provenance source, live flag, and timestamp.
+    Enables the dashboard to differentiate between real-time ticks and daily cached historical closes.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    
+    # 1. Check live prices first
     try:
         from live_prices import get_live_prices
         live_map = get_live_prices([symbol])
         if live_map and symbol in live_map:
             p = live_map[symbol]
             if p is not None and float(p) > 0:
-                return float(p)
+                now_str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S')
+                return float(p), "LIVE_TICK", True, now_str
     except Exception:
         pass
+
+    # 2. Fallback to daily close cache
     try:
         df = get_cached_df(symbol, interval="1d", period="10d")
         if df is not None and not df.empty and "Close" in df.columns:
             valid_df = df.dropna(subset=["Close"])
             if not valid_df.empty:
-                return float(valid_df["Close"].iloc[-1])
+                last_row = valid_df.iloc[-1]
+                dt = last_row.get("Datetime") or last_row.name
+                dt_str = str(dt) if dt else None
+                return float(last_row["Close"]), "DAILY_CACHE", False, dt_str
     except Exception:
         pass
-    return None
+
+    return None, "UNAVAILABLE", False, None
+
+
+def get_cached_price(symbol: str) -> Optional[float]:
+    """Fast in-memory or cached price lookup for a single symbol."""
+    price, _, _, _ = get_cached_price_details(symbol)
+    return price
 
 
 
