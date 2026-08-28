@@ -1,0 +1,669 @@
+INFO:multibagger:=================================================================
+INFO:multibagger:🚀 STARTING ELITE MULTIBAGGER SCANNER V5.0
+INFO:multibagger:=================================================================
+INFO:multibagger:🧹 Cleared fetch_promoter_pledge LRU cache for today's run.
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+INFO:perf_utils:⏱️ [MULTIBAGGER_SCANNER] STEP 1: Universe & Market Data Fetch started (Loading constituents and batch downloading prices)
+INFO:multibagger:🚀 Multibagger Scanner execution started...
+INFO:multibagger:📋 [MULTIBAGGER] Watchlist fingerprint: 50 stocks | hash=3dbec2c9eed8
+INFO:multibagger:🧪 [DEBUG MODE] Limiting scan universe to 50 symbols.
+INFO:multibagger:🚀 [BACKGROUND WORKER START] Worker='db_upload_0' | InitiatedBy='MultibaggerScanner' | Action='Uploading 1d history bundle to DB'
+INFO:perf_utils:✅ [MULTIBAGGER_SCANNER] STEP 1: Universe & Market Data Fetch complete — time taken 0.00s | Shortlisted 50 liquid stocks
+INFO:multibagger:📋 Shortlisted 50/50 liquid stocks for fundamental screening.
+INFO:perf_utils:⏱️ [MULTIBAGGER_SCANNER] STEP 2: Fundamentals DB Cache Validation started (Target: 50 stocks)
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL is not set. Skipping history bundle DB upload.
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+ERROR:multibagger:❌ [BACKGROUND WORKER FAILED] Worker='db_upload_0' | Action='Failed uploading 1d history bundle to DB'
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+INFO:multibagger:⚡ [MULTIBAGGER BULK ENRICHMENT] 50/50 stocks missing from cache. Running TradingView bulk fetch for entire universe (<3s)...
+INFO:multibagger:✅ [MULTIBAGGER BULK ENRICHMENT] Saved all 50 market universe symbols to DB cache.
+INFO:multibagger:💾 Loaded fundamentals for 50/50 shortlist stocks directly from DB cache.
+INFO:multibagger:📊 Data Integrity: 50/50 (100.0%) fundamentals loaded.
+DEBUG:price_cache:📦 Price cache partial/miss | 1d | 1y | Cached: 0, Fetching: 1
+DEBUG:price_cache:🔒 Attempting to acquire fetch lock for 1d|1y...
+DEBUG:price_cache:🔓 Fetch lock acquired for 1d|1y
+INFO:price_cache:✅ Data secured for 1/1 symbols [1d]
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+DEBUG:memory_profiler:=== [PROFILE] Price Fetch ===
+INFO:price_cache:🚀 [BACKGROUND WORKER START] Worker='db_upload_0' | InitiatedBy='macro_daily' | Action='Uploading history bundle for interval=1d to DB'
+DEBUG:memory_profiler:  Time            : 0.47s
+DEBUG:memory_profiler:  RSS Before      : 103.8 MB
+DEBUG:memory_profiler:  RSS After       : 113.2 MB
+DEBUG:memory_profiler:  RSS Delta       : +9.3 MB
+DEBUG:memory_profiler:  RSS Peak        : 113.2 MB
+DEBUG:memory_profiler:  Transient Alloc : 0.0 MB (Peak - After)
+DEBUG:memory_profiler:========== PROFILER BLOCK COMPLETE ==========
+DEBUG:memory_profiler:Block: Price Fetch
+DEBUG:memory_profiler:Execution Time: 0.5 sec
+DEBUG:memory_profiler:Memory Before: 103.8 MB
+DEBUG:memory_profiler:Memory After: 113.2 MB
+DEBUG:memory_profiler:Memory Delta: +9.3 MB
+DEBUG:memory_profiler:======================================
+DEBUG:memory_profiler:  Live DF Count   : 0 -> 0 (Delta: +0)
+DEBUG:memory_profiler:  Total DF Memory : 0.0 MB -> 0.0 MB
+DEBUG:memory_profiler:  Session Gain    : +0.0 MB
+DEBUG:memory_profiler:  Rolling Gain/Lp : +0.00 MB/loop (last 10)
+DEBUG:memory_profiler:=================================
+DEBUG:memory_profiler:=== [PROFILE] Hist Fetch ===
+DEBUG:memory_profiler:  Time            : 0.48s
+DEBUG:memory_profiler:  RSS Before      : 103.7 MB
+DEBUG:memory_profiler:  RSS After       : 113.2 MB
+DEBUG:memory_profiler:  RSS Delta       : +9.6 MB
+DEBUG:memory_profiler:  RSS Peak        : 113.2 MB
+DEBUG:memory_profiler:  Transient Alloc : 0.0 MB (Peak - After)
+DEBUG:memory_profiler:========== PROFILER BLOCK COMPLETE ==========
+DEBUG:memory_profiler:Block: Hist Fetch
+DEBUG:memory_profiler:Execution Time: 0.5 sec
+DEBUG:memory_profiler:Memory Before: 103.7 MB
+DEBUG:memory_profiler:Memory After: 113.2 MB
+DEBUG:memory_profiler:Memory Delta: +9.6 MB
+DEBUG:memory_profiler:======================================
+DEBUG:memory_profiler:  Live DF Count   : 0 -> 0 (Delta: +0)
+DEBUG:memory_profiler:  Total DF Memory : 0.0 MB -> 0.0 MB
+DEBUG:memory_profiler:  Session Gain    : +0.1 MB
+DEBUG:memory_profiler:  Rolling Gain/Lp : +0.04 MB/loop (last 10)
+DEBUG:memory_profiler:=================================
+INFO:multibagger:📊 Detected Market Regime: BEAR
+INFO:perf_utils:✅ [MULTIBAGGER_SCANNER] STEP 2: Fundamentals DB Cache Validation complete — time taken 0.61s | Loaded 50 fundamentals (50 from DB cache)
+INFO:perf_utils:⏱️ [MULTIBAGGER_SCANNER] STEP 3: V5 Quant & Fundamental Evaluation Pipeline started (Target: 50 stocks)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST15 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST49 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST18 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST41 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST5 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST4 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST46 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST8 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST16 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST26 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST23 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST50 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+DEBUG:database:DATABASE_URL is not set. Skipping history bundle DB upload.
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST47 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST39 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST33 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST6 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST13 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST3 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST48 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST20 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:price_cache:✅ [BACKGROUND WORKER COMPLETE] Worker='db_upload_0' | Action='Uploaded history bundle for interval=1d to DB' | Duration=0.28s
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST38 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST32 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST37 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST36 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST25 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST34 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST19 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST22 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST35 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST31 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST42 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST11 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST21 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST14 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST27 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST44 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST12 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST29 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST10 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST24 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST43 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST45 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST1 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST7 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST17 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST28 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST30 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST2 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 86.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST9 @ ₹100.00 (Tier: 🚀 Prime Multibagger, Score: 90.0, CQS: 95.0)
+INFO:multibagger:📍 PICKED [MULTIBAGGER: IN BETWEEN]: TEST40 @ ₹100.00 (Tier: 💎 High Quality, Score: 65.0, CQS: 95.0)
+INFO:multibagger:⏱️ [MULTIBAGGER] Batch 1/1 Timing | Fetch 50 symbols: 0.00s | Pass 1 Evaluation: 0.51s
+INFO:multibagger:🏆 [FINALIST POOL] base_n=25, cutoff_score=90.0, buffer_within=5.0pts → 1 extra → total=26
+INFO:multibagger:DEBUG PASS2: TEST15 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST18 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST5 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST4 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST8 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST16 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST26 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST23 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST6 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST13 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST3 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST20 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST25 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST19 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST22 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST11 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST21 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST14 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST12 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST10 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST24 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST1 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST7 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST17 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST9 cached=True is_deep=False
+INFO:multibagger:DEBUG PASS2: TEST2 cached=True is_deep=False
+INFO:multibagger:📥 [MULTIBAGGER PASS 2] Deep YFinance hydration for 26 finalists...
+INFO:multibagger:✅ Pass 2 Re-scored TEST22 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST17 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST9 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST24 with DEEP_V5 data (Score: 95.0)
+WARNING:multibagger:⚠️ Pass 2 YFinance fallback failed for TEST3
+INFO:multibagger:✅ Pass 2 Re-scored TEST5 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST11 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST26 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST19 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST23 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST13 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST16 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST21 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST25 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST7 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST14 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST10 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST6 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST8 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST12 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST18 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST15 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST20 with DEEP_V5 data (Score: 95.0)
+INFO:multibagger:✅ Pass 2 Re-scored TEST1 with DEEP_V5 data (Score: 70.0)
+WARNING:multibagger:⚠️ Pass 2 YFinance fallback failed for TEST4
+INFO:multibagger:✅ Pass 2 Re-scored TEST2 with DEEP_V5 data (Score: 98.0)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST2 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST15 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST18 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST5 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST8 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST16 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST26 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST23 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST6 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST13 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST20 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST25 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST19 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST22 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST11 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST21 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST14 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST12 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST10 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST24 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST7 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST17 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST9 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['roe']
+INFO:multibagger:🚫 TEST4 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+DEBUG:multibagger:[DATA_STATE] DATA_INCOMPLETE — missing critical fields: ['score']
+INFO:multibagger:🚫 TEST1 alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)
+INFO:multibagger:🏆 Top 1 valid candidates selected after Pass 2.
+INFO:multibagger:🌟 Alert Triggered for TEST3! Price=100.0. Reason: In Buy Zone
+INFO:multibagger:✅ [MULTIBAGGER] PASSED ALL FILTERS: TEST3 | cqs=95.0 | pas=95.0 | total_score=90.0 | entry=₹100.00 | last_bar=2026-08-25 | category=🚀 Prime Multibagger
+INFO:perf_utils:✅ [MULTIBAGGER_SCANNER] STEP 3: V5 Quant & Fundamental Evaluation Pipeline complete — time taken 0.84s | Evaluated 50 watchlist items
+INFO:perf_utils:⏱️ [MULTIBAGGER_SCANNER] STEP 4: Alert Persistence & Telegram Summary started (Watchlist items: 50)
+INFO:multibagger:Cursor has no connection attribute — skipping execute_values.
+INFO:multibagger:📢 Formatting Telegram messages for 50 watchlist items...
+INFO:multibagger:✅ Multibagger Scanner execution finished.
+INFO:perf_utils:✅ [MULTIBAGGER_SCANNER] STEP 4: Alert Persistence & Telegram Summary complete — time taken 0.00s | Alerts generated: 0
+INFO:perf_utils:
+================================================================================
+📊 [MULTIBAGGER_SCANNER] STAGE-BY-STAGE TIMING BREAKDOWN SUMMARY
+================================================================================
+  • STEP 1: Universe & Market Data Fetch       :   0.00s (  0.1%) (Shortlisted 50 liquid stocks)
+  • STEP 2: Fundamentals DB Cache Validation   :   0.61s ( 41.7%) (Loaded 50 fundamentals (50 from DB cache))
+  • STEP 3: V5 Quant & Fundamental Evaluation Pipeline :   0.84s ( 57.9%) (Evaluated 50 watchlist items)
+  • STEP 4: Alert Persistence & Telegram Summary :   0.00s (  0.2%) (Alerts generated: 0)
+--------------------------------------------------------------------------------
+⏱️ TOTAL WALL-CLOCK DURATION : 1.46s | Symbols Scanned: 50 | Alerts: 0
+================================================================================
+
+DEBUG:database:DATABASE_URL env var is not set — returning DummyConnection
+INFO:multibagger:🧹 [MEMORY] Multibagger Scan | RSS Before: 130.2MB | After Del: 130.2MB | After GC: 130.2MB
+Starting Gate 5 Tests...
+
+
+[TEST] Two-Pass Logic & Adversarial Scenarios...
+DEBUG RES: 3
+✅ PASS: YFinance firewall active. Only 26 finalists hydrated. 24 non-finalists spared.
+❌ FAIL: TEST2 failed to overtake despite strong deep hydration.
+✅ PASS: TEST3 correctly alerted with DEEP_V5_UNAVAILABLE.
+✅ PASS: TEST4 correctly suppressed due to DATA_INCOMPLETE.
+
+========================================
+GATE 5 SIGNAL PARITY REPORT
+========================================
+Symbols tested                 50
+Unexpected score diffs         0
+Unexpected tier diffs          0
+Unexpected alert diffs         0
+Unexpected SL/target diffs     0
+Non-finalist YF calls          24
+Finalist YF calls              26
+Lock violations                0
+RESULT                         FAIL
+========================================
