@@ -17,6 +17,7 @@ import logging
 import math
 from dataclasses import dataclass
 from typing import Optional
+from config import DATA_DIR, WATCHLIST_PATH
 
 @dataclass
 class FairValueResult:
@@ -515,6 +516,7 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
     """
     from price_cache import fetch_unified_historical
     from market_utils import is_market_open
+    from config import DATA_DIR
     import psutil
 
     # 🚀 LOCAL PARQUET COVERAGE CHECK: Only restore from DB if local disk cache is incomplete
