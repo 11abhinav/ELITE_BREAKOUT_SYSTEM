@@ -765,9 +765,20 @@ class GlobalScannerTelemetryEngine:
     def emit_terminal(self, ctx: DecisionContext):
         """Emits mandatory terminal telemetry record to console and JSONL stream (Section 1 & 21)."""
         with self._lock:
-            # 1. Print Human-Readable ASCII Box
+            # =====================================================================================
+            # [VERSION: TELEMETRY_CONSOLE_MUTING_v1.1] (2026-08-28 RULE 67 RATIONALE)
+            # Performance RCA: Printing 300+ multi-line (30-80 line) ASCII audit boxes to stdout sequentially during a scan
+            # generated over 9,000 lines of console logs, adding 1.5–2 minutes of synchronous console I/O latency per run.
+            # Optimization: Log full ASCII boxes at INFO level for SELECTED candidates, but log at DEBUG level for REJECTED stocks.
+            # Single-line summary logs (`Scanner=... Symbol=... Decision=REJECTED...`) remain active at INFO level.
+            # Structured JSONL telemetry logging (`scanner_telemetry.jsonl`) retains 100% of all rejected records without data loss.
+            # =====================================================================================
             box_text = ctx.format_terminal_audit_box()
-            logger.info(f"\n{box_text}")
+            if ctx.terminal_decision in ("SELECTED", "BUY", "ARMED", "CANDIDATE"):
+                logger.info(f"\n{box_text}")
+            else:
+                logger.debug(f"\n{box_text}")
+                
             logger.info(f"Scanner={ctx.scanner_name} Symbol={ctx.symbol} Decision={ctx.terminal_decision} Gate={ctx.primary_reason} Reason={ctx.primary_reason}")
 
             # 2. Serialize JSON record

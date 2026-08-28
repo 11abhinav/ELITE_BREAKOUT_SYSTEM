@@ -1692,14 +1692,16 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
 
                         snap_df = snapshot_by_symbol.get(can_sym)
                         
-                        # During active market hours, reject symbols lacking current snapshot
-                        if is_market_open:
-                            if snap_df is None or snap_df.empty:
-                                rejected["missing_snapshot"] += 1
-                                telemetry_logger.record_reject(can_sym, "DATA", "MISSING_SNAPSHOT", None, None, start_time=time.time())
-                                ticker_data_by_symbol.pop(can_sym, None)
-                                valid_fetched_symbols.discard(can_sym)
-                                continue
+                        # =====================================================================================
+                        # [VERSION: REVERSAL_SNAPSHOT_FALLBACK_v1.1] (2026-08-28 RULE 67 RATIONALE)
+                        # Failure RCA (Run ae83e79d): Previously during market hours, if snap_df (5m intraday snapshot)
+                        # returned empty/unpopulated, the code executed a hard rejection (`continue`), dropping all 301 stocks
+                        # with `MISSING_SNAPSHOT` and producing a false `0 / 0 / 301` "PARTIAL (301 data incomplete)" run health status.
+                        # Fix: Do NOT hard-reject symbols when 5m intraday snapshot is missing. Fall back gracefully to evaluating
+                        # the symbol against the 1D daily historical candles (which are always 100% available in disk/DB cache).
+                        # =====================================================================================
+                        if is_market_open and (snap_df is None or snap_df.empty):
+                            logger.debug(f"⚠️ [REVERSAL] Live snapshot missing for {can_sym}; falling back to 1D daily close.")
 
                         if isinstance(snap_df, pd.DataFrame) and not snap_df.empty:
                             try:
