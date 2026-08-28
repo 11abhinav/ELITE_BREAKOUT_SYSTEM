@@ -152,23 +152,26 @@ class MasterOrchestratorV2:
         }
 
     def _run_query(self, query: str, params=None) -> List[Dict[str, Any]]:
-        try:
-            from database import get_connection
-            with get_connection() as conn:
-                df = pd.read_sql_query(query, conn, params=params)
-                if df is not None and not df.empty:
-                    return df.to_dict(orient="records")
-        except Exception as e:
-            logger.debug(f"Postgres query fallback to SQLite: {e}")
-            if os.path.exists(self.db_path):
-                try:
-                    conn = sqlite3.connect(self.db_path)
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=UserWarning)
+            try:
+                from database import get_connection
+                with get_connection() as conn:
                     df = pd.read_sql_query(query, conn, params=params)
-                    conn.close()
                     if df is not None and not df.empty:
                         return df.to_dict(orient="records")
-                except Exception:
-                    pass
+            except Exception as e:
+                logger.debug(f"Postgres query fallback to SQLite: {e}")
+                if os.path.exists(self.db_path):
+                    try:
+                        conn = sqlite3.connect(self.db_path)
+                        df = pd.read_sql_query(query, conn, params=params)
+                        conn.close()
+                        if df is not None and not df.empty:
+                            return df.to_dict(orient="records")
+                    except Exception:
+                        pass
         return []
 
     def get_trusted_cmp_details(self, symbol: str, fallback_price: Optional[float] = None) -> Dict[str, Any]:
