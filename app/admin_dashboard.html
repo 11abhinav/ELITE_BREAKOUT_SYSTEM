@@ -1947,72 +1947,104 @@ var _userWatchlistData = [];
           </div>
         </div>
 
-        <!-- WEALTH KPI METRICS BAR -->
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:16px; margin-bottom:20px;">
-          <div class="card" style="padding:16px;">
-            <div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Wealth Strategy</div>
-            <div style="font-size:20px; font-weight:800; color:var(--accent); margin-top:4px;">Compounder Alpha</div>
-            <div style="font-size:12px; color:var(--win); font-weight:600; margin-top:2px;">Long-Term Wealth Accumulation</div>
+        <!-- PURPOSE BANNER -->
+        <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+          <div>
+            <div style="font-size:12px; font-weight:700; color:var(--accent); margin-bottom:4px; display:flex; align-items:center; gap:6px;">
+              <span>💡</span> WEALTH ENGINE ALLOCATION TERMINAL
+            </div>
+            <div style="font-size:12px; color:var(--muted); line-height:1.5;">
+              Multi-Bucket Fundamental Compounders (Core, Growth, Quality-On-Sale, Opportunistic). Gated by Margin of Safety & ROCE > 15%.
+            </div>
           </div>
-          <div class="card" style="padding:16px;">
-            <div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Active Allocations</div>
-            <div id="wealth-active-count" style="font-size:20px; font-weight:800; color:var(--text); margin-top:4px;">-</div>
-            <div style="font-size:12px; color:var(--muted); margin-top:2px;">Target Max: 25% Sector / 10% Stock</div>
+          <a href="/wealth" target="_blank" style="padding:10px 18px; background:linear-gradient(135deg,#00e5a0,#00b884); color:#0b0e14; border-radius:8px; font-weight:800; font-size:13px; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 4px 14px rgba(0,229,160,0.3);">
+            🚀 Open Full Standalone Wealth Terminal (/wealth)
+          </a>
+        </div>
+
+        <!-- WEALTH KPI METRICS BAR (4 CATEGORY BUCKETS) -->
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:14px; margin-bottom:20px;">
+          <div class="card" style="padding:14px;">
+            <div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Total Candidates</div>
+            <div id="wealth-active-count" style="font-size:22px; font-weight:800; color:var(--text); margin-top:4px;">-</div>
+            <div style="font-size:11px; color:var(--muted); margin-top:2px;">Active Watchlist Universe</div>
           </div>
-          <div class="card" style="padding:16px;">
-            <div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Allocation Mode</div>
-            <div style="font-size:20px; font-weight:800; color:var(--win); margin-top:4px;">DYNAMIC REBALANCING</div>
-            <div style="font-size:12px; color:var(--muted); margin-top:2px;">MoS & Valuation Gated</div>
+          <div class="card" style="padding:14px;">
+            <div style="font-size:11px; color:#10b981; font-weight:700; text-transform:uppercase;">💎 Core Bucket</div>
+            <div id="wealth-core-count" style="font-size:22px; font-weight:800; color:#10b981; margin-top:4px;">-</div>
+            <div style="font-size:11px; color:var(--muted); margin-top:2px;">Max 15 Stocks (High ROCE)</div>
+          </div>
+          <div class="card" style="padding:14px;">
+            <div style="font-size:11px; color:#3b82f6; font-weight:700; text-transform:uppercase;">🚀 Growth Bucket</div>
+            <div id="wealth-growth-count" style="font-size:22px; font-weight:800; color:#3b82f6; margin-top:4px;">-</div>
+            <div style="font-size:11px; color:var(--muted); margin-top:2px;">Max 10 Stocks (High YoY)</div>
+          </div>
+          <div class="card" style="padding:14px;">
+            <div style="font-size:11px; color:#f59e0b; font-weight:700; text-transform:uppercase;">🏷️ Quality On Sale</div>
+            <div id="wealth-sale-count" style="font-size:22px; font-weight:800; color:#f59e0b; margin-top:4px;">-</div>
+            <div style="font-size:11px; color:var(--muted); margin-top:2px;">Max 5 Stocks (PEG & Value)</div>
+          </div>
+          <div class="card" style="padding:14px;">
+            <div style="font-size:11px; color:#a855f7; font-weight:700; text-transform:uppercase;">⚡ Opportunistic</div>
+            <div id="wealth-opp-count" style="font-size:22px; font-weight:800; color:#a855f7; margin-top:4px;">-</div>
+            <div style="font-size:11px; color:var(--muted); margin-top:2px;">Max 10 Stocks (Turnaround)</div>
           </div>
         </div>
 
-        <!-- PORTFOLIO ACTIONS TABLE -->
+        <!-- WEALTH BUY ALERTS TABLE -->
         <div class="card" style="padding:20px; margin-bottom:20px;">
           <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
-            <span>💼 Portfolio Actions (Wealth Allocation Engine)</span>
-            <button class="refresh-btn" onclick="loadWealthEngineTab(true)">🔄 Refresh Actions</button>
+            <span>⚡ Active Wealth BUY Alerts (Logged Entries)</span>
+            <button class="refresh-btn" onclick="loadWealthEngineTab(true)">🔄 Refresh</button>
           </div>
           <div class="tbl-wrap">
-            <table id="tbl-portfolio-actions">
+            <table id="tbl-wealth-alerts">
               <thead>
                 <tr>
                   <th>Symbol</th>
                   <th>Chart</th>
-                  <th>CMP</th>
-                  <th>Action</th>
-                  <th>Target Pos %</th>
-                  <th>Current Pos %</th>
-                  <th>Sector</th>
-                  <th>Sector Exp %</th>
-                  <th>Risk Budget %</th>
-                  <th>Valuation Status</th>
-                  <th>Confirmations</th>
-                  <th>Confluence Tier</th>
+                  <th>Alert Price</th>
+                  <th>Current CMP</th>
+                  <th>Position %</th>
+                  <th>Position Amount</th>
+                  <th>Bucket</th>
+                  <th>FM Score</th>
+                  <th>Status</th>
                 </tr>
               </thead>
-              <tbody id="wealth-portfolio-actions-tbody">
-                <tr><td colspan="12" style="text-align:center; padding:20px; color:var(--muted);">Loading Wealth Portfolio Actions...</td></tr>
+              <tbody id="wealth-alerts-tbody">
+                <tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">Loading Wealth Buy Alerts...</td></tr>
               </tbody>
             </table>
           </div>
         </div>
 
-        <!-- WEALTH HOLDINGS & WATCHLIST TABLE -->
+        <!-- WEALTH HOLDINGS & MULTI-CATEGORY WATCHLIST TABLE -->
         <div class="card" style="padding:20px; margin-bottom:20px;">
-          <div class="card-title">💎 Wealth Watchlist & Holding Candidates</div>
+          <div class="card-title" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <span>💎 Multi-Category Watchlist Candidates</span>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;" id="wealth-bucket-filter-btns">
+              <button onclick="filterWealthCategory('ALL')" class="btn-sm" style="padding:4px 10px; background:var(--accent); color:#000; font-weight:700; border:none; border-radius:6px; font-size:11px; cursor:pointer;">ALL</button>
+              <button onclick="filterWealthCategory('Core')" class="btn-sm" style="padding:4px 10px; background:var(--card2); color:var(--text); border:1px solid var(--border); border-radius:6px; font-size:11px; cursor:pointer;">💎 Core</button>
+              <button onclick="filterWealthCategory('Growth')" class="btn-sm" style="padding:4px 10px; background:var(--card2); color:var(--text); border:1px solid var(--border); border-radius:6px; font-size:11px; cursor:pointer;">🚀 Growth</button>
+              <button onclick="filterWealthCategory('Quality-On-Sale')" class="btn-sm" style="padding:4px 10px; background:var(--card2); color:var(--text); border:1px solid var(--border); border-radius:6px; font-size:11px; cursor:pointer;">🏷️ Quality On Sale</button>
+              <button onclick="filterWealthCategory('Opportunistic')" class="btn-sm" style="padding:4px 10px; background:var(--card2); color:var(--text); border:1px solid var(--border); border-radius:6px; font-size:11px; cursor:pointer;">⚡ Opportunistic</button>
+              <button onclick="filterWealthCategory('BUY')" class="btn-sm" style="padding:4px 10px; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); border-radius:6px; font-weight:700; font-size:11px; cursor:pointer;">🎯 BUY Signals Only</button>
+            </div>
+          </div>
           <div class="tbl-wrap">
             <table id="tbl-wealth-holdings">
               <thead>
                 <tr>
                   <th>Symbol</th>
                   <th>Chart</th>
-                  <th>Score</th>
+                  <th>FM Score</th>
+                  <th>Mom Score</th>
                   <th>CMP</th>
-                  <th>Buy Price</th>
-                  <th>P&L %</th>
-                  <th>Allocation %</th>
-                  <th>Thesis Health</th>
-                  <th>Status</th>
+                  <th>6M RS</th>
+                  <th>Bucket</th>
+                  <th>Sector</th>
+                  <th>Signal / Action</th>
                 </tr>
               </thead>
               <tbody id="wealth-holdings-tbody">
@@ -8897,32 +8929,126 @@ function loadWealthEngineTab(forceRefresh) {
     })
     .catch(e => console.warn('Failed to load portfolio actions:', e));
 
+  // Fetch Wealth Buy Alerts logged entries
+  fetch('/api/wealth/alerts?today=false')
+    .then(r => r.json())
+    .then(alerts => {
+      const tbody = document.getElementById('wealth-alerts-tbody');
+      if (!tbody) return;
+      if (!Array.isArray(alerts) || alerts.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">No active Wealth buy alerts recorded.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = alerts.map(a => `
+        <tr>
+          <td style="font-weight:700; color:var(--accent);">${formatText(a.symbol)}</td>
+          <td>${formatTvLink(a.symbol, a.symbol)}</td>
+          <td style="font-weight:700; color:var(--text);">${formatPrice(a.alert_price)}</td>
+          <td style="font-weight:700; color:var(--text);">${formatPrice(a.current_price || a.alert_price)}</td>
+          <td style="color:var(--accent); font-weight:700;">${a.position_pct ? (parseFloat(a.position_pct) * 100).toFixed(1) + '%' : '-'}</td>
+          <td style="color:var(--win); font-weight:700;">${a.position_amount ? '₹' + Math.round(a.position_amount).toLocaleString('en-IN') : '-'}</td>
+          <td><span class="badge-ok">${formatText(a.portfolio_bucket || 'Core')}</span></td>
+          <td>${formatText(a.fm_score ? a.fm_score.toFixed(1) : '-')}</td>
+          <td><span class="badge-ok">${formatText(a.status || 'ACTIVE')}</span></td>
+        </tr>
+      `).join('');
+    })
+    .catch(e => console.warn('Failed to load wealth buy alerts:', e));
+
   fetch('/api/wealth')
     .then(r => r.json())
     .then(data => {
       const tbody = document.getElementById('wealth-holdings-tbody');
       const countEl = document.getElementById('wealth-active-count');
-      if (countEl && Array.isArray(data)) countEl.innerText = data.length;
-      if (!tbody) return;
-      if (!Array.isArray(data) || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">No wealth compounder candidates currently active.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = data.map(item => `
-        <tr>
-          <td style="font-weight:700; color:var(--accent);">${formatText(item.Stock || item.symbol)}</td>
-          <td>${formatTvLink(item.tradingview_symbol, item.Stock || item.symbol)}</td>
-          <td>${formatText(item.score || item.quality_score)}</td>
-          <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp || item.Close || item.close)}</td>
-          <td>${formatPrice(item.buy_price || item.entry_price)}</td>
-          <td style="color:${(item.pnl_pct || 0) >= 0 ? 'var(--win)' : 'var(--loss)'}; font-weight:700;">${formatPct(item.pnl_pct)}</td>
-          <td>${formatPct(item.allocation_pct || item.weight_pct || 5.0)}</td>
-          <td>${formatText(item.thesis_health || 'HEALTHY')}</td>
-          <td><span class="badge-ok">${formatText(item.status || 'HOLDING')}</span></td>
-        </tr>
-      `).join('');
+      const coreEl = document.getElementById('wealth-core-count');
+      const growthEl = document.getElementById('wealth-growth-count');
+      const saleEl = document.getElementById('wealth-sale-count');
+      const oppEl = document.getElementById('wealth-opp-count');
+
+      const items = Array.isArray(data) ? data : (data.data || []);
+      if (countEl) countEl.innerText = items.length;
+
+      let cCount = 0, gCount = 0, sCount = 0, oCount = 0;
+      items.forEach(i => {
+        const b = String(i.Portfolio_Bucket || '');
+        if (b.includes('Core') || i.Core_Selected) cCount++;
+        if (b.includes('Growth')) gCount++;
+        if (b.includes('Quality-On-Sale')) sCount++;
+        if (b.includes('Opportunistic')) oCount++;
+      });
+
+      if (coreEl) coreEl.innerText = cCount;
+      if (growthEl) growthEl.innerText = gCount;
+      if (saleEl) saleEl.innerText = sCount;
+      if (oppEl) oppEl.innerText = oCount;
+
+      window.ALL_WEALTH_HOLDINGS_CACHE = items;
+      renderWealthHoldingsTable(items, window.ACTIVE_WEALTH_CATEGORY || 'ALL');
     })
     .catch(e => console.warn('Failed to load wealth engine data:', e));
+}
+
+function filterWealthCategory(cat) {
+  window.ACTIVE_WEALTH_CATEGORY = cat;
+  const btns = document.querySelectorAll('#wealth-bucket-filter-btns button');
+  btns.forEach(b => {
+    b.style.background = 'var(--card2)';
+    b.style.color = 'var(--text)';
+    b.style.border = '1px solid var(--border)';
+  });
+  event.target.style.background = 'var(--accent)';
+  event.target.style.color = '#000';
+  event.target.style.fontWeight = '700';
+  renderWealthHoldingsTable(window.ALL_WEALTH_HOLDINGS_CACHE || [], cat);
+}
+
+function renderWealthHoldingsTable(items, filterBucket) {
+  const tbody = document.getElementById('wealth-holdings-tbody');
+  if (!tbody) return;
+
+  let filtered = items;
+  if (filterBucket && filterBucket !== 'ALL') {
+    filtered = items.filter(i => {
+      const b = String(i.Portfolio_Bucket || '');
+      if (filterBucket === 'BUY') return (i.Signal || i.Signal_Code || '').includes('BUY');
+      if (filterBucket === 'Core') return b.includes('Core') || i.Core_Selected;
+      return b.includes(filterBucket);
+    });
+  }
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">No stocks matching selected bucket '${filterBucket || 'ALL'}'.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(item => {
+    const score = item.FM_Score ? parseFloat(item.FM_Score).toFixed(1) : (item.score ? parseFloat(item.score).toFixed(1) : '-');
+    const momScore = item.momentum_score !== undefined ? item.momentum_score : '-';
+    const cmp = item.cmp || item.Close || item.close || 0;
+    const rs6m = item.rs_6m !== undefined && item.rs_6m !== null ? parseFloat(item.rs_6m).toFixed(1) + '%' : '-';
+    const bucket = item.Portfolio_Bucket || (item.Core_Selected ? 'Core' : '-');
+    const sector = item.Sector || item.sector || 'Unknown';
+    const signal = item.Signal || item.Signal_Code || 'HOLD';
+
+    let sigStyle = "color:var(--text);";
+    if (signal.includes("BUY")) sigStyle = "color:var(--win); font-weight:800;";
+    else if (signal.includes("SELL")) sigStyle = "color:var(--loss); font-weight:800;";
+    else if (signal.includes("WATCH")) sigStyle = "color:var(--accent); font-weight:700;";
+
+    return `
+      <tr>
+        <td style="font-weight:700; color:var(--accent);">${formatText(item.Stock || item.symbol)}</td>
+        <td>${formatTvLink(item.tradingview_symbol, item.Stock || item.symbol)}</td>
+        <td style="font-weight:700; font-family:var(--font-mono);">${score}</td>
+        <td style="font-weight:700; font-family:var(--font-mono);">${momScore}</td>
+        <td style="font-weight:700; color:var(--text);">${formatPrice(cmp)}</td>
+        <td style="font-family:var(--font-mono);">${rs6m}</td>
+        <td><span class="badge-ok" style="font-size:10px;">${formatText(bucket)}</span></td>
+        <td>${formatText(sector)}</td>
+        <td style="${sigStyle}">${formatText(signal)}</td>
+      </tr>
+    `;
+  }).join('');
 }
 
 function loadConfluenceMatrixTab() {
