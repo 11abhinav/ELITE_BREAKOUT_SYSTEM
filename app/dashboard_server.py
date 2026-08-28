@@ -1382,6 +1382,78 @@ def get_v2_universe_health():
     return jsonify({"build_date": "N/A", "metrics": []})
 
 
+@app.route("/api/v2/universe_data")
+@login_required
+def get_v2_universe_data():
+    tier = request.args.get("tier")
+    if not tier or tier not in ["ELITE", "NEAR_QUALIFIED", "EXCLUDED"]:
+        return jsonify({"error": "Invalid tier specified"}), 400
+        
+    try:
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                if tier in ["ELITE", "NEAR_QUALIFIED"]:
+                    cur.execute("SELECT MAX(build_date) FROM daily_watchlist_v2")
+                    latest_date = cur.fetchone()[0]
+                    if latest_date:
+                        cur.execute("""
+                            SELECT symbol, universe_quality_score, data_confidence, business_quality, near_qualified_mode
+                            FROM daily_watchlist_v2 
+                            WHERE universe_status = %s AND build_date = %s
+                            ORDER BY universe_quality_score DESC
+                        """, (tier, latest_date))
+                        
+                        columns = ["symbol", "score", "confidence", "business_quality", "nq_mode"]
+                        data = [dict(zip(columns, row)) for row in cur.fetchall()]
+                        return jsonify({"data": data})
+                    
+                else: # EXCLUDED
+                    cur.execute("SELECT MAX(build_date) FROM daily_excluded_watchlist_v2")
+                    latest_date = cur.fetchone()[0]
+                    if latest_date:
+                        cur.execute("""
+                            SELECT symbol, universe_quality_score, primary_exclusion_code, exclusion_class
+                            FROM daily_excluded_watchlist_v2
+                            WHERE build_date = %s
+                            ORDER BY universe_quality_score DESC NULLS LAST
+                        """, (latest_date,))
+                        
+                        columns = ["symbol", "score", "primary_exclusion_code", "exclusion_class"]
+                        data = [dict(zip(columns, row)) for row in cur.fetchall()]
+                        return jsonify({"data": data})
+    except Exception as e:
+        logger.warning(f"DB universe data query failed for {tier}: {e}")
+
+    # Fallback to local parquet/CSV
+    try:
+        import os, pandas as pd
+        from config import DATA_DIR, WATCHLIST_PATH
+        if tier == "ELITE" and os.path.exists(WATCHLIST_PATH):
+            df = pd.read_parquet(WATCHLIST_PATH).fillna("")
+            cols = ["symbol", "universe_quality_score", "data_confidence", "business_quality"]
+            data = df[[c for c in cols if c in df.columns]].rename(columns={"universe_quality_score": "score", "data_confidence": "confidence"}).to_dict('records')
+            return jsonify({"data": data})
+        elif tier == "NEAR_QUALIFIED":
+            p = os.path.join(DATA_DIR, "near_qualified_v2.parquet")
+            if os.path.exists(p):
+                df = pd.read_parquet(p).fillna("")
+                cols = ["symbol", "universe_quality_score", "data_confidence", "business_quality", "near_qualified_mode"]
+                data = df[[c for c in cols if c in df.columns]].rename(columns={"universe_quality_score": "score", "data_confidence": "confidence", "near_qualified_mode": "nq_mode"}).to_dict('records')
+                return jsonify({"data": data})
+        elif tier == "EXCLUDED":
+            p = os.path.join(DATA_DIR, "elite_fundamental_watchlist_excluded.csv")
+            if os.path.exists(p):
+                df = pd.read_csv(p).fillna("")
+                cols = ["symbol", "universe_quality_score", "primary_exclusion_code", "exclusion_class"]
+                data = df[[c for c in cols if c in df.columns]].rename(columns={"universe_quality_score": "score"}).to_dict('records')
+                return jsonify({"data": data})
+    except Exception as e:
+        logger.warning(f"Fallback universe data failed for {tier}: {e}")
+        
+    return jsonify({"data": []})
+
+
 
 def _detect_git_commit_hash() -> str:
     env_commit = os.getenv("GIT_COMMIT") or os.getenv("COOLIFY_COMMIT_SHA") or os.getenv("COMMIT_SHA")
