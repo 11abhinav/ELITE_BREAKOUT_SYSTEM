@@ -276,17 +276,16 @@ def worker_loop():
             
             def process_symbol(sym, i_total, is_retry=False):
                 """Returns 'FOUND', 'MISSING', '404', or 'ERROR'."""
-                target_url = discover_trendlyne_url(sym) or f"https://trendlyne.com/stock/{sym.replace('.NS', '')}/"
-                prefix = "[RETRY]" if is_retry else f"[{i_total}/{len(stale_symbols)}]"
-                logger.info(f"{prefix} Scraping pledge for {sym} at {target_url}")
-                
                 from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
                 scraper_key = get_scraper_api_key()
                 
                 if not scraper_key:
-                    logger.error(f"❌ ScraperAPI key exhausted or missing during processing {sym}")
                     return "QUOTA_EXHAUSTED"
                     
+                target_url = discover_trendlyne_url(sym) or f"https://trendlyne.com/stock/{sym.replace('.NS', '')}/"
+                prefix = "[RETRY]" if is_retry else f"[{i_total}/{len(stale_symbols)}]"
+                logger.info(f"{prefix} Scraping pledge for {sym} at {target_url}")
+                
                 res = None
                 
                 # Try ScraperAPI
