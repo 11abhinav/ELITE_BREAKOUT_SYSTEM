@@ -144,15 +144,7 @@ def worker_loop():
     init_db()
     iteration = 0
     
-    from pledge_scraper import get_scraper_api_key
-    if not get_scraper_api_key():
-        logger.error("❌ SCRAPERAPI_KEY env var not set. Scraper daemon will pause.")
-        while True:
-            try:
-                upsert_scanner_health("Pledge Worker", "DOWN", error_msg="Proxy API keys (ScraperAPI) not set")
-            except Exception:
-                pass
-            time.sleep(3600)
+
 
     while True:
         iteration += 1
