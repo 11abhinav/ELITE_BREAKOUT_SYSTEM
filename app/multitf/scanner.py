@@ -15,7 +15,8 @@ from typing import Dict, Any
 from config import MULTI_TF_V2_CONFIG
 from database import get_elite_watchlist, save_alert_if_new
 from opportunity_manager import OpportunityManager
-from signal_contract import ScannerExecutionContract
+from lock_utils import ProcessLock
+from database import upsert_scanner_health
 from data_layer import fetch_watchlist_data
 
 from multitf.data import load_multitf_data
@@ -36,21 +37,36 @@ from multitf.candidate import build_watchlist_candidate, build_confirmed_payload
 from sl_target_helper import compute_sl_and_target
 
 logger = logging.getLogger("multitf.scanner")
-_scan_lock = ScannerExecutionContract("MULTI_TF_V2")
+_scan_lock = ProcessLock("MULTI_TF_V2")
 
 
 def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str = "SCHEDULED"):
     """
     Main entry point for MULTI_TF V2.
     """
-    if not _scan_lock.acquire():
+    if not _scan_lock.acquire(blocking=False):
         logger.warning("[MULTI_TF_V2] Scanner is already running. Skipping cycle.")
         return
 
+    start_time = time.monotonic()
+    
     try:
+        upsert_scanner_health(
+            scanner_name="MULTI_TF_V2",
+            status="RUNNING",
+            error_msg="Scan execution in progress..."
+        )
+        
         watchlist = get_elite_watchlist()
         if not watchlist:
             logger.warning("[MULTI_TF_V2] Watchlist empty.")
+            upsert_scanner_health(
+                scanner_name="MULTI_TF_V2",
+                status="OK",
+                outcome="SUCCESS",
+                processed_count=0,
+                duration_seconds=round(time.monotonic() - start_time, 2)
+            )
             return
 
         logger.info("[MULTI_TF_V2] Pre-fetching data for %d symbols...", len(watchlist))
@@ -88,7 +104,28 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
         except Exception as e:
             logger.error("[MULTI_TF_V2] OpportunityManager failed to process: %s", e)
 
-        _scan_lock.release_success(len(watchlist))
+        duration = round(time.monotonic() - start_time, 2)
+        upsert_scanner_health(
+            scanner_name="MULTI_TF_V2",
+            status="OK",
+            outcome="SUCCESS",
+            processed_count=len(watchlist),
+            total_count=len(watchlist),
+            duration_seconds=duration
+        )
+
+    except Exception as exc:
+        duration = round(time.monotonic() - start_time, 2)
+        logger.error("[MULTI_TF_V2] Fatal error: %s", exc)
+        upsert_scanner_health(
+            scanner_name="MULTI_TF_V2",
+            status="DOWN",
+            outcome="FAILED",
+            error_msg=str(exc),
+            duration_seconds=duration
+        )
+    finally:
+        _scan_lock.release()
 
     except Exception as exc:
         logger.error("[MULTI_TF] Fatal scanner error: %s", exc)
