@@ -455,6 +455,8 @@ def init_db():
                         bayesian_weights JSONB,
                         data_partition TEXT DEFAULT 'TRAIN',
                         structural_failure_stop REAL,
+                        entry_mode TEXT DEFAULT 'LEGACY_UNKNOWN',
+                        actual_entry_price REAL,
                         execution_state TEXT DEFAULT 'PENDING_ENTRY',
                         target_quality_score REAL,
                         seen_by_user BOOLEAN DEFAULT FALSE,
@@ -495,6 +497,17 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_date ON alerts(alert_date)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_symbol_date ON alerts(symbol, alert_date)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_cooldown ON alerts(symbol, scanner, breakout_type, alert_time DESC)")
+                
+                # [MIGRATION]: Add entry_mode and actual_entry_price to existing tables
+                try:
+                    cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS entry_mode TEXT DEFAULT 'LEGACY_UNKNOWN';")
+                    cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS actual_entry_price REAL;")
+                    # Scanner-aware migration
+                    cur.execute("UPDATE alerts SET entry_mode = 'BREAKOUT_TRIGGER' WHERE scanner = 'ACCUMULATION' AND entry_mode = 'LEGACY_UNKNOWN';")
+                    cur.execute("UPDATE alerts SET entry_mode = 'LIMIT_PULLBACK' WHERE scanner = 'PULLBACK' AND entry_mode = 'LEGACY_UNKNOWN';")
+                    cur.execute("UPDATE alerts SET entry_mode = 'MARKET' WHERE scanner IN ('EOD', 'MULTI_TF', 'MULTIBAGGER', 'REVERSAL') AND entry_mode = 'LEGACY_UNKNOWN';")
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to migrate entry_mode column: {e}")
 
                 # [RULE 67 CHANGE-RATIONALE]:
                 # Consolidate candidate_tracker schema requirements directly inside database.py.
@@ -2235,6 +2248,8 @@ def save_alert_if_new(
     cash_in_hand: float = None,
     structural_failure_stop: float = None,
     target_quality_score: float = None,
+    entry_mode: str = "MARKET",
+    actual_entry_price: float = None,
     conn = None,
     **kwargs
 ) -> tuple[bool, str, float, int]:
@@ -2293,14 +2308,14 @@ def save_alert_if_new(
                 entry_price, stop_loss, initial_stop_loss, target_price, target_1, target_2, target_3, target_4,
                 signals, score, rsi, volume_ratio, status, context, capital_allocated, shares_bought, remaining_shares,
                 model_version, bayesian_regime, bayesian_weights, data_partition, cash_in_hand, current_price,
-                structural_failure_stop, target_quality_score, execution_state)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING_ENTRY')
+                structural_failure_stop, target_quality_score, entry_mode, actual_entry_price, execution_state)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING_ENTRY')
             RETURNING id;
         """, (symbol, breakout_type, alert_time, datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d'), scanner, category,
             entry_price, stop_loss, stop_loss, target_price, target_1, target_2, target_3, target_4,
             signals, score, rsi, volume_ratio, context_str, capital_allocated, shares_bought, shares_bought,
             model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0, entry_price,
-            structural_failure_stop, target_quality_score))
+            structural_failure_stop, target_quality_score, entry_mode, actual_entry_price))
         row = cur.fetchone()
         inserted = (row is not None) or (getattr(cur, "rowcount", 0) > 0)
         commit_cb()

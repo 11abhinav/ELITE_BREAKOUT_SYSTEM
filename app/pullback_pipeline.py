@@ -1189,7 +1189,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             sector_bonus=sector_bonus_val,
             rs_percentile=rs_pct_val,
             sector_name=sector_name_val,
-            regime_score=float(MarketRegimeEngine.get_regime_context().get("market_score", 80.0))
+            regime_score=float(MarketRegimeEngine.get_regime_context().get("market_score", 80.0)),
+            entry_mode="LIMIT_PULLBACK"
         )
 
         if saved:

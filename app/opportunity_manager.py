@@ -230,9 +230,9 @@ class OpportunityManager:
                             **(c.get("context") or {}),
                             "portfolio_funded": True,
                             "ranking": c.get("ranking_breakdown"),
-                            "freshness_score": c.get("freshness_score"),
                             "allocation": c.get("allocation"),
                         },
+                        entry_mode=c.get("entry_mode", "MARKET"),
                     )
                     
                     if not inserted:

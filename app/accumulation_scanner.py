@@ -471,7 +471,8 @@ class AccumulationScanner:
                             target_3=sl_tgt["target_3"],
                             signals=state,
                             score=int(score),
-                            context={"audit_snapshot_id": snapshot_id, "scores_breakdown": res["scores_breakdown"]}
+                            context={"audit_snapshot_id": snapshot_id, "scores_breakdown": res["scores_breakdown"]},
+                            entry_mode="BREAKOUT_TRIGGER"
                         )
                         
                         # 2. OpportunityManager Dispatch (if tradeable)
@@ -486,7 +487,8 @@ class AccumulationScanner:
                                 "stop_loss": sl_tgt["stop_loss"],
                                 "target": sl_tgt["target_1"],
                                 "rr_ratio": sl_tgt["rr_1"],
-                                "metadata": res["scores_breakdown"]
+                                "metadata": res["scores_breakdown"],
+                                "entry_mode": "BREAKOUT_TRIGGER"
                             }
                             opp_manager.add(payload)
                             logger.info(f"   -> Dispatched {sym} to OpportunityManager.")

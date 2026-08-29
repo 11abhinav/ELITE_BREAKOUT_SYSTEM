@@ -229,8 +229,11 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     exit_config = [exit_config_dict["t1"], exit_config_dict["t2"], exit_config_dict["t3"]]
     
     execution_state = t.get("execution_state")
-    if not execution_state or execution_state == "PENDING_ENTRY":
+    if not execution_state:
         execution_state = "OPEN"
+    
+    entry_mode = t.get("entry_mode", "LEGACY_UNKNOWN")
+    actual_entry_price = t.get("actual_entry_price")
     
     structural_failure_stop = t.get("structural_failure_stop")
 
@@ -243,8 +246,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
         else:
             t["stop_loss"] = initial_sl
             
-        t["status"] = "OPEN"
-        execution_state = "OPEN"
+        t["status"] = "OPEN" if execution_state != "PENDING_ENTRY" else "PENDING_ENTRY"
         t["remaining_shares"] = shares_bought
         hist_list = []
         t["exit_history"] = "[]"
@@ -265,7 +267,14 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     if cur_p:
         now_str = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
         ticks.append((now_str, cur_p, cur_p, cur_p, cur_p, 0.0))
-        
+    # ── State Validation ──
+    if execution_state == "OPEN" and actual_entry_price is None:
+        logger.error(f"❌ [PERF_TRACKER] DATA_INTEGRITY_ERROR: {symbol} is OPEN but missing actual_entry_price. Safe-rejecting evaluation.")
+        return
+    if execution_state == "PENDING_ENTRY" and actual_entry_price is not None:
+        logger.error(f"❌ [PERF_TRACKER] DATA_INTEGRITY_ERROR: {symbol} is PENDING_ENTRY but has actual_entry_price populated. Safe-rejecting evaluation.")
+        return
+
     for ts_str, open_p, low, high, close_p, vol in ticks:
         if t["status"] in ("WIN", "LOSS", "CLOSED", "REJECTED"):
             break
@@ -275,15 +284,63 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
         # [VERSION: NULL_REM_SHARES_HOTFIX_v1.0] Defensive fallback for NULL remaining_shares
         rem_shares = t.get("remaining_shares") if t.get("remaining_shares") is not None else t.get("shares_bought", 0)
         
+        # ── 1. ENTRY TRIGGER ──────────────────────────────────────────────────
+        # CONSERVATIVE SAME-BAR COLLISION POLICY:
+        # Daily OHLC cannot distinguish chronological order of high vs low.
+        # If both entry trigger (high) and SL (low) are hit on the same day:
+        # We process entry FIRST, then allow SL to evaluate on the SAME bar.
+        # This guarantees we assume the worst-case scenario (taking the loss).
+        if execution_state == "PENDING_ENTRY":
+            is_triggered = False
+            fill_price = None
+            
+            if entry_mode == "BREAKOUT_TRIGGER":
+                if high >= t["entry_price"]:
+                    is_triggered = True
+                    fill_price = max(t["entry_price"], open_p)
+            elif entry_mode == "LIMIT_PULLBACK":
+                if low <= t["entry_price"]:
+                    is_triggered = True
+                    fill_price = min(t["entry_price"], open_p)
+            elif entry_mode == "MARKET" or entry_mode == "LEGACY_UNKNOWN":
+                logger.error(f"❌ [PERF_TRACKER] INVALID_ENTRY_STATE: {symbol} has entry_mode={entry_mode} but execution_state=PENDING_ENTRY. Safe-rejecting transition to OPEN.")
+                # Flag as invalid and continue without transitioning
+                continue
+            
+            if is_triggered and fill_price is not None:
+                # The condition happened! Transition to OPEN and continue evaluation.
+                execution_state = "OPEN"
+                t["status"] = "OPEN"
+                t["execution_state"] = "OPEN"
+                t["actual_entry_price"] = fill_price
+                actual_entry_price = fill_price
+                if "ENTRY_TRIGGERED" not in db_events:
+                    try:
+                        from database import get_connection
+                        with get_connection() as conn:
+                            with conn.cursor() as cur:
+                                cur.execute("UPDATE alerts SET execution_state = 'OPEN', status = 'OPEN', actual_entry_price = %s WHERE id = %s", (fill_price, t["id"]))
+                    except Exception as e:
+                        logger.error(f"❌ [PERF_TRACKER] DB UPDATE FAILED for ENTRY_TRIGGERED {symbol}: {e}")
+                # Add an entry event
+                event = {"type": "ENTRY_TRIGGERED", "price": fill_price, "shares": rem_shares, "pnl": 0.0, "time": ts_str}
+                hist_list.append(event)
+                t["exit_history"] = json.dumps(hist_list)
+            else:
+                # Still waiting for entry condition, skip all exit logic for this tick
+                continue
+        
+        effective_entry = t.get("actual_entry_price") or t["entry_price"]
+        
         # 0. Gap Risk Tracking
         if execution_state == "OPEN" and open_p < sl:
             exit_p = open_p
-            pnl_rs_event = rem_shares * (exit_p - t["entry_price"])
+            pnl_rs_event = rem_shares * (exit_p - effective_entry)
             event = {"type": "GAP_LOSS", "price": exit_p, "shares": rem_shares, "pnl": round(pnl_rs_event, 2), "time": ts_str}
             
             hist_list.append(event)
             total_pnl_rs = sum(e["pnl"] for e in hist_list)
-            cap = t.get("capital_allocated") or (float(t.get("entry_price") or 0.0) * float(t.get("shares_bought") or 0.0))
+            cap = t.get("capital_allocated") or (float(effective_entry or 0.0) * float(t.get("shares_bought") or 0.0))
             total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
             
             execution_state = "GAP_LOSS"
@@ -311,7 +368,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
 
 
             exit_p = open_p if open_p < sl else sl
-            pnl_rs_event = rem_shares * (exit_p - t["entry_price"])
+            pnl_rs_event = rem_shares * (exit_p - effective_entry)
             event = {"type": "SL_HIT", "price": exit_p, "shares": rem_shares, "pnl": round(pnl_rs_event, 2), "time": ts_str}
             
             final_status = "WIN" if "PARTIAL" in status else "LOSS"
@@ -319,7 +376,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             
             hist_list.append(event)
             total_pnl_rs = sum(e["pnl"] for e in hist_list)
-            cap = t.get("capital_allocated") or (float(t.get("entry_price") or 0.0) * float(t.get("shares_bought") or 0.0))
+            cap = t.get("capital_allocated") or (float(effective_entry or 0.0) * float(t.get("shares_bought") or 0.0))
             total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
             
             if "SL_HIT" not in db_events:
@@ -342,7 +399,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
         # 1.5 Evaluate Structural Failure Stop (Closing Basis Early Exit)
         if structural_failure_stop and close_p <= structural_failure_stop:
             exit_p = close_p
-            pnl_rs_event = rem_shares * (exit_p - t["entry_price"])
+            pnl_rs_event = rem_shares * (exit_p - effective_entry)
             event = {"type": "STRUCT_FAIL", "price": exit_p, "shares": rem_shares, "pnl": round(pnl_rs_event, 2), "time": ts_str}
             
             final_status = "WIN" if "PARTIAL" in status else "LOSS"
@@ -350,7 +407,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             
             hist_list.append(event)
             total_pnl_rs = sum(e["pnl"] for e in hist_list)
-            cap = t.get("capital_allocated") or (float(t.get("entry_price") or 0.0) * float(t.get("shares_bought") or 0.0))
+            cap = t.get("capital_allocated") or (float(effective_entry or 0.0) * float(t.get("shares_bought") or 0.0))
             total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
             
             if "STRUCT_FAIL" not in db_events:
@@ -381,12 +438,12 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 shares_to_sell = int(shares_bought * (exit_config[0] / 100.0))
                 if shares_to_sell == 0: shares_to_sell = rem_shares
             
-            pnl_rs_event = shares_to_sell * (exit_p - t["entry_price"])
+            pnl_rs_event = shares_to_sell * (exit_p - effective_entry)
             event = {"type": "T1_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
             
             new_rem = rem_shares - shares_to_sell
             # Rule: SL-002
-            new_sl = t["entry_price"] if new_rem > 0 else sl  # Raise to Breakeven only if remaining shares exist
+            new_sl = effective_entry if new_rem > 0 else sl  # Raise to Breakeven only if remaining shares exist
             new_status = "PARTIAL_WIN_1"
             execution_state = "PARTIAL_1_HIT"
             
@@ -404,7 +461,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 t["status"] = "WIN"
                 execution_state = "WIN"
                 total_pnl_rs = sum(e["pnl"] for e in hist_list)
-                cap = t.get("capital_allocated") or (float(t.get("entry_price") or 0.0) * float(t.get("shares_bought") or 0.0))
+                cap = t.get("capital_allocated") or (float(effective_entry or 0.0) * float(t.get("shares_bought") or 0.0))
                 p_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
                 t["pnl_pct"] = p_pct
                 t["pnl_rs"] = total_pnl_rs
@@ -429,7 +486,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 if shares_to_sell > rem_shares: shares_to_sell = rem_shares
                 if shares_to_sell == 0: shares_to_sell = rem_shares
             
-            pnl_rs_event = shares_to_sell * (exit_p - t["entry_price"])
+            pnl_rs_event = shares_to_sell * (exit_p - effective_entry)
             event = {"type": "T2_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
             
             new_rem = rem_shares - shares_to_sell
@@ -452,7 +509,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 t["status"] = "WIN"
                 execution_state = "WIN"
                 total_pnl_rs = sum(e["pnl"] for e in hist_list)
-                cap = t.get("capital_allocated") or (float(t.get("entry_price") or 0.0) * float(t.get("shares_bought") or 0.0))
+                cap = t.get("capital_allocated") or (float(effective_entry or 0.0) * float(t.get("shares_bought") or 0.0))
                 p_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
                 t["pnl_pct"] = p_pct
                 t["pnl_rs"] = total_pnl_rs
@@ -470,7 +527,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             exit_p = open_p if open_p > t3 else t3
             shares_to_sell = rem_shares
             
-            pnl_rs_event = shares_to_sell * (exit_p - t["entry_price"])
+            pnl_rs_event = shares_to_sell * (exit_p - effective_entry)
             event = {"type": "T3_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
             
             hist_list.append(event)
@@ -480,7 +537,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             t["remaining_shares"] = 0
             
             total_pnl_rs = sum(e["pnl"] for e in hist_list)
-            cap = t.get("capital_allocated") or (float(t.get("entry_price") or 0.0) * float(t.get("shares_bought") or 0.0))
+            cap = t.get("capital_allocated") or (float(effective_entry or 0.0) * float(t.get("shares_bought") or 0.0))
             p_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
             t["pnl_pct"] = p_pct
             t["pnl_rs"] = total_pnl_rs

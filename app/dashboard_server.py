@@ -1146,6 +1146,7 @@ def performance_json():
                 ad_str = ad_val.isoformat()[:10] if hasattr(ad_val, "isoformat") else (str(ad_val)[:10] if ad_val else (at_str[:10] if at_str else ""))
 
                 ep_f = _safe_f(r.get("entry_price"))
+                aep_f = _safe_f(r.get("actual_entry_price"))
                 xp_f = _safe_f(r.get("exit_price"))
                 sh_f = r.get("shares_bought")
                 cap_f = _safe_f(r.get("capital_allocated"))
@@ -1166,6 +1167,7 @@ def performance_json():
                     "entry_date": ad_str,
                     "alert_time": at_str,
                     "entry_price": ep_f,
+                    "actual_entry_price": aep_f,
                     "stop_loss": _safe_f(r.get("stop_loss")),
                     "initial_stop_loss": _safe_f(r.get("initial_stop_loss")),
                     "target_price": _safe_f(r.get("target_price")),
@@ -1185,6 +1187,7 @@ def performance_json():
                     "earnings_date": r.get("earnings_date"),
                     "earnings_severity": r.get("earnings_severity"),
                     "warning_msg": r.get("warning_msg"),
+                    "execution_state": r.get("execution_state"),
                 })
             from corporate_actions import adjust_trade_for_corporate_actions
             for tf in trades_fallback:

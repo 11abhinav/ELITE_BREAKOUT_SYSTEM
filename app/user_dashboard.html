@@ -597,7 +597,7 @@ function playDing() {
               <th data-col="status" class="sort-asc">Status</th>
               <th data-col="category" class="col-opt">Category</th>
               <th>Chart</th>
-              <th data-col="entry_price" style="cursor:pointer">Entry ₹</th>
+              <th data-col="entry_price" style="cursor:pointer">Trigger/Entry ₹</th>
               <th data-col="current_price" style="cursor:pointer">CMP/Exit ₹</th>
               <th data-col="capital_allocated" style="cursor:pointer" class="col-opt">Capital ₹</th>
               <th data-col="shares_bought" style="cursor:pointer" class="col-opt">Shares</th>
@@ -833,12 +833,14 @@ const pctClass = v => v == null ? 'flat' : v > 0 ? 'pos' : v < 0 ? 'neg' : 'flat
 const fmt      = v => v != null ? '₹' + Number(v).toLocaleString('en-IN', {maximumFractionDigits:2}) : '—';
 const badgeHtml = (s, t) => {
   let displayStatus = s;
-  if (s === 'CLOSED' && t && t.pnl_pct != null) {
+  if (t && t.execution_state === 'PENDING_ENTRY') {
+    displayStatus = 'PENDING';
+  } else if (s === 'CLOSED' && t && t.pnl_pct != null) {
     displayStatus = t.pnl_pct >= 0 ? 'PROFIT' : 'LOSS';
   } else if (s === 'WIN') {
     displayStatus = 'PROFIT';
   }
-  const m = { PROFIT: 'badge-win', WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', SELL_REVIEW: 'badge-review', NEUTRAL: 'badge-neutral' };
+  const m = { PROFIT: 'badge-win', WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', SELL_REVIEW: 'badge-review', NEUTRAL: 'badge-neutral', PENDING: 'badge-neutral' };
   return `<span class="badge ${m[displayStatus] || 'badge-neutral'}">${displayStatus}</span>`;
 };
 const scoreClass = v => v >= 85 ? 'score-high' : v >= 75 ? 'score-mid' : 'score-low';
@@ -1192,25 +1194,32 @@ function getEarningsBadgeHtml(item) {
 
 function calcPnlRs(t) {
   if (!t) return 0;
+  if (t.execution_state === 'PENDING_ENTRY') return 0;
   const isActive = ['OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING'].includes(t.status);
-  if (isActive && t.shares_bought && (t.current_price || t.entry_price) && t.entry_price) {
-    return ((t.current_price || t.entry_price) - t.entry_price) * t.shares_bought;
+  if (t.execution_state === 'PENDING_ENTRY') return 0;
+  
+  let eff_entry = t.actual_entry_price || t.entry_price;
+  if (isActive && t.shares_bought && (t.current_price || eff_entry) && eff_entry) {
+    return ((t.current_price || eff_entry) - eff_entry) * t.shares_bought;
   }
   if (t.pnl_rs != null && t.pnl_rs !== 0) {
     return t.pnl_rs;
   }
-  if (t.exit_price && t.entry_price && t.shares_bought) {
-    return (t.exit_price - t.entry_price) * t.shares_bought;
+  let eff_entry = t.actual_entry_price || t.entry_price;
+  if (t.exit_price && eff_entry && t.shares_bought) {
+    return (t.exit_price - eff_entry) * t.shares_bought;
   }
   if (t.pnl_pct != null && t.capital_allocated) {
     return (t.pnl_pct / 100.0) * t.capital_allocated;
   }
   return t.pnl_rs || 0;
-}
-
 function buildTradeRows(trades, maxAbs, prefix) {
   return trades.map((t, i) => {
     const id = prefix + i;
+    if (t.execution_state === 'PENDING_ENTRY') {
+      t.pnl_pct = 0;
+      t.pnl_rs = 0;
+    }
     const pnlRsVal = calcPnlRs(t);
     const barW = t.pnl_pct != null ? Math.min(100, Math.abs(t.pnl_pct) / maxAbs * 100).toFixed(1) : 0;
     const barColor = t.pnl_pct == null ? C.muted : t.pnl_pct >= 0 ? C.accent : C.warn;
@@ -1227,7 +1236,10 @@ function buildTradeRows(trades, maxAbs, prefix) {
       <td>${badgeHtml(t.status, t)}</td>
       <td class="col-opt" style="color:var(--muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-body)">${t.category||'—'}</td>
       <td style="text-align:center;"><button onclick="openChart('${t.symbol}', ${t.current_price || t.entry_price}); event.stopPropagation();" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:4px; font-size:12px; cursor:pointer;" title="View Chart">📈</button></td>
-      <td>${fmt(t.entry_price)}</td>
+      <td>
+        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">Trig: ${fmt(t.entry_price)}</div>
+        <div style="font-size: 13px;">${t.actual_entry_price ? fmt(t.actual_entry_price) : (t.execution_state === 'PENDING_ENTRY' ? '—' : fmt(t.entry_price))}</div>
+      </td>
       <td title="${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') ? (t.closed_at ? 'Closed: ' + fmtDetailTime(t.closed_at) : '') : (window.DATA_GENERATED_AT ? 'Updated: ' + fmtDetailTime(window.DATA_GENERATED_AT) : '')}">
         ${fmt(t.exit_price || t.current_price)}
         ${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') 
@@ -1668,7 +1680,8 @@ function updateSim() {
     if (t.current_price == null || t.current_price === 0) return;
     let allocPct = (t.score >= 90) ? 0.15 : 0.10;
     let capitalForTrade = currentEquity * allocPct;
-    let floatingPct = ((t.current_price - t.entry_price) / t.entry_price);
+    let eff_entry = t.actual_entry_price || t.entry_price;
+    let floatingPct = ((t.current_price - eff_entry) / eff_entry);
     let simulatedFloating = capitalForTrade * floatingPct;
     totalFloating += simulatedFloating;
   });
@@ -1705,7 +1718,8 @@ function updateSim() {
   let realOpenPnl = 0;
   openTrades.forEach(t => {
       if (t.shares_bought && t.current_price) {
-          realOpenPnl += (t.current_price - t.entry_price) * t.shares_bought;
+          let eff_entry = t.actual_entry_price || t.entry_price;
+          realOpenPnl += (t.current_price - eff_entry) * t.shares_bought;
       } else if (t.pnl_rs) {
           realOpenPnl += t.pnl_rs;
       }
@@ -1725,7 +1739,8 @@ function updateSim() {
   // Calculate Available Cash (Total Equity - Deployed Capital)
   let deployedCapital = 0;
   openTrades.forEach(t => {
-      let capAlloc = t.capital_allocated || (t.entry_price && t.shares_bought ? t.entry_price * t.shares_bought : 50000);
+      let eff_entry = t.actual_entry_price || t.entry_price;
+      let capAlloc = t.capital_allocated || (eff_entry && t.shares_bought ? eff_entry * t.shares_bought : 50000);
       deployedCapital += capAlloc;
   });
   let totalEquity = cap + realBookedPnl + realOpenPnl;
@@ -1774,7 +1789,8 @@ function renderEquityCurve() {
   openTrades.forEach(t => {
     let allocPct = (t.score >= 90) ? 0.15 : 0.10;
     let capitalForTrade = equity * allocPct;
-    let floatingPct = ((t.current_price - t.entry_price) / t.entry_price);
+    let eff_entry = t.actual_entry_price || t.entry_price;
+    let floatingPct = ((t.current_price - eff_entry) / eff_entry);
     let simulatedFloating = capitalForTrade * floatingPct;
     totalFloating += simulatedFloating;
   });
@@ -1865,7 +1881,8 @@ function exportCSV() {
   if (!window._currentFilteredTrades) return;
   const rows = [['Symbol', 'Date', 'Scanner', 'Category', 'Signals', 'Entry Price', 'Stop Loss', 'Target', 'Exit Price', 'P&L %', 'P&L ₹', 'Capital', 'Shares', 'RSI', 'Vol Ratio', 'Status', 'Days Held', 'Score', 'Filters/Context']];
   window._currentFilteredTrades.forEach(t => {
-    const pnl_rs = t.status === 'OPEN' && t.shares_bought ? ((t.current_price || t.entry_price) - t.entry_price) * t.shares_bought : (t.pnl_rs || '');
+    let eff_entry = t.actual_entry_price || t.entry_price;
+    const pnl_rs = (t.status === 'OPEN' && t.execution_state !== 'PENDING_ENTRY' && t.shares_bought) ? ((t.current_price || eff_entry) - eff_entry) * t.shares_bought : (t.pnl_rs || '');
     rows.push([
       t.symbol,
       (t.alert_time||t.entry_date||'').slice(0,16),
