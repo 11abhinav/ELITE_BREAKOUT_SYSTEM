@@ -268,10 +268,22 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     if cur_p:
         now_str = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
         ticks.append((now_str, cur_p, cur_p, cur_p, cur_p, 0.0))
-    # ── State Validation ──
+    # ── State Validation & Fallback ──
     if execution_state == "OPEN" and actual_entry_price is None:
-        logger.error(f"❌ [PERF_TRACKER] DATA_INTEGRITY_ERROR: {symbol} is OPEN but missing actual_entry_price. Safe-rejecting evaluation.")
-        return
+        if t.get("entry_price") is not None:
+            actual_entry_price = t["entry_price"]
+            t["actual_entry_price"] = actual_entry_price
+            # Async backfill in DB to fix data integrity
+            try:
+                from database import get_connection
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("UPDATE alerts SET actual_entry_price = %s WHERE id = %s AND actual_entry_price IS NULL", (actual_entry_price, t["id"]))
+            except Exception:
+                pass
+        else:
+            logger.error(f"❌ [PERF_TRACKER] DATA_INTEGRITY_ERROR: {symbol} is OPEN but missing actual_entry_price and entry_price. Safe-rejecting evaluation.")
+            return
     if execution_state == "PENDING_ENTRY" and actual_entry_price is not None:
         logger.error(f"❌ [PERF_TRACKER] DATA_INTEGRITY_ERROR: {symbol} is PENDING_ENTRY but has actual_entry_price populated. Safe-rejecting evaluation.")
         return

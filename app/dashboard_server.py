@@ -679,23 +679,31 @@ def get_notifications():
                 if user_role == 'admin':
                     cur.execute('''
                         SELECT id, type, title, message, symbol, is_seen, created_at 
-                        FROM global_notifications
+                        FROM (
+                            SELECT id, type, title, message, symbol, is_seen, created_at 
+                            FROM global_notifications
+                            ORDER BY created_at DESC
+                            LIMIT 200
+                        ) sub
                         WHERE LOWER(title) NOT LIKE '%scan completed%'
                           AND LOWER(title) NOT LIKE '%scanner ran successfully%'
                           AND LOWER(title) NOT LIKE '%scan complete%'
                           AND LOWER(title) NOT LIKE '%builder completed%'
                           AND LOWER(title) NOT LIKE '%watchlist generation successful%'
-                        ORDER BY created_at DESC
                         LIMIT 50
                     ''')
                 else:
-                    # User role: ONLY stock alerts & watchlist analysis notifications (no background scanner logs)
+                    # User role: ONLY stock alerts & watchlist analysis notifications
                     cur.execute('''
                         SELECT id, type, title, message, symbol, is_seen, created_at 
-                        FROM global_notifications
+                        FROM (
+                            SELECT id, type, title, message, symbol, is_seen, created_at 
+                            FROM global_notifications
+                            ORDER BY created_at DESC
+                            LIMIT 200
+                        ) sub
                         WHERE type IN ('watchlist_analysis', 'deep_analysis', 'stock_alert', 'alert', 'buy_alert', 'sell_alert', 'breakout', 'target_hit', 'sl_hit', 'pullback')
                            OR (symbol IS NOT NULL AND TRIM(symbol) != '' AND type NOT IN ('info', 'admin', 'scanner_down', 'error', 'warning'))
-                        ORDER BY created_at DESC
                         LIMIT 50
                     ''')
                 notifications = [dict(row) for row in cur.fetchall()]
@@ -1267,37 +1275,34 @@ def get_v2_universe_health():
         return Response(_UNIVERSE_HEALTH_CACHE["payload"], mimetype="application/json")
     try:
         from database import get_connection
+    try:
+        from database import get_connection
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT EXISTS (
-                        SELECT FROM information_schema.tables 
-                        WHERE table_schema = 'public' 
-                        AND table_name = 'daily_watchlist_v2'
-                    )
+                    SELECT 
+                        COUNT(*) FILTER (WHERE universe_status = 'ELITE') AS elite_count,
+                        COUNT(*) FILTER (WHERE universe_status = 'NEAR_QUALIFIED') AS nq_count,
+                        MAX(build_date) AS latest_date
+                    FROM daily_watchlist_v2
+                    WHERE build_date = (SELECT MAX(build_date) FROM daily_watchlist_v2);
                 """)
-                v2_exists = cur.fetchone()[0]
-                if v2_exists:
-                    cur.execute("SELECT MAX(build_date) FROM daily_watchlist_v2")
-                    latest_date_row = cur.fetchone()
-                    latest_date = latest_date_row[0] if latest_date_row else None
+                row = cur.fetchone()
+                if row and row[2]:
+                    elite_count = row[0] or 0
+                    nq_count = row[1] or 0
+                    latest_date = row[2]
 
-                    if latest_date:
-                        cur.execute("SELECT COUNT(*) FROM daily_watchlist_v2 WHERE universe_status = 'ELITE' AND build_date = %s", (latest_date,))
-                        elite_count = cur.fetchone()[0] or 0
+                    cur.execute("SELECT COUNT(*) FROM daily_excluded_watchlist_v2 WHERE build_date = %s", (latest_date,))
+                    ex_row = cur.fetchone()
+                    excluded_count = ex_row[0] if ex_row else 0
 
-                        cur.execute("SELECT COUNT(*) FROM daily_watchlist_v2 WHERE universe_status = 'NEAR_QUALIFIED' AND build_date = %s", (latest_date,))
-                        nq_count = cur.fetchone()[0] or 0
+                    total = elite_count + nq_count + excluded_count
+                    if total > 0:
+                        def fmt_pct(val):
+                            return f"{(val / total * 100):.1f}%"
 
-                        cur.execute("SELECT COUNT(*) FROM daily_excluded_watchlist_v2 WHERE build_date = %s", (latest_date,))
-                        excluded_count = cur.fetchone()[0] or 0
-
-                        total = elite_count + nq_count + excluded_count
-                        if total > 0:
-                            def fmt_pct(val):
-                                return f"{(val / total * 100):.1f}%"
-
-                            build_date_str = latest_date.strftime("%Y-%m-%d") if hasattr(latest_date, "strftime") else str(latest_date)
+                        build_date_str = latest_date.strftime("%Y-%m-%d") if hasattr(latest_date, "strftime") else str(latest_date)
 
                             res_payload = json.dumps({
                                 "build_date": build_date_str,
@@ -3747,15 +3752,17 @@ def api_all_tickers():
         return Response(_ALL_TICKERS_JSON_BYTES, mimetype="application/json")
 
     try:
-        import pandas as pd
-        import os
+        import csv, os
         tickers = set()
         for f in ['data/elite_fundamental_watchlist.csv', 'data/elite_fundamental_watchlist_excluded.csv']:
             if os.path.exists(f):
                 try:
-                    df = pd.read_csv(f)
-                    if 'Stock' in df.columns:
-                        tickers.update(df['Stock'].dropna().unique().tolist())
+                    with open(f, 'r', encoding='utf-8') as file:
+                        reader = csv.DictReader(file)
+                        for row in reader:
+                            stk = row.get('Stock')
+                            if stk:
+                                tickers.add(stk.strip())
                 except Exception as e:
                     logger.warning(f"Error reading {f} for tickers cache: {e}")
         result = sorted(list(tickers)) if tickers else []

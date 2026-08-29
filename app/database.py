@@ -392,8 +392,11 @@ def init_db():
                         last_updated TIMESTAMPTZ DEFAULT NOW()
                     )
                 """)
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_master_symbols_active ON master_symbols(is_active)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_master_symbols_search ON master_symbols(symbol, company_name)")
+                try:
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_master_symbols_active ON master_symbols(is_active)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_master_symbols_search ON master_symbols(symbol, company_name)")
+                except Exception:
+                    pass
 
                 # 3. candidates
                 cur.execute("""
@@ -7002,17 +7005,25 @@ def search_users(query: str, status_filter: str = "all") -> list:
                 elif status_filter == "inactive":
                     status_condition = "AND is_active = FALSE"
 
-                cur.execute(f"""
-                    SELECT user_id, username, email, mobile, first_name, last_name, role, is_active, created_at, last_login 
-                    FROM users 
-                    WHERE (username ILIKE %s 
-                    OR email ILIKE %s 
-                    OR mobile ILIKE %s
-                    OR first_name ILIKE %s
-                    OR last_name ILIKE %s)
-                    {{status_condition}}
-                    ORDER BY created_at DESC LIMIT %s
-                """.format(status_condition=status_condition), (search_term, search_term, search_term, search_term, search_term, limit_val))
+                if not query:
+                    cur.execute(f"""
+                        SELECT user_id, username, email, mobile, first_name, last_name, role, is_active, created_at, last_login 
+                        FROM users 
+                        WHERE 1=1 {status_condition}
+                        ORDER BY created_at DESC LIMIT %s
+                    """, (limit_val,))
+                else:
+                    cur.execute(f"""
+                        SELECT user_id, username, email, mobile, first_name, last_name, role, is_active, created_at, last_login 
+                        FROM users 
+                        WHERE (username ILIKE %s 
+                        OR email ILIKE %s 
+                        OR mobile ILIKE %s
+                        OR first_name ILIKE %s
+                        OR last_name ILIKE %s)
+                        {status_condition}
+                        ORDER BY created_at DESC LIMIT %s
+                    """, (search_term, search_term, search_term, search_term, search_term, limit_val))
                 rows = cur.fetchall()
                 # Format dates
                 for r in rows:

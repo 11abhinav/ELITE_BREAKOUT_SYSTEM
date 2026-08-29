@@ -457,23 +457,25 @@ class AccumulationScanner:
                         
                         logger.info(f"🟢 [ACCUMULATION] {sym} QUALIFIED for {state} | Score: {score:.1f} | Entry: {sl_tgt['breakout_level']} | SL: {sl_tgt['stop_loss']} | RR: {sl_tgt['rr_1']:.2f}")
                         
-                        # 1. Canonical Alert Registration
-                        inserted, _, _, _ = save_alert_if_new(
-                            symbol=sym,
-                            breakout_type="ACCUMULATION",
-                            alert_time=datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
-                            scanner="ACCUMULATION",
-                            category="EOD",
-                            entry_price=sl_tgt["breakout_level"],
-                            stop_loss=sl_tgt["stop_loss"],
-                            target_1=sl_tgt["target_1"],
-                            target_2=sl_tgt["target_2"],
-                            target_3=sl_tgt["target_3"],
-                            signals=state,
-                            score=int(score),
-                            context={"audit_snapshot_id": snapshot_id, "scores_breakdown": res["scores_breakdown"]},
-                            entry_mode="BREAKOUT_TRIGGER"
-                        )
+                        # 1. Canonical Alert Registration (ONLY for BREAKOUT_READY setups to prevent premature OPEN trade positions)
+                        inserted = False
+                        if state == "BREAKOUT_READY":
+                            inserted, _, _, _ = save_alert_if_new(
+                                symbol=sym,
+                                breakout_type="ACCUMULATION",
+                                alert_time=datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
+                                scanner="ACCUMULATION",
+                                category="EOD",
+                                entry_price=sl_tgt["breakout_level"],
+                                stop_loss=sl_tgt["stop_loss"],
+                                target_1=sl_tgt["target_1"],
+                                target_2=sl_tgt["target_2"],
+                                target_3=sl_tgt["target_3"],
+                                signals=state,
+                                score=int(score),
+                                context={"audit_snapshot_id": snapshot_id, "scores_breakdown": res["scores_breakdown"]},
+                                entry_mode="BREAKOUT_TRIGGER"
+                            )
                         
                         # 2. OpportunityManager Dispatch (if tradeable)
                         if inserted and sl_tgt.get("tradable", True):
