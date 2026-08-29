@@ -10,6 +10,28 @@ var _mwlSortCol = 'added_at';
 var _mwlSortAsc = false;
 var _userWatchlistData = [];
 
+// GLOBAL PAGINATION STATE
+var _adminUserWlPage = 1;
+var _adminManualWlPage = 1;
+var _adminDbPage = 1;
+const ADMIN_PAGE_SIZE = 100;
+
+function changeAdminPage(type, delta) {
+    if (type === 'userWl') {
+        _adminUserWlPage += delta;
+        if (_adminUserWlPage < 1) _adminUserWlPage = 1;
+        loadUserWatchlist(); // uses internal cache
+    } else if (type === 'manualWl') {
+        _adminManualWlPage += delta;
+        if (_adminManualWlPage < 1) _adminManualWlPage = 1;
+        renderManualWatchlistRows();
+    } else if (type === 'dbExplorer') {
+        _adminDbPage += delta;
+        if (_adminDbPage < 1) _adminDbPage = 1;
+        if (window._currentDbExplorerData) renderDbTableData(window._currentDbExplorerData);
+    }
+}
+
 // GLOBAL FETCH FORTIFICATION & CREDENTIAL PRESERVATION
 (function() {
   const originalFetch = window.fetch;
@@ -2131,6 +2153,13 @@ var _userWatchlistData = [];
                 </tr></thead>
                 <tbody id="manual-watchlist-tbody"><tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px;">Loading manual entries...</td></tr></tbody>
               </table>
+            </div>
+            <div id="manual-wl-pagination" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--card); border: 1px solid var(--border); border-radius: 0 0 12px 12px; margin-top: -1px;">
+              <div style="font-size: 13px; color: var(--muted);" id="manual-wl-page-info">Showing 0 records</div>
+              <div style="display: flex; gap: 8px;">
+                <button onclick="changeAdminPage('manualWl', -1)" style="padding: 6px 12px; background: var(--card2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;">Previous</button>
+                <button onclick="changeAdminPage('manualWl', 1)" style="padding: 6px 12px; background: var(--card2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;">Next</button>
+              </div>
             </div>
           </div>
         </div>
@@ -7136,7 +7165,13 @@ function renderMultibaggerWatchlist() {
   const statusFilter = statusFilterEl ? statusFilterEl.value : '';
   const itemsToRender = statusFilter ? allMbWatchlistItems.filter(i => i.status === statusFilter) : allMbWatchlistItems;
 
-  tbody.innerHTML = itemsToRender.map(item => {
+  const totalPages = Math.ceil(itemsToRender.length / ADMIN_PAGE_SIZE);
+  if (window._adminMbWlPage === undefined) window._adminMbWlPage = 1;
+  if (window._adminMbWlPage > totalPages) window._adminMbWlPage = Math.max(1, totalPages);
+  const startIdx = (window._adminMbWlPage - 1) * ADMIN_PAGE_SIZE;
+  const paginated = itemsToRender.slice(startIdx, startIdx + ADMIN_PAGE_SIZE);
+
+  tbody.innerHTML = paginated.map(item => {
     const sym = item.symbol || '';
     const cmp = parseFloat(item.latest_price) || 0;
     const bqs = parseFloat(item.growth_score) || 0;
@@ -7167,12 +7202,27 @@ function renderMultibaggerWatchlist() {
         <td style="font-size:10px; line-height:1.2; max-width:110px; white-space:normal; color:var(--muted);">${notes}</td>
         <td style="text-align: center;">
           <a href="https://www.tradingview.com/chart/?symbol=NSE:${sym}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-weight: 600; cursor: pointer;" title="Open on TradingView">📊 TV</a>
-        </td>
       </tr>
     `;
   }).join('');
+
+  const pi = document.getElementById('mb-wl-page-info');
+  if (pi) {
+    pi.textContent = `Showing ${startIdx + 1}-${Math.min(startIdx + paginated.length, itemsToRender.length)} of ${itemsToRender.length} records (Page ${window._adminMbWlPage} of ${totalPages})`;
+  }
 }
 
+// Ensure changeAdminPage handles mbWl too
+const _oldChangeAdminPage = window.changeAdminPage;
+window.changeAdminPage = function(type, delta) {
+    if (type === 'mbWl') {
+        window._adminMbWlPage = (window._adminMbWlPage || 1) + delta;
+        if (window._adminMbWlPage < 1) window._adminMbWlPage = 1;
+        renderMultibaggerWatchlist();
+    } else if (typeof _oldChangeAdminPage === 'function') {
+        _oldChangeAdminPage(type, delta);
+    }
+};
 
 
 
@@ -8107,10 +8157,17 @@ function _renderManualWatchlist() {
   if (sorted.length === 0) {
     tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px;">No entries found.</td></tr>`;
     updateManualWatchlistBatchBar();
+    const pi = document.getElementById('manual-wl-page-info');
+    if (pi) pi.textContent = 'Showing 0 records';
     return;
   }
 
-  tbody.innerHTML = sorted.map(it => {
+  const totalPages = Math.ceil(sorted.length / ADMIN_PAGE_SIZE);
+  if (_adminManualWlPage > totalPages) _adminManualWlPage = totalPages;
+  const startIdx = (_adminManualWlPage - 1) * ADMIN_PAGE_SIZE;
+  const paginated = sorted.slice(startIdx, startIdx + ADMIN_PAGE_SIZE);
+
+  tbody.innerHTML = paginated.map(it => {
     let statusBadge = '';
     const st = (it.last_status || 'MONITORING').toUpperCase();
     if (st.includes('CORE MET')) {
@@ -8158,6 +8215,12 @@ function _renderManualWatchlist() {
       </tr>
     `;
   }).join('');
+  
+  const pi = document.getElementById('manual-wl-page-info');
+  if (pi) {
+    pi.textContent = `Showing ${startIdx + 1}-${Math.min(startIdx + paginated.length, sorted.length)} of ${sorted.length} records (Page ${_adminManualWlPage} of ${totalPages})`;
+  }
+
   updateManualWatchlistBatchBar();
 }
 
@@ -8950,8 +9013,13 @@ function renderWealthHoldingsTable(items, filterBucket) {
     tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">No stocks matching selected bucket '${filterBucket || 'ALL'}'.</td></tr>`;
     return;
   }
+  const totalPages = Math.ceil(filtered.length / ADMIN_PAGE_SIZE);
+  if (window._adminWealthHoldingsPage === undefined) window._adminWealthHoldingsPage = 1;
+  if (window._adminWealthHoldingsPage > totalPages) window._adminWealthHoldingsPage = Math.max(1, totalPages);
+  const startIdx = (window._adminWealthHoldingsPage - 1) * ADMIN_PAGE_SIZE;
+  const paginated = filtered.slice(startIdx, startIdx + ADMIN_PAGE_SIZE);
 
-  tbody.innerHTML = filtered.map(item => {
+  tbody.innerHTML = paginated.map(item => {
     const score = item.FM_Score ? parseFloat(item.FM_Score).toFixed(1) : (item.score ? parseFloat(item.score).toFixed(1) : '-');
     const momScore = item.momentum_score !== undefined ? item.momentum_score : '-';
     const cmp = item.cmp || item.Close || item.close || 0;
@@ -8977,9 +9045,27 @@ function renderWealthHoldingsTable(items, filterBucket) {
         <td>${formatText(sector)}</td>
         <td style="${sigStyle}">${formatText(signal)}</td>
       </tr>
+      </tr>
     `;
   }).join('');
+
+  const pi = document.getElementById('wealth-holdings-page-info');
+  if (pi) {
+    pi.textContent = `Showing ${startIdx + 1}-${Math.min(startIdx + paginated.length, filtered.length)} of ${filtered.length} records (Page ${window._adminWealthHoldingsPage} of ${totalPages})`;
+  }
 }
+
+// Ensure changeAdminPage handles wealthHoldings too
+const _oldChangeAdminPageWh = window.changeAdminPage;
+window.changeAdminPage = function(type, delta) {
+    if (type === 'wealthHoldings') {
+        window._adminWealthHoldingsPage = (window._adminWealthHoldingsPage || 1) + delta;
+        if (window._adminWealthHoldingsPage < 1) window._adminWealthHoldingsPage = 1;
+        renderWealthHoldingsTable(window.ALL_WEALTH_HOLDINGS_CACHE || [], window.ACTIVE_WEALTH_CATEGORY || 'ALL');
+    } else if (typeof _oldChangeAdminPageWh === 'function') {
+        _oldChangeAdminPageWh(type, delta);
+    }
+};
 
 function loadConfluenceMatrixTab() {
   fetch('/api/v2/confluence_breakdown')

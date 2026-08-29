@@ -3582,42 +3582,41 @@ def api_indices():
         cache = _get_indices_cache()
         if cache.get("data") and (time.time() - cache.get("timestamp", 0) < 60):
             return jsonify(cache["data"])
-            
     symbols_to_fetch = ["NIFTY 50", "BANKNIFTY", "SENSEX"]
-    data = {}
-    
-    try:
-        from data_providers.unified_fetcher import fetcher
-        results = fetcher.fetch_live_quotes(symbols_to_fetch, consumer="dashboard_indices")
-        
-        for sym, quote in results.items():
-            if "v" in quote and "cmd" in quote["v"]:
-                lp = quote["v"]["cmd"]["c"]
-                prev_close = quote["v"]["cmd"].get("pc", lp)
-                pct_change = 0.0
-                if lp and prev_close:
-                    pct_change = round(((lp - prev_close) / prev_close) * 100, 2)
-                data[sym] = {"price": lp, "pct_change": pct_change}
-                
-    except Exception as e:
-        logger.error(f"Error fetching indices via UnifiedFetcher: {e}")
 
+    # Background fetcher thread
+    def _fetch_indices_bg():
+        bg_data = {}
+        try:
+            from data_providers.unified_fetcher import fetcher
+            results = fetcher.fetch_live_quotes(symbols_to_fetch, consumer="dashboard_indices")
+            for sym, quote in results.items():
+                if "v" in quote and "cmd" in quote["v"]:
+                    lp = quote["v"]["cmd"]["c"]
+                    prev_close = quote["v"]["cmd"].get("pc", lp)
+                    pct_change = 0.0
+                    if lp and prev_close:
+                        pct_change = round(((lp - prev_close) / prev_close) * 100, 2)
+                    bg_data[sym] = {"price": lp, "pct_change": pct_change}
+        except Exception as e:
+            logger.error(f"Error fetching indices via UnifiedFetcher (bg): {e}")
 
+        if bg_data:
+            with _indices_lock:
+                c = _get_indices_cache()
+                c["timestamp"] = time.time()
+                c["data"] = bg_data
+                from data_registry import registry
+                registry.put("indices_cache", c)
 
-    if data:
-        with _indices_lock:
-            cache = _get_indices_cache()
-            cache["timestamp"] = time.time()
-            cache["data"] = data
-            from data_registry import registry
-            registry.put("indices_cache", cache)
-    else:
-        with _indices_lock:
-            cache = _get_indices_cache()
-            if cache.get("data"):
-                data = cache["data"]
+    # Spawn background fetch
+    t = threading.Thread(target=_fetch_indices_bg, daemon=True)
+    t.start()
 
-    return jsonify(data)
+    # Return whatever is in cache immediately (or empty if None)
+    with _indices_lock:
+        cache = _get_indices_cache()
+        return jsonify(cache.get("data") or {})
 
 _news_cache_fallback = {}
 _news_lock = threading.Lock()

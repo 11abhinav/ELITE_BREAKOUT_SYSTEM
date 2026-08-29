@@ -674,18 +674,6 @@ function playDing() {
               <thead>
                 <tr>
                   <th style="width:36px; text-align:center;"><input type="checkbox" id="user-wl-select-all" onclick="toggleSelectAllUserWatchlist(this)" title="Select All / Deselect All" style="cursor:pointer; width:16px; height:16px;"></th>
-                  <th onclick="sortUserWatchlist('symbol')" style="cursor:pointer; user-select:none; white-space:nowrap;" title="Click to sort by Symbol">Symbol <span id="user-wl-sort-symbol" style="font-size:10px;"></span></th>
-                  <th onclick="sortUserWatchlist('cmp')" style="text-align:right; cursor:pointer; user-select:none; white-space:nowrap;" title="Click to sort by LTP">CMP (₹) <span id="user-wl-sort-cmp" style="font-size:10px;"></span></th>
-                  <th onclick="sortUserWatchlist('health_score')" style="cursor:pointer; user-select:none; white-space:nowrap;" title="Click to sort by Health Score">Health Score <span id="user-wl-sort-health_score" style="font-size:10px;"></span></th>
-                  <th onclick="sortUserWatchlist('status')" style="cursor:pointer; user-select:none; white-space:nowrap;" title="Click to sort by Status">Scanner Status <span id="user-wl-sort-status" style="font-size:10px;"></span></th>
-                  <th onclick="sortUserWatchlist('added_at')" style="cursor:pointer; user-select:none; white-space:nowrap;" title="Click to sort by Added Date">Added Date (IST) <span id="user-wl-sort-added_at" style="font-size:10px;"></span></th>
-                  <th onclick="sortUserWatchlist('last_scanned')" style="cursor:pointer; user-select:none; white-space:nowrap;" title="Click to sort by Last Scanned">Last Scanned (IST) <span id="user-wl-sort-last_scanned" style="font-size:10px;"></span></th>
-                  <th style="text-align:center;">Action</th>
-                </tr>
-              </thead>
-              <tbody id="user-watchlist-tbody">
-                <!-- Injected by JS -->
-              </tbody>
             </table>
           </div>
         </div>
@@ -3178,7 +3166,13 @@ function renderMultibaggerWatchlist() {
   const statusFilter = statusFilterEl ? statusFilterEl.value : '';
   const itemsToRender = statusFilter ? allMbWatchlistItems.filter(i => i.status === statusFilter) : allMbWatchlistItems;
 
-  tbody.innerHTML = itemsToRender.map(item => {
+  const totalPages = Math.ceil(itemsToRender.length / USER_PAGE_SIZE);
+  if (window._userMbWlPage === undefined) window._userMbWlPage = 1;
+  if (window._userMbWlPage > totalPages) window._userMbWlPage = Math.max(1, totalPages);
+  const startIdx = (window._userMbWlPage - 1) * USER_PAGE_SIZE;
+  const paginated = itemsToRender.slice(startIdx, startIdx + USER_PAGE_SIZE);
+
+  tbody.innerHTML = paginated.map(item => {
     const sym = item.symbol || '';
     const cmp = parseFloat(item.latest_price) || 0;
     const bqs = parseFloat(item.growth_score) || 0;
@@ -3213,7 +3207,24 @@ function renderMultibaggerWatchlist() {
       </tr>
     `;
   }).join('');
+
+  const pi = document.getElementById('mb-wl-page-info');
+  if (pi) {
+    pi.textContent = `Showing ${startIdx + 1}-${Math.min(startIdx + paginated.length, itemsToRender.length)} of ${itemsToRender.length} records (Page ${window._userMbWlPage} of ${totalPages})`;
+  }
 }
+
+// Ensure changeUserPage handles mbWl too
+const _oldChangeUserPage = window.changeUserPage;
+window.changeUserPage = function(type, delta) {
+    if (type === 'mbWl') {
+        window._userMbWlPage = (window._userMbWlPage || 1) + delta;
+        if (window._userMbWlPage < 1) window._userMbWlPage = 1;
+        renderMultibaggerWatchlist();
+    } else if (typeof _oldChangeUserPage === 'function') {
+        _oldChangeUserPage(type, delta);
+    }
+};
 
 
 
@@ -4047,7 +4058,62 @@ function loadUserWatchlist(force = false) {
 }
 
 
+}
 
+function _renderUserWatchlistTable() {
+  const tbody = document.getElementById('user-watchlist-tbody');
+  if (!tbody) return;
+
+  const items = _userWlData || [];
+  if (items.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--muted); padding:20px;">No stocks saved in your watchlist yet. Search any ticker above and click "Add to Watchlist".</td></tr>`;
+    return;
+  }
+
+  const totalPages = Math.ceil(items.length / USER_PAGE_SIZE);
+  if (window._userWlPage === undefined) window._userWlPage = 1;
+  if (window._userWlPage > totalPages) window._userWlPage = Math.max(1, totalPages);
+  const startIdx = (window._userWlPage - 1) * USER_PAGE_SIZE;
+  const paginated = items.slice(startIdx, startIdx + USER_PAGE_SIZE);
+
+  tbody.innerHTML = paginated.map((item, idx) => {
+    let statusBadge = '';
+    const st = (item.last_status || 'MONITORING').toUpperCase();
+    if (st.includes('IN PROGRESS') || st.includes('PROCESSING')) {
+      statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(99,102,241,0.2); color:#818cf8; border:1px solid rgba(99,102,241,0.45); display:inline-flex; align-items:center; gap:4px; box-shadow:0 0 10px rgba(99,102,241,0.25);" title="Scanner Analysis In Progress..."><span style="display:inline-block; animation:spin 1s infinite linear;">⏳</span> IN PROGRESS</span>`;
+    } else if (st.includes('PROCESSED')) {
+      statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${item.symbol}')" title="Analysis Processed cleanly. Click to view breakdown.">✓ PROCESSED</span>`;
+    } else if (st.includes('CORE MET')) {
+      statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px;">🔍 MONITORING</span>`;
+    }
+
+    return `<tr>
+      <td>${item.symbol}${typeof renderEventBadges === 'function' ? renderEventBadges(item.event_badges) : ''}</td>
+      <td style="text-align:center;">${item.health_score || '—'}</td>
+      <td style="text-align:center;">${statusBadge}</td>
+      <td style="text-align:center;">${formatISTDate(item.added_at)}</td>
+      <td style="text-align:center;">${formatISTDate(item.last_scanned)}</td>
+      <td style="text-align:center;"><button class="refresh-btn" onclick="triggerStockDiagnosticBySymbol('${item.symbol}')">🔍 Diagnose</button></td>
+    </tr>`;
+  }).join('');
+
+  const pi = document.getElementById('user-wl-page-info');
+  if (pi) {
+    pi.textContent = `Showing ${startIdx + 1}-${Math.min(startIdx + paginated.length, items.length)} of ${items.length} records (Page ${window._userWlPage} of ${totalPages})`;
+  }
+}
+
+// Ensure changeUserPage handles userWl too
+const _oldChangeUserPage2 = window.changeUserPage;
+window.changeUserPage = function(type, delta) {
+    if (type === 'userWl') {
+        window._userWlPage = (window._userWlPage || 1) + delta;
+        if (window._userWlPage < 1) window._userWlPage = 1;
+        _renderUserWatchlistTable();
+    } else if (typeof _oldChangeUserPage2 === 'function') {
+        _oldChangeUserPage2(type, delta);
+    }
+};
 
 function showAnalysisInfoModal(sym) {
   let modal = document.getElementById('stock-diagnostic-modal');
