@@ -3355,7 +3355,7 @@ def api_scanner_status():
     """
     global _SCANNER_STATUS_CACHE
     now_ts = time.time()
-    if _SCANNER_STATUS_CACHE["payload"] is not None and (now_ts - _SCANNER_STATUS_CACHE["ts"]) < 3.0:
+    if _SCANNER_STATUS_CACHE["payload"] is not None and (now_ts - _SCANNER_STATUS_CACHE["ts"]) < 10.0:
         return Response(_SCANNER_STATUS_CACHE["payload"], mimetype="application/json")
     try:
         import os

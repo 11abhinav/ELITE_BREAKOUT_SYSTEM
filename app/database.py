@@ -3616,11 +3616,7 @@ def get_ai_concall_stats(symbols: list = None) -> dict:
     with get_connection() as conn:
         with conn.cursor() as cur:
             try:
-                if symbols:
-                    placeholders = ','.join(['%s'] * len(symbols))
-                    cur.execute(f"SELECT COUNT(DISTINCT symbol) FROM ai_concall_cache_v3 WHERE symbol IN ({placeholders})", tuple(symbols))
-                else:
-                    cur.execute("SELECT COUNT(DISTINCT symbol) FROM ai_concall_cache_v3")
+                cur.execute("SELECT COUNT(DISTINCT symbol) FROM ai_concall_cache_v3")
                 total_row = cur.fetchone()
                 total = total_row[0] if total_row else 0
                 cur.execute("SELECT symbol, created_at FROM ai_concall_cache_v3 ORDER BY created_at DESC LIMIT 1")
