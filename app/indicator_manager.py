@@ -95,7 +95,7 @@ class IndicatorManager:
             _tr1 = time.perf_counter()
             bundle._telemetry_registry_ms = (_tr1-_tr0)*1000
             import logging
-            logging.getLogger("indicator_manager").info(f"TELEMETRY_REGISTRY | {symbol} | registry_op: {bundle._telemetry_registry_ms:.1f}ms")
+            logging.getLogger("indicator_manager").debug(f"TELEMETRY_REGISTRY | {symbol} | registry_op: {bundle._telemetry_registry_ms:.1f}ms")
             
         except Exception as e:
             logger.error(f"Error computing base indicators for {symbol}: {e}")
