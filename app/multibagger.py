@@ -2705,7 +2705,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     t_init_db_0 = time.perf_counter()
     init_db()
     t_init_db_dur = time.perf_counter() - t_init_db_0
-    logger.info(f"TELEMETRY_STAGE | init_db duration: {t_init_db_dur * 1000:.1f}ms")
+    logger.info(f"⏱️ [STEP 0] Database Initialization completed | Time: {t_init_db_dur * 1000:.1f}ms")
     
     # [VERSION: RUN_CTX_GUARD_v1.0] Guarantee run_ctx exists so heartbeats are always recorded in DB
     if run_ctx is None:
@@ -2721,14 +2721,14 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     t_load_cache_0 = time.perf_counter()
     cache = load_cache(force_db_sync=True)
     t_load_cache_dur = time.perf_counter() - t_load_cache_0
-    logger.info(f"TELEMETRY_STAGE | load_cache duration: {t_load_cache_dur * 1000:.1f}ms")
+    logger.info(f"⏱️ [STEP 2] Fundamentals Cache loaded ({len(cache)} entries) | Time: {t_load_cache_dur * 1000:.1f}ms")
     
     # 1. Fetch constituents
     from constituent_service import fetch_constituents
     t_fetch_const_0 = time.perf_counter()
     symbols = fetch_constituents()
     t_fetch_const_dur = time.perf_counter() - t_fetch_const_0
-    logger.info(f"TELEMETRY_STAGE | fetch_constituents duration: {t_fetch_const_dur * 1000:.1f}ms")
+    logger.info(f"⏱️ [STEP 1A] Constituent Symbols fetched ({len(symbols)} symbols) | Time: {t_fetch_const_dur * 1000:.1f}ms")
     if not symbols:
         logger.error("❌ Failed to fetch any constituent stocks. Aborting scan.")
         raise RuntimeError("Failed to fetch NSE constituent stocks. NSE API might be blocking the IP or rate-limiting.")
@@ -2828,6 +2828,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         f"                                  20d turnover, 6m momentum, and filtered out illiquid/penny stocks.\n"
         f"================================================================================\n"
     )
+    logger.info(f"⏱️ [STEP 1B] Universe & Market Data Fetch completed | Mode={_step1_mode} | Time: {_fetch_dur:.2f}s")
     
     # 3. Phase 2: Fetch Fundamentals (TV_BASELINE only)
     stage_tracker.start_stage(2, "Fundamentals DB Cache Validation", f"Target: {len(shortlist)} stocks")
@@ -2914,6 +2915,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         f"  • Step 2 Total Duration       : {_step2_dur_s:.2f}s\n"
         f"================================================================================\n"
     )
+    logger.info(f"⏱️ [STEP 3] Fundamentals Cache Validation completed | Time: {_step2_dur_s:.2f}s")
                 
     # Save updated cache to JSON file
     save_fundamentals_cache(cache, sync_to_db=False)
@@ -3342,7 +3344,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 run_ctx.heartbeat()
             fut.result()
     t_eval_threads_dur = time.perf_counter() - t_eval_threads_0
-    logger.info(f"TELEMETRY_STAGE | eval_item_threadpool duration: {t_eval_threads_dur * 1000:.1f}ms")
+    logger.info(f"⏱️ [STEP 4] V5 Pipeline Evaluations (Pass 1) completed | Evaluated {eval_stats['count']} stocks | Time: {t_eval_threads_dur:.2f}s")
 
     # Log Detailed Evaluation Telemetry Summary
     import numpy as np
@@ -3365,7 +3367,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     except Exception as e:
         logger.error(f"Failed to sync deep fundamentals cache to DB: {e}")
     t_save_cache_dur = time.perf_counter() - t_save_cache_0
-    logger.info(f"TELEMETRY_STAGE | save_fundamentals_cache_to_db duration: {t_save_cache_dur * 1000:.1f}ms")
+    logger.info(f"⏱️ [STEP 6] Sync Cache & Database Commit completed | Time: {t_save_cache_dur * 1000:.1f}ms")
 
     # Process Top-N alerts
     # [Gate 4] PASS 1 COMPLETE: Sort by tier, total_score desc, cqs desc
@@ -3453,13 +3455,13 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 except Exception as e:
                     logger.error(f"❌ Error in Pass 2 fetch for {sym}: {e}")
             t_pass2_dur = time.perf_counter() - t_pass2_0
-            logger.info(f"TELEMETRY_STAGE | pass2_hydration duration: {t_pass2_dur * 1000:.1f}ms")
+            logger.info(f"⏱️ [STEP 5] YFinance Finalist Hydration (Pass 2) completed | Hydrated {completed_cnt} symbols | Time: {t_pass2_dur:.2f}s")
             
             # Resave cache if we fetched deep data
             t_save_cache2_0 = time.perf_counter()
             save_fundamentals_cache(cache, sync_to_db=True)
             t_save_cache2_dur = time.perf_counter() - t_save_cache2_0
-            logger.info(f"TELEMETRY_STAGE | save_fundamentals_cache_to_db_pass2 duration: {t_save_cache2_dur * 1000:.1f}ms")
+            logger.info(f"⏱️ [STEP 6B] Sync Cache & Database Commit (Pass 2) completed | Time: {t_save_cache2_dur * 1000:.1f}ms")
 
     # Post-hydration resort
     finalist_pool.sort(key=lambda x: (x.get("tier_val", 0), x["total_score"], x["cqs"]), reverse=True)
