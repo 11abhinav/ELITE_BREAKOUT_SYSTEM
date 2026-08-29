@@ -670,11 +670,30 @@ function playDing() {
             </div>
           </div>
           <div style="overflow-x:auto;">
-            <table class="data-table" style="width:100%;">
+            <table class="data-table" style="width:100%; border-collapse:collapse; font-size:12px;">
               <thead>
                 <tr>
                   <th style="width:36px; text-align:center;"><input type="checkbox" id="user-wl-select-all" onclick="toggleSelectAllUserWatchlist(this)" title="Select All / Deselect All" style="cursor:pointer; width:16px; height:16px;"></th>
+                  <th>Symbol</th>
+                  <th style="text-align:center;">FM Score</th>
+                  <th style="text-align:center;">Status</th>
+                  <th style="text-align:center;">Added</th>
+                  <th style="text-align:center;">Last Scan</th>
+                  <th style="text-align:center;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="user-watchlist-tbody">
+                <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">Loading watchlist...</td></tr>
+              </tbody>
             </table>
+          </div>
+
+          <div id="user-wl-pagination" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--card); border: 1px solid var(--border); border-radius: 0 0 12px 12px; margin-top: -1px;">
+            <div style="font-size: 13px; color: var(--muted);" id="user-wl-page-info">Showing 0 records</div>
+            <div style="display: flex; gap: 8px;">
+              <button onclick="changeUserPage('userWl', -1)" style="padding: 6px 12px; background: var(--card2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;">Previous</button>
+              <button onclick="changeUserPage('userWl', 1)" style="padding: 6px 12px; background: var(--card2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;">Next</button>
+            </div>
           </div>
         </div>
       </div>

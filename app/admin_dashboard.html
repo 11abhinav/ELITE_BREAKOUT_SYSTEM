@@ -7202,6 +7202,7 @@ function renderMultibaggerWatchlist() {
         <td style="font-size:10px; line-height:1.2; max-width:110px; white-space:normal; color:var(--muted);">${notes}</td>
         <td style="text-align: center;">
           <a href="https://www.tradingview.com/chart/?symbol=NSE:${sym}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-weight: 600; cursor: pointer;" title="Open on TradingView">📊 TV</a>
+        </td>
       </tr>
     `;
   }).join('');
@@ -9044,7 +9045,6 @@ function renderWealthHoldingsTable(items, filterBucket) {
         <td><span class="badge-ok" style="font-size:10px;">${formatText(bucket)}</span></td>
         <td>${formatText(sector)}</td>
         <td style="${sigStyle}">${formatText(signal)}</td>
-      </tr>
       </tr>
     `;
   }).join('');
