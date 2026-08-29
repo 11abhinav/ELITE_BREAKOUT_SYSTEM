@@ -15,6 +15,7 @@ import time
 import json
 import logging
 import math
+import numpy as np
 from dataclasses import dataclass
 from typing import Optional
 from config import DATA_DIR, WATCHLIST_PATH
@@ -605,67 +606,25 @@ def _parse_single_symbol_price_data(sym: str, md: Any, ist_now: datetime, strip_
         close_3m_ago = float(close_series.iloc[-(hist_idx + 1)])
         mom_3m = ((close_price - close_3m_ago) / close_3m_ago) if close_3m_ago > 0 else 0.0
 
-        latest_volume = float(vol_series.iloc[-1])
-        volume_sma20 = float(vol_series.tail(20).mean()) if len(vol_series) >= 20 else latest_volume
+        latest_volume = float(ticker_df["Volume"].iloc[-1]) if "Volume" in ticker_df.columns else 0.0
+        volume_sma20 = float(ticker_df["Volume"].tail(20).mean()) if "Volume" in ticker_df.columns and len(ticker_df) >= 20 else latest_volume
 
-        import time
-        _t0 = time.perf_counter()
-        
-        cols = ticker_df.columns
-        
-        if 'SMA_20' in cols:
-            sma_20_series = ticker_df['SMA_20']
-        elif 'SMA20' in cols:
-            sma_20_series = ticker_df['SMA20']
-        else:
-            sma_20_series = ticker_df['Close'].rolling(window=20).mean()
+        from indicator_manager import manager
+        bundle = manager.compute_base_indicators(ticker_df, sym)
 
-        if 'SMA50' in cols:
-            sma_50_series = ticker_df['SMA50']
-        elif 'SMA_50' in cols:
-            sma_50_series = ticker_df['SMA_50']
-        else:
-            sma_50_series = ticker_df['Close'].rolling(window=50).mean()
+        sma_20 = float(bundle.sma_20.iloc[-1]) if bundle.sma_20 is not None and not bundle.sma_20.empty else close_price
+        sma_50 = float(bundle.sma_50.iloc[-1]) if bundle.sma_50 is not None and not bundle.sma_50.empty else close_price
+        sma_200 = float(bundle.sma_200.iloc[-1]) if bundle.sma_200 is not None and not bundle.sma_200.empty else close_price
+        sma_200_yesterday = float(bundle.sma_200.iloc[-2]) if bundle.sma_200 is not None and len(bundle.sma_200) >= 2 else sma_200
 
-        if 'SMA200' in cols:
-            sma_200_series = ticker_df['SMA200']
-        elif 'SMA_200' in cols:
-            sma_200_series = ticker_df['SMA_200']
-        else:
-            sma_200_series = ticker_df['Close'].rolling(window=200).mean()
-
-        if 'ATR' in cols:
-            atr_14_series = ticker_df['ATR']
-        elif 'ATR_14' in cols:
-            atr_14_series = ticker_df['ATR_14']
-        else:
-            prev_close = ticker_df['Close'].shift()
-            tr = np.maximum(ticker_df['High'] - ticker_df['Low'], np.maximum(np.abs(ticker_df['High'] - prev_close), np.abs(ticker_df['Low'] - prev_close)))
-            atr_14_series = tr.rolling(window=14).mean()
-
-        if 'EMA20' in cols:
-            ema_20_series = ticker_df['EMA20']
-        elif 'EMA_20' in cols:
-            ema_20_series = ticker_df['EMA_20']
-        else:
-            ema_20_series = ticker_df['Close'].ewm(span=20, adjust=False).mean()
-
-        sma_20 = float(sma_20_series.iloc[-1]) if len(sma_20_series) > 0 else close_price
-        sma_50 = float(sma_50_series.iloc[-1]) if len(sma_50_series) > 0 else close_price
-        sma_200 = float(sma_200_series.iloc[-1]) if len(sma_200_series) > 0 else close_price
-        sma_200_yesterday = float(sma_200_series.iloc[-2]) if len(sma_200_series) >= 2 else sma_200
-        atr_14 = float(atr_14_series.iloc[-1]) if len(atr_14_series) > 0 else (close_price * 0.05)
-        ema_20 = float(ema_20_series.iloc[-1]) if len(ema_20_series) > 0 else close_price
+        atr_14 = float(bundle.atr_14.iloc[-1]) if bundle.atr_14 is not None and not bundle.atr_14.empty else (close_price * 0.05)
+        ema_20 = float(bundle.ema_20.iloc[-1]) if bundle.ema_20 is not None and not bundle.ema_20.empty else close_price
 
         closes_below_sma200_count = 0
-        if len(close_series) >= 5 and sma_200_series is not None and len(sma_200_series.dropna()) >= 5:
+        if len(close_series) >= 5 and bundle.sma_200 is not None and len(bundle.sma_200.dropna()) >= 5:
             last_5_closes = close_series.iloc[-5:]
-            last_5_smas = sma_200_series.iloc[-5:]
+            last_5_smas = bundle.sma_200.iloc[-5:]
             closes_below_sma200_count = sum(1 for c, s in zip(last_5_closes, last_5_smas) if c < s)
-
-        _t1 = time.perf_counter()
-        _ind_total_ms = (_t1 - _t0) * 1000
-        _reg_ms = 0.0
 
         spd = StockPriceData(
             symbol=sym,
@@ -688,12 +647,12 @@ def _parse_single_symbol_price_data(sym: str, md: Any, ist_now: datetime, strip_
             atr_14=atr_14,
             ema_20=ema_20,
             closes_below_sma200_count=closes_below_sma200_count,
-            last_trade_date=last_trade_date_str,
-            today_open=open_price,
+            last_trade_date=last_trade_date,
+            today_open=today_open,
             today_close=today_close
         )
-        spd._telemetry_indicator_total = _ind_total_ms
-        spd._telemetry_registry_ms = _reg_ms
+        spd._telemetry_indicator_total = 0.0
+        spd._telemetry_registry_ms = 0.0
         return spd
     except Exception as e:
         logger.debug(f"Error parsing market data for {sym}: {e}")
@@ -732,75 +691,12 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
         disk_results = {}
         missing_syms = []
 
-        import threading
-        telemetry_stats = {
-            "get_cached_df_ms": [],
-            "indicator_total_ms": [],
-            "calculation_ms": [],
-            "registry_ms": [],
-            "parse_total_ms": [],
-            "cache_success": 0,
-            "cache_fail": 0,
-            "ind_atr": 0,
-            "ind_rsi": 0,
-            "ind_ema20": 0,
-            "ind_sma20": 0,
-            "ind_ema50": 0,
-            "ind_sma50": 0,
-            "ind_ema200": 0,
-            "ind_sma200": 0
-        }
-        telemetry_lock = threading.Lock()
-
         def _load_single(s):
-            import time
-            t0 = time.perf_counter()
             df_sym = get_cached_df(s, interval="1d", period="1y")
-            t1 = time.perf_counter()
-            get_df_ms = (t1 - t0) * 1000
             if df_sym is not None and not df_sym.empty:
-                cols = set(df_sym.columns)
-                has_atr = 'ATR' in cols
-                has_rsi = 'RSI' in cols
-                has_ema20 = 'EMA20' in cols
-                has_sma20 = 'SMA20' in cols
-                has_ema50 = 'EMA50' in cols
-                has_sma50 = 'SMA50' in cols
-                has_ema200 = 'EMA200' in cols
-                has_sma200 = 'SMA200' in cols
-                
-                t2 = time.perf_counter()
                 parsed_spd = _parse_single_symbol_price_data(s, df_sym, ist_now, strip_forming=False)
-                t3 = time.perf_counter()
-                parse_ms = (t3 - t2) * 1000
-                
-                ind_total = getattr(parsed_spd, "_telemetry_indicator_total", 0.0) if parsed_spd else 0.0
-                reg_ms = getattr(parsed_spd, "_telemetry_registry_ms", 0.0) if parsed_spd else 0.0
-                calc_ms = max(0.0, ind_total - reg_ms)
-                
-                with telemetry_lock:
-                    telemetry_stats["cache_success"] += 1
-                    telemetry_stats["get_cached_df_ms"].append(get_df_ms)
-                    telemetry_stats["parse_total_ms"].append(parse_ms)
-                    telemetry_stats["indicator_total_ms"].append(ind_total)
-                    telemetry_stats["registry_ms"].append(reg_ms)
-                    telemetry_stats["calculation_ms"].append(calc_ms)
-                    if has_atr: telemetry_stats["ind_atr"] += 1
-                    if has_rsi: telemetry_stats["ind_rsi"] += 1
-                    if has_ema20: telemetry_stats["ind_ema20"] += 1
-                    if has_sma20: telemetry_stats["ind_sma20"] += 1
-                    if has_ema50: telemetry_stats["ind_ema50"] += 1
-                    if has_sma50: telemetry_stats["ind_sma50"] += 1
-                    if has_ema200: telemetry_stats["ind_ema200"] += 1
-                    if has_sma200: telemetry_stats["ind_sma200"] += 1
-                
-                logger.debug(f"TELEMETRY_ROW | {s} | rows:{len(df_sym)} | source:disk_cache | get_cached_df:{get_df_ms:.1f}ms | parse:{parse_ms:.1f}ms | indicator:{ind_total:.1f}ms (calc:{calc_ms:.1f}ms reg:{reg_ms:.1f}ms) | ATR:{has_atr} RSI:{has_rsi} EMA20:{has_ema20} SMA20:{has_sma20} EMA50:{has_ema50} SMA50:{has_sma50} EMA200:{has_ema200} SMA200:{has_sma200}")
-                
                 if parsed_spd is not None:
                     return s, parsed_spd
-            else:
-                with telemetry_lock:
-                    telemetry_stats["cache_fail"] += 1
             return s, None
 
         with ThreadPoolExecutor(max_workers=24) as executor:
@@ -834,23 +730,6 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
 
         # If >= 90% of symbols exist on disk, fast-path load them and fetch only the missing ones
         if len(disk_results) >= int(len(symbols) * 0.90):
-            import numpy as np
-            def _pct(arr, p):
-                return np.percentile(arr, p) if arr else 0.0
-            def _mean(arr):
-                return np.mean(arr) if arr else 0.0
-                
-            logger.info(
-                f"TELEMETRY_SUMMARY |\n"
-                f"symbols={len(symbols)} | cache_success={telemetry_stats['cache_success']} | cache_fail={telemetry_stats['cache_fail']} |\n"
-                f"get_cached_df (ms) -> avg:{_mean(telemetry_stats['get_cached_df_ms']):.1f} p50:{_pct(telemetry_stats['get_cached_df_ms'], 50):.1f} p95:{_pct(telemetry_stats['get_cached_df_ms'], 95):.1f} max:{max(telemetry_stats['get_cached_df_ms'], default=0.0):.1f} total:{sum(telemetry_stats['get_cached_df_ms']):.1f} |\n"
-                f"indicator_total (ms) -> avg:{_mean(telemetry_stats['indicator_total_ms']):.1f} p50:{_pct(telemetry_stats['indicator_total_ms'], 50):.1f} p95:{_pct(telemetry_stats['indicator_total_ms'], 95):.1f} max:{max(telemetry_stats['indicator_total_ms'], default=0.0):.1f} total:{sum(telemetry_stats['indicator_total_ms']):.1f} |\n"
-                f"  └─ calculation_ms -> avg:{_mean(telemetry_stats['calculation_ms']):.1f} p95:{_pct(telemetry_stats['calculation_ms'], 95):.1f} total:{sum(telemetry_stats['calculation_ms']):.1f} |\n"
-                f"  └─ registry_ms -> avg:{_mean(telemetry_stats['registry_ms']):.1f} p95:{_pct(telemetry_stats['registry_ms'], 95):.1f} total:{sum(telemetry_stats['registry_ms']):.1f} |\n"
-                f"parse_total (ms) -> avg:{_mean(telemetry_stats['parse_total_ms']):.1f} p50:{_pct(telemetry_stats['parse_total_ms'], 50):.1f} p95:{_pct(telemetry_stats['parse_total_ms'], 95):.1f} max:{max(telemetry_stats['parse_total_ms'], default=0.0):.1f} total:{sum(telemetry_stats['parse_total_ms']):.1f} |\n"
-                f"Columns Present: ATR:{telemetry_stats['ind_atr']} RSI:{telemetry_stats['ind_rsi']} EMA20:{telemetry_stats['ind_ema20']} SMA20:{telemetry_stats['ind_sma20']} EMA50:{telemetry_stats['ind_ema50']} SMA50:{telemetry_stats['ind_sma50']} EMA200:{telemetry_stats['ind_ema200']} SMA200:{telemetry_stats['ind_sma200']}"
-            )
-            
             if missing_syms:
                 logger.info(f"⚡ [MULTIBAGGER DISK ACCELERATION] {len(disk_results)}/{len(symbols)} loaded from disk cache. Concurrent fetching {len(missing_syms)} missing ticker(s)...")
                 def _fetch_missing(ms):
@@ -3446,9 +3325,16 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
 
     cache_updated = False
     t_eval_threads_0 = time.perf_counter()
+    completed_count = 0
+    total_count = len(fundamentals_list)
+    logger.info(f"📊 [MULTIBAGGER EVAL] Starting V5 pipeline evaluations for {total_count} shortlisted symbols...")
     with ThreadPoolExecutor(max_workers=8, thread_name_prefix="MB_Eval") as eval_exec:
         futures = [eval_exec.submit(_eval_item, f) for f in fundamentals_list]
         for fut in as_completed(futures):
+            completed_count += 1
+            if completed_count % 100 == 0 or completed_count == total_count:
+                pct = (completed_count / total_count) * 100
+                logger.info(f"⏳ [MULTIBAGGER EVAL] Progress: {completed_count}/{total_count} ({pct:.1f}%) evaluated...")
             if run_ctx:
                 run_ctx.heartbeat()
             fut.result()
