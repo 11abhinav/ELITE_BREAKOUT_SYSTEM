@@ -2604,7 +2604,6 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         symbols = symbols[:debug_limit]
         
     # 2. Phase 1: Batch Download Price & Volume Metrics (using auto_adjust=False)
-    import time
     _batch_start_t = time.perf_counter()
     symbols = list(set(symbols))
     # [VERSION: HEARTBEAT_PHASE1_v1.0] Pass run_ctx so batch_download_market_data pulses

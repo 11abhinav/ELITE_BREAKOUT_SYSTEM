@@ -2074,7 +2074,6 @@ def _main_impl(force_rebuild: bool = False):
         fin_mask = universe_df["sector"].isin(FINANCIAL_SECTORS)
         logger.info(f"📊 [CLASSIFY] Classifying {len(universe_df)} stocks... (Non-Financial: {(~fin_mask).sum()} | Financial: {fin_mask.sum()})")
         logger.info("🔍 [CLASSIFY] Starting classification of each universe row (this may take some time)...")
-        import time
         from concurrent.futures import ThreadPoolExecutor, as_completed
         try:
             from config import SCAN_WORKER_THREADS

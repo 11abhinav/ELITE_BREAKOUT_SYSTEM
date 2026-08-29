@@ -1278,7 +1278,6 @@ def resolve_orphan_fundamental_data(symbol: str) -> dict | None:
 
     import os
     import json
-    import time
     import pandas as pd
     from config import DATA_DIR, WATCHLIST_PATH
 
@@ -1719,7 +1718,6 @@ def _resolve_previous_completed_close(hist_df) -> "float | None":
 
 
 def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
-    import time
     start_time = time.time()
     
     try:
@@ -2098,7 +2096,6 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
             try:
                 from data_providers.fyers_fetcher import _fyers_circuit_breaker
                 from data_provider import _price_provider
-                import time
                 if _fyers_circuit_breaker.is_open:
                     exact_reason += "Fyers Circuit Breaker OPEN. "
                 if _price_provider.cooldown_until > time.time():
@@ -2660,7 +2657,6 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 def bg_db_sync():
                     global _last_parquet_upload
                     try:
-                        import time
                         from database import upload_parquet_to_db, upsert_scanner_health, upload_history_bundle_to_db
                         now = time.time()
                         ok = upload_parquet_to_db("wealth_engine", WEALTH_PATH)
@@ -2957,7 +2953,6 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
             def bg_db_sync_intraday():
                 global _last_parquet_upload
                 try:
-                    import time
                     from database import upload_parquet_to_db, update_position_real_time_prices, upsert_scanner_health
                     now = time.time()
                     if now - _last_parquet_upload > 300:
