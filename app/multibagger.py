@@ -677,17 +677,9 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
         ]
         return any(os.path.exists(os.path.join(history_dir, f"{v}.parquet")) for v in variants)
 
-    missing_local = any(not _has_parquet(s) for s in symbols)
-    if missing_local:
-        try:
-            from database import restore_history_bundle_from_db
-            restore_history_bundle_from_db("1d")
-        except Exception as _res_err:
-            logger.debug(f"History bundle DB restore check: {_res_err}")
-
-    # 🚀 OFF-MARKET INSTANT PARQUET LOAD: If local disk cache is complete and market is closed,
-    # load directly from disk without triggering network delta calls (<0.5s)
     ist_now = datetime.now(IST)
+    # 🚀 OFF-MARKET INSTANT PARQUET LOAD: If local disk cache is complete and market is closed,
+    # load directly from disk without triggering network delta calls or DB bundle restores (<0.5s)
     if not is_market_open(ist_now):
         from price_cache import get_cached_df
         disk_results = {}
@@ -707,6 +699,14 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
         if all_found and len(disk_results) == len(symbols):
             logger.info(f"⚡ [MULTIBAGGER DISK ACCELERATION] Loaded and parsed all {len(disk_results)} StockPriceData objects directly from disk cache in <0.5s (Market Closed).")
             return disk_results
+
+    missing_local = any(not _has_parquet(s) for s in symbols)
+    if missing_local:
+        try:
+            from database import restore_history_bundle_from_db
+            restore_history_bundle_from_db("1d")
+        except Exception as _res_err:
+            logger.debug(f"History bundle DB restore check: {_res_err}")
 
     BATCH_SIZE = int(os.environ.get("MULTIBAGGER_FETCH_BATCH_SIZE", "200"))
     logger.info(f"📥 Centralized chunked downloading 1y history for {len(symbols)} tickers (Chunk size: {BATCH_SIZE})...")

@@ -611,7 +611,7 @@ def get_piotroski_score(symbol: str) -> int:
     return f_dict.get("score", -1)
 
 _norm_cache_index = {}
-_norm_cache_id = None
+_norm_cache_len = 0
 _cache_stats = {"total_lookups": 0, "o1_hits": 0, "o1_misses": 0, "linear_scans": 0, "index_build_ms": 0.0}
 
 def get_fundamentals_cache_stats() -> dict:
@@ -619,9 +619,8 @@ def get_fundamentals_cache_stats() -> dict:
     return dict(_cache_stats)
 
 def _get_normalized_cache_index(cache: dict) -> dict:
-    global _norm_cache_index, _norm_cache_id, _cache_stats
-    current_id = id(cache)
-    if _norm_cache_id == current_id and _norm_cache_index:
+    global _norm_cache_index, _norm_cache_len, _cache_stats
+    if _norm_cache_index and len(cache) == _norm_cache_len:
         return _norm_cache_index
     try:
         import time as _t_mod
@@ -634,10 +633,10 @@ def _get_normalized_cache_index(cache: dict) -> dict:
                 if norm_k:
                     idx[norm_k] = v
         _norm_cache_index = idx
-        _norm_cache_id = current_id
+        _norm_cache_len = len(cache)
         _dur_ms = (_t_mod.perf_counter() - _t0) * 1000.0
         _cache_stats["index_build_ms"] = round(_dur_ms, 2)
-        logger.info(f"⚡ [FUNDAMENTALS INDEX] Built O(1) normalized index for {len(_norm_cache_index)} entries in {_dur_ms:.2f}ms (memoized for cache id={current_id})")
+        logger.info(f"⚡ [FUNDAMENTALS INDEX] Built O(1) normalized index for {len(_norm_cache_index)} entries in {_dur_ms:.2f}ms (memoized for cache size={len(cache)})")
         return _norm_cache_index
     except Exception as e:
         logger.warning(f"Failed to build normalized index: {e}")
