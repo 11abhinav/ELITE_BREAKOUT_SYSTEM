@@ -393,10 +393,12 @@ def init_db():
                     )
                 """)
                 try:
+                    cur.execute("SAVEPOINT index_savepoint;")
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_master_symbols_active ON master_symbols(is_active)")
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_master_symbols_search ON master_symbols(symbol, company_name)")
+                    cur.execute("RELEASE SAVEPOINT index_savepoint;")
                 except Exception:
-                    pass
+                    cur.execute("ROLLBACK TO SAVEPOINT index_savepoint;")
 
                 # 3. candidates
                 cur.execute("""
@@ -503,13 +505,16 @@ def init_db():
                 
                 # [MIGRATION]: Add entry_mode and actual_entry_price to existing tables
                 try:
+                    cur.execute("SAVEPOINT entry_mode_migration_savepoint;")
                     cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS entry_mode TEXT DEFAULT 'LEGACY_UNKNOWN';")
                     cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS actual_entry_price REAL;")
                     # Scanner-aware migration
                     cur.execute("UPDATE alerts SET entry_mode = 'BREAKOUT_TRIGGER' WHERE scanner = 'ACCUMULATION' AND entry_mode = 'LEGACY_UNKNOWN';")
                     cur.execute("UPDATE alerts SET entry_mode = 'LIMIT_PULLBACK' WHERE scanner = 'PULLBACK' AND entry_mode = 'LEGACY_UNKNOWN';")
                     cur.execute("UPDATE alerts SET entry_mode = 'MARKET' WHERE scanner IN ('EOD', 'MULTI_TF', 'MULTIBAGGER', 'REVERSAL') AND entry_mode = 'LEGACY_UNKNOWN';")
+                    cur.execute("RELEASE SAVEPOINT entry_mode_migration_savepoint;")
                 except Exception as e:
+                    cur.execute("ROLLBACK TO SAVEPOINT entry_mode_migration_savepoint;")
                     logger.warning(f"⚠️ Failed to migrate entry_mode column: {e}")
 
                 # [RULE 67 CHANGE-RATIONALE]:
