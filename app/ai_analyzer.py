@@ -73,59 +73,74 @@ def analyze_concall_text(text: str) -> dict:
         text = text[:80000]
 
     errors = []
-    gemini_key_str = os.getenv("GEMINI_API_KEY", "")
     openai_key = os.getenv("OPENAI_API_KEY")
 
-    if not gemini_key_str and not openai_key:
-        return {"error": "No LLM API keys found. Please set GEMINI_API_KEY or OPENAI_API_KEY."}
+    from gemini_key_manager import get_active_gemini_key, mark_gemini_key_exhausted
 
-    # Fallback Chain 1: Gemini Models
-    if gemini_key_str:
-        gemini_keys = [k.strip() for k in gemini_key_str.split(",") if k.strip()]
+    # Fallback Chain 1: Gemini Models with Sticky Active Key Selection
+    gemini_key = get_active_gemini_key()
+    if gemini_key:
         gemini_models = [
-            "gemini-3.5-flash",
-            "gemini-3.1-flash-lite",
-            "gemini-2.5-pro",
             "gemini-2.5-flash",
-            "gemini-2.5-flash-lite"
+            "gemini-2.5-flash-lite",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro"
         ]
         
         for model in gemini_models:
-            success = False
-            for i, gemini_key in enumerate(gemini_keys):
-                try:
-                    logger.info(f"Attempting AI analysis with {model} (Key {i+1}/{len(gemini_keys)})...")
-                    result = _try_gemini_model(model, gemini_key, text)
-                    result["key_used"] = f"Key {i+1}"
-                    from data_fetch_status import mark_success
-                    mark_success('gemini')
-                    return result
-                except Exception as e:
-                    import time
-                    err_str = str(e).replace(gemini_key, "[REDACTED_KEY]")
-                    if "429" in err_str or "Quota" in err_str:
-                        logger.warning(f"{model} hit rate limit on Key {i+1}.")
-                        errors.append(f"{model} Rate Limited (Key {i+1})")
-                        
-                        from data_fetch_status import mark_failure
-                        mark_failure('gemini', f"{model} Rate Limited (Key {i+1})")
-                        
-                        if i == len(gemini_keys) - 1:
-                            logger.warning(f"All Gemini keys exhausted for {model}. Sleeping 30s before trying next model/retry...")
-                            time.sleep(30)
-                            # We don't return here, we let it break and go to the next model in `gemini_models`
-                    elif "404" in err_str or "NOT_FOUND" in err_str:
-                        # User requested to silently ignore 404s (invalid model aliases)
-                        logger.warning(f"Skipping {model} as it is not found on this API key.")
-                        break # Skip to next model
+            curr_key = get_active_gemini_key()
+            if not curr_key:
+                logger.warning("🚨 All Gemini keys are currently blacklisted for 7 days!")
+                break
+                
+            masked_key = f"{curr_key[:4]}...{curr_key[-4:]}" if len(curr_key) > 8 else "GEMINI_KEY"
+            try:
+                logger.info(f"Attempting AI analysis with {model} (Key: [{masked_key}])...")
+                result = _try_gemini_model(model, curr_key, text)
+                result["key_used"] = masked_key
+                from data_fetch_status import mark_success
+                mark_success('gemini')
+                return result
+            except Exception as e:
+                err_str = str(e).replace(curr_key, "[REDACTED_KEY]")
+                if "429" in err_str or "Quota" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    logger.warning(f"❌ [GEMINI QUOTA EXHAUSTED] {model} hit rate/quota limit on key [{masked_key}]. Blacklisting key for 7 days...")
+                    errors.append(f"{model} Rate Limited (Key: [{masked_key}])")
+                    
+                    from data_fetch_status import mark_failure
+                    mark_failure('gemini', f"{model} Rate Limited (Key [{masked_key}])")
+                    mark_gemini_key_exhausted(curr_key, f"Quota Exceeded on {model}")
+                    
+                    # Try immediately with next non-blacklisted active key
+                    next_key = get_active_gemini_key()
+                    if next_key:
+                        next_masked = f"{next_key[:4]}...{next_key[-4:]}" if len(next_key) > 8 else "NEXT_KEY"
+                        logger.info(f"🔄 Switched to next available Gemini key [{next_masked}]. Retrying model {model}...")
+                        try:
+                            result = _try_gemini_model(model, next_key, text)
+                            result["key_used"] = next_masked
+                            from data_fetch_status import mark_success
+                            mark_success('gemini')
+                            return result
+                        except Exception as retry_err:
+                            retry_err_str = str(retry_err).replace(next_key, "[REDACTED_KEY]")
+                            if "429" in retry_err_str or "Quota" in retry_err_str or "RESOURCE_EXHAUSTED" in retry_err_str:
+                                mark_gemini_key_exhausted(next_key, f"Quota Exceeded on retry {model}")
+                            logger.warning(f"Retry on model {model} failed: {retry_err_str}")
                     else:
-                        logger.warning(f"{model} failed: {err_str}")
-                        errors.append(f"{model}: {err_str}")
-                        from data_fetch_status import mark_failure
-                        mark_failure('gemini', f"{model}: {err_str}")
-                        break # Skip to next model if it's not a quota issue
+                        logger.warning("🚨 All Gemini keys exhausted. Proceeding to fallback chain...")
+                        break
+                elif "404" in err_str or "NOT_FOUND" in err_str:
+                    logger.warning(f"Skipping {model} as it is not found on key [{masked_key}].")
+                    continue
+                else:
+                    logger.warning(f"{model} failed: {err_str}")
+                    errors.append(f"{model}: {err_str}")
+                    from data_fetch_status import mark_failure
+                    mark_failure('gemini', f"{model}: {err_str}")
+                    continue
 
     from data_fetch_status import mark_failure
-    final_error = errors[-1] if errors else "All AI models failed or were not found."
+    final_error = errors[-1] if errors else "All AI models failed or all Gemini keys are 7-day blacklisted."
     mark_failure('gemini', final_error)
     return {"error": "All AI models in the fallback chain failed.", "details": errors}
