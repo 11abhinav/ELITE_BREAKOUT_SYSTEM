@@ -3179,11 +3179,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                         fund["cache_tier"] = resolved_tier
                         cache[sym] = fund
                         logger.info(f"⚡ [MULTIBAGGER PASS 2] [{completed_cnt}/{len(futures)}] Hydrated {sym} | Tier={resolved_tier} | Equity={deep_equity}")
-                    else:
-                        logger.info(f"⚠️ [MULTIBAGGER PASS 2] [{completed_cnt}/{len(futures)}] {sym} hydration returned baseline metrics only")
                         
                         # Rerun V5 specifically for this finalist now that it has YFinance data
-                        # We unpack just the pipeline run to patch the candidate dict
                         try:
                             technicals = {
                                 "price": cand["price"],
@@ -3204,7 +3201,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                         except Exception as re_err:
                             logger.error(f"Failed Pass 2 V5 re-scoring for {sym}: {re_err}")
                     else:
-                        logger.warning(f"⚠️ Pass 2 YFinance fallback failed for {sym}")
+                        logger.info(f"⚠️ [MULTIBAGGER PASS 2] [{completed_cnt}/{len(futures)}] {sym} hydration returned baseline metrics only")
                 except Exception as e:
                     logger.error(f"❌ Error in Pass 2 fetch for {sym}: {e}")
             
