@@ -4699,11 +4699,15 @@ def save_df_to_table(table_name: str, df: pd.DataFrame):
             if date_col:
                 date_col_safe = date_col.replace("%", "%%")
                 table_name_safe = table_name.replace("%", "%%")
-                # [VERSION: DB_PATCH_v1.3] [RULE 67 CHANGE-RATIONALE]
-                # Delete NULL dates and today's dates to allow retry idempotency on the same day.
-                # Do NOT delete older dates (< today_str) to retain previous build dates.
+                # [VERSION: DB_PATCH_v1.4] [RULE 67 CHANGE-RATIONALE]
+                # Delete NULL dates, exact date matches, and timestamp prefix matches (e.g. '2026-08-29%')
+                # to ensure idempotency across date/timestamp column formats.
                 cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" IS NULL')
                 cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" = %s', (today_str,))
+                try:
+                    cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}"::text LIKE %s', (f"{today_str}%",))
+                except Exception:
+                    pass
             else:
                 cur.execute(f"TRUNCATE TABLE {table_name}")
                 
@@ -4729,11 +4733,11 @@ def save_df_to_table(table_name: str, df: pd.DataFrame):
                 logger.warning(f"⚠️ No matching columns found between DataFrame and table '{table_name}'.")
                 return
 
-            # 5. Insert rows
+            # 5. Insert rows with ON CONFLICT DO NOTHING for absolute idempotency
             col_list_str = ", ".join(f'"{c.replace("%", "%%")}"' for c in insert_cols)
             val_placeholders = ", ".join(["%s"] * len(insert_cols))
             table_name_safe = table_name.replace("%", "%%")
-            insert_query = f"INSERT INTO {table_name_safe} ({col_list_str}) VALUES ({val_placeholders})"
+            insert_query = f"INSERT INTO {table_name_safe} ({col_list_str}) VALUES ({val_placeholders}) ON CONFLICT DO NOTHING"
 
             for _, row in df.iterrows():
                 vals = [row[sc] for sc in df_source_cols]
