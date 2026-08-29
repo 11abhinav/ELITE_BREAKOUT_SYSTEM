@@ -2305,6 +2305,7 @@ def save_alert_if_new(
             logger.info(f"🚫 [DB_SAVE] Alert for {symbol} ({scanner}) SKIPPED — Reason: ALREADY_HAS_OPEN_ALERT in database")
             return False, "Already OPEN", 0.0, 0
 
+        eff_actual_entry_price = actual_entry_price if actual_entry_price is not None else entry_price
         cur.execute("""
             INSERT INTO alerts
                 (symbol, breakout_type, alert_time, alert_date, scanner, category,
@@ -2318,7 +2319,7 @@ def save_alert_if_new(
             entry_price, stop_loss, stop_loss, target_price, target_1, target_2, target_3, target_4,
             signals, score, rsi, volume_ratio, context_str, capital_allocated, shares_bought, shares_bought,
             model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0, entry_price,
-            structural_failure_stop, target_quality_score, entry_mode, actual_entry_price))
+            structural_failure_stop, target_quality_score, entry_mode, eff_actual_entry_price))
         row = cur.fetchone()
         inserted = (row is not None) or (getattr(cur, "rowcount", 0) > 0)
         commit_cb()

@@ -1275,8 +1275,6 @@ def get_v2_universe_health():
         return Response(_UNIVERSE_HEALTH_CACHE["payload"], mimetype="application/json")
     try:
         from database import get_connection
-    try:
-        from database import get_connection
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""

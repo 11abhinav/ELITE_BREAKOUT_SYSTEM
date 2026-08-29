@@ -569,20 +569,21 @@ def confirm_candidate(
         cur.execute("""
             INSERT INTO alerts (
                 symbol, scanner, alert_type, breakout_type,
-                entry_price, stop_loss, target_1, target_2,
+                entry_price, actual_entry_price, stop_loss, target_1, target_2,
                 risk_reward_ratio, quality_score,
                 reasoning, metadata, idempotency_key,
                 created_at
             )
             VALUES (
                 %(symbol)s, %(scanner)s, 'CONFIRMED_BUY', %(breakout_type)s,
-                %(entry_price)s, %(stop_loss)s, %(target_1)s, %(target_2)s,
+                %(entry_price)s, COALESCE(%(actual_entry_price)s, %(entry_price)s), %(stop_loss)s, %(target_1)s, %(target_2)s,
                 %(risk_reward_ratio)s, %(quality_score)s,
                 %(reasoning)s, %(metadata)s::jsonb, %(idempotency_key)s,
                 %(now)s
             )
             ON CONFLICT (idempotency_key) DO NOTHING
         """, {
+            "actual_entry_price": alert_payload.get("actual_entry_price") or alert_payload.get("entry_price"),
             **alert_payload,
             "idempotency_key": idempotency_key,
             "now":             now,
