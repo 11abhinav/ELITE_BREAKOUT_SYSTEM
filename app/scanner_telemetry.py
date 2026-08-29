@@ -779,7 +779,10 @@ class GlobalScannerTelemetryEngine:
             else:
                 logger.debug(f"\n{box_text}")
                 
-            logger.info(f"Scanner={ctx.scanner_name} Symbol={ctx.symbol} Decision={ctx.terminal_decision} Gate={ctx.primary_reason} Reason={ctx.primary_reason}")
+            if ctx.terminal_decision not in ("REJECTED", "NOT_APPLICABLE"):
+                logger.info(f"Scanner={ctx.scanner_name} Symbol={ctx.symbol} Decision={ctx.terminal_decision} Gate={ctx.primary_reason} Reason={ctx.primary_reason}")
+            else:
+                logger.debug(f"Scanner={ctx.scanner_name} Symbol={ctx.symbol} Decision={ctx.terminal_decision} Gate={ctx.primary_reason} Reason={ctx.primary_reason}")
 
             # 2. Serialize JSON record
             record_json = ctx.to_telemetry_json()
