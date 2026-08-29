@@ -1788,7 +1788,7 @@ def _main_wrapper(force_rebuild: bool = False, run_ctx=None):
 
     start_time = datetime.now(IST)
     try:
-        _main_impl(force_rebuild=force_rebuild)
+        _main_impl(force_rebuild=force_rebuild, run_ctx=run_ctx)
         duration_sec = (datetime.now(IST) - start_time).total_seconds()
         
         try:
@@ -1915,7 +1915,7 @@ def ensure_daily_builder_cache() -> bool:
     logger.info("Daily Builder Cache: Source = Rebuilt")
     return False
 
-def _main_impl(force_rebuild: bool = False):
+def _main_impl(force_rebuild: bool = False, run_ctx=None):
     global _DELIVERY_DATA, _INST_BUYS
     # ── DB RE-RUN GUARD ──
     if not force_rebuild:
