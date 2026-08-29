@@ -9100,7 +9100,12 @@ document.addEventListener('DOMContentLoaded', () => {
   if (requestedTab && typeof switchAdminTab === 'function') {
     switchAdminTab(requestedTab);
   } else {
-    loadMasterSystemV2Data();
+    // Default to active tab signals-trades to ensure the initial tab loads data on page load!
+    if (typeof switchAdminTab === 'function') {
+      switchAdminTab('signals-trades');
+    } else {
+      loadMasterSystemV2Data();
+    }
   }
   loadUserWatchlist();
   loadManualWatchlist();
