@@ -2740,7 +2740,7 @@ def get_recent_alerts_for_scanner(scanner: str, lookback_minutes: int, only_acti
                 """, (scanner, cutoff))
             return {(row[0], row[1]) for row in cur.fetchall()}
 
-def get_all_alerts() -> list[dict]:
+def get_all_alerts(limit: int = None) -> list[dict]:
     """Return every alert, newest first — including outcome columns.
 
     Calls init_db() first to ensure all migration columns exist regardless
@@ -2749,7 +2749,7 @@ def get_all_alerts() -> list[dict]:
     init_db()   # no-op if already initialised; ensures columns exist before SELECT
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
+            query = """
                 SELECT
                     a.id, a.symbol, a.breakout_type, a.alert_time, a.alert_date,
                     a.scanner, a.category, a.entry_price, a.stop_loss, a.initial_stop_loss,
@@ -2766,7 +2766,11 @@ def get_all_alerts() -> list[dict]:
                     COALESCE(a.warning_msg, '')                     AS warning_msg
                 FROM alerts a
                 ORDER BY a.alert_time DESC
-            """)
+            """
+            if limit is not None:
+                query += f" LIMIT {int(limit)}"
+                
+            cur.execute(query)
             rows = []
             for row in cur.fetchall():
                 rows.append(dict(row))

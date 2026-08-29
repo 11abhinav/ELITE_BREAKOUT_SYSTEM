@@ -1005,7 +1005,7 @@ def api_get_near_misses():
 def _build_instant_performance_fallback():
     try:
         from database import get_all_alerts
-        raw_alerts = get_all_alerts()
+        raw_alerts = get_all_alerts(limit=3000)
         if not raw_alerts:
             return None
 
@@ -1031,6 +1031,7 @@ def _build_instant_performance_fallback():
                 "status": st,
                 "shares_bought": row.get("shares_bought", 0),
                 "capital_allocated": float(row["capital_allocated"]) if row.get("capital_allocated") is not None else None,
+                "execution_state": row.get("execution_state"),
             })
 
         judged = [t for t in trades if t["status"] in ("WIN", "LOSS", "CLOSED")]

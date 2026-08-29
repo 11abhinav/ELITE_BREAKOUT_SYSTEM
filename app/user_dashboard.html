@@ -610,6 +610,13 @@ function playDing() {
           <tbody id="tradeBody"></tbody>
         </table>
       </div>
+      <div id="trade-pagination" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: var(--card); border: 1px solid var(--border); border-radius: 0 0 12px 12px; margin-top: -1px;">
+        <div style="font-size: 13px; color: var(--muted);" id="trade-page-info">Showing 0 trades</div>
+        <div style="display: flex; gap: 8px;">
+          <button onclick="changeTradePage(-1)" style="padding: 6px 12px; background: var(--card2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;">Previous</button>
+          <button onclick="changeTradePage(1)" style="padding: 6px 12px; background: var(--card2); border: 1px solid var(--border); color: var(--text); border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;">Next</button>
+        </div>
+      </div>
       </div>
     </div>
     </div>
@@ -1180,6 +1187,15 @@ window.renderSignalLadder = function() {
 let expandedIds = new Set();
 let sortCol = 'status', sortDir = 1;
 
+let tradeCurrentPage = 1;
+const TRADE_PAGE_SIZE = 100;
+
+function changeTradePage(delta) {
+  tradeCurrentPage += delta;
+  if (tradeCurrentPage < 1) tradeCurrentPage = 1;
+  renderTradeTable();
+}
+
 function getEarningsBadgeHtml(item) {
   // Earnings Calendar removed. Only show corporate action (split) badges from event_badges.
   if (!item || !Array.isArray(item.event_badges) || item.event_badges.length === 0) return '';
@@ -1213,6 +1229,7 @@ function calcPnlRs(t) {
     return (t.pnl_pct / 100.0) * t.capital_allocated;
   }
   return t.pnl_rs || 0;
+}
 function buildTradeRows(trades, maxAbs, prefix) {
   return trades.map((t, i) => {
     const id = prefix + i;
@@ -1560,9 +1577,24 @@ function renderTradeTable() {
   const body = document.getElementById('tradeBody');
   if (!filtered.length) {
     body.innerHTML = `<tr><td colspan="14" style="text-align:center;padding:32px;color:var(--muted)">No trades match this filter.</td></tr>`;
+    const pi = document.getElementById('trade-page-info');
+    if (pi) pi.textContent = 'Showing 0 trades';
     return;
   }
-  body.innerHTML = buildTradeRows(filtered, maxAbs, 'main-');
+  
+  // Pagination logic
+  const totalPages = Math.ceil(filtered.length / TRADE_PAGE_SIZE);
+  if (tradeCurrentPage > totalPages) tradeCurrentPage = totalPages;
+  const startIndex = (tradeCurrentPage - 1) * TRADE_PAGE_SIZE;
+  const paginated = filtered.slice(startIndex, startIndex + TRADE_PAGE_SIZE);
+
+  body.innerHTML = buildTradeRows(paginated, maxAbs, 'main-');
+  
+  const pi = document.getElementById('trade-page-info');
+  if (pi) {
+      pi.textContent = `Showing ${startIndex + 1}-${Math.min(startIndex + paginated.length, filtered.length)} of ${filtered.length} trades (Page ${tradeCurrentPage} of ${totalPages})`;
+  }
+
   document.querySelector('th[data-col="entry_date"]').textContent = 'Date & Time';
   document.querySelectorAll('thead th[data-col]').forEach(th => {
     th.classList.remove('sort-asc','sort-desc');
@@ -1592,6 +1624,11 @@ document.addEventListener('click', e => {
       renderSignalLadder();
   }
 });
+
+document.getElementById('searchTrades').addEventListener('input', () => { tradeCurrentPage = 1; renderTradeTable(); });
+document.getElementById('filterStatus').addEventListener('change', () => { tradeCurrentPage = 1; renderTradeTable(); });
+document.getElementById('filterScanner').addEventListener('change', () => { tradeCurrentPage = 1; renderTradeTable(); });
+document.getElementById('filterDate').addEventListener('change', () => { tradeCurrentPage = 1; renderTradeTable(); });
 
 ['filterScanner','filterStatus','filterCategory','filterSymbol','filterDate'].forEach(id => {
   if (document.getElementById(id)) {
