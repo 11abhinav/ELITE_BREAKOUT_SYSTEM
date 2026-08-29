@@ -167,13 +167,13 @@ def run_ai_worker_scan_once() -> dict:
                                 upsert_scanner_health("AI Worker", "OK", last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=db_processed_count, processed_count=db_processed_count, total_count=total_stocks, error_msg=f"Last: {sym} | Total: {total_stocks}")
     
                             is_rate_limit = "429" in error_msg or "All AI models" in error_msg
-                            is_transient  = "503" in error_msg or "502" in error_msg or "timeout" in error_msg.lower() or "unavailable" in error_msg.lower()
+                            is_transient  = ("503" in error_msg or "502" in error_msg or "timeout" in error_msg.lower()) and "no recent concall" not in error_msg.lower()
     
                             if is_rate_limit or is_transient:
                                 failed_stocks.append(sym)
                                 logger.warning(f"⚠️ [AI WORKER] Transient/rate-limit error for {sym}. Adding to retry queue...")
                             else:
-                                logger.warning(f"⚠️ [AI WORKER] Persistent error for {sym}: {error_msg}. Saving 24h negative cache.")
+                                logger.warning(f"⚠️ [AI WORKER] Persistent/no-data result for {sym}: {error_msg}. Saving 24h negative cache to skip for today.")
                                 save_concall_analysis(sym, f"NONE_{sym}", {"error": error_msg})
                                 
                     except Exception as e:

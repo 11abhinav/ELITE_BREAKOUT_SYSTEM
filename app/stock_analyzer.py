@@ -399,9 +399,15 @@ def fetch_live_nse_equities() -> list:
     return results
 
 
-def refresh_master_symbols_universe() -> bool:
-    """07:00 AM IST Daily Job: Sync all active NSE/BSE equity symbols (including newly listed IPOs) into DB master_symbols table."""
-    global _MASTER_SYMBOLS_MTIME
+_LAST_MASTER_REFRESH_TIME = 0.0
+
+def refresh_master_symbols_universe(force: bool = False) -> bool:
+    """07:00 AM IST Daily Job: Sync all active NSE/BSE equity symbols into DB master_symbols table at most once per 24 hours."""
+    global _MASTER_SYMBOLS_MTIME, _LAST_MASTER_REFRESH_TIME
+    now_ts = time.time()
+    if not force and (now_ts - _LAST_MASTER_REFRESH_TIME) < 86400.0:
+        logger.debug("⏭️ [MASTER SYMBOLS] Already refreshed within 24h. Skipping duplicate sync.")
+        return True
     try:
         from database import sync_master_symbols, upsert_scanner_health
         m = _load_master_symbol_dictionary()
@@ -418,6 +424,7 @@ def refresh_master_symbols_universe() -> bool:
             symbol_rows = list(m.values())
             ok = sync_master_symbols(symbol_rows)
             _MASTER_SYMBOLS_MTIME = 0 # Force in-memory cache refresh
+            _LAST_MASTER_REFRESH_TIME = now_ts
             if ok:
                 try:
                     upsert_scanner_health("MASTER_SYMBOLS", "OK", error_msg=f"Synced {len(symbol_rows)} NSE/BSE equities")
