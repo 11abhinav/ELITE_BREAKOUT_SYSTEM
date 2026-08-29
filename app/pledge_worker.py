@@ -247,8 +247,16 @@ def worker_loop():
 
         try:
             if not get_scraper_api_key():
-                logger.warning("🚨 ScraperAPI key is exhausted/missing. Pausing scraping daemon for 1 hour.")
-                time.sleep(3600)
+                logger.warning("🚨 [PLEDGE WORKER DOWN] All ScraperAPI keys are exhausted/missing for the next 7 days. Marking Pledge Worker DOWN and sleeping 1h.")
+                upsert_scanner_health("Pledge Worker", "DOWN", today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg="DOWN: All ScraperAPI keys exhausted (7-day blacklist)")
+                try:
+                    from database import insert_notification
+                    from push_service import send_push_to_all
+                    insert_notification("admin", "❌ PLEDGE WORKER DOWN", "All ScraperAPI keys are marked exhausted for the next 7 days. Pledge Worker marked DOWN and paused for 1 hour to prevent per-stock errors.")
+                    send_push_to_all("❌ PLEDGE WORKER DOWN", "All ScraperAPI keys exhausted. Pledge Worker marked DOWN.")
+                except Exception as notif_err:
+                    logger.warning(f"Failed to send pledge key exhaustion notifications: {notif_err}")
+                sleep_with_mode_check(3600)
                 continue
                 
             logger.debug(f"📋 [PLEDGE WORKER] Universe loaded in {time.time()-loop_start:.1f}s | Watchlist={watchlist_count} | Excluded={excluded_count} | Constituents={constituents_count} | Total={len(symbols_set)} unique symbols")
@@ -494,8 +502,15 @@ def worker_loop():
                 complete_scanner_execution_run(worker_run_ctx)
             
             if quota_exhausted:
-                logger.info("⏳ Quota exhausted or proxy blocked. Sleeping for 1 hour before retrying...")
-                upsert_scanner_health("Pledge Worker", "ERROR", last_success=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(), today_alerts=processed_base + successful_in_first_pass, processed_count=processed_base + successful_in_first_pass, total_count=total_watch, error_msg="Quota Exhausted - Waiting 1h")
+                logger.info("⏳ Quota exhausted or proxy blocked. Marking Pledge Worker DOWN and sleeping 1 hour...")
+                upsert_scanner_health("Pledge Worker", "DOWN", last_success=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(), today_alerts=processed_base + successful_in_first_pass, processed_count=processed_base + successful_in_first_pass, total_count=total_watch, error_msg="DOWN: All ScraperAPI keys exhausted (7-day blacklist)")
+                try:
+                    from database import insert_notification
+                    from push_service import send_push_to_all
+                    insert_notification("admin", "❌ PLEDGE WORKER DOWN", "All ScraperAPI keys are marked exhausted for the next 7 days. Pledge Worker marked DOWN.")
+                    send_push_to_all("❌ PLEDGE WORKER DOWN", "All ScraperAPI keys exhausted. Worker marked DOWN.")
+                except Exception as notif_err:
+                    logger.warning(f"Failed to send quota exhaustion notifications: {notif_err}")
                 sleep_with_mode_check(3600)
                 logger.info("⏰ Woke up from 1-hour sleep! Retrying scraper loop now...")
                 continue
