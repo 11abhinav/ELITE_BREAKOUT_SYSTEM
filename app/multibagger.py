@@ -682,18 +682,26 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
     # load directly from disk and fetch only the missing tickers (<0.5s total)
     if not is_market_open(ist_now):
         from price_cache import get_cached_df, fetch_unified_historical
+        from concurrent.futures import ThreadPoolExecutor, as_completed
         disk_results = {}
         missing_syms = []
-        for s in symbols:
+
+        def _load_single(s):
             df_sym = get_cached_df(s, interval="1d", period="1y")
             if df_sym is not None and not df_sym.empty:
                 parsed_spd = _parse_single_symbol_price_data(s, df_sym, ist_now, strip_forming=False)
                 if parsed_spd is not None:
+                    return s, parsed_spd
+            return s, None
+
+        with ThreadPoolExecutor(max_workers=24) as executor:
+            futures = [executor.submit(_load_single, s) for s in symbols]
+            for future in as_completed(futures):
+                s, parsed_spd = future.result()
+                if parsed_spd is not None:
                     disk_results[s] = parsed_spd
                 else:
                     missing_syms.append(s)
-            else:
-                missing_syms.append(s)
 
         # If >= 90% of symbols exist on disk, fast-path load them and fetch only the missing ones
         if len(disk_results) >= int(len(symbols) * 0.90):
