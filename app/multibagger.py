@@ -723,15 +723,6 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
         ]
         return any(os.path.exists(os.path.join(history_dir, f"{v}.parquet")) for v in variants)
 
-    # Pre-restore local parquet files from DB if they are missing
-    missing_local = any(not _has_parquet(s) for s in symbols)
-    if missing_local:
-        try:
-            from database import restore_history_bundle_from_db
-            restore_history_bundle_from_db("1d")
-        except Exception as _res_err:
-            logger.debug(f"History bundle DB restore check: {_res_err}")
-
     ist_now = datetime.now(IST)
     # 🚀 OFF-MARKET INSTANT PARQUET LOAD: If local disk cache has >= 90% of universe and market is closed,
     # load directly from disk and fetch only the missing tickers (<0.5s total)
@@ -820,6 +811,26 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
                     disk_results[s] = parsed_spd
                 else:
                     missing_syms.append(s)
+
+        # If < 90% of symbols exist on disk, attempt to restore history bundle from DB and retry loading
+        if len(disk_results) < int(len(symbols) * 0.90):
+            try:
+                from database import restore_history_bundle_from_db
+                restore_history_bundle_from_db("1d")
+            except Exception as _res_err:
+                logger.debug(f"History bundle DB restore check: {_res_err}")
+
+            # Retry loading missing symbols
+            still_missing = []
+            with ThreadPoolExecutor(max_workers=24) as retry_executor:
+                retry_futures = [retry_executor.submit(_load_single, s) for s in missing_syms]
+                missing_syms = []
+                for future in as_completed(retry_futures):
+                    s, parsed_spd = future.result()
+                    if parsed_spd is not None:
+                        disk_results[s] = parsed_spd
+                    else:
+                        missing_syms.append(s)
 
         # If >= 90% of symbols exist on disk, fast-path load them and fetch only the missing ones
         if len(disk_results) >= int(len(symbols) * 0.90):

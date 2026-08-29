@@ -1403,10 +1403,29 @@ def run_system_scheduler():
         WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
 
         # 0. Restore Historical Parquet Cache from DB (<0.5s cold boot restoration)
+        # Wait up to 15 seconds for database connection pool readiness
         try:
-            from database import restore_history_bundle_from_db
-            for _tf in ("1d", "1h", "30m", "15m", "5m"):
-                restore_history_bundle_from_db(_tf)
+            import time
+            from database import get_connection
+            db_connected = False
+            for attempt in range(5):
+                try:
+                    with get_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute("SELECT 1")
+                    db_connected = True
+                    logger.info("✅ SCHEDULER | Database connection pool is ready. Proceeding with history bundle restoration.")
+                    break
+                except Exception as conn_err:
+                    logger.warning(f"⏳ SCHEDULER | Waiting for database connection pool... (attempt {attempt+1}/5): {conn_err}")
+                    time.sleep(3)
+
+            if db_connected:
+                from database import restore_history_bundle_from_db
+                for _tf in ("1d", "1h", "30m", "15m", "5m"):
+                    restore_history_bundle_from_db(_tf)
+            else:
+                logger.error("❌ SCHEDULER | Database connection pool failed to initialize. Skipping history bundle restoration.")
         except Exception as hb_err:
             logger.debug(f"History bundle restore check at boot: {hb_err}")
 
