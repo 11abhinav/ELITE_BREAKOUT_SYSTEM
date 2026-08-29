@@ -192,12 +192,52 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
         new_cols["HIGH_252D"] = df["High"].rolling(window=252, min_periods=200).max()
 
     elif timeframe == "1h":
+        # [VERSION: PRIOR_20D_HIGH_FIX_v6.0]
+        # True session-aware 20-day high: explicitly exclude current session.
+        # 1. Force IST index safely
+        ist_index = df.index
+        if ist_index.tz is None:
+            ist_index = ist_index.tz_localize('UTC').tz_convert('Asia/Kolkata')
+        elif str(ist_index.tz) != 'Asia/Kolkata':
+            ist_index = ist_index.tz_convert('Asia/Kolkata')
+            
+        # 2. Exclude today's partially formed session entirely
+        import datetime
+        ist_now = datetime.datetime.now(ist_index.tz)
+        today_date = ist_now.date()
+        
+        # 3. Filter for valid completed sessions 
+        # Must be before today, have >= 4 hourly bars, AND the last bar must reach the expected session close boundary.
+        # For NSE 1H data (09:15-15:30), the final bar timestamp (open time) is typically 14:15, 15:15, or 15:30.
+        # We strictly require the day's max timestamp to be >= 14:15 IST.
+        past_mask = (ist_index.date < today_date)
+        session_counts = df[past_mask].groupby(ist_index[past_mask].date).size()
+        
+        daily_max_ts = df[past_mask].groupby(ist_index[past_mask].date).apply(lambda x: x.index.max())
+        session_complete = daily_max_ts.apply(lambda ts: ts.hour > 14 or (ts.hour == 14 and ts.minute >= 15))
+        
+        valid_sessions = session_counts[(session_counts >= 4) & session_complete].index
+        valid_mask = past_mask & np.isin(ist_index.date, valid_sessions)
+        
+        # 4. Aggregate strictly completed sessions
+        daily_highs = df.loc[valid_mask].groupby(ist_index[valid_mask].date)["High"].max().sort_index()
+        
+        # 5. Roll exactly 20 sessions (no shift needed since today is excluded)
+        rolling_20d_high = daily_highs.rolling(window=20, min_periods=20).max()
+        
+        # 6. Map the daily value back to the hourly dataframe.
+        mapped_20d_high = ist_index.to_series().dt.date.map(rolling_20d_high).values
+        
         new_cols["HIGH_6H"]   = df["High"].rolling(window=6,   min_periods=5).max()
         new_cols["HIGH_26H"]  = df["High"].rolling(window=26,  min_periods=20).max()
+        new_cols["HIGH_125H"] = df["High"].rolling(window=125, min_periods=80).max()
         new_cols["HIGH_130H"] = df["High"].rolling(window=130, min_periods=100).max()
         new_cols["HIGH_260H"] = df["High"].rolling(window=260, min_periods=200).max()
-        new_cols["HIGH_20D"]  = new_cols["HIGH_26H"]
-        new_cols["PRIOR_20D_HIGH"] = new_cols["HIGH_20D"].shift(1)
+        
+        new_cols["HIGH_20D"]  = mapped_20d_high
+        new_cols["PRIOR_20D_HIGH"] = mapped_20d_high
+
+        
         new_cols["HIGH_50D"]  = new_cols["HIGH_130H"]
         new_cols["HIGH_100D"] = new_cols["HIGH_130H"]
         new_cols["HIGH_252D"] = new_cols["HIGH_260H"]

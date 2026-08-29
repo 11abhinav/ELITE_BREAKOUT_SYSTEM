@@ -421,9 +421,12 @@ def run_hourly_phase(is_test_mode=False, run_once=False, session=None, run_ctx=N
 
     # [VERSION: BULK_PREFETCH_OPT_v1.0] Single-pass bulk fetch for all watchlist symbols.
     # PriceCache handles provider-level batching internally while populating per-symbol RAM cache.
-    # Requesting 10d (50+ 1H bars) is sufficient for 50-bar indicator calculation while reducing network payload by 80%.
-    logger.info(f"📥 [MULTI_TF] Bulk pre-fetching 1H data (10d) for {len(watchlist)} symbols...")
-    all_1h_ticker_data = fetch_watchlist_data(watchlist, period="10d", interval="1h", requester="MULTI_TF_1H")
+    # [VERSION: PRIOR_20D_HIGH_FIX_v2.0] Fetch period extended from "10d" to "30d".
+    # The corrected PRIOR_20D_HIGH uses a 125-bar rolling window (20 NSE sessions × 6.25 bars/session).
+    # 10d only provides ~62 bars (10 × 6.25), below the min_periods=80 floor — producing NaN for many symbols.
+    # 30d provides ~187 bars, satisfying the 80 min_periods requirement with headroom for gaps/holidays.
+    logger.info(f"📥 [MULTI_TF] Bulk pre-fetching 1H data (30d) for {len(watchlist)} symbols...")
+    all_1h_ticker_data = fetch_watchlist_data(watchlist, period="30d", interval="1h", requester="MULTI_TF_1H")
 
     _last_hb = time.monotonic()
     for batch_num, chunk_df in enumerate(chunk_iterable(watchlist, BATCH_SIZE), start=1):

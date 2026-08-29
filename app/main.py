@@ -1697,6 +1697,8 @@ def run_system_scheduler():
                         if not is_scanner_stopped("MULTI_TF"):
                             logger.info(f"🚀 MULTI_TF SCAN | Starting 5m candle-aligned cycle at {now.strftime('%H:%M:%S IST')}...")
                             _trigger_multi_tf()
+                            logger.info(f"🚀 MULTI_TF_V2 SCAN | Starting parallel V2 engine cycle...")
+                            _trigger_multi_tf_v2()
                         else:
                             logger.info("⏭️ MULTI_TF is STOPPED by Admin. Skipping candle-aligned cycle.")
                 
@@ -2366,6 +2368,22 @@ def _trigger_daily_builder(force_rebuild: bool = False, trigger_type="MANUAL", s
 def _trigger_multi_tf(trigger_type="SCHEDULED", scheduler_name="CRON"):
     import multi_tf_scanner
     return multi_tf_scanner.start(run_once=True, trigger_type=trigger_type, scheduler_name=scheduler_name)
+
+def _trigger_multi_tf_v2(trigger_type="SCHEDULED", scheduler_name="CRON"):
+    from multitf.scanner import run_multitf_v2
+    from config import get_regime_state
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    
+    # Safe fallback if get_regime_state is not explicitly imported or available
+    try:
+        from config import get_regime_state
+        regime_ctx = get_regime_state()
+    except ImportError:
+        regime_ctx = {"status": "NORMAL"}
+        
+    ist_now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    return run_multitf_v2(regime_ctx=regime_ctx, ist_now=ist_now, run_ctx=trigger_type)
 
 
 def _trigger_eod(trigger_type="MANUAL", scheduler_name="MANUAL"):

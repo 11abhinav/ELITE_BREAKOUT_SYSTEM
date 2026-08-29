@@ -1,0 +1,234 @@
+# =====================================================================================
+# app/multitf/state.py
+# MULTI_TF V2 — State Machine & Persistence
+#
+# Responsibility: Manages the lifecycle of a consolidation box, maps internal states
+# to canonical signal_contract states, and handles database persistence to mtf_v2_watchlist.
+#
+# Internal States: WATCHING, PRESSURE_BUILDING, ATTEMPT, FAILED_ATTEMPT, BREAKOUT_CONFIRMED, INVALIDATED
+# Canonical Maps: WATCH, WATCH, CANDIDATE, WATCH, CONFIRMED, REJECTED
+# =====================================================================================
+
+import logging
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from typing import Dict, Any, Optional
+
+import psycopg2.extras
+from zoneinfo import ZoneInfo
+
+from database import get_db_connection
+from signal_contract import ChecklistStatus, assert_valid_transition
+
+logger = logging.getLogger("multitf.state")
+IST = ZoneInfo("Asia/Kolkata")
+
+
+class MtfSubstate:
+    WATCHING = "WATCHING"                     # Good 15m box found, no 5m pressure yet
+    PRESSURE_BUILDING = "PRESSURE_BUILDING"   # 5m price near box ceiling, but lacks momentum
+    ATTEMPT = "ATTEMPT"                       # 5m live expansion triggering
+    FAILED_ATTEMPT = "FAILED_ATTEMPT"         # ATTEMPT failed to close strong
+    BREAKOUT_CONFIRMED = "BREAKOUT_CONFIRMED" # Closed 5m bar confirmed breakout
+    INVALIDATED = "INVALIDATED"               # Box broken or aged out
+
+
+def to_canonical(substate: str) -> ChecklistStatus:
+    """Maps internal MULTI_TF substate to canonical global state."""
+    _map = {
+        MtfSubstate.WATCHING:           ChecklistStatus.WATCH,
+        MtfSubstate.PRESSURE_BUILDING:  ChecklistStatus.WATCH,
+        MtfSubstate.ATTEMPT:            ChecklistStatus.CANDIDATE,
+        MtfSubstate.FAILED_ATTEMPT:     ChecklistStatus.WATCH,
+        MtfSubstate.BREAKOUT_CONFIRMED: ChecklistStatus.CONFIRMED,
+        MtfSubstate.INVALIDATED:        ChecklistStatus.REJECTED
+    }
+    return _map.get(substate, ChecklistStatus.UNKNOWN)
+
+
+@dataclass
+class MtfStateRecord:
+    symbol: str
+    box_id: str
+    state: str = ChecklistStatus.WATCH.value
+    mtf_substate: str = MtfSubstate.WATCHING
+    attempt_count: int = 0
+    last_attempt_ts: Optional[datetime] = None
+    attempt_started_ts: Optional[datetime] = None
+    attempt_bar_boundary: int = 0
+    attempt_ttl_expires_at: Optional[datetime] = None
+    cooldown_until: Optional[datetime] = None
+    invalidated_at: Optional[datetime] = None
+    invalidation_reason: str = ""
+    version: int = 1
+
+
+def load_state(symbol: str, box_id: str) -> Optional[MtfStateRecord]:
+    """Loads the current state for a specific box instance."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute("""
+                SELECT state, mtf_substate, attempt_count, last_attempt_ts,
+                       attempt_started_ts, attempt_bar_boundary, attempt_ttl_expires_at,
+                       cooldown_until, invalidated_at, invalidation_reason, version
+                FROM mtf_v2_watchlist
+                WHERE symbol = %s AND box_id = %s
+            """, (symbol, box_id))
+            row = cur.fetchone()
+            if row:
+                return MtfStateRecord(
+                    symbol=symbol,
+                    box_id=box_id,
+                    state=row["state"],
+                    mtf_substate=row["mtf_substate"],
+                    attempt_count=row["attempt_count"],
+                    last_attempt_ts=row["last_attempt_ts"],
+                    attempt_started_ts=row["attempt_started_ts"],
+                    attempt_bar_boundary=row["attempt_bar_boundary"],
+                    attempt_ttl_expires_at=row["attempt_ttl_expires_at"],
+                    cooldown_until=row["cooldown_until"],
+                    invalidated_at=row["invalidated_at"],
+                    invalidation_reason=row["invalidation_reason"],
+                    version=row.get("version", 1)
+                )
+            return None
+    except Exception as exc:
+        logger.error("[%s] load_state failed: %s", symbol, exc)
+        return None
+    finally:
+        conn.close()
+
+
+def apply_ttl_and_cooldown(record: MtfStateRecord, ist_now: datetime, current_5m_bars: int) -> bool:
+    """
+    Evaluates time-to-live for ATTEMPTs and expiry for FAILED_ATTEMPT cooldowns.
+    Returns True if the state was mutated.
+    """
+    mutated = False
+    
+    # 1. ATTEMPT TTL Check (expires after N completed bars)
+    if record.mtf_substate == MtfSubstate.ATTEMPT:
+        # If we have advanced 3 full 5m bars since the attempt started without confirming...
+        if current_5m_bars >= record.attempt_bar_boundary + 3:
+            logger.info("[%s] ATTEMPT TTL expired. Transitioning to FAILED_ATTEMPT.", record.symbol)
+            _set_substate(record, MtfSubstate.FAILED_ATTEMPT, ist_now)
+            record.cooldown_until = ist_now + timedelta(minutes=30)
+            mutated = True
+            
+    # 2. Cooldown Expiry Check
+    if record.mtf_substate == MtfSubstate.FAILED_ATTEMPT and record.cooldown_until:
+        if ist_now >= record.cooldown_until:
+            logger.info("[%s] FAILED_ATTEMPT cooldown expired. Re-arming to WATCHING.", record.symbol)
+            _set_substate(record, MtfSubstate.WATCHING, ist_now)
+            record.cooldown_until = None
+            mutated = True
+            
+    return mutated
+
+
+def handle_box_invalidation(record: MtfStateRecord, c_price: float, box_low: float, atr: float, ist_now: datetime) -> bool:
+    """
+    Marks the setup INVALIDATED if price breaks significantly below the box structure.
+    Returns True if invalidated.
+    """
+    if record.mtf_substate == MtfSubstate.INVALIDATED:
+        return False
+        
+    break_level = box_low - (0.50 * atr)
+    if c_price < break_level:
+        logger.info("[%s] Price (%.2f) broke structural support (%.2f). Invalidating box %s.", 
+                    record.symbol, c_price, break_level, record.box_id)
+        _set_substate(record, MtfSubstate.INVALIDATED, ist_now)
+        record.invalidated_at = ist_now
+        record.invalidation_reason = "STRUCTURAL_BREAK"
+        return True
+        
+    return False
+
+
+def _set_substate(record: MtfStateRecord, new_substate: str, ist_now: datetime):
+    """Updates substate and ensures canonical state mapping passes validation."""
+    old_canonical = ChecklistStatus(record.state)
+    new_canonical = to_canonical(new_substate)
+    
+    if old_canonical != new_canonical:
+        assert_valid_transition(old_canonical, new_canonical, "MULTI_TF")
+        record.state = new_canonical.value
+        
+    record.mtf_substate = new_substate
+
+
+def persist_new_watchlist_candidate(
+    candidate_dict: Dict[str, Any]
+):
+    """
+    Inserts a newly discovered 15m consolidation box.
+    """
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            # We only insert if the box_id doesn't exist, preserving existing state if it does.
+            cols = list(candidate_dict.keys())
+            vals = [candidate_dict[c] for c in cols]
+            placeholders = ",".join(["%s"] * len(cols))
+            
+            query = f"""
+                INSERT INTO mtf_v2_watchlist ({",".join(cols)})
+                VALUES ({placeholders})
+                ON CONFLICT (symbol, box_id) DO NOTHING
+            """
+            cur.execute(query, vals)
+            conn.commit()
+    except Exception as exc:
+        logger.error("[%s] persist_new_watchlist_candidate failed: %s", candidate_dict.get("symbol"), exc)
+    finally:
+        conn.close()
+
+
+def update_state_in_db(record: MtfStateRecord, updates: Dict[str, Any]) -> bool:
+    """
+    Applies incremental updates to an existing box record using Optimistic Concurrency Control (CAS).
+    Returns True if the update succeeded, False if a concurrent modification occurred.
+    """
+    updates["state"] = record.state
+    updates["mtf_substate"] = record.mtf_substate
+    updates["attempt_count"] = record.attempt_count
+    updates["last_attempt_ts"] = record.last_attempt_ts
+    updates["attempt_started_ts"] = record.attempt_started_ts
+    updates["attempt_bar_boundary"] = record.attempt_bar_boundary
+    updates["attempt_ttl_expires_at"] = record.attempt_ttl_expires_at
+    updates["cooldown_until"] = record.cooldown_until
+    updates["invalidated_at"] = record.invalidated_at
+    updates["invalidation_reason"] = record.invalidation_reason
+    updates["updated_at"] = datetime.now(IST)
+    
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            # Add version increment to set clause
+            set_clause = ", ".join([f"{k} = %s" for k in updates.keys()]) + ", version = version + 1"
+            
+            vals = list(updates.values())
+            # WHERE symbol = %s AND box_id = %s AND version = %s
+            vals.extend([record.symbol, record.box_id, record.version])
+            
+            cur.execute(f"""
+                UPDATE mtf_v2_watchlist
+                SET {set_clause}
+                WHERE symbol = %s AND box_id = %s AND version = %s
+            """, vals)
+            conn.commit()
+            
+            if cur.rowcount == 0:
+                logger.warning("[%s] Concurrent update detected for box %s. Transition aborted.", record.symbol, record.box_id)
+                return False
+            
+            record.version += 1
+            return True
+            
+    except Exception as exc:
+        logger.error("[%s] update_state_in_db failed: %s", record.symbol, exc)
+        return False
+    finally:
+        conn.close()

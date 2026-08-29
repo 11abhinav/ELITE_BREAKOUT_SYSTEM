@@ -973,6 +973,63 @@ def _rsi_zone(rsi: Optional[float]) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _compute_multi_tf_v2(entry: float, eff_atr: float, ticker: pd.DataFrame = None, **kwargs) -> dict:
+    """
+    MULTI_TF_V2 Target Engine.
+    T1 = nearest meaningful structural resistance above entry (30m/1H pivots, R1/R2, 52W High).
+    Risk = entry - box_low (from kwargs).
+    R:R Gate = >= 1.5R.
+    T2/T3 = Fib extensions of the T1 target leg.
+    """
+    # 1. Base Stop Loss (box_low passed via kwargs, fallback to 1 ATR)
+    box_low = kwargs.get("box_low", entry - eff_atr)
+    risk_points = entry - box_low
+    if risk_points <= 0:
+        risk_points = eff_atr
+        
+    sl = box_low - (0.10 * eff_atr)  # Buffer below structure
+    sl = round(sl, 2)
+    risk_pct = (entry - sl) / entry * 100
+
+    # 2. Structural T1 Search
+    levels = []
+    if ticker is not None and not ticker.empty:
+        last = ticker.iloc[-1]
+        for col in ["LOOKBACK_SWING_HIGH", "R1", "R2", "HIGH_252D"]:
+            if col in last and not pd.isna(last[col]) and last[col] > entry:
+                levels.append(last[col])
+                
+    if levels:
+        t1 = round(min(levels), 2)
+        target_basis = "Structural_Resistance"
+    else:
+        # Fallback if no structure found: 2.0R measured move
+        t1 = round(entry + (risk_points * 2.0), 2)
+        target_basis = "2R_Measured_Move"
+
+    # 3. Validation Gate
+    rr = (t1 - entry) / (entry - sl) if (entry - sl) > 0 else 0
+    is_rejected = rr < 1.5
+
+    # 4. Fib Extensions for T2/T3 based on the T1 structure
+    t1_dist = t1 - entry
+    t2 = round(entry + (t1_dist * 1.618), 2)
+    t3 = round(entry + (t1_dist * 2.618), 2)
+
+    return {
+        "stop_loss": sl,
+        "target_1": t1,
+        "target_2": t2,
+        "target_3": t3,
+        "target": t1,  # Primary target is T1
+        "rr_ratio": round(rr, 2),
+        "risk_pct": round(risk_pct, 2),
+        "sl_basis": "Box_Low_Structure",
+        "target_basis": target_basis,
+        "is_rejected": is_rejected
+    }
+
+
 def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: float, macd_hist: float, swing_low: float, swing_high: float, s1: float, s2: float, r1: float, r2: float, swing_low_raw: float, swing_high_raw: float, ticker=None, **kwargs) -> dict:
     supports = [
         (swing_low, "5m Swing Low", 20),
@@ -1392,6 +1449,8 @@ def _legacy_compute_sl_and_target(
 
     if effective_mode in ("EOD", "PULLBACK"):
         return _compute_eod(**kwargs)
+    elif effective_mode == "MULTI_TF_V2":
+        return _compute_multi_tf_v2(**kwargs)
     elif effective_mode == "MULTI_TF":
         return _compute_multi_tf(**kwargs)
     elif effective_mode == "REVERSAL":

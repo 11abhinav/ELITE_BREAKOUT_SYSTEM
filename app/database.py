@@ -603,6 +603,76 @@ def init_db():
                     )
                 """)
 
+                # 9.5 mtf_v2_watchlist
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS mtf_v2_watchlist (
+                        symbol TEXT NOT NULL,
+                        box_id TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        mtf_substate TEXT,
+                        
+                        consolidation_start_ts TIMESTAMPTZ,
+                        consolidation_end_ts TIMESTAMPTZ,
+                        consolidation_bars INTEGER,
+                        consolidation_sessions INTEGER,
+                        
+                        box_high NUMERIC,
+                        box_low NUMERIC,
+                        box_mid NUMERIC,
+                        box_value_center NUMERIC,
+                        hard_high NUMERIC,
+                        hard_low NUMERIC,
+                        box_width_pct NUMERIC,
+                        box_width_atr NUMERIC,
+                        box_occupancy NUMERIC,
+                        
+                        resistance_test_count INTEGER,
+                        higher_low_score INTEGER,
+                        compression_score INTEGER,
+                        setup_score INTEGER,
+                        last_confirmed_pivot_level NUMERIC,
+                        last_confirmed_pivot_ts TIMESTAMPTZ,
+                        
+                        pressure_state TEXT,
+                        attempt_started_ts TIMESTAMPTZ,
+                        attempt_bar_boundary INTEGER,
+                        volume_ratio_5m NUMERIC,
+                        range_ratio_5m NUMERIC,
+                        live_position_5m NUMERIC,
+                        distance_to_box_high NUMERIC,
+                        
+                        context_1h_score INTEGER,
+                        context_30m_score INTEGER,
+                        market_regime TEXT,
+                        relative_strength NUMERIC,
+                        confluence_score INTEGER,
+                        
+                        attempt_count INTEGER DEFAULT 0,
+                        last_attempt_ts TIMESTAMPTZ,
+                        last_confirmation_ts TIMESTAMPTZ,
+                        
+                        attempt_ttl_expires_at TIMESTAMPTZ,
+                        cooldown_until TIMESTAMPTZ,
+                        invalidated_at TIMESTAMPTZ,
+                        invalidation_reason TEXT,
+                        
+                        data_source_1h TEXT,
+                        data_source_30m TEXT,
+                        data_source_15m TEXT,
+                        data_source_5m TEXT,
+                        candle_ts_1h TIMESTAMPTZ,
+                        candle_ts_30m TIMESTAMPTZ,
+                        candle_ts_15m TIMESTAMPTZ,
+                        candle_ts_5m TIMESTAMPTZ,
+                        
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ DEFAULT NOW(),
+                        last_evaluated_at TIMESTAMPTZ,
+                        version INTEGER DEFAULT 1,
+                        PRIMARY KEY (symbol, box_id)
+                    )
+                """)
+
                 # 10. scanner_health
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS scanner_health (
