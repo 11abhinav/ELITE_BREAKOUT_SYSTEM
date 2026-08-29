@@ -206,7 +206,7 @@ def get_connection(timeout: int = 20):
                     cur.execute("SELECT 1")
                     cur.execute("SET TIME ZONE 'Asia/Kolkata'")
                     cur.execute("SET idle_in_transaction_session_timeout = '10000'")
-                    cur.execute("SET statement_timeout = '30000'")
+                    cur.execute("SET statement_timeout = '60000'")
                 break
             except (OperationalError, ps_pool.PoolError) as oe:
                 if conn:
@@ -218,32 +218,24 @@ def get_connection(timeout: int = 20):
                     time.sleep(0.25 * (attempt + 1))
                     continue
                 raise oe
-
-        yield conn
     except (OperationalError, ps_pool.PoolError) as e:
         # Circuit breaker: log and fail fast instead of hanging
         logger.warning(f"⚠️ DB connection pool exhausted: {e}")
-        if conn:
-            try:
-                conn.rollback()
-            except Exception: pass
-            try:
-                p.putconn(conn, close=True)  # Return broken connection to pool
-            except Exception:
-                pass
-            conn = None
         raise
+        
+    try:
+        yield conn
     except Exception as e:
         logger.exception(f"🔴 DB operation failed: {e}")
         if conn:
             try:
                 conn.rollback()
+            except Exception: pass
+            try:
+                p.putconn(conn, close=True)
             except Exception:
-                try:
-                    p.putconn(conn, close=True)
-                except Exception:
-                    pass
-                conn = None
+                pass
+            conn = None
         raise
     finally:
         # Return connection to pool if we checked one out
