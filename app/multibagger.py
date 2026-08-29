@@ -18,6 +18,7 @@ import math
 from dataclasses import dataclass
 from typing import Optional
 from config import DATA_DIR, WATCHLIST_PATH
+from market_utils import is_market_open
 
 @dataclass
 class FairValueResult:
