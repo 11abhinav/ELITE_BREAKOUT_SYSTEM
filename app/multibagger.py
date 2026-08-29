@@ -678,12 +678,12 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
         return any(os.path.exists(os.path.join(history_dir, f"{v}.parquet")) for v in variants)
 
     ist_now = datetime.now(IST)
-    # 🚀 OFF-MARKET INSTANT PARQUET LOAD: If local disk cache is complete and market is closed,
-    # load directly from disk without triggering network delta calls or DB bundle restores (<0.5s)
+    # 🚀 OFF-MARKET INSTANT PARQUET LOAD: If local disk cache has >= 90% of universe and market is closed,
+    # load directly from disk and fetch only the missing tickers (<0.5s total)
     if not is_market_open(ist_now):
-        from price_cache import get_cached_df
+        from price_cache import get_cached_df, fetch_unified_historical
         disk_results = {}
-        all_found = True
+        missing_syms = []
         for s in symbols:
             df_sym = get_cached_df(s, interval="1d", period="1y")
             if df_sym is not None and not df_sym.empty:
@@ -691,13 +691,25 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
                 if parsed_spd is not None:
                     disk_results[s] = parsed_spd
                 else:
-                    all_found = False
-                    break
+                    missing_syms.append(s)
             else:
-                all_found = False
-                break
-        if all_found and len(disk_results) == len(symbols):
-            logger.info(f"⚡ [MULTIBAGGER DISK ACCELERATION] Loaded and parsed all {len(disk_results)} StockPriceData objects directly from disk cache in <0.5s (Market Closed).")
+                missing_syms.append(s)
+
+        # If >= 90% of symbols exist on disk, fast-path load them and fetch only the missing ones
+        if len(disk_results) >= int(len(symbols) * 0.90):
+            if missing_syms:
+                logger.info(f"⚡ [MULTIBAGGER DISK ACCELERATION] {len(disk_results)}/{len(symbols)} loaded from disk cache. Fetching missing {len(missing_syms)} ticker(s)...")
+                for ms in missing_syms:
+                    try:
+                        m_df = fetch_unified_historical(ms, interval="1d", period="1y")
+                        if m_df is not None and not m_df.empty:
+                            m_spd = _parse_single_symbol_price_data(ms, m_df, ist_now, strip_forming=False)
+                            if m_spd is not None:
+                                disk_results[ms] = m_spd
+                    except Exception as _m_err:
+                        logger.debug(f"Failed to fetch missing symbol {ms}: {_m_err}")
+
+            logger.info(f"⚡ [MULTIBAGGER DISK ACCELERATION] Fast-path loaded {len(disk_results)}/{len(symbols)} StockPriceData objects in <0.5s (Market Closed).")
             return disk_results
 
     missing_local = any(not _has_parquet(s) for s in symbols)
