@@ -3156,10 +3156,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 futures[executor.submit(fetch_ticker_fundamentals, sym)] = cand
 
         if futures:
-            logger.info(f"📥 [MULTIBAGGER PASS 2] Deep YFinance hydration for {len(futures)} finalists...")
+            logger.info(f"📥 [MULTIBAGGER PASS 2] Deep YFinance balance sheet hydration starting for {len(futures)} top finalist stocks...")
+            completed_cnt = 0
             for future in as_completed(futures, timeout=120):
-                # [VERSION: HEARTBEAT_PASS2_v1.0] Pulse heartbeat as each finalist completes hydration
-                # to prevent watchdog TIMEOUT_STALE during 10-15 min YFinance deep hydration runs.
+                completed_cnt += 1
                 if run_ctx:
                     run_ctx.heartbeat(force=True)
                 cand = futures[future]
@@ -3178,6 +3178,9 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                         fund["fetched_at"] = datetime.now(IST).isoformat()
                         fund["cache_tier"] = resolved_tier
                         cache[sym] = fund
+                        logger.info(f"⚡ [MULTIBAGGER PASS 2] [{completed_cnt}/{len(futures)}] Hydrated {sym} | Tier={resolved_tier} | Equity={deep_equity}")
+                    else:
+                        logger.info(f"⚠️ [MULTIBAGGER PASS 2] [{completed_cnt}/{len(futures)}] {sym} hydration returned baseline metrics only")
                         
                         # Rerun V5 specifically for this finalist now that it has YFinance data
                         # We unpack just the pipeline run to patch the candidate dict
