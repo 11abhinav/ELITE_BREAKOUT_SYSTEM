@@ -3328,13 +3328,16 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     completed_count = 0
     total_count = len(fundamentals_list)
     logger.info(f"📊 [MULTIBAGGER EVAL] Starting V5 pipeline evaluations for {total_count} shortlisted symbols...")
+    last_log_time = time.monotonic()
     with ThreadPoolExecutor(max_workers=8, thread_name_prefix="MB_Eval") as eval_exec:
         futures = [eval_exec.submit(_eval_item, f) for f in fundamentals_list]
         for fut in as_completed(futures):
             completed_count += 1
-            if completed_count % 100 == 0 or completed_count == total_count:
+            now_mono = time.monotonic()
+            if (now_mono - last_log_time) >= 60.0 or completed_count == total_count:
                 pct = (completed_count / total_count) * 100
                 logger.info(f"⏳ [MULTIBAGGER EVAL] Progress: {completed_count}/{total_count} ({pct:.1f}%) evaluated...")
+                last_log_time = now_mono
             if run_ctx:
                 run_ctx.heartbeat()
             fut.result()
