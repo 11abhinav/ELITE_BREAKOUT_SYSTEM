@@ -1302,38 +1302,38 @@ def get_v2_universe_health():
 
                         build_date_str = latest_date.strftime("%Y-%m-%d") if hasattr(latest_date, "strftime") else str(latest_date)
 
-                            res_payload = json.dumps({
-                                "build_date": build_date_str,
-                                "metrics": [
-                                    {
-                                        "tier": "ELITE Universe",
-                                        "count": elite_count,
-                                        "share": fmt_pct(elite_count),
-                                        "reason": "Passed Quality Checklist",
-                                        "confidence": "HIGH / MEDIUM",
-                                        "status": "ACTIVE"
-                                    },
-                                    {
-                                        "tier": "NEAR_QUALIFIED (NQ)",
-                                        "count": nq_count,
-                                        "share": fmt_pct(nq_count),
-                                        "reason": "Observation Only (Pre-Watch)",
-                                        "confidence": "LOW / PROVISIONAL",
-                                        "status": "OBSERVATION"
-                                    },
-                                    {
-                                        "tier": "EXCLUDED Universe",
-                                        "count": excluded_count,
-                                        "share": fmt_pct(excluded_count),
-                                        "reason": "Quality / Data Fail",
-                                        "confidence": "UNADMITTED",
-                                        "status": "EXCLUDED"
-                                    }
-                                ]
-                            })
-                            _UNIVERSE_HEALTH_CACHE["ts"] = now_ts
-                            _UNIVERSE_HEALTH_CACHE["payload"] = res_payload
-                            return Response(res_payload, mimetype="application/json")
+                        res_payload = json.dumps({
+                            "build_date": build_date_str,
+                            "metrics": [
+                                {
+                                    "tier": "ELITE Universe",
+                                    "count": elite_count,
+                                    "share": fmt_pct(elite_count),
+                                    "reason": "Passed Quality Checklist",
+                                    "confidence": "HIGH / MEDIUM",
+                                    "status": "ACTIVE"
+                                },
+                                {
+                                    "tier": "NEAR_QUALIFIED (NQ)",
+                                    "count": nq_count,
+                                    "share": fmt_pct(nq_count),
+                                    "reason": "Observation Only (Pre-Watch)",
+                                    "confidence": "LOW / PROVISIONAL",
+                                    "status": "OBSERVATION"
+                                },
+                                {
+                                    "tier": "EXCLUDED Universe",
+                                    "count": excluded_count,
+                                    "share": fmt_pct(excluded_count),
+                                    "reason": "Quality / Data Fail",
+                                    "confidence": "UNADMITTED",
+                                    "status": "EXCLUDED"
+                                }
+                            ]
+                        })
+                        _UNIVERSE_HEALTH_CACHE["ts"] = now_ts
+                        _UNIVERSE_HEALTH_CACHE["payload"] = res_payload
+                        return Response(res_payload, mimetype="application/json")
     except Exception as e:
         logger.warning(f"DB universe health query failed: {e}")
 
