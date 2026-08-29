@@ -2691,7 +2691,21 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     # Sort by turnover descending (no arbitrary cap — all liquid stocks get evaluated)
     shortlist = sorted(shortlist_candidates, key=lambda x: x.turnover_20d, reverse=True)
     stage_tracker.end_stage(f"Shortlisted {len(shortlist)} liquid stocks")
-    logger.info(f"📋 Shortlisted {len(shortlist)}/{len(price_data_map)} liquid stocks for fundamental screening.")
+    
+    _step1_mode = "FAST-PATH CONCURRENT DISK LOAD (24 Threads)" if not is_market_open(datetime.now(IST)) else "LIVE MARKET DATA BATCH FETCH"
+    logger.info(
+        f"\n================================================================================\n"
+        f"📊 [MULTIBAGGER SCANNER] STEP 1 TELEMETRY & EXECUTION SUMMARY\n"
+        f"================================================================================\n"
+        f"  • Execution Mode              : {_step1_mode}\n"
+        f"  • Universe Constituent Count  : {len(symbols)} stocks\n"
+        f"  • Price Data Objects Loaded   : {len(price_data_map)}/{len(symbols)} StockPriceData objects\n"
+        f"  • Step 1 Time Consumed        : {_fetch_dur:.2f} seconds\n"
+        f"  • Shortlisted Liquid Stocks   : {len(shortlist)} stocks (Turnover >= ₹10 Lakhs & Price >= ₹10)\n"
+        f"  • Step 1 Explanation          : Loaded OHLCV historical prices, calculated 52w high/low, \n"
+        f"                                  20d turnover, 6m momentum, and filtered out illiquid/penny stocks.\n"
+        f"================================================================================\n"
+    )
     
     # 3. Phase 2: Fetch Fundamentals (TV_BASELINE only)
     stage_tracker.start_stage(2, "Fundamentals DB Cache Validation", f"Target: {len(shortlist)} stocks")
