@@ -43,6 +43,7 @@ from database import (
     start_scanner_execution_run,
     complete_scanner_execution_run
 )
+from opportunity_manager import OpportunityManager
 from watchlist_cache import get_watchlist
 from price_cache import fetch_watchlist_data
 from macro_utils import get_nifty_20d_return
@@ -399,6 +400,7 @@ class AccumulationScanner:
             health.transition("ACCUMULATION_EVALUATION")
             candidates = []
             alerts_count = 0
+            opp_manager = OpportunityManager(policy={})
 
             # Batch processing loop
             batches = [symbols[i:i + self.batch_size] for i in range(0, len(symbols), self.batch_size)]
@@ -419,6 +421,7 @@ class AccumulationScanner:
                     break
 
                 # Fetch daily OHLCV batch
+                logger.info(f"📥 [ACCUMULATION] Fetching OHLCV data for batch {b_idx} ({len(batch)} symbols)...")
                 ohlcv_map = fetch_watchlist_data(pd.DataFrame({"Stock": batch}), period="1y", interval="1d")
 
                 for sym in batch:
@@ -447,11 +450,50 @@ class AccumulationScanner:
                         health.record_metrics(valid_inc=1, candidates_inc=1)
                         candidates.append(res)
                         
-                        # Persist Alert to accumulation_alerts table
                         state = res["state"]
                         sl_tgt = res["sl_target"]
                         snapshot_id = res["audit_snapshot_id"]
+                        score = res["score"]
                         
+                        logger.info(f"🟢 [ACCUMULATION] {sym} QUALIFIED for {state} | Score: {score:.1f} | Entry: {sl_tgt['breakout_level']} | SL: {sl_tgt['stop_loss']} | RR: {sl_tgt['rr_1']:.2f}")
+                        
+                        # 1. Canonical Alert Registration
+                        inserted, _, _, _ = save_alert_if_new(
+                            symbol=sym,
+                            breakout_type="ACCUMULATION",
+                            alert_time=datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
+                            scanner="ACCUMULATION",
+                            category="EOD",
+                            entry_price=sl_tgt["breakout_level"],
+                            stop_loss=sl_tgt["stop_loss"],
+                            target_1=sl_tgt["target_1"],
+                            target_2=sl_tgt["target_2"],
+                            target_3=sl_tgt["target_3"],
+                            signals=state,
+                            score=int(score),
+                            context={"audit_snapshot_id": snapshot_id, "scores_breakdown": res["scores_breakdown"]}
+                        )
+                        
+                        # 2. OpportunityManager Dispatch (if tradeable)
+                        if inserted and sl_tgt.get("tradable", True):
+                            payload = {
+                                "symbol": sym,
+                                "scanner_name": "ACCUMULATION",
+                                "priority": "HIGH" if state == "BREAKOUT_READY" else "MEDIUM",
+                                "timestamp": datetime.now(IST),
+                                "score": score,
+                                "entry_price": sl_tgt["breakout_level"],
+                                "stop_loss": sl_tgt["stop_loss"],
+                                "target": sl_tgt["target_1"],
+                                "rr_ratio": sl_tgt["rr_1"],
+                                "metadata": res["scores_breakdown"]
+                            }
+                            opp_manager.add(payload)
+                            logger.info(f"   -> Dispatched {sym} to OpportunityManager.")
+                        elif inserted:
+                            logger.info(f"   -> {sym} structurally valid but marked NOT_TRADEABLE (Poor RR).")
+                        
+                        # 3. Persist Alert to accumulation_alerts table
                         try:
                             with get_connection() as conn:
                                 with conn.cursor() as cur:
@@ -491,6 +533,13 @@ class AccumulationScanner:
                             logger.warning(f"Could not persist accumulation alert for {sym}: {al_err}")
                     else:
                         health.record_metrics(rejected_inc=1)
+
+            # Process all accumulated opportunities
+            try:
+                opp_manager.process()
+                logger.info("✅ [ACCUMULATION] OpportunityManager processed all dispatched alerts.")
+            except Exception as e:
+                logger.error("[ACCUMULATION] OpportunityManager failed to process: %s", e)
 
             health.transition("COMPLETED", status="OK" if health.status != "STOPPED" else "STOPPED")
             health.complete()
