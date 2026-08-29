@@ -48,6 +48,15 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
         logger.warning("[MULTI_TF_V2] Scanner is already running. Skipping cycle.")
         return
 
+    # Create proper DB execution run context
+    trigger_type = run_ctx if isinstance(run_ctx, str) else "SCHEDULED"
+    from database import start_scanner_execution_run, complete_scanner_execution_run
+    try:
+        real_run_ctx = start_scanner_execution_run(scanner_name="MULTI_TF_V2", trigger_type=trigger_type, scheduler_name="CRON")
+    except Exception as exc:
+        logger.warning(f"⚠️ [MULTI_TF_V2] Could not create run_ctx: {exc}")
+        real_run_ctx = None
+
     start_time = time.monotonic()
     
     try:
@@ -299,3 +308,23 @@ def _process_symbol(
     # 10. Sync state changes to DB
     if updates or state_record.mtf_substate != MtfSubstate.WATCHING:
         update_state_in_db(state_record, updates)
+
+    upsert_scanner_health(
+        scanner_name="MULTI_TF_V2",
+        status="OK",
+        error_msg=f"Completed {len(watchlist)} symbols in {time.monotonic() - start_time:.2f}s"
+    )
+    if real_run_ctx:
+        complete_scanner_execution_run(real_run_ctx, status_override="COMPLETED")
+
+except Exception as e:
+    logger.exception(f"❌ [MULTI_TF_V2] Execution failed: {e}")
+    upsert_scanner_health(
+        scanner_name="MULTI_TF_V2",
+        status="DOWN",
+        error_msg=str(e)
+    )
+    if real_run_ctx:
+        complete_scanner_execution_run(real_run_ctx, status_override="FAILED", exception=e)
+finally:
+    _scan_lock.release()
