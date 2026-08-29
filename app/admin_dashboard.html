@@ -4832,128 +4832,17 @@ function getEarningsBadgeHtml(item) {
 
     async function ackApiHealth(sourceName) {
       try {
+        const decoded = decodeURIComponent(sourceName);
+        if (typeof showCustomToast === 'function') showCustomToast(`Acknowledged ${decoded}`, 'success');
         await fetch('/api/data_fetch_health/acknowledge/' + sourceName, { method: 'POST' });
         await doRefresh();
       } catch (e) { console.error('Failed to ack API health', e); }
     }
 
-    // ── VALIDATION HEALTH (Admin Panel)
-    function renderValidationHealth(healthData) {
-      const el = document.getElementById('validationHealthContainer');
-      if (!el) return;
-
-      if (!healthData || healthData.length === 0) {
-        el.innerHTML = `<div class="card"><div class="card-title">🛡️ Validation Health</div><div style="padding:12px;color:var(--muted)">No validation history recorded yet.</div></div>`;
-        return;
-      }
-
-      const rows = healthData.map(h => {
-        let statusColor = "var(--green)";
-        let statusIcon = "🟢";
-        if (h.status === "DEGRADED") {
-            statusColor = "var(--amber)";
-            statusIcon = "🟡";
-        } else if (h.status === "INVALID") {
-            statusColor = "var(--red)";
-            statusIcon = "🔴";
-        }
-        
-        const timestamp = h.validated_at ? new Date(h.validated_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
-        const warnings = h.warnings && h.warnings.length > 0 ? `<div style="font-size:11px; color:var(--amber); margin-top:6px;">⚠️ ${h.warnings.length} Warnings: ${h.warnings[0]}${h.warnings.length > 1 ? '...' : ''}</div>` : '';
-        const failures = h.failures && h.failures.length > 0 ? `<div style="font-size:11px; color:var(--red); margin-top:6px;">🚨 ${h.failures.length} Failures: ${h.failures[0]}${h.failures.length > 1 ? '...' : ''}</div>` : '';
-        const score = h.score != null ? h.score.toFixed(1) : '—';
-        const processed = h.symbols_processed ? `${h.symbols_processed} symbols` : '';
-        
-        return `
-    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:12px 14px; border-bottom:1px solid var(--border);">
-      <div style="min-width:180px;">
-        <div style="font-family:var(--font-mono); font-weight:700; font-size:14px;">${h.dataset_name}</div>
-        <div style="font-size:12px; color:${statusColor}; font-weight:600; margin-top:4px;">${statusIcon} ${h.status}</div>
-      </div>
-      <div style="flex:1;">
-        <div style="font-size:13px; color:var(--text); font-weight:600;">Score: ${score} ${processed ? '· ' + processed : ''}</div>
-        ${warnings}
-        ${failures}
-      </div>
-      <div style="text-align:right; min-width:120px; font-size:11px; color:var(--muted);">
-        <div>Last run:</div>
-        <div>${timestamp}</div>
-      </div>
-    </div>
-  `;
-      }).join('');
-
-      el.innerHTML = `<div class="card"><div class="card-title">🛡️ Validation Health</div><div style="max-height:360px; overflow:auto;">${rows}</div></div>`;
-    }
-
-    function renderFetchErrors(errs) {
-      const el = document.getElementById('fetchErrorsContainer');
-      if (!el) return;
-
-      // Filter out acknowledged errors
-      const active = (errs || []).filter(e => !e.is_acknowledged);
-      if (active.length === 0) {
-        el.innerHTML = `<div class="card"><div class="card-title">📡 Data Fetch Errors — All Clear</div><div style="padding:12px;color:var(--muted)">No unacknowledged data fetch issues.</div></div>`;
-        return;
-      }
-
-      // Group by scanner_name + category
-      const groups = {};
-      active.forEach(e => {
-        const key = `${e.scanner_name}::${e.category}`;
-        if (!groups[key]) {
-          groups[key] = { scanner: e.scanner_name, category: e.category, totalOccurrences: 0, stocks: new Set(), ids: [], lastSeen: e.last_seen, lastError: e.last_error_msg };
-        }
-        groups[key].totalOccurrences += (e.occurrences || 1);
-        groups[key].stocks.add(e.symbol);
-        groups[key].ids.push(e.id);
-        if (e.last_seen > groups[key].lastSeen) {
-          groups[key].lastSeen = e.last_seen;
-          groups[key].lastError = e.last_error_msg;
-        }
-      });
-
-      const groupList = Object.values(groups).sort((a, b) => b.totalOccurrences - a.totalOccurrences);
-
-      const catColors = {
-        'no_data': '#e74c3c', 'missing_col': '#e67e22', 'stale_data': '#f39c12',
-        'processing_error': '#c0392b', 'rate_limited': '#8e44ad'
-      };
-
-      const rows = groupList.map(g => {
-        const color = catColors[g.category] || 'var(--muted)';
-        const stockList = [...g.stocks].slice(0, 5).join(', ') + (g.stocks.size > 5 ? ` +${g.stocks.size - 5} more` : '');
-        return `
-    <div style="display:flex; align-items:center; gap:12px; padding:10px 14px; border-bottom:1px solid var(--border);">
-      <div style="min-width:120px;">
-        <div style="font-family:var(--font-mono); font-weight:700; font-size:14px;">${g.scanner}</div>
-        <div style="font-size:12px; margin-top:2px;"><span style="background:${color}22; color:${color}; padding:2px 8px; border-radius:4px; font-weight:600; font-size:11px;">${g.category}</span></div>
-      </div>
-      <div style="flex:1; font-size:12px; color:var(--muted); font-family:var(--font-mono);">
-        <div>${g.stocks.size} stocks affected</div>
-        <div style="margin-top:2px; font-size:11px; opacity:0.8;">${stockList}</div>
-      </div>
-      <div style="text-align:right; min-width:100px;">
-        <div style="font-family:var(--font-mono); font-weight:700; color:${color}; font-size:16px;">${g.totalOccurrences}×</div>
-        <div style="font-size:11px; color:var(--muted);">Last: ${g.lastSeen ? new Date(g.lastSeen).toLocaleTimeString() : '-'}</div>
-      </div>
-      <button onclick="ackFetchErrorGroup([${g.ids.join(',')}])" style="background:rgba(0,0,0,0.04);border:1px solid var(--border);padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;white-space:nowrap;">✓ Ack All</button>
-    </div>`;
-      }).join('');
-
-      el.innerHTML = `<div class="card"><div class="card-title">📡 Data Fetch Errors — ${groupList.length} issue${groupList.length > 1 ? 's' : ''}</div><div style="max-height:320px; overflow:auto;">${rows}</div></div>`;
-    }
-
-    async function ackFetchError(id) {
-      try {
-        await fetch('/api/fetch_errors/ack/' + id, { method: 'POST' });
-        await doRefresh();
-      } catch (e) { console.error('Failed to ack fetch error', e); }
-    }
-
     async function ackFetchErrorGroup(ids) {
       try {
         const idList = Array.isArray(ids) ? ids : [ids];
+        if (typeof showCustomToast === 'function') showCustomToast('Acknowledged data fetch issues', 'success');
         await fetch('/api/fetch_errors/ack_batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

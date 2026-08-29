@@ -1402,6 +1402,23 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]
                 if _is_valid_payload(data) and _is_fundamental_cache_fresh(data):
                     res = {k: val for k, val in data.items() if k not in ("fetched_at", "date")}
                     res["symbol"] = clean_sym
+                    
+                    # [MATHEMATICAL DERIVATION] Derive missing total_equity, net_profit, total_debt from TV baseline
+                    mcap = res.get("market_cap") or res.get("market_cap_basic")
+                    pb = res.get("pb") or res.get("price_book_ratio") or res.get("price_book_ratio_fy")
+                    roe = res.get("roe") or res.get("return_on_equity_fy")
+                    de = res.get("debt_to_equity") or res.get("debt_to_equity_fy")
+
+                    if res.get("total_equity") is None and mcap and pb and pb > 0:
+                        res["total_equity"] = float(mcap) / float(pb)
+                        res["derived_total_equity"] = True
+
+                    if res.get("net_profit") is None and res.get("total_equity") and roe:
+                        res["net_profit"] = float(res["total_equity"]) * (float(roe) / 100.0)
+
+                    if res.get("total_debt") is None and res.get("total_equity") and de:
+                        res["total_debt"] = float(res["total_equity"]) * (float(de) / 100.0)
+
                     return res
             except Exception as e:
                 logger.debug(f"Failed to parse cache entry for {v}: {e}")
@@ -1773,6 +1790,38 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
     }
     
     return fund
+
+
+def hydrate_finalist_fundamentals(symbol: str) -> dict:
+    """Multi-Tier Failover Hydration for Pass 2 Finalists:
+    Tier 1: Screener.in Direct Scraper & 30-day DB Cache (Primary for Indian Equities)
+    Tier 2: Yahoo Finance API (yf.Ticker) (Secondary Fallback)
+    Tier 3: TradingView Baseline Mathematical Derivation (total_equity = market_cap / pb) (Zero Network Cost)
+    """
+    clean_sym = symbol.split(":")[-1].replace(".NS", "").replace(".BO", "").strip().upper()
+
+    # --- TIER 1: Screener.in Direct Scraper ---
+    try:
+        from screener_fetcher import fetch_screener_fundamentals
+        s_data = fetch_screener_fundamentals(clean_sym)
+        if s_data and not s_data.get("failed") and (s_data.get("total_equity") is not None or s_data.get("market_cap") is not None):
+            logger.info(f"✅ [PASS 2 HYDRATION] Tier 1 Screener.in success for {clean_sym} | Equity={s_data.get('total_equity')}")
+            return s_data
+    except Exception as e1:
+        logger.debug(f"Tier 1 Screener.in hydration failed for {clean_sym}: {e1}")
+
+    # --- TIER 2: Yahoo Finance API ---
+    try:
+        yf_data = fetch_ticker_fundamentals(clean_sym)
+        if yf_data and not yf_data.get("failed") and yf_data.get("total_equity") is not None:
+            logger.info(f"✅ [PASS 2 HYDRATION] Tier 2 Yahoo Finance success for {clean_sym} | Equity={yf_data.get('total_equity')}")
+            return yf_data
+    except Exception as e2:
+        logger.debug(f"Tier 2 Yahoo Finance hydration failed for {clean_sym}: {e2}")
+
+    # --- TIER 3: Mathematical Derivation Fallback ---
+    logger.info(f"⚡ [PASS 2 HYDRATION] Tier 3 Mathematical Derivation active for {clean_sym}")
+    return {"symbol": clean_sym, "cache_tier": "TV_BASELINE_DERIVED", "hydration_attempted": True}
 
 
 
@@ -3176,7 +3225,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             # Only hydrate if missing YFinance deep data
             logger.info(f"DEBUG PASS2: {sym} cached={bool(cached)} is_deep={is_deep_v5_cache(cached) if cached else False}")
             if cached and not is_deep_v5_cache(cached):
-                futures[executor.submit(fetch_ticker_fundamentals, sym)] = cand
+                from fundamental_pipeline import get_unified_fundamentals
+                futures[executor.submit(get_unified_fundamentals, sym)] = cand
 
         if futures:
             logger.info(f"📥 [MULTIBAGGER PASS 2] Deep YFinance balance sheet hydration starting for {len(futures)} top finalist stocks...")
@@ -3214,13 +3264,19 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                             decision = run_pipeline_for_symbol(sym, fund, technicals)
                             cand["pipeline_result"] = decision
                             cand["raw_fundamentals"] = fund
-                            cand["total_score"] = decision.composite_score
+                            
+                            # Apply fundamental confidence multiplier based on provenance quality
+                            quality_rating = deep_f.get("hydration", {}).get("quality", "HIGH")
+                            conf_mult = 1.00 if quality_rating == "HIGH" else (0.85 if quality_rating == "MIXED" else 0.60)
+                            
+                            cand["total_score"] = decision.composite_score * conf_mult
+                            cand["fundamental_confidence"] = conf_mult
                             cand["cqs"] = decision.quality.score
                             cand["pas"] = decision.valuation.score
                             cand["trend_score"] = decision.market_structure.score
                             cand["tier"] = decision.classification
                             cand["tier_val"] = 2 if "Prime" in decision.classification else 1
-                            logger.info(f"✅ Pass 2 Re-scored {sym} with DEEP_V5 data (Score: {cand['total_score']:.1f})")
+                            logger.info(f"✅ Pass 2 Re-scored {sym} with {quality_rating} quality data (Score: {cand['total_score']:.1f}, Confidence: {conf_mult:.2f})")
                         except Exception as re_err:
                             logger.error(f"Failed Pass 2 V5 re-scoring for {sym}: {re_err}")
                     else:

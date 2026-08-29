@@ -1089,6 +1089,21 @@ def init_db():
                     )
                 """)
 
+                # 24b. screener_cache (Canonical fundamental data with TIMESTAMPTZ)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS screener_cache (
+                        symbol TEXT PRIMARY KEY,
+                        data JSONB NOT NULL,
+                        fetched_at TIMESTAMPTZ NOT NULL,
+                        expires_at TIMESTAMPTZ,
+                        source TEXT,
+                        quality TEXT,
+                        version INTEGER DEFAULT 1,
+                        updated_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_screener_cache_fetched ON screener_cache (fetched_at);
+                """)
+
                 # 25. global_notifications
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS global_notifications (

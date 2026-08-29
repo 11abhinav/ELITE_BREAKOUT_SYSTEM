@@ -2343,6 +2343,9 @@ def api_ack_fetch_error(error_id):
     try:
         from database import acknowledge_fetch_error
         ok = acknowledge_fetch_error(error_id)
+        global _fetch_errors_grouped_cache
+        _fetch_errors_grouped_cache["ts"] = 0
+        _fetch_errors_grouped_cache["payload"] = None
         return jsonify({"ok": ok})
     except Exception:
         logger.exception("❌ /api/fetch_errors/ack failed")
@@ -2358,6 +2361,9 @@ def api_ack_fetch_error_batch():
             return jsonify({"ok": True})
         from database import acknowledge_fetch_error_batch
         ok = acknowledge_fetch_error_batch(ids)
+        global _fetch_errors_grouped_cache
+        _fetch_errors_grouped_cache["ts"] = 0
+        _fetch_errors_grouped_cache["payload"] = None
         return jsonify({"ok": ok})
     except Exception:
         logger.exception("❌ /api/fetch_errors/ack_batch failed")
@@ -2371,6 +2377,9 @@ def api_clear_all_fetch_errors():
     try:
         from database import acknowledge_all_fetch_errors
         ok = acknowledge_all_fetch_errors()
+        global _fetch_errors_grouped_cache
+        _fetch_errors_grouped_cache["ts"] = 0
+        _fetch_errors_grouped_cache["payload"] = None
         return jsonify({"ok": ok})
     except Exception:
         logger.exception("❌ /api/fetch_errors/all DELETE failed")
@@ -3031,6 +3040,9 @@ def api_acknowledge_health(source_name):
     try:
         from database import acknowledge_data_fetch_health
         acknowledge_data_fetch_health(source_name)
+        global _DATA_FETCH_HEALTH_CACHE
+        _DATA_FETCH_HEALTH_CACHE["ts"] = 0
+        _DATA_FETCH_HEALTH_CACHE["payload"] = None
         return jsonify({"status": "success", "source": source_name})
     except Exception as e:
         logger.exception(f"❌ /api/data_fetch_health/acknowledge failed for {source_name}")
@@ -3043,6 +3055,9 @@ def api_acknowledge_scanner_health(scanner_name):
     try:
         from database import acknowledge_scanner_health
         acknowledge_scanner_health(scanner_name)
+        global _SCANNER_STATUS_CACHE
+        _SCANNER_STATUS_CACHE["ts"] = 0
+        _SCANNER_STATUS_CACHE["payload"] = None
         return jsonify({"status": "success", "scanner": scanner_name})
     except Exception as e:
         logger.exception(f"❌ /api/scanner_health/acknowledge failed for {scanner_name}")
