@@ -1695,10 +1695,8 @@ def run_system_scheduler():
                     if last_multi_tf is None or current_slot > last_multi_tf:
                         last_multi_tf = current_slot
                         if not is_scanner_stopped("MULTI_TF"):
-                            logger.info(f"🚀 MULTI_TF SCAN | Starting 5m candle-aligned cycle at {now.strftime('%H:%M:%S IST')}...")
+                            logger.info(f"🚀 MULTI_TF SCAN | Starting 5m candle-aligned V2 cycle at {now.strftime('%H:%M:%S IST')}...")
                             _trigger_multi_tf()
-                            logger.info(f"🚀 MULTI_TF_V2 SCAN | Starting parallel V2 engine cycle...")
-                            _trigger_multi_tf_v2()
                         else:
                             logger.info("⏭️ MULTI_TF is STOPPED by Admin. Skipping candle-aligned cycle.")
                 
@@ -2223,7 +2221,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     # Check locks synchronously to return immediate HTTP JSON error
     LOCK_MAP = {
         "DAILY_BUILDER": lambda: __import__('daily_builder')._build_lock,
-        "MULTI_TF":      lambda: __import__('multi_tf_scanner')._scan_lock,
+        "MULTI_TF":      lambda: __import__('multitf.scanner', fromlist=['_scan_lock'])._scan_lock,
         "EOD":           lambda: __import__('eod_scanner')._scan_lock,
         "REVERSAL":      lambda: __import__('reversal_scanner')._scan_lock,
         "PULLBACK":      lambda: __import__('pullback_pipeline')._scan_lock,
@@ -2366,10 +2364,6 @@ def _trigger_daily_builder(force_rebuild: bool = False, trigger_type="MANUAL", s
         raise exc
 
 def _trigger_multi_tf(trigger_type="SCHEDULED", scheduler_name="CRON"):
-    import multi_tf_scanner
-    return multi_tf_scanner.start(run_once=True, trigger_type=trigger_type, scheduler_name=scheduler_name)
-
-def _trigger_multi_tf_v2(trigger_type="SCHEDULED", scheduler_name="CRON"):
     from multitf.scanner import run_multitf_v2
     from config import get_regime_state
     from datetime import datetime

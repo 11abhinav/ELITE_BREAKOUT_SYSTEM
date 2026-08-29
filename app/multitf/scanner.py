@@ -37,57 +37,81 @@ from multitf.candidate import build_watchlist_candidate, build_confirmed_payload
 from sl_target_helper import compute_sl_and_target
 
 logger = logging.getLogger("multitf.scanner")
-_scan_lock = ProcessLock("MULTI_TF_V2")
+_scan_lock = ProcessLock("multi_tf_scanner")
 
 
 def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str = "SCHEDULED"):
     """
-    Main entry point for MULTI_TF V2.
+    Main entry point for MULTI_TF V2 (New Engine).
     """
     if not _scan_lock.acquire(blocking=False):
-        logger.warning("[MULTI_TF_V2] Scanner is already running. Skipping cycle.")
+        logger.warning("[MULTI_TF] Scanner is already running. Skipping cycle.")
         return
 
+    logger.info("=" * 70)
+    logger.info("📊 MULTI_TF V2 ENGINE | Starting execution cycle...")
+    logger.info("=" * 70)
+
+    from telemetry_manager import telemetry
+    from perf_utils import ScannerStageTracker
+    
+    telemetry.log_scheduler_event("MULTI_TF", "CYCLE_START")
+    stage_tracker = ScannerStageTracker("MULTI_TF_V2")
+    
     # Create proper DB execution run context
     trigger_type = run_ctx if isinstance(run_ctx, str) else "SCHEDULED"
     from database import start_scanner_execution_run, complete_scanner_execution_run
     try:
-        real_run_ctx = start_scanner_execution_run(scanner_name="MULTI_TF_V2", trigger_type=trigger_type, scheduler_name="CRON")
+        real_run_ctx = start_scanner_execution_run(scanner_name="MULTI_TF", trigger_type=trigger_type, scheduler_name="CRON")
     except Exception as exc:
-        logger.warning(f"⚠️ [MULTI_TF_V2] Could not create run_ctx: {exc}")
+        logger.warning(f"⚠️ [MULTI_TF] Could not create run_ctx: {exc}")
         real_run_ctx = None
 
     start_time = time.monotonic()
     
     try:
+        stage_tracker.start_stage(1, "Load Watchlist", "Fetching elite watchlist symbols from DB")
         upsert_scanner_health(
-            scanner_name="MULTI_TF_V2",
+            scanner_name="MULTI_TF",
             status="RUNNING",
             error_msg="Scan execution in progress..."
         )
         
         watchlist = get_elite_watchlist()
         if not watchlist:
-            logger.warning("[MULTI_TF_V2] Watchlist empty.")
+            logger.warning("[MULTI_TF] Watchlist empty.")
             upsert_scanner_health(
-                scanner_name="MULTI_TF_V2",
+                scanner_name="MULTI_TF",
                 status="OK",
                 outcome="SUCCESS",
                 processed_count=0,
                 duration_seconds=round(time.monotonic() - start_time, 2)
             )
+            stage_tracker.end_stage("Watchlist empty")
+            telemetry.log_scheduler_event("MULTI_TF", "CYCLE_COMPLETE")
             return
-
-        logger.info("[MULTI_TF_V2] Pre-fetching data for %d symbols...", len(watchlist))
         
-        # Parallel fetch for all required timeframes
-        # We reuse the robust fetch_watchlist_data wrapper from data_layer
-        all_1d  = fetch_watchlist_data(watchlist, period="1y", interval="1d", requester="MULTI_TF_V2")
-        all_1h  = fetch_watchlist_data(watchlist, period="45d", interval="1h", requester="MULTI_TF_V2")
-        all_30m = fetch_watchlist_data(watchlist, period="20d", interval="30m", requester="MULTI_TF_V2")
-        all_15m = fetch_watchlist_data(watchlist, period="15d", interval="15m", requester="MULTI_TF_V2")
-        all_5m  = fetch_watchlist_data(watchlist, period="5d",  interval="5m",  requester="MULTI_TF_V2")
+        stage_tracker.end_stage(f"Loaded {len(watchlist)} symbols")
 
+        # Stage 2: Parallel Fetching
+        stage_tracker.start_stage(2, "Fetch Market Data", "Pre-fetching multi-timeframe candle bars")
+        logger.info("[MULTI_TF] Pre-fetching data (1d, 1h, 30m, 15m, 5m) for %d symbols...", len(watchlist))
+        t_fetch_start = time.monotonic()
+        
+        all_1d  = fetch_watchlist_data(watchlist, period="1y", interval="1d", requester="MULTI_TF")
+        all_1h  = fetch_watchlist_data(watchlist, period="45d", interval="1h", requester="MULTI_TF")
+        all_30m = fetch_watchlist_data(watchlist, period="20d", interval="30m", requester="MULTI_TF")
+        all_15m = fetch_watchlist_data(watchlist, period="15d", interval="15m", requester="MULTI_TF")
+        all_5m  = fetch_watchlist_data(watchlist, period="5d",  interval="5m",  requester="MULTI_TF")
+        
+        t_fetch_dur = round(time.monotonic() - t_fetch_start, 2)
+        logger.info("⚡ [MULTI_TF] Completed market data pre-fetch in %ss", t_fetch_dur)
+        stage_tracker.end_stage(f"Fetched data in {t_fetch_dur}s")
+
+        # Stage 3: Process Symbols
+        stage_tracker.start_stage(3, "Process Symbols", "Evaluating compression and breakout models per symbol")
+        logger.info("[MULTI_TF] Analyzing breakout signals per symbol...")
+        t_process_start = time.monotonic()
         opp_manager = OpportunityManager()
 
         for symbol in watchlist:
@@ -105,34 +129,46 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
                     config=MULTI_TF_V2_CONFIG
                 )
             except Exception as loop_exc:
-                logger.error("[MULTI_TF_V2] Failed processing %s: %s", symbol, loop_exc)
+                logger.error("[MULTI_TF] Failed processing %s: %s", symbol, loop_exc)
 
-        # Process all accumulated opportunities
+        t_process_dur = round(time.monotonic() - t_process_start, 2)
+        logger.info("⚡ [MULTI_TF] Completed symbol evaluations in %ss", t_process_dur)
+        stage_tracker.end_stage(f"Processed symbols in {t_process_dur}s")
+
+        # Stage 4: Dispatch Opportunities
+        stage_tracker.start_stage(4, "Dispatch Opportunities", "Filtering and executing OpportunityManager alerts")
+        t_opp_start = time.monotonic()
         try:
             opp_manager.process()
         except Exception as e:
-            logger.error("[MULTI_TF_V2] OpportunityManager failed to process: %s", e)
+            logger.error("[MULTI_TF] OpportunityManager failed to process: %s", e)
+        t_opp_dur = round(time.monotonic() - t_opp_start, 2)
+        stage_tracker.end_stage(f"Dispatched in {t_opp_dur}s")
 
         duration = round(time.monotonic() - start_time, 2)
         upsert_scanner_health(
-            scanner_name="MULTI_TF_V2",
+            scanner_name="MULTI_TF",
             status="OK",
             outcome="SUCCESS",
             processed_count=len(watchlist),
             total_count=len(watchlist),
             duration_seconds=duration
         )
+        
+        telemetry.log_scheduler_event("MULTI_TF", "CYCLE_COMPLETE")
+        logger.info("✅ MULTI_TF V2 ENGINE | Execution cycle complete in %ss.", duration)
 
     except Exception as exc:
         duration = round(time.monotonic() - start_time, 2)
-        logger.error("[MULTI_TF_V2] Fatal error: %s", exc)
+        logger.error("[MULTI_TF] Fatal error during cycle: %s", exc)
         upsert_scanner_health(
-            scanner_name="MULTI_TF_V2",
+            scanner_name="MULTI_TF",
             status="DOWN",
             outcome="FAILED",
             error_msg=str(exc),
             duration_seconds=duration
         )
+        telemetry.log_scheduler_event("MULTI_TF", "CYCLE_FAILED", error=str(exc))
     finally:
         _scan_lock.release()
 
@@ -247,9 +283,9 @@ def _process_symbol(
             
             inserted, _, _, _ = save_alert_if_new(
                 symbol=symbol,
-                breakout_type="MULTI_TF_V2",
+                breakout_type="MULTI_TF",
                 alert_time=ist_now.strftime("%Y-%m-%d %H:%M:%S"),
-                scanner="MULTI_TF_V2",
+                scanner="MULTI_TF",
                 category="INTRADAY",
                 entry_price=sl_target.get("entry_price"),
                 stop_loss=sl_target.get("stop_loss"),
@@ -310,7 +346,7 @@ def _process_symbol(
         update_state_in_db(state_record, updates)
 
     upsert_scanner_health(
-        scanner_name="MULTI_TF_V2",
+        scanner_name="MULTI_TF",
         status="OK",
         error_msg=f"Completed {len(watchlist)} symbols in {time.monotonic() - start_time:.2f}s"
     )
@@ -318,9 +354,9 @@ def _process_symbol(
         complete_scanner_execution_run(real_run_ctx, status_override="COMPLETED")
 
 except Exception as e:
-    logger.exception(f"❌ [MULTI_TF_V2] Execution failed: {e}")
+    logger.exception(f"❌ [MULTI_TF] Execution failed: {e}")
     upsert_scanner_health(
-        scanner_name="MULTI_TF_V2",
+        scanner_name="MULTI_TF",
         status="DOWN",
         error_msg=str(e)
     )
