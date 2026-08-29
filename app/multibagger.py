@@ -609,7 +609,12 @@ def _parse_single_symbol_price_data(sym: str, md: Any, ist_now: datetime, strip_
         volume_sma20 = float(vol_series.tail(20).mean()) if len(vol_series) >= 20 else latest_volume
 
         from indicator_manager import manager
+        import time
+        _t0 = time.perf_counter()
         bundle = manager.compute_base_indicators(ticker_df, sym)
+        _t1 = time.perf_counter()
+        _ind_total_ms = (_t1 - _t0) * 1000
+        _reg_ms = getattr(bundle, '_telemetry_registry_ms', 0.0)
 
         sma_20 = float(bundle.sma_20.iloc[-1]) if bundle.sma_20 is not None and not bundle.sma_20.empty else close_price
         sma_50 = float(bundle.sma_50.iloc[-1]) if bundle.sma_50 is not None and not bundle.sma_50.empty else close_price
@@ -625,7 +630,7 @@ def _parse_single_symbol_price_data(sym: str, md: Any, ist_now: datetime, strip_
             last_5_smas = bundle.sma_200.iloc[-5:]
             closes_below_sma200_count = sum(1 for c, s in zip(last_5_closes, last_5_smas) if c < s)
 
-        return StockPriceData(
+        spd = StockPriceData(
             symbol=sym,
             price=close_price,
             change_pct=change_pct,
@@ -646,10 +651,13 @@ def _parse_single_symbol_price_data(sym: str, md: Any, ist_now: datetime, strip_
             atr_14=atr_14,
             ema_20=ema_20,
             closes_below_sma200_count=closes_below_sma200_count,
-            last_trade_date=last_trade_date,
-            today_open=today_open,
+            last_trade_date=last_trade_date_str,
+            today_open=open_price,
             today_close=today_close
         )
+        spd._telemetry_indicator_total = _ind_total_ms
+        spd._telemetry_registry_ms = _reg_ms
+        return spd
     except Exception as e:
         logger.debug(f"Error parsing market data for {sym}: {e}")
         return None
@@ -687,12 +695,75 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
         disk_results = {}
         missing_syms = []
 
+        import threading
+        telemetry_stats = {
+            "get_cached_df_ms": [],
+            "indicator_total_ms": [],
+            "calculation_ms": [],
+            "registry_ms": [],
+            "parse_total_ms": [],
+            "cache_success": 0,
+            "cache_fail": 0,
+            "ind_atr": 0,
+            "ind_rsi": 0,
+            "ind_ema20": 0,
+            "ind_sma20": 0,
+            "ind_ema50": 0,
+            "ind_sma50": 0,
+            "ind_ema200": 0,
+            "ind_sma200": 0
+        }
+        telemetry_lock = threading.Lock()
+
         def _load_single(s):
+            import time
+            t0 = time.perf_counter()
             df_sym = get_cached_df(s, interval="1d", period="1y")
+            t1 = time.perf_counter()
+            get_df_ms = (t1 - t0) * 1000
             if df_sym is not None and not df_sym.empty:
+                cols = set(df_sym.columns)
+                has_atr = 'ATR' in cols
+                has_rsi = 'RSI' in cols
+                has_ema20 = 'EMA20' in cols
+                has_sma20 = 'SMA20' in cols
+                has_ema50 = 'EMA50' in cols
+                has_sma50 = 'SMA50' in cols
+                has_ema200 = 'EMA200' in cols
+                has_sma200 = 'SMA200' in cols
+                
+                t2 = time.perf_counter()
                 parsed_spd = _parse_single_symbol_price_data(s, df_sym, ist_now, strip_forming=False)
+                t3 = time.perf_counter()
+                parse_ms = (t3 - t2) * 1000
+                
+                ind_total = getattr(parsed_spd, "_telemetry_indicator_total", 0.0) if parsed_spd else 0.0
+                reg_ms = getattr(parsed_spd, "_telemetry_registry_ms", 0.0) if parsed_spd else 0.0
+                calc_ms = max(0.0, ind_total - reg_ms)
+                
+                with telemetry_lock:
+                    telemetry_stats["cache_success"] += 1
+                    telemetry_stats["get_cached_df_ms"].append(get_df_ms)
+                    telemetry_stats["parse_total_ms"].append(parse_ms)
+                    telemetry_stats["indicator_total_ms"].append(ind_total)
+                    telemetry_stats["registry_ms"].append(reg_ms)
+                    telemetry_stats["calculation_ms"].append(calc_ms)
+                    if has_atr: telemetry_stats["ind_atr"] += 1
+                    if has_rsi: telemetry_stats["ind_rsi"] += 1
+                    if has_ema20: telemetry_stats["ind_ema20"] += 1
+                    if has_sma20: telemetry_stats["ind_sma20"] += 1
+                    if has_ema50: telemetry_stats["ind_ema50"] += 1
+                    if has_sma50: telemetry_stats["ind_sma50"] += 1
+                    if has_ema200: telemetry_stats["ind_ema200"] += 1
+                    if has_sma200: telemetry_stats["ind_sma200"] += 1
+                
+                logger.debug(f"TELEMETRY_ROW | {s} | rows:{len(df_sym)} | source:disk_cache | get_cached_df:{get_df_ms:.1f}ms | parse:{parse_ms:.1f}ms | indicator:{ind_total:.1f}ms (calc:{calc_ms:.1f}ms reg:{reg_ms:.1f}ms) | ATR:{has_atr} RSI:{has_rsi} EMA20:{has_ema20} SMA20:{has_sma20} EMA50:{has_ema50} SMA50:{has_sma50} EMA200:{has_ema200} SMA200:{has_sma200}")
+                
                 if parsed_spd is not None:
                     return s, parsed_spd
+            else:
+                with telemetry_lock:
+                    telemetry_stats["cache_fail"] += 1
             return s, None
 
         with ThreadPoolExecutor(max_workers=24) as executor:
@@ -706,6 +777,23 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
 
         # If >= 90% of symbols exist on disk, fast-path load them and fetch only the missing ones
         if len(disk_results) >= int(len(symbols) * 0.90):
+            import numpy as np
+            def _pct(arr, p):
+                return np.percentile(arr, p) if arr else 0.0
+            def _mean(arr):
+                return np.mean(arr) if arr else 0.0
+                
+            logger.info(
+                f"TELEMETRY_SUMMARY |\n"
+                f"symbols={len(symbols)} | cache_success={telemetry_stats['cache_success']} | cache_fail={telemetry_stats['cache_fail']} |\n"
+                f"get_cached_df (ms) -> avg:{_mean(telemetry_stats['get_cached_df_ms']):.1f} p50:{_pct(telemetry_stats['get_cached_df_ms'], 50):.1f} p95:{_pct(telemetry_stats['get_cached_df_ms'], 95):.1f} max:{max(telemetry_stats['get_cached_df_ms'], default=0.0):.1f} total:{sum(telemetry_stats['get_cached_df_ms']):.1f} |\n"
+                f"indicator_total (ms) -> avg:{_mean(telemetry_stats['indicator_total_ms']):.1f} p50:{_pct(telemetry_stats['indicator_total_ms'], 50):.1f} p95:{_pct(telemetry_stats['indicator_total_ms'], 95):.1f} max:{max(telemetry_stats['indicator_total_ms'], default=0.0):.1f} total:{sum(telemetry_stats['indicator_total_ms']):.1f} |\n"
+                f"  └─ calculation_ms -> avg:{_mean(telemetry_stats['calculation_ms']):.1f} p95:{_pct(telemetry_stats['calculation_ms'], 95):.1f} total:{sum(telemetry_stats['calculation_ms']):.1f} |\n"
+                f"  └─ registry_ms -> avg:{_mean(telemetry_stats['registry_ms']):.1f} p95:{_pct(telemetry_stats['registry_ms'], 95):.1f} total:{sum(telemetry_stats['registry_ms']):.1f} |\n"
+                f"parse_total (ms) -> avg:{_mean(telemetry_stats['parse_total_ms']):.1f} p50:{_pct(telemetry_stats['parse_total_ms'], 50):.1f} p95:{_pct(telemetry_stats['parse_total_ms'], 95):.1f} max:{max(telemetry_stats['parse_total_ms'], default=0.0):.1f} total:{sum(telemetry_stats['parse_total_ms']):.1f} |\n"
+                f"Columns Present: ATR:{telemetry_stats['ind_atr']} RSI:{telemetry_stats['ind_rsi']} EMA20:{telemetry_stats['ind_ema20']} SMA20:{telemetry_stats['ind_sma20']} EMA50:{telemetry_stats['ind_ema50']} SMA50:{telemetry_stats['ind_sma50']} EMA200:{telemetry_stats['ind_ema200']} SMA200:{telemetry_stats['ind_sma200']}"
+            )
+            
             if missing_syms:
                 logger.info(f"⚡ [MULTIBAGGER DISK ACCELERATION] {len(disk_results)}/{len(symbols)} loaded from disk cache. Concurrent fetching {len(missing_syms)} missing ticker(s)...")
                 def _fetch_missing(ms):
@@ -1241,6 +1329,10 @@ def _is_fundamental_cache_fresh(data: dict) -> bool:
         # Check both "fetched_at" (multibagger format) and "date" (global cache format)
         date_str = data.get("fetched_at") or data.get("date")
         if not date_str:
+            # Self-healing: if the cache entry contains valid fundamental metrics, treat it as fresh
+            # to prevent it from being permanently ignored/starved in Pass 1.
+            if data.get("total_equity") is not None or data.get("roe") is not None or data.get("score") is not None:
+                return True
             return False
             
         # Parse it
@@ -2647,7 +2739,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     fundamentals_list = []
     
     logger.info("🚀 Multibagger Scanner execution started...")
+    t_init_db_0 = time.perf_counter()
     init_db()
+    t_init_db_dur = time.perf_counter() - t_init_db_0
+    logger.info(f"TELEMETRY_STAGE | init_db duration: {t_init_db_dur * 1000:.1f}ms")
     
     # [VERSION: RUN_CTX_GUARD_v1.0] Guarantee run_ctx exists so heartbeats are always recorded in DB
     if run_ctx is None:
@@ -2660,11 +2755,17 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     # Load fundamentals cache — force DB sync for main scanner so daily 19:00 scan
     # always starts with the freshest possible data regardless of local file age.
     # [VERSION: CACHE_DB_FIRST_v1.0] force_db_sync=True guarantees freshness for daily scan.
+    t_load_cache_0 = time.perf_counter()
     cache = load_cache(force_db_sync=True)
+    t_load_cache_dur = time.perf_counter() - t_load_cache_0
+    logger.info(f"TELEMETRY_STAGE | load_cache duration: {t_load_cache_dur * 1000:.1f}ms")
     
     # 1. Fetch constituents
     from constituent_service import fetch_constituents
+    t_fetch_const_0 = time.perf_counter()
     symbols = fetch_constituents()
+    t_fetch_const_dur = time.perf_counter() - t_fetch_const_0
+    logger.info(f"TELEMETRY_STAGE | fetch_constituents duration: {t_fetch_const_dur * 1000:.1f}ms")
     if not symbols:
         logger.error("❌ Failed to fetch any constituent stocks. Aborting scan.")
         raise RuntimeError("Failed to fetch NSE constituent stocks. NSE API might be blocking the IP or rate-limiting.")
@@ -2927,8 +3028,21 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     
     _eval_start_t = time.perf_counter()
     _eval_lock = threading.Lock()
+    
+    import threading
+    eval_stats = {
+        "count": 0,
+        "pledge_ms": [],
+        "quality_gate_ms": [],
+        "pipeline_ms": [],
+        "inst_bonus_ms": [],
+        "total_ms": []
+    }
+    eval_stats_lock = threading.Lock()
 
     def _eval_item(f):
+        import time
+        t_eval_start = time.perf_counter()
         nonlocal unverified_pledge_count
         sym = f.get("symbol")
         price_data = price_data_map.get(sym)
@@ -2970,6 +3084,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         
         # [VERSION: PLEDGE_EXTRACT_FIX_v1.0] Populate promoter_pledge_pct from pledge cache DB
         # Set to None/null if missing or unverified instead of defaulting to 0.0
+        t_pledge_0 = time.perf_counter()
+        pledge_dur = 0.0
         if "promoter_pledge_pct" not in raw_fundamentals or raw_fundamentals.get("promoter_pledge_pct") in (None, 0.0):
             try:
                 from pledge_scraper import fetch_promoter_pledge
@@ -2984,6 +3100,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             except Exception:
                 unverified_pledge_count += 1
                 raw_fundamentals["promoter_pledge_pct"] = None
+            pledge_dur = (time.perf_counter() - t_pledge_0) * 1000
         
         technicals = {
             "price": price_data.price,
@@ -2997,17 +3114,41 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         if price_data.sma_200 <= 0 or price_data.ema_20 <= 0 or price_data.sma_50 <= 0 or price_data.price <= 0:
             logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Ambiguous Technicals)")
             append_rejection(results, sym, "TECHNICAL_UNAVAILABLE", "Ambiguous Technicals", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
+            t_eval_end_rej = time.perf_counter()
+            with eval_stats_lock:
+                eval_stats["count"] += 1
+                eval_stats["pledge_ms"].append(pledge_dur)
+                eval_stats["quality_gate_ms"].append(0.0)
+                eval_stats["pipeline_ms"].append(0.0)
+                eval_stats["inst_bonus_ms"].append(0.0)
+                eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
             return
 
         # [FIX-2] Reject stale entries — if the last trade was >= 3 business days ago
         if _is_stale_trade_date(getattr(price_data, 'last_trade_date', '')):
             logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Stale price data — last trade: {getattr(price_data, 'last_trade_date', 'unknown')})")
             append_rejection(results, sym, "STALE_DATA", f"Stale trade date: {getattr(price_data, 'last_trade_date', 'unknown')}", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
+            t_eval_end_rej = time.perf_counter()
+            with eval_stats_lock:
+                eval_stats["count"] += 1
+                eval_stats["pledge_ms"].append(pledge_dur)
+                eval_stats["quality_gate_ms"].append(0.0)
+                eval_stats["pipeline_ms"].append(0.0)
+                eval_stats["inst_bonus_ms"].append(0.0)
+                eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
             return
             
         if raw_fundamentals.get("data_freshness") == "FALLBACK":
             logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Fallback Fundamentals)")
             append_rejection(results, sym, "FALLBACK_DATA", "Fallback Fundamentals", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
+            t_eval_end_rej = time.perf_counter()
+            with eval_stats_lock:
+                eval_stats["count"] += 1
+                eval_stats["pledge_ms"].append(pledge_dur)
+                eval_stats["quality_gate_ms"].append(0.0)
+                eval_stats["pipeline_ms"].append(0.0)
+                eval_stats["inst_bonus_ms"].append(0.0)
+                eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
             return
 
         # [FIX-6] Reject before scoring when volume is unavailable. None/0 volume
@@ -3015,41 +3156,69 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         if price_data.latest_volume <= 0 or price_data.volume_sma20 <= 0:
             logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Volume data unavailable)")
             append_rejection(results, sym, "VOLUME_UNAVAILABLE", "Volume data unavailable", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
+            t_eval_end_rej = time.perf_counter()
+            with eval_stats_lock:
+                eval_stats["count"] += 1
+                eval_stats["pledge_ms"].append(pledge_dur)
+                eval_stats["quality_gate_ms"].append(0.0)
+                eval_stats["pipeline_ms"].append(0.0)
+                eval_stats["inst_bonus_ms"].append(0.0)
+                eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
             return
             
         # [VERSION: ENTRY_SCANNER_DEEP_HYDRATION_v1.0]
-        # Open/SELL_REVIEW positions may have only TV_BASELINE-tier cache data if their
-        # prewarm has expired or was never completed. TV_BASELINE lacks YFinance-deep fields
-        # (fcf_margin, cfo_pat_ratio, altman_z, interest_coverage_ratio, revenue_cagr_3y)
-        # that passes_multibagger_quality_gate() requires. Without hydration these positions
-        # get rejected as "Data Void" with only promoter pledge populated.
-        # Fix: for symbols that are currently OPEN or SELL_REVIEW, apply the same
-        # is_deep_v5_cache → fetch_ticker_fundamentals() guard the exit monitor uses.
         if sym in open_symbols and not is_deep_v5_cache(raw_fundamentals):
-            # [OPTIMIZATION] Avoid synchronous YFinance network blocking (8 HTTP requests per ticker)
-            # Baseline TradingView cache is sufficient for evaluation; background worker refreshes deep fields.
             logger.debug(f"ℹ️ [ENTRY SCANNER] {sym}: Using baseline cache for open position evaluation.")
 
+        t_qgate_0 = time.perf_counter()
         ok, reason = passes_multibagger_quality_gate(raw_fundamentals)
+        qgate_dur = (time.perf_counter() - t_qgate_0) * 1000
         if not ok:
             logger.debug(f"REJECTION: {sym} (Phase: QUALITY_GATE, Reason: {reason})")
             status_code = "UNSUPPORTED_FINANCIAL" if reason.startswith("UNSUPPORTED") else "QUALITY_REJECTED"
             append_rejection(results, sym, status_code, reason, price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
+            t_eval_end_rej = time.perf_counter()
+            with eval_stats_lock:
+                eval_stats["count"] += 1
+                eval_stats["pledge_ms"].append(pledge_dur)
+                eval_stats["quality_gate_ms"].append(qgate_dur)
+                eval_stats["pipeline_ms"].append(0.0)
+                eval_stats["inst_bonus_ms"].append(0.0)
+                eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
             return
 
         # 4. Run the V5 Pipeline
         # [VERSION: MULTIBAGGER_PIPELINE_GUARD_v1.1] Guard per-symbol pipeline execution with exception logging
+        t_pipeline_0 = time.perf_counter()
+        pipeline_dur = 0.0
         try:
             pipeline_result = run_pipeline_for_symbol(sym, raw_fundamentals, technicals)
+            pipeline_dur = (time.perf_counter() - t_pipeline_0) * 1000
         except Exception:
             logger.exception("%s: V5 pipeline failed", sym)
             append_rejection(results, sym, "PIPELINE_FAILED", "V5 pipeline execution error", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
+            t_eval_end_rej = time.perf_counter()
+            with eval_stats_lock:
+                eval_stats["count"] += 1
+                eval_stats["pledge_ms"].append(pledge_dur)
+                eval_stats["quality_gate_ms"].append(qgate_dur)
+                eval_stats["pipeline_ms"].append(0.0)
+                eval_stats["inst_bonus_ms"].append(0.0)
+                eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
             return
         
         # Log rejection if invalidated by V5 gates
         if pipeline_result.is_invalidated:
             logger.debug(f"REJECTION: {sym} (Phase: V5_GATE, Reason: {pipeline_result.invalidation_reason})")
             append_rejection(results, sym, "QUALITY_REJECTED", f"V5 Gate: {pipeline_result.invalidation_reason}", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
+            t_eval_end_rej = time.perf_counter()
+            with eval_stats_lock:
+                eval_stats["count"] += 1
+                eval_stats["pledge_ms"].append(pledge_dur)
+                eval_stats["quality_gate_ms"].append(qgate_dur)
+                eval_stats["pipeline_ms"].append(pipeline_dur)
+                eval_stats["inst_bonus_ms"].append(0.0)
+                eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
             return
                 
         # Extract scores from the V5 pipeline
@@ -3059,17 +3228,15 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         total = pipeline_result.composite_score
         
         # Apply institutional, promoter, and super-investor bonuses
+        t_inst_0 = time.perf_counter()
         try:
             from block_deal_detector import compute_inst_bonus
             inst_bonus = float(compute_inst_bonus(sym, int(total)))
         except Exception as e:
             logger.warning(f"Error checking institutional footprints in Multibagger: {e}")
             inst_bonus = 0.0
+        inst_bonus_dur = (time.perf_counter() - t_inst_0) * 1000
 
-        # [FIX MUL-6] Classify conviction on the pre-bonus composite, then apply
-        # inst_bonus only to the final total used for ranking. Without this,
-        # inst_bonus could push a 63 → 65 and flip "Watchlist" → "High Quality",
-        # firing an alert on a name that failed on its own merits.
         pre_bonus_total = total
         total = min(100.0, total + inst_bonus)
         
@@ -3077,21 +3244,13 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         buy_high = pipeline_result.buy_zone.buy_zone_high
         
         f_score_val = raw_fundamentals.get("piotroski_f_score", raw_fundamentals.get("f_score"))
-        # [FIX MUL-7] Production pipeline stores Piotroski under "score" / "piotroski_score"
-        # (matching evaluate_multibagger_symbol line 68). The old keys "piotroski_f_score"
-        # and "f_score" are never written, so f_score_val was always None — silently
-        # bypassing the >= 7 Piotroski requirement for Prime tier.
         if f_score_val is None:
             _raw_fs = raw_fundamentals.get("score", raw_fundamentals.get("piotroski_score"))
             f_score_val = int(_raw_fs) if (_raw_fs is not None and not pd.isna(_raw_fs)) else None
-        # [FIX-7] Apply BEAR regime adjustment BEFORE classification so the tier
-        # reflects the regime-adjusted score. A stock scoring 72 in BEAR should not
-        # be classified as Prime (requires >= 70) after a 5-point penalty.
         regime_adjusted_score = (pre_bonus_total - 5.0) if market_regime == "BEAR" else pre_bonus_total
         tier, composite = classify_conviction(cqs, pas, trend, regime_adjusted_score, f_score=f_score_val, pledge_ratio=_pledge_ratio(raw_fundamentals.get("promoter_pledge_pct")))
 
         if market_regime == "BEAR":
-            # In BEAR regime, apply defensive score penalty (-5.0) but allow High Quality candidates with strong CQS (>= 65) to alert
             total = total - 5.0
             if tier == "💎 High Quality" and cqs < 65.0:
                 tier = "🟡 Watchlist"
@@ -3192,20 +3351,48 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 notes=notes,
                 change_pct=0.0
             ))
+        t_eval_end = time.perf_counter()
+        with eval_stats_lock:
+            eval_stats["count"] += 1
+            eval_stats["pledge_ms"].append(pledge_dur)
+            eval_stats["quality_gate_ms"].append(qgate_dur)
+            eval_stats["pipeline_ms"].append(pipeline_dur)
+            eval_stats["inst_bonus_ms"].append(inst_bonus_dur)
+            eval_stats["total_ms"].append((t_eval_end - t_eval_start) * 1000)
 
     cache_updated = False
+    t_eval_threads_0 = time.perf_counter()
     with ThreadPoolExecutor(max_workers=8, thread_name_prefix="MB_Eval") as eval_exec:
         futures = [eval_exec.submit(_eval_item, f) for f in fundamentals_list]
         for fut in as_completed(futures):
             if run_ctx:
                 run_ctx.heartbeat()
             fut.result()
+    t_eval_threads_dur = time.perf_counter() - t_eval_threads_0
+    logger.info(f"TELEMETRY_STAGE | eval_item_threadpool duration: {t_eval_threads_dur * 1000:.1f}ms")
+
+    # Log Detailed Evaluation Telemetry Summary
+    import numpy as np
+    def _pct(arr, p): return np.percentile(arr, p) if arr else 0.0
+    def _mean(arr): return np.mean(arr) if arr else 0.0
+    logger.info(
+        f"TELEMETRY_EVAL_SUMMARY |\n"
+        f"evaluated_symbols={eval_stats['count']} | total_evaluation_wall_ms={t_eval_threads_dur*1000:.1f} |\n"
+        f"eval_item (ms) -> avg:{_mean(eval_stats['total_ms']):.1f} p50:{_pct(eval_stats['total_ms'], 50):.1f} p95:{_pct(eval_stats['total_ms'], 95):.1f} max:{max(eval_stats['total_ms'], default=0.0):.1f} total:{sum(eval_stats['total_ms']):.1f} |\n"
+        f"  └─ pledge_fetch_ms -> avg:{_mean(eval_stats['pledge_ms']):.1f} p95:{_pct(eval_stats['pledge_ms'], 95):.1f} total:{sum(eval_stats['pledge_ms']):.1f} |\n"
+        f"  └─ quality_gate_ms -> avg:{_mean(eval_stats['quality_gate_ms']):.1f} p95:{_pct(eval_stats['quality_gate_ms'], 95):.1f} total:{sum(eval_stats['quality_gate_ms']):.1f} |\n"
+        f"  └─ pipeline_run_ms -> avg:{_mean(eval_stats['pipeline_ms']):.1f} p95:{_pct(eval_stats['pipeline_ms'], 95):.1f} total:{sum(eval_stats['pipeline_ms']):.1f} |\n"
+        f"  └─ inst_bonus_ms   -> avg:{_mean(eval_stats['inst_bonus_ms']):.1f} p95:{_pct(eval_stats['inst_bonus_ms'], 95):.1f} total:{sum(eval_stats['inst_bonus_ms']):.1f}"
+    )
 
     # Save the updated deep fundamentals cache (V5 hydrated) back to Postgres
+    t_save_cache_0 = time.perf_counter()
     try:
         save_fundamentals_cache(cache, sync_to_db=True)
     except Exception as e:
         logger.error(f"Failed to sync deep fundamentals cache to DB: {e}")
+    t_save_cache_dur = time.perf_counter() - t_save_cache_0
+    logger.info(f"TELEMETRY_STAGE | save_fundamentals_cache_to_db duration: {t_save_cache_dur * 1000:.1f}ms")
 
     # Process Top-N alerts
     # [Gate 4] PASS 1 COMPLETE: Sort by tier, total_score desc, cqs desc
@@ -3238,6 +3425,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
 
         if futures:
             logger.info(f"📥 [MULTIBAGGER PASS 2] Deep YFinance balance sheet hydration starting for {len(futures)} top finalist stocks...")
+            t_pass2_0 = time.perf_counter()
             completed_cnt = 0
             for future in as_completed(futures, timeout=120):
                 completed_cnt += 1
@@ -3291,9 +3479,14 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                         logger.info(f"⚠️ [MULTIBAGGER PASS 2] [{completed_cnt}/{len(futures)}] {sym} hydration returned baseline metrics only")
                 except Exception as e:
                     logger.error(f"❌ Error in Pass 2 fetch for {sym}: {e}")
+            t_pass2_dur = time.perf_counter() - t_pass2_0
+            logger.info(f"TELEMETRY_STAGE | pass2_hydration duration: {t_pass2_dur * 1000:.1f}ms")
             
             # Resave cache if we fetched deep data
+            t_save_cache2_0 = time.perf_counter()
             save_fundamentals_cache(cache, sync_to_db=True)
+            t_save_cache2_dur = time.perf_counter() - t_save_cache2_0
+            logger.info(f"TELEMETRY_STAGE | save_fundamentals_cache_to_db_pass2 duration: {t_save_cache2_dur * 1000:.1f}ms")
 
     # Post-hydration resort
     finalist_pool.sort(key=lambda x: (x.get("tier_val", 0), x["total_score"], x["cqs"]), reverse=True)

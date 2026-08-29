@@ -404,6 +404,7 @@ _LAST_MASTER_REFRESH_TIME = 0.0
 def refresh_master_symbols_universe(force: bool = False) -> bool:
     """07:00 AM IST Daily Job: Sync all active NSE/BSE equity symbols into DB master_symbols table at most once per 24 hours."""
     global _MASTER_SYMBOLS_MTIME, _LAST_MASTER_REFRESH_TIME
+    import time
     now_ts = time.time()
     if not force and (now_ts - _LAST_MASTER_REFRESH_TIME) < 86400.0:
         logger.debug("⏭️ [MASTER SYMBOLS] Already refreshed within 24h. Skipping duplicate sync.")
