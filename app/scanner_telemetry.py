@@ -128,7 +128,7 @@ class TelemetryValueEntry:
         self.source_series = source_series
         self.freshness = freshness
         self.timestamp = time.time()
-        
+
         sanitized, raw_val_str, status, reason = sanitize_telemetry_value(value)
         # [RULE 67 CHANGE RATIONALE] Check for price-scale indicators equal to 0.0 sentinel
         _price_inds = {"SMA", "EMA", "ATR", "PRICE", "HIGH", "LOW", "OPEN", "CLOSE", "52W_HIGH", "52W_LOW", "PRIOR_20D_HIGH", "VWAP"}
@@ -174,7 +174,7 @@ class DecisionContext:
         self.run_id = run_id or f"run_{int(time.time())}"
         self.timestamp = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
         self.start_time = time.time()
-        
+
         import uuid
         self.audit_snapshot_id = f"{symbol}-{scanner_name}-{datetime.now(IST).strftime('%Y%m%d')}-{uuid.uuid4().hex[:8]}"
         self.terminal_decision = "PENDING" # SELECTED / REJECTED / ERROR / NOT_APPLICABLE
@@ -185,7 +185,7 @@ class DecisionContext:
         self.alert_id = None
         self.persisted = False
         self.raw_vs_normalized: Dict[str, Any] = {}
-        
+
         # Captured Telemetry Dictionaries
         self.entries: Dict[str, TelemetryValueEntry] = {}
         self.gate_results: Dict[str, Dict[str, Any]] = {}
@@ -271,11 +271,11 @@ class DecisionContext:
             d = row.to_dict()
         else:
             d = dict(row)
-            
+
         if fallback_fields is None:
             # Assume OHLCV are fallback if is_fallback is true
             fallback_fields = {"OPEN", "HIGH", "LOW", "CLOSE", "VOLUME", "DATE", "DATETIME"}
-            
+
         for k, v in d.items():
             # Classify known indicators loosely, but fallback to INPUT if unknown.
             group = "INPUT"
@@ -284,18 +284,18 @@ class DecisionContext:
                 group = "INDICATOR"
             elif k_upper in ["OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]:
                 group = "MARKET_DATA"
-            
+
             # Layer 1 requirement: preserve original field names, don't drop anything.
             self.capture(str(k), v, origin="DATAFRAME", group=group)
-            
+
             # Determine freshness
             freshness = "STALE" if is_fallback and k_upper in fallback_fields else "LIVE"
             if getattr(self.entries[str(k)], 'status', 'VALID') in ["NULL", "NAN", "INVALID"]:
                  freshness = "MISSING"
-                 
+
             # Note: We do NOT automatically call add_decision_input here.
             # Only fields actively consumed will be registered later.
-            
+
             # Update the entry object with freshness for later use
             self.entries[str(k)].freshness = freshness
 
@@ -305,7 +305,7 @@ class DecisionContext:
             if val is not None:
                 self.capture(name, val, origin="CALCULATED_FROM_PRICE" if name != "VOLUME_RATIO" else "CALCULATED_FROM_VOLUME", group=group)
                 self.add_decision_input(name, val, source="Calculated", as_of="Live", freshness="LIVE", required=True, valid=True)
-                
+
         _add_ind("RSI", rsi)
         _add_ind("SMA20", sma20)
         _add_ind("SMA50", sma50)
@@ -382,12 +382,12 @@ class DecisionContext:
         """
         raw_vol = source_raw.get("raw_volume", source_raw.get("Volume", 0.0))
         norm_vol = scanner_normalized.get("normalized_volume", scanner_normalized.get("Volume", 0.0))
-        
+
         raw_open = source_raw.get("raw_open", source_raw.get("Open"))
         raw_high = source_raw.get("raw_high", source_raw.get("High"))
         raw_low = source_raw.get("raw_low", source_raw.get("Low"))
         raw_close = source_raw.get("raw_close", source_raw.get("Close"))
-        
+
         norm_open = scanner_normalized.get("normalized_open", scanner_normalized.get("Open"))
         norm_high = scanner_normalized.get("normalized_high", scanner_normalized.get("High"))
         norm_low = scanner_normalized.get("normalized_low", scanner_normalized.get("Low"))
@@ -419,7 +419,7 @@ class DecisionContext:
             "is_corrupt": is_corrupt,
             "corruption_reason": corruption_reason
         }
-        
+
         if is_corrupt:
             self.error_details["SYNTHETIC_DATA_CORRUPTION"] = corruption_reason
             logger.error(f"🚨 [TELEMETRY INVARIANT VIOLATION] {self.symbol} ({self.scanner_name}): {corruption_reason}")
@@ -436,7 +436,7 @@ class DecisionContext:
             "evaluated_result": passed,
             "terminal_result": "PASS" if passed else "FAIL"
         }
-        
+
         # Explicitly register dict-based actual values into the decision manifest
         if isinstance(actual_val, dict):
             for k, v in actual_val.items():
@@ -447,9 +447,9 @@ class DecisionContext:
                 else:
                     freshness = "LIVE"
                     valid = v is not None and not (isinstance(v, float) and __import__('math').isnan(v))
-                
+
                 self.add_decision_input(name=str(k), value=v, source="GateEvaluation", as_of="Live", freshness=freshness, required=True, valid=valid)
-                
+
         if gate_type == "THRESHOLD":
             gate_info.update({"actual": actual_val, "operator": operator_str, "threshold": threshold_val})
         elif gate_type == "BOOLEAN":
@@ -540,7 +540,7 @@ class DecisionContext:
         valid_c = sum(1 for e in self.entries.values() if e.status == "VALID")
 
         present = valid_c + null_c + nan_c + inv_c + stale_c
-        
+
         # Exact invariant assertion
         if present != expected:
             logger.error(f"Data Quality Invariant Broken! present({present}) != expected({expected})")
@@ -709,7 +709,7 @@ class DecisionContext:
         if self.alert_id:
             lines.append(f"Alert ID               = {self.alert_id}")
         lines.append("=" * 80)
-        
+
         return "\n".join(lines)
 
     def to_telemetry_json(self) -> dict:
@@ -778,7 +778,7 @@ class GlobalScannerTelemetryEngine:
                 logger.info(f"\n{box_text}")
             else:
                 logger.debug(f"\n{box_text}")
-                
+
             if ctx.terminal_decision not in ("REJECTED", "NOT_APPLICABLE"):
                 logger.info(f"Scanner={ctx.scanner_name} Symbol={ctx.symbol} Decision={ctx.terminal_decision} Gate={ctx.primary_reason} Reason={ctx.primary_reason}")
             else:
@@ -795,6 +795,148 @@ class GlobalScannerTelemetryEngine:
             except Exception as e:
                 logger.error(f"Failed to write to scanner_telemetry.jsonl: {e}")
 
+            # 4. Log decision to database for Wave 1
+            try:
+                import database
+
+                # Fetch current market and sector regimes
+                regime_info = {"market_regime": "BULL_NORMAL"}
+                sector_info = {}
+                try:
+                    from regime_engine import get_market_regime, get_sector_regime
+                    regime_info = get_market_regime()
+                    sector_info = get_sector_regime(ctx.sl_target.get('category'))
+                except Exception:
+                    pass
+
+                # Inject regime data into feature snapshot
+                record_json["regime"] = regime_info
+                record_json["sector_regime"] = sector_info
+
+                status_val = 'FAIL'
+                rejection_type = None
+                if ctx.terminal_decision in ("SELECTED", "BUY", "ARMED", "CANDIDATE"):
+                    status_val = 'PASS'
+                else:
+                    failed_gate = None
+                    for g_name, g_info in ctx.gate_results.items():
+                        if not g_info.get("passed", True):
+                            failed_gate = g_name
+                            break
+
+                    if failed_gate:
+                        g_upper = failed_gate.upper()
+                        if "DUPLICATE" in g_upper:
+                            rejection_type = "DUPLICATE_REJECT"
+                        elif any(x in g_upper for x in ("DATA", "STALE", "NO_DATA", "INDICATOR", "COL", "TIMESTAMP", "SNAPSHOT")):
+                            rejection_type = "DATA_QUALITY_REJECT"
+                        elif any(x in g_upper for x in ("LIQUIDITY", "PENNY", "MIN_STOCK", "VOLUME_RATIO", "AVG_VOLUME")):
+                            rejection_type = "UNIVERSE_REJECT"
+                        elif any(x in g_upper for x in ("RISK", "LOW_RR", "SL")):
+                            rejection_type = "RISK_REJECT"
+                        elif "SCORE" in g_upper:
+                            rejection_type = "SCORING_REJECT"
+                        else:
+                            rejection_type = "TECHNICAL_GATE_REJECT"
+                    else:
+                        rejection_type = "TECHNICAL_GATE_REJECT"
+
+                cf_kwargs = {}
+                if status_val == 'FAIL':
+                    if rejection_type in ("UNIVERSE_REJECT", "DATA_QUALITY_REJECT", "DUPLICATE_REJECT"):
+                        cf_kwargs['counterfactual_status'] = 'NOT_ELIGIBLE'
+                        cf_kwargs['counterfactual_exclusion_reason'] = rejection_type
+                    else:
+                        cf_kwargs['counterfactual_status'] = 'PENDING'
+                        cf_kwargs['counterfactual_entry_price'] = ctx.sl_target.get('entry_price')
+                        cf_kwargs['counterfactual_stop_loss'] = ctx.sl_target.get('sl_price')
+                        cf_kwargs['counterfactual_target_1'] = ctx.sl_target.get('target_price') or ctx.sl_target.get('target_1')
+                        cf_kwargs['counterfactual_target_2'] = ctx.sl_target.get('target_2')
+                        cf_kwargs['counterfactual_target_3'] = ctx.sl_target.get('target_3')
+                        cf_kwargs['counterfactual_entry_mode'] = ctx.sl_target.get('entry_mode', 'MARKET')
+                        cf_kwargs['counterfactual_rule_version'] = ctx.configuration.get('execution_engine_version', '7.1')
+                else:
+                    cf_kwargs['counterfactual_status'] = 'NOT_ELIGIBLE'
+                    cf_kwargs['counterfactual_exclusion_reason'] = 'ACCEPTED_ALERT'
+
+                gate_evals = []
+                gate_order = 1
+                for name, res in ctx.gate_results.items():
+                    gate_evals.append({
+                        "gate_order": gate_order,
+                        "gate_name": name,
+                        "passed": res.get("passed", False),
+                        "actual": res.get("actual"),
+                        "threshold": res.get("threshold"),
+                        "operator": res.get("operator"),
+                        "distance": res.get("distance", 0.0)
+                    })
+                    gate_order += 1
+
+                data_ts = None
+                try:
+                    data_ts = datetime.strptime(ctx.timestamp.replace(" IST", ""), "%Y-%m-%d %H:%M:%S")
+                    data_ts = data_ts.replace(tzinfo=IST)
+                except Exception:
+                    data_ts = datetime.now(IST)
+
+                database.log_scanner_decision(
+                    evaluation_id=ctx.audit_snapshot_id,
+                    scanner_run_id=ctx.run_id,
+                    symbol=ctx.symbol,
+                    candidate_sequence=len(self.stream_records),
+                    scanner=ctx.scanner_name,
+                    status=status_val,
+                    rejection_type=rejection_type,
+                    primary_rejection_reason=ctx.primary_reason,
+                    data_timestamp=data_ts,
+                    setup_type=ctx.scanner_name,
+                    setup_subtype=ctx.sl_target.get('category'),
+                    state_at_evaluation=ctx.terminal_decision,
+                    feature_snapshot=record_json,
+                    gate_evaluations=gate_evals,
+                    scanner_version=ctx.configuration.get('scanner_version', '1.0'),
+                    config_version=ctx.configuration.get('config_version', '1.0'),
+                    feature_schema_version="1",
+                    regime_version="1.0",
+                    execution_engine_version="7.1",
+                    **cf_kwargs
+                )
+            except Exception as db_err:
+                logger.error(f"❌ Failed to log scanner decision inside emit_terminal: {db_err}")
+
+            # 5. Passive Live Forward Quality Shadow Telemetry Ingestion
+            try:
+                is_actionable = (status_val == 'PASS') or (ctx.terminal_decision in ("SELECTED", "BUY", "ARMED", "CANDIDATE", "CONFIRMED"))
+                if is_actionable:
+                    from engine.analytics.live_forward_shadow_ingestor import ingest_live_scanner_alert
+                    entry_p = _safe_float(ctx.sl_target.get('entry_price'))
+                    sl_p = _safe_float(ctx.sl_target.get('sl_price') or ctx.sl_target.get('stop_loss'))
+                    tgt_p = _safe_float(ctx.sl_target.get('target_price') or ctx.sl_target.get('target_1'))
+                    if entry_p and sl_p and tgt_p and entry_p > 0 and sl_p > 0 and tgt_p > 0:
+                        df_hist = pd.DataFrame()
+                        if ctx.raw_market:
+                            df_hist = pd.DataFrame([{
+                                'Open': _safe_float(ctx.raw_market.get('open_p'), entry_p),
+                                'High': _safe_float(ctx.raw_market.get('high_p'), entry_p),
+                                'Low': _safe_float(ctx.raw_market.get('low_p'), entry_p),
+                                'Close': _safe_float(ctx.raw_market.get('close_p'), entry_p),
+                                'Volume': _safe_float(ctx.raw_market.get('volume'), 1000)
+                            }])
+                        ingest_live_scanner_alert(
+                            scanner=ctx.scanner_name,
+                            symbol=ctx.symbol,
+                            entry_price=entry_p,
+                            stop_price=sl_p,
+                            target_price=tgt_p,
+                            decision_timestamp=data_ts or datetime.now(IST),
+                            df_history=df_hist,
+                            setup_id=f"SETUP_{ctx.symbol}_{ctx.run_id or 'LIVE'}",
+                            source_type="LIVE_MARKET"
+                        )
+            except Exception as _fwd_err:
+                logger.debug(f"Passive quality shadow ingestion non-blocking bypass: {_fwd_err}")
+
     def record_reject(self, symbol: str, last_stage: str = "PRE_CHECK", gate: str = "REJECTED", actual: Any = None, required: Any = None, start_time: float = None, scanner_name: str = None, run_id: str = None, gate_type: str = "THRESHOLD", operator: str = None, ctx: DecisionContext = None, **kwargs):
         """Helper recording rejected symbol into DecisionContext and emitting full terminal telemetry."""
         try:
@@ -808,13 +950,13 @@ class GlobalScannerTelemetryEngine:
             if "sl_target" in kwargs and isinstance(kwargs["sl_target"], dict):
                 ctx.capture_sl_target(**kwargs["sl_target"])
             ctx.capture_gate(gate_name=gate, passed=False, actual_val=actual, threshold_val=required, operator_str=operator, reason=f"Rejected at stage {last_stage}", gate_type=gate_type, **kwargs)
-            
+
             invalid_data_gates = ["NO_DATA", "STALE_DATA", "DUPLICATE", "MISSING_COL", "INVALID_TIMESTAMP", "INVALID_SNAPSHOT", "MISSING_SNAPSHOT", "NO_TRADING_ACTIVITY"]
             if gate not in invalid_data_gates:
                 ctx.add_decision_input(name=gate, value=actual, source="GateCheck", as_of="Live", freshness="LIVE", required=True, valid=True)
             else:
                 ctx.add_decision_input(name=gate, value=actual, source="GateCheck", as_of="Live", freshness="LIVE", required=True, valid=False)
-                
+
             ctx.finalize(decision="REJECTED", primary_reason=f"{gate}_FAIL")
             self.emit_terminal(ctx)
         except Exception as _tel_err:
@@ -917,12 +1059,12 @@ global_telemetry = telemetry_engine
 def certify_final_decision(symbol: str, scanner_name: str, entry_price: float, timestamp: str, decision_manifest: list) -> Tuple[bool, str]:
     """
     FINAL_DECISION_CERTIFICATION: Pre-persistence barrier.
-    Rejects the alert if critical decision inputs are missing/invalid, 
+    Rejects the alert if critical decision inputs are missing/invalid,
     if the entry price is invalid, or if the timestamp is missing/bad.
     """
     if pd.isna(entry_price) or entry_price <= 0:
         return False, "INVALID_ENTRY_PRICE"
-    
+
     if pd.isna(timestamp) or str(timestamp).lower() in ["nan", "none", "null", ""]:
         return False, "INVALID_TIMESTAMP"
 

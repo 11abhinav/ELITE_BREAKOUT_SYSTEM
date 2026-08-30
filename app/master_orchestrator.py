@@ -292,6 +292,7 @@ class MasterOrchestratorV2:
                 symbol, 
                 scanner_name as scanner, 
                 state as stage, 
+                quality_score,
                 quality_score as maturity_score, 
                 last_seen_price as cmp, 
                 trigger_level, 
@@ -306,6 +307,7 @@ class MasterOrchestratorV2:
                 symbol,
                 'ACCUMULATION' AS scanner,
                 stage,
+                quality_score,
                 maturity_score,
                 cmp,
                 trigger_level,
@@ -317,6 +319,7 @@ class MasterOrchestratorV2:
                 SELECT DISTINCT ON (symbol)
                     symbol,
                     state AS stage,
+                    score AS quality_score,
                     score AS maturity_score,
                     close AS cmp,
                     breakout_level AS trigger_level,

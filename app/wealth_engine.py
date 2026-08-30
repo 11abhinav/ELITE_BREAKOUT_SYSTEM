@@ -87,12 +87,12 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
     is_trend_ok = (sma200_val is not None and sma200_val > 0 and close_price > sma200_val)
 
     fd = fund_data or {}
-    
-    # [FIX: WEALTH-1] Use _parse_yoy_percent to handle both decimal ratios (from Stock Analyzer cache) 
+
+    # [FIX: WEALTH-1] Use _parse_yoy_percent to handle both decimal ratios (from Stock Analyzer cache)
     # and raw percentage points (from standalone Screener data) correctly.
     roce = _parse_yoy_percent(fd, "roce", "ROCE %") or 0.0
     roe = _parse_yoy_percent(fd, "roe", "ROE %") or 0.0
-    
+
     debt_equity = _safe_num(fd.get("debt_to_equity", fd.get("Debt/Equity", fd.get("debt_equity", 0.0))))
     peg_val = fd.get("peg_ratio", fd.get("PEG Ratio", fd.get("peg")))
 
@@ -100,9 +100,9 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
     yoy_profit_pct = _parse_yoy_percent(fd, "yoy_profit", "YOY Profit %")
 
     peg_num = float(peg_val) if (peg_val is not None and not pd.isna(peg_val)) else None
-    
+
     sector = str(fd.get("sector", fd.get("Sector", ""))).lower()
-    
+
     sma50_val = None
     if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")):
         sma50_val = float(latest["SMA50"])
@@ -122,7 +122,7 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
         core_de_limit = 2.0
     elif "bank" in sector or "financ" in sector:
         core_de_limit = 999.0 # D/E exempt for financials, CAR/ROE handles quality
-    
+
     is_core_peg_ok = (peg_num is None or peg_num <= 2.0)
     if roce >= 20.0 and roe >= 15.0 and debt_equity <= core_de_limit and is_trend_ok and is_core_peg_ok:
         buckets.append("Core Compounder")
@@ -169,7 +169,7 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
         "Opportunistic": 15,
     }
     gradient_score = sum(bucket_scores.get(b, 0) for b in buckets)
-    
+
     # Bucket-aware Scoring Overlays
     if "Quality-On-Sale" in buckets:
         if is_trend_ok:
@@ -185,7 +185,7 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
                 gradient_score -= 10.0 # Progressive penalty
             elif peg_num > 3.0:
                 gradient_score -= 5.0
-            
+
     gradient_score = min(100.0, max(50.0, float(gradient_score)))
 
     return {
@@ -208,7 +208,7 @@ WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
 # =====================================================================================
 # CONSTANTS — Sector Concentration Limits
 # =====================================================================================
-MAX_SECTOR_PCT  = 0.25   # Max 25% of portfolio from one sector
+MAX_SECTOR_PCT  = 0.20   # [v5.2.0 UPGRADE]: Max 20% of portfolio from one sector
 
 # =====================================================================================
 # MACRO GATES & LIMITS
@@ -282,7 +282,7 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
             if _ckey in _wealth_tech_cache:
                 return _wealth_tech_cache[_ckey].copy()
     defaults = {
-        "sma_200": None, "sma_50": None, "ema_20": None, "cmp": None, 
+        "sma_200": None, "sma_50": None, "ema_20": None, "cmp": None,
         "rs_6m": None, "dist_52w_high": None, "liquidity": 0.0,
         "RSI": 50.0, "ATR_Pct": 0.0, "data_quality": DataQuality.MISSING_PARTIAL.value
     }
@@ -299,7 +299,7 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
                 # We enforce bulk fetching in the caller. No 1-by-1 fallback allowed.
                 logger.warning(f"No historical cache provided for {symbol}, skipping technicals to prevent rate limits.")
                 hist = None
-            
+
             if hist is None or hist.empty or len(hist) < 200:
                 return defaults
 
@@ -322,14 +322,14 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
             tail_low = hist['Low'].tail(15)
             tail_close = hist['Close'].tail(15)
             prev_close = tail_close.shift(1)
-            
+
             import numpy as np
             tr1 = tail_high - tail_low
             tr2 = (tail_high - prev_close).abs()
             tr3 = (tail_low - prev_close).abs()
             tr = np.maximum(tr1, np.maximum(tr2, tr3))
             atr = float(tr.tail(14).mean())
-            
+
             last_row = hist.iloc[-1]
             cmp = _safe_num(last_row.get('Close'))
             prev_close_val = _safe_num(hist['Close'].iloc[-2]) if len(hist) >= 2 else cmp
@@ -364,7 +364,7 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
             hist_eval["ema_20"] = ema_20
             hist_eval["rsi"] = rsi
             hist_eval["atr"] = atr
-            
+
             from wealth_momentum_filter import calculate_momentum_quality_score
             mom_score, mom_conf = calculate_momentum_quality_score(hist_eval, symbol=symbol)
 
@@ -403,7 +403,7 @@ def calculate_wealth_technicals(symbol: str, nifty_6m_ret: float, historical_cac
 # =====================================================================================
 
 FINANCIAL_SECTORS = {
-    'financial services', 'financials', 'banking', 'banks', 
+    'financial services', 'financials', 'banking', 'banks',
     'nbfc', 'housing finance', 'insurance', 'asset management'
 }
 
@@ -414,7 +414,7 @@ FINANCIAL_INDUSTRIES = {
 }
 
 FINANCIAL_SYMBOL_OVERRIDES = {
-    'HDFCBANK', 'ICICIBANK', 'SBIN', 'KOTAKBANK', 'AXISBANK', 
+    'HDFCBANK', 'ICICIBANK', 'SBIN', 'KOTAKBANK', 'AXISBANK',
     'BAJFINANCE', 'BAJAJFINSV', 'CHOLAFIN', 'MUTHOOTFIN', 'SHRIRAMFIN'
 }
 
@@ -428,14 +428,14 @@ def is_financial_sector(r: dict) -> bool:
     sector = str(r.get('Sector', r.get('sector', ''))).strip().lower()
     industry = str(r.get('Industry', r.get('industry', ''))).strip().lower()
     symbol = str(r.get('Stock', r.get('symbol', ''))).strip().upper()
-    
+
     if sector in FINANCIAL_SECTORS or any(s in sector for s in FINANCIAL_SECTORS):
         return True
     if industry in FINANCIAL_INDUSTRIES or any(i in industry for i in FINANCIAL_INDUSTRIES):
         return True
     if not sector and not industry and symbol in FINANCIAL_SYMBOL_OVERRIDES:
         return True
-        
+
     return False
 
 def watchlist_percent_to_ratio(val, default: float = 0.0) -> float:
@@ -524,31 +524,31 @@ from memory_profiler import profile_function
 def map_watchlist_to_v5(raw_data: dict) -> dict:
     """Maps Screener export headers to V5 snake_case variables and reconstructs missing absolute metrics for Valuation Engine."""
     import pandas as pd
-    
+
     def _safe_float(val, default=0.0):
         if val is None or pd.isna(val) or val == "": return default
         try: return float(val)
         except Exception: return default
-        
+
     market_cap = _safe_float(raw_data.get('Market Cap Cr', raw_data.get('Market Capitalization')))
     price = _safe_float(raw_data.get('cmp', 0.0))
     pe = _safe_float(raw_data.get('PE Ratio', raw_data.get('Price to Earning')))
     pb = _safe_float(raw_data.get('Price to Book', raw_data.get('Price to book value')))
-    
+
     def _safe_float_allow_missing(val):
         if val is None or pd.isna(val) or val == "": return None
         try: return float(val)
         except Exception: return None
 
-    # [VERSION: V5_VALUATION_FIX] The V5 Valuation Engine requires absolute numbers (EPS, BVPS, Shares) 
+    # [VERSION: V5_VALUATION_FIX] The V5 Valuation Engine requires absolute numbers (EPS, BVPS, Shares)
     # which aren't in the raw screener ratios. We must reconstruct them mathematically.
     shares = (market_cap / price) if price > 0 else 0.0
     eps = (price / pe) if pe is not None and pe != 0 else 0.0
     bvps = (price / pb) if pb is not None and pb != 0 else 0.0
-    
+
     peg_raw = raw_data.get('PEG Ratio', raw_data.get('PEG'))
     peg_val = _safe_float_allow_missing(peg_raw)
-    
+
     is_fin = is_financial_sector(raw_data)
 
     # [VERSION: WEALTH_PROXY_FIX_v1.0] Remove positive proxy defaults for absent growth and FCF
@@ -586,14 +586,14 @@ def map_watchlist_to_v5(raw_data: dict) -> dict:
         'price_to_book': pb,
         'gross_margin_stability': _safe_float(raw_data.get('gross_margin_stability'), default=5.0) / 100.0,
         'asset_turnover': _safe_float(raw_data.get('asset_turnover'), default=1.0),
-        
+
         # Injected Reconstructed Fields for Valuation Models
         'eps': eps,
         'book_value_per_share': bvps,
         'shares_outstanding': shares,
         'tt_indpe': pe,  # Proxy industry PE with trailing PE if missing
         'ebit': (eps * shares * 1.33) if eps is not None and shares is not None else 0.0,  # Proxy NOPAT assuming 25% tax
-        
+
         # Technical fields that might be passed from wealth_technicals
         'pct_from_52w_high': _safe_float(raw_data.get('dist_52w_high', 0.0)) / -100.0,
         'rs_rating': _safe_float(raw_data.get('RS_Rating', 50.0)),
@@ -612,14 +612,14 @@ def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
     Maps V5 component scores to legacy FM_Score (CIS), Valuation_Score (RVS), and Consistency_Score (BQS).
     """
     from core.multibagger_pipeline import run_pipeline_for_symbol
-    
+
     symbol = str(r.get("Stock", ""))
     raw_data = r.to_dict()
-    
+
     try:
         # The V5 pipeline expects a dict of the watchlist row
         decision = run_pipeline_for_symbol(symbol, map_watchlist_to_v5(raw_data))
-        
+
         return pd.Series({
             "CIS": decision.composite_score,
             "RVS": decision.valuation.score if decision.valuation else 0,
@@ -679,16 +679,16 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
 
     buckets = []
     rejection_reason = ""
-    
+
     try:
         from scanner_telemetry import telemetry_engine
-        
+
         sym = r.get("Stock", r.get("Symbol", "UNKNOWN"))
         cmp_val = _safe_num(r.get("cmp", r.get("CMP", 0.0)))
         ctx = telemetry_engine.get_or_create_context(symbol=str(sym), scanner_name="WEALTH")
-        
+
         is_fallback = r.get("used_fallback_data", False)
-        
+
         def _is_valid(raw_val, parsed_val):
             if raw_val is None or (isinstance(raw_val, float) and pd.isna(raw_val)): return False
             if isinstance(raw_val, str) and raw_val.strip().lower() in ["nan", "none", "null", ""]: return False
@@ -720,7 +720,7 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
             freshness = "LIVE" if val_status else "MISSING"
             if is_market_metric and is_fallback and val_status:
                 freshness = "STALE"
-                
+
             ctx.add_decision_input(
                 name=field_key,
                 value=raw_val,
@@ -730,14 +730,14 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
                 required=is_critical,
                 valid=val_status
             )
-            
+
         ctx.capture_raw_market(open_p=cmp_val, high_p=cmp_val, low_p=cmp_val, close_p=cmp_val, volume=0.0)
         ctx.capture_fundamentals(
             roce=roce, roe=roe, debt_equity=de,
             yoy_revenue=yoy_sales, yoy_profit=yoy_profit, mcap=mcap
         )
         ctx.capture_score("FM_SCORE", score, 100.0)
-        
+
         # Instant Kill Gate 1: Liquidity Floor
         from config import MIN_DAILY_LIQUIDITY_RUPEES_WEALTH
         if liquidity < MIN_DAILY_LIQUIDITY_RUPEES_WEALTH:
@@ -781,7 +781,7 @@ def determine_portfolio_bucket(r, nifty_dist_52w: float):
 def apply_sector_cap(df: pd.DataFrame, bucket_col: str, bucket_name: str, max_stocks: int) -> pd.DataFrame:
     """
     Enforce sector concentration limits on a bucket:
-      - Max 25% of max_stocks per sector
+      - Max 20% of max_stocks per sector (v5.2.0 upgrade)
       - Max 2 stocks per specific industry (sector sub-group)
     Returns a filtered DataFrame.
     """
@@ -831,46 +831,46 @@ def calculate_hold_score(r: pd.Series) -> int:
     Pure scoring function without side effects.
     """
     score = 0
-    
+
     cmp = _safe_num(r.get("cmp"))
     entry_price = _safe_num(r.get("entry_price"))
-    
+
     if entry_price > 0 and cmp > 0:
         drawdown_pct = ((entry_price - cmp) / entry_price) * 100.0
         if drawdown_pct >= 20.0:
             return 0  # Zero score for >=20% drawdown
         elif drawdown_pct > 10.0:
             score -= 25  # Soft drawdown penalty (-25 pts) for 10-20% loss zone
-    
+
     # 2. Technical Health (40 pts)
     ema20 = _safe_num(r.get("ema_20"))
     sma50 = _safe_num(r.get("sma_50"))
     sma200 = _safe_num(r.get("sma_200"))
     rs_6m = _safe_num(r.get("rs_6m"))
-    
+
     if cmp > ema20 and ema20 > 0: score += 10
     if cmp > sma50 and sma50 > 0: score += 10
     if cmp > sma200 and sma200 > 0: score += 10
     if rs_6m > 0: score += 10
-    
+
     # 3. Fundamental Integrity (30 pts - 10 pts reallocated from hardcoded None pledge)
     fm_score = _safe_num(r.get("FM_Score"))
     if fm_score >= 65: score += 25
     elif fm_score >= 50: score += 10
-    
+
     yoy_profit = _safe_num(r.get("YOY Profit %"))
     if yoy_profit > 0: score += 5
-    
+
     # 4. Sector & Momentum Regime (15 pts)
     rs_rating = _safe_num(r.get("RS_Rating"))
     if rs_rating > 80: score += 15
     elif rs_rating > 50: score += 5
-    
+
     # 5. Portfolio Context / Alpha Adjustments (15 pts)
     ai_conf = _safe_num(r.get("AI_Confidence"))
     if ai_conf >= 7: score += 15
     elif ai_conf >= 4: score += 5
-    
+
     return min(100, max(0, score))
 
 
@@ -890,7 +890,7 @@ def compute_tax_hold_bonus(entry_date: date, unrealized_pnl_pct: float) -> dict:
 
     if holding_days >= LTCG_THRESHOLD_DAYS:
         return {"bonus": 0, "reason": "Already LTCG — no penalty for selling", "harvest_signal": harvest_signal}
-    
+
     if 0 < days_to_ltcg <= LTCG_BONUS_WINDOW:
         bonus = round(10 * ((LTCG_BONUS_WINDOW - days_to_ltcg + 1) / LTCG_BONUS_WINDOW), 1)
         return {
@@ -900,7 +900,7 @@ def compute_tax_hold_bonus(entry_date: date, unrealized_pnl_pct: float) -> dict:
             "telegram_alert": days_to_ltcg in [30, 15, 7],
             "harvest_signal": harvest_signal
         }
-    
+
     return {"bonus": 0, "reason": "Normal STCG zone", "harvest_signal": harvest_signal}
 
 
@@ -948,7 +948,7 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
                 from database import update_scanner_run_lifecycle
                 update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
             upsert_scanner_health("Wealth Engine", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-            
+
             try:
                 acquired_global = _global_lock.acquire(blocking=True, owner_scanner="WEALTH", operation="FULL_SCAN", run_ctx=run_ctx)
             except Exception as lock_err:
@@ -982,7 +982,7 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
 
         _scan_start = print_scanner_start_banner("wealth_engine", queued_at=queued_at, run_id=run_ctx.run_id if run_ctx else None)
         res = _run_wealth_scan_wrapper(is_test_mode=is_test_mode, run_ctx=run_ctx, session=session)
-        
+
         if run_ctx:
             from database import complete_scanner_execution_run
             complete_scanner_execution_run(run_ctx, status_override="COMPLETED")
@@ -1035,7 +1035,7 @@ def evaluate_candidates(wealth_df, sector_stats, nifty_dist_52w):
         scores_list = list(score_exec.map(lambda r: apply_core_engine_scores(r, sector_stats), rows))
     scores_df = pd.DataFrame(scores_list, index=wealth_df.index)
     wealth_df["FM_Score"] = scores_df["CIS"]
-    
+
     unique_symbols = wealth_df["Stock"].astype(str).unique()
     try:
         from block_deal_detector import compute_inst_bonus
@@ -1043,23 +1043,23 @@ def evaluate_candidates(wealth_df, sector_stats, nifty_dist_52w):
     except Exception as e:
         logging.getLogger(__name__).warning(f"Error building institutional bonus map in Wealth: {e}")
         bonus_map = {sym: 0.0 for sym in unique_symbols}
-        
-    # [VERSION: BUSINESS_LOGIC_FIX_v1.0] Block Deal Bonus Logic 
+
+    # [VERSION: BUSINESS_LOGIC_FIX_v1.0] Block Deal Bonus Logic
     base_score = wealth_df["FM_Score"]
     bonuses = wealth_df["Stock"].map(bonus_map).fillna(0.0)
     applied_bonus = bonuses.where(base_score >= 50, 0.0)
     final_score = base_score + applied_bonus
     wealth_df["FM_Score"] = final_score.clip(upper=100.0)
-    
+
     wealth_df["base_fm_score"] = base_score
     wealth_df["inst_bonus_applied"] = applied_bonus
-    
+
     wealth_df["Valuation_Score"] = scores_df["RVS"]
     wealth_df["Consistency_Score"] = scores_df["BQS"]
     wealth_df["Reliability"] = scores_df["Reliability"]
     wealth_df["Base_FV"] = scores_df["Base_FV"]
     wealth_df["Bull_FV"] = scores_df["Bull_FV"]
-    
+
     wealth_df["Portfolio_Bucket"] = wealth_df.apply(lambda r: determine_portfolio_bucket(r, nifty_dist_52w), axis=1)
 
     def check_completeness(r):
@@ -1080,7 +1080,7 @@ def evaluate_candidates(wealth_df, sector_stats, nifty_dist_52w):
         return True
 
     wealth_df["candidate_complete_for_buy"] = wealth_df.apply(check_completeness, axis=1)
-    
+
     return wealth_df
 
 
@@ -1092,20 +1092,20 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
     """Decides whether a candidate should be bought, suppressed, or watched."""
     if candidate_df.empty:
         return candidate_df
-        
+
     if open_symbols is None: open_symbols = []
-    
+
     # 1. Compute the strict Top-N capped universe
     core_capped = apply_sector_cap(candidate_df, "Portfolio_Bucket", "Core", max_stocks=15)
     growth_capped = apply_sector_cap(candidate_df, "Portfolio_Bucket", "Growth", max_stocks=10)
     opp_capped = apply_sector_cap(candidate_df, "Portfolio_Bucket", "Opportunistic", max_stocks=10)
     qos_capped = apply_sector_cap(candidate_df, "Portfolio_Bucket", "Quality-On-Sale", max_stocks=5)
-    
+
     approved_symbols = set()
     for df_capped in [core_capped, growth_capped, opp_capped, qos_capped]:
         if not df_capped.empty:
             approved_symbols.update(df_capped["Stock"].tolist())
-            
+
 
     def _get_entry_signal(r):
         score = r.get("FM_Score", 0)
@@ -1115,49 +1115,49 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
         used_fallback = r.get("used_fallback_data", False)
         bucket = str(r.get("Portfolio_Bucket", ""))
         is_complete = r.get("candidate_complete_for_buy", False)
-        
+
         if not is_complete:
             return pd.Series({"Signal_Code": "SUPPRESS", "Signal_Reason": "Incomplete Fundamentals/Technicals"})
-            
+
         if used_fallback:
             return pd.Series({"Signal_Code": "SUPPRESS", "Signal_Reason": "Stale Data — Prevented Fake Buy"})
-            
+
         if buy_gate_active:
             if "Quality-On-Sale" in bucket:
                 cons_score = r.get("Consistency_Score", 0)
                 val_score = r.get("Valuation_Score", 0)
                 is_fin = is_financial_sector(r.to_dict() if hasattr(r, 'to_dict') else r)
-                
+
                 def passes_profitability_gate(record: pd.Series) -> bool:
                     roce = _safe_num(record.get("ROCE %"))
                     roe = _safe_num(record.get("ROE %"))
                     if is_financial_sector(record.to_dict() if hasattr(record, 'to_dict') else record):
                         return roe >= 15.0
                     return roce >= 15.0
-                    
+
                 profitability_ok = passes_profitability_gate(r)
                 fcf_margin = r.get("FCF Margin %")
                 mom_conf = r.get("momentum_confidence", "")
-                
+
                 fcf_ok = True if is_fin else (pd.isna(fcf_margin) or fcf_margin > 0)
-                
+
                 # Missing PEG policy: if PEG is missing, require val_score (RVS) >= 50
                 peg_raw = r.get("PEG Ratio", r.get("PEG"))
                 has_missing_peg = (peg_raw is None or pd.isna(peg_raw) or peg_raw == "")
                 peg_val_ok = (val_score >= 50.0) if has_missing_peg else True
-                
+
                 if (score >= 65 and cons_score >= 18 and val_score >= 10 and peg_val_ok and
                     cmp > 0 and sma > 0 and cmp >= 0.95 * sma and
                     rs > -10 and profitability_ok and fcf_ok and mom_conf != "LOW"):
                     return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Bear Market Value Add: {suppression_reason}"})
             return pd.Series({"Signal_Code": "SUPPRESS", "Signal_Reason": suppression_reason})
-            
+
         if bucket in ("REVIEW", "None", "", "nan") or pd.isna(r.get("Portfolio_Bucket")):
             # [ARCHITECTURAL FIX] REVIEW is a state/watchlist, not an automatic hard rejection for high quality stocks
             if score >= 65.0 and r.get("Valuation_Score", 0) >= 40.0:
                 return pd.Series({"Signal_Code": "WATCH", "Signal_Reason": f"High Quality ({score:.1f}) — Momentum Pending"})
             return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Failed Bucket Quality Gates"})
-            
+
         symbol = r.get("Stock")
         if open_symbols and symbol in open_symbols:
             # [ARCHITECTURAL FIX] Position state separation: distinguish NEW_ENTRY vs ADD_ON vs PYRAMID vs HOLD
@@ -1166,41 +1166,41 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
             dist_52w = _safe_num(r.get("dist_52w_high", 0))
             is_near_support = (ema20 > 0 and cmp <= 1.03 * ema20)
             is_breakout_high = (dist_52w >= -2.0)
-            
+
             if score >= 65.0 and cmp > sma and sma > 0 and mom_score >= 25:
                 if is_breakout_high:
                     return pd.Series({"Signal_Code": "PYRAMID", "Signal_Reason": f"Pyramid Setup: 52W High Breakout (Score {score:.1f})"})
                 elif is_near_support:
                     return pd.Series({"Signal_Code": "ADD_ON", "Signal_Reason": f"Dip Add-On: EMA Support Retest (Score {score:.1f})"})
             return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": "Position Already Open — Holding"})
-            
+
         if symbol not in approved_symbols:
             # [ARCHITECTURAL FIX] Preserve ranking quality for candidates capped by sector concentration
             if score >= 55.0 and cmp > sma and sma > 0:
                 return pd.Series({"Signal_Code": "WATCH", "Signal_Reason": f"Ranked Out (Sector Cap — Quality Watch {score:.1f})"})
             return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Ranked Out (Top N / Sector Cap limit)"})
-            
+
         # Baseline Active Entry Condition (V5 Thresholds)
         if score >= 55 and r.get("Consistency_Score", 0) >= 15 and r.get("Valuation_Score", 0) >= 5 and cmp > sma and sma > 0:
             mom_conf = r.get("momentum_confidence", "")
             mom_score = r.get("momentum_score", 0)
             is_qos = ("Quality-On-Sale" in bucket)
-            
+
             min_mom_score = 20 if (is_qos and mom_conf == "LOW") else (15 if is_qos else 25)
-            
+
             if mom_conf == "LOW" and not is_qos:
                 return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": "Low Momentum Quality"})
-            
+
             if mom_score < min_mom_score:
                 return pd.Series({"Signal_Code": "HOLD", "Signal_Reason": f"Waiting for Momentum (Score {mom_score} < {min_mom_score})"})
-                
+
             return pd.Series({"Signal_Code": "BUY", "Signal_Reason": f"Score: {score:.1f}, Mom: {mom_score}"})
-            
+
         from wealth_mean_reversion import get_mean_reversion_signal
         mr_code, mr_reason = get_mean_reversion_signal(r)
         if mr_code:
             return pd.Series({"Signal_Code": mr_code, "Signal_Reason": mr_reason})
-            
+
         # Provide contextual WAIT messages instead of blanks
         if cmp <= sma and sma > 0:
             return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Below 200 SMA"})
@@ -1210,14 +1210,14 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
             return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Low Consistency"})
         if r.get("Valuation_Score", 0) < 5:
             return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Overvalued"})
-            
+
         return pd.Series({"Signal_Code": "WAIT", "Signal_Reason": "Building Base"})
 
     entry_signals = candidate_df.apply(_get_entry_signal, axis=1)
     candidate_df["Signal_Code"] = entry_signals["Signal_Code"]
     candidate_df["Signal_Reason"] = entry_signals["Signal_Reason"]
     candidate_df["Signal"] = entry_signals.apply(lambda x: f"{x['Signal_Code']} ({x['Signal_Reason']})" if x['Signal_Code'] and x['Signal_Reason'] else x['Signal_Code'], axis=1)
-    
+
     def calculate_position_sizing(r):
         if r.get("Signal_Code", "") != "BUY":
             r["position_pct"] = None
@@ -1225,22 +1225,22 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
             r["position_shares"] = None
             r["alloc_category"] = "NONE"
             return r
-            
+
         cmp = r.get("cmp", 0)
         atr_pct = r.get("ATR_Pct", 0)
         used_fallback = r.get("used_fallback_data", False)
         momentum_score = r.get("momentum_score", 0)
-        
+
         if used_fallback or cmp == 0:
             r["position_pct"] = 0.0
             r["position_amount"] = 0.0
             r["position_shares"] = 0
             r["alloc_category"] = "SUPPRESSED"
             return r
-            
+
         from wealth_risk_adjusted_sizing import calculate_risk_adjusted_sizing
         sizing = calculate_risk_adjusted_sizing(cmp, atr_pct, momentum_score)
-        
+
         r["position_pct"] = sizing["Position_Pct"]
         r["position_amount"] = sizing["Position_Amount"]
         r["position_shares"] = max(1, int(sizing["Position_Amount"] / cmp)) if cmp > 0 else 0
@@ -1248,11 +1248,11 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
         return r
 
     candidate_df = candidate_df.apply(calculate_position_sizing, axis=1)
-    
+
     # Flag Core_Selected for the UI based on the cap calculated at the top
     core_symbols = set(core_capped["Stock"].tolist()) if not core_capped.empty else set()
     candidate_df["Core_Selected"] = candidate_df["Stock"].apply(lambda s: s in core_symbols)
-    
+
     return candidate_df
 
 # Cached DataFrames in module-level memory for fast 0ms lookups in 5m intraday loop
@@ -1264,10 +1264,10 @@ def resolve_orphan_fundamental_data(symbol: str) -> dict | None:
     [VERSION: ORPHAN_ENRICHMENT_v1.0]
     Resolves canonical fundamental metrics and calculates V5 FM_Score / RS_Rating
     for open portfolio positions that are not in today's active watchlist.
-    
+
     Prevents false "SELL_REVIEW: Incomplete Data" alerts for valid holdings that dropped
     out of the active daily screening universe.
-    
+
     Data lookup precedence (0ms local cache -> parquet cache -> DB stock_analysis_master):
       1. Local universe parquets (data/temp_universe.parquet, data/elite_universe_v2.parquet, etc.)
       2. DB stock_analysis_master (deep_analysis_result JSON)
@@ -1282,14 +1282,14 @@ def resolve_orphan_fundamental_data(symbol: str) -> dict | None:
     from config import DATA_DIR, WATCHLIST_PATH
 
     clean_sym = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
-    
+
     # Generate canonical alias candidates to match TradingView / Screener / Yahoo formats
     try:
         from daily_builder import normalize_symbol
         norm_sym = normalize_symbol(clean_sym)
     except Exception:
         norm_sym = clean_sym
-    
+
     possible_keys = list(dict.fromkeys([
         clean_sym,
         norm_sym,
@@ -1297,10 +1297,10 @@ def resolve_orphan_fundamental_data(symbol: str) -> dict | None:
         clean_sym.replace('-', '_'),
         clean_sym.replace(' ', '-'),
     ]))
-    
+
     # 1. Search in cached local universe DataFrames (temp_universe.parquet, etc.)
     found_row_dict = None
-    
+
     # Load / refresh local parquet cache if older than 15 minutes
     global _orphan_fundamental_cache, _orphan_cache_timestamp
     now_mono = time.monotonic()
@@ -1347,7 +1347,7 @@ def resolve_orphan_fundamental_data(symbol: str) -> dict | None:
 
     # Standardize Stock field
     found_row_dict["Stock"] = symbol
-    
+
     # 3. Score using canonical apply_core_engine_scores() & V5 mapping
     try:
         scores = apply_core_engine_scores(found_row_dict)
@@ -1355,7 +1355,7 @@ def resolve_orphan_fundamental_data(symbol: str) -> dict | None:
         found_row_dict["Valuation_Score"] = scores.get("RVS", 0.0)
         found_row_dict["Consistency_Score"] = scores.get("BQS", 0.0)
         found_row_dict["Reliability"] = scores.get("Reliability", 0.0)
-        
+
         # Determine RS_Rating if rs_6m present, else fallback to neutral 50.0
         rs_6m_val = found_row_dict.get("rs_6m")
         if rs_6m_val is not None and not pd.isna(rs_6m_val):
@@ -1371,7 +1371,7 @@ def resolve_orphan_fundamental_data(symbol: str) -> dict | None:
             nifty_dist = get_nifty_52w_dist() or 0.0
         except Exception:
             nifty_dist = 0.0
-            
+
         found_row_dict["Portfolio_Bucket"] = determine_portfolio_bucket(found_row_dict, nifty_dist)
         found_row_dict["orphan_enriched"] = True
         logger.info(f"✅ [ORPHAN ENRICHMENT] Enriched {symbol} (FM_Score={found_row_dict['FM_Score']:.1f}, RS_Rating={found_row_dict['RS_Rating']:.1f}, Bucket={found_row_dict['Portfolio_Bucket']})")
@@ -1403,13 +1403,13 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         import math
         base_hold_score = calculate_hold_score(r)
         sym = r.get("Stock")
-        
+
         cmp = _safe_num(r.get("cmp"))
         entry_price = _safe_num(r.get("entry_price"))
         prev_close = _safe_num(r.get("prev_close"))
         used_fallback = r.get("used_fallback_data", False)
         data_quality = str(r.get("data_quality", ""))
-        
+
         # Check and apply corporate action split adjustments to entry_price
         trade_payload = {
             "symbol": sym,
@@ -1424,20 +1424,20 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
             r["entry_price"] = entry_price
             if trade_payload.get("stop_loss"):
                 r["stop_loss"] = trade_payload["stop_loss"]
-        
+
         # 1. Strict Live Price & Genuine Prev Close Validation
         # [VERSION: WEALTH_STALE_STATE_v1.0] DATA_STALE is checked FIRST — before any hard-stop logic.
         # This ensures that missing prev_close / stale intraday data never accidentally triggers an automated SELL.
         has_genuine_prev_close = prev_close is not None and prev_close > 0
         is_live_valid = (
-            math.isfinite(cmp) and 
-            cmp > 0 and 
-            not used_fallback and 
-            data_quality != "STALE_INTRADAY" and 
-            has_genuine_prev_close and 
+            math.isfinite(cmp) and
+            cmp > 0 and
+            not used_fallback and
+            data_quality != "STALE_INTRADAY" and
+            has_genuine_prev_close and
             (abs(cmp - prev_close) / prev_close <= 0.50)
         )
-        
+
         # [SAFETY GATE] If data is stale or incomplete, defer evaluation immediately — no SELL on bad data.
         if not is_live_valid:
             r["Hold_Score"] = base_hold_score
@@ -1451,7 +1451,7 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
                 except Exception:
                     pass
             return r
-            
+
         import pandas as pd
         if pd.isna(r.get("FM_Score")) or pd.isna(r.get("RS_Rating")):
             r["Hold_Score"] = base_hold_score
@@ -1461,7 +1461,7 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
             else:
                 r["Exit_Reason"] = "Incomplete Data (Missing FM_Score/RS_Rating) — Exit evaluation deferred"
             return r
-        
+
         # 2. Hard Risk Stop (Calculated BEFORE Tax Bonus)
         drawdown_pct = 0.0
         if entry_price > 0 and cmp > 0:
@@ -1469,7 +1469,7 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
 
         if entry_price > 0 and drawdown_pct >= 20.0:
             # [VERSION: SPLIT_GUARD_v2.0] Before firing the hard drawdown stop, verify if a corporate action occurred.
-            # 
+            #
             # RCA: A stock split (e.g. 1:2) halves the market price mechanically. If we just compare DB entry_price
             # to current market price, it falsely triggers a hard stop.
             # Architecture: Hard drawdown detected -> Corporate-action check -> Confirmed split -> SPLIT_ADJUSTED -> NO SELL
@@ -1488,7 +1488,7 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
                         (splits.index.date >= (entry_date_obj or today_ist)) &
                         (splits.index.date <= today_ist)
                     ] if entry_date_obj else splits[splits.index.date <= today_ist]
-                    
+
                     if not relevant.empty:
                         cum_factor = relevant.prod()
                         if cum_factor > 1.0:
@@ -1500,7 +1500,7 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
                             r["Hold_Score"] = base_hold_score
                             r["Exit_Code"] = "SPLIT_ADJUSTED"
                             r["Exit_Reason"] = f"Corporate Action Detected (Split Factor: {cum_factor:.2f}). Evaluator deferred until manual DB adjustment of price + quantity."
-                            
+
                             # Alert admin for manual DB intervention
                             try:
                                 from telegram_engine import queue_telegram_message
@@ -1513,7 +1513,7 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
                                 queue_telegram_message(msg, symbol=sym)
                             except Exception:
                                 pass
-                                
+
                             return r
             except Exception as _split_err:
                 logger.warning(f"⚠️ [SPLIT_GUARD] Corporate action check failed for {sym}: {_split_err}")
@@ -1525,7 +1525,7 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
                 # by checking if Yahoo's returned prev_close is already > 19.5% below our entry price!
                 # If it is, and we didn't sell it yesterday, history was rewritten overnight!
                 historical_drawdown_pct = ((entry_price - prev_close) / entry_price) * 100.0 if (entry_price > 0 and prev_close is not None) else 0.0
-                
+
                 if historical_drawdown_pct >= 19.5:
                     logger.warning(
                         f"🔀 [SPLIT_GUARD] {sym}: yfinance splits array empty, but historical prev_close is {historical_drawdown_pct:.1f}% below entry. "
@@ -1534,7 +1534,7 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
                     r["Hold_Score"] = base_hold_score
                     r["Exit_Code"] = "SPLIT_ADJUSTED"
                     r["Exit_Reason"] = f"Suspected Corporate Action (Delayed Data). Drawdown: -{drawdown_pct:.1f}%. Awaiting manual DB intervention."
-                    
+
                     try:
                         from telegram_engine import queue_telegram_message
                         msg = (
@@ -1566,7 +1566,7 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
             pass
 
         r["Hold_Score"] = final_hold_score
-        
+
         from wealth_hold_tracking import HoldScoreTrendAnalyzer
         trend = HoldScoreTrendAnalyzer.analyze_trend(sym)
         hold_trend = trend["reason"] if trend["action"] != "HOLD" else "Stable"
@@ -1576,16 +1576,16 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
 
         from macro_utils import get_macro_regime
         macro_regime = get_macro_regime()
-        
+
         rs_threshold = -40
         if macro_regime in ("BEAR", "WEAK_BEAR", "RANGEBOUND"):
             rs_threshold = -55
         elif macro_regime == "STRONG_BEAR":
             rs_threshold = -60
-            
+
         rs = _safe_num(r.get("rs_6m"))
         sma = _safe_num(r.get("sma_200"))
-        
+
         rs_exit_triggered = False
         if rs < rs_threshold:
             if macro_regime in ("BEAR", "WEAK_BEAR", "STRONG_BEAR", "RANGEBOUND"):
@@ -1719,7 +1719,7 @@ def _resolve_previous_completed_close(hist_df) -> "float | None":
 
 def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
     start_time = time.time()
-    
+
     try:
         # central telemetry setup
         regime_str = "NEUTRAL"
@@ -1742,14 +1742,14 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         from datetime import datetime
         from zoneinfo import ZoneInfo
         IST = ZoneInfo("Asia/Kolkata")
-        
+
         logger.info(f"🚀 [START] WEALTH ENGINE INIT | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')}")
 
         import os
 
         WEALTH_PATH = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
         logger.info("💰 Fund Manager Wealth Engine v3 Started Scan (Strict Layered).")
-        
+
         import database
         if not getattr(database, "DONT_SAVE_WEALTH", False):
             upsert_scanner_health("Wealth Engine", "RUNNING", error_msg="Wealth Engine Scan in progress...")
@@ -1780,7 +1780,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         df = pd.read_parquet(WATCHLIST_PATH)
         df = df.drop_duplicates(subset=["Stock"]).reset_index(drop=True)
         candidate_symbols = set(df["Stock"].astype(str).tolist()) if "Stock" in df.columns else set()
-        
+
         # [VERSION: SCANNER_DIAG_LOG_v1.0] Watchlist fingerprint for cross-run comparison
         import hashlib
         _wl_stocks = sorted(list(candidate_symbols))
@@ -1800,7 +1800,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                     """)
                     for r in cur.fetchall():
                         portfolio_dict[r["symbol"]] = {"entry_price": r["entry_price"], "entry_date": r["entry_date"]}
-                    
+
                     cur.execute("""
                         SELECT symbol, alert_price AS entry_price, alert_date::date AS entry_date
                         FROM wealth_buy_alert
@@ -1810,7 +1810,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                         portfolio_dict[r["symbol"]] = {"entry_price": r["entry_price"], "entry_date": r["entry_date"]}
         except Exception as e:
             logger.warning(f"Failed to load active portfolio prices: {e}")
-            
+
         open_symbols = list(portfolio_dict.keys())
         orphan_symbols = [sym for sym in open_symbols if sym not in candidate_symbols]
 
@@ -1837,7 +1837,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         if all_symbols_to_fetch:
             from valuation_utils import compute_peer_medians
             prefetch_symbols = list(all_symbols_to_fetch)
-            
+
             def prefetch_medians():
                 t_name = threading.current_thread().name
                 try:
@@ -1848,16 +1848,16 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                     logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Pre-fetch peer medians' | SymbolsProcessed={len(res)} | Duration={dur_s:.2f}s")
                 except Exception as ex:
                     logger.warning(f"⚠️ [BACKGROUND WORKER FAIL] Worker='{t_name}' | Action='Pre-fetch peer medians' | Error={ex}")
-            
+
             peer_medians_thread = threading.Thread(target=prefetch_medians, name="PeerMediansPrefetch", daemon=True)
             peer_medians_thread.start()
 
-        
+
         from price_cache import fetch_unified_historical, get_intraday_snapshot
         from database import get_bulk_recent_concall_analysis
         from memory_profiler import chunk_iterable, BatchMemoryTracker, MemoryProfiler
         import concurrent.futures
-        
+
         global_fetched_count = 0
         technicals = []
         total_batches = (len(all_symbols_to_fetch) + BATCH_SIZE - 1) // BATCH_SIZE
@@ -1898,10 +1898,10 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 else:
                     tech["used_fallback_data"] = False
                     tech["fallback_timestamp"] = None
-                    
+
                 tech["Stock"] = sym
                 tech["Promoter_Pledge"] = None
-                
+
                 try:
                     if concall_cache is not None:
                         concall = concall_cache.get(sym)
@@ -1986,36 +1986,36 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 # Slice from pre-fetched dicts — no additional API/DB calls per batch
                 chunk_live_prices = {sym: all_live_prices.get(sym) for sym in chunk}
                 chunk_concalls  = {sym: all_concalls.get(sym)  for sym in chunk}
-                
+
                 if chunk_historical_data is None:
                     chunk_historical_data = {}
                 else:
-                    # [ARCHITECTURAL FIX] Stitch live intraday price into 1D historical data 
+                    # [ARCHITECTURAL FIX] Stitch live intraday price into 1D historical data
                     # so 1D delta fetches aren't spammed every 5 minutes during market hours.
                     now_ist = datetime.now(IST)
                     today_date_str = now_ist.strftime("%Y-%m-%d")
                     from market_utils import is_market_open
                     is_mkt_open = is_market_open(now_ist)
-                    
+
                     for sym, hist_df in chunk_historical_data.items():
                         if isinstance(hist_df, pd.DataFrame) and not hist_df.empty:
                             live_price = chunk_live_prices.get(sym)
                             if live_price and float(live_price) > 0:
                                 live_price = float(live_price)
-                                
+
                                 # Cast OHLCV columns to float64 to avoid pandas FutureWarnings during stitching
                                 for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
                                     if col in hist_df.columns:
                                         hist_df[col] = hist_df[col].astype('float64')
-                                
+
                                 last_dt = hist_df.index[-1] if not hist_df.index.empty else None
                                 t_col = 'Date' if 'Date' in hist_df.columns else ('Datetime' if 'Datetime' in hist_df.columns else None)
                                 if t_col:
                                     last_dt = hist_df[t_col].iloc[-1]
-                                
+
                                 last_dt_ts = pd.to_datetime(last_dt)
                                 last_dt_str = last_dt_ts.strftime("%Y-%m-%d") if last_dt else ""
-                                
+
                                 # Quote Timestamp Validation
                                 if not is_mkt_open and last_dt_ts.date() >= now_ist.date():
                                     pass
@@ -2044,13 +2044,13 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                                     new_row['Close'] = live_price
                                     hist_df = pd.concat([hist_df, new_row])
                                     chunk_historical_data[sym] = hist_df
-                    
+
                 valid_fetches = sum(1 for v in chunk_historical_data.values() if isinstance(v, pd.DataFrame) and not v.empty)
                 global_fetched_count += valid_fetches
                 rows_fetched = sum(len(df) for df in chunk_historical_data.values() if isinstance(df, pd.DataFrame))
-                
+
                 tracker.mark_fetch_complete(row_count=rows_fetched)
-                
+
                 # [VERSION: PERF_PHASE0_v1.0 & PHASE2_v1.0] Stage timing: indicator calc per symbol
                 from config import FEATURE_PARALLEL_SCANNERS_V1, SCAN_WORKER_THREADS
                 if FEATURE_PARALLEL_SCANNERS_V1 and len(chunk) > 1:
@@ -2083,7 +2083,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                             _t_indicator_total_ms += (time.perf_counter() - _t_sym) * 1000
                         except Exception as e:
                             logger.error(f"❌ Error processing symbol {sym}: {e}")
-                    
+
                 # Explicit cleanup of large DataFrame references
                 del chunk_historical_data
                 del chunk_live_prices
@@ -2194,7 +2194,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
             return pd.DataFrame()
 
         tech_df = pd.DataFrame(technicals)
-        
+
         # Per-symbol quality set tracking for candidate vs orphan degradation
         candidate_stale_symbols = set()
         candidate_missing_symbols = set()
@@ -2212,13 +2212,13 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
             elif item.get("cmp") is None:
                 if is_cand: candidate_missing_symbols.add(sym)
                 else: orphan_missing_symbols.add(sym)
-        
+
         # Memory release
         del technicals
         del all_live_prices
         del all_concalls
         import gc; gc.collect()
-        
+
         if not tech_df.empty and "cmp" in tech_df.columns and (tech_df["cmp"].isnull().all() or (tech_df["cmp"] == 0).all()):
             logger.error("❌ API returned 0 prices. Rate limited.")
             if not getattr(database, "DONT_SAVE_WEALTH", False):
@@ -2227,7 +2227,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 except Exception:
                     pass
             return
-            
+
         # =====================================================================================
         # EXECUTE LAYER 1: CANDIDATE SELECTION
         # =====================================================================================
@@ -2235,31 +2235,31 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         # wealth_df consists ONLY of the fundamental watchlist candidates joined with technicals
         candidate_tech = tech_df[tech_df["Stock"].isin(candidate_symbols)]
         wealth_df = pd.merge(df, candidate_tech, on="Stock", how="left")
-        
+
         if peer_medians_thread is not None:
             logger.info("⏱ [WEALTH ENGINE] Waiting for background peer medians thread to complete...")
             peer_medians_thread.join(timeout=1.0) # [PERF OPT] Reduced from 180s to 15s to prevent long scanner stalls
             if peer_medians_thread.is_alive():
                 logger.warning("⚠️ [WEALTH ENGINE] Background peer medians thread timed out after 15s. Continuing with cached/available data.")
-        
+
         from valuation_utils import compute_peer_medians
         sector_stats = compute_peer_medians(wealth_df["Stock"].tolist() if not wealth_df.empty else [])
-        
+
         wealth_df = evaluate_candidates(wealth_df, sector_stats, nifty_dist_52w)
-        
+
         _prof_l1.__exit__(None, None, None)
-        
+
         # =====================================================================================
         # EXECUTE LAYER 2: ENTRY TIMING
         # =====================================================================================
         _prof_l2 = MemoryProfiler("Wealth: Entry Timing").__enter__()
         BUY_GATE_ACTIVE = False
         suppression_reason = None
-        
+
         candidate_degraded_count = len(candidate_stale_symbols | candidate_missing_symbols)
         fresh_ratio = 1.0 - (candidate_degraded_count / max(len(candidate_symbols), 1))
         MIN_WEALTH_FRESH_RATIO = float(os.environ.get("MIN_WEALTH_FRESH_RATIO", "0.95"))
-        
+
         breadth_pct = None
         if not candidate_tech.empty and "above_sma200" in candidate_tech.columns:
             valid_sma200 = candidate_tech["above_sma200"].dropna()
@@ -2268,7 +2268,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 breadth_pct = (above_200 / len(valid_sma200)) * 100.0
             else:
                 logger.warning(f"⚠️ Market breadth calculation skipped — insufficient valid sample size ({len(valid_sma200)} < 10)")
-            
+
         if nifty_dist_52w is not None and nifty_dist_52w > 20:
             BUY_GATE_ACTIVE = True; suppression_reason = f"Nifty {nifty_dist_52w:.1f}% below 52W high"
         elif nifty_6m_ret is not None and nifty_6m_ret < -15:
@@ -2287,9 +2287,9 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                     send_push_to_all("⚠️ Wealth Engine Degraded", f"Signals suppressed. Data freshness dropped to {fresh_ratio*100:.1f}%")
                 except Exception:
                     pass
-            
+
         wealth_df = generate_entry_signal(wealth_df, BUY_GATE_ACTIVE, suppression_reason, open_symbols)
-        
+
         # Persist BUY Signals
         saved_alerts_count = 0
         try:
@@ -2307,21 +2307,21 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                     continue
                 if not allow_new_admissions:
                     continue
-                    
+
                 symbol = row.get("Stock")
                 cmp = row.get("cmp")
                 if symbol and cmp and not DONT_SAVE_WEALTH:
                     # Final Certification Barrier
                     from scanner_telemetry import certify_final_decision, telemetry_engine
                     ctx = telemetry_engine.get_or_create_context(symbol, scanner_name="WEALTH_ENGINE")
-                    
+
                     # Ensure timestamp falls back securely
                     _last_bar_date = "unknown"
                     if "fallback_timestamp" in row and row["fallback_timestamp"]:
                         _last_bar_date = str(row["fallback_timestamp"])[:10]
                     elif not row.get("used_fallback_data", False):
                         _last_bar_date = datetime.now(IST).strftime("%Y-%m-%d")
-                    
+
                     is_certified, cert_reason = certify_final_decision(
                         symbol=symbol,
                         scanner_name="WEALTH_ENGINE",
@@ -2336,19 +2336,19 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                         wealth_df.loc[wealth_df["Stock"] == symbol, "Signal_Reason"] = f"Certification Failed: {cert_reason}"
                         wealth_df.loc[wealth_df["Stock"] == symbol, "Signal"] = f"SUPPRESSED ({cert_reason})"
                         continue
-                    # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every triggered trade                        
+                    # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every triggered trade
                     logger.info(
                         f"📍 PICKED [WEALTH ENGINE: BUY SIGNAL]: {symbol} @ ₹{cmp:.2f} | "
                         f"fm_score={row.get('FM_Score', 0):.1f} | mom={row.get('momentum_score', 0)} | "
                         f"bucket={row.get('Portfolio_Bucket', 'Unknown')} | entry=₹{cmp:.2f} | last_bar={_last_bar_date} | CERTIFIED"
                     )
-                    
+
                     if is_test_mode:
                         logger.info(f"🧪 [TEST MODE] Skipping save_wealth_buy_alert for {symbol}")
                         inserted = True
                     else:
                         inserted = save_wealth_buy_alert(
-                            symbol, cmp, breakout_type="Strength" if row.get("dist_52w_high", 100) > 5 else "Value", 
+                            symbol, cmp, breakout_type="Strength" if row.get("dist_52w_high", 100) > 5 else "Value",
                             fm_score=row.get("FM_Score"), position_pct=row.get("position_pct"),
                             position_amount=row.get("position_amount"), position_shares=max(1, int(row.get("position_amount", 0) / cmp)) if cmp > 0 else 0,
                             portfolio_bucket=row.get("Portfolio_Bucket", "Unknown"), valuation_score=row.get("Valuation_Score", 0),
@@ -2373,13 +2373,13 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
             symbol = row.get("Stock")
             if not symbol:
                 continue
-            
+
             ctx = telemetry_logger.get_or_create_context(symbol)
             ctx.capture_dataframe_row(row)
-            
+
             sig_code = row.get("Signal_Code")
             score = float(row.get("FM_Score", 0.0))
-            
+
             # Extract standard metrics
             cmp_val = _safe_num(row.get("cmp"))
             sma200_val = _safe_num(row.get("sma_200"))
@@ -2387,7 +2387,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
             cons_score = float(row.get("Consistency_Score", 0.0))
             val_score = float(row.get("Valuation_Score", 0.0))
             mom_score = float(row.get("momentum_score", 0.0))
-            
+
             metadata = {
                 "Bucket": row.get("Portfolio_Bucket"),
                 "Valuation_Score": val_score,
@@ -2396,9 +2396,9 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 "CMP": cmp_val,
                 "SMA200": sma200_val,
             }
-            
+
             row_start = row.get("_row_start_time", start_time)
-            
+
             if sig_code == "BUY":
                 telemetry_logger.record_pass(
                     symbol=symbol,
@@ -2412,7 +2412,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 gate = "FAILED_PATTERN"
                 actual = None
                 required = None
-                
+
                 if "Incomplete" in reason:
                     gate = "INCOMPLETE_DATA"
                     gate_type = "BOOLEAN"
@@ -2468,7 +2468,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                     gate_type = "BOOLEAN"
                     actual = False
                     required = True
-                
+
                 telemetry_logger.record_reject(
                     symbol=symbol,
                     last_stage="ENTRY_TIMING",
@@ -2494,7 +2494,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         )
         telemetry_logger.print_summary()
         global_telemetry.print_system_summary()
-        
+
         if run_ctx:
             run_ctx.set_total_stocks(len(candidate_symbols))
             run_ctx.fresh_count = global_fetched_count
@@ -2510,7 +2510,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         _prof_l3 = MemoryProfiler("Wealth: Portfolio Mgmt").__enter__()
         # Extract open positions into a separate dataframe
         portfolio_rows = []
-        
+
         # 1. FETCH REAL-TIME PRICES BEFORE EVALUATION
         realtime_metrics = {}
         try:
@@ -2519,7 +2519,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 realtime_metrics = get_live_prices(open_symbols)
         except Exception as e:
             logger.warning(f"Failed to fetch real-time prices for wealth engine evaluation: {e}")
-            
+
         for sym, p_info in portfolio_dict.items():
             if sym in wealth_df["Stock"].values:
                 row = wealth_df[wealth_df["Stock"] == sym].iloc[0].to_dict()
@@ -2587,10 +2587,10 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                     )
 
             portfolio_rows.append(row)
-            
+
         portfolio_df = pd.DataFrame(portfolio_rows)
         portfolio_df = evaluate_open_positions(portfolio_df, portfolio_dict)
-        
+
         if not portfolio_df.empty:
             # Map Portfolio outputs back into wealth_df for Dashboard display (Actual position closing is handled by dedicated WEALTH_EXIT monitor)
             port_map = portfolio_df.set_index("Stock")[["Hold_Score", "hold_trend", "Exit_Code", "Exit_Reason"]].to_dict('index')
@@ -2606,7 +2606,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                         r["Signal"] = f"{r['Signal_Code']} ({r['Signal_Reason']})" if r['Signal_Reason'] else r['Signal_Code']
                 return r
             wealth_df = wealth_df.apply(map_port, axis=1)
-            
+
             # Append orphaned holdings back into wealth_df for dashboard visibility
             orphan_df = portfolio_df[~portfolio_df["Stock"].isin(wealth_df["Stock"])].copy()
             if not orphan_df.empty:
@@ -2614,7 +2614,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 orphan_df["Signal_Reason"] = orphan_df["Exit_Reason"]
                 orphan_df["Signal"] = orphan_df.apply(lambda x: f"{x['Signal_Code']} ({x['Signal_Reason']})" if x.get('Signal_Reason') else x.get('Signal_Code', ''), axis=1)
                 wealth_df = pd.concat([wealth_df, orphan_df], ignore_index=True)
-                
+
             # DB Persistence
             try:
                 for symbol in open_symbols:
@@ -2627,25 +2627,25 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                             symbol=symbol, hold_score=current_score, fm_score=_safe_num(p_row.get("FM_Score", 0)),
                             rs_6m=_safe_num(p_row.get("rs_6m", 0)), cmp=_safe_num(p_row.get("cmp", 0)), sma_200=_safe_num(p_row.get("sma_200", 0))
                         )
-                        
+
                 if realtime_metrics and not is_test_mode and not getattr(database, "DONT_SAVE_WEALTH", False):
                     from database import update_position_real_time_prices
                     update_position_real_time_prices({s: {"price": p, "score": port_map.get(s, {}).get("Hold_Score")} for s, p in realtime_metrics.items()})
             except Exception as _rt_e: logger.exception(f"Error updating real-time prices: {_rt_e}")
-            
+
         _prof_l3.__exit__(None, None, None)
-        
+
         # Final Dashboard Export
         _prof_l4 = MemoryProfiler("Wealth: Dashboard Export").__enter__()
         if not is_test_mode and not getattr(database, "DONT_SAVE_WEALTH", False):
             try:
                 cols = ['Stock', 'Sector', 'FM_Score', 'Consistency_Score', 'Valuation_Score', 'Reliability', 'Base_FV', 'Bull_FV', 'Portfolio_Bucket', 'Signal', 'Hold_Score', 'hold_trend', 'Core_Selected']
-                
+
                 # Bulk assign missing columns to prevent DataFrame block fragmentation
                 new_cols = {c: None for c in cols if c not in wealth_df.columns}
                 if new_cols:
                     wealth_df = wealth_df.assign(**new_cols)
-                    
+
                 wealth_df.to_parquet(WEALTH_PATH)
                 try:
                     from snapshot_manager import get_snapshot_manager
@@ -2653,7 +2653,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                     logger.info("✅ [WEALTH ENGINE] Published full memory snapshot to SnapshotManager.")
                 except Exception as _sn_err:
                     logger.warning(f"Failed to publish wealth snapshot to SnapshotManager: {_sn_err}")
-                
+
                 def bg_db_sync():
                     global _last_parquet_upload
                     try:
@@ -2667,7 +2667,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                         _last_parquet_upload = now
 
                         upload_history_bundle_to_db("1d")
-                            
+
                         duration_sec = round(time.time() - start_time, 1)
                         upsert_scanner_health(
                             scanner_name="Wealth Engine", status="OK", last_success=datetime.now(IST).isoformat(),
@@ -2688,12 +2688,12 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
 
                 from database import submit_background_upload
                 submit_background_upload(bg_db_sync)
-                
+
                 # Free large intermediate dataframes
                 del tech_df, candidate_tech, prev_wealth_df
-                
+
             except Exception as _sh_e: logger.exception(f"Error initiating dashboard export: {_sh_e}")
-            
+
         _prof_l4.__exit__(None, None, None)
 
         # ── WEALTH ENGINE MANDATORY PIPELINE SUMMARY LOG ──
@@ -2702,13 +2702,13 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         core_count = len(wealth_df[wealth_df["Portfolio_Bucket"] == "CORE"]) if "Portfolio_Bucket" in wealth_df.columns else 0
         watch_count = len(wealth_df[wealth_df["Portfolio_Bucket"] == "WATCH"]) if "Portfolio_Bucket" in wealth_df.columns else 0
         review_count = len(wealth_df[wealth_df["Portfolio_Bucket"] == "REVIEW"]) if "Portfolio_Bucket" in wealth_df.columns else 0
-        
+
         stale_count = rejection_counts.get("stale_data", 0)
         no_data_count = rejection_counts.get("no_data", 0)
         fresh_count = max(0, total_eval - stale_count - no_data_count)
         stale_ratio = stale_count / max(total_eval, 1)
         missing_ratio = no_data_count / max(total_eval, 1)
-        
+
         if missing_ratio > 0.50:
             data_status = f"INVALID (Missing Data {missing_ratio*100:.1f}%)"
         elif stale_ratio > 0.50:
@@ -2719,7 +2719,7 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
             data_status = "DEGRADED (Non-critical Stale/Missing)"
         else:
             data_status = "HEALTHY"
-            
+
         duration_sec = round(time.time() - start_time, 1)
 
         summary_lines = [
@@ -2834,11 +2834,11 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
     from perf_utils import ScannerStageTracker
     stage_tracker = ScannerStageTracker("WEALTH_INTRADAY_5M")
     logger.info("⚡ [WEALTH ENGINE 5M] Starting lightweight intraday portfolio update...")
-    
+
     try:
         from database import start_scanner_execution_run, complete_scanner_execution_run
         run_ctx = start_scanner_execution_run(scanner_name="WEALTH_EXIT", trigger_type="SCHEDULED", scheduler_name="CRON")
-        
+
         if not os.path.exists(WEALTH_PATH):
             logger.info("⚠️ WEALTH_PATH parquet not found for intraday update. Running full scan once...")
             complete_scanner_execution_run(run_ctx, status_override="SKIPPED", stop_reason="Running full scan instead")
@@ -2848,7 +2848,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
         if wealth_df.empty or "Stock" not in wealth_df.columns:
             complete_scanner_execution_run(run_ctx, status_override="SKIPPED", stop_reason="Empty parquet")
             return run_wealth_scan(is_test_mode=is_test_mode)
-            
+
         run_ctx.set_total_stocks(len(wealth_df))
         run_ctx.record_fresh_data(len(wealth_df))
 
@@ -2949,7 +2949,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
             except Exception as _sn_err:
                 logger.warning(f"Failed to publish intraday wealth snapshot to SnapshotManager: {_sn_err}")
 
-            
+
             def bg_db_sync_intraday():
                 global _last_parquet_upload
                 try:
@@ -2962,7 +2962,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
                         else:
                             logger.error("❌ [WEALTH_ENGINE] Failed intraday upload of wealth_engine.parquet to DB.")
                         _last_parquet_upload = now
-                        
+
                     if realtime_metrics:
                         update_position_real_time_prices({s: {"price": p, "score": wealth_df[wealth_df["Stock"] == s]["Hold_Score"].iloc[0] if "Hold_Score" in wealth_df.columns and s in wealth_df["Stock"].values else None} for s, p in realtime_metrics.items()})
 
@@ -2984,7 +2984,7 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
 
             from database import submit_background_upload
             submit_background_upload(bg_db_sync_intraday)
-            
+
         stage_tracker.end_stage("Dashboard DB sync completed")
 
         stage_tracker.print_summary(alerts_found=sell_signal_count)

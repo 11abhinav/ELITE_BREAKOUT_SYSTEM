@@ -1,0 +1,85 @@
+{
+  "program_name": "Scanner Alert Quality 10/10 Master Program",
+  "manifest_version": "1.0.0",
+  "frozen_at": "2026-08-30T20:05:00+05:30",
+  "charter": "Improve the actual result quality of every actionable scanner in the system until validated and integrated into production.",
+  "dataset_version": "1.0.0_ALL_SCANNER",
+  "code_version": "git_head_locked",
+  "feature_version": "v1.0_PIT_STRICT",
+  "lifecycle_enums": [
+    "DATA_INVALID",
+    "DATA_REPAIR",
+    "BASELINE_ESTABLISHED",
+    "DISCOVERY",
+    "MODEL_VALIDATION",
+    "HOLDOUT_VALIDATED",
+    "FORWARD_VALIDATION",
+    "PROMOTION_ELIGIBLE",
+    "PRODUCTION_IMPROVED",
+    "BASELINE_RETAINED",
+    "REJECTED"
+  ],
+  "event_identity_rules": {
+    "setup_id_formula": "f'{symbol}_{decision_date}_{scanner}'",
+    "alert_id_formula": "f'{setup_id}_{row_index}'",
+    "independence_definition": "Observations sharing setup_id are grouped into a single cluster for bootstrap and independence analysis."
+  },
+  "pit_rule": "For all features: feature_timestamp <= decision_timestamp. Any violation is tagged PIT_VIOLATION and excluded.",
+  "promotion_criteria": {
+    "ranking": "Positive incremental economic value (Delta Net E[R] > 0), positive rank monotonicity (Top20 > Mid60 > Bottom20), Delta MaxDD <= 0, stable across symbols/regimes.",
+    "filtering": "Delta Net E[R] > 0, Delta MaxDD <= 0, Retention >= 70%, 95% CI lower bound > 0.",
+    "risk_control": "Measurable risk reduction, acceptable return impact, acceptable opportunity cost.",
+    "forward_evidence_gate": "N >= 50 genuinely new independent eligible observations, >= 15 unique symbols, >= 5 trading days, >= 2 market regimes, <= 20% max concentration per symbol."
+  },
+  "scanners_in_scope": {
+    "EOD": {
+      "strategy_family": "Daily Breakout",
+      "semantic_type": "ACTIONABLE_TRADE_ALERT",
+      "baseline_definition": "Production-valid trading baseline evaluated strictly on clean non-zero target geometry (+1.100R on N=26 clean records).",
+      "current_lifecycle_state": "FORWARD_VALIDATION",
+      "current_blocker": "Awaiting N >= 50 forward alerts across >= 15 symbols to prove cross-symbol robustness beyond RELIANCE."
+    },
+    "MULTI_TF": {
+      "strategy_family": "Multi-Timeframe Confluence Breakout",
+      "semantic_type": "ACTIONABLE_TRADE_ALERT",
+      "baseline_definition": "To be established post-repair of mock execution levels and price scale normalization.",
+      "current_lifecycle_state": "DATA_REPAIR",
+      "current_blocker": "Mock ₹129.50 entry levels and zero target distance require telemetry re-hydration."
+    },
+    "MULTIBAGGER": {
+      "strategy_family": "Base Accumulation & Volume Expansion",
+      "semantic_type": "ACTIONABLE_TRADE_ALERT",
+      "baseline_definition": "To be established post-rehydration of 815 missing target/stop geometries.",
+      "current_lifecycle_state": "DATA_REPAIR",
+      "current_blocker": "815 of 816 historical records require target/SL rehydration and forward bar replay simulation."
+    },
+    "REVERSAL": {
+      "strategy_family": "Mean Reversion & Counter-Trend Exhaustion",
+      "semantic_scope": "ACTIONABLE_TRADE_ALERT",
+      "baseline_definition": "Production-valid trading baseline on verified execution mechanics (-1.05R on n=1 valid replay).",
+      "current_lifecycle_state": "BASELINE_ESTABLISHED",
+      "current_blocker": "Historical sample size insufficient (n=1). Awaiting forward market events to reach N >= 50."
+    },
+    "PULLBACK": {
+      "strategy_family": "Trend Retracement & Continuation",
+      "semantic_scope": "ACTIONABLE_TRADE_ALERT",
+      "baseline_definition": "To be established post-rehydration of target geometries across 12,885 records.",
+      "current_lifecycle_state": "DATA_REPAIR",
+      "current_blocker": "100% of historical records require target geometry rehydration and forward replay simulation."
+    },
+    "DAILY_BUILDER": {
+      "strategy_family": "Intraday Momentum Construction",
+      "semantic_scope": "ACTIONABLE_TRADE_ALERT",
+      "baseline_definition": "To be established post-rehydration of intraday price paths across 35 records.",
+      "current_lifecycle_state": "DATA_REPAIR",
+      "current_blocker": "Intraday price paths and session boundary termination require rehydration."
+    },
+    "WEALTH_ENGINE": {
+      "strategy_family": "Macro & Sector Swing Allocation",
+      "semantic_scope": "PORTFOLIO_ACTION",
+      "baseline_definition": "Portfolio allocation metrics (CAGR, MaxDD, benchmark-relative return, turnover drag) instead of trade R.",
+      "current_lifecycle_state": "DATA_REPAIR",
+      "current_blocker": "Portfolio outcome framework formulation required."
+    }
+  }
+}

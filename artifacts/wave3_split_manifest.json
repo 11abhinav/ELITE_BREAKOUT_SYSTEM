@@ -1,0 +1,37 @@
+{
+  "manifest_version": "1.0.0",
+  "created_at": "2026-08-30T17:22:00+05:30",
+  "dataset_path": "artifacts/canonical_analytics_dataset.csv",
+  "dataset_sha256": "86e71bacec2fe08a53615e0083b007b1c1e376e72a797da47d1161c2934713d0",
+  "random_seed": 42,
+  "independence_unit": "symbol_x_trading_date",
+  "methodology_version": "3.0.0-governance",
+  "splits": {
+    "train_discovery": {
+      "start_timestamp": "2026-08-19 08:57:38",
+      "end_timestamp": "2026-08-22 23:59:59",
+      "purpose": "Feature discovery and candidate family hypothesis design.",
+      "is_frozen": true
+    },
+    "validation": {
+      "start_timestamp": "2026-08-23 00:00:00",
+      "end_timestamp": "2026-08-25 23:59:59",
+      "purpose": "Threshold parameter sweep, action selection, and candidate freeze.",
+      "is_frozen": true
+    },
+    "holdout": {
+      "start_timestamp": "2026-08-26 00:00:00",
+      "end_timestamp": "2026-08-27 23:59:59",
+      "purpose": "Final single-pass out-of-sample evaluation on frozen candidate rule. Strictly sealed against optimization or iterative reslicing.",
+      "is_frozen": true,
+      "status": "SEALED_UNINSPECTED"
+    }
+  },
+  "governance_rules": {
+    "no_live_mutation": true,
+    "immutable_after_creation": true,
+    "require_cluster_bootstrap": true,
+    "min_scanner_sample_size": 50,
+    "subgroup_insufficient_sample_threshold": 50
+  }
+}

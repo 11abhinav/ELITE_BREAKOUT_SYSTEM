@@ -1,0 +1,93 @@
+{
+  "generated_at": "2026-08-30T20:50:00+05:30",
+  "program_name": "Scanner Alert Quality 10/10 Acceleration Tracker",
+  "version": "4.0.0",
+  "scanners": {
+    "EOD": {
+      "lifecycle_state": "FORWARD_VALIDATING",
+      "historical_valid_n": 26,
+      "holdout_valid_n": 0,
+      "forward_valid_n": 0,
+      "unique_symbols": 1,
+      "remaining_to_forward_gate": 50,
+      "current_delta_net_r": 0.000,
+      "candidate_mechanism": "AQS_EOD_v1 (Pure Ranking, FROZEN)",
+      "blocker": "FORWARD_EVIDENCE_ACCUMULATING",
+      "next_action": "Capture and evaluate next live EOD breakout alert"
+    },
+    "MULTIBAGGER": {
+      "lifecycle_state": "FORWARD_VALIDATING",
+      "historical_valid_n": 20,
+      "holdout_valid_n": 13,
+      "forward_valid_n": 0,
+      "unique_symbols": 33,
+      "remaining_to_forward_gate": 50,
+      "current_delta_net_r": 0.074,
+      "candidate_mechanism": "AQS_ACCUM_v1 (FROZEN)",
+      "blocker": "FORWARD_EVIDENCE_ACCUMULATING",
+      "next_action": "Capture and evaluate next live base breakout alert"
+    },
+    "PULLBACK": {
+      "lifecycle_state": "FORWARD_VALIDATING",
+      "historical_valid_n": 479,
+      "holdout_valid_n": 20,
+      "forward_valid_n": 0,
+      "unique_symbols": 313,
+      "remaining_to_forward_gate": 50,
+      "current_delta_net_r": 0.078,
+      "candidate_mechanism": "AQS_PULLBACK_v1 (Pure Ranking, FROZEN)",
+      "blocker": "FORWARD_EVIDENCE_ACCUMULATING",
+      "next_action": "Capture and evaluate next live pullback trigger alert"
+    },
+    "WEALTH_ENGINE": {
+      "lifecycle_state": "FORWARD_VALIDATING",
+      "historical_valid_n": 15,
+      "holdout_valid_n": 0,
+      "forward_valid_quarters": 0,
+      "unique_symbols": 15,
+      "remaining_to_forward_gate": 4,
+      "current_delta_cagr_pct": 14.70,
+      "candidate_mechanism": "AQS_WEALTH_v1 (FROZEN)",
+      "blocker": "FORWARD_REBALANCE_CYCLE_ACCUMULATING",
+      "next_action": "Evaluate Q1 forward portfolio rebalance against Nifty 50"
+    },
+    "DAILY_BUILDER": {
+      "lifecycle_state": "BASELINE_ESTABLISHED",
+      "historical_valid_n": 362,
+      "holdout_valid_n": 0,
+      "forward_valid_n": 0,
+      "unique_symbols": 111,
+      "remaining_to_forward_gate": 50,
+      "baseline_net_er": -0.011,
+      "candidate_top33_net_er": 0.053,
+      "current_delta_net_r": 0.064,
+      "candidate_mechanism": "AQS_DAILY_BUILDER_v1 (Early ORB + Vol Surge)",
+      "blocker": "SEALED_HOLDOUT_PARTITIONING",
+      "next_action": "Execute formal train/holdout partition on N=362 intraday outcomes"
+    },
+    "MULTI_TF": {
+      "lifecycle_state": "BASELINE_ESTABLISHED",
+      "historical_valid_n": 51,
+      "holdout_valid_n": 0,
+      "forward_valid_n": 0,
+      "unique_symbols": 33,
+      "remaining_to_forward_gate": 50,
+      "baseline_net_er": 0.030,
+      "candidate_mechanism": "AQS_MULTI_TF_v1 (Candidate Discovery)",
+      "blocker": "CANDIDATE_DISCOVERY_ACTIVE",
+      "next_action": "Perform failure anatomy and candidate discovery on N=51 MTF outcomes"
+    },
+    "REVERSAL": {
+      "lifecycle_state": "BASELINE_ESTABLISHED",
+      "historical_valid_n": 156,
+      "holdout_valid_n": 0,
+      "forward_valid_n": 0,
+      "unique_symbols": 69,
+      "remaining_to_forward_gate": 50,
+      "baseline_net_er": 0.016,
+      "candidate_mechanism": "AQS_REVERSAL_v1 (Candidate Discovery)",
+      "blocker": "CANDIDATE_DISCOVERY_ACTIVE",
+      "next_action": "Perform failure anatomy and candidate discovery on N=156 reversal outcomes"
+    }
+  }
+}

@@ -1,0 +1,109 @@
+=== MULTI_TF REPLAYS TRACE ===
+Row 6525 | Sym: RELIANCE | Date: 2026-08-19 11:25:35 IST | Entry: 129.5 | SL: 128.0 | Target: 129.5 | Risk: 1.5 | MFE: 794.73 | MAE: 0.0 | Realized: 0.0
+Row 6527 | Sym: TCS | Date: 2026-08-19 11:25:40 IST | Entry: 129.5 | SL: 128.0 | Target: 129.5 | Risk: 1.5 | MFE: 1452.47 | MAE: 0.0 | Realized: 0.0
+Row 7524 | Sym: RELIANCE | Date: 2026-08-19 11:31:09 IST | Entry: 129.5 | SL: 128.0 | Target: 129.5 | Risk: 1.5 | MFE: 794.73 | MAE: 0.0 | Realized: 0.0
+Row 7526 | Sym: TCS | Date: 2026-08-19 11:31:11 IST | Entry: 129.5 | SL: 128.0 | Target: 129.5 | Risk: 1.5 | MFE: 1452.47 | MAE: 0.0 | Realized: 0.0
+Row 8526 | Sym: RELIANCE | Date: 2026-08-19 11:40:04 IST | Entry: 129.5 | SL: 128.0 | Target: 129.5 | Risk: 1.5 | MFE: 794.73 | MAE: 0.0 | Realized: 0.0
+Row 8528 | Sym: TCS | Date: 2026-08-19 11:40:08 IST | Entry: 129.5 | SL: 128.0 | Target: 129.5 | Risk: 1.5 | MFE: 1452.47 | MAE: 0.0 | Realized: 0.0
+Row 13747 | Sym: RELIANCE | Date: 2026-08-19 15:20:44 IST | Entry: 129.5 | SL: 128.0 | Target: 129.5 | Risk: 1.5 | MFE: 794.73 | MAE: 0.0 | Realized: 0.0
+Row 13749 | Sym: TCS | Date: 2026-08-19 15:20:49 IST | Entry: 129.5 | SL: 128.0 | Target: 129.5 | Risk: 1.5 | MFE: 1452.47 | MAE: 0.0 | Realized: 0.0
+Row 14749 | Sym: RELIANCE | Date: 2026-08-19 15:29:48 IST | Entry: 129.5 | SL: 128.0 | Target: 129.5 | Risk: 1.5 | MFE: 794.73 | MAE: 0.0 | Realized: 0.0
+Row 14751 | Sym: TCS | Date: 2026-08-19 15:29:59 IST | Entry: 129.5 | SL: 128.0 | Target: 129.5 | Risk: 1.5 | MFE: 1452.47 | MAE: 0.0 | Realized: 0.0
+Row 17566 | Sym: RELIANCE | Date: 2026-08-19 17:05:56 IST | Entry: 129.5 | SL: 128.0 | Target: 129.5 | Risk: 1.5 | MFE: 794.73 | MAE: 0.0 | Realized: 0.0
+Row 17602 | Sym: TCS | Date: 2026-08-19 17:06:03 IST | Entry: 129.5 | SL: 128.0 | Target: 129.5 | Risk: 1.5 | MFE: 1452.47 | MAE: 0.0 | Realized: 0.0
+Row 17744 | Sym: RELIANCE | Date: 2026-08-19 17:11:06 IST | Entry: 129.5 | SL: 128.0 | Target: 129.5 | Risk: 1.5 | MFE: 794.73 | MAE: 0.0 | Realized: 0.0
+Row 17746 | Sym: TCS | Date: 2026-08-19 17:11:19 IST | Entry: 129.5 | SL: 128.0 | Target: 129.5 | Risk: 1.5 | MFE: 1452.47 | MAE: 0.0 | Realized: 0.0
+
+=== REJECTION BREAKDOWN AUDIT ===
+Total Rejected: 19626
+  WEAK_SIGNALS_FAIL: 5062
+  NO_UPTREND_FAIL: 4107
+  STALE_DATA_FAIL: 3902
+  PULLBACK_INVALID_FAIL: 3840
+  NO_TRIGGER_FAIL: 828
+  STALE_DATA: Stale trade date: unknown: 700
+  FAILED_BUCKET_GATES_FAIL: 494
+  INSUFFICIENT_BARS_FAIL: 141
+  RISK_REJECTED_FAIL: 91
+  RANKED_OUT_FAIL: 89
+  BUCKETS_REVIEW: 60
+  QUALITY_REJECTED: V5 Gate: Incomplete Data: 41
+  TREND001_FAIL: 26
+  Score 54.0 < 75 minimum threshold: 22
+  NO_BREAKOUT_FAIL: 22
+  Score 0.0 < 75 minimum threshold: 22
+  20D Avg Turnover ₹0.62Cr < ₹1.0Cr minimum liquidity: 19
+  LOW_AVG_VOLUME_FAIL: 17
+  RSI_RANGE_FAIL: 15
+  QUALITY_REJECTED: Data Void: Incomplete dataset (1 populated: [Promoter Pledge] | Missing: [Piotroski Score, FCF Margin, CFO/PAT, Debt/Equity, Interest Coverage, Altman-Z, Revenue CAGR 3Y, ROCE/ROE, Operating Margin] | Solvency: MISSING): 14
+  INCOMPLETE_DATA_FAIL: 12
+  LOW_VOLUME_FAIL: 10
+  BELOW_200SMA_FAIL: 7
+  RSI_GATE_FAIL: 6
+  LOW_SCORE_FAIL: 5
+  WEAK_ADX_FAIL: 5
+  FAILED_PATTERN_FAIL: 4
+  LOW_RR_FAIL: 2
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4843640384'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4844262208'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4843996064'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4843963584'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4843797856'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4842711312'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4843337664'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4843490416'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4843184192'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4843026656'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4842889568'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4842603376'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4844581024'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4844432016'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4844879392'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4844762496'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4844867056'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4845045072'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4845194880'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4845356416'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4845518080'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4844456592'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4845991296'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4846104784'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4846119184'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4842247360'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4844146544'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4844111712'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4842966800'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4842400736'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4839793760'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4842089392'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4841936592'>: 1
+  QUALITY_REJECTED: Debt/Equity > 2.0 (5.29): 1
+  QUALITY_REJECTED: Debt/Equity > 2.0 (5.26): 1
+  QUALITY_REJECTED: ROCE/ROE below 5% (-822.6%): 1
+  QUALITY_REJECTED: ROCE/ROE below 5% (-976.9%): 1
+  QUALITY_REJECTED: Debt/Equity > 2.0 (3.93): 1
+  QUALITY_REJECTED: ROCE/ROE below 5% (-1165.3%): 1
+  QUALITY_REJECTED: Debt/Equity > 2.0 (2.50): 1
+  QUALITY_REJECTED: Debt/Equity > 2.0 (2.14): 1
+  QUALITY_REJECTED: Debt/Equity > 2.0 (3.11): 1
+  DataFrame timestamp is missing or untrustworthy: 1
+  Fundamentals unavailable (fail-closed): 1
+  Multibagger V5 Score 56.2 (🟡 Watchlist) | Pledge: UNVERIFIED: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4825397808'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4825622560'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4825843744'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4839888880'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4839795152'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4840128080'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4840215408'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4840369600'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4840539568'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4840688704'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4840842144'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4840990848'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4841273328'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4841298240'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4841468064'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4841617440'>: 1
+  QUALITY_REJECTED: V5 Gate: <MagicMock name='mock.invalidation_reason' id='4841779008'>: 1
+  QUALITY_REJECTED: Data Void: Incomplete dataset (0 populated: [None] | Missing: [Promoter Pledge, Piotroski Score, FCF Margin, CFO/PAT, Debt/Equity, Interest Coverage, Altman-Z, Revenue CAGR 3Y, ROCE/ROE, Operating Margin] | Solvency: MISSING): 1

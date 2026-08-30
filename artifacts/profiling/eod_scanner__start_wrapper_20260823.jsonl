@@ -1,2 +1,0 @@
-{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-23T20:55:26.095271+05:30", "duration_s": 766.752, "rss_before_mb": 144.8, "rss_after_mb": 198.5, "rss_delta_mb": 53.7, "error": "local variable 'all_ticker_data' referenced before assignment"}
-{"stage": "eod_scanner._start_wrapper", "timestamp": "2026-08-23T20:56:17.701737+05:30", "duration_s": 938.572, "rss_before_mb": 144.8, "rss_after_mb": 606.2, "rss_delta_mb": 461.5, "error": "local variable 'all_ticker_data' referenced before assignment"}

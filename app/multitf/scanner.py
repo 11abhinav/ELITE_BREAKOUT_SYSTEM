@@ -54,10 +54,10 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
 
     from telemetry_manager import telemetry
     from perf_utils import ScannerStageTracker
-    
+
     telemetry.log_scheduler_event("MULTI_TF", "CYCLE_START")
     stage_tracker = ScannerStageTracker("MULTI_TF_V2")
-    
+
     # Create proper DB execution run context
     trigger_type = run_ctx if isinstance(run_ctx, str) else "SCHEDULED"
     from database import start_scanner_execution_run, complete_scanner_execution_run
@@ -68,7 +68,7 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
         real_run_ctx = None
 
     start_time = time.monotonic()
-    
+
     try:
         stage_tracker.start_stage(1, "Load Watchlist", "Fetching elite watchlist symbols from DB")
         upsert_scanner_health(
@@ -76,7 +76,7 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             status="RUNNING",
             error_msg="Scan execution in progress..."
         )
-        
+
         watchlist = get_elite_watchlist()
         if not watchlist:
             logger.warning("[MULTI_TF] Watchlist empty.")
@@ -90,20 +90,20 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             stage_tracker.end_stage("Watchlist empty")
             telemetry.log_scheduler_event("MULTI_TF", "CYCLE_COMPLETE")
             return
-        
+
         stage_tracker.end_stage(f"Loaded {len(watchlist)} symbols")
 
         # Stage 2: Parallel Fetching
         stage_tracker.start_stage(2, "Fetch Market Data", "Pre-fetching multi-timeframe candle bars")
         logger.info("[MULTI_TF] Pre-fetching data (1d, 1h, 30m, 15m, 5m) for %d symbols...", len(watchlist))
         t_fetch_start = time.monotonic()
-        
+
         all_1d  = fetch_watchlist_data(watchlist, period="1y", interval="1d", requester="MULTI_TF")
         all_1h  = fetch_watchlist_data(watchlist, period="45d", interval="1h", requester="MULTI_TF")
         all_30m = fetch_watchlist_data(watchlist, period="20d", interval="30m", requester="MULTI_TF")
         all_15m = fetch_watchlist_data(watchlist, period="15d", interval="15m", requester="MULTI_TF")
         all_5m  = fetch_watchlist_data(watchlist, period="5d",  interval="5m",  requester="MULTI_TF")
-        
+
         t_fetch_dur = round(time.monotonic() - t_fetch_start, 2)
         logger.info("⚡ [MULTI_TF] Completed market data pre-fetch in %ss", t_fetch_dur)
         stage_tracker.end_stage(f"Fetched data in {t_fetch_dur}s")
@@ -154,7 +154,7 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             total_count=len(watchlist),
             duration_seconds=duration
         )
-        
+
         telemetry.log_scheduler_event("MULTI_TF", "CYCLE_COMPLETE")
         logger.info("✅ MULTI_TF V2 ENGINE | Execution cycle complete in %ss.", duration)
 
@@ -195,9 +195,9 @@ def _process_symbol(
     atr_5m = float(bundle.df_5m_closed["ATR_14"].iloc[-1]) if "ATR_14" in bundle.df_5m_closed else 0.0
     if atr_15m <= 0 or atr_5m <= 0:
         return
-        
+
     current_price = float(bundle.df_5m_closed["Close"].iloc[-1])
-    
+
     # 2. Setup Detection (15m strictly closed)
     consolidation = detect_15m_consolidation(bundle.df_15m_closed, atr_15m, ist_now, config)
     if not consolidation.is_valid:
@@ -206,7 +206,7 @@ def _process_symbol(
     # 3. State Management
     state_record = load_state(symbol, consolidation.box_id)
     is_new = (state_record is None)
-    
+
     # 4. Context Evaluation (lazy, only needed if valid setup exists)
     ctx_1h = evaluate_1h_context(bundle.df_1h, config)
     ctx_30m = evaluate_30m_context(bundle.df_30m, consolidation.box_high, config)
@@ -260,7 +260,7 @@ def _process_symbol(
             market_ctx=market_ctx,
             config=config
         )
-        
+
         if confluence.is_approved:
             # 7. R:R Target Generation
             sl_target = compute_sl_and_target(
@@ -270,13 +270,13 @@ def _process_symbol(
                 mode="MULTI_TF_V2",
                 box_low=consolidation.box_low
             )
-            
+
             # 8. Canonical Alert Registration (Record the setup regardless of economic tradeability)
             idempotency_signals = f"BOX_ID={consolidation.box_id}"
-            
+
             tradeability_status = "NOT_TRADEABLE" if sl_target.get("is_rejected") else "TRADEABLE"
             tradeability_reason = "RR_REJECTED" if sl_target.get("is_rejected") else ""
-            
+
             inserted, _, _, _ = save_alert_if_new(
                 symbol=symbol,
                 breakout_type="MULTI_TF",
@@ -292,17 +292,17 @@ def _process_symbol(
                 score=int(confluence.total_score),
                 volume_ratio=pressure.volume_ratio,
                 context={
-                    "box_id": consolidation.box_id, 
+                    "box_id": consolidation.box_id,
                     "rr_ratio": sl_target.get("rr_ratio"),
                     "signal_status": "CONFIRMED",
                     "tradeability_status": tradeability_status,
                     "tradeability_reason": tradeability_reason
                 }
             )
-            
+
             if sl_target.get("is_rejected"):
                 # 9a. Tradeability Rejection (Structurally valid, but poor RR)
-                logger.info("[%s] CONFIRMED breakout rejected by R:R gate (%.2f < %.2f). Marked NOT_TRADEABLE.", 
+                logger.info("[%s] CONFIRMED breakout rejected by R:R gate (%.2f < %.2f). Marked NOT_TRADEABLE.",
                             symbol, sl_target.get("rr_ratio", 0), config.get("MIN_RR_RATIO", 1.5))
                 state_record.mtf_substate = MtfSubstate.INVALIDATED
                 state_record.state = "REJECTED"
@@ -322,17 +322,17 @@ def _process_symbol(
                     opp_manager.add(payload)
                 else:
                     logger.debug("[%s] Alert already processed for box %s, skipping OpportunityManager.", symbol, consolidation.box_id)
-                
+
                 state_record.mtf_substate = MtfSubstate.BREAKOUT_CONFIRMED
                 state_record.state = "CONFIRMED"
                 updates["last_confirmation_ts"] = ist_now
-            
+
     elif pressure.is_attempt and state_record.mtf_substate == MtfSubstate.WATCHING:
         # Switch to ATTEMPT state
         state_record.mtf_substate = MtfSubstate.ATTEMPT
         state_record.state = "CANDIDATE"
         state_record.attempt_count += 1
-        
+
         updates["attempt_started_ts"] = ist_now
         updates["last_attempt_ts"] = ist_now
         updates["attempt_bar_boundary"] = pressure.attempt_bar_boundary
@@ -340,23 +340,3 @@ def _process_symbol(
     # 10. Sync state changes to DB
     if updates or state_record.mtf_substate != MtfSubstate.WATCHING:
         update_state_in_db(state_record, updates)
-
-    upsert_scanner_health(
-        scanner_name="MULTI_TF",
-        status="OK",
-        error_msg=f"Completed {len(watchlist)} symbols in {time.monotonic() - start_time:.2f}s"
-    )
-    if real_run_ctx:
-        complete_scanner_execution_run(real_run_ctx, status_override="COMPLETED")
-
-except Exception as e:
-    logger.exception(f"❌ [MULTI_TF] Execution failed: {e}")
-    upsert_scanner_health(
-        scanner_name="MULTI_TF",
-        status="DOWN",
-        error_msg=str(e)
-    )
-    if real_run_ctx:
-        complete_scanner_execution_run(real_run_ctx, status_override="FAILED", exception=e)
-finally:
-    _scan_lock.release()

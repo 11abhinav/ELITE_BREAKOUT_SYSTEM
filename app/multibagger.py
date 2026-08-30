@@ -198,7 +198,7 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
         ctx.capture("Promoter_Pledge", pledge_ratio, origin="EXTERNAL_API", group="INDICATOR")
         ctx.capture_score("TOTAL", composite_score if composite_score is not None else 0.0, 100.0)
         ctx.capture_sl_target(close_price, sl_result.get("stop_loss", 0.0), sl_result.get("target_1", 0.0))
-        
+
         ctx.finalize(decision="SELECTED" if is_qualified else "REJECTED", primary_reason=reasons[0] if reasons else "NO_QUALIFY")
         telemetry_engine.emit_terminal(ctx)
     except Exception as telemetry_err:
@@ -305,14 +305,14 @@ def append_rejection(results: list, symbol: str, status: str, notes: str, price:
     try:
         from scanner_telemetry import DecisionContext, telemetry_engine
         ctx = DecisionContext(symbol=symbol, scanner_name="MULTIBAGGER")
-        
+
         # Real market data extraction from price_data
         _open = getattr(price_data, 'today_open', price) if price_data else price
         _high = getattr(price_data, 'high_52w', price) if price_data else price
         _low = getattr(price_data, 'low_52w', price) if price_data else price
         _close = price_data.price if price_data else price
         _vol = getattr(price_data, 'latest_volume', 0.0) if price_data else 0.0
-        
+
         ctx.capture_raw_market(open_p=_open, high_p=_high, low_p=_low, close_p=_close, volume=_vol)
         ctx.capture_raw_vs_normalized(
             source_raw={"Open": _open, "High": _high, "Low": _low, "Close": _close, "Volume": _vol},
@@ -784,7 +784,7 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
                         raw_dict[sym] = sym_data.ohlcv_df
             else:
                 raw_dict = fetch_unified_historical(chunk, period="1y", interval="1d", requester="multibagger")
-                
+
             if not raw_dict:
                 continue
 
@@ -793,7 +793,7 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
             tracker.mark_fetch_complete(row_count=rows_fetched)
             batch_res = {sym: type("_MD", (), {"dataframe": df})() for sym, df in raw_dict.items() if df is not None}
 
-        
+
         # 2. Convert DataFrames to StockPriceData
             for sym, md in batch_res.items():
                 # [VERSION: HEARTBEAT_PARSING_v1.0] Pulse heartbeat periodically during symbol parsing
@@ -802,27 +802,27 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
                 from core_enums import ProviderResult
                 if md is None or isinstance(md, ProviderResult):
                     continue
-            
+
                 ticker_df = md.dataframe if hasattr(md, "dataframe") else md
                 if ticker_df is None or getattr(ticker_df, "empty", True):
                     continue
-                
+
                 try:
                     ticker_df = ticker_df.dropna(subset=["Close"])
                     if ticker_df.empty:
                         continue
-                    
+
                     if "Date" in ticker_df.columns:
                         ticker_df = ticker_df.set_index("Date")
                     elif "Datetime" in ticker_df.columns:
                         ticker_df = ticker_df.set_index("Datetime")
-                    
+
                     if isinstance(ticker_df.index, pd.DatetimeIndex):
                         if ticker_df.index.tz is None:
                             ticker_df.index = ticker_df.index.tz_localize(IST)
                         else:
                             ticker_df.index = ticker_df.index.tz_convert(IST)
-                    
+
                     real_time_close_series = ticker_df["Close"]
                     real_time_close = float(real_time_close_series.iloc[-1])
                     if len(real_time_close_series) >= 2:
@@ -848,14 +848,14 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
                         last_ts = ticker_df.index[-1]
                         if last_ts.date() == ist_now.date():
                             ticker_df = ticker_df.iloc[:-1]
-                        
+
                     # [IPO COMPATIBILITY] Allow short-history IPO stocks with >= 15 bars
                     MIN_BARS = 15
                     if len(ticker_df) < MIN_BARS:
                         continue
-                        
+
                     # [SEMANTIC VALIDATION] Reject pure data voids that appear valid numerically.
-                    # e.g., O=H=L=C and Vol=0 means the stock is suspended or illiquid, 
+                    # e.g., O=H=L=C and Vol=0 means the stock is suspended or illiquid,
                     # but technical indicators will still calculate flatlines that bypass thresholds.
                     _latest_ohlcv = ticker_df.iloc[-1]
                     _o = _latest_ohlcv.get("Open", 0.0)
@@ -872,9 +872,9 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
                         ctx.finalize(decision="REJECTED", primary_reason="NO_TRADING_ACTIVITY")
                         telemetry_engine.emit_terminal(ctx)
                         continue
-                
+
                     last_trade_date = str(ticker_df.index[-1].date())
-                
+
                     close_series = ticker_df["Close"]
                     vol_series = ticker_df["Volume"] if "Volume" in ticker_df.columns else pd.Series([0]*len(ticker_df))
 
@@ -888,38 +888,38 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
 
                     close_price = real_time_close
                     change_pct = real_time_change
-                
+
                     close_yesterday = float(close_series.iloc[-2]) if len(close_series) >= 2 else float(close_series.iloc[-1])
-                
+
                     if "High" in ticker_df.columns and "Low" in ticker_df.columns:
                         high_52w = float(ticker_df["High"].max())
                         low_52w = float(ticker_df["Low"].min())
                     else:
                         high_52w = float(close_series.max())
                         low_52w = float(close_series.min())
-                
+
                     recent_20 = ticker_df.tail(20)
                     if not recent_20.empty and "Volume" in recent_20.columns:
                         avg_turnover = float((recent_20["Volume"] * recent_20["Close"]).mean())
                     else:
                         avg_turnover = 0.0
-                
+
                     hist_idx_6m = min(120, len(close_series) - 1)
                     close_6m_ago = float(close_series.iloc[-(hist_idx_6m + 1)])
                     mom_6m = ((close_price - close_6m_ago) / close_6m_ago) if close_6m_ago > 0 else 0.0
-                    
+
                     high_20d = float(close_series.tail(20).max())
                     high_60d = float(close_series.tail(60).max()) if len(close_series) >= 60 else high_20d
-                
+
                     hist_idx = min(60, len(close_series) - 1)
                     close_3m_ago = float(close_series.iloc[-(hist_idx + 1)])
                     mom_3m = ((close_price - close_3m_ago) / close_3m_ago) if close_3m_ago > 0 else 0.0
-                
+
                     latest_volume = float(vol_series.iloc[-1])
                     volume_sma20 = float(vol_series.tail(20).mean()) if len(vol_series) >= 20 else latest_volume
-                
+
                     cols = ticker_df.columns
-                    
+
                     if 'SMA_20' in cols:
                         sma_20_series = ticker_df['SMA_20']
                     elif 'SMA20' in cols:
@@ -963,13 +963,13 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
                     sma_200_yesterday = float(sma_200_series.iloc[-2]) if len(sma_200_series) >= 2 else sma_200
                     atr_14 = float(atr_14_series.iloc[-1]) if len(atr_14_series) > 0 else (close_price * 0.05)
                     ema_20 = float(ema_20_series.iloc[-1]) if len(ema_20_series) > 0 else close_price
-                
+
                     closes_below_sma200_count = 0
                     if len(close_series) >= 5 and sma_200_series is not None and len(sma_200_series.dropna()) >= 5:
                         last_5_closes = close_series.iloc[-5:]
                         last_5_smas = sma_200_series.iloc[-5:]
                         closes_below_sma200_count = sum(1 for c, s in zip(last_5_closes, last_5_smas) if c < s)
-                
+
                     results[sym] = StockPriceData(
                         symbol=sym,
                         price=close_price,
@@ -997,9 +997,9 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
                     )
                 except Exception as e:
                     logger.debug(f"Error parsing market data for {sym}: {e}")
-                
+
         del batch_res
-            
+
     logger.info(f"✅ Successfully parsed price data for {len(results)}/{len(symbols)} tickers.")
     return results
 
@@ -1017,14 +1017,14 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
     """
     if not isinstance(f, dict):
         return False, "Invalid fundamental dataset"
-    
+
     known_metrics = []
     missing_metrics = []
     has_solvency_metric = False
-    
+
     is_fin = f.get("is_financial", False)
     is_turnaround = "TURNAROUND" in str(f.get("category", "")).upper()
-    
+
     def safe_float(val, default=0.0):
         import pandas as pd
         if val is None or pd.isna(val) or val == "": return default
@@ -1070,10 +1070,10 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
             gnpa_for_tier2 = f.get("gnpa")
             roe_val_t2 = safe_float(roe_for_tier2) if (roe_for_tier2 is not None) else None
             gnpa_val_t2 = safe_float(gnpa_for_tier2) if (gnpa_for_tier2 is not None) else None
-            
+
             tier2_roe_ok = (roe_val_t2 is not None and roe_val_t2 >= 0.12)
             tier2_gnpa_ok = (gnpa_val_t2 is None or gnpa_val_t2 <= 0.05)
-            
+
             if tier2_roe_ok:
                 has_solvency_metric = True
             elif gnpa_val_t2 is not None and gnpa_val_t2 <= 0.05:
@@ -1100,12 +1100,12 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
                 evidence_score = 0
                 yoy_rev = safe_float(f.get("yoy_revenue"))
                 yoy_prof = safe_float(f.get("yoy_profit"))
-                
+
                 if yoy_rev > 0: evidence_score += 1
                 if yoy_prof > 0: evidence_score += 1
                 if gnpa is not None and safe_float(gnpa) <= 0.03: evidence_score += 1
                 if car is not None and car >= 0.15: evidence_score += 1
-                
+
                 if evidence_score < 2:
                     return False, f"Fin Turnaround lacks momentum evidence (Score: {evidence_score}/2)"
             else:
@@ -1165,7 +1165,7 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
         roce_val = f.get("roce", f.get("roe"))
         opm = f.get("operating_margin_ttm")
         rev_cagr = f.get("revenue_cagr_3y")
-        
+
         if rev_cagr is not None and not __import__('pandas').isna(rev_cagr):
             known_metrics.append("Revenue CAGR 3Y")
             if safe_float(rev_cagr) < -0.10:
@@ -1177,13 +1177,13 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
             evidence_score = 0
             yoy_rev = safe_float(f.get("yoy_revenue"))
             yoy_prof = safe_float(f.get("yoy_profit"))
-            
+
             if yoy_rev > 0: evidence_score += 1
             if yoy_prof > 0: evidence_score += 1
             if opm is not None and safe_float(opm) > 0: evidence_score += 1
             if de is not None and safe_float(de) < 1.0: evidence_score += 1
             if cfo_pat is not None and safe_float(cfo_pat) >= 1.0: evidence_score += 1
-            
+
             if evidence_score < 3:
                 return False, f"Turnaround lacks momentum evidence (Score: {evidence_score}/3 required)"
         else:
@@ -1194,7 +1194,7 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
                     return False, f"ROCE/ROE below 5% ({roce*100:.1f}%)"
             else:
                 missing_metrics.append("ROCE/ROE")
-            
+
             if opm is not None and not __import__('pandas').isna(opm):
                 known_metrics.append(f"OPM ({safe_float(opm)*100:.1f}%)")
                 if safe_float(opm) < 0.08:
@@ -1222,7 +1222,7 @@ def passes_multibagger_quality_gate(f: dict) -> tuple[bool, str]:
         missing_str = ", ".join(missing_metrics) if missing_metrics else "None"
         solv_str = "Present" if has_solvency_metric else "MISSING"
         return False, f"Data Void: Incomplete dataset ({known_count} populated: [{known_str}] | Missing: [{missing_str}] | Solvency: {solv_str})"
-        
+
     return True, "OK"
 
 
@@ -1253,11 +1253,11 @@ def classify_conviction(cqs: float, pas: float, trend: float, composite: float, 
 def entry_confirmed(price_data: StockPriceData) -> bool:
     """
     Ensures technical stabilization before entry.
-    Refined for Multibagger buy-zone pullbacks:
-    1. Price at/above SMA200 support band (>= 0.96 * SMA200)
-    2. Completed-bar volume >= 30% of 20-day average (allows quiet buy-zone pullbacks)
-    3. Stabilized close (close >= 0.995 * open, or fallback if EOD open unverified)
-    4. Near key support level (EMA20, SMA50, or SMA200)
+    [v5.2.0 UPGRADE]: Enforces proven Volume Expansion Gate:
+      1. Price at/above SMA200 support band (>= 0.96 * SMA200)
+      2. Completed-bar breakout volume >= 2.0x of 20-day average volume (Volume Gate)
+      3. Stabilized close (close >= 0.995 * open, or fallback if EOD open unverified)
+      4. Near key support level (EMA20, SMA50, or SMA200)
     """
     if price_data.price < price_data.sma_200 * 0.96:
         return False
@@ -1265,8 +1265,8 @@ def entry_confirmed(price_data: StockPriceData) -> bool:
     if price_data.volume_sma20 <= 0:
         return False
 
-    # Completed-bar volume: Allow >= 30% of 20-day average volume during buy-zone pullbacks
-    completed_bar_volume_ok = price_data.latest_volume >= 0.30 * price_data.volume_sma20
+    # [v5.2.0 PROVEN WINNER]: Breakout volume >= 2.0x 20-day average volume
+    completed_bar_volume_ok = price_data.latest_volume >= 2.0 * price_data.volume_sma20
 
     # Stabilized close: Allow green, flat, or mild consolidation doji
     if price_data.today_open and price_data.today_open > 0 and price_data.today_close and price_data.today_close > 0:
@@ -1297,7 +1297,7 @@ def _is_fundamental_cache_fresh(data: dict) -> bool:
             if data.get("total_equity") is not None or data.get("roe") is not None or data.get("score") is not None:
                 return True
             return False
-            
+
         # Parse it
         try:
             # Try isoformat first (fetched_at)
@@ -1305,17 +1305,17 @@ def _is_fundamental_cache_fresh(data: dict) -> bool:
         except ValueError:
             # Fallback to YYYY-MM-DD (date)
             fetched_at = datetime.strptime(date_str, "%Y-%m-%d")
-            
+
         if fetched_at.tzinfo is None:
             fetched_at = fetched_at.replace(tzinfo=IST)
-            
+
         now_dt = datetime.now(IST)
         age_days = (now_dt - fetched_at).days
-        
+
         # Fundamentals: 15 days TTL normally, 7 days during Saturday 06:00-10:00 AM IST window
         is_saturday_window = (now_dt.weekday() == 5 and 6 <= now_dt.hour < 10)
         max_age_days = 7 if is_saturday_window else 15
-        
+
         return age_days < max_age_days
     except Exception as e:
         logger.debug(f"Freshness check failed: {e}")
@@ -1436,11 +1436,11 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]
         clean_sym.replace(".NS", ""),
         clean_sym.replace(".BO", "")
     ]
-    
+
     def _is_valid_payload(p: dict) -> bool:
         if not p or not isinstance(p, dict):
             return False
-            
+
         # A cached failure means we tried and failed, so it's a valid cache state.
         if p.get("failed") is True:
             return True
@@ -1465,7 +1465,7 @@ def get_cached_fundamentals(symbol: str, cache: dict) -> Optional[Dict[str, Any]
                 if _is_valid_payload(data) and _is_fundamental_cache_fresh(data):
                     res = {k: val for k, val in data.items() if k not in ("fetched_at", "date")}
                     res["symbol"] = clean_sym
-                    
+
                     # [MATHEMATICAL DERIVATION] Derive missing total_equity, net_profit, total_debt from TV baseline
                     mcap = res.get("market_cap") or res.get("market_cap_basic")
                     pb = res.get("pb") or res.get("price_book_ratio") or res.get("price_book_ratio_fy")
@@ -1587,13 +1587,13 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
             ticker_name = f"{symbol}.NS"
     except Exception:
         ticker_name = f"{symbol}.NS"
-        
+
     info, fast_info, fin, bs, cf = None, None, None, None, None
     success = False
-    
+
     # Spacing delay is regulated by global yf_rate_limiter.py instead of hardcoded sleeps
 
-    
+
     for attempt in range(3):
         try:
             yf_acquire(context=f"Multibagger Scanner | {symbol}")
@@ -1606,11 +1606,11 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                 cf = ticker.cashflow
             finally:
                 yf_release()
-                
+
             mc = info.get("marketCap") if info else None
             if mc is None and fast_info:
                 mc = fast_info.get("marketCap")
-                
+
             if (fin is None or fin.empty or not mc) and ticker_name.endswith(".NS"):
                 bse_sym = ticker_name[:-3] + ".BO"
                 logger.info(f"🔄 Multibagger: financials/marketCap missing for {ticker_name}, retrying with {bse_sym}...")
@@ -1631,7 +1631,7 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                             pass
                 finally:
                     yf_release()
-            
+
             # [VERSION: MULTIBAGGER_REVERSE_FALLBACK_v1.0] Poisoned BO mapping → recover via NS
             # If the mapping pointed us to .BO but it returned empty financials, the BSE ticker
             # is likely delisted/suspended. Invalidate the mapping and retry via NSE.
@@ -1693,11 +1693,11 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
                         yf_release()
                 except Exception:
                     pass
-            
+
             msg = str(e).lower()
             if any(term in msg for term in ["too many requests", "429", "503", "502", "504", "crumb", "unauthorized", "connection termination", "upstream connect", "reset reason", "service unavailable"]):
                 record_rate_limit(context=f"Multibagger Scanner | {symbol}")
-                
+
             if attempt < 2:
                 time.sleep(2 * (attempt + 1))
             else:
@@ -1726,14 +1726,14 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
 
     if not success or fin is None or fin.empty:
         return try_salvage()
-        
+
     market_cap = info.get("marketCap")
     if market_cap is None and fast_info is not None:
         market_cap = fast_info.get("marketCap")
-        
+
     if not market_cap:
         return try_salvage()
-        
+
     pat = safe_extract(fin, 'Net Income')
     cfo = safe_extract(cf, 'Operating Cash Flow') or info.get('operatingCashflow')
     revenue = safe_extract(fin, 'Total Revenue')
@@ -1743,11 +1743,11 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
     working_capital = safe_extract(bs, 'Working Capital')
     retained_earnings = safe_extract(bs, 'Retained Earnings')
     total_liab = safe_extract(bs, 'Total Liabilities Net Minority Interest') or safe_extract(bs, 'Total Liabilities')
-    
+
     cfo_pat = cfo / pat if pat and cfo and pat > 0 else None
     ato = revenue / assets if revenue and assets and assets > 0 else None
     roic = ebit / (assets - current_liab) if ebit and assets and current_liab and (assets - current_liab) > 0 else None
-    
+
     altman_z = None
     market_cap = info.get('marketCap')
     if all(v is not None for v in [working_capital, retained_earnings, ebit, market_cap, total_liab, assets]) and assets > 0 and total_liab > 0:
@@ -1755,17 +1755,17 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
         x2 = retained_earnings / assets
         x3 = ebit / assets
         x4 = market_cap / total_liab
-        
+
         # [VERSION: MULTIBAGGER_Z_FIX_v1.0] Determine Z''-score for service/non-manufacturing firms vs standard Z-score for manufacturing firms
         is_svc = any(k in str(info.get("sector", "")).lower() for k in ["technology", "communication", "services"]) or \
                  any(k in str(info.get("industry", "")).lower() for k in ["services", "software", "consulting", "internet", "retail", "media"])
-                 
+
         if is_svc:
             altman_z = (6.56 * x1) + (3.26 * x2) + (6.72 * x3) + (1.05 * x4)
         else:
             x5 = revenue / assets if revenue else 0
             altman_z = (1.2 * x1) + (1.4 * x2) + (3.3 * x3) + (0.6 * x4) + (1.0 * x5)
-    
+
     # Map to V5 Engine Expected Keys
     price = info.get("currentPrice")
     if not price:
@@ -1776,26 +1776,26 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
         shares = market_cap / price
     elif not shares:
         shares = None
-        
+
     eps = safe_float(info.get("trailingEps"))
     if not eps and pat is not None:
         eps = pat / shares if shares and shares > 0 else None
-        
+
     bv = safe_float(info.get("bookValue"))
     if not bv and assets and total_liab:
         bv = (assets - total_liab) / shares if shares and shares > 0 else None
-        
+
     fcf = info.get("freeCashflow")
     if fcf is None and cfo is not None:
         capex = abs(safe_extract(cf, 'Capital Expenditure', default=0.0))
         fcf = cfo - capex
-    
+
     total_equity = safe_extract(bs, 'Stockholders Equity') or safe_extract(bs, 'Total Stockholder Equity')
     if not total_equity and assets and total_liab:
         total_equity = assets - total_liab
     if not total_equity and bv and shares:
         total_equity = bv * shares
-        
+
     roe = None
     # [VERSION: MULTIBAGGER_ROE_FIX_v1.0] Added ROE calculation with safeguards
     if pat is not None and not pd.isna(pat) and total_equity is not None and total_equity > 0:
@@ -1805,7 +1805,7 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
     roa = None
     if pat is not None and not pd.isna(pat) and assets is not None and assets > 0:
         roa = pat / assets
-    
+
     fund = {
         "symbol": symbol,
         "roe": roe,
@@ -1817,18 +1817,18 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
         "free_cash_flow": fcf,
         "ebit": ebit,
         "tt_indpe": info.get("trailingPE"), # Proxy for industry PE if missing
-        
+
         "operating_margin_ttm": info.get("operatingMargins"),
         "gross_margin_stability": (info.get("grossMargins") or 0.0) * 0.1, # Proxy
         "roce": roic,
         "cfo_pat_ratio": cfo_pat,
         "fcf_margin": fcf / revenue if revenue and fcf is not None else None,
-        
+
         "revenue_cagr_3y": compute_cagr(fin, 'Total Revenue', 3),
         "pat_cagr_3y": compute_cagr(fin, 'Net Income', 3),  # [FIX #6] Renamed: this is PAT CAGR, not per-share EPS CAGR
         "fcf_cagr_3y": compute_cagr(cf, 'Free Cash Flow', 3),
         "reinvestment_rate": (retained_earnings or 0.0) / assets if assets else 0.0,
-        
+
         "debt_equity": info.get("debtToEquity") / 100.0 if info.get("debtToEquity") is not None else None,
         # [FIX] ICR: do not use abs() on EBIT to preserve negative earnings signal.
         "interest_coverage_ratio": (lambda ie: (ebit / abs(ie)) if (ebit is not None and ie and abs(ie) > 1) else (100.0 if ebit is not None and ebit >= 0 else (-100.0 if ebit is not None else None)))(safe_extract(fin, 'Interest Expense')),
@@ -1851,7 +1851,7 @@ def fetch_ticker_fundamentals(symbol: str) -> Optional[Dict[str, Any]]:
         "piotroski_score": (lambda: (__import__('fundamentals_cache').compute_piotroski(info, fin, balance_sheet=bs) if (info and fin is not None and not fin.empty) else None))(),
         "piotroski_f_score": (lambda: (__import__('fundamentals_cache').compute_piotroski(info, fin, balance_sheet=bs) if (info and fin is not None and not fin.empty) else None))()
     }
-    
+
     return fund
 
 
@@ -1892,7 +1892,7 @@ def save_watchlist_to_db(results: list):
     """Save watchlist candidates in bulk using psycopg2 execute_values."""
     if not results:
         return
-    
+
     # Map ScreenerResult attributes to list of tuples for execute_values
     data = []
     for r in results:
@@ -1906,13 +1906,13 @@ def save_watchlist_to_db(results: list):
         else:
             last_price = None
             last_at = None
-            
+
         data.append((
             r.symbol.upper(), r.buy_zone_low, r.buy_zone_high, r.price,
             r.cqs, r.pas, r.trend_score, r.total_score, r.bucket, r.status, r.notes,
             last_price, last_at
         ))
-        
+
     try:
         with get_connection() as conn:
             if hasattr(conn, "is_dummy") and getattr(conn, "is_dummy", False):
@@ -1924,8 +1924,8 @@ def save_watchlist_to_db(results: list):
                     return
                 # Upsert query using execute_values
                 execute_values(cur, """
-                    INSERT INTO watchlist 
-                    (symbol, buy_zone_low, buy_zone_high, latest_price, 
+                    INSERT INTO watchlist
+                    (symbol, buy_zone_low, buy_zone_high, latest_price,
                      growth_score, value_score, trend_score, total_score, bucket, status, notes,
                      last_alert_price, last_alert_at)
                     VALUES %s
@@ -1956,13 +1956,13 @@ def format_telegram_message(categorized_stocks: dict) -> list:
     current_msg = "<b>🚀 DAILY MULTIBAGGER WATCHLIST SUMMARY</b>\n"
     current_msg += f"<i>Time: {datetime.now(IST).strftime('%Y-%m-%d %H:%M IST')}</i>\n"
     current_msg += "========================================\n\n"
-    
+
     has_results = False
     for label, stocks in categorized_stocks.items():
         if not stocks:
             continue
         has_results = True
-        
+
         section_text = f"<b>{label}</b> ({len(stocks)} stocks):\n"
         current_msg += section_text
         for item in sorted(stocks, key=lambda x: x['total'], reverse=True):
@@ -1972,14 +1972,14 @@ def format_telegram_message(categorized_stocks: dict) -> list:
             price = item['price']
             total = item['total']
             status = item['status']
-            
+
             alert_marker = " 🔔 <b>BUY READY</b>" if status == "ALERT_TRIGGERED" else (" ⏳ WAITING" if status in ("WAITING_BUY_ZONE", "REJECTED") else f" ⛔ {status}")
             line = f"• <b>{sym}</b> (₹{price:.1f}) | CQS: {cqs:.1f} | PAS: {pas:.1f} | Total: <b>{total:.1f}/100</b>{alert_marker}\n"
-            
+
             if len(current_msg) + len(line) > 3900:
                 messages.append(current_msg)
                 current_msg = "<b>🚀 MULTIBAGGER WATCHLIST SUMMARY (Cont.)</b>\n\n"
-                
+
             current_msg += line
 
         current_msg += "\n"
@@ -1989,7 +1989,7 @@ def format_telegram_message(categorized_stocks: dict) -> list:
         messages.append(current_msg)
     else:
         messages.append(current_msg)
-        
+
     return messages
 
 def run_scanner(debug_limit: int = None, is_test_mode: bool = False, session=None, run_ctx=None):
@@ -1999,7 +1999,7 @@ def run_scanner(debug_limit: int = None, is_test_mode: bool = False, session=Non
     logger.info("=================================================================")
     logger.info("🚀 STARTING ELITE MULTIBAGGER SCANNER V5.0")
     logger.info("=================================================================")
-    
+
     # Clear pledge cache to ensure fresh values are fetched from DB today
     try:
         from pledge_scraper import fetch_promoter_pledge
@@ -2013,7 +2013,7 @@ def run_scanner(debug_limit: int = None, is_test_mode: bool = False, session=Non
 
     from zoneinfo import ZoneInfo
     today_str = datetime.now(ZoneInfo('Asia/Kolkata')).strftime('%Y-%m-%d')
-    
+
     # ── VALIDATE UPSTREAM MANIFEST ──
     try:
         from database import get_latest_build_manifest
@@ -2089,17 +2089,17 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 # [VERSION: MULTIBAGGER_EXIT_FUND_FIX_v1.1] Include both OPEN and SELL_REVIEW so reviewed positions remain monitored
                 cur.execute("""
                     SELECT id, symbol, entry_price as alert_price, alert_date, status
-                    FROM alerts 
+                    FROM alerts
                     WHERE scanner = 'MULTIBAGGER' AND status IN ('OPEN', 'SELL_REVIEW') AND is_rejected = FALSE;
                 """)
                 open_positions = [dict(row) for row in cur.fetchall()]
-                
+
         if not open_positions:
             logger.info("ℹ️ No open MULTIBAGGER positions found. Skipping exits.")
             return
-            
+
         logger.info(f"🔄 Evaluating exits for {len(open_positions)} open MULTIBAGGER positions...")
-        
+
         # [VERSION: EXIT_MONITOR_NOTIFY_DEFER_v1.0]
         # Symbols flagged SELL_REVIEW due to incomplete data in this run.
         # Notifications are deferred until after the full evaluation loop so that
@@ -2123,10 +2123,10 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 entry_price = float(pos["alert_price"]) if pos.get("alert_price") is not None else 0.0
                 alert_id = pos["id"]
                 current_status = pos.get("status")
-                
+
                 # Try exit_prices first, then fall back to price_data_map
                 price_data = exit_prices.get(symbol) or price_data_map.get(symbol)
-                
+
                 # Check for temporary provider outage vs permanent stale data
                 if not price_data:
                     logger.error(f"🚨 [EXIT MONITOR] {symbol}: No price data available in batch. Skipping evaluation to prevent false exit.")
@@ -2137,10 +2137,10 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                     except Exception as e:
                         logger.exception(f"Failed to send telegram alert for {symbol} missing price data.")
                     continue
-                    
+
                 current_price = price_data.price
 
-                
+
                 # [VERSION: MULTIBAGGER_EXIT_FRESHNESS_v1.0] Exit freshness validation (fail closed)
                 last_trade_date = getattr(price_data, "last_trade_date", None)
                 if not last_trade_date:
@@ -2308,7 +2308,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                             if closes_below_count >= 3 and current_price < 0.93 * price_data.sma_200:
                                 exit_triggered = True
                                 exit_reason = f"Sustained 200-DMA breakdown: 3+ closes below, and >7% deep (Price: ₹{current_price:.1f}, 200-DMA: ₹{price_data.sma_200:.1f})"
-                        
+
                         # Auto-resolution: If position was in SELL_REVIEW but now passes quality gate cleanly, restore to OPEN
                         if current_status == "SELL_REVIEW" and not is_test_mode:
                             _clear_sell_review_to_open(alert_id, symbol)
@@ -2321,7 +2321,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                     logger.warning(f"🚨 SELL TRIGGERED for {symbol}: {exit_reason}")
                     calc_ret = ((current_price - entry_price) / entry_price * 100.0) if entry_price > 0 else 0.0
                     final_status = "WIN" if calc_ret >= 0 else "LOSS"
-                    
+
                     if is_test_mode:
                         logger.info(f"🧪 [TEST MODE] Would have closed {symbol} with status={final_status} due to {exit_reason}")
                         close_success = False
@@ -2340,7 +2340,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                         except Exception as e:
                             logger.error(f"❌ Failed to close MULTIBAGGER alert for {symbol}: {e}")
                             close_success = False
-                            
+
                     if close_success:
                         # Queue Telegram notification
                         sell_msg = (
@@ -2354,7 +2354,7 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                         queue_telegram_message(sell_msg, symbol=symbol)
             except Exception as e:
                 logger.error(f"❌ Unhandled exception in exit monitor for {pos.get('symbol', 'UNKNOWN')}: {e}", exc_info=True)
-                    
+
     except Exception as e:
         logger.exception(f"❌ Failed to complete exit monitoring")
 
@@ -2494,7 +2494,7 @@ def _prewarm_open_positions_cache(symbols: list, cache: dict, run_ctx=None) -> N
                 if not tv_bulk_cache:
                     from fundamentals_cache import fetch_tradingview_fundamentals_bulk
                     tv_bulk_cache = fetch_tradingview_fundamentals_bulk()
-                
+
                 tv_entry = tv_bulk_cache.get(sym) or tv_bulk_cache.get(sym.strip().upper())
                 if tv_entry:
                     for k, v in tv_entry.items():
@@ -2526,32 +2526,32 @@ def run_standalone_exit_monitor(is_test_mode: bool = False, run_ctx=None):
     try:
         from database import get_connection
         from psycopg2.extras import RealDictCursor
-        
+
         # 1. Fetch active/reviewed MULTIBAGGER positions from alerts table
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # [VERSION: MULTIBAGGER_EXIT_FUND_FIX_v1.1] Include both OPEN and SELL_REVIEW so reviewed positions remain monitored
                 cur.execute("""
                     SELECT id, symbol, entry_price as alert_price, alert_date
-                    FROM alerts 
+                    FROM alerts
                     WHERE scanner = 'MULTIBAGGER' AND status IN ('OPEN', 'SELL_REVIEW') AND is_rejected = FALSE;
                 """)
                 open_positions = cur.fetchall()
-                
+
         if not open_positions:
             return
-            
+
         # 2. Fetch latest prices for just these symbols
         symbols = [p['symbol'] for p in open_positions]
         if not symbols:
             return
-            
+
         if run_ctx:
             run_ctx.set_total_stocks(len(symbols))
             run_ctx.record_fresh_data(len(symbols))
-            
+
         price_data_map_raw = batch_download_market_data(symbols, run_ctx=run_ctx)
-        
+
         price_data_map = {}
         for sym, stock_data in price_data_map_raw.items():
             if stock_data:
@@ -2569,20 +2569,20 @@ def run_standalone_exit_monitor(is_test_mode: bool = False, run_ctx=None):
                     closes_below_sma200_count=stock_data.closes_below_sma200_count,
                     last_trade_date=getattr(stock_data, 'last_trade_date', '') or ''
                 )
-                
+
         # 3. Use cache for fundamentals — always pull fresh from DB so exit monitor
         # sees the DEEP_V5 data written by the last daily MULTIBAGGER screening scan.
         # [VERSION: EXIT_CACHE_DB_FIRST_v1.0] Remove circular self-import. load_cache() is
         # already defined in this module — no need to import from multibagger.
         cache = load_cache()
-        
+
         # 4. Pre-warm SELL_REVIEW/OPEN positions to DEEP_V5 before running exit logic.
         # This ensures exit monitor never hits YFinance rate limits on 5-min cycles.
         _prewarm_open_positions_cache(symbols, cache)
-        
+
         # 5. Run the core exit logic
         run_exit_monitor(price_data_map, cache, is_test_mode)
-        
+
     except Exception as e:
         logger.exception(f"Failed to run standalone exit monitor")
         raise e
@@ -2627,7 +2627,7 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
             if run_ctx:
                 update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
             upsert_scanner_health("MULTIBAGGER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-            
+
             try:
                 acquired_global = _global_lock.acquire(blocking=True, owner_scanner="MULTIBAGGER", operation="FULL_SCAN", run_ctx=run_ctx)
             except Exception as lock_err:
@@ -2662,7 +2662,7 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
 
         _scan_start = print_scanner_start_banner("multibagger", queued_at=queued_at)
         res = run_scanner(debug_limit, is_test_mode, session, run_ctx=run_ctx)
-        
+
         if run_ctx:
             complete_scanner_execution_run(run_ctx, status_override="COMPLETED")
         return res
@@ -2700,13 +2700,13 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     alerts_count = 0
     results = []
     fundamentals_list = []
-    
+
     logger.info("🚀 Multibagger Scanner execution started...")
     t_init_db_0 = time.perf_counter()
     init_db()
     t_init_db_dur = time.perf_counter() - t_init_db_0
     logger.info(f"⏱️ [STEP 0] Database Initialization completed | Time: {t_init_db_dur * 1000:.1f}ms")
-    
+
     # [VERSION: RUN_CTX_GUARD_v1.0] Guarantee run_ctx exists so heartbeats are always recorded in DB
     if run_ctx is None:
         try:
@@ -2722,7 +2722,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     cache = load_cache(force_db_sync=True)
     t_load_cache_dur = time.perf_counter() - t_load_cache_0
     logger.info(f"⏱️ [STEP 2] Fundamentals Cache loaded ({len(cache)} entries) | Time: {t_load_cache_dur * 1000:.1f}ms")
-    
+
     # 1. Fetch constituents
     from constituent_service import fetch_constituents
     t_fetch_const_0 = time.perf_counter()
@@ -2740,11 +2740,11 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     _wl_stocks = sorted(symbols)
     _wl_hash = hashlib.md5("|".join(_wl_stocks).encode()).hexdigest()[:12]
     logger.info(f"📋 [MULTIBAGGER] Watchlist fingerprint: {len(symbols)} stocks | hash={_wl_hash}")
-        
+
     if debug_limit:
         logger.info(f"🧪 [DEBUG MODE] Limiting scan universe to {debug_limit} symbols.")
         symbols = symbols[:debug_limit]
-        
+
     # 2. Phase 1: Batch Download Price & Volume Metrics (using auto_adjust=False)
     _batch_start_t = time.perf_counter()
     symbols = list(set(symbols))
@@ -2783,11 +2783,11 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         submit_background_upload(upload_mb_bundle_job)
     except Exception as _up_err:
         logger.error(f"❌ [MULTIBAGGER] Post-multibagger bundle upload submission failed: {_up_err}", exc_info=True)
-        
+
     # Apply cheap filters to build shortlist:
     # Exclude penny stocks (< ₹10) and illiquid stocks (turnover_20d < ₹10 Lakhs)
     shortlist_candidates = []
-    
+
     # Always include currently open or reviewed positions in the shortlist so their fundamentals are fetched concurrently
     open_symbols = set()
     try:
@@ -2798,22 +2798,22 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 open_symbols = {row[0] for row in cur.fetchall()}
     except Exception as e:
         logger.error(f"Failed to fetch open/reviewed positions for shortlist injection: {e}")
-        
+
     for sym, price_data in price_data_map.items():
         if sym in open_symbols:
             shortlist_candidates.append(price_data)
             continue
-            
+
         if price_data.price < 10.0:
             continue
         if price_data.turnover_20d < 1000000.0: # ₹10 Lakhs
             continue
         shortlist_candidates.append(price_data)
-        
+
     # Sort by turnover descending (no arbitrary cap — all liquid stocks get evaluated)
     shortlist = sorted(shortlist_candidates, key=lambda x: x.turnover_20d, reverse=True)
     stage_tracker.end_stage(f"Shortlisted {len(shortlist)} liquid stocks")
-    
+
     _step1_mode = "FAST-PATH CONCURRENT DISK LOAD (24 Threads)" if not is_market_open(datetime.now(IST)) else "LIVE MARKET DATA BATCH FETCH"
     logger.info(
         f"\n================================================================================\n"
@@ -2829,7 +2829,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         f"================================================================================\n"
     )
     logger.info(f"⏱️ [STEP 1B] Universe & Market Data Fetch completed | Mode={_step1_mode} | Time: {_fetch_dur:.2f}s")
-    
+
     # 3. Phase 2: Fetch Fundamentals (TV_BASELINE only)
     stage_tracker.start_stage(2, "Fundamentals DB Cache Validation", f"Target: {len(shortlist)} stocks")
     fundamentals_list = []
@@ -2860,11 +2860,11 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                     save_fundamentals_cache(cache, sync_to_db=True)
         except Exception as _tv_err:
             logger.warning(f"⚠️ TradingView bulk enrichment failed: {_tv_err}")
-    
+
     # [Gate 4] PASS 1 SCREENING: Load available cache ONLY. No YFinance hydration yet.
     cached_count = 0
     all_syms_to_check = set([p.symbol for p in shortlist])
-    
+
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -2873,10 +2873,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                     all_syms_to_check.add(row[0])
     except Exception as e:
         logger.error(f"Failed to fetch open positions for pre-hydration: {e}")
-        
+
     _step2_start_t = time.perf_counter()
     _last_hb = time.monotonic()
-    
+
     for idx, sym in enumerate(all_syms_to_check):
         # [TIME-BASED HEARTBEAT] Pulse heartbeat at least once every 10 seconds
         _now_mono = time.monotonic()
@@ -2916,14 +2916,14 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         f"================================================================================\n"
     )
     logger.info(f"⏱️ [STEP 3] Fundamentals Cache Validation completed | Time: {_step2_dur_s:.2f}s")
-                
+
     # Save updated cache to JSON file
     save_fundamentals_cache(cache, sync_to_db=False)
-    
+
     # Enforce minimum 70% data integrity before proceeding
     total_expected = len(shortlist)
     total_fetched = len(fundamentals_list)
-    
+
     if total_expected > 0:
         fetch_ratio = total_fetched / total_expected
         logger.info(f"📊 Data Integrity: {total_fetched}/{total_expected} ({fetch_ratio:.1%}) fundamentals loaded.")
@@ -2949,7 +2949,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                     pass
             logger.error(f"🚫 Aborting scan: coverage {fetch_ratio:.1%} below 70% threshold.")
             return {"total_count": total_expected, "processed_count": 0, "today_alerts": 0}
-    
+
     # Check Market Regime (Explicitly fetch Nifty)
     # Default to BEAR (conservative fail-direction for quality-over-quantity)
     market_regime = "BEAR"
@@ -2971,9 +2971,9 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
 
     except Exception as e:
         logger.warning(f"Could not determine market regime, defaulting to BEAR (conservative): {e}")
-        
+
     logger.info(f"📊 Detected Market Regime: {market_regime}")
-    
+
     # 4. Phase 3: Peer-aware scoring & buy zone assessment
     stage_tracker.end_stage(f"Loaded {len(fundamentals_list)} fundamentals ({cached_count if 'cached_count' in locals() else 0} from DB cache)")
     stage_tracker.start_stage(3, "V5 Quant & Fundamental Evaluation Pipeline", f"Target: {len(fundamentals_list)} stocks")
@@ -2981,19 +2981,19 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
 
     symbols_to_val = [f.get("symbol") for f in fundamentals_list]
     peer_medians = compute_peer_medians(symbols_to_val)
-            
+
     results = []
     alert_candidates = []
     categorized_stocks = {}
-    
 
-    
+
+
     # Init Rejection Log count
     unverified_pledge_count = 0
-    
+
     _eval_start_t = time.perf_counter()
     _eval_lock = threading.Lock()
-    
+
     import threading
     eval_stats = {
         "count": 0,
@@ -3013,23 +3013,23 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         price_data = price_data_map.get(sym)
         if not price_data:
             return
-            
+
         # 1. Pass the raw dictionary directly to the V5 Pipeline
         raw_fundamentals = f.copy()
-        
+
         # Inject computed technical data for V5 Market Structure Engine (Momentum)
         if price_data.high_52w > 0:
             raw_fundamentals["pct_from_52w_high"] = (price_data.price - price_data.high_52w) / price_data.high_52w
         else:
             raw_fundamentals["pct_from_52w_high"] = 0.0
-            
+
         if getattr(price_data, 'volume_sma20', 0) > 0:
             raw_fundamentals["relative_volume_10d"] = price_data.latest_volume / price_data.volume_sma20
         else:
             # [FIX ISSUE-6] Unknown volume set to None, not favorable 1.0.
             # 1.0 pretends normal volume and inflates the candidate's score.
             raw_fundamentals["relative_volume_10d"] = None
-            
+
         # Calculate proxy RS Rating from 6-month momentum
         mom = safe_float(getattr(price_data, 'mom_6m', 0.0))
         if mom > 0.40: rs = 95.0
@@ -3041,12 +3041,12 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         elif mom > -0.20: rs = 35.0
         else: rs = 25.0
         raw_fundamentals["rs_rating"] = rs
-        
+
         # [FIX] Issue #2: Use actual forensic_flags instead of hardcoded False
         # forensic_flags >= 2 means auditor/accounting red flags detected
         forensic_count = raw_fundamentals.get("forensic_flags", 0)
         raw_fundamentals["auditor_flags"] = (forensic_count >= 2)
-        
+
         # [VERSION: PLEDGE_EXTRACT_FIX_v1.0] Populate promoter_pledge_pct from pledge cache DB
         # Set to None/null if missing or unverified instead of defaulting to 0.0
         t_pledge_0 = time.perf_counter()
@@ -3066,7 +3066,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 unverified_pledge_count += 1
                 raw_fundamentals["promoter_pledge_pct"] = None
             pledge_dur = (time.perf_counter() - t_pledge_0) * 1000
-        
+
         technicals = {
             "price": price_data.price,
             "sma_50": price_data.sma_50,
@@ -3074,7 +3074,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             "ema_20": price_data.ema_20,
             "atr": price_data.atr_14,
         }
-        
+
         # 2. Early Ambiguity & Quality Gates
         if price_data.sma_200 <= 0 or price_data.ema_20 <= 0 or price_data.sma_50 <= 0 or price_data.price <= 0:
             logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Ambiguous Technicals)")
@@ -3102,7 +3102,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 eval_stats["inst_bonus_ms"].append(0.0)
                 eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
             return
-            
+
         if raw_fundamentals.get("data_freshness") == "FALLBACK":
             logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Fallback Fundamentals)")
             append_rejection(results, sym, "FALLBACK_DATA", "Fallback Fundamentals", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
@@ -3130,7 +3130,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 eval_stats["inst_bonus_ms"].append(0.0)
                 eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
             return
-            
+
         # [VERSION: ENTRY_SCANNER_DEEP_HYDRATION_v1.0]
         if sym in open_symbols and not is_deep_v5_cache(raw_fundamentals):
             logger.debug(f"ℹ️ [ENTRY SCANNER] {sym}: Using baseline cache for open position evaluation.")
@@ -3171,7 +3171,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 eval_stats["inst_bonus_ms"].append(0.0)
                 eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
             return
-        
+
         # Log rejection if invalidated by V5 gates
         if pipeline_result.is_invalidated:
             logger.debug(f"REJECTION: {sym} (Phase: V5_GATE, Reason: {pipeline_result.invalidation_reason})")
@@ -3185,13 +3185,13 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 eval_stats["inst_bonus_ms"].append(0.0)
                 eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
             return
-                
+
         # Extract scores from the V5 pipeline
         cqs = pipeline_result.quality.score
         pas = pipeline_result.valuation.score
         trend = pipeline_result.market_structure.score
         total = pipeline_result.composite_score
-        
+
         # Apply institutional, promoter, and super-investor bonuses
         t_inst_0 = time.perf_counter()
         try:
@@ -3204,10 +3204,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
 
         pre_bonus_total = total
         total = min(100.0, total + inst_bonus)
-        
+
         buy_low = pipeline_result.buy_zone.buy_zone_low
         buy_high = pipeline_result.buy_zone.buy_zone_high
-        
+
         f_score_val = raw_fundamentals.get("piotroski_f_score", raw_fundamentals.get("f_score"))
         if f_score_val is None:
             _raw_fs = raw_fundamentals.get("score", raw_fundamentals.get("piotroski_score"))
@@ -3220,7 +3220,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             if tier == "💎 High Quality" and cqs < 65.0:
                 tier = "🟡 Watchlist"
                 alert_triggered = False
-        
+
         if tier not in ["🚀 Prime Multibagger", "💎 High Quality"]:
             status = "WAITING_BUY_ZONE"
             notes = f"Conviction: {tier} | CQS: {cqs:.1f}"
@@ -3244,23 +3244,23 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                     notes = f"Conviction: {tier} | 🟢 BUY CONFIRMED (EMA Reclaimed)"
                 else:
                     notes = f"Conviction: {tier} | 🟢 BUY CONFIRMED (Deep Value Zone)"
-                
+
                 fv = safe_float(getattr(pipeline_result.valuation, 'fair_value', 0.0))
                 mos = safe_float(getattr(pipeline_result.valuation, 'margin_of_safety', 0.0))
                 if fv > 0:
                     notes += f" | FV: {fv:.0f} (MoS: {mos:.0f}%)"
-                
+
                 alert_triggered = True
-                
+
         bucket = tier
-            
+
         if alert_triggered:
             skip_alert = False
             if sym in open_symbols:
                 logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED after picking — Reason: ALREADY_OPEN_POSITION in database")
                 skip_alert = True
                 status = "WAITING_BUY_ZONE" # Already held, so don't fire an alert again
-                
+
             if not skip_alert:
                 logger.info(f"📍 PICKED [MULTIBAGGER: IN BETWEEN]: {sym} @ ₹{price_data.price:.2f} (Tier: {tier}, Score: {total:.1f}, CQS: {cqs:.1f})")
                 tier_val = 2 if "Prime" in tier else 1
@@ -3284,7 +3284,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 label = bucket
                 if skip_alert:
                     label = f"🛡️ {label} (Currently Held)"
-                
+
                 with _eval_lock:
                     if label not in categorized_stocks:
                         categorized_stocks[label] = []
@@ -3300,7 +3300,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         # Assemble the display record
         bz_low = pipeline_result.buy_zone.buy_zone_low if pipeline_result.buy_zone else 0.0
         bz_high = pipeline_result.buy_zone.buy_zone_high if pipeline_result.buy_zone else 0.0
-        
+
         with _eval_lock:
             results.append(ScreenerResult(
                 symbol=sym,
@@ -3414,7 +3414,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                         deep_equity = deep_f.get("total_equity")
                         resolved_tier = DEEP_V5_CACHE_TIER if deep_equity is not None else TV_BASELINE_CACHE_TIER
                         deep_f["cache_tier"] = resolved_tier
-                        
+
                         fund = cand["raw_fundamentals"]
                         for k, v in deep_f.items():
                             if v is not None:
@@ -3423,7 +3423,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                         fund["cache_tier"] = resolved_tier
                         cache[sym] = fund
                         logger.info(f"⚡ [MULTIBAGGER PASS 2] [{completed_cnt}/{len(futures)}] Hydrated {sym} | Tier={resolved_tier} | Equity={deep_equity}")
-                        
+
                         # Rerun V5 specifically for this finalist now that it has YFinance data
                         try:
                             technicals = {
@@ -3435,11 +3435,11 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                             decision = run_pipeline_for_symbol(sym, fund, technicals)
                             cand["pipeline_result"] = decision
                             cand["raw_fundamentals"] = fund
-                            
+
                             # Apply fundamental confidence multiplier based on provenance quality
                             quality_rating = deep_f.get("hydration", {}).get("quality", "HIGH")
                             conf_mult = 1.00 if quality_rating == "HIGH" else (0.85 if quality_rating == "MIXED" else 0.60)
-                            
+
                             cand["total_score"] = decision.composite_score * conf_mult
                             cand["fundamental_confidence"] = conf_mult
                             cand["cqs"] = decision.quality.score
@@ -3456,7 +3456,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                     logger.error(f"❌ Error in Pass 2 fetch for {sym}: {e}")
             t_pass2_dur = time.perf_counter() - t_pass2_0
             logger.info(f"⏱️ [STEP 5] YFinance Finalist Hydration (Pass 2) completed | Hydrated {completed_cnt} symbols | Time: {t_pass2_dur:.2f}s")
-            
+
             # Resave cache if we fetched deep data
             t_save_cache2_0 = time.perf_counter()
             save_fundamentals_cache(cache, sync_to_db=True)
@@ -3470,7 +3470,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     top_n = []
     for cand in finalist_pool:
         sym = cand["symbol"]
-        
+
         # [Gate 4] Enforce Data State Rule
         fund = cand["raw_fundamentals"]
         data_state = _classify_finalist_data_state(fund)
@@ -3487,11 +3487,11 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             cand["rejection_reason"] = f"Exceeded MAX_ALERTS_PER_SCAN limit ({max_alerts})"
             logger.info(f"🚫 {sym} alert SUPPRESSED_TOP_N: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['total_score']:.1f})")
             continue
-            
+
         top_n.append(cand)
 
     logger.info(f"🏆 Top {len(top_n)} valid candidates selected after Pass 2.")
-    
+
     # Batch fetch live prices
     try:
         from live_prices import get_live_prices
@@ -3499,12 +3499,12 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     except Exception as e:
         logger.warning(f"Failed to batch fetch live prices: {e}")
         live_prices_dict = {}
-    
+
     for cand in top_n:
         try:
             sym = cand["symbol"]
             price = cand["price"]
-            
+
             # [VERSION: MULTIBAGGER_LIVE_PRICE_GUARD_v1.1] Apply batched live price with finite & positivity check
             live_p = live_prices_dict.get(sym)
             try:
@@ -3551,11 +3551,11 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             c_notes = cand["notes"]
             raw_fund = cand["raw_fundamentals"]
             c_tier = cand.get("tier") or (pipeline_res.classification if pipeline_res else "💎 High Quality")
-            
+
             logger.info(f"🌟 Alert Triggered for {sym}! Price={price:.1f}. Reason: In Buy Zone")
-            
+
             scaled_score = int(c_total)
-            
+
             # Custom Capital Allocation based on tier
             if c_tier == "🚀 Prime Multibagger":
                 alloc = 100000.0
@@ -3563,9 +3563,9 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 alloc = 50000.0
             else:
                 alloc = 25000.0
-                
+
             pos_shares = int(alloc / price) if price > 0 else 0
-            
+
             inserted = False
             context_dict = {
                 "multibagger_meta": {
@@ -3577,7 +3577,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                     "decision_data_mode": cand.get("decision_data_mode", "UNKNOWN")
                 }
             }
-            
+
             # [VERSION: SCANNER_DIAG_LOG_v1.0] Log full diagnostic for every triggered trade
             _last_bar_date = "unknown"
             try:
@@ -3591,11 +3591,11 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 f"cqs={c_cqs:.1f} | pas={c_pas:.1f} | total_score={scaled_score:.1f} | "
                 f"entry=₹{price:.2f} | last_bar={_last_bar_date} | category={c_tier}"
             )
-            
+
             # We use save_alert_if_new to insert into the main alerts table!
             from zoneinfo import ZoneInfo
             ist_now = datetime.now(ZoneInfo('Asia/Kolkata'))
-            
+
             # [VERSION: MULTIBAGGER_ALERT_INSERT_GUARD_v1.1] Wrap DB alert insertion in try...except
             try:
                 inserted, reason, _, _ = save_alert_if_new(
@@ -3696,13 +3696,13 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
 
     # 5. Bulk database persistence
     save_watchlist_to_db(results)
-    
+
     # 6. Format and queue Telegram updates — use alert_inserted results for BUY READY list
     logger.info(f"📢 Formatting Telegram messages for {len(results)} watchlist items...")
     telegram_msgs = format_telegram_message(categorized_stocks)
     for msg in telegram_msgs:
         queue_telegram_message(msg)
-        
+
     logger.info("✅ Multibagger Scanner execution finished.")
     try:
         stage_tracker.end_stage(f"Alerts generated: {alerts_count}")
@@ -3715,7 +3715,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     # by save_alert_if_new (e.g., duplicate alert within lookback window).
     alerts_count = sum(1 for r in results if getattr(r, 'alert_inserted', False))
     duration_sec = round(time.time() - start_time, 1)
-    
+
     if run_ctx:
         run_ctx.processed_count = len(results)
         run_ctx.alerts_generated = alerts_count
@@ -3752,28 +3752,28 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     except Exception as e:
         logger.error(f"Could not update health/notification for Multibagger: {e}")
     # ── Memory Cleanup Phase ──────────────────────────────────────────────
-    
+
     # Store counts before deleting variables
     total_count = len(symbols) if 'symbols' in locals() else 0
     processed_count = len(results) if 'results' in locals() else 0
-    
+
     try:
         import os, psutil, gc
         process = psutil.Process(os.getpid())
         rss_before = process.memory_info().rss / 1024 / 1024
-        
+
         # Release large data structures
         if 'price_data_map' in locals(): del price_data_map
         if 'shortlist_candidates' in locals(): del shortlist_candidates
         if 'shortlist' in locals(): del shortlist
         if 'fundamentals_list' in locals(): del fundamentals_list
         if 'futures' in locals(): del futures
-        
+
         rss_after_del = process.memory_info().rss / 1024 / 1024
-        
+
         # Reclaim cyclic references
         gc.collect()
-        
+
         rss_after_gc = process.memory_info().rss / 1024 / 1024
         logger.info(f"🧹 [MEMORY] Multibagger Scan | RSS Before: {rss_before:.1f}MB | After Del: {rss_after_del:.1f}MB | After GC: {rss_after_gc:.1f}MB")
     except Exception as e:
@@ -3826,7 +3826,7 @@ def restore_healthy_multibagger_positions():
 
             ok, gate_reason = passes_multibagger_quality_gate(fund)
             piot_score = fund.get("score", fund.get("piotroski_f_score", 0)) or 0
-            
+
             # Legitimate exit signals (auditor flags, severe pledge, or broken gate)
             if ok and fund.get("auditor_flags") is not True and piot_score >= 4:
                 # Erroneous closure: restore to OPEN
@@ -3852,7 +3852,7 @@ def restore_healthy_multibagger_positions():
                 pnl = r.get("pnl_pct")
                 if pnl is None and entry_p and exit_p and entry_p > 0:
                     pnl = ((exit_p - entry_p) / entry_p) * 100.0
-                
+
                 final_st = "WIN" if (pnl is not None and pnl >= 0) else "LOSS"
                 if r["status"] != final_st:
                     with get_connection() as conn:

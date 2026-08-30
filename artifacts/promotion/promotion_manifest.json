@@ -1,0 +1,17 @@
+{
+  "specification_version": "5.1.0",
+  "generated_at": "2026-08-30T21:16:40+05:30",
+  "scanners_in_scope": [
+    "EOD", "MULTIBAGGER", "PULLBACK", "DAILY_BUILDER", "MULTI_TF", "REVERSAL", "WEALTH_ENGINE"
+  ],
+  "active_promotions": [],
+  "completed_promotions": [],
+  "promotion_policy": {
+    "require_forward_gate_pass": true,
+    "require_full_regression_pass": true,
+    "require_canary_parity_pass": true,
+    "require_explicit_authorization": true,
+    "require_post_deploy_verification": true,
+    "require_shadow_retirement": true
+  }
+}

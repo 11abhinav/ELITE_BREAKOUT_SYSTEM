@@ -1,0 +1,250 @@
+{
+  "registry_version": "2.1.0",
+  "created_at": "2026-08-30T23:05:00+05:30",
+  "governing_specification": "Master Specification v5.1.0 (FROZEN)",
+  "registry_sha256": "99ea3a8a5956fdc2b45f96abcb2c38c27be3aa7370aba4b5cc285c3c5a423698",
+  "friction_contract": {
+    "entry_slippage_bps": 2.5,
+    "exit_slippage_bps": 2.5,
+    "entry_commission_bps": 2.5,
+    "exit_commission_bps": 2.5,
+    "total_roundtrip_bps": 10.0,
+    "description": "Standardized canonical 10.0 bps round-trip friction across all 7 scanners"
+  },
+  "models": {
+    "AQS_EOD_v1": {
+      "model_id": "AQS_EOD_v1",
+      "model_family": "REGULARIZED_RIDGE_LINEAR",
+      "scanner": "EOD",
+      "version": "1.0.0",
+      "feature_version": "1.0.0",
+      "scaler_version": "1.0.0",
+      "active_features": [
+        "dist_sma50_pct",
+        "dist_sma200_pct",
+        "rsi_14",
+        "vol_surge_ratio"
+      ],
+      "scaler_parameters": {
+        "means": {
+          "dist_sma50_pct": 10.5493,
+          "dist_sma200_pct": 14.2186,
+          "rsi_14": 68.0394,
+          "vol_surge_ratio": 0.9058
+        },
+        "stds": {
+          "dist_sma50_pct": 6.1896,
+          "dist_sma200_pct": 4.2289,
+          "rsi_14": 4.4501,
+          "vol_surge_ratio": 0.3326
+        }
+      },
+      "weights": {
+        "dist_sma50_pct": -0.1284,
+        "dist_sma200_pct": -0.1965,
+        "rsi_14": -0.0796,
+        "vol_surge_ratio": 0.3247
+      },
+      "intercept": 0.3443,
+      "calibration_parameters": {
+        "raw_min": -0.5,
+        "raw_max": 1.5
+      },
+      "status": "FROZEN_CANDIDATE"
+    },
+    "AQS_ACCUM_v1": {
+      "model_id": "AQS_ACCUM_v1",
+      "model_family": "LINEAR_STANDARDIZED_SCORE",
+      "scanner": "MULTIBAGGER",
+      "version": "1.0.0",
+      "feature_version": "1.0.0",
+      "scaler_version": "1.0.0",
+      "active_features": [
+        "rsi_14",
+        "consolidation_width_pct"
+      ],
+      "scaler_parameters": {
+        "means": {
+          "rsi_14": 30.0,
+          "consolidation_width_pct": 30.0
+        },
+        "stds": {
+          "rsi_14": 40.0,
+          "consolidation_width_pct": 25.0
+        }
+      },
+      "weights": {
+        "rsi_14": 0.6,
+        "consolidation_width_pct": -0.4
+      },
+      "intercept": 50.0,
+      "multiplier": 15.0,
+      "calibration_parameters": {
+        "raw_min": 0.0,
+        "raw_max": 100.0
+      },
+      "status": "FROZEN_CANDIDATE"
+    },
+    "AQS_PULLBACK_v1": {
+      "model_id": "AQS_PULLBACK_v1",
+      "model_family": "DEPTH_REBOUND_SCORE",
+      "scanner": "PULLBACK",
+      "version": "1.0.0",
+      "feature_version": "1.0.0",
+      "scaler_version": "1.0.0",
+      "active_features": [
+        "pullback_depth_fit",
+        "vol_surge_ratio"
+      ],
+      "scaler_parameters": {
+        "means": {
+          "pullback_depth_fit": 0.0,
+          "vol_surge_ratio": 0.0
+        },
+        "stds": {
+          "pullback_depth_fit": 1.0,
+          "vol_surge_ratio": 2.0
+        }
+      },
+      "weights": {
+        "pullback_depth_fit": 0.6,
+        "vol_surge_ratio": 0.4
+      },
+      "intercept": 50.0,
+      "multiplier": 15.0,
+      "calibration_parameters": {
+        "raw_min": 0.0,
+        "raw_max": 100.0
+      },
+      "status": "FROZEN_CANDIDATE"
+    },
+    "AQS_DAILY_BUILDER_v1": {
+      "model_id": "AQS_DAILY_BUILDER_v1",
+      "model_family": "ORB_SURGE_SCORE",
+      "scanner": "DAILY_BUILDER",
+      "version": "1.0.0",
+      "feature_version": "1.0.0",
+      "scaler_version": "1.0.0",
+      "active_features": [
+        "vol_surge_ratio"
+      ],
+      "scaler_parameters": {
+        "means": {
+          "vol_surge_ratio": 0.0
+        },
+        "stds": {
+          "vol_surge_ratio": 2.0
+        }
+      },
+      "weights": {
+        "vol_surge_ratio": 1.0
+      },
+      "intercept": 50.0,
+      "multiplier": 15.0,
+      "calibration_parameters": {
+        "raw_min": 0.0,
+        "raw_max": 100.0
+      },
+      "status": "FROZEN_CANDIDATE"
+    },
+    "AQS_MULTI_TF_v1": {
+      "model_id": "AQS_MULTI_TF_v1",
+      "model_family": "TREND_ALIGNMENT_SCORE",
+      "scanner": "MULTI_TF",
+      "version": "1.0.0",
+      "feature_version": "1.0.0",
+      "scaler_version": "1.0.0",
+      "active_features": [
+        "trend_alignment_score"
+      ],
+      "scaler_parameters": {
+        "means": {
+          "trend_alignment_score": 0.0
+        },
+        "stds": {
+          "trend_alignment_score": 1.0
+        }
+      },
+      "weights": {
+        "trend_alignment_score": 1.0
+      },
+      "intercept": 50.0,
+      "multiplier": 15.0,
+      "calibration_parameters": {
+        "raw_min": 0.0,
+        "raw_max": 100.0
+      },
+      "status": "FROZEN_CANDIDATE"
+    },
+    "AQS_WEALTH_v1": {
+      "model_id": "AQS_WEALTH_v1",
+      "model_family": "MULTI_FACTOR_FUNDAMENTAL_SCORE",
+      "scanner": "WEALTH_ENGINE",
+      "version": "1.0.0",
+      "feature_version": "1.0.0",
+      "scaler_version": "1.0.0",
+      "active_features": [
+        "fundamental_momentum_score",
+        "valuation_score",
+        "consistency_score"
+      ],
+      "scaler_parameters": {
+        "means": {
+          "fundamental_momentum_score": 0.0,
+          "valuation_score": 0.0,
+          "consistency_score": 0.0
+        },
+        "stds": {
+          "fundamental_momentum_score": 1.0,
+          "valuation_score": 1.0,
+          "consistency_score": 1.0
+        }
+      },
+      "weights": {
+        "fundamental_momentum_score": 0.4,
+        "valuation_score": 0.3,
+        "consistency_score": 0.3
+      },
+      "intercept": 0.0,
+      "multiplier": 1.0,
+      "calibration_parameters": {
+        "raw_min": 0.0,
+        "raw_max": 100.0
+      },
+      "status": "FROZEN_CANDIDATE"
+    },
+    "AQS_REVERSAL_v3": {
+      "model_id": "AQS_REVERSAL_v3",
+      "model_family": "DISCOVERY_ACTIVE",
+      "scanner": "REVERSAL",
+      "version": "0.3.0_DISCOVERY",
+      "feature_version": "1.0.0",
+      "scaler_version": "1.0.0",
+      "active_features": [
+        "rsi_14",
+        "vol_surge_ratio"
+      ],
+      "scaler_parameters": {
+        "means": {
+          "rsi_14": 40.0,
+          "vol_surge_ratio": 0.0
+        },
+        "stds": {
+          "rsi_14": 25.0,
+          "vol_surge_ratio": 2.0
+        }
+      },
+      "weights": {
+        "rsi_14": -0.6,
+        "vol_surge_ratio": 0.4
+      },
+      "intercept": 40.0,
+      "multiplier": 30.0,
+      "calibration_parameters": {
+        "raw_min": 0.0,
+        "raw_max": 100.0
+      },
+      "status": "DISCOVERY_ONLY"
+    }
+  }
+}

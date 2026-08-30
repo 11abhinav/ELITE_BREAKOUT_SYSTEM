@@ -69,16 +69,16 @@ def _fetch_current_prices(symbols: list[str]) -> dict[str, float]:
     """Batch-fetch latest prices using Fyers with Yahoo fallback."""
     if not symbols:
         return {}
-    
+
     from live_prices import get_live_prices
     prices = get_live_prices(symbols)
-    
+
     try:
         from data_fetch_status import mark_success
         mark_success('performance_tracker')
     except Exception:
         pass
-        
+
     return prices
 
 
@@ -102,7 +102,7 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], pr
                 alert_dt_ist = alert_dt_naive.astimezone(IST)
             else:
                 alert_dt_ist = alert_dt_naive.replace(tzinfo=IST)
-                
+
         alert_date = alert_dt_ist.date()
 
         # If the alert was recorded after market close (e.g. delayed run or EOD),
@@ -198,22 +198,22 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     import json
     from datetime import datetime
     import pandas as pd
-    
+
     # Adjust trade for stock splits / bonus issues prior to evaluating exits
     adjust_trade_for_corporate_actions(t)
-    
+
     t1 = t.get("target_1")
     t2 = t.get("target_2")
     t3 = t.get("target_3")
-    
+
     if not t1 and t.get("target_price"):
         # Legacy alert fallback
         t1 = t.get("target_price")
         t2 = t1 * 1.05
         t3 = t1 * 1.10
-        
+
     if not t1: return  # Sanity check
-    
+
     shares_bought = t.get("shares_bought", 0)
     if shares_bought == 0: return
 
@@ -221,21 +221,21 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     eh = t.get("exit_history")
     existing_hist = eh if isinstance(eh, list) else json.loads(eh or "[]")
     db_events = {e.get("type") for e in existing_hist}
-    
+
     scanner = t.get("scanner", "LIVE_1H")
     symbol = t.get("symbol", "UNKNOWN")
     from config import EXIT_PROFILES, SCANNER_EXIT_PROFILE
     exit_profile_name = SCANNER_EXIT_PROFILE.get(scanner, "BALANCED")
     exit_config_dict = EXIT_PROFILES.get(exit_profile_name, EXIT_PROFILES["BALANCED"])
     exit_config = [exit_config_dict["t1"], exit_config_dict["t2"], exit_config_dict["t3"]]
-    
+
     execution_state = t.get("execution_state")
     if not execution_state:
         execution_state = "OPEN"
-    
+
     entry_mode = t.get("entry_mode", "LEGACY_UNKNOWN")
     actual_entry_price = t.get("actual_entry_price")
-    
+
     structural_failure_stop = t.get("structural_failure_stop")
 
     # ── Initialize State ───────────────────────────────────────────────────────
@@ -246,7 +246,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             t["stop_loss"] = t.get("stop_loss")
         else:
             t["stop_loss"] = initial_sl
-            
+
         t["status"] = "OPEN" if execution_state != "PENDING_ENTRY" else "PENDING_ENTRY"
         t["remaining_shares"] = shares_bought
         hist_list = []
@@ -291,12 +291,12 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     for ts_str, open_p, low, high, close_p, vol in ticks:
         if t["status"] in ("WIN", "LOSS", "CLOSED", "REJECTED"):
             break
-            
+
         sl = t["stop_loss"]
         status = t["status"]
         # [VERSION: NULL_REM_SHARES_HOTFIX_v1.0] Defensive fallback for NULL remaining_shares
         rem_shares = t.get("remaining_shares") if t.get("remaining_shares") is not None else t.get("shares_bought", 0)
-        
+
         # ── 1. ENTRY TRIGGER ──────────────────────────────────────────────────
         # CONSERVATIVE SAME-BAR COLLISION POLICY:
         # Daily OHLC cannot distinguish chronological order of high vs low.
@@ -306,7 +306,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
         if execution_state == "PENDING_ENTRY":
             is_triggered = False
             fill_price = None
-            
+
             if entry_mode == "BREAKOUT_TRIGGER":
                 if high >= t["entry_price"]:
                     is_triggered = True
@@ -319,7 +319,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 logger.error(f"❌ [PERF_TRACKER] INVALID_ENTRY_STATE: {symbol} has entry_mode={entry_mode} but execution_state=PENDING_ENTRY. Safe-rejecting transition to OPEN.")
                 # Flag as invalid and continue without transitioning
                 continue
-            
+
             if is_triggered and fill_price is not None:
                 # The condition happened! Transition to OPEN and continue evaluation.
                 execution_state = "OPEN"
@@ -342,27 +342,27 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             else:
                 # Still waiting for entry condition, skip all exit logic for this tick
                 continue
-        
+
         effective_entry = t.get("actual_entry_price") or t["entry_price"]
-        
+
         # 0. Gap Risk Tracking
         if execution_state == "OPEN" and open_p < sl:
             exit_p = open_p
             pnl_rs_event = rem_shares * (exit_p - effective_entry)
             event = {"type": "GAP_LOSS", "price": exit_p, "shares": rem_shares, "pnl": round(pnl_rs_event, 2), "time": ts_str}
-            
+
             hist_list.append(event)
             total_pnl_rs = sum(e["pnl"] for e in hist_list)
             cap = t.get("capital_allocated") or (float(effective_entry or 0.0) * float(t.get("shares_bought") or 0.0))
             total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
-            
+
             execution_state = "GAP_LOSS"
             final_status = "LOSS"
-            
+
             if "GAP_LOSS" not in db_events:
                 update_partial_exit(t["id"], final_status, sl, rem_shares, 0, pnl_rs_event, event, execution_state)
                 update_alert_outcome(t["id"], final_status, exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="GAP_LOSS", execution_state=execution_state)
-            
+
             t["status"] = final_status
             t["exit_price"] = exit_p
             t["exit_signal"] = "GAP_LOSS"
@@ -375,7 +375,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             t["closed_at"] = ts_str
             t["execution_state"] = execution_state
             continue
-        
+
         # 1. Evaluate Stop Loss First (Protective)
         if low <= sl:
 
@@ -383,19 +383,19 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             exit_p = open_p if open_p < sl else sl
             pnl_rs_event = rem_shares * (exit_p - effective_entry)
             event = {"type": "SL_HIT", "price": exit_p, "shares": rem_shares, "pnl": round(pnl_rs_event, 2), "time": ts_str}
-            
+
             final_status = "WIN" if "PARTIAL" in status else "LOSS"
             execution_state = "SL_HIT"
-            
+
             hist_list.append(event)
             total_pnl_rs = sum(e["pnl"] for e in hist_list)
             cap = t.get("capital_allocated") or (float(effective_entry or 0.0) * float(t.get("shares_bought") or 0.0))
             total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
-            
+
             if "SL_HIT" not in db_events:
                 update_partial_exit(t["id"], final_status, sl, rem_shares, 0, pnl_rs_event, event, execution_state)
                 update_alert_outcome(t["id"], final_status, exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="STOP_LOSS", execution_state=execution_state)
-            
+
             t["status"] = final_status
             t["exit_price"] = exit_p
             t["exit_signal"] = "STOP_LOSS"
@@ -408,25 +408,25 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             t["closed_at"] = ts_str
             t["execution_state"] = execution_state
             continue
-            
+
         # 1.5 Evaluate Structural Failure Stop (Closing Basis Early Exit)
         if structural_failure_stop and close_p <= structural_failure_stop:
             exit_p = close_p
             pnl_rs_event = rem_shares * (exit_p - effective_entry)
             event = {"type": "STRUCT_FAIL", "price": exit_p, "shares": rem_shares, "pnl": round(pnl_rs_event, 2), "time": ts_str}
-            
+
             final_status = "WIN" if "PARTIAL" in status else "LOSS"
             execution_state = "STRUCT_FAIL"
-            
+
             hist_list.append(event)
             total_pnl_rs = sum(e["pnl"] for e in hist_list)
             cap = t.get("capital_allocated") or (float(effective_entry or 0.0) * float(t.get("shares_bought") or 0.0))
             total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
-            
+
             if "STRUCT_FAIL" not in db_events:
                 update_partial_exit(t["id"], final_status, sl, rem_shares, 0, pnl_rs_event, event, execution_state)
                 update_alert_outcome(t["id"], final_status, exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="STRUCTURAL_FAIL", execution_state=execution_state)
-            
+
             t["status"] = final_status
             t["exit_price"] = exit_p
             t["exit_signal"] = "STRUCTURAL_FAIL"
@@ -450,26 +450,26 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             else:
                 shares_to_sell = int(shares_bought * (exit_config[0] / 100.0))
                 if shares_to_sell == 0: shares_to_sell = rem_shares
-            
+
             pnl_rs_event = shares_to_sell * (exit_p - effective_entry)
             event = {"type": "T1_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
-            
+
             new_rem = rem_shares - shares_to_sell
             # Rule: SL-002
             new_sl = effective_entry if new_rem > 0 else sl  # Raise to Breakeven only if remaining shares exist
             new_status = "PARTIAL_WIN_1"
             execution_state = "PARTIAL_1_HIT"
-            
+
             hist_list.append(event)
             t["exit_history"] = json.dumps(hist_list)
             t["status"] = new_status
             t["stop_loss"] = new_sl
             t["remaining_shares"] = new_rem
             t["execution_state"] = execution_state
-            
+
             if "T1_HIT" not in db_events:
                 update_partial_exit(t["id"], new_status, new_sl, shares_to_sell, new_rem, pnl_rs_event, event, execution_state)
-            
+
             if new_rem <= 0:
                 t["status"] = "WIN"
                 execution_state = "WIN"
@@ -485,12 +485,12 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 if "T1_HIT" not in db_events:
                     update_alert_outcome(t["id"], "WIN", exit_p, p_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT", execution_state=execution_state)
                 continue
-            
+
         status = t["status"]
         # 3. Evaluate T2
         if t2 and status == "PARTIAL_WIN_1" and high >= t2:
             exit_p = open_p if open_p > t2 else t2
-            
+
             if not t3:
                 # If there is no T3 (e.g. MF scanner), sell everything remaining at T2
                 shares_to_sell = rem_shares
@@ -498,26 +498,26 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 shares_to_sell = int(shares_bought * (exit_config[1] / 100.0))
                 if shares_to_sell > rem_shares: shares_to_sell = rem_shares
                 if shares_to_sell == 0: shares_to_sell = rem_shares
-            
+
             pnl_rs_event = shares_to_sell * (exit_p - effective_entry)
             event = {"type": "T2_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
-            
+
             new_rem = rem_shares - shares_to_sell
             # Rule: SL-002
             new_sl = t1 if new_rem > 0 else sl  # Raise to T1 only if remaining shares exist
             new_status = "PARTIAL_WIN_2"
             execution_state = "PARTIAL_2_HIT"
-            
+
             hist_list.append(event)
             t["exit_history"] = json.dumps(hist_list)
             t["status"] = new_status
             t["stop_loss"] = new_sl
             t["remaining_shares"] = new_rem
             t["execution_state"] = execution_state
-            
+
             if "T2_HIT" not in db_events:
                 update_partial_exit(t["id"], new_status, new_sl, shares_to_sell, new_rem, pnl_rs_event, event, execution_state)
-            
+
             if new_rem <= 0:
                 t["status"] = "WIN"
                 execution_state = "WIN"
@@ -533,22 +533,22 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 if "T2_HIT" not in db_events:
                     update_alert_outcome(t["id"], "WIN", exit_p, p_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT", execution_state=execution_state)
                 continue
-            
+
         status = t["status"]
         # 4. Evaluate T3 (Final Target)
         if t3 and status == "PARTIAL_WIN_2" and high >= t3:
             exit_p = open_p if open_p > t3 else t3
             shares_to_sell = rem_shares
-            
+
             pnl_rs_event = shares_to_sell * (exit_p - effective_entry)
             event = {"type": "T3_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
-            
+
             hist_list.append(event)
             t["exit_history"] = json.dumps(hist_list)
             t["status"] = "WIN"
             execution_state = "WIN"
             t["remaining_shares"] = 0
-            
+
             total_pnl_rs = sum(e["pnl"] for e in hist_list)
             cap = t.get("capital_allocated") or (float(effective_entry or 0.0) * float(t.get("shares_bought") or 0.0))
             p_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
@@ -558,11 +558,180 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             t["closed_at"] = ts_str
             t["exit_price"] = exit_p
             t["execution_state"] = execution_state
-            
+
             if "T3_HIT" not in db_events:
                 update_partial_exit(t["id"], "WIN", t2, shares_to_sell, 0, pnl_rs_event, event, execution_state)
                 update_alert_outcome(t["id"], "WIN", exit_p, p_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT", execution_state=execution_state)
             continue
+
+    # ── Calculate Alert Quality Metrics (Wave 1) ──
+    # Excursion metrics must be computed strictly post-entry.
+    entry_ts_val = None
+    entry_idx = None
+    exit_ts_val = None
+    exit_idx = None
+
+    for idx, (ts_str, open_p, low, high, close_p, vol) in enumerate(ticks):
+        if entry_mode in ("BREAKOUT_TRIGGER", "LIMIT_PULLBACK") and execution_state != "PENDING_ENTRY":
+            if (entry_mode == "BREAKOUT_TRIGGER" and high >= t.get("entry_price", 0)) or \
+               (entry_mode == "LIMIT_PULLBACK" and low <= t.get("entry_price", 999999)):
+                entry_ts_val = ts_str
+                entry_idx = idx
+                break
+        elif entry_mode in ("MARKET", "LEGACY_UNKNOWN"):
+            entry_ts_val = ticks[0][0]
+            entry_idx = 0
+            break
+
+    if entry_idx is not None:
+        exit_ts_val = t.get("closed_at")
+        if exit_ts_val:
+            for idx, (ts_str, open_p, low, high, close_p, vol) in enumerate(ticks):
+                if ts_str == exit_ts_val:
+                    exit_idx = idx
+                    break
+        if exit_idx is None:
+            exit_idx = len(ticks) - 1
+            exit_ts_val = ticks[-1][0]
+
+        post_entry_ticks = ticks[entry_idx : exit_idx + 1]
+
+        mfe_val = 0.0
+        mae_val = 0.0
+
+        entry_price_val = t.get("actual_entry_price") or t.get("entry_price", 1.0)
+        sl_price_val = t.get("initial_stop_loss") or t.get("stop_loss", 0.0)
+        risk_unit = abs(entry_price_val - sl_price_val)
+        if risk_unit == 0:
+            risk_unit = entry_price_val * 0.05
+
+        for ts_str, open_p, low, high, close_p, vol in post_entry_ticks:
+            # LONG position assumptions (can be adjusted for direction)
+            fav_move = high - entry_price_val
+            adv_move = entry_price_val - low
+
+            mfe_val = max(mfe_val, fav_move)
+            mae_val = max(mae_val, adv_move)
+
+        mfe_pct = round((mfe_val / entry_price_val) * 100.0, 2)
+        mae_pct = round((mae_val / entry_price_val) * 100.0, 2)
+        mfe_r = round(mfe_val / risk_unit, 2)
+        mae_r = round(mae_val / risk_unit, 2)
+
+        t1_ts = None
+        t2_ts = None
+        t3_ts = None
+        sl_ts = None
+
+        for e in hist_list:
+            e_type = e.get("type")
+            e_time = e.get("time")
+            if e_type == "T1_HIT":
+                t1_ts = e_time
+            elif e_type == "T2_HIT":
+                t2_ts = e_time
+            elif e_type == "T3_HIT":
+                t3_ts = e_time
+            elif e_type == "SL_HIT" or e_type == "GAP_LOSS":
+                sl_ts = e_time
+
+        bars_to_t1 = None
+        bars_to_sl = None
+
+        time_to_entry = None
+        time_to_t1 = None
+        time_to_t2 = None
+        time_to_sl = None
+
+        try:
+            alert_dt = datetime.fromisoformat(t["alert_time"].replace(" IST", "").replace("Z", "+00:00")).replace(tzinfo=IST)
+            if entry_ts_val:
+                entry_dt = datetime.strptime(entry_ts_val, "%Y-%m-%d %H:%M:%S").replace(tzinfo=IST)
+                time_to_entry = (entry_dt - alert_dt).total_seconds()
+            if t1_ts:
+                t1_dt = datetime.strptime(t1_ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=IST)
+                time_to_t1 = (t1_dt - alert_dt).total_seconds()
+            if t2_ts:
+                t2_dt = datetime.strptime(t2_ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=IST)
+                time_to_t2 = (t2_dt - alert_dt).total_seconds()
+            if sl_ts:
+                sl_dt = datetime.strptime(sl_ts, "%Y-%m-%d %H:%M:%S").replace(tzinfo=IST)
+                time_to_sl = (sl_dt - alert_dt).total_seconds()
+        except Exception:
+            pass
+
+        if entry_idx is not None:
+            if t1_ts:
+                for idx, (ts_str, open_p, low, high, close_p, vol) in enumerate(ticks):
+                    if ts_str == t1_ts:
+                        bars_to_t1 = max(0, idx - entry_idx)
+                        break
+            if sl_ts:
+                for idx, (ts_str, open_p, low, high, close_p, vol) in enumerate(ticks):
+                    if ts_str == sl_ts:
+                        bars_to_sl = max(0, idx - entry_idx)
+                        break
+
+        outcome_labels = {
+            "A": bool(t1_ts is not None),
+            "B": bool(t2_ts is not None),
+            "C": bool(mfe_r >= 2.0 and mae_r < 1.0),
+            "D": bool(t1_ts is not None and bars_to_t1 is not None and bars_to_t1 <= 5),
+            "E": bool(sl_ts is not None and t1_ts is None)
+        }
+
+        weighted_exit_price = 0.0
+        total_shares_sold = 0
+        total_realized_pnl = 0.0
+
+        for e in hist_list:
+            if e.get("type") in ("T1_HIT", "T2_HIT", "T3_HIT", "SL_HIT", "GAP_LOSS", "STRUCT_FAIL"):
+                sh_sold = e.get("shares", 0)
+                exit_price_evt = e.get("price", 0.0)
+                weighted_exit_price += exit_price_evt * sh_sold
+                total_shares_sold += sh_sold
+                total_realized_pnl += e.get("pnl", 0.0)
+
+        if total_shares_sold > 0:
+            weighted_exit_price = weighted_exit_price / total_shares_sold
+            gross_realized_r = round((weighted_exit_price - entry_price_val) / risk_unit, 2)
+            net_realized_r = round(gross_realized_r - (0.0015 * entry_price_val / risk_unit), 2)
+            weighted_realized_r = gross_realized_r
+        else:
+            gross_realized_r = round((close_p - entry_price_val) / risk_unit, 2)
+            net_realized_r = round(gross_realized_r - (0.0015 * entry_price_val / risk_unit), 2)
+            weighted_realized_r = gross_realized_r
+
+        quality_metrics = {
+            "mfe_pct": mfe_pct,
+            "mae_pct": mae_pct,
+            "mfe_r": mfe_r,
+            "mae_r": mae_r,
+            "gross_realized_r": gross_realized_r,
+            "net_realized_r": net_realized_r,
+            "entry_timestamp": entry_ts_val,
+            "exit_timestamp": exit_ts_val if t["status"] in ("WIN", "LOSS", "CLOSED", "GAP_LOSS") else None,
+            "t1_timestamp": t1_ts,
+            "t2_timestamp": t2_ts,
+            "t3_timestamp": t3_ts,
+            "sl_timestamp": sl_ts,
+            "entry_bar_id": entry_idx,
+            "exit_bar_id": exit_idx if t["status"] in ("WIN", "LOSS", "CLOSED", "GAP_LOSS") else None,
+            "time_to_entry": time_to_entry,
+            "time_to_t1": time_to_t1,
+            "time_to_t2": time_to_t2,
+            "time_to_sl": time_to_sl,
+            "bars_to_t1": bars_to_t1,
+            "bars_to_sl": bars_to_sl,
+            "outcome_labels": outcome_labels,
+            "weighted_realized_r": weighted_realized_r
+        }
+
+        try:
+            from database import update_alert_quality_metrics
+            update_alert_quality_metrics(t["id"], quality_metrics)
+        except Exception as db_err:
+            logger.error(f"❌ Failed to persist alert quality metrics: {db_err}")
 def _days_held(alert_date_str: str) -> int:
     try:
         return (datetime.now(IST).date() - date.fromisoformat(alert_date_str)).days
@@ -734,10 +903,10 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     stage_tracker.start_stage(2, "Fetch Current Market Prices", f"Fetching live prices for {len(unique_symbols)} unique symbols")
     from market_utils import is_market_open
     is_open = is_market_open() or force_live_fetch
-    
+
     logger.info(f"📈 Fetching current/last-known prices for {len(unique_symbols)} symbols...")
     current_prices = _fetch_current_prices(unique_symbols) or {}
-    
+
     # Fallback to stock_analysis_master CMP if live quote returns partial/empty dict
     if len(current_prices) < len(unique_symbols):
         try:
@@ -790,38 +959,38 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     for t in trades:
         if t["_db_closed"] or t["entry_price"] is None or not t["stop_loss"] or not (t.get("target_price") or t.get("target_1")) or not t["alert_time"]:
             continue
-            
+
         if recalc_ids is not None and t["id"] not in recalc_ids:
             continue
-            
+
         alert_time_val = t["alert_time"]
         if isinstance(alert_time_val, datetime):
             alert_dt_ist = alert_time_val.astimezone(IST) if alert_time_val.tzinfo else alert_time_val.replace(tzinfo=IST)
         else:
             alert_dt_naive = datetime.fromisoformat(str(alert_time_val).replace("Z", "+00:00"))
             alert_dt_ist = alert_dt_naive.astimezone(IST) if alert_dt_naive.tzinfo else alert_dt_naive.replace(tzinfo=IST)
-            
+
         alert_date = alert_dt_ist.date()
         if alert_date == now_ist.date() and now_ist < market_open_ist:
             continue
-            
+
         days_since = (now_ist.date() - alert_date).days
         period_days = max(days_since + 2, 5)
         period_str = f"{period_days}d"
         interval = "5m" if period_days <= 59 else ("1h" if period_days <= 720 else "1d")
-        
+
         key = (interval, period_str)
         fetch_groups.setdefault(key, []).append(t["symbol"])
 
     prefetched_data = {}
-    
+
     # USER DIRECTIVE: Tick-by-tick history fetch MUST ONLY happen for explicitly passed recalc_ids.
     # Normal performance loop just checks the current live price.
     do_tick_replay = (recalc_ids is not None and len(recalc_ids) > 0)
-    
+
     if is_open and not do_tick_replay:
         logger.info(f"⚡ FAST EVALUATION: Processing open trades using live prices only (No historical replay).")
-        
+
     if is_open and do_tick_replay and fetch_groups:
         for (interval, period_str), syms in fetch_groups.items():
             syms_preview = ",".join(syms[:5]) + ("..." if len(syms) > 5 else "")
@@ -835,7 +1004,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         # [PERF] Yield the GIL so the Flask Dashboard server can handle incoming API requests
         # preventing 504 Gateway Timeouts during heavy performance tracking loops.
         time.sleep(0.01)
-        
+
         from corporate_actions import adjust_trade_for_corporate_actions
         adjust_trade_for_corporate_actions(t)
 
@@ -862,7 +1031,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                 except Exception as e:
                     logger.warning(f"Failed to persist current_price for trade id {t['id']}: {e}")
         elif is_open and not t["_db_closed"]:
-            # [VERSION: EXIT_MONITOR_MISSING_PRICE_FIX_v1.0] 
+            # [VERSION: EXIT_MONITOR_MISSING_PRICE_FIX_v1.0]
             # Safely skip instead of triggering false SL hits if live price fails
             logger.error(f"🚨 [PERFORMANCE TRACKER] {sym}: No live price available. Skipping evaluation to prevent false exit.")
             try:
@@ -896,7 +1065,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                 elif (t.get("days_held") or 0) >= 20:
                     sh_status = "SHADOW_EXPIRED"
                     sh_exit_p = cur_p
-                
+
                 if sh_status:
                     sh_pnl = round(((sh_exit_p - ep) / ep) * 100, 2)
                     t["shadow_status"] = sh_status
@@ -1144,7 +1313,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             elif isinstance(obj, list):
                 return [sanitize_nans(item) for item in obj]
             return obj
-            
+
         payload = sanitize_nans(payload)
         summary = sanitize_nans(summary)
 

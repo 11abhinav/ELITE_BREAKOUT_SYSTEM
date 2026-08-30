@@ -88,26 +88,26 @@ class TradeStructureValidator:
                 "is_valid": False, "rejection_code": "INVALID_ENTRY_PRICE",
                 "rejection_reason": f"INVALID_ENTRY_PRICE (Entry price ₹{entry} must be > 0)"
             }
-        
+
         if stop_loss >= entry:
             return {
                 "is_valid": False, "rejection_code": "INVALID_STOP_PLACEMENT",
                 "rejection_reason": f"INVALID_STOP_PLACEMENT (Stop Loss ₹{stop_loss:.2f} >= Entry Price ₹{entry:.2f})"
             }
-            
+
         risk = entry - stop_loss
         if risk <= 0:
             return {
                 "is_valid": False, "rejection_code": "INVALID_RISK_AMOUNT",
                 "rejection_reason": f"INVALID_RISK_AMOUNT (Risk ₹{risk:.2f} must be > 0)"
             }
-            
+
         if not target_1 or target_1 <= entry:
             return {
                 "is_valid": False, "rejection_code": "INVALID_TARGET_PRICE",
                 "rejection_reason": f"INVALID_TARGET_PRICE (Target 1 ₹{target_1} must be > Entry ₹{entry})"
             }
-            
+
         # Target ordering invariants with epsilon spacing (t1 < t2 < t3 < t4)
         epsilon = max(0.05, 0.002 * entry)
         if target_2 and target_2 <= target_1 + epsilon:
@@ -125,7 +125,7 @@ class TradeStructureValidator:
                 "is_valid": False, "rejection_code": "UNORDERED_TARGET_HIERARCHY",
                 "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Target 4 ₹{target_4:.2f} <= Target 3 ₹{target_3:.2f} + epsilon ₹{epsilon:.2f})"
             }
-            
+
         natural_rr = round(abs(target_1 - entry) / risk, 2)
         if natural_rr < min_rr:
             return {
@@ -133,7 +133,7 @@ class TradeStructureValidator:
                 "rejection_reason": f"NO_VALID_STRUCTURAL_TARGET (Min RR: {min_rr}x, Actual: {natural_rr}x)",
                 "natural_rr": natural_rr
             }
-            
+
         return {"is_valid": True, "natural_rr": natural_rr, "risk": risk}
 
 
@@ -193,7 +193,7 @@ class ClusteredTarget:
     score: int
     candidates: List[TargetCandidate]
     is_round_number: bool = False
-    
+
 class TargetScorer:
     @staticmethod
     def score(candidate: TargetCandidate, macro_regime: str) -> int:
@@ -230,19 +230,19 @@ class RoundNumberEngine:
             pct_diff = abs(c.consensus_price - nearest) / max(c.consensus_price, 1e-5)
             if pct_diff <= ROUND_NUMBER_PCT:
                 c.is_round_number = True
-                
+
                 weight_mult = RoundNumberEngine._get_weight_multiplier(tick)
                 c.score += int(ROUND_NUMBER_BOOST * weight_mult)
-                
+
                 # Adaptive Front-running offset
                 tick_offset = tick if tick <= 5.0 else (tick * 0.2)
                 if eff_atr > 0:
                     offset = min(0.25 * eff_atr, 0.003 * nearest, tick_offset)
                 else:
                     offset = min(0.003 * nearest, tick_offset)
-                    
+
                 front_run_target = round(nearest - offset, 2)
-                
+
                 c.candidates.append(TargetCandidate(
                     price=front_run_target, source=TargetSource.ROUND_NUM,
                     timeframe="any", scanner="any", strength="NORMAL",
@@ -261,11 +261,11 @@ class ClusterEngine:
         if not candidates: return []
         window = max(TARGET_CLUSTER_WINDOW_ATR_FRAC * eff_atr, TARGET_CLUSTER_WINDOW_PCT * entry)
         sorted_cands = sorted(candidates, key=lambda c: c.price)
-        
+
         clusters = []
         current_cluster_cands = [sorted_cands[0]]
         cluster_min = sorted_cands[0].price
-        
+
         for cand in sorted_cands[1:]:
             if cand.price - cluster_min <= window + 1e-6:
                 current_cluster_cands.append(cand)
@@ -274,7 +274,7 @@ class ClusterEngine:
                 current_cluster_cands = [cand]
                 cluster_min = cand.price
         clusters.append(current_cluster_cands)
-        
+
         result = []
         for i, c_cands in enumerate(clusters):
             for cand_item in c_cands:
@@ -346,13 +346,13 @@ class CandidateGenerator:
         ticker: pd.DataFrame
     ) -> List[TargetCandidate]:
         candidates = []
-        
+
         # Resistance
         from sl_target_helper import _pick_resistance, _safe
         res, label = _pick_resistance(entry, swing_high, r1, bb_upper, swing_high_raw, r2)
         if res:
             candidates.append(TargetCandidate(price=res, source=TargetSource.RESISTANCE, timeframe="any", scanner=scanner, strength="NORMAL", anchor_points={"label": label}))
-            
+
         if _safe(prev_day_high) and prev_day_high > entry:
             candidates.append(TargetCandidate(price=prev_day_high, source=TargetSource.PREV_DAY_HIGH, timeframe="1d", scanner=scanner, strength="NORMAL", anchor_points={}))
 
@@ -413,10 +413,10 @@ class TrendExtensionStrategy(TargetStrategy):
         t1_c = ranked[0]
         t2_c = ranked[1] if len(ranked) > 1 else t1_c
         t3_c = ranked[2] if len(ranked) > 2 else t2_c
-        
+
         # Sort targets in ascending order of price to ensure t1 <= t2 <= t3
         sorted_pairs = sorted([(t1_c.consensus_price, t1_c), (t2_c.consensus_price, t2_c), (t3_c.consensus_price, t3_c)], key=lambda x: x[0])
-        
+
         return {
             "t1": sorted_pairs[0][0], "t2": sorted_pairs[1][0], "t3": sorted_pairs[2][0],
             "t1_cluster": sorted_pairs[0][1], "t2_cluster": sorted_pairs[1][1], "t3_cluster": sorted_pairs[2][1]
@@ -430,10 +430,10 @@ class ClusterConsensusStrategy(TargetStrategy):
         t1_c = ranked[0]
         t2_c = ranked[1] if len(ranked) > 1 else t1_c
         t3_c = ranked[2] if len(ranked) > 2 else t2_c
-        
+
         # Sort targets in ascending order of price to ensure t1 <= t2 <= t3
         sorted_pairs = sorted([(t1_c.consensus_price, t1_c), (t2_c.consensus_price, t2_c), (t3_c.consensus_price, t3_c)], key=lambda x: x[0])
-        
+
         return {
             "t1": sorted_pairs[0][0], "t2": sorted_pairs[1][0], "t3": sorted_pairs[2][0],
             "t1_cluster": sorted_pairs[0][1], "t2_cluster": sorted_pairs[1][1], "t3_cluster": sorted_pairs[2][1]
@@ -471,7 +471,7 @@ class ConflictResolver:
                 resolved = sorted(clusters, key=lambda c: (c.score, c.consensus_price, -c.cluster_id), reverse=True)
         else:
             resolved = sorted(clusters, key=lambda c: (c.score, c.consensus_price, -c.cluster_id), reverse=True)
-            
+
         return resolved, None
 
 class ExitPolicy:
@@ -521,8 +521,8 @@ def _find_swing_low_cluster(swing_lows, threshold_pct: float = 0.01) -> Optional
     if len(best_cluster) >= 2:
         return min(best_cluster)
     return None
- 
- 
+
+
 
 def _pick_resistance(
     entry: float,
@@ -650,7 +650,7 @@ class ResistanceSelector:
     @staticmethod
     def get_nearest_valid_resistance(entry: float, resistances: list) -> dict:
         from config import STRUCTURAL_RESISTANCE_SCORES
-        
+
         valid = []
         for val, name, _ in resistances:
             if val is not None and val > entry:
@@ -660,17 +660,17 @@ class ResistanceSelector:
                     "type": name,
                     "score": score
                 })
-                
+
         if not valid:
             return None
-            
+
         # Filter out weak levels
         MIN_RESISTANCE_SCORE = 25
         strong = [r for r in valid if r["score"] >= MIN_RESISTANCE_SCORE]
-        
+
         if not strong:
             return None
-            
+
         # Rank by proximity (nearest valid resistance)
         strong.sort(key=lambda x: x["price"])
         return strong[0]
@@ -681,21 +681,21 @@ class SupportEngine:
         from config import STRUCTURAL_STOP
         scores_dict = STRUCTURAL_STOP.get("SCORES", {})
         bonus_overlap = STRUCTURAL_STOP.get("BONUS_OVERLAP", 15)
-        
+
         cluster_members = []
         base_score_sum = 0
         unique_names = set()
-        
+
         for val, name in cluster:
             s = scores_dict.get(name, 10)
             cluster_members.append({"type": name, "price": val, "score": s})
             base_score_sum += s
             unique_names.add(name)
-            
+
         context_score = 0
         if len(unique_names) > 1:
             context_score += bonus_overlap
-            
+
         total_score = base_score_sum + context_score
         return total_score, cluster_members
 
@@ -706,17 +706,17 @@ class SupportEngine:
         for val, name, _ in supports:
             if val is not None and val < entry:
                 valid.append((val, name))
-                
+
         if not valid:
             return []
-            
+
         max_width = STRUCTURAL_STOP.get("MAX_CLUSTER_WIDTH_ATR", 1.5) * eff_atr
         valid.sort(key=lambda x: x[0], reverse=True)
-        
+
         clusters = []
         curr_cluster = [valid[0]]
         curr_max = valid[0][0]
-        
+
         for v, name in valid[1:]:
             if (curr_max - v) <= max_width:
                 curr_cluster.append((v, name))
@@ -725,17 +725,17 @@ class SupportEngine:
                 curr_cluster = [(v, name)]
                 curr_max = v
         clusters.append(curr_cluster)
-        
+
         results = []
         for cluster in clusters:
             total_score, members = SupportEngine.calculate_support_strength(cluster)
             weighted_sum = sum([m["price"] * m["score"] for m in members])
             weight_total = sum([m["score"] for m in members])
             best_anchor = weighted_sum / weight_total if weight_total > 0 else members[0]["price"]
-            
+
             c_str = "STRONG" if total_score > 60 else ("WEAK" if total_score < 30 else "NORMAL")
             cluster_width = max([m["price"] for m in members]) - min([m["price"] for m in members]) if members else 0.0
-            
+
             results.append({
                 "score": total_score,
                 "anchor_price": round(best_anchor, 2),
@@ -745,7 +745,7 @@ class SupportEngine:
                 "member_count": len(members),
                 "cluster_members": members
             })
-            
+
         results.sort(key=lambda x: x["score"], reverse=True)
         return results
 
@@ -754,15 +754,15 @@ def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, suppo
     mode = ctx.get("mode", "EOD")
     telemetry_ctx = ctx.get("telemetry_ctx", None)
     min_stop_pct = MIN_STOP_PCT.get(mode, 0.0)
-    
+
     ranked_supports = SupportEngine.get_ranked_supports(entry, eff_atr, supports)
-    
+
     best_support = None
     best_buf = 0.0
     best_vol_label = ""
     best_qual_label = ""
     best_final_mult = 1.0
-    
+
     atr_p = atr_pct or 3.0
     if atr_p < 2.0:
         base_mult = 0.5
@@ -773,10 +773,10 @@ def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, suppo
     else:
         base_mult = 0.75
         vol_label = "NORM_VOL"
-        
+
     # [VERSION: BUSINESS_LOGIC_FIX_v1.0] Tight Stop Rejection Fix
     is_tight_stop = False
-    
+
     if ranked_supports:
         support_data = ranked_supports[0]
         best_score = support_data["score"]
@@ -789,23 +789,23 @@ def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, suppo
         else:
             final_mult = base_mult
             qual_label = "NORM_SUP"
-            
+
         buf = final_mult * eff_atr
         raw_sl = support_data["anchor_price"] - buf
         sl_pct = (entry - raw_sl) / entry * 100 if entry > 0 else 0
-        
+
         best_support = support_data
         best_buf = buf
         best_vol_label = vol_label
         best_qual_label = qual_label
         best_final_mult = final_mult
-        
+
         if sl_pct < min_stop_pct:
             is_tight_stop = True
-            
+
     if not best_support:
         # Explicitly reject if no structural stop meets MIN_STOP_PCT
-        
+
         # Find best pct observed for metadata
         best_observed_pct = 0.0
         for support_data in ranked_supports:
@@ -813,7 +813,7 @@ def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, suppo
             sl_pct = (entry - (support_data["anchor_price"] - buf)) / entry * 100
             if sl_pct > best_observed_pct:
                 best_observed_pct = sl_pct
-                
+
         return {
             "is_valid": False,
             "rejection_reason": "NO_VALID_STRUCTURAL_STOP",
@@ -834,12 +834,12 @@ def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, suppo
             "buffer_value": eff_atr * 1.5,
             "buffer_method": "REJECTED"
         }
-        
+
     best_anchor = best_support["anchor_price"]
     best_score = best_support["score"]
     best_cluster_members = best_support["cluster_members"]
     best_names = "_".join(list(dict.fromkeys([m["type"] for m in best_cluster_members]))).upper().replace(" ", "_")
-    
+
     method_str = f"{best_names} (Score: {best_score}) @ {best_anchor:.2f} — Buffer {best_buf:.2f} ({best_final_mult:.2f}x ATR)"
     if is_tight_stop:
         method_str = "TIGHT_STRUCT_" + method_str
@@ -847,7 +847,7 @@ def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, suppo
         logger = logging.getLogger(__name__)
         logger.info(f"TIGHT STRUCTURE | Entry: {entry:.2f} | Structure: {best_anchor:.2f} | Stop %: {sl_pct:.2f} | Accepted: YES | Reason: TIGHT_STRUCTURE")
 
-    
+
     if telemetry_ctx:
         telemetry_ctx.capture_value("STRUCTURAL_STOP_RAW", best_anchor)
         telemetry_ctx.capture_value("STRUCTURAL_STOP_BUFFER", round(best_buf, 2))
@@ -882,10 +882,10 @@ def _compute_structural_failure_stop(primary_sl: float, eff_atr: float, lower_su
     """
     valid = [s for s in lower_supports if _safe(s) is not None and s < primary_sl]
     nearest_lower = max(valid) if valid else None
-    
+
     if nearest_lower is not None:
         return round(nearest_lower, 2)
-        
+
     fallback = primary_sl - (1.0 * eff_atr)
     return round(fallback, 2)
 
@@ -910,25 +910,25 @@ def _compute_target_quality(
     - Liquidity (10%)
     """
     bd = {"natural_rr": 0, "trend": 0, "volume": 0, "resistance": 0, "liquidity": 0}
-    
+
     # 1. Natural RR (40 pts max)
     if natural_rr >= 4.0: bd["natural_rr"] = 40
     elif natural_rr >= 3.0: bd["natural_rr"] = 35
     elif natural_rr >= 2.0: bd["natural_rr"] = 25
     elif natural_rr >= 1.5: bd["natural_rr"] = 15
     else: bd["natural_rr"] = 5
-    
+
     # 2. Trend / Momentum (20 pts max)
     v_adx = _safe(adx)
     if v_adx:
         if v_adx > 35: bd["trend"] += 12
         elif v_adx > 25: bd["trend"] += 8
         elif v_adx > 20: bd["trend"] += 4
-    
+
     v_macd = _safe(macd_hist)
     if v_macd and v_macd > 0:
         bd["trend"] += 8
-        
+
     # 3. Volume Expansion (15 pts max)
     v_vol = _safe(volume_ratio)
     if v_vol:
@@ -936,7 +936,7 @@ def _compute_target_quality(
         elif v_vol > 2.0: bd["volume"] = 12
         elif v_vol > 1.5: bd["volume"] = 8
         elif v_vol > 1.0: bd["volume"] = 4
-        
+
     # 4. Resistance Proximity (15 pts max)
     # Check if we have multiple resistance levels stacked
     resistances = [r for r in [swing_high, r1, r2, bb_upper] if _safe(r) is not None]
@@ -946,15 +946,15 @@ def _compute_target_quality(
         bd["resistance"] = 10  # Single hurdle
     else:
         bd["resistance"] = 5   # Heavy overhead
-        
-    # 5. Liquidity / Delivery (10 pts) -> placeholder since we don't pass delivery % yet, 
+
+    # 5. Liquidity / Delivery (10 pts) -> placeholder since we don't pass delivery % yet,
     # we'll give a baseline based on RSI not being overbought
     v_rsi = _safe(rsi)
     if v_rsi:
         if 55 <= v_rsi <= 72: bd["liquidity"] = 10
         elif 40 <= v_rsi < 55: bd["liquidity"] = 7
         else: bd["liquidity"] = 3
-        
+
     total_score = sum(bd.values())
     return total_score, bd
 
@@ -986,7 +986,7 @@ def _compute_multi_tf_v2(entry: float, eff_atr: float, ticker: pd.DataFrame = No
     risk_points = entry - box_low
     if risk_points <= 0:
         risk_points = eff_atr
-        
+
     sl = box_low - (0.10 * eff_atr)  # Buffer below structure
     sl = round(sl, 2)
     risk_pct = (entry - sl) / entry * 100
@@ -998,7 +998,7 @@ def _compute_multi_tf_v2(entry: float, eff_atr: float, ticker: pd.DataFrame = No
         for col in ["LOOKBACK_SWING_HIGH", "R1", "R2", "HIGH_252D"]:
             if col in last and not pd.isna(last[col]) and last[col] > entry:
                 levels.append(last[col])
-                
+
     if levels:
         t1 = round(min(levels), 2)
         target_basis = "Structural_Resistance"
@@ -1062,22 +1062,22 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
         r1=r1, r2=r2, bb_upper=kwargs.get("bb_upper"), prior_20d_high=kwargs.get("prior_20d_high"),
         high_52w=kwargs.get("high_52w"), prev_day_high=kwargs.get("prev_day_high"), ticker=ticker
     )
-    
+
     risk = abs(entry - sl_data["raw_sl"])
     clusters = ClusterEngine.cluster(candidates, entry, eff_atr)
     RoundNumberEngine.detect_and_boost(clusters)
     clusters, rejection_reason = ConflictResolver.resolve(clusters, "MULTI_TF", entry, macro_regime, risk, eff_atr)
-    
+
     if not clusters:
         return {
-            "engine_version": "SL_ENGINE_V7.3", "is_rejected": True, 
+            "engine_version": "SL_ENGINE_V7.3", "is_rejected": True,
             "rejection_reason": rejection_reason,
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
         }
-        
+
     strategy = TrendExtensionStrategy()
     targets = strategy.select_targets(clusters, entry, risk, {})
-    
+
     pool = []
     for c in candidates:
         c_dict = vars(c).copy()
@@ -1098,7 +1098,7 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
         }
     min_rr = MIN_NATURAL_RR.get("MULTI_TF", 1.5)
     risk_amount = entry - sl_data["raw_sl"]
-    
+
     valid_targets = []
     for t_cand_key, t_clust_key in [("t1", "t1_cluster"), ("t2", "t2_cluster"), ("t3", "t3_cluster")]:
         cand_t = targets.get(t_cand_key)
@@ -1111,28 +1111,28 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
         t1_fallback = targets.get("t1", entry)
         natural_rr_val = round(abs(t1_fallback - entry) / risk_amount, 2) if risk_amount > 0 else 0.0
         return {
-            "engine_version": "SL_ENGINE_V7.1", "is_rejected": True, 
+            "engine_version": "SL_ENGINE_V7.1", "is_rejected": True,
             "rejection_reason": f"NO_VALID_STRUCTURAL_TARGET (Min RR: {min_rr}x, Actual: {natural_rr_val}x)",
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": natural_rr_val, "sl_result": sl_data
         }
 
     # Sort valid targets in ascending order of price to guarantee t1 <= t2 <= t3
     valid_targets.sort(key=lambda x: x[0])
-    
+
     t1 = valid_targets[0][0]
     t1_clust = valid_targets[0][1]
     t1_src = t1_clust.candidates[0].source.name if t1_clust and t1_clust.candidates else "UNKNOWN"
     natural_rr_val = round(abs(t1 - entry) / risk_amount, 2)
-    
+
     t2 = valid_targets[1][0] if len(valid_targets) > 1 else None
     t3 = valid_targets[2][0] if len(valid_targets) > 2 else None
-        
+
     tq_score, _ = _compute_target_quality(
         natural_rr_val, kwargs.get("rsi"), kwargs.get("adx"), kwargs.get("macd_hist"),
         kwargs.get("volume_ratio"), swing_high, r1, r2, kwargs.get("bb_upper")
     )
     s_f_s = _compute_structural_failure_stop(sl_data["raw_sl"], eff_atr, [s[0] for s in supports])
-    
+
     explanation = targets.get("t1_cluster").analysis.explanation if targets and targets.get("t1_cluster") and getattr(targets.get("t1_cluster"), "analysis", None) else {}
     def _r2(v):
         return round(float(v)) if v is not None else None
@@ -1169,22 +1169,22 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
         r1=r1, r2=r2, bb_upper=kwargs.get("bb_upper"), prior_20d_high=kwargs.get("prior_20d_high"),
         high_52w=kwargs.get("high_52w"), prev_day_high=kwargs.get("prev_day_high"), ticker=ticker
     )
-    
+
     risk = abs(entry - sl_data["raw_sl"])
     clusters = ClusterEngine.cluster(candidates, entry, eff_atr)
     RoundNumberEngine.detect_and_boost(clusters)
     clusters, rejection_reason = ConflictResolver.resolve(clusters, "EOD", entry, macro_regime, risk, eff_atr)
-    
+
     if not clusters:
         return {
-            "engine_version": "SL_ENGINE_V7.3", "is_rejected": True, 
+            "engine_version": "SL_ENGINE_V7.3", "is_rejected": True,
             "rejection_reason": rejection_reason,
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
         }
-        
+
     strategy = ClusterConsensusStrategy()
     targets = strategy.select_targets(clusters, entry, risk, {})
-    
+
     pool = []
     for c in candidates:
         c_dict = vars(c).copy()
@@ -1205,7 +1205,7 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
         }
     min_rr = MIN_NATURAL_RR.get(mode, 2.0)
     risk_amount = entry - sl_data["raw_sl"]
-    
+
     valid_targets = []
     for t_cand_key, t_clust_key in [("t1", "t1_cluster"), ("t2", "t2_cluster"), ("t3", "t3_cluster")]:
         cand_t = targets.get(t_cand_key)
@@ -1218,19 +1218,19 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
         t1_fallback = targets.get("t1", entry)
         natural_rr_val = round(abs(t1_fallback - entry) / risk_amount, 2) if risk_amount > 0 else 0.0
         return {
-            "engine_version": "SL_ENGINE_V7.1", "is_rejected": True, 
+            "engine_version": "SL_ENGINE_V7.1", "is_rejected": True,
             "rejection_reason": f"NO_VALID_STRUCTURAL_TARGET (Min RR: {min_rr}x, Actual: {natural_rr_val}x)",
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": natural_rr_val, "sl_result": sl_data
         }
 
     # Sort valid targets in ascending order of price to guarantee t1 <= t2 <= t3
     valid_targets.sort(key=lambda x: x[0])
-    
+
     t1 = valid_targets[0][0]
     t1_clust = valid_targets[0][1]
     t1_src = t1_clust.candidates[0].source.name if t1_clust and t1_clust.candidates else "UNKNOWN"
     natural_rr_val = round(abs(t1 - entry) / risk_amount, 2)
-    
+
     t2 = valid_targets[1][0] if len(valid_targets) > 1 else None
     t3 = valid_targets[2][0] if len(valid_targets) > 2 else None
 
@@ -1239,7 +1239,7 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
         kwargs.get("volume_ratio"), swing_high, r1, r2, kwargs.get("bb_upper")
     )
     s_f_s = _compute_structural_failure_stop(sl_data["raw_sl"], eff_atr, [s[0] for s in supports])
-    
+
     explanation = targets.get("t1_cluster").analysis.explanation if targets and targets.get("t1_cluster") and getattr(targets.get("t1_cluster"), "analysis", None) else {}
     def _r2(v):
         return round(float(v)) if v is not None else None
@@ -1252,6 +1252,37 @@ def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: 
         "natural_rr": natural_rr_val,
         "sl_method": sl_data["sl_method"], "t_method": f"ClusterConsensus [T1:{t1_src}]",
         "sl_result": {"target_candidate_pool": pool, "t1_source": t1_src, "explanation": explanation}
+    }
+
+def _compute_pullback(entry: float, eff_atr: float, **kwargs) -> dict:
+    """Canonical v5.1.2 PULLBACK stop and target geometry caller."""
+    from engine.analytics.pullback_geometry import calculate_pullback_sl_target
+    geom = calculate_pullback_sl_target(entry, eff_atr)
+    sl_val = geom["stop_loss"]
+    t1_val = geom["target_price"]
+    risk = geom["actual_risk"]
+    t2_val = round(entry + 3.5 * risk, 2)
+    t3_val = round(entry + 5.0 * risk, 2)
+    t4_val = round(entry + 7.0 * risk, 2)
+
+    return {
+        "engine_version": "v5.1.2_ADAPTIVE_ATR",
+        "is_rejected": False,
+        "rejection_reason": "",
+        "stop_loss": sl_val,
+        "target_1": t1_val,
+        "target_2": t2_val,
+        "target_3": t3_val,
+        "target_4": t4_val,
+        "structural_failure_stop": sl_val,
+        "target_quality": 85.0,
+        "natural_rr": geom["natural_rr"],
+        "sl_method": "Adaptive ATR14 Clamped [3.5%, 6.0%]",
+        "t_method": "Execution Risk 2.5R Target",
+        "atr_14": eff_atr,
+        "risk_amount": risk,
+        "clamped_stop_pct": geom["clamped_stop_pct"],
+        "sl_result": {"mode": "PULLBACK", "geometry": geom}
     }
 
 def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: float, macd_hist: float, swing_low: float, swing_high: float, s1: float, s2: float, r1: float, r2: float, swing_low_raw: float, swing_high_raw: float, ticker=None, **kwargs) -> dict:
@@ -1279,27 +1310,27 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
         cands.append(TargetCandidate(entry + decline*0.618, TargetSource.RETRACE_618, "any", "REVERSAL", "NORMAL", {}))
     if _safe(kwargs.get("sma200")): cands.append(TargetCandidate(kwargs.get("sma200"), TargetSource.SMA200, "any", "REVERSAL", "NORMAL", {}))
     if _safe(swing_high_raw): cands.append(TargetCandidate(swing_high_raw, TargetSource.SWING_HIGH_RAW, "any", "REVERSAL", "NORMAL", {}))
-    
+
     # Filter only above entry
     valid_cands = [c for c in cands if c.price > entry]
-    
+
     risk = abs(entry - sl_data["raw_sl"])
     clusters = ClusterEngine.cluster(valid_cands, entry, eff_atr)
     RoundNumberEngine.detect_and_boost(clusters)
     clusters, rejection_reason = ConflictResolver.resolve(clusters, "REVERSAL", entry, kwargs.get("macro_regime", "NEUTRAL"), risk, eff_atr)
-    
+
     if not clusters:
         return {
-            "engine_version": "SL_ENGINE_V7.3", "is_rejected": True, 
+            "engine_version": "SL_ENGINE_V7.3", "is_rejected": True,
             "rejection_reason": rejection_reason,
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
         }
-    
+
     t1_cluster = clusters[0] if clusters else None
     t1 = t1_cluster.consensus_price if t1_cluster else entry + 2*eff_atr
     t2 = clusters[1].consensus_price if len(clusters) > 1 else None
     t3 = clusters[2].consensus_price if len(clusters) > 2 else None
-    
+
     explanation = getattr(t1_cluster, "analysis", {}).get("explanation") if t1_cluster and hasattr(t1_cluster, "analysis") and isinstance(t1_cluster.analysis, dict) else {}
     natural_rr_val = round(abs(t1 - entry) / risk, 2)
     tq_score, _ = _compute_target_quality(
@@ -1307,7 +1338,7 @@ def _compute_reversal(entry: float, eff_atr: float, atr_pct: float, adx: float, 
         kwargs.get("volume_ratio"), swing_high, r1, r2, kwargs.get("bb_upper")
     )
     s_f_s = _compute_structural_failure_stop(sl_data["raw_sl"], eff_atr, [s[0] for s in supports])
-    
+
     def _r2(v):
         return round(float(v)) if v is not None else None
 
@@ -1330,7 +1361,7 @@ def _compute_multibagger(entry: float, eff_atr: float, ticker=None, **kwargs) ->
     mode = kwargs.get("mode", "MULTIBAGGER")
     sl_atr = entry - (3.0 * eff_atr)
     sl_pct = entry * 0.85  # 15% structural stop
-    
+
     # If 200 SMA is available and below entry, use max of 200 SMA and 15% SL
     sma200 = None
     if ticker is not None and "Close" in ticker.columns and len(ticker) >= 200:
@@ -1432,7 +1463,7 @@ def _legacy_compute_sl_and_target(
             swing_low_cluster = _find_swing_low_cluster(recent_lows)
         except Exception:
             pass
- 
+
     kwargs = dict(
         entry=entry_price, eff_atr=eff_atr,
         adx=adx, rsi=rsi, macd_hist=macd_hist, atr_pct=atr_pct,
@@ -1447,7 +1478,9 @@ def _legacy_compute_sl_and_target(
     )
     kwargs.update(kwargs_extra)
 
-    if effective_mode in ("EOD", "PULLBACK"):
+    if effective_mode == "PULLBACK":
+        return _compute_pullback(**kwargs)
+    elif effective_mode == "EOD":
         return _compute_eod(**kwargs)
     elif effective_mode == "MULTI_TF_V2":
         return _compute_multi_tf_v2(**kwargs)
@@ -1504,30 +1537,30 @@ class SupportConfidenceEngine:
     @staticmethod
     def calculate(kwargs: dict) -> dict:
         breakdown = {"touches": 10, "volume": 15, "age": 10, "proximity": 5}
-        
+
         entry = kwargs.get("entry_price", 1.0)
         support = kwargs.get("swing_low") or (entry * 0.95)
-        
+
         # Proximity
         vwap = kwargs.get("vwap")
         if vwap and abs(vwap - support) / max(support, 1) < 0.02:
             breakdown["proximity"] += 15
-            
+
         ema20 = kwargs.get("ema20")
         if ema20 and abs(ema20 - support) / max(support, 1) < 0.02:
             breakdown["proximity"] += 10
-            
+
         # Touches & Age (derived from clustering)
         if kwargs.get("swing_low_cluster"):
             breakdown["touches"] += 25
             breakdown["age"] += 10
-            
+
         # Cap values
         breakdown["touches"] = min(breakdown["touches"], ENGINE_V2_CONFIG["SUPPORT_WEIGHTS"]["touches"])
         breakdown["volume"] = min(breakdown["volume"], ENGINE_V2_CONFIG["SUPPORT_WEIGHTS"]["volume"])
         breakdown["age"] = min(breakdown["age"], ENGINE_V2_CONFIG["SUPPORT_WEIGHTS"]["age"])
         breakdown["proximity"] = min(breakdown["proximity"], ENGINE_V2_CONFIG["SUPPORT_WEIGHTS"]["proximity"])
-        
+
         score = sum(breakdown.values())
         return {"score": score, "breakdown": breakdown}
 
@@ -1544,11 +1577,11 @@ class TradeQualityEngine:
     def calculate(kwargs: dict, support_score: int) -> dict:
         adx = _safe(kwargs.get("adx")) or 20.0
         rsi = _safe(kwargs.get("rsi")) or 50.0
-        
+
         trend = min(ENGINE_V2_CONFIG["TRADE_QUALITY_WEIGHTS"]["trend"], int((adx / 40.0) * ENGINE_V2_CONFIG["TRADE_QUALITY_WEIGHTS"]["trend"]))
         momentum = min(ENGINE_V2_CONFIG["TRADE_QUALITY_WEIGHTS"]["momentum"], int((rsi / 70.0) * ENGINE_V2_CONFIG["TRADE_QUALITY_WEIGHTS"]["momentum"]))
         support_val = int((support_score / 100.0) * ENGINE_V2_CONFIG["TRADE_QUALITY_WEIGHTS"]["support"])
-        
+
         breakdown = {
             "trend": trend,
             "volume": 15, # Proxy for now unless we pass in volume explicitly
@@ -1557,7 +1590,7 @@ class TradeQualityEngine:
             "rs": 10,
             "market": 10
         }
-        
+
         score = sum(breakdown.values())
         return {"score": min(100, score), "breakdown": breakdown}
 
@@ -1569,48 +1602,48 @@ class BaseRiskEngine:
 
     def compute_sl(self, support_price: float, support_conf: int, vol_regime: str) -> float:
         eff_atr = self.kwargs.get("eff_atr") or (self.entry_price * 0.015)
-        
+
         buf_mult = 0.5
         if vol_regime == "HIGH": buf_mult = 1.0
         elif vol_regime == "LOW": buf_mult = 0.3
-        
+
         if support_conf < 50: buf_mult *= 1.5
         elif support_conf > 80: buf_mult *= 0.7
-        
+
         adx = _safe(self.kwargs.get("adx")) or 20.0
         if adx > 35: buf_mult *= 1.2
-        
+
         raw_sl = support_price - (buf_mult * eff_atr)
-        
+
         # Hard cap SL so it doesn't get un-usably wide
         # [BASE_RISK_ENGINE_FIX_v1.0] BUG-4 FIX: _MODE_CONFIG tuples have 4 elements (indices 0-3).
         # max_sl_atr is at index [3]. Accessing index [4] caused IndexError on every v2 SL computation.
         max_sl_atr = _MODE_CONFIG.get(self.mode.split("_")[0], _DEFAULT_CONFIG)[3]
         min_allowed_sl = self.entry_price - (max_sl_atr * eff_atr)
-        
+
         raw_sl = max(raw_sl, min_allowed_sl)
-        
+
         # Ensure SL never goes negative on extreme volatility penny stocks
         return round(max(0.01, raw_sl), 2)
 
     def compute_targets(self, risk: float, vol_regime: str) -> tuple[dict, dict]:
         entry = self.entry_price
         eff_atr = self.kwargs.get("eff_atr") or (entry * 0.015)
-        
+
         swing_high = _safe(self.kwargs.get("swing_high")) or (entry + 2 * eff_atr)
         r1 = _safe(self.kwargs.get("r1")) or (entry + 1.5 * eff_atr)
         vwap = _safe(self.kwargs.get("vwap")) or entry
-        
+
         fib = entry + (swing_high - entry) * 1.618
         cr = _safe(self.kwargs.get("candle_range")) or eff_atr
         measured_move = entry + cr
         atr_proj = entry + 3 * eff_atr
-        
+
         # Weight Normalization
         raw_weights = ENGINE_V2_CONFIG["TARGET_WEIGHTS"]
         total_w = max(sum(raw_weights.values()), 1e-5)
         norm_w = {k: v / total_w for k, v in raw_weights.items()}
-        
+
         t1_cand = (
             swing_high * norm_w["swing_high"] +
             fib * norm_w["fib"] +
@@ -1619,16 +1652,16 @@ class BaseRiskEngine:
             atr_proj * norm_w["atr"] +
             r1 * norm_w["volume_profile"]
         )
-        
+
         min_rr = 2.0
         if vol_regime == "HIGH": min_rr = 1.5
         elif vol_regime == "LOW": min_rr = 2.5
-        
+
         t1 = max(t1_cand, entry + min_rr * risk)
         t2 = t1 + 1.5 * risk
         t3 = t1 + 3.0 * risk
         t4 = t1 + 4.5 * risk
-        
+
         cluster_diagnostics = {
             "swing_high": round(swing_high, 2),
             "fib": round(fib, 2),
@@ -1638,25 +1671,25 @@ class BaseRiskEngine:
             "r1": round(r1, 2),
             "consensus_target": round(t1_cand, 2)
         }
-        
+
         def _parse_pct(val): return int(str(val).replace('%', ''))
         t1_exit = _parse_pct(ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t1"])
         t2_exit = _parse_pct(ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t2"])
         t3_exit = _parse_pct(ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t3"])
         t4_exit_str = f"{max(0, 100 - (t1_exit + t2_exit + t3_exit))}%"
-        
+
         targets = {
             "t1": {"price": round(t1, 2), "confidence": "HIGH", "exit": ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t1"]},
             "t2": {"price": round(t2, 2), "confidence": "MEDIUM", "exit": ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t2"]},
             "t3": {"price": round(t3, 2), "confidence": "LOW", "exit": ENGINE_V2_CONFIG["PARTIAL_EXITS"]["t3"]},
             "t4": {"price": round(t4, 2), "confidence": "LOWEST", "exit": t4_exit_str}
         }
-        
+
         return targets, cluster_diagnostics
-        
+
     def get_time_stop(self) -> str:
         return "7 trading days"
-        
+
     def get_trailing_rule(self) -> str:
         adx = _safe(self.kwargs.get("adx")) or 20.0
         if adx > 35: return "EMA20"
@@ -1669,14 +1702,14 @@ class BaseRiskEngine:
         support_metrics = SupportConfidenceEngine.calculate(self.kwargs)
         vol_regime = VolatilityRegimeEngine.calculate(self.kwargs)
         tq_metrics = TradeQualityEngine.calculate(self.kwargs, support_metrics["score"])
-        
+
         support_price = self.kwargs.get("swing_low") or (self.entry_price * 0.95)
-        
+
         sl = self.compute_sl(support_price, support_metrics["score"], vol_regime)
-        
+
         risk_dist = self.entry_price - sl
         risk_pct = (risk_dist / self.entry_price) * 100 if self.entry_price > 0 else 1.0
-        
+
         tq = tq_metrics["score"]
         if tq >= 90:
             kelly_fraction = 0.5
@@ -1687,26 +1720,26 @@ class BaseRiskEngine:
         else:
             kelly_fraction = 0.15
             max_risk_pct = 0.5
-            
+
         # Hard cap Kelly account risk limit using central ACCOUNT_RISK_BUDGET_PCT and MAX_POSITION_PCT concentration cap
         # [VERSION: PHASE2_SL_TARGET_IMPROVE_v1.0]
         from config import ACCOUNT_RISK_BUDGET_PCT, MAX_POSITION_PCT
         max_risk_pct = min(max_risk_pct, ACCOUNT_RISK_BUDGET_PCT)
-            
+
         raw_position_size = round(max_risk_pct / (risk_pct / 100.0), 2) if risk_pct > 0 else 0.0
         max_pos_cap = (MAX_POSITION_PCT * 100.0) if MAX_POSITION_PCT <= 1.0 else MAX_POSITION_PCT
         position_size_pct = min(max_pos_cap, raw_position_size)
-        
+
         targets, target_cluster_vals = self.compute_targets(risk_dist, vol_regime)
-        
+
         t1_price = targets["t1"]["price"]
         expected_rr = round((t1_price - self.entry_price) / risk_dist, 2) if risk_dist > 0 else 0.0
-        
+
         hist_stats = self.get_historical_stats()
         prob_win = hist_stats["win_rate"]
         prob_loss = 1.0 - prob_win
         ev = round((prob_win * hist_stats["avg_win"]) - (prob_loss * hist_stats["avg_loss"]), 2)
-        
+
         warnings = []
         if (t1_price - self.entry_price) / max(self.entry_price, 1) < 0.03:
             warnings.append("Target very close to resistance")
@@ -1714,7 +1747,7 @@ class BaseRiskEngine:
             warnings.append("Support confidence below 50")
         if self.kwargs.get("atr_pct", 0) > 4.5:
             warnings.append("ATR percentile very high")
-            
+
         diagnostics = {
             "support_source": "Swing Cluster" if self.kwargs.get("swing_low_cluster") else "Pivot",
             "target_source": "Hybrid Consensus",
@@ -1724,7 +1757,7 @@ class BaseRiskEngine:
             "engine_version": "2.0",
             "target_cluster_values": target_cluster_vals
         }
-        
+
         return {
             "engine_version": "2.0",
             "scanner": self.mode,
@@ -1773,7 +1806,7 @@ def compute_sl_and_target(
     entry_price:    float,
     atr:            Optional[float],
     candle_range:   float = 0.0,
-    mode:           Optional[str]   = None,     
+    mode:           Optional[str]   = None,
     engine_version: str             = "v1.0",
     **kwargs
 ) -> dict:

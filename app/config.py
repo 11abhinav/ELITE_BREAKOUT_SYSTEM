@@ -236,30 +236,31 @@ EOD_CONFIG = {
     "MIN_BODY_RATIO":     0.40,
     "MIN_CLOSE_POSITION": 0.55,
     "MAX_UPPER_WICK":     0.35,
-    "MIN_VOLUME_RATIO":   1.3,
+    "MIN_VOLUME_RATIO":   1.5,   # [v5.3.0 UPGRADE]: Breakout Volume >= 1.5x SMA20
     "MIN_VOLUME_AVG":     50_000,
     "MIN_RSI":            50,
     "MAX_RSI":            88,
 }
 
 EOD_ADVANCED_CONFIG = {
-    "MAX_DISTANCE_FROM_52W_HIGH_PCT": 30.0,
+    "MAX_DISTANCE_FROM_52W_HIGH_PCT": 5.0,  # [v5.3.0 UPGRADE]: Within 5.0% of 52W High
+    "MAX_BASE_ATR10_PCT": 2.5,              # [v5.3.0 UPGRADE]: 10-day ATR <= 2.5% of Price (Base Tightness)
     "MAX_SINGLE_DAY_MOVE_PCT": 15.0,
     "MAX_GAP_FROM_PRIOR_HIGH_PCT": 3.0,
     "GAP_LOOKBACK_BARS": 10,
-    
+
     # ── Sustainability & Breakout Conviction ──
     "MAX_EXTENDED_BREAKOUT_ATR_MULT": 1.5,
     "GAP_AND_GO_PENALTY_MULT": 10,
     "GAP_AND_GO_MAX_PENALTY": 20,
     "MIN_ATR_EXPANSION_RATIO": 0.8,
     "MIN_OBV_SLOPE": 0.0,
-    
+
     # ── Prior Context & Tight Bases ──
     "PRE_BREAKOUT_LOOKBACK_BARS": 5,
     "MAX_PRE_BREAKOUT_RED_CANDLES": 3,
     "TIGHT_BASE_BB_WIDTH_PCTILE": 0.50,
-    
+
     # ── [FIX] Structural Breakout Constraint Relaxation ──
     "MAX_BB_WIDTH_PCTILE": 0.80
 }
@@ -501,14 +502,14 @@ TARGET_CONFIDENCE_BASELINE = {
 
 MIN_NATURAL_RR = {
     "MULTI_TF": 1.5,
-    "EOD": 2.0,
+    "EOD": 2.5,          # [v5.3.0 UPGRADE]: 2.5R Risk Multiple Target
     "REVERSAL": 2.0,
     "PULLBACK": 2.0,
 }
 
 MIN_REWARD_POTENTIAL = {
     "MULTI_TF": 1.5,
-    "EOD": 2.0,
+    "EOD": 2.5,          # [v5.3.0 UPGRADE]: 2.5R Target Multiple
     "REVERSAL": 1.8,
     "PULLBACK": 2.0,
 }
@@ -651,7 +652,7 @@ REGIME_POLICIES = {
         "min_reward_potential_mult": 1.0,
         "capital_allocation_mult": 1.0
     },
-    
+
     "BULL": {
         "score_modifier": 0,
         "allow_mean_reversion": True,
@@ -713,8 +714,8 @@ REGIME_POLICIES = {
 # ── Target Engine v7 — FINAL FROZEN ──────────────────────────────────────────
 
 # For Enum typing, though Enum is defined in sl_target_helper.
-# We will use string representations here to avoid circular imports, 
-# or just redefine them if we need them, but it's better to keep strings in config 
+# We will use string representations here to avoid circular imports,
+# or just redefine them if we need them, but it's better to keep strings in config
 # and map them to enums in the helper.
 # Actually, the spec says "TARGET_SOURCE_WEIGHTS = { TargetSource.EQUAL_HIGH: 10 ... }"
 # To do this cleanly without circular import, we can define the enum here or in a separate file.

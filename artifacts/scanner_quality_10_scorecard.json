@@ -1,0 +1,77 @@
+{
+  "program_name": "Scanner Alert Quality 10/10 Master Program",
+  "version": "5.1.0",
+  "evaluated_at": "2026-08-30T20:59:00+05:30",
+  "charter": "Continue until every actionable scanner has measurably better alert quality than its current production baseline, with improved economic outcome and/or risk-adjusted decision quality, validated on unseen forward evidence, and the proven improvement is integrated into the real production scanner.",
+  "production_safety_invariant": "Live production code remains 100% untouched until an explicit, authorized promotion occurs following successful forward canary validation.",
+  "program_finish_line": {
+    "total_scanners": 7,
+    "production_improved_count": 0,
+    "target_count": 7,
+    "is_program_complete": false
+  },
+  "scanners": {
+    "EOD": {
+      "strategy_family": "Daily Breakout",
+      "lifecycle_state": "FORWARD_VALIDATING",
+      "candidate_mechanism": "AQS_EOD_v1 (Pure Ranking, FROZEN)",
+      "forward_evidence_n": 0,
+      "gate_status": "ACCUMULATING",
+      "production_status": "LOCKED",
+      "shadow_status": "ACTIVE_SHADOW"
+    },
+    "MULTIBAGGER": {
+      "strategy_family": "Base Accumulation & Volume Expansion",
+      "lifecycle_state": "FORWARD_VALIDATING",
+      "candidate_mechanism": "AQS_ACCUM_v1 (FROZEN)",
+      "forward_evidence_n": 0,
+      "gate_status": "ACCUMULATING",
+      "production_status": "LOCKED",
+      "shadow_status": "ACTIVE_SHADOW"
+    },
+    "PULLBACK": {
+      "strategy_family": "Trend Retracement & Continuation",
+      "lifecycle_state": "FORWARD_VALIDATING",
+      "candidate_mechanism": "AQS_PULLBACK_v1 (Pure Ranking, FROZEN)",
+      "forward_evidence_n": 0,
+      "gate_status": "ACCUMULATING",
+      "production_status": "LOCKED",
+      "shadow_status": "ACTIVE_SHADOW"
+    },
+    "DAILY_BUILDER": {
+      "strategy_family": "Intraday Momentum Construction",
+      "lifecycle_state": "FORWARD_VALIDATING",
+      "candidate_mechanism": "AQS_DAILY_BUILDER_v1 (Early ORB + Vol Surge, FROZEN)",
+      "forward_evidence_n": 0,
+      "gate_status": "ACCUMULATING",
+      "production_status": "LOCKED",
+      "shadow_status": "ACTIVE_SHADOW"
+    },
+    "MULTI_TF": {
+      "strategy_family": "Multi-Timeframe Confluence Breakout",
+      "lifecycle_state": "FORWARD_VALIDATING",
+      "candidate_mechanism": "AQS_MULTI_TF_v1 (SMA Confluence, FROZEN)",
+      "forward_evidence_n": 0,
+      "gate_status": "ACCUMULATING",
+      "production_status": "LOCKED",
+      "shadow_status": "ACTIVE_SHADOW"
+    },
+    "WEALTH_ENGINE": {
+      "strategy_family": "Macro & Sector Swing Allocation",
+      "lifecycle_state": "FORWARD_VALIDATING",
+      "candidate_mechanism": "AQS_WEALTH_v1 (FROZEN)",
+      "forward_evidence_quarters": 0,
+      "gate_status": "ACCUMULATING",
+      "production_status": "LOCKED",
+      "shadow_status": "ACTIVE_SHADOW"
+    },
+    "REVERSAL": {
+      "strategy_family": "Mean Reversion & Counter-Trend Exhaustion",
+      "lifecycle_state": "DISCOVERY_ACTIVE",
+      "candidate_mechanism": "AQS_REVERSAL_v3 (Structural Support Confluence)",
+      "gate_status": "DISCOVERY_ITERATION",
+      "production_status": "LOCKED",
+      "shadow_status": "IN_DISCOVERY"
+    }
+  }
+}

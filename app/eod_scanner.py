@@ -80,10 +80,10 @@ MIN_SIGNALS             = EOD_CONFIG["MIN_SIGNALS"]
 MIN_BODY_RATIO          = EOD_CONFIG["MIN_BODY_RATIO"]
 MIN_CLOSE_POSITION      = EOD_CONFIG["MIN_CLOSE_POSITION"]
 MAX_UPPER_WICK_RATIO    = EOD_CONFIG["MAX_UPPER_WICK"]
-MIN_VOLUME_RATIO        = EOD_CONFIG["MIN_VOLUME_RATIO"]    
-MIN_AVG_VOLUME_SHARES   = EOD_CONFIG["MIN_VOLUME_AVG"]      
-MIN_RSI                 = EOD_CONFIG["MIN_RSI"]             
-MAX_RSI                 = EOD_CONFIG["MAX_RSI"]                   
+MIN_VOLUME_RATIO        = EOD_CONFIG["MIN_VOLUME_RATIO"]
+MIN_AVG_VOLUME_SHARES   = EOD_CONFIG["MIN_VOLUME_AVG"]
+MIN_RSI                 = EOD_CONFIG["MIN_RSI"]
+MAX_RSI                 = EOD_CONFIG["MAX_RSI"]
 
 # MIN_STOCK_PRICE imported from config (₹100)
 MAX_DISTANCE_FROM_52W_HIGH_PCT = EOD_ADVANCED_CONFIG["MAX_DISTANCE_FROM_52W_HIGH_PCT"]
@@ -127,7 +127,7 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
                 from database import update_scanner_run_lifecycle
                 update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
             upsert_scanner_health("EOD", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-            
+
             try:
                 acquired_global = _global_lock.acquire(blocking=True, owner_scanner="EOD", operation="FULL_SCAN", run_ctx=run_ctx)
             except Exception as lock_err:
@@ -314,7 +314,7 @@ def _check_eod_conditions(
         volume=_safe_float(latest.get("Volume")),
         close_price=candle_close
     )
-    
+
     if is_circuit:
         atr_expansion = None
     else:
@@ -368,11 +368,23 @@ def _check_eod_conditions(
             if not is_tight_base:
                 return {"passed": False, "reason": f"Pre-breakout weak ({red_count}/{lookback_ctx} red candles)"}
 
-    # ── Base width ─────────────────────────────────────────────────────────
+    # ── Base width & 10-day Pre-Breakout Tightness [v5.3.0] ───────────────
     if "BB_WIDTH_PCTILE" in ticker.columns and len(ticker) >= 2:
         bb_width_pctile = _safe_float(ticker["BB_WIDTH_PCTILE"].iloc[-2])
         if bb_width_pctile > EOD_ADVANCED_CONFIG.get("MAX_BB_WIDTH_PCTILE", 0.80):
             return {"passed": False, "reason": f"Base too wide (BB Pctile {bb_width_pctile:.2f})"}
+
+    # [v5.3.0 UPGRADE]: 10-Day Pre-Breakout ATR <= 2.5% of Price (Tight Base Consolidation)
+    if len(ticker) >= 12 and candle_close > 0:
+        import numpy as _np
+        highs_10 = ticker["High"].iloc[-11:-1]
+        lows_10 = ticker["Low"].iloc[-11:-1]
+        closes_10 = ticker["Close"].iloc[-12:-2]
+        tr_10 = _np.maximum(highs_10 - lows_10, _np.maximum(_np.abs(highs_10 - closes_10), _np.abs(lows_10 - closes_10)))
+        atr_10 = float(tr_10.mean())
+        max_base_atr_pct = EOD_ADVANCED_CONFIG.get("MAX_BASE_ATR10_PCT", 2.5) / 100.0
+        if atr_10 > (candle_close * max_base_atr_pct):
+            return {"passed": False, "reason": f"Base ATR10 ({(atr_10/candle_close)*100:.2f}%) > {max_base_atr_pct*100:.1f}% tightness floor"}
 
     # ── Candle quality penalties (soft, not hard) ──────────────────────────
     candle_penalty = 0
@@ -559,7 +571,7 @@ def evaluate_eod_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None, r
         ctx.capture_gate("ConditionCheck", cond.get("passed", False), actual_val=candle_close, operator_str=">", threshold_val=prior_high)
         ctx.capture_score("TOTAL", score, 100.0)
         ctx.capture_sl_target(candle_close, sl_result.get("stop_loss", 0.0), sl_result.get("target_1", 0.0))
-        
+
         consumed_fields = {
             "Close": candle_close,
             "High": candle_high,
@@ -619,22 +631,22 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
     # Initialize the fundamentals cache into the DatasetRegistry (DURABLE)
     from fundamentals_cache import init_fundamentals_registry
     init_fundamentals_registry()
-    
+
     try:
         upsert_scanner_health("EOD", "RUNNING", error_msg="EOD Scan in progress...")
     except Exception:
         logger.warning("⚠️ Could not mark EOD as RUNNING")
-    
+
     force_refresh_blacklist()
-    
+
     nifty_ret_20d = get_nifty_20d_return()
 
-    
+
     ist_now = datetime.now(IST)
     logger.info("\n" + "=" * 80)
     logger.info(f"🚀🚀🚀 [START] EOD SCANNER INIT | {ist_now.strftime('%Y-%m-%d %H:%M:%S')} 🚀🚀🚀")
     logger.info("=" * 80 + "\n")
-    
+
     start_time = datetime.now(IST)
     from perf_utils import ScannerStageTracker
     stage_tracker = ScannerStageTracker("EOD_SCANNER")
@@ -644,7 +656,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
     now_time = ist_now.time()
     scan_start = datetime.strptime("21:00", "%H:%M").time()
     scan_end = datetime.strptime("23:59:59", "%H:%M:%S").time()
-    
+
     # [VERSION: ALL_ALERTS_PERSIST_v1.0] Dry-run mode disabled — all generated alerts persist to DB at all times.
     is_test_mode = False
 
@@ -688,7 +700,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
 
         delivery_map: dict[str, float] = {}
         all_ticker_data = {}
-        
+
         stage_tracker.start_stage(2, "Pre-Scan Context & Macro Setup", "Pledge, delivery data, sector rotation scores")
         with StageTimelineTracker("EOD", "2. Pre-Scan Data (Pledge, Delivery, Sectors)"):
 
@@ -740,7 +752,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                     candidate = ist_now.date() - timedelta(days=days_back)
                     while candidate.weekday() >= 5:
                         candidate -= timedelta(days=1)
-                    
+
                     if candidate in seen_delivery_dates:
                         continue
                     seen_delivery_dates.add(candidate)
@@ -804,11 +816,11 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
             "low_avg_volume", "penny_stock", "rsi_range", "below_ema20",
             "below_sma50", "weak_adx", "far_from_52w_high",
             "gap_day", "extended_breakout", "gap_extended", "low_score", "duplicate", "stale_data",
-            "prior_red_candles", "obv_divergence", 
+            "prior_red_candles", "obv_divergence",
             "no_structural_breakout", "no_atr_expansion", "base_too_wide",
             "missing_atr", "zero_avg_volume", "zero_candle_range", "low_rr"
         ]}
-        
+
         market_regime = get_macro_regime(nifty_ret_20d)
         telemetry_logger = ScannerDecisionLogger("EOD", scan_id, market_regime)
         logger.info(f"📊 Market Regime Classifier: {market_regime}")
@@ -824,7 +836,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
         except Exception:
             logger.warning("⚠️ Could not build regime_ctx from MarketRegimeEngine — using neutral fallback")
             regime_ctx = {"trend": market_regime, "biases": {}}
-            
+
         try:
             from database import get_latest_weights
             regime_str = regime_ctx.get("trend", "NEUTRAL")
@@ -855,17 +867,17 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
 
         # Cap the regime-adjusted threshold at 82 to prevent over-rejection in neutral/bear regimes
         global_min_score = min(global_min_score, 82)
-        
+
         logger.info(f"📊 Score threshold for {market_regime} regime: {global_min_score}")
 
         stage_tracker.end_stage(f"Pledge: {len(pledge_map)}, Delivery: {len(delivery_map)}")
 
         import gc
         BATCH_SIZE = int(os.environ.get("EOD_FETCH_BATCH_SIZE", "200"))
-        
+
         from config import ALERT_COOLDOWN_MINUTES
         cooldown_alerts = get_recent_alerts_for_scanner("EOD", ALERT_COOLDOWN_MINUTES.get("EOD", 1440))
-        
+
         total_fetched_count = 0
         stage_tracker.start_stage(3, "Price History Fetch & Symbol Evaluation Loop", f"Chunk size: {BATCH_SIZE}")
         # [VERSION: MARKET_DATA_SESSION_v1.0] Log whether session is available
@@ -881,7 +893,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
         import psutil
         process = psutil.Process(os.getpid())
         BATCH_SIZE = int(os.environ.get("EOD_FETCH_BATCH_SIZE", "50"))
-        
+
         total_fetched_count = 0
         logger.info(f"📥 Processing EOD phase in chunks of {BATCH_SIZE}...")
 
@@ -891,14 +903,14 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                 batch_start_time = time.time()
                 chunk_df = watchlist.iloc[i:i + BATCH_SIZE]
                 rss_before = process.memory_info().rss / 1024 / 1024
-                
+
                 all_ticker_data = fetch_watchlist_data(chunk_df, "2y", "1d")
                 if not all_ticker_data:
                     continue
-                
+
                 total_fetched_count += len(all_ticker_data)
                 rss_after_fetch = process.memory_info().rss / 1024 / 1024
-                
+
                 # [RULE 67 CHANGE RATIONALE - EOD BATCH ORCHESTRATION LOOP FIX]
                 # Previously line 863 had `for idx, (_, row) in enumerate(chunk_df.iterrows(), start=1):` wrapping
                 # the batch ThreadPoolExecutor. This caused each 50-stock chunk to execute 50 times in a row, stalling
@@ -925,17 +937,17 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                             # Using period="1y" shares the exact same Parquet cache files with Wealth Engine & Reversal scanner,
                             # eliminating 50% data payload and preventing cache key fragmentation.
                             all_ticker_data = fetch_watchlist_data(chunk_df, interval="1d", period="1y", requester="EOD")
-                        
+
                         _fetch_dur = time.perf_counter() - _batch_start_t
                         if not all_ticker_data:
                             continue
-                    
+
                         valid_fetches = sum(1 for v in all_ticker_data.values() if isinstance(v, pd.DataFrame) and not v.empty)
                         total_fetched_count += valid_fetches
                         from core_enums import ProviderResult
                         rows_fetched = sum(len(df) for df in all_ticker_data.values() if isinstance(df, pd.DataFrame))
                         tracker.mark_fetch_complete(row_count=rows_fetched)
-                
+
                         import threading
                         from concurrent.futures import ThreadPoolExecutor, as_completed
                         _batch_lock = threading.Lock()
@@ -1055,8 +1067,8 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                         telemetry_logger.record_reject(symbol, "LIQUIDITY", "INSUFFICIENT_BARS", len(ticker) if "ticker" in locals() else 0, 50, start_time=_row_start_time)
                                     return
 
-                                # [PERFORMANCE_FIX] apply_indicators() is now pre-calculated by price_cache.py 
-                                # immediately after downloading the dataset. Doing it once there instead of 
+                                # [PERFORMANCE_FIX] apply_indicators() is now pre-calculated by price_cache.py
+                                # immediately after downloading the dataset. Doing it once there instead of
                                 # 5000 times here eliminates 4-5 minutes of latency per batch!
                                 # ticker = apply_indicators(ticker, timeframe="1d")
 
@@ -1283,7 +1295,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     pen_mult = EOD_ADVANCED_CONFIG.get("GAP_AND_GO_PENALTY_MULT", 10)
                                     max_pen = EOD_ADVANCED_CONFIG.get("GAP_AND_GO_MAX_PENALTY", 20)
                                     technical_penalties["extended_breakout"] = min(max_pen, (atr_extension - max_ext) * pen_mult)
-                
+
                                 # ATR Expansion
                                 import circuit_helper
                                 is_circuit = circuit_helper.is_valid_circuit_candle(
@@ -1291,9 +1303,9 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     volume=_safe_float(latest.get("Volume")),
                                     close_price=candle_close
                                 )
-                                
+
                                 min_atr_expansion = EOD_ADVANCED_CONFIG.get("MIN_ATR_EXPANSION_RATIO", 0.9)
-                                
+
                                 if is_circuit:
                                     atr_expansion = None
                                     # Bypass check, do not reject.
@@ -1384,20 +1396,20 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 lookback = EOD_ADVANCED_CONFIG.get("PRE_BREAKOUT_LOOKBACK_BARS", 5)
                                 max_red = EOD_ADVANCED_CONFIG.get("MAX_PRE_BREAKOUT_RED_CANDLES", 2)
                                 tight_base_threshold = EOD_ADVANCED_CONFIG.get("TIGHT_BASE_BB_WIDTH_PCTILE", 0.35)
-                
+
                                 if len(ticker) >= (lookback + 1):
                                     red_count = 0
                                     for _ri in range(-(lookback + 1), -1):
                                         if _safe_float(ticker["Close"].iloc[_ri]) < _safe_float(ticker["Open"].iloc[_ri]):
                                             red_count += 1
-                    
+
                                     if red_count > max_red:
                                         # Too many red candles. Reject unless it's a very tight base (volatility compression)
                                         is_tight_base = False
                                         if "BB_WIDTH_PCTILE" in ticker.columns and len(ticker) >= 2:
                                             if _safe_float(ticker["BB_WIDTH_PCTILE"].iloc[-2]) <= tight_base_threshold:
                                                 is_tight_base = True
-                                
+
                                         if not is_tight_base:
                                             pen = (red_count - max_red) * 2
                                             technical_penalties["too_many_red_candles"] = pen
@@ -1584,7 +1596,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     vwap=latest.get("VWAP"),
                                     ticker=ticker,
                                 )
-                
+
                                 if sl_result.get("is_rejected"):
                                     logger.warning(f"🚫 [EOD] {symbol} REJECTED after picking — Reason: SL_RR_ENGINE_REJECT ({sl_result.get('rejection_reason')}, Natural RR={sl_result.get('natural_rr', 0):.2f})")
                                     with _batch_lock:
@@ -1602,7 +1614,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
 
                                 suggested_stop = sl_result["stop_loss"]
                                 target_price = sl_result["target_1"]
- 
+
                                 above_ema20  = bool(candle_close >= _safe_float(latest.get("EMA20"))) if "EMA20" in ticker.columns and not pd.isna(latest.get("EMA20")) else None
                                 above_sma50  = bool(candle_close >= _safe_float(latest.get("SMA50"))) if "SMA50" in ticker.columns and not pd.isna(latest.get("SMA50")) else None
                                 # [VERSION: EOD_PATCH_v1.0] [BUG FIX 6] Renamed golden_cross to above_golden_cross to accurately reflect it's a state check
@@ -1639,14 +1651,14 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     },
                                     "sl_result": sl_result
                                 }
-                
+
                                 # Append configuration metadata for forward-testing and analytics
                                 context["algo_version"] = ACTIVE_ALGO_VERSION
                                 if delivery_found and delivery_days_back > 0:
                                     context["delivery_data_status"] = "missing_used_fallback"
                                 elif not delivery_found:
                                     context["delivery_data_status"] = "unavailable"
-                            
+
                                 context["algo_params"] = {
                                     **EOD_CONFIG,
                                     **EOD_ADVANCED_CONFIG,
@@ -1754,7 +1766,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
             if approved_candidates:
                 from config import SCANNER_MAX_ALERTS
                 max_alerts = SCANNER_MAX_ALERTS.get("EOD", 10)
-            
+
                 if len(approved_candidates) > max_alerts:
                     logger.info(f"Limiting EOD alerts from {len(approved_candidates)} to {max_alerts}")
                     rejected_cands = approved_candidates[max_alerts:]
@@ -1763,7 +1775,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                     for cand in rejected_cands:
                         rejection_counts["max_alerts_exceeded"] = rejection_counts.get("max_alerts_exceeded", 0) + 1
                         logger.info(f"🚫 {cand['symbol']} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['score']})")
-                    
+
                 for cand in approved_candidates:
                     c = dict(cand)
                     # Remove extra keys before saving
@@ -1784,12 +1796,12 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                     _yoy_profit = c.pop("_yoy_profit")
                     _roe = c.pop("_roe")
                     _ticker = c.pop("_ticker")
-                
+
                     if not is_test_mode:
                         saved, reason, cap_alloc, shares = save_alert_if_new(**c)
                     else:
                         saved, reason, cap_alloc, shares = True, "", 0.0, 0
-                    
+
                     if not saved:
                         rejection_counts["duplicate"] += 1
                         try:
@@ -1808,7 +1820,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                         except Exception:
                             telemetry_logger.record_reject(c["symbol"], "SYSTEM", "DUPLICATE_REJECTED", None, None)
                         continue
-                    
+
                     alerts_by_category.setdefault(c["category"], []).append({
                         "symbol":           c["symbol"],
                         "category":         c["category"],
@@ -1841,7 +1853,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                         "shares_bought":     shares
                     })
                     total_alerts += 1
-                
+
                     _last_bar_date = "unknown"
                     try:
                         if isinstance(_ticker.index, pd.DatetimeIndex):
@@ -1967,7 +1979,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                     f"RSS after convert: {rss_after_convert:.1f} MB\n"
                     f"RSS after cleanup: {rss_after_gc:.1f} MB"
                 )
-            
+
             # Check if we fetched enough data overall
             if total_fetched_count < len(watchlist) * 0.70:
                 logger.warning(f"⚠️ EOD data fetch returned {total_fetched_count}/{len(watchlist)} symbols (70% minimum required). EOD results may be incomplete.")
@@ -1995,7 +2007,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
         # Map overall outcome & status guard — Missing/unfetched data is a CRITICAL BLOCKER
         outcome = "SUCCESS"
         no_data_count = rejection_counts.get("no_data", 0)
-        
+
         if no_data_count >= len(watchlist) * 0.25:
             status = "DOWN"
             outcome = "FAILED"

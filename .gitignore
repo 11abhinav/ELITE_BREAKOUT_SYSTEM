@@ -1,47 +1,103 @@
-# ── Python ──
+# ── Python & Bytecode ──
 __pycache__/
 *.py[cod]
+*$py.class
 *.pyo
 *.egg-info/
 dist/
 build/
 *.egg
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
 
 # ── Virtual Environment ──
 venv/
 .venv/
 env/
+ENV/
 
-# ── IDE ──
+# ── IDE & Editor Caches ──
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
+*.sublime-project
+*.sublime-workspace
 
-# ── Data / Runtime ──
+# ── Data, Parquet & Database Files ──
 data/
 *.parquet
+*.feather
+*.pkl
+*.pickle
+*.h5
 *.db
+*.sqlite
 *.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite3-journal
 
-# ── Secrets ──
+# ── Locks & Process IDs ──
+*.lock
+*.pid
+
+# ── Profiler Dumps, Archives & Logs ──
+*.prof
+*.log
+logs/
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.gz
+*.rar
+*.7z
+*.tmp
+*.bak
+*.orig
+*.rej
+
+# ── Scratchpads & Temporary Dumps ──
+scratch/
+app/scratch/
+app/artifacts/
+scratch*.py
+scratch_*.py
+test.csv
+bhavcopy.csv
+pylint_audit.txt
+*.txt.bak
+*.jsonl.bak
+
+# ── Mock & HTML Proof Dumps ──
+app/proof_admin_*.html
+app/proof_dash_*.html
+proof_*.html
+
+# ── Secrets & Environment Configs ──
 .env
 .env.*
+!.env.example
 
-# ── OS ──
+# ── OS Generated Files ──
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
-# ── Test scratch files ──
-# test_*.py removed so unit tests can be committed
-
-# ── Stale artifacts ──
-1cd
+# ── Stale Agent / Cache Artifacts ──
 .npm_cache/
 archive/
-.npm_cache/
 .agent
 .agents
-.coverage
-scratch/

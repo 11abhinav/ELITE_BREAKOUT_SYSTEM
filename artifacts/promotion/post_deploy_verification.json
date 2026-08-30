@@ -1,0 +1,9 @@
+{
+  "verified_deployments": [],
+  "verification_checks": [
+    "live_order_routing_integrity",
+    "execution_geometry_verification",
+    "score_distribution_alignment",
+    "feature_drift_monitoring"
+  ]
+}

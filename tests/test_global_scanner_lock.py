@@ -58,7 +58,7 @@ class TestGlobalScannerLock(unittest.TestCase):
     def test_lock_first_status_transition(self, mock_upsert_health):
         """Test that status transitions to RUNNING only inside print_scanner_start_banner after lock is acquired."""
         print_scanner_start_banner("eod_scanner")
-        mock_upsert_health.assert_called_with("EOD", "RUNNING", error_msg="Scan in progress...")
+        mock_upsert_health.assert_called_with("EOD", "RUNNING", error_msg="Scan in progress...", run_id=None)
 
     def test_exception_lock_release(self):
         """Test that exception inside scanner block releases lock in finally block."""

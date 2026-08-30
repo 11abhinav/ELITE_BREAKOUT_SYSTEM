@@ -433,16 +433,18 @@ def get_unified_fundamentals(symbol: str, force_refresh: bool = False) -> Dict[s
             del _negative_cache[clean_sym]
 
     # --- In-Memory Symbol Single-Flight Deduplication ---
+    event_to_wait = None
     with _pipeline_lock:
         if clean_sym in _symbol_inflight:
-            event = _symbol_inflight[clean_sym]
-            _pipeline_lock.release()
-            event.wait(timeout=15.0)
-            with _pipeline_lock:
-                return _symbol_results.get(clean_sym, {"symbol": clean_sym, "fields": {}, "hydration": {"status": "INSUFFICIENT", "usable": False}})
-        
-        evt = threading.Event()
-        _symbol_inflight[clean_sym] = evt
+            event_to_wait = _symbol_inflight[clean_sym]
+        else:
+            evt = threading.Event()
+            _symbol_inflight[clean_sym] = evt
+
+    if event_to_wait is not None:
+        event_to_wait.wait(timeout=15.0)
+        with _pipeline_lock:
+            return _symbol_results.get(clean_sym, {"symbol": clean_sym, "fields": {}, "hydration": {"status": "INSUFFICIENT", "usable": False}})
 
     try:
         res_payload = _execute_hydration_cascade(clean_sym, force_refresh, now_ts, t_start)

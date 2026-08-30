@@ -1,0 +1,5 @@
+{
+  "authorized_promotions": [],
+  "pending_authorizations": [],
+  "policy": "Explicit human authorization mandatory prior to live production file modification"
+}

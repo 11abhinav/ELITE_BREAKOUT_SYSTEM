@@ -1,0 +1,11 @@
+{
+  "retired_shadow_harnesses": [],
+  "active_shadow_harnesses": [
+    "AQS_EOD_v1_shadow",
+    "AQS_ACCUM_v1_shadow",
+    "AQS_PULLBACK_v1_shadow",
+    "AQS_DAILY_BUILDER_v1_shadow",
+    "AQS_MULTI_TF_v1_shadow",
+    "AQS_WEALTH_v1_shadow"
+  ]
+}

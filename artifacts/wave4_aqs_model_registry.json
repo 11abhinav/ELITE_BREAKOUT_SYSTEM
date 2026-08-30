@@ -1,0 +1,72 @@
+{
+  "registry_version": "1.1.0",
+  "created_at": "2026-08-30T19:29:00+05:30",
+  "scanner_scope": "EOD",
+  "target_contract": {
+    "target_definition": "net_realized_trade_r",
+    "gross_target": "cf_realized_r",
+    "friction_deduction_r": 0.05,
+    "target_horizon": "T1_HIT_OR_SL_HIT_OR_SESSION_CLOSE",
+    "target_missing_policy": "ZERO_FILL_AND_INVALIDATE_UNRESOLVED"
+  },
+  "models": [
+    {
+      "model_id": "AQS_EOD_v1",
+      "model_family": "REGULARIZED_RIDGE_LINEAR",
+      "scanner": "EOD",
+      "description": "Regularized Alert Quality Score calibrated on EOD breakout setups to predict post-friction Net Expected R.",
+      "active_features": [
+        "dist_sma50_pct",
+        "dist_sma200_pct",
+        "rsi",
+        "volume_ratio"
+      ],
+      "diagnostic_only_features": [
+        "sector_blended_score",
+        "is_tailwind",
+        "rr_ratio"
+      ],
+      "feature_availability": {
+        "dist_sma50_pct": "PRE_DECISION",
+        "dist_sma200_pct": "PRE_DECISION",
+        "rsi": "PRE_DECISION",
+        "volume_ratio": "AVAILABLE_AT_DECISION"
+      },
+      "regularization_lambda": 10.0,
+      "scaler_parameters": {
+        "means": {
+          "dist_sma50_pct": 10.549253748507484,
+          "dist_sma200_pct": 14.218574171008381,
+          "rsi": 68.0394,
+          "volume_ratio": 0.9057860803038502
+        },
+        "stds": {
+          "dist_sma50_pct": 6.189619325711894,
+          "dist_sma200_pct": 4.228925171550805,
+          "rsi": 4.450143587901533,
+          "volume_ratio": 0.3325809590574944
+        }
+      },
+      "calibration_parameters": {
+        "raw_min": -0.04692974054550758,
+        "raw_max": 0.9290665250595231
+      },
+      "weights": {
+        "dist_sma50_pct": -0.1284,
+        "dist_sma200_pct": -0.1965,
+        "rsi": -0.0796,
+        "volume_ratio": -0.3247
+      },
+      "intercept": 0.3443,
+      "predefined_operating_grid": [
+        60.0,
+        65.0,
+        70.0,
+        75.0
+      ],
+      "frozen_operating_point": null,
+      "validation_status": "FROZEN",
+      "holdout_status": "PENDING_HOLDOUT_EVALUATION"
+    }
+  ]
+}

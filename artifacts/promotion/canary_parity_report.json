@@ -1,0 +1,6 @@
+{
+  "canary_evaluation_state": "STANDBY",
+  "active_canaries": [],
+  "parity_mismatches": 0,
+  "parity_tolerance_pct": 0.01
+}
