@@ -19,7 +19,7 @@ COPY . .
 EXPOSE 8000
 EXPOSE 8080
 
-HEALTHCHECK --interval=5s --timeout=3s --start-period=3s --retries=10 \
+HEALTHCHECK --interval=10s --timeout=5s --start-period=60s --retries=12 \
   CMD curl -sf http://127.0.0.1:8000/health || wget -qO- http://127.0.0.1:8000/health >/dev/null || exit 1
 
 CMD ["bash", "start.sh"]
