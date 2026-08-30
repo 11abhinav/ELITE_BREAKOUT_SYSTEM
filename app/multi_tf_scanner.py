@@ -1958,7 +1958,7 @@ def _run_multi_tf_v2_pipeline():
         logger.info("🚀 [MULTI_TF V2] Starting parallel isolated execution cycle...")
         from multi_tf_schema import init_multi_tf_v2_schema
         from multi_tf_engine import evaluate_multi_tf_v2_symbol
-        from candidate_tracker import save_candidate
+        from database import save_candidate
         
         init_multi_tf_v2_schema()
 

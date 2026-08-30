@@ -3463,8 +3463,53 @@ def get_all_scanners_today_trades(today_str: str) -> dict:
                         exit_price, closed_at, exit_signal
                     FROM alerts
                     WHERE alert_date = %s
+                    UNION ALL
+                    SELECT
+                        'ACCUMULATION' AS scanner,
+                        symbol,
+                        category,
+                        signals,
+                        entry_price,
+                        alert_time,
+                        stop_loss,
+                        initial_stop_loss,
+                        target_1,
+                        target_2,
+                        target_3,
+                        target_price,
+                        pnl_pct,
+                        status,
+                        score,
+                        exit_price,
+                        closed_at,
+                        exit_signal
+                    FROM (
+                        SELECT DISTINCT ON (symbol)
+                            symbol,
+                            state AS category,
+                            COALESCE(invalidation_reason, state) AS signals,
+                            close AS entry_price,
+                            created_at AS alert_time,
+                            stop_loss,
+                            stop_loss AS initial_stop_loss,
+                            target_1,
+                            target_2,
+                            target_3,
+                            target_1 AS target_price,
+                            NULL::real AS pnl_pct,
+                            state AS status,
+                            score::real AS score,
+                            NULL::real AS exit_price,
+                            NULL::timestamptz AS closed_at,
+                            NULL::text AS exit_signal
+                        FROM accumulation_alerts
+                        WHERE state IN ('PRE_BREAKOUT', 'ACCUMULATION_WATCH')
+                          AND created_at >= (%s || ' 00:00:00')::timestamp AT TIME ZONE 'Asia/Kolkata'
+                          AND created_at < (%s || ' 00:00:00')::timestamp AT TIME ZONE 'Asia/Kolkata' + INTERVAL '1 day'
+                        ORDER BY symbol, created_at DESC, id DESC
+                    ) sub
                     ORDER BY alert_time DESC
-                """, (today_str,))
+                """, (today_str, today_str, today_str))
                 for row in cur.fetchall():
                     row_dict = dict(row)
                     scanner = row_dict.pop("scanner", "UNKNOWN")

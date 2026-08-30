@@ -297,9 +297,39 @@ class MasterOrchestratorV2:
                 trigger_level, 
                 distance_to_trigger_pct as distance_pct, 
                 COALESCE(primary_blocker_type, status_reason, 'Volume Confirmation Pending') as primary_blocker,
-                COALESCE(last_change_summary, status_reason) as why_qualifies
+                COALESCE(last_change_summary, status_reason) as why_qualifies,
+                updated_at
             FROM scanner_candidates
             WHERE state IN ('WATCH', 'CANDIDATE', 'ARMED', 'DEVELOPING')
+            UNION ALL
+            SELECT
+                symbol,
+                'ACCUMULATION' AS scanner,
+                stage,
+                maturity_score,
+                cmp,
+                trigger_level,
+                distance_pct,
+                primary_blocker,
+                why_qualifies,
+                updated_at
+            FROM (
+                SELECT DISTINCT ON (symbol)
+                    symbol,
+                    state AS stage,
+                    score AS maturity_score,
+                    close AS cmp,
+                    breakout_level AS trigger_level,
+                    CASE WHEN close > 0 THEN ((breakout_level - close) / close * 100) ELSE NULL END AS distance_pct,
+                    COALESCE(invalidation_reason, 'Volume / Compression Gate Pending') AS primary_blocker,
+                    'Institutional Accumulation & Volatility Contraction' AS why_qualifies,
+                    created_at AS updated_at
+                FROM accumulation_alerts
+                WHERE state IN ('PRE_BREAKOUT', 'ACCUMULATION_WATCH')
+                  AND created_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date AT TIME ZONE 'Asia/Kolkata'
+                  AND created_at < ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date + 1) AT TIME ZONE 'Asia/Kolkata'
+                ORDER BY symbol, created_at DESC, id DESC
+            ) sub
             ORDER BY updated_at DESC LIMIT 50
         """
         watchlist = self._run_query(query_v2)
