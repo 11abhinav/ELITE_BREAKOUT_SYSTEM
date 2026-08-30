@@ -6215,7 +6215,7 @@ document.addEventListener('DOMContentLoaded', () => {
 const ALERT_FETCH_INTERVAL_ADMIN = 10 * 1000;
 
 let isFirstAdminAlertFetch = true;
-let lastAdminAlertCount = 0;
+let lastAdminAlertIds = new Set();
 
 function playLoudNotificationSound() {
   try {
@@ -6266,11 +6266,17 @@ function playSoftTickSound() {
 async function fetchTodaysAlertsAndBlink_Admin(){
   try{
     const res = await fetch('/api/todays_alerts'); if(!res.ok) return; const data = await res.json();
-    if (!isFirstAdminAlertFetch && data.length > lastAdminAlertCount) {
+    let hasNewAlert = false;
+    data.forEach(alert => {
+        if (!lastAdminAlertIds.has(alert.id)) {
+            hasNewAlert = true;
+            lastAdminAlertIds.add(alert.id);
+        }
+    });
+    if (!isFirstAdminAlertFetch && hasNewAlert) {
         playLoudNotificationSound();
         triggerAlertFlashing();
     }
-    lastAdminAlertCount = data.length;
     isFirstAdminAlertFetch = false;
     data.forEach(alert=>{
       document.querySelectorAll('tr[data-id]').forEach(tr=>{
