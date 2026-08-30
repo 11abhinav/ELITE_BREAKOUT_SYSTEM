@@ -6456,6 +6456,26 @@ def get_mtf_target_universe() -> 'pd.DataFrame':
         logger.error(f"Failed to fetch MTF target universe: {e}")
         return pd.DataFrame(columns=["Stock"])
 
+
+def get_elite_watchlist() -> list:
+    """
+    Returns the list of active symbols in the V2 watchlist (daily_watchlist_v2) 
+    that are admitted into the elite fundamental pool for today.
+    """
+    init_db()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT symbol FROM daily_watchlist_v2
+                    WHERE symbol IS NOT NULL AND symbol != ''
+                """)
+                rows = cur.fetchall()
+                return sorted([r[0] for r in rows if r[0]])
+    except Exception as e:
+        logger.error(f"Failed to fetch elite watchlist: {e}")
+        return []
+
 def get_active_breakout_watchlist() -> list:
     try:
         with get_connection() as conn:
