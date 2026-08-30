@@ -172,10 +172,6 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
     finally:
         _scan_lock.release()
 
-    except Exception as exc:
-        logger.error("[MULTI_TF] Fatal scanner error: %s", exc)
-        _scan_lock.release_failure(str(exc))
-
 
 def _process_symbol(
     symbol: str,
