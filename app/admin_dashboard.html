@@ -2421,19 +2421,67 @@ function changeAdminPage(type, delta) {
 
           <!-- History Filter Bar -->
           <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:16px; background:var(--card2); padding:12px; border-radius:10px; border:1px solid var(--border); align-items:center;">
-            <select id="seh-scanner-filter" onchange="fetchScannerExecutionHistory(1)" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
-              <option value="ALL">All Scanners</option>
-              <option value="ACCUMULATION">Accumulation Scanner</option>
-              <option value="EOD">EOD Breakout</option>
-              <option value="REVERSAL">Reversal Scanner</option>
-              <option value="PULLBACK">Pullback Pipeline</option>
-              <option value="MULTIBAGGER">Multibagger Scanner</option>
-              <option value="WEALTH_ENGINE">Wealth Engine</option>
-              <option value="MULTI_TF">Multi-TF Scanner</option>
-              <option value="DAILY_BUILDER">Daily Builder</option>
-              <option value="PLEDGE_WORKER">Pledge Worker</option>
-              <option value="AI_WORKER">AI Worker</option>
-            </select>
+            <!-- Multi-Scanner Selector Component -->
+            <div class="seh-multi-scanner-wrapper" style="position:relative; display:inline-block;">
+              <button type="button" id="seh-scanner-btn" onclick="toggleSehScannerDropdown(event)" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:8px; min-width:180px; justify-content:space-between;">
+                <span id="seh-scanner-label" style="display:flex; align-items:center; gap:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:200px;">
+                  🎯 <span>All Scanners</span>
+                </span>
+                <span style="font-size:10px; color:var(--muted);">▼</span>
+              </button>
+              <div id="seh-scanner-dropdown" style="display:none; position:absolute; top:calc(100% + 4px); left:0; z-index:9999; background:var(--card); border:1px solid var(--border2); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.5); padding:10px; width:260px; max-height:360px; overflow-y:auto;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid var(--border);">
+                  <span style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Select Scanners</span>
+                  <div style="display:flex; gap:6px; align-items:center;">
+                    <button type="button" onclick="setAllSehScanners(true)" style="background:transparent; border:none; color:var(--accent); font-size:11px; font-weight:700; cursor:pointer; padding:2px 4px;">All</button>
+                    <span style="color:var(--border);">|</span>
+                    <button type="button" onclick="setAllSehScanners(false)" style="background:transparent; border:none; color:var(--warn); font-size:11px; font-weight:700; cursor:pointer; padding:2px 4px;">Clear</button>
+                  </div>
+                </div>
+                <div id="seh-scanner-checkbox-list" style="display:flex; flex-direction:column; gap:6px;">
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
+                    <input type="checkbox" class="seh-scanner-cb" value="ACCUMULATION" onchange="onSehScannerChange()" checked />
+                    <span>Accumulation Scanner</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
+                    <input type="checkbox" class="seh-scanner-cb" value="EOD" onchange="onSehScannerChange()" checked />
+                    <span>EOD Breakout</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
+                    <input type="checkbox" class="seh-scanner-cb" value="REVERSAL" onchange="onSehScannerChange()" checked />
+                    <span>Reversal Scanner</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
+                    <input type="checkbox" class="seh-scanner-cb" value="PULLBACK" onchange="onSehScannerChange()" checked />
+                    <span>Pullback Pipeline</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
+                    <input type="checkbox" class="seh-scanner-cb" value="MULTIBAGGER" onchange="onSehScannerChange()" checked />
+                    <span>Multibagger Scanner</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
+                    <input type="checkbox" class="seh-scanner-cb" value="WEALTH_ENGINE" onchange="onSehScannerChange()" checked />
+                    <span>Wealth Engine</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
+                    <input type="checkbox" class="seh-scanner-cb" value="MULTI_TF" onchange="onSehScannerChange()" checked />
+                    <span>Multi-TF Scanner</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
+                    <input type="checkbox" class="seh-scanner-cb" value="DAILY_BUILDER" onchange="onSehScannerChange()" checked />
+                    <span>Daily Builder</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
+                    <input type="checkbox" class="seh-scanner-cb" value="PLEDGE_WORKER" onchange="onSehScannerChange()" checked />
+                    <span>Pledge Worker</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
+                    <input type="checkbox" class="seh-scanner-cb" value="AI_WORKER" onchange="onSehScannerChange()" checked />
+                    <span>AI Worker</span>
+                  </label>
+                </div>
+              </div>
+            </div>
             <select id="seh-commit-filter" onchange="fetchScannerExecutionHistory(1)" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
               <option value="ALL">ALL COMMITS</option>
             </select>
@@ -5160,9 +5208,59 @@ function updateSehVersionDropdown(versions) {
   select.value = versionSet.has(currentVal) ? currentVal : (currentVal === 'ALL' ? 'ALL' : 'ALL');
 }
 
+function toggleSehScannerDropdown(e) {
+  if (e) e.stopPropagation();
+  const dd = document.getElementById('seh-scanner-dropdown');
+  if (dd) {
+    dd.style.display = (dd.style.display === 'none' || !dd.style.display) ? 'block' : 'none';
+  }
+}
+
+document.addEventListener('click', function(e) {
+  const container = document.querySelector('.seh-multi-scanner-wrapper');
+  if (container && !container.contains(e.target)) {
+    const dd = document.getElementById('seh-scanner-dropdown');
+    if (dd) dd.style.display = 'none';
+  }
+});
+
+function getSelectedSehScanners() {
+  const cbs = Array.from(document.querySelectorAll('.seh-scanner-cb:checked'));
+  const allCbs = Array.from(document.querySelectorAll('.seh-scanner-cb'));
+  if (cbs.length === 0 || cbs.length === allCbs.length) {
+    return 'ALL';
+  }
+  return cbs.map(cb => cb.value).join(',');
+}
+
+function updateSehScannerLabel() {
+  const cbs = Array.from(document.querySelectorAll('.seh-scanner-cb:checked'));
+  const allCbs = Array.from(document.querySelectorAll('.seh-scanner-cb'));
+  const labelEl = document.getElementById('seh-scanner-label');
+  if (!labelEl) return;
+  if (cbs.length === allCbs.length || cbs.length === 0) {
+    labelEl.innerHTML = '🎯 <span>All Scanners</span>';
+  } else if (cbs.length === 1) {
+    labelEl.innerHTML = `🎯 <span>${cbs[0].value}</span>`;
+  } else {
+    labelEl.innerHTML = `🎯 <span>${cbs.length} Scanners</span>`;
+  }
+}
+
+function setAllSehScanners(checked) {
+  document.querySelectorAll('.seh-scanner-cb').forEach(cb => { cb.checked = checked; });
+  updateSehScannerLabel();
+  fetchScannerExecutionHistory(1);
+}
+
+function onSehScannerChange() {
+  updateSehScannerLabel();
+  fetchScannerExecutionHistory(1);
+}
+
 async function fetchScannerExecutionHistory(page = 1) {
   currentSehPage = Math.max(1, page);
-  const scanner = document.getElementById('seh-scanner-filter')?.value || 'ALL';
+  const scanner = getSelectedSehScanners();
   const git_commit = document.getElementById('seh-commit-filter')?.value || 'ALL';
   const lifecycle_status = document.getElementById('seh-lifecycle-filter')?.value || 'ALL';
   const quality_status = document.getElementById('seh-quality-filter')?.value || 'ALL';

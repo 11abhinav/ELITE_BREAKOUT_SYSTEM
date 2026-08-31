@@ -941,7 +941,6 @@ def api_get_near_misses():
       - scanner: Filter by scanner (e.g. EOD, PULLBACK, REVERSAL)
     """
     days = request.args.get("days", 7, type=int)
-    scanner = request.args.get("scanner", None)
     try:
         from database import get_connection
         from psycopg2.extras import RealDictCursor
@@ -951,21 +950,46 @@ def api_get_near_misses():
         IST = timezone(timedelta(hours=5, minutes=30))
         cutoff_date = (datetime.now(IST) - timedelta(days=days)).date()
 
+        scanners_raw = request.args.getlist("scanner")
+        if not scanners_raw:
+            scanner_param = request.args.get("scanner", None)
+            sc_list = [s.strip() for s in scanner_param.split(",") if s.strip()] if scanner_param else []
+        elif len(scanners_raw) == 1:
+            sc_list = [s.strip() for s in scanners_raw[0].split(",") if s.strip()]
+        else:
+            sc_list = [s.strip() for s in scanners_raw if s.strip()]
+        sc_list = [s for s in sc_list if s.upper() != "ALL"]
+
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                if scanner:
-                    cur.execute("""
-                        SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
-                               nm.threshold_value, nm.delta_pct, nm.score,
-                               COALESCE(nm.entry_price, m.cmp) AS entry_price,
-                               nm.stop_loss, nm.target_1,
-                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
-                        FROM near_misses nm
-                        LEFT JOIN stock_analysis_master m ON m.symbol = nm.symbol
-                        WHERE nm.logged_date >= %s AND nm.scanner = %s
-                        ORDER BY nm.logged_at DESC
-                        LIMIT 200
-                    """, (cutoff_date, scanner))
+                if sc_list:
+                    if len(sc_list) == 1:
+                        cur.execute("""
+                            SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
+                                   nm.threshold_value, nm.delta_pct, nm.score,
+                                   COALESCE(nm.entry_price, m.cmp) AS entry_price,
+                                   nm.stop_loss, nm.target_1,
+                                   nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
+                            FROM near_misses nm
+                            LEFT JOIN stock_analysis_master m ON m.symbol = nm.symbol
+                            WHERE nm.logged_date >= %s AND (nm.scanner = %s OR UPPER(nm.scanner) = UPPER(%s))
+                            ORDER BY nm.logged_at DESC
+                            LIMIT 200
+                        """, (cutoff_date, sc_list[0], sc_list[0]))
+                    else:
+                        placeholders = ", ".join(["UPPER(%s)"] * len(sc_list))
+                        cur.execute(f"""
+                            SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
+                                   nm.threshold_value, nm.delta_pct, nm.score,
+                                   COALESCE(nm.entry_price, m.cmp) AS entry_price,
+                                   nm.stop_loss, nm.target_1,
+                                   nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
+                            FROM near_misses nm
+                            LEFT JOIN stock_analysis_master m ON m.symbol = nm.symbol
+                            WHERE nm.logged_date >= %s AND UPPER(nm.scanner) IN ({placeholders})
+                            ORDER BY nm.logged_at DESC
+                            LIMIT 200
+                        """, [cutoff_date] + sc_list)
                 else:
                     cur.execute("""
                         SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
@@ -3533,7 +3557,13 @@ def api_trade_audit_log():
 def api_scanner_execution_history():
     """Returns filterable, paginated scanner execution history with telemetry stats."""
     try:
-        scanner_name = request.args.get("scanner", "ALL")
+        scanners_raw = request.args.getlist("scanner")
+        if not scanners_raw:
+            scanner_name = request.args.get("scanner", "ALL")
+        elif len(scanners_raw) == 1:
+            scanner_name = scanners_raw[0]
+        else:
+            scanner_name = ",".join(scanners_raw)
         lifecycle_status = request.args.get("lifecycle_status", "ALL")
         quality_status = request.args.get("quality_status", "ALL")
         date_range = request.args.get("date_range", "7d")

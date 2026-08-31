@@ -8879,9 +8879,24 @@ def get_scanner_execution_history(
                 where_clauses = ["1=1"]
                 params = []
 
-                if scanner_name and scanner_name.upper() != "ALL":
-                    where_clauses.append("UPPER(scanner_name) = UPPER(%s)")
-                    params.append(normalize_scanner_name(scanner_name))
+                if scanner_name:
+                    if isinstance(scanner_name, str):
+                        sc_list = [s.strip() for s in scanner_name.split(",") if s.strip()]
+                    elif isinstance(scanner_name, (list, tuple, set)):
+                        sc_list = [str(s).strip() for s in scanner_name if str(s).strip()]
+                    else:
+                        sc_list = [str(scanner_name).strip()]
+
+                    sc_list = [s for s in sc_list if s.upper() != "ALL"]
+                    if sc_list:
+                        if len(sc_list) == 1:
+                            where_clauses.append("UPPER(scanner_name) = UPPER(%s)")
+                            params.append(normalize_scanner_name(sc_list[0]))
+                        else:
+                            placeholders = ", ".join(["UPPER(%s)"] * len(sc_list))
+                            where_clauses.append(f"UPPER(scanner_name) IN ({placeholders})")
+                            for s in sc_list:
+                                params.append(normalize_scanner_name(s))
 
                 if lifecycle_status and lifecycle_status.upper() != "ALL":
                     where_clauses.append("lifecycle_status = %s")

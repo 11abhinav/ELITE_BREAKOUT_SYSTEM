@@ -575,7 +575,27 @@ function playDing() {
           <option value="90D">Last 90 Days</option>
           <option value="YTD">YTD</option>
         </select>
-        <select id="filterScanner"><option value="">All scanners</option></select>
+        <!-- Multi-Scanner Selector for User Trades History -->
+        <div class="user-multi-scanner-wrapper" style="position:relative; display:inline-block;">
+          <button type="button" id="filterScannerBtn" onclick="toggleUserScannerDropdown(event)" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:var(--radius-sm); font-size:12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; min-width:140px; justify-content:space-between;">
+            <span id="filterScannerBtnLabel">🎯 All Scanners</span>
+            <span style="font-size:10px; color:var(--muted);">▼</span>
+          </button>
+          <div id="filterScannerDropdown" style="display:none; position:absolute; top:calc(100% + 4px); left:0; z-index:9999; background:var(--card); border:1px solid var(--border2); border-radius:8px; box-shadow:var(--shadow-lg); padding:10px; width:240px; max-height:300px; overflow-y:auto;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid var(--border);">
+              <span style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase;">Filter Scanners</span>
+              <div style="display:flex; gap:6px; align-items:center;">
+                <button type="button" onclick="setUserScannersAll(true)" style="background:transparent; border:none; color:var(--accent); font-size:11px; font-weight:700; cursor:pointer; padding:2px 4px;">All</button>
+                <span style="color:var(--border);">|</span>
+                <button type="button" onclick="setUserScannersAll(false)" style="background:transparent; border:none; color:var(--warn); font-size:11px; font-weight:700; cursor:pointer; padding:2px 4px;">Clear</button>
+              </div>
+            </div>
+            <div id="userScannerCheckboxes" style="display:flex; flex-direction:column; gap:6px;">
+              <!-- Dynamic scanner checkboxes -->
+            </div>
+          </div>
+          <input type="hidden" id="filterScanner" value="" />
+        </div>
         <select id="filterStatus">
           <option value="">All status</option>
         </select>
@@ -1518,8 +1538,64 @@ function renderMiniTable(trades) {
   </table>`;
 }
 
+function toggleUserScannerDropdown(e) {
+  if (e) e.stopPropagation();
+  const dd = document.getElementById('filterScannerDropdown');
+  if (dd) {
+    dd.style.display = (dd.style.display === 'none' || !dd.style.display) ? 'block' : 'none';
+  }
+}
+
+document.addEventListener('click', function(e) {
+  const container = document.querySelector('.user-multi-scanner-wrapper');
+  if (container && !container.contains(e.target)) {
+    const dd = document.getElementById('filterScannerDropdown');
+    if (dd) dd.style.display = 'none';
+  }
+});
+
+function getUserSelectedScanners() {
+  const cbs = Array.from(document.querySelectorAll('.user-scanner-cb:checked'));
+  const allCbs = Array.from(document.querySelectorAll('.user-scanner-cb'));
+  if (allCbs.length === 0) {
+    const legacyVal = document.getElementById('filterScanner')?.value;
+    return legacyVal ? [legacyVal] : [];
+  }
+  if (cbs.length === 0 || cbs.length === allCbs.length) {
+    return []; // All scanners selected, no filter restriction
+  }
+  return cbs.map(cb => cb.value);
+}
+
+function updateUserScannerLabel() {
+  const cbs = Array.from(document.querySelectorAll('.user-scanner-cb:checked'));
+  const allCbs = Array.from(document.querySelectorAll('.user-scanner-cb'));
+  const labelEl = document.getElementById('filterScannerBtnLabel');
+  if (!labelEl) return;
+  if (cbs.length === allCbs.length || cbs.length === 0) {
+    labelEl.innerHTML = '🎯 <span>All Scanners</span>';
+  } else if (cbs.length === 1) {
+    labelEl.innerHTML = `🎯 <span>${cbs[0].value}</span>`;
+  } else {
+    labelEl.innerHTML = `🎯 <span>${cbs.length} Scanners</span>`;
+  }
+}
+
+function setUserScannersAll(checked) {
+  document.querySelectorAll('.user-scanner-cb').forEach(cb => { cb.checked = checked; });
+  updateUserScannerLabel();
+  tradeCurrentPage = 1;
+  renderTradeTable();
+}
+
+function onUserScannerChange() {
+  updateUserScannerLabel();
+  tradeCurrentPage = 1;
+  renderTradeTable();
+}
+
 function renderTradeTable() {
-  const sc  = document.getElementById('filterScanner').value;
+  const selectedScanners = getUserSelectedScanners();
   const st  = document.getElementById('filterStatus').value;
   const cat = document.getElementById('filterCategory').value;
   const sym = document.getElementById('filterSymbol').value.trim().toUpperCase();
@@ -1534,11 +1610,11 @@ function renderTradeTable() {
   weekStart.setDate(weekStart.getDate() - dayOfWeek + 1);
 
   let filtered = ALL_TRADES.filter(t => {
-    if (sc && t.scanner !== sc) return false;
+    if (selectedScanners.length > 0 && !selectedScanners.includes(t.scanner)) return false;
     if (st === 'PARTIAL_WIN') {
         if (!t.status || !t.status.startsWith('PARTIAL_WIN')) return false;
     } else if (st && t.status !== st) return false;
-    if (!st && t.status === 'REJECTED') return false; // Hide rejected trades by default
+    if (!st && t.status === 'REJECTED') return false; 
     if (cat && t.category !== cat) return false;
     if (sym && !t.symbol.includes(sym)) return false;
     if (dateFilt !== 'ALL') {
@@ -1552,7 +1628,6 @@ function renderTradeTable() {
     return true;
   });
 
-  // Apply KPI Drilldown Filter
   if (activeKpi && window._kpiDefs) {
     const def = window._kpiDefs.find(d => d.id === activeKpi);
     if (def && def.filter) {
@@ -1645,20 +1720,29 @@ document.getElementById('filterDate').addEventListener('change', () => { tradeCu
 });
 
 function populateFilters(trades) {
-  const scanners = [...new Set(trades.map(t=>t.scanner))].sort();
-  const cats     = [...new Set(trades.map(t=>t.category))].sort();
-  const statuses = [...new Set(trades.map(t=>t.status))].sort();
+  const scanners = [...new Set(trades.map(t=>t.scanner).filter(Boolean))].sort();
+  const cats     = [...new Set(trades.map(t=>t.category).filter(Boolean))].sort();
+  const statuses = [...new Set(trades.map(t=>t.status).filter(Boolean))].sort();
   
-  const sEl = document.getElementById('filterScanner');
   const cEl = document.getElementById('filterCategory');
   const stEl = document.getElementById('filterStatus');
+  const userCbContainer = document.getElementById('userScannerCheckboxes');
   
-  while(sEl.options.length > 1) sEl.remove(1);
-  while(cEl.options.length > 1) cEl.remove(1);
+  if (userCbContainer) {
+    userCbContainer.innerHTML = '';
+    scanners.forEach(s => {
+      const lbl = document.createElement('label');
+      lbl.style.cssText = 'display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);';
+      lbl.innerHTML = `<input type="checkbox" class="user-scanner-cb" value="${escapeHTML(s)}" onchange="onUserScannerChange()" checked /> <span>${escapeHTML(s)}</span>`;
+      userCbContainer.appendChild(lbl);
+    });
+    updateUserScannerLabel();
+  }
+  
+  if(cEl) while(cEl.options.length > 1) cEl.remove(1);
   if(stEl) while(stEl.options.length > 1) stEl.remove(1);
   
-  scanners.forEach(s => { const o=document.createElement('option'); o.value=s; o.textContent=s; sEl.appendChild(o); });
-  cats.forEach(c     => { const o=document.createElement('option'); o.value=c; o.textContent=c; cEl.appendChild(o); });
+  if(cEl) cats.forEach(c => { const o=document.createElement('option'); o.value=c; o.textContent=c; cEl.appendChild(o); });
   if(stEl) statuses.forEach(st => { const o=document.createElement('option'); o.value=st; o.textContent=st; stEl.appendChild(o); });
 }
 
