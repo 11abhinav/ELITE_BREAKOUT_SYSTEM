@@ -322,6 +322,15 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
     else:
         watchlist = pd.DataFrame({"Stock": []})
 
+    # [NON_EQUITY_BLOCKLIST] Drop non-equity trusts/InvITs and blacklisted symbols upfront
+    try:
+        from surveillance import get_live_blacklist
+        _bl = get_live_blacklist()
+        if _bl and "Stock" in watchlist.columns and not watchlist.empty:
+            watchlist = watchlist[~watchlist["Stock"].str.upper().isin(_bl)].copy()
+    except Exception:
+        pass
+
     # [VERSION: UNIFIED_1Y_CACHE_v2.0] Standardize all 1d requests to "1y" so EOD, Reversal, Pullback,
     # Wealth Engine and Multibagger all share one single cache key ("1d", "1y").
     if interval == "1d" and period in ("6mo", "1mo", "10d", "3mo", "2y"):

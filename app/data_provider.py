@@ -542,6 +542,13 @@ class AutoSwitchingFetcher(DataFetcher):
         return None
 
     def get_ohlcv(self, symbol: str, interval: str, period: str, retries: int = 3, range_from: str = None, range_to: str = None) -> MarketData:
+        try:
+            from surveillance import get_live_blacklist
+            if symbol and str(symbol).strip().upper() in get_live_blacklist():
+                return MarketData(None, "BLACKLISTED", None, False, False, "Non-equity trust / blacklisted symbol")
+        except Exception:
+            pass
+
         providers = self._get_providers(interval)
         
         last_md = None
@@ -577,6 +584,15 @@ class AutoSwitchingFetcher(DataFetcher):
                 df = _generate_synthetic_df(s, candles=450 if interval == "1d" else 50)
                 out[s] = MarketData(df, "SYNTHETIC_MOCK", None, True, False, "Success")
             return out
+
+        # [NON_EQUITY_BLOCKLIST] Drop non-equity trusts/InvITs and blacklisted symbols upfront
+        try:
+            from surveillance import get_live_blacklist
+            _bl = get_live_blacklist()
+            if _bl:
+                symbols = [s for s in symbols if s and str(s).strip().upper() not in _bl]
+        except Exception:
+            pass
 
         providers = self._get_providers(interval)
         

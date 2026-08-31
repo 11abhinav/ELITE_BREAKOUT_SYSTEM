@@ -201,6 +201,15 @@ class MarketDataSession:
         elif isinstance(symbols, str):
             symbols = [symbols]
 
+        # [NON_EQUITY_BLOCKLIST] Drop non-equity trusts/InvITs and blacklisted symbols upfront
+        try:
+            from surveillance import get_live_blacklist
+            _bl = get_live_blacklist()
+            if _bl:
+                symbols = [str(s).strip().upper() for s in symbols if s and str(s).strip().upper() not in _bl]
+        except Exception:
+            pass
+
         logger.info(
             f"🏗️  [SESSION:{session_id[:8]}] Building MarketDataSession for {ist_date} "
             f"| {len(symbols)} symbols"

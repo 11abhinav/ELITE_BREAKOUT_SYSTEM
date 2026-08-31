@@ -460,6 +460,9 @@ class FyersFetcher(DataFetcher):
         else:
             orig_sym = orig_sym.replace("_", "-")
         try:
+            from surveillance import get_live_blacklist
+            if orig_sym and orig_sym.upper() in get_live_blacklist():
+                return None
             from data_providers.fyers_mapping_utils import is_fyers_invalid
             # Skip the invalid check if this symbol has a known static scrip override
             _scrip_overrides_check = {"NSDL"}  # keep in sync with _normalize_symbol overrides

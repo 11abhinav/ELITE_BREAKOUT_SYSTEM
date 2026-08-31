@@ -57,12 +57,14 @@ def get_watchlist(requester: object = None, require_fresh: bool = False) -> pd.D
     if require_fresh:
         validate_watchlist_freshness(require_fresh=require_fresh)
 
+    _NON_EQUITY_BLOCKLIST = {"VERTIS", "HIGHWAYS", "POWERINVIT", "IRBINVIT", "INDIGRID", "EMBASSY", "MINDSPACE", "BROOKFIELD", "NEXUS"}
     cache = registry.get("watchlist")
     if cache is not None and _watchlist_date == current_date:
+        if "Stock" in cache.columns:
+            cache = cache[~cache["Stock"].str.upper().isin(_NON_EQUITY_BLOCKLIST)].copy()
         return cache.copy()
 
     import os
-    _NON_EQUITY_BLOCKLIST = {"VERTIS", "HIGHWAYS", "POWERINVIT", "IRBINVIT", "INDIGRID", "EMBASSY", "MINDSPACE", "BROOKFIELD", "NEXUS"}
     if os.path.exists(WATCHLIST_PATH) and os.path.getsize(WATCHLIST_PATH) > 0:
         try:
             df = pd.read_parquet(WATCHLIST_PATH)
