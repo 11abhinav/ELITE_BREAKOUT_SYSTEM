@@ -36,10 +36,16 @@ from data_fetch_status import mark_success, mark_failure
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
+from decimal import Decimal
+import numpy as np
+
+# [RULE 67 CHANGE-RATIONALE]:
+# Robust serializer that handles Decimal (from PostgreSQL NUMERIC columns), numpy types,
+# dates, and datetimes, preventing 'Object of type Decimal is not JSON serializable' errors in API endpoints.
 def serialize_datetimes(obj):
     if isinstance(obj, dict):
         return {k: serialize_datetimes(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
+    elif isinstance(obj, (list, tuple, set)):
         return [serialize_datetimes(i) for i in obj]
     elif isinstance(obj, datetime):
         if obj.tzinfo is None:
@@ -49,6 +55,14 @@ def serialize_datetimes(obj):
         return obj.isoformat()
     elif isinstance(obj, date):
         return obj.strftime("%Y-%m-%d")
+    elif isinstance(obj, Decimal):
+        return float(obj) if not obj.is_nan() else None
+    elif isinstance(obj, (np.floating, float)):
+        return float(obj) if not math.isnan(obj) and not math.isinf(obj) else None
+    elif isinstance(obj, (np.integer, int)):
+        return int(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
     return obj
 
 
@@ -1040,7 +1054,7 @@ def api_get_near_misses():
         except Exception as _ce_err:
             pass
 
-        payload = json.dumps(serialize_datetimes(rows))
+        payload = json.dumps(serialize_datetimes(rows), default=str)
         _NEAR_MISSES_CACHE[cache_key] = {"ts": now_ts, "payload": payload}
         return Response(payload, mimetype="application/json")
     except Exception as e:
