@@ -3129,11 +3129,11 @@ function changeAdminPage(type, delta) {
             return `
               <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
                 <td style="padding:10px 12px; font-weight:700; color:var(--text);">${u.name || u.display_name || '-'}</td>
-                <td style="padding:10px 12px; color:#94a3b8; font-size:11px;">${u.email || '-'}</td>
-                <td style="padding:10px 12px; color:#94a3b8; font-size:11px;">${u.mobile || '-'}</td>
+                <td style="padding:10px 12px; color:var(--muted); font-size:11px;">${u.email || '-'}</td>
+                <td style="padding:10px 12px; color:var(--muted); font-size:11px;">${u.mobile || '-'}</td>
                 <td style="padding:10px 12px; text-align:center;"><span style="background:rgba(245,158,11,0.12); color:${roleColor}; border:1px solid ${roleColor}33; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:700;">${role}</span></td>
                 <td style="padding:10px 12px; text-align:center;"><span style="color:${statusColor}; font-weight:700; font-size:11px;">● ${statusLabel}</span></td>
-                <td style="padding:10px 12px; color:#94a3b8; font-size:11px;">${u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN') : '-'}</td>
+                <td style="padding:10px 12px; color:var(--muted); font-size:11px;">${u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN') : '-'}</td>
                 <td style="padding:10px 12px; text-align:center;">
                   <button onclick="switchAdminTab('watchlist-users')" style="font-size:11px; padding:3px 10px; background:var(--accent); color:#000; border:none; border-radius:5px; cursor:pointer; font-weight:700;">Manage →</button>
                 </td>
@@ -8988,9 +8988,9 @@ function loadMasterSystemV2Data() {
           <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
             <td style="padding:10px 12px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}</td>
             <td style="padding:10px 12px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
-            <td style="padding:10px 12px; font-weight:600; color:#94a3b8; font-size:11px;">${formatText(item.scanner)}</td>
+            <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.scanner)}</td>
             <td style="padding:10px 12px; text-align:center;">${stageBadge}</td>
-            <td style="padding:10px 12px; text-align:center; font-weight:700; color:#e2e8f0;">${item.maturity_score ? Number(item.maturity_score).toFixed(1) : '-'}</td>
+            <td style="padding:10px 12px; text-align:center; font-weight:700; color:var(--text);">${item.maturity_score ? Number(item.maturity_score).toFixed(1) : '-'}</td>
             <td style="padding:10px 12px; font-weight:700; color:var(--text); font-family:var(--font-mono);">${formatPrice(item.cmp)}</td>
             <td style="padding:10px 12px; font-weight:700; color:#38bdf8; font-family:var(--font-mono);">${formatPrice(item.trigger_level)}</td>
             <td style="padding:10px 12px; color:${distColor}; font-weight:800; font-family:var(--font-mono); text-align:center;">${distStr}</td>
@@ -9029,9 +9029,9 @@ function loadMasterSystemV2Data() {
             <td style="padding:10px 12px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}</td>
             <td style="padding:10px 12px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
             <td style="padding:10px 12px; font-weight:700; color:var(--text);">${formatPrice(item.cmp)}</td>
-            <td style="padding:10px 12px; font-weight:600; color:#e2e8f0; font-size:11px;">${formatText(item.business_quality)}</td>
-            <td style="padding:10px 12px; font-weight:600; color:#cbd5e1; font-size:11px;">${formatText(item.growth_durability)}</td>
-            <td style="padding:10px 12px; font-weight:600; color:#94a3b8; font-size:11px;">${formatText(item.moat_cash_quality)}</td>
+            <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.business_quality)}</td>
+            <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.growth_durability)}</td>
+            <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.moat_cash_quality)}</td>
             <td style="padding:10px 12px; font-weight:700; color:${valColor}; font-size:11px;">${formatText(valGrade)}</td>
             <td style="padding:10px 12px; color:var(--win); font-weight:800; font-family:var(--font-mono); text-align:center;">${formatPct(item.margin_of_safety_pct)}</td>
             <td style="padding:10px 12px; font-weight:700; color:#10b981; font-size:11px; text-align:center;"><span style="color:#10b981;">●</span> ${formatText(item.thesis_health || 'HEALTHY')}</td>
@@ -9323,7 +9323,7 @@ document.addEventListener('DOMContentLoaded', () => {
   <img src="/static/icons/icon-192.png" alt="App Icon" style="width:44px; height:44px; border-radius:10px; flex-shrink:0;">
   <div style="flex:1;">
     <div style="font-size:14px; font-weight:700; color:#e8eaf0;">📲 Install Screener Admin App</div>
-    <div style="font-size:12px; color:#94a3b8;">Add to your home screen for instant system control & alerts</div>
+    <div style="font-size:12px; color:var(--muted);">Add to your home screen for instant system control & alerts</div>
   </div>
   <div style="display:flex; gap:8px;">
     <button onclick="triggerPWAInstall()" style="background:#00e5a0; color:#0b0e14; border:none; padding:8px 16px; border-radius:8px; font-weight:700; font-size:13px; cursor:pointer;">Install</button>
