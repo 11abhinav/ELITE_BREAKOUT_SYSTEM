@@ -1825,12 +1825,17 @@ def check_scanner_staleness(now):
     """
     # Expected max gap (in minutes) for each scanner before it's considered stale
     SCANNER_CADENCE = {
-        "MULTI_TF":            20,   # runs every 5 min (ends 3:25 PM) → stale if no heartbeat in 20 min
-        "PERFORMANCE_TRACKER": 20,   # runs every 5 min → stale if no heartbeat in 20 min
-        "Wealth Engine":       45,   # [VERSION: WEALTH_HEALTH_FIX_v1.0] health only updates on 15-min full scan → stale if no heartbeat in 45 min
+        "MULTI_TF":            25,       # runs every 15 min (aligned to closed 15m candles)
+        "MULTI_TF_5M":         15,       # runs every 5 min
+        "PERFORMANCE_TRACKER": 15,       # runs every 5 min
+        "WEALTH_EXIT":         15,       # runs every 5 min during market hours
+        "Wealth Engine":       "DAILY",  # runs full scan once daily at 17:00 IST
         "DAILY_BUILDER":       "DAILY",
         "EOD":                 "DAILY",
-        "REVERSAL":            "DAILY"
+        "REVERSAL":            "DAILY",
+        "PULLBACK":            "DAILY",
+        "ACCUMULATION":        "DAILY",
+        "MULTIBAGGER":         "DAILY"
     }
     
     # Throttle: only run this check every 15 minutes
@@ -1840,6 +1845,10 @@ def check_scanner_staleness(now):
     if check_scanner_staleness._last_check and (now - check_scanner_staleness._last_check).total_seconds() < 900:
         return
     check_scanner_staleness._last_check = now
+
+    # Boot grace period: Give scanners 30 minutes after boot before checking intraday staleness
+    if time.monotonic() < 1800:
+        return
     
     try:
         from database import get_all_scanner_health, upsert_scanner_health, insert_notification
@@ -1850,8 +1859,8 @@ def check_scanner_staleness(now):
             if sc not in SCANNER_CADENCE:
                 continue
             
-            # Skip if already DOWN (don't spam)
-            if row.get("status") == "DOWN":
+            # Skip if already DOWN, currently executing (RUNNING/QUEUED), or intentionally paused
+            if row.get("status") in ("DOWN", "RUNNING", "QUEUED", "STOPPED", "PAUSED"):
                 continue
                 
             last_success = row.get("last_success")
