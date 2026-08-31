@@ -1995,7 +1995,7 @@ def _run_multibagger_scanner_single():
     try:
         now = datetime.now(IST)
         logger.info(f"🚀 MULTIBAGGER SCAN | Starting daily scan at {now.strftime('%H:%M:%S IST')}...")
-        from database import upsert_scanner_health, is_scanner_actively_running, update_scanner_run_lifecycle
+        from database import upsert_scanner_health, is_scanner_actively_running
         import multibagger
         if multibagger._scan_lock.locked() or is_scanner_actively_running("MULTIBAGGER"):
             logger.info("🛑 Multibagger scanner is ALREADY queued or actively running in database/thread lock. Skipping duplicate trigger...")
@@ -2005,33 +2005,25 @@ def _run_multibagger_scanner_single():
         telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_START")
         
         start_mb_single = time.time()
-        from database import start_scanner_execution_run, complete_scanner_execution_run
-        run_ctx = start_scanner_execution_run(
-            scanner_name="MULTIBAGGER",
-            trigger_type="SCHEDULED",
-            scheduler_name="CRON",
-            initial_status="QUEUED"   # [FIX: STATE_SYNC_v1.0] Pre-register as QUEUED in history
-                                       # immediately so history tab stays in sync with scanner_health,
-                                       # which is already marked QUEUED by the boot sequence.
-                                       # Transitions to RUNNING once global_lock is acquired below.
-        )
-        
         from lock_utils import ProcessLock
         global_lock = ProcessLock("global_scanner_lock")
         queued_at = None
         if not global_lock.acquire(blocking=False):
             queued_at = time.monotonic()
-            logger.info("⏳ [MULTIBAGGER] Global scanner lock busy — marking QUEUED and waiting for session build...")
+            logger.info("⏳ [MULTIBAGGER] Global scanner lock busy — waiting for session build until lock is released...")
             upsert_scanner_health("MULTIBAGGER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
             global_lock.acquire(blocking=True)
-            if run_ctx:
-                update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
             logger.info(f"✅ [MULTIBAGGER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Building Session...")
         else:
-            # Lock acquired immediately — transition history record to RUNNING right away
-            if run_ctx:
-                update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
             logger.info("✅ [MULTIBAGGER] Global lock acquired instantly. Building Session...")
+
+        # [RULE: HISTORY ENTRY AFTER LOCK ACQUIRED] Only create execution history entry once lock is secured
+        from database import start_scanner_execution_run, complete_scanner_execution_run
+        run_ctx = start_scanner_execution_run(
+            scanner_name="MULTIBAGGER",
+            trigger_type="SCHEDULED",
+            scheduler_name="CRON"
+        )
 
 
         try:

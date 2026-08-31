@@ -329,18 +329,10 @@ class AccumulationScanner:
         acquired_scan = False
 
         try:
-            run_ctx = start_scanner_execution_run(
-                scanner_name="ACCUMULATION",
-                trigger_type=trigger_type,
-                scheduler_name="SCHEDULER"
-            )
-
             from lock_utils import ProcessLock
             _global_lock = ProcessLock("global_scanner_lock")
             if not _global_lock.acquire(blocking=False, owner_scanner="ACCUMULATION", operation="FULL_SCAN"):
                 logger.info("⏳ [ACCUMULATION] Global scanner lock busy — waiting in queue...")
-                from database import update_scanner_run_lifecycle
-                update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
                 upsert_scanner_health("ACCUMULATION", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
                 
                 try:
@@ -351,14 +343,24 @@ class AccumulationScanner:
 
                 if not acquired_global:
                     logger.error("❌ [ACCUMULATION] Failed to acquire global scanner lock after queue wait.")
-                    complete_scanner_execution_run(run_ctx, status_override="FAILED", stop_reason="Global lock acquire timeout")
+                    if run_ctx:
+                        complete_scanner_execution_run(run_ctx, status_override="FAILED", stop_reason="Global lock acquire timeout")
                     upsert_scanner_health("ACCUMULATION", "IDLE", error_msg="Lock acquisition timed out")
                     return {"status": "FAILED", "reason": "LOCK_TIMEOUT"}
             else:
                 acquired_global = True
 
-            from database import update_scanner_run_lifecycle
-            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
+            # [RULE: HISTORY ENTRY AFTER LOCK ACQUIRED] Only create execution history entry once lock is secured
+            if run_ctx is None:
+                run_ctx = start_scanner_execution_run(
+                    scanner_name="ACCUMULATION",
+                    trigger_type=trigger_type,
+                    scheduler_name="SCHEDULER"
+                )
+            elif run_ctx:
+                from database import update_scanner_run_lifecycle
+                update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
+
             health = AccumulationHealthTracker(run_id=run_id, scanner=ACCUMULATION_SCANNER_NAME)
             from lock_utils import print_scanner_start_banner
             _scan_start = print_scanner_start_banner("ACCUMULATION", run_id=run_id)

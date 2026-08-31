@@ -112,20 +112,10 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
     _scan_start = None
 
     try:
-        if run_ctx is None:
-            try:
-                from database import start_scanner_execution_run
-                run_ctx = start_scanner_execution_run(scanner_name="EOD", trigger_type=trigger_type, scheduler_name=scheduler_name)
-            except Exception as exc:
-                logger.warning(f"⚠️ [EOD] Could not create run_ctx: {exc}")
-
         queued_at = None
         if not _global_lock.acquire(blocking=False, owner_scanner="EOD", operation="FULL_SCAN"):
             queued_at = time.monotonic()
-            logger.info("⏳ [EOD] Global scanner lock busy — marking QUEUED and waiting in queue...")
-            if run_ctx:
-                from database import update_scanner_run_lifecycle
-                update_scanner_run_lifecycle(run_ctx.run_id, "QUEUED")
+            logger.info("⏳ [EOD] Global scanner lock busy — waiting in queue until lock is released...")
             upsert_scanner_health("EOD", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
 
             try:
@@ -143,9 +133,6 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
         else:
             acquired_global = True
 
-        if run_ctx:
-            from database import update_scanner_run_lifecycle
-            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
         if queued_at is not None:
             logger.info(f"✅ [EOD] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Starting scan...")
 
@@ -158,6 +145,17 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
             upsert_scanner_health("EOD", "IDLE", error_msg="Duplicate trigger skipped")
             return 0
         acquired_scan = True
+
+        # [RULE: HISTORY ENTRY AFTER LOCK ACQUIRED] Only create execution history entry once all locks are secured
+        if run_ctx is None:
+            try:
+                from database import start_scanner_execution_run
+                run_ctx = start_scanner_execution_run(scanner_name="EOD", trigger_type=trigger_type, scheduler_name=scheduler_name)
+            except Exception as exc:
+                logger.warning(f"⚠️ [EOD] Could not create run_ctx: {exc}")
+        elif run_ctx:
+            from database import update_scanner_run_lifecycle
+            update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")
 
         _scan_start = print_scanner_start_banner("eod_scanner", queued_at=queued_at, run_id=run_ctx.run_id if run_ctx else None)
         total = _start_wrapper(force, session=session, run_ctx=run_ctx, used_fallback_data=used_fallback_data)
