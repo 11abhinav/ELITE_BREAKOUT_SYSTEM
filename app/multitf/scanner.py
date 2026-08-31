@@ -215,6 +215,14 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
         telemetry.log_scheduler_event("MULTI_TF", "CYCLE_COMPLETE")
         logger.info("✅ MULTI_TF V2 ENGINE | Execution cycle complete in %ss.", duration)
 
+        # Background sync updated history bundles to PostgreSQL parquet_cache so restarts never re-fetch
+        try:
+            from database import upload_history_bundle_to_db, submit_background_upload
+            submit_background_upload(lambda: upload_history_bundle_to_db("15m", force=True))
+            submit_background_upload(lambda: upload_history_bundle_to_db("1d"))
+        except Exception as _sync_err:
+            logger.debug(f"[MULTI_TF] History bundle background upload dispatch error: {_sync_err}")
+
     except Exception as exc:
         duration = round(time.monotonic() - start_time, 2)
         logger.error("[MULTI_TF] Fatal error during cycle: %s", exc)
