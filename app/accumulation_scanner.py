@@ -402,7 +402,8 @@ class AccumulationScanner:
 
             health.transition("ACCUMULATION_EVALUATION")
             candidates = []
-            alerts_count = 0
+            trade_alerts_count = 0
+            watchlist_count = 0
             opp_manager = OpportunityManager(policy={})
 
             # Batch processing loop
@@ -458,11 +459,14 @@ class AccumulationScanner:
                         snapshot_id = res["audit_snapshot_id"]
                         score = res["score"]
                         
-                        logger.info(f"🟢 [ACCUMULATION] {sym} QUALIFIED for {state} | Score: {score:.1f} | Entry: {sl_tgt['breakout_level']} | SL: {sl_tgt['stop_loss']} | RR: {sl_tgt['rr_1']:.2f}")
-                        
                         # 1. Canonical Alert Registration (ONLY for BREAKOUT_READY setups to prevent premature OPEN trade positions)
                         inserted = False
                         if state == "BREAKOUT_READY":
+                            logger.info(
+                                f"🚀 [ACCUMULATION: BREAKOUT TRIGGERED] {sym} triggered actionable breakout entry! "
+                                f"Score: {score:.1f}/100 | CMP: ₹{res['cmp']} | Trigger Entry: ₹{sl_tgt['breakout_level']} | "
+                                f"SL: ₹{sl_tgt['stop_loss']} | Target 1: ₹{sl_tgt['target_1']} (RR: {sl_tgt['rr_1']:.2f})"
+                            )
                             inserted, _, _, _ = save_alert_if_new(
                                 symbol=sym,
                                 breakout_type="ACCUMULATION",
@@ -479,8 +483,16 @@ class AccumulationScanner:
                                 context={"audit_snapshot_id": snapshot_id, "scores_breakdown": res["scores_breakdown"]},
                                 entry_mode="BREAKOUT_TRIGGER"
                             )
+                            if inserted:
+                                trade_alerts_count += 1
+                        else:
+                            logger.info(
+                                f"👁️ [ACCUMULATION: {state.replace('_', ' ')}] {sym} added to Watchlist (Base Compression Score: {score:.1f}/100) | "
+                                f"CMP: ₹{res['cmp']} | Pending Breakout Level: ₹{sl_tgt['breakout_level']} | "
+                                f"SL: ₹{sl_tgt['stop_loss']} | RR: {sl_tgt['rr_1']:.2f} — (Pending breakout trigger, not an active trade yet)"
+                            )
                         
-                        # 2. OpportunityManager Dispatch (if tradeable)
+                        # 2. OpportunityManager Dispatch (if tradeable live breakout)
                         if inserted and sl_tgt.get("tradable", True):
                             payload = {
                                 "symbol": sym,
@@ -524,7 +536,7 @@ class AccumulationScanner:
                                         """,
                                         (
                                             run_id, snapshot_id, sym, state, sl_tgt.get("tradable", True),
-                                            res["score"], res["scores_breakdown"]["ACCUMULATION"], res["scores_breakdown"]["COMPRESSION"], res["scores_breakdown"]["RELATIVE_STRENGTH"],
+                                             res["score"], res["scores_breakdown"]["ACCUMULATION"], res["scores_breakdown"]["COMPRESSION"], res["scores_breakdown"]["RELATIVE_STRENGTH"],
                                             res["scores_breakdown"]["RESISTANCE"], res["scores_breakdown"]["VOLUME_STRUCTURE"], res["scores_breakdown"]["FUNDAMENTAL"],
                                             res["cmp"], sl_tgt["entry_zone_low"], sl_tgt["entry_zone_high"], sl_tgt["breakout_level"], sl_tgt["stop_loss"],
                                             sl_tgt["target_1"], sl_tgt["target_2"], sl_tgt["target_3"], sl_tgt["risk_pct"], sl_tgt["rr_1"], sl_tgt["rr_2"], sl_tgt["rr_3"],
@@ -532,21 +544,27 @@ class AccumulationScanner:
                                         )
                                     )
                                     conn.commit()
-                                    alerts_count += 1
-                                    if run_ctx:
+                                    watchlist_count += 1
+                                    if run_ctx and state == "BREAKOUT_READY":
                                         run_ctx.add_alert(1)
-                                    health.record_metrics(alerts_inc=1)
+                                    health.record_metrics(alerts_inc=1 if state == "BREAKOUT_READY" else 0)
                         except Exception as al_err:
                             logger.warning(f"Could not persist accumulation alert for {sym}: {al_err}")
                     else:
                         health.record_metrics(rejected_inc=1)
 
             # Process all accumulated opportunities
-            try:
-                opp_manager.process()
-                logger.info("✅ [ACCUMULATION] OpportunityManager processed all dispatched alerts.")
-            except Exception as e:
-                logger.error("[ACCUMULATION] OpportunityManager failed to process: %s", e)
+            if trade_alerts_count > 0:
+                try:
+                    opp_manager.process()
+                    logger.info(f"⚡ [ACCUMULATION] OpportunityManager processed {trade_alerts_count} actionable breakout alerts.")
+                except Exception as e:
+                    logger.error("[ACCUMULATION] OpportunityManager failed to process: %s", e)
+            else:
+                logger.info(
+                    f"ℹ️ [ACCUMULATION] {watchlist_count} stocks recorded on Accumulation Watchlist (base compression phase). "
+                    f"0 actionable trade alerts opened (immediate trade execution requires BREAKOUT_READY score >= 85.0)."
+                )
 
             health.transition("COMPLETED", status="OK" if health.status != "STOPPED" else "STOPPED")
             health.complete()
@@ -557,7 +575,7 @@ class AccumulationScanner:
                 "ACCUMULATION",
                 status="OK",
                 last_success=now_str,
-                today_alerts=alerts_count,
+                today_alerts=trade_alerts_count,
                 processed_count=len(symbols),
                 total_count=len(symbols),
                 duration_seconds=dur_sec
@@ -565,12 +583,18 @@ class AccumulationScanner:
             if run_ctx:
                 complete_scanner_execution_run(run_ctx)
 
+            logger.info(
+                f"✅ [ACCUMULATION SUMMARY] Completed scan for {len(symbols)} symbols in {dur_sec}s | "
+                f"👁️ Watchlist Candidates: {watchlist_count} (Tracking Base) | 🚀 Live Trade Alerts: {trade_alerts_count}"
+            )
+
             return {
                 "status": "OK",
                 "run_id": run_id,
                 "processed": health.processed_symbols,
                 "candidates_count": len(candidates),
-                "alerts_count": alerts_count,
+                "watchlist_count": watchlist_count,
+                "alerts_count": trade_alerts_count,
                 "duration_seconds": health.duration_seconds
             }
 
