@@ -1478,6 +1478,9 @@ function changeAdminPage(type, delta) {
         <button class="admin-tab-btn" data-tab="universe-health" onclick="switchAdminTab('universe-health')">
           <span>🌐</span> Universe Health
         </button>
+        <button class="admin-tab-btn" data-tab="watchlist-users" onclick="switchAdminTab('watchlist-users')">
+          <span>👥</span> User Management
+        </button>
       </div>
 
       <!-- TAB 0A: MASTER CONFIRMED SIGNALS -->
@@ -2347,6 +2350,34 @@ function changeAdminPage(type, delta) {
       <!-- TAB 3: SCANNER HEALTH & SYSTEM ERRORS -->
       <div id="tab-health-errors" class="tab-panel">
 
+      <!-- USER MANAGEMENT QUICK ACCESS (embedded in Scanner Health for admin convenience) -->
+      <div class="card" style="margin-bottom:24px; padding:0; overflow:hidden;">
+        <div style="padding:14px 20px; background:var(--card2); display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); cursor:pointer;" onclick="document.getElementById('scanner-usermgmt-body').style.display = document.getElementById('scanner-usermgmt-body').style.display === 'none' ? 'block' : 'none';">
+          <span style="font-weight:700; color:var(--text); font-size:15px;">👥 User Management &amp; Approved Directory</span>
+          <button class="refresh-btn" onclick="event.stopPropagation(); switchAdminTab('watchlist-users')" style="font-size:12px; font-weight:700; padding:4px 12px;">Open Full User Management →</button>
+        </div>
+        <div id="scanner-usermgmt-body" style="padding:20px; display:none;">
+          <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:16px;">
+            <select id="scannerTabUserStatusFilter" onchange="scannerTabSearchUsers()" style="padding:8px 14px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; cursor:pointer;">
+              <option value="all">All Users</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+            <input id="scannerTabUserSearchInput" type="text" placeholder="Search by name, email, mobile..." style="width:260px; padding:8px 14px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px;" oninput="scannerTabSearchUsers()">
+            <button class="refresh-btn" onclick="scannerTabSearchUsers()" style="padding:8px 16px; background:var(--accent); color:#000; border:none; border-radius:6px; font-weight:700;">🔍 Search</button>
+            <button class="refresh-btn" onclick="scannerTabSearchUsers()" style="padding:8px 14px; font-weight:700;">🔄 Refresh</button>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="data-table" style="width:100%; font-size:12px;">
+              <thead><tr>
+                <th>Name</th><th>Email</th><th>Mobile</th><th>Role</th><th>Status</th><th>Joined</th><th>Actions</th>
+              </tr></thead>
+              <tbody id="scannerTabUserResults"><tr><td colspan="7" style="text-align:center; color:var(--muted); padding:20px;">Click Search to load users.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- SYSTEM HEALTH & DIAGNOSTICS -->
       <div class="card" style="margin-top: 20px; margin-bottom: 40px; overflow: hidden;">
         <div id="diagnostics-header"
@@ -3069,6 +3100,49 @@ function changeAdminPage(type, delta) {
         icon.style.transform = 'rotate(0deg)';
         status.textContent = 'Click to expand';
       }
+    }
+
+    // [VERSION: SCANNER_TAB_USERMGMT_v1.0]
+    // Inline user search for the User Management panel embedded inside Scanner Health tab.
+    // Calls the same /api/admin/users/search endpoint as the full User Management tab.
+    function scannerTabSearchUsers() {
+      const statusFilter = (document.getElementById('scannerTabUserStatusFilter') || {}).value || 'all';
+      const query = (document.getElementById('scannerTabUserSearchInput') || {}).value || '';
+      const tbody = document.getElementById('scannerTabUserResults');
+      if (!tbody) return;
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--muted); padding:16px;">🔄 Loading...</td></tr>`;
+
+      const params = new URLSearchParams({ q: query, status: statusFilter });
+      fetch(`/api/admin/users/search?${params}`)
+        .then(r => r.json())
+        .then(data => {
+          const users = Array.isArray(data) ? data : (data.users || []);
+          if (!users.length) {
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--muted); padding:16px;">No users found.</td></tr>`;
+            return;
+          }
+          tbody.innerHTML = users.map(u => {
+            const statusColor = u.is_active ? '#10b981' : '#ef4444';
+            const statusLabel = u.is_active ? 'Active' : 'Inactive';
+            const role = (u.role || 'user').toUpperCase();
+            const roleColor = role === 'ADMIN' ? '#f59e0b' : '#3b82f6';
+            return `
+              <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+                <td style="padding:10px 12px; font-weight:700; color:var(--text);">${u.name || u.display_name || '-'}</td>
+                <td style="padding:10px 12px; color:#94a3b8; font-size:11px;">${u.email || '-'}</td>
+                <td style="padding:10px 12px; color:#94a3b8; font-size:11px;">${u.mobile || '-'}</td>
+                <td style="padding:10px 12px; text-align:center;"><span style="background:rgba(245,158,11,0.12); color:${roleColor}; border:1px solid ${roleColor}33; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:700;">${role}</span></td>
+                <td style="padding:10px 12px; text-align:center;"><span style="color:${statusColor}; font-weight:700; font-size:11px;">● ${statusLabel}</span></td>
+                <td style="padding:10px 12px; color:#94a3b8; font-size:11px;">${u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN') : '-'}</td>
+                <td style="padding:10px 12px; text-align:center;">
+                  <button onclick="switchAdminTab('watchlist-users')" style="font-size:11px; padding:3px 10px; background:var(--accent); color:#000; border:none; border-radius:5px; cursor:pointer; font-weight:700;">Manage →</button>
+                </td>
+              </tr>`;
+          }).join('');
+        })
+        .catch(e => {
+          tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#ef4444; padding:16px;">❌ Failed to load users: ${e.message}</td></tr>`;
+        });
     }
 
     function toggleTradesSection() {
