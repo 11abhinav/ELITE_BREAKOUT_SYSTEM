@@ -460,40 +460,40 @@ class AccumulationScanner:
                         
                         logger.info(f"🟢 [ACCUMULATION] {sym} QUALIFIED for {state} | Score: {score:.1f} | Entry: {sl_tgt['breakout_level']} | SL: {sl_tgt['stop_loss']} | RR: {sl_tgt['rr_1']:.2f}")
                         
-                        # 1. Canonical Alert Registration for all Qualified Accumulation setups
+                        # 1. Canonical Alert Registration (ONLY for BREAKOUT_READY setups to prevent premature OPEN trade positions)
                         inserted = False
-                        entry_val = sl_tgt["breakout_level"] if state == "BREAKOUT_READY" else res["cmp"]
-                        inserted, save_reason, _, _ = save_alert_if_new(
-                            symbol=sym,
-                            breakout_type="ACCUMULATION",
-                            alert_time=datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
-                            scanner="ACCUMULATION",
-                            category="EOD",
-                            entry_price=entry_val,
-                            stop_loss=sl_tgt["stop_loss"],
-                            target_1=sl_tgt["target_1"],
-                            target_2=sl_tgt["target_2"],
-                            target_3=sl_tgt["target_3"],
-                            signals=state,
-                            score=int(score),
-                            context={"audit_snapshot_id": snapshot_id, "scores_breakdown": res["scores_breakdown"]},
-                            entry_mode="BREAKOUT_TRIGGER" if state == "BREAKOUT_READY" else "ACCUMULATION_ZONE"
-                        )
+                        if state == "BREAKOUT_READY":
+                            inserted, _, _, _ = save_alert_if_new(
+                                symbol=sym,
+                                breakout_type="ACCUMULATION",
+                                alert_time=datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
+                                scanner="ACCUMULATION",
+                                category="EOD",
+                                entry_price=sl_tgt["breakout_level"],
+                                stop_loss=sl_tgt["stop_loss"],
+                                target_1=sl_tgt["target_1"],
+                                target_2=sl_tgt["target_2"],
+                                target_3=sl_tgt["target_3"],
+                                signals=state,
+                                score=int(score),
+                                context={"audit_snapshot_id": snapshot_id, "scores_breakdown": res["scores_breakdown"]},
+                                entry_mode="BREAKOUT_TRIGGER"
+                            )
                         
                         # 2. OpportunityManager Dispatch (if tradeable)
                         if inserted and sl_tgt.get("tradable", True):
                             payload = {
                                 "symbol": sym,
                                 "scanner_name": "ACCUMULATION",
-                                "priority": "HIGH" if state == "BREAKOUT_READY" else ("MEDIUM" if state == "PRE_BREAKOUT" else "LOW"),
+                                "priority": "HIGH" if state == "BREAKOUT_READY" else "MEDIUM",
                                 "timestamp": datetime.now(IST),
                                 "score": score,
-                                "entry_price": entry_val,
+                                "entry_price": sl_tgt["breakout_level"],
                                 "stop_loss": sl_tgt["stop_loss"],
                                 "target": sl_tgt["target_1"],
                                 "rr_ratio": sl_tgt["rr_1"],
                                 "metadata": res["scores_breakdown"],
-                                "entry_mode": "BREAKOUT_TRIGGER" if state == "BREAKOUT_READY" else "ACCUMULATION_ZONE"
+                                "entry_mode": "BREAKOUT_TRIGGER"
                             }
                             opp_manager.add(payload)
                             logger.info(f"   -> Dispatched {sym} to OpportunityManager.")
