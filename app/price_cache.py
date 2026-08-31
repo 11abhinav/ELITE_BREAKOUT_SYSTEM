@@ -11,7 +11,7 @@ from memory_profiler import profile_function
 from datetime import time as dt_time
 import pandas as pd
 import re
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any, Union
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from database import upsert_fetch_error
@@ -1404,7 +1404,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
     return all_data
 
 @profile_function("Hist Fetch", budget_mb=400.0)
-def fetch_unified_historical(symbols: list, period: str = "1y", interval: str = "1d", requester: str = None) -> dict[str, pd.DataFrame]:
+def fetch_unified_historical(symbols: Any, period: str = "1y", interval: str = "1d", requester: str = None) -> dict[str, pd.DataFrame]:
     """
     Unified data fetcher for wealth_engine, eod_scanner, and reversal_scanner.
     Uses unified cache key (interval, period) to allow cross-scanner reuse.
@@ -1412,6 +1412,10 @@ def fetch_unified_historical(symbols: list, period: str = "1y", interval: str = 
     OPTIMIZATION: All 1D data now shares cache key (1d, 1y) instead of
     having separate cache per module (price_fetcher vs price_cache).
     """
+    if isinstance(symbols, str):
+        symbols = [symbols]
+    elif not isinstance(symbols, list):
+        symbols = list(symbols)
     watchlist_df = pd.DataFrame({"Stock": symbols})
     return fetch_watchlist_data(watchlist_df, period=period, interval=interval, requester=requester)
 

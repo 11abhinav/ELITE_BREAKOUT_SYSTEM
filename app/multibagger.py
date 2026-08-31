@@ -731,24 +731,17 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
         # If >= 90% of symbols exist on disk, fast-path load them and fetch only the missing ones
         if len(disk_results) >= int(len(symbols) * 0.90):
             if missing_syms:
-                logger.info(f"⚡ [MULTIBAGGER DISK ACCELERATION] {len(disk_results)}/{len(symbols)} loaded from disk cache. Concurrent fetching {len(missing_syms)} missing ticker(s)...")
-                def _fetch_missing(ms):
-                    try:
-                        m_df = fetch_unified_historical(ms, interval="1d", period="1y")
-                        if m_df is not None and not m_df.empty:
-                            m_spd = _parse_single_symbol_price_data(ms, m_df, ist_now, strip_forming=False)
-                            if m_spd is not None:
-                                return ms, m_spd
-                    except Exception as _m_err:
-                        logger.debug(f"Failed to fetch missing symbol {ms}: {_m_err}")
-                    return ms, None
-
-                with ThreadPoolExecutor(max_workers=8) as m_exec:
-                    m_futs = [m_exec.submit(_fetch_missing, ms) for ms in missing_syms]
-                    for m_fut in as_completed(m_futs):
-                        ms, m_spd = m_fut.result()
-                        if m_spd is not None:
-                            disk_results[ms] = m_spd
+                logger.info(f"⚡ [MULTIBAGGER DISK ACCELERATION] {len(disk_results)}/{len(symbols)} loaded from disk cache. Batch fetching {len(missing_syms)} missing ticker(s)...")
+                try:
+                    missing_dict = fetch_unified_historical(missing_syms, interval="1d", period="1y", requester="multibagger")
+                    if missing_dict:
+                        for ms, m_df in missing_dict.items():
+                            if m_df is not None and not m_df.empty:
+                                m_spd = _parse_single_symbol_price_data(ms, m_df, ist_now, strip_forming=False)
+                                if m_spd is not None:
+                                    disk_results[ms] = m_spd
+                except Exception as _m_err:
+                    logger.warning(f"Failed to batch fetch missing symbols in multibagger: {_m_err}")
 
             logger.info(f"⚡ [MULTIBAGGER DISK ACCELERATION] Fast-path loaded {len(disk_results)}/{len(symbols)} StockPriceData objects (Market Closed).")
             return disk_results
