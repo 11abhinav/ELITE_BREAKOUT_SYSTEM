@@ -3451,20 +3451,19 @@ def get_all_scanner_health() -> list[dict]:
     """Return all scanner health rows, auto-seeding any missing standard scanners so cards never disappear."""
     init_db()
     schedule_map = {
-        "DAILY_BUILDER": "05:00 IST Daily",
-        "Wealth Engine": "06:00 IST (Initial) / Hourly Market Scan",
-        "EOD": "18:00 IST (After Bhavcopy)",
-        "REVERSAL": "18:00 IST (After Bhavcopy)",
-        "PULLBACK": "18:00 IST (After Bhavcopy)",
-        "ACCUMULATION": "15:45 IST (Main) / 18:00 IST (Finalizer)",
-        "MULTIBAGGER": "19:00 IST Daily",
-        "MULTI_TF": "Every 5min (09:30 - 14:55 IST)",
-        "PERFORMANCE_TRACKER": "Every 5min Market Hours (9:15 AM - 3:30 PM)",
-        "MULTIBAGGER_EXIT": "Every 15min Market Hours (9:15 AM - 3:30 PM)",
-        "WEALTH_EXIT": "Every 5min Market Hours (9:15 AM - 3:30 PM)",
-        "Pledge Worker": "Whole Sat & Sun Only (00:00 - 23:59 IST)",
-        "AI Worker": "Whole Sat & Sun Only (00:00 - 23:59 IST)",
-        "Earnings Calendar": "12:01 AM - 04:00 AM IST Daily"
+        "DAILY_BUILDER": "Daily 05:00 IST",
+        "MULTI_TF": "Every 15m / 5m (09:30 - 15:30 IST)",
+        "EOD": "Daily 15:45 IST (Post-Market Close)",
+        "REVERSAL": "Daily 15:45 IST (Post-Market Close)",
+        "PULLBACK": "Daily 15:45 IST (Post-Market Close)",
+        "ACCUMULATION": "Daily 16:15 IST (Post-Close Delivery)",
+        "Wealth Engine": "Every 5m (Market Hours) / Daily 17:00 IST",
+        "MULTIBAGGER": "Daily 17:30 IST (Daily Fundamental)",
+        "PERFORMANCE_TRACKER": "Every 5min (09:15 - 15:30 IST)",
+        "MULTIBAGGER_EXIT": "Every 15min (09:15 - 15:30 IST)",
+        "WEALTH_EXIT": "Every 5min (09:15 - 15:30 IST)",
+        "Pledge Worker": "Continuous (Daily Refresh)",
+        "AI Worker": "Continuous (Sat-Sun Active)",
     }
 
     # Auto-seed and synchronize scheduled_for for all scanners so old DB values are overwritten

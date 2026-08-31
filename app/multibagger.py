@@ -3733,7 +3733,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             processed_count=len(results),
             total_count=len(symbols),
             outcome="SUCCESS" if not missing_syms else "FAILED",
-            scheduled_for="19:00 IST",
+            scheduled_for="Daily 17:30 IST (Daily Fundamental)",
             duration_seconds=duration_sec,
             provider_stats={
                 "SUCCESS": len(price_data_map) if 'price_data_map' in locals() else 0,

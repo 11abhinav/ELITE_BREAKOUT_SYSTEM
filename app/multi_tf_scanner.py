@@ -1724,7 +1724,7 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
                         upsert_scanner_health(
                             scanner_name=SCANNER_MULTI_TF,
                             status="IDLE",
-                            scheduled_for="Every 5min (9:15 AM - 3:30 PM)"
+                            scheduled_for="Every 15m / 5m (09:30 - 15:30 IST)"
                         )
                     except Exception:
                         pass
@@ -1859,7 +1859,7 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
                         last_success=datetime.now(IST).isoformat() if outcome != "FAILED" else None,
                         total_count=total_symbols,
                         error_msg=error_msg,
-                        scheduled_for="Every 5min (9:15 AM - 3:30 PM)",
+                        scheduled_for="Every 15m / 5m (09:30 - 15:30 IST)",
                         outcome=outcome,
                         duration_seconds=elapsed_time,
                         provider_stats={
@@ -1935,7 +1935,7 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
                         scanner_name=SCANNER_MULTI_TF,
                         status="DOWN",
                         error_msg=str(e)[:500],
-                        scheduled_for="Every 5min (9:15 AM - 3:30 PM)"
+                        scheduled_for="Every 15m / 5m (09:30 - 15:30 IST)"
                     )
                     from database import insert_notification
                     from push_service import send_push_to_all

@@ -98,9 +98,10 @@ def _clear_down(name: str):
 # [VERSION: SCHEDULER_REFINEMENT_v1.0]
 # ── Scan windows (start_time, end_time) ─────────────────────────────────────────────
 WINDOWS = {
-    "multi_tf": (dt_time(9, 30), dt_time(15, 0)),
-    "eod":      (dt_time(18, 0), dt_time(23, 59, 59)),
-    "reversal": (dt_time(18, 0), dt_time(23, 59, 59)),
+    "multi_tf": (dt_time(9, 30), dt_time(15, 30)),
+    "eod":      (dt_time(15, 45), dt_time(23, 59, 59)),
+    "reversal": (dt_time(15, 45), dt_time(23, 59, 59)),
+    "pullback": (dt_time(15, 45), dt_time(23, 59, 59)),
 }
 
 
@@ -647,7 +648,7 @@ def _run_eod_with_retries(today_str, session=None, used_fallback=False):
                 status=status_val,
                 last_success=datetime.now(IST).isoformat(),
                 today_alerts=total,
-                scheduled_for="18:00 IST (After Bhavcopy)",
+                scheduled_for="Daily 15:45 IST (Post-Market Close)",
                 duration_seconds=duration_sec
             )
             if total > 0:
@@ -672,12 +673,12 @@ def _run_eod_with_retries(today_str, session=None, used_fallback=False):
             
             if 0 <= now.hour < 6:
                 logger.critical(f"⏰ MIDNIGHT PASSED — EOD scanner force-stopping after {retry_count} retries")
-                upsert_scanner_health("EOD", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="18:00 IST (After Bhavcopy)")
+                upsert_scanner_health("EOD", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="Daily 15:45 IST (Post-Market Close)")
                 return
             
             logger.critical(f"💀 EOD scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
             from database import upsert_scanner_health, insert_notification
-            upsert_scanner_health("EOD", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="18:00 IST (After Bhavcopy)")
+            upsert_scanner_health("EOD", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="Daily 15:45 IST (Post-Market Close)")
             
             if retry_count == 1:
                 try:
@@ -743,7 +744,7 @@ def _run_reversal_with_retries(today_str, session=None, used_fallback=False):
                 status=status_val,
                 last_success=datetime.now(IST).isoformat(),
                 today_alerts=total,
-                scheduled_for="18:00 IST (After Bhavcopy)",
+                scheduled_for="Daily 15:45 IST (Post-Market Close)",
                 duration_seconds=duration_sec
             )
             if total > 0:
@@ -768,12 +769,12 @@ def _run_reversal_with_retries(today_str, session=None, used_fallback=False):
             
             if 0 <= now.hour < 6:
                 logger.critical(f"⏰ MIDNIGHT PASSED — REVERSAL scanner force-stopping after {retry_count} retries")
-                upsert_scanner_health("REVERSAL", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="18:00 IST (After Bhavcopy)")
+                upsert_scanner_health("REVERSAL", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="Daily 15:45 IST (Post-Market Close)")
                 return
             
             logger.critical(f"💀 REVERSAL scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
             from database import upsert_scanner_health, insert_notification
-            upsert_scanner_health("REVERSAL", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="18:00 IST (After Bhavcopy)")
+            upsert_scanner_health("REVERSAL", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="Daily 15:45 IST (Post-Market Close)")
             
             if retry_count == 1:
                 try:
@@ -832,7 +833,7 @@ def _run_pullback_with_retries(today_str, session=None, used_fallback=False):
             alerts_num = total.get("today_alerts", 0) if isinstance(total, dict) else (total if isinstance(total, int) else 0)
             is_stale_session = session is not None and session.metadata.delivery_status == "STALE"
             status_val = "DEGRADED_FALLBACK" if (used_fallback or is_stale_session) else "OK"
-            upsert_scanner_health("PULLBACK", status=status_val, last_success=datetime.now(IST).isoformat(), today_alerts=alerts_num, scheduled_for="18:00 IST (After Bhavcopy)", duration_seconds=duration_sec)
+            upsert_scanner_health("PULLBACK", status=status_val, last_success=datetime.now(IST).isoformat(), today_alerts=alerts_num, scheduled_for="Daily 15:45 IST (Post-Market Close)", duration_seconds=duration_sec)
             logger.info("✅ PULLBACK SCANNER | Completed successfully for today.")
             return
         except Exception as exc:
@@ -844,11 +845,11 @@ def _run_pullback_with_retries(today_str, session=None, used_fallback=False):
             now = datetime.now(IST)
             if 0 <= now.hour < 6:
                 logger.critical(f"⏰ MIDNIGHT PASSED — PULLBACK scanner force-stopping after {retry_count} retries")
-                upsert_scanner_health("PULLBACK", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="18:00 IST (After Bhavcopy)")
+                upsert_scanner_health("PULLBACK", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="Daily 15:45 IST (Post-Market Close)")
                 return
             logger.critical(f"💀 PULLBACK scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
             from database import upsert_scanner_health
-            upsert_scanner_health("PULLBACK", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="18:00 IST (After Bhavcopy)")
+            upsert_scanner_health("PULLBACK", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="Daily 15:45 IST (Post-Market Close)")
             wait_time = min(300, (2 ** retry_count) * random.uniform(0.5, 1.5))
             time.sleep(wait_time)
 
@@ -1250,7 +1251,7 @@ def run_system_scheduler():
                     "DAILY_BUILDER",
                     status="OK",
                     last_success=now_str,
-                    scheduled_for="05:00 IST",
+                    scheduled_for="Daily 05:00 IST",
                     duration_seconds=dur_db
                 )
             except Exception:
@@ -1275,7 +1276,7 @@ def run_system_scheduler():
                     "DAILY_BUILDER",
                     status="DOWN",
                     error_msg=str(e)[:500],
-                    scheduled_for="05:00 IST"
+                    scheduled_for="Daily 05:00 IST"
                 )
             except Exception:
                 pass
@@ -1302,7 +1303,7 @@ def run_system_scheduler():
                 "Wealth Engine",
                 status="OK",
                 last_success=now_str,
-                scheduled_for="06:00 IST",
+                scheduled_for="Daily 06:00 IST (Initial)",
                 duration_seconds=duration_sec
             )
             logger.info(f"✅ Wealth Engine (initial) completed successfully in {format_duration(duration_sec)}")
@@ -1323,7 +1324,7 @@ def run_system_scheduler():
                 "Wealth Engine",
                 status="DOWN",
                 error_msg=str(e)[:500],
-                scheduled_for="06:00 IST"
+                scheduled_for="Daily 06:00 IST (Initial)"
             )
             return False
 
@@ -1581,7 +1582,7 @@ def run_system_scheduler():
             
             now = datetime.now(IST)
 
-            # Multibagger cold start removed; runs at 7:00 PM (19:00 IST) Daily
+            # Multibagger cold start removed; runs at 5:30 PM (17:30 IST) Daily
             pass
 
             # 7:00 AM - Master Symbols Universe Refresh (active NSE/BSE equities refresh)
@@ -2052,7 +2053,7 @@ def _run_multibagger_scanner_single():
             "MULTIBAGGER",
             status="OK",
             last_success=datetime.now(IST).isoformat(),
-            scheduled_for="Daily 19:00 IST",
+            scheduled_for="Daily 17:30 IST (Daily Fundamental)",
             total_count=stats.get("total_count"),
             processed_count=stats.get("processed_count"),
             today_alerts=stats.get("today_alerts", 0),
@@ -2086,7 +2087,7 @@ def _run_multibagger_scanner_single():
                 "MULTIBAGGER",
                 status="DOWN",
                 error_msg=str(e)[:500],
-                scheduled_for="Daily 19:00 IST",
+                scheduled_for="Daily 17:30 IST (Daily Fundamental)",
                 run_id=run_ctx.run_id if 'run_ctx' in locals() and run_ctx else None
             )
             from push_service import send_push_to_all
