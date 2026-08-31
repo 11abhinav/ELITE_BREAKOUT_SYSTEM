@@ -574,7 +574,7 @@ def api_viewers():
         "detailed_online": stats["online"],
         "unread_messages": unread
     }
-    payload = json.dumps(serialize_datetimes(res))
+    payload = json.dumps(serialize_datetimes(res), default=str)
     _viewers_cache["timestamp"] = now_ts
     _viewers_cache["payload"] = payload
     return Response(payload, mimetype="application/json")
@@ -1801,7 +1801,7 @@ def api_admin_db_tables_summary():
         # [RULE 67 CHANGE-RATIONALE]:
         # Persists the serialized summary JSON in _TABLES_SUMMARY_CACHE. Previously, the cache was checked
         # at the top but never saved on fetch, causing expensive catalog queries on every single request.
-        payload = json.dumps(res_dict)
+        payload = json.dumps(res_dict, default=str)
         _TABLES_SUMMARY_CACHE["ts"] = now_ts
         _TABLES_SUMMARY_CACHE["payload"] = payload
         return Response(payload, mimetype="application/json")
@@ -3565,7 +3565,7 @@ def api_scanner_status():
         for i, (sc, _) in enumerate(queued_scanners):
             result[sc]["status"] = f"QUEUED-{i + 1}"
             
-        res_payload = json.dumps(serialize_datetimes(result))
+        res_payload = json.dumps(serialize_datetimes(result), default=str)
         _SCANNER_STATUS_CACHE["ts"] = now_ts
         _SCANNER_STATUS_CACHE["payload"] = res_payload
         return Response(res_payload, mimetype="application/json")
@@ -3633,7 +3633,7 @@ def api_scanner_execution_history():
             page=page,
             per_page=per_page
         )
-        payload = json.dumps(serialize_datetimes(res))
+        payload = json.dumps(serialize_datetimes(res), default=str)
         return Response(payload, mimetype="application/json", headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
             "Pragma": "no-cache",
