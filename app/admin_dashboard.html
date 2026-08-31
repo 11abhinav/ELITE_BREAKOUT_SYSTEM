@@ -3371,20 +3371,20 @@ function changeAdminPage(type, delta) {
 
     // ── SCANNER STATUS
     const SCANNER_META = {
-      'DAILY_BUILDER': { label: 'Daily Builder', desc: 'Watchlist builder · runs at 05:00 IST' },
-      'MULTI_TF': { label: 'MULTI_TF Scanner', desc: 'Multi-TF 15m/5m cycles · 09:30–15:30 IST' },
-      'Wealth Engine': { label: 'Wealth Engine', desc: 'Initial 06:00 IST · 5m Exit & 17:00 Daily Valuation' },
-      'EOD': { label: 'EOD Scanner', desc: 'Daily breakout · runs at 18:30 IST (Bhavcopy)' },
-      'REVERSAL': { label: 'Reversal Scanner', desc: 'Mean reversion · runs at 18:30 IST (Bhavcopy)' },
-      'PULLBACK': { label: 'Pullback Pipeline', desc: 'Pullback continuation · runs at 18:30 IST (Bhavcopy)' },
-      'ACCUMULATION': { label: 'Accumulation Scanner', desc: 'Post-close delivery scan · runs at 16:15 IST' },
-      'MULTIBAGGER': { label: 'Multibagger Scanner', desc: 'Daily Quality/Value · runs at 17:30 IST' },
-      'AI Worker': { label: 'AI Worker', desc: 'Concall caching · Sat-Sun Active' },
-      'Pledge Worker': { label: 'Pledge Worker', desc: 'Promoter pledge tracking · Continuous' },
-      'PERFORMANCE_TRACKER': { label: 'Alerts Exit Monitor', desc: 'Exit signals & trade lifecycle · 5m' },
-      'MULTIBAGGER_EXIT': { label: 'Multibagger Exit Monitor', desc: 'Exit signals for Multibagger positions · 15m' },
-      'WEALTH_EXIT': { label: 'Wealth Exit Monitor', desc: 'Exit signals for Wealth positions · 5m' },
-      'BayesianUpdater': { label: 'Bayesian Updater', desc: 'Machine Learning Feedback Loop · 24h' }
+      'DAILY_BUILDER': { label: 'Daily Builder', desc: 'Watchlist builder · Daily 05:00 IST' },
+      'MULTI_TF': { label: 'MULTI_TF Scanner', desc: 'Multi-TF cycles · Every 15m/5m (09:30–15:30 IST)' },
+      'Wealth Engine': { label: 'Wealth Engine', desc: 'Wealth compounding · Every 5m / Daily 17:00 IST' },
+      'EOD': { label: 'EOD Scanner', desc: 'Daily breakout · Daily 18:30 IST (Post-Bhavcopy)' },
+      'REVERSAL': { label: 'Reversal Scanner', desc: 'Mean reversion · Daily 18:30 IST (Post-Bhavcopy)' },
+      'PULLBACK': { label: 'Pullback Pipeline', desc: 'Pullback continuation · Daily 18:30 IST (Post-Bhavcopy)' },
+      'ACCUMULATION': { label: 'Accumulation Scanner', desc: 'Post-close delivery scan · Daily 16:15 IST' },
+      'MULTIBAGGER': { label: 'Multibagger Scanner', desc: 'Daily Quality/Value · Daily 17:30 IST' },
+      'AI Worker': { label: 'AI Worker', desc: 'Concall caching · Continuous (Sat-Sun Active)' },
+      'Pledge Worker': { label: 'Pledge Worker', desc: 'Promoter pledge tracking · Continuous (Daily Refresh)' },
+      'PERFORMANCE_TRACKER': { label: 'Alerts Exit Monitor', desc: 'Exit signals & trade lifecycle · Every 5m (09:15–15:30 IST)' },
+      'MULTIBAGGER_EXIT': { label: 'Multibagger Exit Monitor', desc: 'Exit signals for Multibagger · Every 15m (09:15–15:30 IST)' },
+      'WEALTH_EXIT': { label: 'Wealth Exit Monitor', desc: 'Exit signals for Wealth · Every 5m (09:15–15:30 IST)' },
+      'BayesianUpdater': { label: 'Bayesian Updater', desc: 'Machine Learning Feedback Loop · Daily 24h' }
     };
 
     // [VERSION: SCANNER_PERF_v1.0] In-memory grouped errors map – populated once per render cycle

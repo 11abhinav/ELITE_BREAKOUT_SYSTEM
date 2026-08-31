@@ -1945,6 +1945,18 @@ def init_db():
                             WHERE title LIKE '%DATA SKIPPED%' 
                                OR message LIKE '%VERTIS%' 
                                OR message LIKE '%unresolvable%';
+
+                            -- 6. Synchronize all scanner health scheduled_for timings
+                            UPDATE scanner_health SET scheduled_for = 'Daily 18:30 IST (Post-Bhavcopy Delivery)' WHERE scanner_name IN ('EOD', 'REVERSAL', 'PULLBACK');
+                            UPDATE scanner_health SET scheduled_for = 'Daily 05:00 IST' WHERE scanner_name = 'DAILY_BUILDER';
+                            UPDATE scanner_health SET scheduled_for = 'Every 15m / 5m (09:30 - 15:30 IST)' WHERE scanner_name = 'MULTI_TF';
+                            UPDATE scanner_health SET scheduled_for = 'Every 5m (Market Hours) / Daily 17:00 IST' WHERE scanner_name = 'Wealth Engine';
+                            UPDATE scanner_health SET scheduled_for = 'Daily 16:15 IST (Post-Close Delivery)' WHERE scanner_name = 'ACCUMULATION';
+                            UPDATE scanner_health SET scheduled_for = 'Daily 17:30 IST (Daily Fundamental)' WHERE scanner_name = 'MULTIBAGGER';
+                            UPDATE scanner_health SET scheduled_for = 'Every 5min (09:15 - 15:30 IST)' WHERE scanner_name IN ('PERFORMANCE_TRACKER', 'WEALTH_EXIT');
+                            UPDATE scanner_health SET scheduled_for = 'Every 15min (09:15 - 15:30 IST)' WHERE scanner_name = 'MULTIBAGGER_EXIT';
+                            UPDATE scanner_health SET scheduled_for = 'Continuous (Sat-Sun Active)' WHERE scanner_name = 'AI Worker';
+                            UPDATE scanner_health SET scheduled_for = 'Continuous (Daily Refresh)' WHERE scanner_name = 'Pledge Worker';
                         END$$;
                     """)
                 except Exception as mig_err:
