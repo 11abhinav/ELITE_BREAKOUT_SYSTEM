@@ -297,7 +297,7 @@ def get_dynamic_cadence(interval: str) -> int:
 
 # [VERSION: MEMORY_RECALIBRATION_v1.0] Recalibrated profile budget from 350 MB to 500 MB to match steady-state process RSS.
 @profile_function("Price Fetch", budget_mb=500.0)
-def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "15m", requester: str = None) -> dict[str, pd.DataFrame]:
+def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "15m", requester: str = None, run_ctx: Any = None) -> dict[str, pd.DataFrame]:
     global _cache_hits, _cache_misses
     from telemetry_manager import telemetry
     
@@ -385,7 +385,7 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
         if fetch_sub_watchlist.empty:
             return cached_result
             
-        result = _download_all_robust(fetch_sub_watchlist, period=period, interval=interval, requester=requester)
+        result = _download_all_robust(fetch_sub_watchlist, period=period, interval=interval, requester=requester, run_ctx=run_ctx)
 
     # Determine data_as_of timestamp from freshly fetched data
     data_as_of = None
@@ -673,7 +673,7 @@ def _is_cache_long_enough(cached_df: pd.DataFrame, period: str, sym: str = "", i
     except Exception:
         return True
 
-def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, requester: str = None) -> dict[str, pd.DataFrame]:
+def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, requester: str = None, run_ctx: Any = None) -> dict[str, pd.DataFrame]:
     symbols = watchlist["Stock"].tolist()
     all_data: dict[str, pd.DataFrame] = {}
     total = len(symbols)
@@ -1364,6 +1364,16 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         _mark_cache_staleness(cached_df)
                         all_data[sym] = cached_df
                 time.sleep(0.5)
+
+            # [VERSION: BATCH_HEARTBEAT_PULSE_v1.0] Pulse heartbeat to DB so watchdog never marks long multi-batch runs as TIMEOUT_STALE
+            if run_ctx:
+                try:
+                    if hasattr(run_ctx, "heartbeat"):
+                        run_ctx.heartbeat(force=True)
+                    if hasattr(run_ctx, "mark_fresh"):
+                        run_ctx.mark_fresh(len(batch))
+                except Exception as _hb_err:
+                    logger.debug(f"Heartbeat pulse error during batch download: {_hb_err}")
 
     logger.info(f"✅ Data secured for {len(all_data)}/{total} symbols [{interval}]")
 

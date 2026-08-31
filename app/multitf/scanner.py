@@ -98,11 +98,11 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
         logger.info("[MULTI_TF] Pre-fetching data (1d, 1h, 30m, 15m, 5m) for %d symbols...", len(watchlist))
         t_fetch_start = time.monotonic()
 
-        all_1d  = fetch_watchlist_data(watchlist, period="1y", interval="1d", requester="MULTI_TF")
-        all_1h  = fetch_watchlist_data(watchlist, period="45d", interval="1h", requester="MULTI_TF")
-        all_30m = fetch_watchlist_data(watchlist, period="20d", interval="30m", requester="MULTI_TF")
-        all_15m = fetch_watchlist_data(watchlist, period="15d", interval="15m", requester="MULTI_TF")
-        all_5m  = fetch_watchlist_data(watchlist, period="5d",  interval="5m",  requester="MULTI_TF")
+        all_1d  = fetch_watchlist_data(watchlist, period="1y", interval="1d", requester="MULTI_TF", run_ctx=real_run_ctx)
+        all_1h  = fetch_watchlist_data(watchlist, period="45d", interval="1h", requester="MULTI_TF", run_ctx=real_run_ctx)
+        all_30m = fetch_watchlist_data(watchlist, period="20d", interval="30m", requester="MULTI_TF", run_ctx=real_run_ctx)
+        all_15m = fetch_watchlist_data(watchlist, period="15d", interval="15m", requester="MULTI_TF", run_ctx=real_run_ctx)
+        all_5m  = fetch_watchlist_data(watchlist, period="5d",  interval="5m",  requester="MULTI_TF", run_ctx=real_run_ctx)
 
         t_fetch_dur = round(time.monotonic() - t_fetch_start, 2)
         logger.info("⚡ [MULTI_TF] Completed market data pre-fetch in %ss", t_fetch_dur)
@@ -115,6 +115,12 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
         opp_manager = OpportunityManager()
 
         for symbol in watchlist:
+            if real_run_ctx:
+                try:
+                    if hasattr(real_run_ctx, "heartbeat"):
+                        real_run_ctx.heartbeat()
+                except Exception:
+                    pass
             try:
                 _process_symbol(
                     symbol=symbol,
@@ -155,6 +161,14 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             duration_seconds=duration
         )
 
+        if real_run_ctx:
+            try:
+                real_run_ctx.set_total_stocks(len(watchlist))
+                real_run_ctx.record_fresh_data(len(watchlist))
+                complete_scanner_execution_run(real_run_ctx, status_override="COMPLETED")
+            except Exception as _c_err:
+                logger.warning(f"⚠️ [MULTI_TF] Failed to complete execution run: {_c_err}")
+
         telemetry.log_scheduler_event("MULTI_TF", "CYCLE_COMPLETE")
         logger.info("✅ MULTI_TF V2 ENGINE | Execution cycle complete in %ss.", duration)
 
@@ -168,6 +182,11 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             error_msg=str(exc),
             duration_seconds=duration
         )
+        if real_run_ctx:
+            try:
+                complete_scanner_execution_run(real_run_ctx, exception=exc)
+            except Exception:
+                pass
         telemetry.log_scheduler_event("MULTI_TF", "CYCLE_FAILED", error=str(exc))
     finally:
         _scan_lock.release()
