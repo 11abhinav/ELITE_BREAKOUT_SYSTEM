@@ -614,7 +614,7 @@ def apply_core_engine_scores(r, sector_stats: dict = None) -> pd.Series:
     from core.multibagger_pipeline import run_pipeline_for_symbol
 
     symbol = str(r.get("Stock", ""))
-    raw_data = r.to_dict()
+    raw_data = r.to_dict() if hasattr(r, "to_dict") else dict(r)
 
     try:
         # The V5 pipeline expects a dict of the watchlist row
