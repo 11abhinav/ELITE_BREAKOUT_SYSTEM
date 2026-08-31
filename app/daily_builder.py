@@ -320,6 +320,13 @@ def fetch_universe() -> pd.DataFrame:
             df = df.sort_values(by="ticker", ascending=False)
             df = df.drop_duplicates(subset=["name"], keep="first")
             
+            # Filter out known InvITs, REITs, ETFs, and non-equity trusts (e.g. VERTIS = Vertis Infrastructure Trust)
+            _NON_EQUITY_BLOCKLIST = {"VERTIS", "HIGHWAYS", "POWERINVIT", "IRBINVIT", "INDIGRID", "EMBASSY", "MINDSPACE", "BROOKFIELD", "NEXUS"}
+            mask_valid = ~df["name"].str.upper().isin(_NON_EQUITY_BLOCKLIST)
+            if "industry" in df.columns:
+                mask_valid = mask_valid & (~df["industry"].astype(str).str.contains("Trust|InvIT|REIT|Mutual Fund", case=False, na=False))
+            df = df[mask_valid].copy()
+            
         from data_fetch_status import mark_success
         mark_success('tradingview')
         logger.info(f"✅ Universe fetched and deduplicated: {len(df)} unique stocks (from {total} records)")

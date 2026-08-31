@@ -62,10 +62,13 @@ def get_watchlist(requester: object = None, require_fresh: bool = False) -> pd.D
         return cache.copy()
 
     import os
+    _NON_EQUITY_BLOCKLIST = {"VERTIS", "HIGHWAYS", "POWERINVIT", "IRBINVIT", "INDIGRID", "EMBASSY", "MINDSPACE", "BROOKFIELD", "NEXUS"}
     if os.path.exists(WATCHLIST_PATH) and os.path.getsize(WATCHLIST_PATH) > 0:
         try:
             df = pd.read_parquet(WATCHLIST_PATH)
             if df is not None and not df.empty:
+                if "Stock" in df.columns:
+                    df = df[~df["Stock"].str.upper().isin(_NON_EQUITY_BLOCKLIST)].copy()
                 registry.put("watchlist", df)
                 _watchlist_date = current_date
                 logger.info(f"📁 Watchlist loaded into DatasetRegistry ({len(df)} symbols)")
@@ -85,6 +88,8 @@ def get_watchlist(requester: object = None, require_fresh: bool = False) -> pd.D
             
             df = pd.read_parquet(WATCHLIST_PATH)
             if df is not None and not df.empty:
+                if "Stock" in df.columns:
+                    df = df[~df["Stock"].str.upper().isin(_NON_EQUITY_BLOCKLIST)].copy()
                 registry.put("watchlist", df)
                 _watchlist_date = current_date
                 logger.info(f"☁️ [WATCHLIST CACHE] Restored watchlist from Postgres cache ({len(df)} symbols)")
