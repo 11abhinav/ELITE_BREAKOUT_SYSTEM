@@ -63,6 +63,10 @@ def serialize_datetimes(obj):
         return int(obj)
     elif isinstance(obj, np.ndarray):
         return obj.tolist()
+    elif isinstance(obj, pd.DataFrame):
+        return [serialize_datetimes(r) for r in obj.to_dict(orient="records")]
+    elif isinstance(obj, pd.Series):
+        return {k: serialize_datetimes(v) for k, v in obj.to_dict().items()}
     return obj
 
 
