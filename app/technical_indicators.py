@@ -194,39 +194,61 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
     elif timeframe == "1h":
         # [VERSION: PRIOR_20D_HIGH_FIX_v6.0]
         # True session-aware 20-day high: explicitly exclude current session.
-        # 1. Force IST index safely
-        ist_index = df.index
-        if ist_index.tz is None:
-            ist_index = ist_index.tz_localize('UTC').tz_convert('Asia/Kolkata')
-        elif str(ist_index.tz) != 'Asia/Kolkata':
-            ist_index = ist_index.tz_convert('Asia/Kolkata')
+        try:
+            # 1. Force IST index safely (support RangeIndex with Datetime/Date column or DatetimeIndex)
+            raw_ts = df.index
+            if not isinstance(raw_ts, pd.DatetimeIndex):
+                datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df.columns), None)
+                if datetime_col is not None:
+                    raw_ts = pd.to_datetime(df[datetime_col])
+                else:
+                    raw_ts = pd.date_range(end=pd.Timestamp.now(tz="Asia/Kolkata"), periods=len(df), freq="1h")
+
+            if not isinstance(raw_ts, pd.DatetimeIndex):
+                raw_ts = pd.DatetimeIndex(raw_ts)
+
+            if raw_ts.tz is None:
+                ist_index = raw_ts.tz_localize('UTC').tz_convert('Asia/Kolkata')
+            elif str(raw_ts.tz) != 'Asia/Kolkata':
+                ist_index = raw_ts.tz_convert('Asia/Kolkata')
+            else:
+                ist_index = raw_ts
+                
+            # 2. Exclude today's partially formed session entirely
+            from zoneinfo import ZoneInfo
+            import datetime
+            ist_now = datetime.datetime.now(ZoneInfo("Asia/Kolkata"))
+            today_date = ist_now.date()
             
-        # 2. Exclude today's partially formed session entirely
-        import datetime
-        ist_now = datetime.datetime.now(ist_index.tz)
-        today_date = ist_now.date()
-        
-        # 3. Filter for valid completed sessions 
-        # Must be before today, have >= 4 hourly bars, AND the last bar must reach the expected session close boundary.
-        # For NSE 1H data (09:15-15:30), the final bar timestamp (open time) is typically 14:15, 15:15, or 15:30.
-        # We strictly require the day's max timestamp to be >= 14:15 IST.
-        past_mask = (ist_index.date < today_date)
-        session_counts = df[past_mask].groupby(ist_index[past_mask].date).size()
-        
-        daily_max_ts = df[past_mask].groupby(ist_index[past_mask].date).apply(lambda x: x.index.max())
-        session_complete = daily_max_ts.apply(lambda ts: ts.hour > 14 or (ts.hour == 14 and ts.minute >= 15))
-        
-        valid_sessions = session_counts[(session_counts >= 4) & session_complete].index
-        valid_mask = past_mask & np.isin(ist_index.date, valid_sessions)
-        
-        # 4. Aggregate strictly completed sessions
-        daily_highs = df.loc[valid_mask].groupby(ist_index[valid_mask].date)["High"].max().sort_index()
-        
-        # 5. Roll exactly 20 sessions (no shift needed since today is excluded)
-        rolling_20d_high = daily_highs.rolling(window=20, min_periods=20).max()
-        
-        # 6. Map the daily value back to the hourly dataframe.
-        mapped_20d_high = ist_index.to_series().dt.date.map(rolling_20d_high).values
+            # 3. Filter for valid completed sessions 
+            past_mask = (ist_index.date < today_date)
+            if past_mask.any():
+                session_dates = ist_index[past_mask].date
+                df_past = df[past_mask]
+                session_counts = df_past.groupby(session_dates).size()
+                
+                daily_max_ts = pd.Series(ist_index[past_mask], index=df_past.index).groupby(session_dates).max()
+                session_complete = daily_max_ts.apply(lambda ts: ts.hour > 14 or (ts.hour == 14 and ts.minute >= 15))
+                
+                valid_sessions = session_counts[(session_counts >= 4) & session_complete].index
+                valid_mask = past_mask & np.isin(ist_index.date, valid_sessions)
+                
+                if valid_mask.any():
+                    # 4. Aggregate strictly completed sessions
+                    daily_highs = df.loc[valid_mask].groupby(ist_index[valid_mask].date)["High"].max().sort_index()
+                    
+                    # 5. Roll exactly 20 sessions (no shift needed since today is excluded)
+                    rolling_20d_high = daily_highs.rolling(window=20, min_periods=min(20, len(daily_highs))).max()
+                    
+                    # 6. Map the daily value back to the hourly dataframe.
+                    mapped_20d_high = pd.Series(ist_index.date, index=df.index).map(rolling_20d_high).values
+                else:
+                    mapped_20d_high = df["High"].rolling(window=130, min_periods=20).max().values
+            else:
+                mapped_20d_high = df["High"].rolling(window=130, min_periods=20).max().values
+        except Exception as exc:
+            logger.debug("Failed 1h session-aware 20d high mapping, using rolling fallback: %s", exc)
+            mapped_20d_high = df["High"].rolling(window=130, min_periods=20).max().values
         
         new_cols["HIGH_6H"]   = df["High"].rolling(window=6,   min_periods=5).max()
         new_cols["HIGH_26H"]  = df["High"].rolling(window=26,  min_periods=20).max()
@@ -236,7 +258,6 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
         
         new_cols["HIGH_20D"]  = mapped_20d_high
         new_cols["PRIOR_20D_HIGH"] = mapped_20d_high
-
         
         new_cols["HIGH_50D"]  = new_cols["HIGH_130H"]
         new_cols["HIGH_100D"] = new_cols["HIGH_130H"]
@@ -304,8 +325,6 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
     #   0  = OBV flat (no conviction either way)
     #
     if "Volume" in df.columns and len(df) >= 50:
-        import numpy as np
-        
         # Calculate OBV direction
         obv_direction = np.sign(df["Close"].diff())
         obv_direction.iloc[0] = 0
