@@ -1375,6 +1375,13 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                 except Exception as _hb_err:
                     logger.debug(f"Heartbeat pulse error during batch download: {_hb_err}")
 
+            # Incrementally sync batch progress to PostgreSQL parquet_cache (throttled to 60s)
+            try:
+                from database import upload_history_bundle_to_db, submit_background_upload
+                submit_background_upload(lambda _iv=interval: upload_history_bundle_to_db(_iv, min_interval_sec=60.0))
+            except Exception as _b_up_err:
+                logger.debug(f"Incremental history bundle sync dispatch: {_b_up_err}")
+
     logger.info(f"✅ Data secured for {len(all_data)}/{total} symbols [{interval}]")
 
     successful_syms = []

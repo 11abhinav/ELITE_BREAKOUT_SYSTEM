@@ -4979,7 +4979,7 @@ def delete_stale_parquet_from_db(name: str) -> bool:
 _last_bundle_upload_time: dict[str, float] = {}
 _last_bundle_checksum: dict[str, str] = {}
 
-def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 900.0, force: bool = False) -> bool:
+def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 60.0, force: bool = False) -> bool:
     """
     Compresses all OHLCV parquet and metadata sidecars in data/history/{interval}/
     into a tar.gz bundle and persists to PostgreSQL parquet_cache under name 'history_bundle_{interval}'.
