@@ -572,18 +572,17 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
                             df = v
                             break
 
-        # Direct yfinance fallback fetch if batch map did not return a valid DataFrame
+        # Direct broker fallback fetch if batch map did not return a valid DataFrame
         if df is None or not isinstance(df, pd.DataFrame) or df.empty:
             try:
-                import yfinance as yf
-                from yf_rate_limiter import safe_yf_call
-                for yf_sym in [f"{sym_clean}.NS", f"{sym_clean}.BO", sym_clean]:
-                    ydf = safe_yf_call(lambda: yf.Ticker(yf_sym).history(period="1y"), symbol=yf_sym, context="StockAnalyzerFallback", max_retries=1)
-                    if ydf is not None and not ydf.empty and len(ydf) >= 5:
-                        df = ydf.reset_index()
-                        break
-            except Exception as _yfe:
-                logger.debug(f"Direct yfinance fallback fetch warning for {sym_clean}: {_yfe}")
+                from price_cache import fetch_watchlist_data
+                df_req = pd.DataFrame([{"Stock": sym_clean}])
+                res_dict = fetch_watchlist_data(df_req, interval="1d", period="1y", requester="StockAnalyzer")
+                bdf = res_dict.get(sym_clean)
+                if bdf is not None and isinstance(bdf, pd.DataFrame) and not bdf.empty and len(bdf) >= 5:
+                    df = bdf.copy()
+            except Exception as _fe:
+                logger.debug(f"Direct broker fallback fetch warning for {sym_clean}: {_fe}")
 
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return {

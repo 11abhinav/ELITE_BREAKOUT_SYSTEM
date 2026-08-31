@@ -868,8 +868,8 @@ class AutoSwitchingFetcher(DataFetcher):
                     return quote
             except Exception as e:
                 logger.warning(f"{prov_name} quote fetch exception for {symbol}: {e}.")
-                
-        return self.yfinance_fetcher.get_quote(symbol)
+
+        return MarketData(None, "UNKNOWN", None, False, False, "No quote available")
 
 
 # ── Factory ─────────────────────────────────────────────────────────────────
