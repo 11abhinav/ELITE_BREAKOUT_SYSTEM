@@ -1939,6 +1939,12 @@ def init_db():
                               AND current_price > 0
                               AND status = 'OPEN'
                               AND entry_price != current_price;
+
+                            -- 5. Clean up legacy unresolvable symbol spam notifications
+                            DELETE FROM notifications 
+                            WHERE title LIKE '%DATA SKIPPED%' 
+                               OR message LIKE '%VERTIS%' 
+                               OR message LIKE '%unresolvable%';
                         END$$;
                     """)
                 except Exception as mig_err:
@@ -3472,9 +3478,9 @@ def get_all_scanner_health() -> list[dict]:
     schedule_map = {
         "DAILY_BUILDER": "Daily 05:00 IST",
         "MULTI_TF": "Every 15m / 5m (09:30 - 15:30 IST)",
-        "EOD": "Daily 15:45 IST (Post-Market Close)",
-        "REVERSAL": "Daily 15:45 IST (Post-Market Close)",
-        "PULLBACK": "Daily 15:45 IST (Post-Market Close)",
+        "EOD": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
+        "REVERSAL": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
+        "PULLBACK": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
         "ACCUMULATION": "Daily 16:15 IST (Post-Close Delivery)",
         "Wealth Engine": "Every 5m (Market Hours) / Daily 17:00 IST",
         "MULTIBAGGER": "Daily 17:30 IST (Daily Fundamental)",

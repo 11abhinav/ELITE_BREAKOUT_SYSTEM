@@ -839,18 +839,6 @@ class AutoSwitchingFetcher(DataFetcher):
                 logger.warning(f"⚠️ Missing data for {len(missing_symbols)} unresolvable/delisted symbols after trying all broker feeds: {list(missing_symbols)}")
             else:
                 logger.error(f"❌ Missing data for {len(missing_symbols)} symbols after trying all broker feeds: {list(missing_symbols)[:20]}")
-            try:
-                from database import insert_notification
-                sym_str = ", ".join(list(missing_symbols)[:15])
-                if len(missing_symbols) > 15:
-                    sym_str += f" and {len(missing_symbols)-15} more"
-                insert_notification(
-                    "warning" if len(missing_symbols) <= 5 else "error",
-                    f"⚠️ DATA SKIPPED: {len(missing_symbols)} unresolvable symbols",
-                    f"Skipped {sym_str} (not active/available on Fyers or Upstox broker feeds)."
-                )
-            except Exception:
-                pass
                 
         return results
 

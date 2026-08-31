@@ -33,7 +33,9 @@ def get_live_blacklist() -> set[str]:
         if cached is not None and (time.time() - cached.get("ts", 0)) < _BLACKLIST_TTL:
             return cached["data"]
         
-        blacklist = set()
+        # [VERSION: NON_EQUITY_BLOCKLIST_v1.0] Filter out known InvITs, REITs, ETFs, and non-equity trusts
+        _NON_EQUITY_BLOCKLIST = {"VERTIS", "HIGHWAYS", "POWERINVIT", "IRBINVIT", "INDIGRID", "EMBASSY", "MINDSPACE", "BROOKFIELD", "NEXUS"}
+        blacklist = set(_NON_EQUITY_BLOCKLIST)
         
         # 1. Load Hardcoded Promoter CSV
         csv_path = os.path.join(os.path.dirname(WATCHLIST_PATH), "promoter_blacklist.csv")
