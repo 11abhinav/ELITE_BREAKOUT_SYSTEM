@@ -1239,7 +1239,6 @@ function calcPnlRs(t) {
   if (!t) return 0;
   if (t.execution_state === 'PENDING_ENTRY') return 0;
   const isActive = ['OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING'].includes(t.status);
-  if (t.execution_state === 'PENDING_ENTRY') return 0;
   
   let eff_entry = t.actual_entry_price || t.entry_price;
   if (isActive && t.shares_bought && (t.current_price || eff_entry) && eff_entry) {
@@ -1248,7 +1247,6 @@ function calcPnlRs(t) {
   if (t.pnl_rs != null && t.pnl_rs !== 0) {
     return t.pnl_rs;
   }
-  let eff_entry = t.actual_entry_price || t.entry_price;
   if (t.exit_price && eff_entry && t.shares_bought) {
     return (t.exit_price - eff_entry) * t.shares_bought;
   }
@@ -4158,9 +4156,6 @@ function loadUserWatchlist(force = false) {
       _renderUserWatchlistTable();
     })
     .catch(err => console.warn('Failed to load user watchlist:', err));
-}
-
-
 }
 
 function _renderUserWatchlistTable() {
