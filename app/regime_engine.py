@@ -10,7 +10,6 @@ import logging
 from zoneinfo import ZoneInfo
 from datetime import datetime
 import pandas as pd
-import yfinance as yf
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
@@ -55,14 +54,24 @@ def get_market_regime() -> dict:
             pass
 
         if nifty_hist is None or nifty_hist.empty:
-            # Fallback to single network fetch
-            nifty = yf.Ticker("^NSEI")
-            nifty_hist = nifty.history(period="250d")
+            try:
+                from price_cache import fetch_watchlist_data
+                df_nifty = pd.DataFrame([{"Stock": "NIFTY 50"}])
+                res = fetch_watchlist_data(df_nifty, interval="1d", period="1y", requester="RegimeEngine")
+                bdf = res.get("NIFTY 50")
+                if bdf is not None and isinstance(bdf, pd.DataFrame) and not bdf.empty:
+                    nifty_hist = bdf
+            except Exception:
+                pass
         
         vix_hist = None
         try:
-            vix = yf.Ticker("^INDIAVIX")
-            vix_hist = vix.history(period="5d")
+            from price_cache import get_cached_df, fetch_watchlist_data
+            vix_hist = get_cached_df("INDIA VIX", interval="1d", period="15d")
+            if vix_hist is None or vix_hist.empty:
+                df_vix = pd.DataFrame([{"Stock": "INDIA VIX"}])
+                res_v = fetch_watchlist_data(df_vix, interval="1d", period="15d", requester="RegimeEngine")
+                vix_hist = res_v.get("INDIA VIX")
         except Exception:
             vix_hist = pd.DataFrame()
         

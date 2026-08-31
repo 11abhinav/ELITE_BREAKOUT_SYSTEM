@@ -313,7 +313,7 @@ class AccumulationScanner:
             "cmp": cmp
         }
 
-    def start(self, force: bool = False, trigger_type: str = "SCHEDULED") -> Dict[str, Any]:
+    def start(self, force: bool = False, run_ctx=None, trigger_type: str = "SCHEDULED", scheduler_name: str = "SCHEDULER") -> Dict[str, Any]:
         """Main scanner execution loop with full Health Card and Execution History integration."""
         if is_scanner_stopped("ACCUMULATION"):
             logger.info("⏭️ ACCUMULATION scanner is STOPPED by Admin. Skipping.")
@@ -327,6 +327,7 @@ class AccumulationScanner:
         
         acquired_global = False
         acquired_scan = False
+        health = None
 
         try:
             from lock_utils import ProcessLock
@@ -355,7 +356,7 @@ class AccumulationScanner:
                 run_ctx = start_scanner_execution_run(
                     scanner_name="ACCUMULATION",
                     trigger_type=trigger_type,
-                    scheduler_name="SCHEDULER"
+                    scheduler_name=scheduler_name
                 )
             elif run_ctx:
                 from database import update_scanner_run_lifecycle
@@ -574,7 +575,11 @@ class AccumulationScanner:
             }
 
         except Exception as exc:
-            health.fail(exc)
+            if health is not None:
+                try:
+                    health.fail(exc)
+                except Exception:
+                    pass
             dur_sec = round((datetime.now(IST) - start_time).total_seconds(), 2)
             upsert_scanner_health(
                 "ACCUMULATION",
@@ -583,7 +588,10 @@ class AccumulationScanner:
                 duration_seconds=dur_sec
             )
             if run_ctx:
-                complete_scanner_execution_run(run_ctx, exception=exc)
+                try:
+                    complete_scanner_execution_run(run_ctx, exception=exc)
+                except Exception:
+                    pass
             return {"status": "FAILED", "error": str(exc)}
         finally:
             if '_scan_start' in locals() and _scan_start:

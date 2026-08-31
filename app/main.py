@@ -2427,10 +2427,10 @@ def _trigger_multibagger(trigger_type="MANUAL", scheduler_name="MANUAL"):
     import multibagger
     return multibagger.start(trigger_type=trigger_type, scheduler_name=scheduler_name)
 
-def _trigger_accumulation(trigger_type="MANUAL", scheduler_name="MANUAL"):
+def _trigger_accumulation(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=None):
     from accumulation_scanner import AccumulationScanner
     scanner = AccumulationScanner()
-    return scanner.start(force=True, trigger_type=trigger_type)
+    return scanner.start(force=True, run_ctx=run_ctx, trigger_type=trigger_type, scheduler_name=scheduler_name)
 
 # [VERSION: TRIGGER_AI_WORKER_v1.1] Define _trigger_ai_worker
 def _trigger_ai_worker():
