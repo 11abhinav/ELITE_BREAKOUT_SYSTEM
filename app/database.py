@@ -3495,10 +3495,7 @@ def get_all_scanner_health() -> list[dict]:
                     cur.execute("""
                         SELECT scanner_name FROM scanner_health
                         WHERE status = 'RUNNING'
-                          AND (
-                              updated_at < NOW() - INTERVAL '10 minutes'
-                              OR last_run < NOW() - INTERVAL '2 hours'
-                          );
+                          AND updated_at < NOW() - INTERVAL '10 minutes';
                     """)
                     stuck_rows = cur.fetchall()
                     for r in stuck_rows:
@@ -8890,12 +8887,9 @@ def get_scanner_execution_history(
                             cur.execute("""
                                 UPDATE scanner_health
                                 SET status = 'DOWN',
-                                    error_msg = 'Watchdog auto-cleaned orphaned RUNNING state (missing heartbeat >10m or hard runtime >2h)'
+                                    error_msg = 'Watchdog auto-cleaned orphaned RUNNING state (missing heartbeat >10m)'
                                 WHERE status = 'RUNNING'
-                                  AND (
-                                      updated_at < NOW() - INTERVAL '10 minutes'
-                                      OR last_run < NOW() - INTERVAL '2 hours'
-                                  );
+                                  AND updated_at < NOW() - INTERVAL '10 minutes';
                             """)
                             conn.commit()
                             # Log AFTER successful commit — accurate report of what was cleaned
