@@ -1749,6 +1749,13 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
             else:
                 logger.info("📊 EOD Candidates Discovered: 0")
 
+            # [VERSION: FALLBACK_ALERT_SUPPRESSION_v1.0]
+            # If historical fallback dataset was used (Bhavcopy missing / past date),
+            # strictly suppress live alert generation to prevent creating stale previous-session alerts.
+            if used_fallback_data:
+                logger.warning("⚠️ [EOD SCANNER] Historical fallback dataset was used. Suppressing live alert generation to prevent stale past-session alerts.")
+                approved_candidates = []
+
             if approved_candidates:
                 from config import SCANNER_MAX_ALERTS
                 max_alerts = SCANNER_MAX_ALERTS.get("EOD", 10)
@@ -1763,6 +1770,15 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                         logger.info(f"🚫 {cand['symbol']} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['score']})")
 
                 for cand in approved_candidates:
+                    # Ensure post-market entry price matches today's live CMP
+                    try:
+                        from price_cache import get_cached_price
+                        fast_p = get_cached_price(cand["symbol"])
+                        if fast_p and float(fast_p) > 0:
+                            cand["entry_price"] = round(float(fast_p), 2)
+                    except Exception:
+                        pass
+
                     c = dict(cand)
                     # Remove extra keys before saving
                     _candle_open = c.pop("_candle_open")

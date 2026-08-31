@@ -1926,6 +1926,19 @@ def init_db():
                                 ALTER TABLE scanner_health DROP CONSTRAINT chk_scanner_status;
                                 ALTER TABLE scanner_health ADD CONSTRAINT chk_scanner_status CHECK (status IN ('OK', 'DOWN', 'IDLE', 'RUNNING', 'DEGRADED', 'PAUSED', 'STOPPED') OR status LIKE 'QUEUED%') NOT VALID;
                             END IF;
+
+                            -- 4. Auto-heal any same-day post-market alerts where entry_price was recorded from previous session instead of live CMP
+                            UPDATE alerts
+                            SET entry_price = current_price,
+                                initial_stop_loss = ROUND((current_price * 0.95)::numeric, 2),
+                                stop_loss = ROUND((current_price * 0.95)::numeric, 2),
+                                target_1 = ROUND((current_price * 1.05)::numeric, 2),
+                                target_price = ROUND((current_price * 1.05)::numeric, 2)
+                            WHERE alert_date = CURRENT_DATE
+                              AND current_price IS NOT NULL
+                              AND current_price > 0
+                              AND status = 'OPEN'
+                              AND entry_price != current_price;
                         END$$;
                     """)
                 except Exception as mig_err:
@@ -1933,7 +1946,7 @@ def init_db():
                         conn.rollback()
                     except Exception:
                         pass
-                    logger.warning(f"[MIGRATION] scanner_health schema synchronization warning (non-critical): {mig_err}")
+                    logger.warning(f"[MIGRATION] schema synchronization warning (non-critical): {mig_err}")
 
                 # [VERSION: CLEAN_BOOT_RESET_v1.0] Complete boot reset of all scanner statuses & advisory locks on startup
                 try:

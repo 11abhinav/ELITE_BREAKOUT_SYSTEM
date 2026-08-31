@@ -2148,9 +2148,19 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                                 shortlisted_alerts = shortlisted_alerts[:max_alerts]
 
                         for alert in shortlisted_alerts:
+                            # Ensure post-market entry price matches today's live CMP
+                            ep_val = alert["entry_price"]
+                            try:
+                                from price_cache import get_cached_price
+                                fast_p = get_cached_price(alert["symbol"])
+                                if fast_p and float(fast_p) > 0:
+                                    ep_val = round(float(fast_p), 2)
+                            except Exception:
+                                pass
+
                             inserted, _, _, _ = save_alert_if_new(
                                 alert["symbol"], "REVERSAL", alert["alert_time"], scanner="REVERSAL",
-                                category=alert["category"], entry_price=alert["entry_price"],
+                                category=alert["category"], entry_price=ep_val,
                                 signals=alert["signals"], score=alert["score"], rsi=alert["rsi"],
                                 volume_ratio=alert["volume_ratio"], stop_loss=alert["stop_loss"],
                                 target_1=alert.get("target_1"), target_price=alert["target_price"],

@@ -451,11 +451,54 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
                     "fetch_interval": interval,
                     "fetch_period": period
                 }
-                cached_result[symbol] = df
-            else:
-                cached_result[symbol] = None
+    final_res = {s: cached_result.get(s) for s in watchlist["Stock"]}
 
-    return {s: cached_result.get(s) for s in watchlist["Stock"]}
+    # [VERSION: POST_MARKET_CMP_ALIGNMENT_v1.0]
+    # When fetching 1d data post-market (>= 15:30 IST on a weekday), verify that every symbol's
+    # daily DataFrame contains today's closed bar. If Bhavcopy/EOD download is pending and DataFrame
+    # ends at the previous session, overlay today's candle using live CMP so all scanners analyze
+    # today's actual close (CMP), eliminating stale previous-day alert prices and phantom P&L.
+    if interval == "1d" and not os.environ.get("PYTEST_CURRENT_TEST"):
+        now_ist = datetime.now(IST)
+        if now_ist.weekday() < 5 and now_ist.time() >= dt_time(15, 30):
+            try:
+                from live_prices import get_live_prices
+                valid_syms = [s for s, df_val in final_res.items() if isinstance(df_val, pd.DataFrame) and not df_val.empty]
+                if valid_syms:
+                    live_prices_map = get_live_prices(valid_syms)
+                    for s in valid_syms:
+                        df_val = final_res[s]
+                        lp = live_prices_map.get(s)
+                        if lp and float(lp) > 0:
+                            lp_float = round(float(lp), 2)
+                            t_col = 'Date' if 'Date' in df_val.columns else ('Datetime' if 'Datetime' in df_val.columns else None)
+                            last_val = df_val[t_col].iloc[-1] if t_col else df_val.index[-1]
+                            last_dt = pd.to_datetime(last_val)
+                            if last_dt.date() < now_ist.date():
+                                # Append today's completed session candle with live CMP
+                                today_date_val = now_ist.date() if t_col == 'Date' else pd.Timestamp(now_ist.date())
+                                new_row = {col: None for col in df_val.columns}
+                                new_row["Open"] = lp_float
+                                new_row["High"] = lp_float
+                                new_row["Low"] = lp_float
+                                new_row["Close"] = lp_float
+                                new_row["Volume"] = 0
+                                if t_col:
+                                    new_row[t_col] = today_date_val
+                                    new_df = pd.concat([df_val, pd.DataFrame([new_row])], ignore_index=True)
+                                else:
+                                    new_df = df_val.copy()
+                                    new_df.loc[pd.Timestamp(now_ist.date())] = [lp_float, lp_float, lp_float, lp_float, 0] + [None]*(len(df_val.columns)-5)
+                                new_df.attrs = df_val.attrs.copy()
+                                final_res[s] = new_df
+                                if cache_key in _cache and s in _cache[cache_key]:
+                                    _cache[cache_key][s]["data"] = new_df
+                            elif last_dt.date() == now_ist.date():
+                                df_val.iloc[-1, df_val.columns.get_loc("Close")] = lp_float
+            except Exception as _cmp_sync_err:
+                logger.debug(f"Post-market 1d CMP overlay warning: {_cmp_sync_err}")
+
+    return final_res
 
 
 import os

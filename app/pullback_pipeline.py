@@ -1124,10 +1124,26 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                 pass
     alertable = valid_risk_candidates[:max_alerts]
 
+    # [VERSION: FALLBACK_ALERT_SUPPRESSION_v1.0]
+    # If historical fallback dataset was used (e.g. Bhavcopy pending or past date),
+    # strictly suppress live alert generation to prevent creating stale previous-session alerts.
+    if is_historical_fallback:
+        logger.warning("⚠️ [PULLBACK] Historical fallback dataset was used. Suppressing live alert generation to prevent stale past-session alerts.")
+        alertable = []
+
     # ---------------- SIGNAL DISPATCH & PERSISTENCE ----------------
     alert_count = 0
     for c in alertable:
         entry_val = float(c.entry_price)
+        # Ensure post-market entry price matches today's live CMP
+        try:
+            from price_cache import get_cached_price
+            fast_p = get_cached_price(c.symbol)
+            if fast_p and float(fast_p) > 0:
+                entry_val = round(float(fast_p), 2)
+        except Exception:
+            pass
+
         sl_result = c.sl_result
 
         # [VERSION: ALL_ALERTS_PERSIST_v1.0] Dry-run mode disabled — all generated alerts persist to DB at all times.
