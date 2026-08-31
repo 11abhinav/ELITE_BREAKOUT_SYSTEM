@@ -1070,8 +1070,10 @@ def run_all_seven_scanners_non_market_boot():
         except Exception as e:
             logger.warning(f"⚠️ [NON-MARKET BOOT] Cleanup warning: {e}")
 
+        # [RULE 67 CHANGE-RATIONALE]:
+        # Sequence DAILY_BUILDER first so the daily watchlist is built/refreshed
+        # before downstream technical and fundamental scanners execute.
         all_scanners = [
-            ("MULTIBAGGER", _trigger_multibagger),
             ("DAILY_BUILDER", _trigger_daily_builder),
             ("MULTI_TF", _trigger_multi_tf),
             ("ACCUMULATION", _trigger_accumulation),
@@ -1079,6 +1081,7 @@ def run_all_seven_scanners_non_market_boot():
             ("REVERSAL", _trigger_reversal),
             ("PULLBACK", _trigger_pullback),
             ("Wealth Engine", _trigger_wealth_engine),
+            ("MULTIBAGGER", _trigger_multibagger),
         ]
 
         from database import is_scanner_stopped, upsert_scanner_health
