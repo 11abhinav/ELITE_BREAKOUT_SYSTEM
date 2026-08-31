@@ -193,6 +193,11 @@ class UpstoxProvider(ProviderInterface):
         "SENSEX":       "BSE_INDEX|SENSEX",
         "BSE:SENSEX":   "BSE_INDEX|SENSEX",
 
+        "^INDIAVIX":    "NSE_INDEX|India VIX",
+        "INDIAVIX":     "NSE_INDEX|India VIX",
+        "INDIA VIX":    "NSE_INDEX|India VIX",
+        "VIX":          "NSE_INDEX|India VIX",
+
         # ── Midcap / Smallcap / Broad ─────────────────────────────────────────────
         "^NSMIDCP":         "NSE_INDEX|Nifty Midcap 100",
         "^NSMIDCP50":       "NSE_INDEX|Nifty Midcap 50",

@@ -77,6 +77,7 @@ class InstrumentRegistry:
             InstrumentRecord("^CNXSERVICE", "NSE", "INDEX", aliases={"NIFTY SERVICES", "CNXSERVICE"}, fyers_symbol="NSE:NIFTYSERVSECTOR-INDEX", upstox_instrument_key="NSE_INDEX|Nifty Services", yahoo_symbol="^CNXSERVICE"),
             InstrumentRecord("^CNXFIN", "NSE", "INDEX", aliases={"FINNIFTY", "NIFTY FINANCE", "CNXFINANCE"}, fyers_symbol="NSE:FINNIFTY-INDEX", upstox_instrument_key="NSE_INDEX|Nifty Financial Services", yahoo_symbol="^CNXFIN"),
             InstrumentRecord("^CNXCMDT", "NSE", "INDEX", aliases={"NIFTY COMMODITIES", "CNXCMDT"}, fyers_symbol="NSE:NIFTYCOMMODITIES-INDEX", upstox_instrument_key="NSE_INDEX|Nifty Commodities", yahoo_symbol="^CNXCMDT"),
+            InstrumentRecord("^INDIAVIX", "NSE", "INDEX", aliases={"INDIA VIX", "INDIAVIX", "VIX"}, fyers_symbol="NSE:INDIAVIX-INDEX", upstox_instrument_key="NSE_INDEX|India VIX", yahoo_symbol="^INDIAVIX"),
         ]
         for idx in indices:
             self._register(idx)

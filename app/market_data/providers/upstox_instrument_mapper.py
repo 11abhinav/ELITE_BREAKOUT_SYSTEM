@@ -43,6 +43,10 @@ _STATIC_SYMBOL_MAP = {
     "NIFTYBANK": "NSE_INDEX|Nifty Bank",
     "^BSESN": "BSE_INDEX|SENSEX",
     "SENSEX": "BSE_INDEX|SENSEX",
+    "^INDIAVIX": "NSE_INDEX|India VIX",
+    "INDIAVIX": "NSE_INDEX|India VIX",
+    "INDIA VIX": "NSE_INDEX|India VIX",
+    "VIX": "NSE_INDEX|India VIX",
 
     # Sectoral Indices
     "^CNXIT": "NSE_INDEX|Nifty IT",
