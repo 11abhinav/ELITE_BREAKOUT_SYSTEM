@@ -498,8 +498,7 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
                                     new_row[t_col] = today_date_val
                                     new_df = pd.concat([df_val, pd.DataFrame([new_row])], ignore_index=True)
                                 else:
-                                    new_df = df_val.copy()
-                                    new_df.loc[pd.Timestamp(now_ist.date())] = [lp_float, lp_float, lp_float, lp_float, 0] + [None]*(len(df_val.columns)-5)
+                                    new_df = pd.concat([df_val, pd.DataFrame([new_row], index=[pd.Timestamp(now_ist.date())])])
                                 new_df.attrs = df_val.attrs.copy()
                                 final_res[s] = new_df
                                 if cache_key in _cache and s in _cache[cache_key]:
