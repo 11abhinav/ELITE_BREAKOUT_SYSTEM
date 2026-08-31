@@ -265,14 +265,16 @@ class MasterOrchestratorV2:
 
     def _get_confirmed_signals_uncached(self) -> List[Dict[str, Any]]:
         query = """
-            SELECT symbol, scanner, breakout_type as state, entry_price, current_price as cmp, stop_loss, target_1, target_2, score as quality_grade, signals
+            SELECT symbol, scanner, breakout_type, entry_price, current_price as cmp, stop_loss, target_1, target_2, score as quality_grade, signals
             FROM alerts
+            WHERE is_rejected = FALSE
             ORDER BY alert_time DESC LIMIT 50
         """
         signals = self._run_query(query)
 
         for sig in signals:
             sc_name = sig.get("scanner", "EOD")
+            sig["state"] = "CONFIRMED"
             sig["scanners"] = [sc_name]
             sig["meta_confluence_tier"] = sig.get("meta_confluence_tier") or "STANDARD"
             sig["data_confidence"] = sig.get("data_confidence") or "HIGH"
