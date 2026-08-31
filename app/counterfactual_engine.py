@@ -83,14 +83,28 @@ def run_counterfactual_simulation() -> int:
                 
             # Fetch subsequent price history from decision_timestamp to today
             try:
-                ticker = yf.Ticker(f"{symbol}.NS") # Assume NSE
-                start_date = dec_time.strftime("%Y-%m-%d")
-                end_date = (datetime.now(IST) + timedelta(days=1)).strftime("%Y-%m-%d")
-                
-                hist = ticker.history(start=start_date, end=end_date, interval="1d")
-                if hist.empty or len(hist) < 2:
-                    ticker = yf.Ticker(symbol) # Fallback to global symbol
+                hist = None
+                try:
+                    from price_cache import get_cached_df
+                    cached_hist = get_cached_df(symbol, interval="1d", period="1y")
+                    if cached_hist is not None and not cached_hist.empty:
+                        start_date_str = dec_time.strftime("%Y-%m-%d")
+                        if "Date" in cached_hist.columns:
+                            hist = cached_hist[cached_hist["Date"] >= start_date_str].copy()
+                        elif isinstance(cached_hist.index, pd.DatetimeIndex):
+                            hist = cached_hist[cached_hist.index >= dec_time].copy()
+                except Exception:
+                    pass
+
+                if hist is None or hist.empty or len(hist) < 2:
+                    ticker = yf.Ticker(f"{symbol}.NS") # Assume NSE
+                    start_date = dec_time.strftime("%Y-%m-%d")
+                    end_date = (datetime.now(IST) + timedelta(days=1)).strftime("%Y-%m-%d")
+                    
                     hist = ticker.history(start=start_date, end=end_date, interval="1d")
+                    if hist.empty or len(hist) < 2:
+                        ticker = yf.Ticker(symbol) # Fallback to global symbol
+                        hist = ticker.history(start=start_date, end=end_date, interval="1d")
                     
                 if hist.empty:
                     with conn.cursor() as cur:
