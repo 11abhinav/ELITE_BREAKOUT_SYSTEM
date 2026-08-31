@@ -487,11 +487,13 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
                                 # Append today's completed session candle with live CMP
                                 today_date_val = now_ist.date() if t_col == 'Date' else pd.Timestamp(now_ist.date())
                                 new_row = {col: None for col in df_val.columns}
-                                new_row["Open"] = lp_float
-                                new_row["High"] = lp_float
-                                new_row["Low"] = lp_float
-                                new_row["Close"] = lp_float
-                                new_row["Volume"] = 0
+                                for p_col in ("Open", "High", "Low", "Close"):
+                                    if p_col in df_val.columns:
+                                        c_dtype = df_val[p_col].dtype
+                                        new_row[p_col] = c_dtype.type(lp_float) if hasattr(c_dtype, 'type') else lp_float
+                                if "Volume" in df_val.columns:
+                                    v_dtype = df_val["Volume"].dtype
+                                    new_row["Volume"] = v_dtype.type(0) if hasattr(v_dtype, 'type') else 0
                                 if t_col:
                                     new_row[t_col] = today_date_val
                                     new_df = pd.concat([df_val, pd.DataFrame([new_row])], ignore_index=True)
@@ -503,7 +505,9 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
                                 if cache_key in _cache and s in _cache[cache_key]:
                                     _cache[cache_key][s]["data"] = new_df
                             elif last_dt.date() == now_ist.date():
-                                df_val.iloc[-1, df_val.columns.get_loc("Close")] = lp_float
+                                col_idx = df_val.columns.get_loc("Close")
+                                close_dtype = df_val["Close"].dtype
+                                df_val.iloc[-1, col_idx] = close_dtype.type(lp_float) if hasattr(close_dtype, 'type') else lp_float
             except Exception as _cmp_sync_err:
                 logger.debug(f"Post-market 1d CMP overlay warning: {_cmp_sync_err}")
 
@@ -1597,7 +1601,9 @@ def get_intraday_snapshot(symbols: list[str], interval: str = "5m", period: str 
                             if isinstance(df_item, pd.DataFrame) and not df_item.empty and sym in live_prices_map:
                                 lp = live_prices_map[sym]
                                 if lp and float(lp) > 0:
-                                    df_item.iloc[-1, df_item.columns.get_loc("Close")] = float(lp)
+                                    col_idx = df_item.columns.get_loc("Close")
+                                    close_dtype = df_item["Close"].dtype
+                                    df_item.iloc[-1, col_idx] = close_dtype.type(lp) if hasattr(close_dtype, 'type') else float(lp)
                     except Exception:
                         pass
                 return res
