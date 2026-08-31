@@ -1,6 +1,6 @@
 # Next-Fix Candidate Decision Dashboard & Governance Trigger
 
-**Execution Date:** 2026-08-31 01:03:38 IST  
+**Execution Date:** 2026-08-31 08:13:44 IST  
 **Active Production Baseline:** **v5.1.2 (FROZEN)**  
 **Authoritative Quality Registry:** `engine/analytics/scanner_quality_runtime.py`  
 **Live Promotion Gate:** Strict $5$-Fold Standard (Requires $\text{LIVE\_FORWARD\_OOS\_TERMINAL\_N} \ge 100$)  

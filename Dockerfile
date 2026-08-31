@@ -2,6 +2,7 @@ FROM python:3.11-slim
 
 # Force glibc to limit memory arenas to reduce native memory fragmentation (RSS bloat)
 ENV MALLOC_ARENA_MAX=2
+ENV PYTHONPATH="/app:/app/app"
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

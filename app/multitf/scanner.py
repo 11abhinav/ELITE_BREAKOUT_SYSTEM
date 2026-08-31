@@ -17,7 +17,7 @@ from database import get_elite_watchlist, save_alert_if_new
 from opportunity_manager import OpportunityManager
 from lock_utils import ProcessLock
 from database import upsert_scanner_health
-from data_layer import fetch_watchlist_data
+from price_cache import fetch_watchlist_data
 
 from multitf.data import load_multitf_data
 from multitf.context import evaluate_1h_context, evaluate_30m_context, evaluate_market_context

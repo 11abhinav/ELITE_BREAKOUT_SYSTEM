@@ -78,9 +78,9 @@
 
 ## 3. Cryptographic Archive Hashes
 
-- **`batch1_core_code.zip`**: `SHA-256: 0b118c26826c95f96b2528cd159bd6de2ea1cda4b76347e10dc6756898f90b6b`
-- **`batch2_specs_artifacts_scripts.zip`**: `SHA-256: 8a1152f93454a4de4867f12a0dcf374ab200b9110181f053923ffbdc583d2f93`
-- **`ELITE_BREAKOUT_SYSTEM.zip`**: `SHA-256: f339c8788f7d9e311ae5f16f61889a2533a23aca52fcd8100b8c220ee98d0235`
+- **`batch1_core_code.zip`**: `SHA-256: 1d43af87b5726b9d9ef89dbe92861c6b4afcfc8d8c51bdd90bbbd7aff397e18d`
+- **`batch2_specs_artifacts_scripts.zip`**: `SHA-256: f723682fa1b6d127c82e5a73132e27d60923857cc60eff909abdc59a23b8a56a`
+- **`ELITE_BREAKOUT_SYSTEM.zip`**: `SHA-256: b18384e643c7b904352ab10b3f7b64447dda98fa81ea342a6a087a8776118b40`
 
 ---
 

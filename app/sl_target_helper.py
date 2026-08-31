@@ -48,10 +48,18 @@
 # =====================================================================================
 
 from __future__ import annotations
+import sys
+import os
 import pandas as pd
 from memory_profiler import profile_function
 from typing import Optional
 import math
+
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_ROOT_DIR = os.path.abspath(os.path.join(_APP_DIR, ".."))
+for _p in (_APP_DIR, _ROOT_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 from config import ADAPTIVE_TARGET_CAPS, MIN_NATURAL_RR, MIN_REWARD_POTENTIAL, TARGET_QUALITY_THRESHOLD
 

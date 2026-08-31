@@ -258,6 +258,8 @@ def get_connection(timeout: int = 20):
             except Exception:
                 pass
 
+get_db_connection = get_connection
+
 
 # ── One-time init guard ───────────────────────────────────────────────────────────────
 _DB_INITIALIZED = False

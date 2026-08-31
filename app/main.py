@@ -22,8 +22,10 @@ from memory_profiler import MemoryProfiler
 from forensics import forensics
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-if APP_DIR not in sys.path:
-    sys.path.insert(0, APP_DIR)
+ROOT_DIR = os.path.abspath(os.path.join(APP_DIR, ".."))
+for p in (APP_DIR, ROOT_DIR):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 IST = ZoneInfo("Asia/Kolkata")
 

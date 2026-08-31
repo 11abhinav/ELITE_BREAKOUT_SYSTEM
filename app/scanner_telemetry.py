@@ -15,6 +15,12 @@ import numpy as np
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_ROOT_DIR = os.path.abspath(os.path.join(_APP_DIR, ".."))
+for _p in (_APP_DIR, _ROOT_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 IST = ZoneInfo("Asia/Kolkata")
 
 logger = logging.getLogger("GLOBAL_SCANNER_TELEMETRY")

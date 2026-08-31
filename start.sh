@@ -4,6 +4,7 @@ echo "🚀 Starting Elite Breakout System Supervisor..."
 
 # Reduce glibc native memory fragmentation
 export MALLOC_ARENA_MAX=2
+export PYTHONPATH="/app:/app/app:$PYTHONPATH"
 
 while true; do
     echo "▶️ Launching app/main.py..."

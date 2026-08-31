@@ -17,8 +17,8 @@ from typing import Dict, Any, Optional
 import psycopg2.extras
 from zoneinfo import ZoneInfo
 
-from database import get_db_connection
-from signal_contract import ChecklistStatus, assert_valid_transition
+from database import get_connection
+from signal_contract import assert_valid_transition
 
 logger = logging.getLogger("multitf.state")
 IST = ZoneInfo("Asia/Kolkata")
@@ -33,24 +33,24 @@ class MtfSubstate:
     INVALIDATED = "INVALIDATED"               # Box broken or aged out
 
 
-def to_canonical(substate: str) -> ChecklistStatus:
+def to_canonical(substate: str) -> str:
     """Maps internal MULTI_TF substate to canonical global state."""
     _map = {
-        MtfSubstate.WATCHING:           ChecklistStatus.WATCH,
-        MtfSubstate.PRESSURE_BUILDING:  ChecklistStatus.WATCH,
-        MtfSubstate.ATTEMPT:            ChecklistStatus.CANDIDATE,
-        MtfSubstate.FAILED_ATTEMPT:     ChecklistStatus.WATCH,
-        MtfSubstate.BREAKOUT_CONFIRMED: ChecklistStatus.CONFIRMED,
-        MtfSubstate.INVALIDATED:        ChecklistStatus.REJECTED
+        MtfSubstate.WATCHING:           "WATCH",
+        MtfSubstate.PRESSURE_BUILDING:  "WATCH",
+        MtfSubstate.ATTEMPT:            "CANDIDATE",
+        MtfSubstate.FAILED_ATTEMPT:     "WATCH",
+        MtfSubstate.BREAKOUT_CONFIRMED: "CONFIRMED",
+        MtfSubstate.INVALIDATED:        "REJECTED"
     }
-    return _map.get(substate, ChecklistStatus.UNKNOWN)
+    return _map.get(substate, "UNKNOWN")
 
 
 @dataclass
 class MtfStateRecord:
     symbol: str
     box_id: str
-    state: str = ChecklistStatus.WATCH.value
+    state: str = "WATCH"
     mtf_substate: str = MtfSubstate.WATCHING
     attempt_count: int = 0
     last_attempt_ts: Optional[datetime] = None
@@ -65,39 +65,37 @@ class MtfStateRecord:
 
 def load_state(symbol: str, box_id: str) -> Optional[MtfStateRecord]:
     """Loads the current state for a specific box instance."""
-    conn = get_db_connection()
     try:
-        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-            cur.execute("""
-                SELECT state, mtf_substate, attempt_count, last_attempt_ts,
-                       attempt_started_ts, attempt_bar_boundary, attempt_ttl_expires_at,
-                       cooldown_until, invalidated_at, invalidation_reason, version
-                FROM mtf_v2_watchlist
-                WHERE symbol = %s AND box_id = %s
-            """, (symbol, box_id))
-            row = cur.fetchone()
-            if row:
-                return MtfStateRecord(
-                    symbol=symbol,
-                    box_id=box_id,
-                    state=row["state"],
-                    mtf_substate=row["mtf_substate"],
-                    attempt_count=row["attempt_count"],
-                    last_attempt_ts=row["last_attempt_ts"],
-                    attempt_started_ts=row["attempt_started_ts"],
-                    attempt_bar_boundary=row["attempt_bar_boundary"],
-                    attempt_ttl_expires_at=row["attempt_ttl_expires_at"],
-                    cooldown_until=row["cooldown_until"],
-                    invalidated_at=row["invalidated_at"],
-                    invalidation_reason=row["invalidation_reason"],
-                    version=row.get("version", 1)
-                )
-            return None
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT state, mtf_substate, attempt_count, last_attempt_ts,
+                           attempt_started_ts, attempt_bar_boundary, attempt_ttl_expires_at,
+                           cooldown_until, invalidated_at, invalidation_reason, version
+                    FROM mtf_v2_watchlist
+                    WHERE symbol = %s AND box_id = %s
+                """, (symbol, box_id))
+                row = cur.fetchone()
+                if row:
+                    return MtfStateRecord(
+                        symbol=symbol,
+                        box_id=box_id,
+                        state=row["state"],
+                        mtf_substate=row["mtf_substate"],
+                        attempt_count=row["attempt_count"],
+                        last_attempt_ts=row["last_attempt_ts"],
+                        attempt_started_ts=row["attempt_started_ts"],
+                        attempt_bar_boundary=row["attempt_bar_boundary"],
+                        attempt_ttl_expires_at=row["attempt_ttl_expires_at"],
+                        cooldown_until=row["cooldown_until"],
+                        invalidated_at=row["invalidated_at"],
+                        invalidation_reason=row["invalidation_reason"],
+                        version=row.get("version", 1)
+                    )
+                return None
     except Exception as exc:
         logger.error("[%s] load_state failed: %s", symbol, exc)
         return None
-    finally:
-        conn.close()
 
 
 def apply_ttl_and_cooldown(record: MtfStateRecord, ist_now: datetime, current_5m_bars: int) -> bool:
@@ -149,12 +147,12 @@ def handle_box_invalidation(record: MtfStateRecord, c_price: float, box_low: flo
 
 def _set_substate(record: MtfStateRecord, new_substate: str, ist_now: datetime):
     """Updates substate and ensures canonical state mapping passes validation."""
-    old_canonical = ChecklistStatus(record.state)
+    old_canonical = record.state
     new_canonical = to_canonical(new_substate)
     
     if old_canonical != new_canonical:
         assert_valid_transition(old_canonical, new_canonical, "MULTI_TF")
-        record.state = new_canonical.value
+        record.state = new_canonical
         
     record.mtf_substate = new_substate
 
@@ -165,25 +163,22 @@ def persist_new_watchlist_candidate(
     """
     Inserts a newly discovered 15m consolidation box.
     """
-    conn = get_db_connection()
     try:
-        with conn.cursor() as cur:
-            # We only insert if the box_id doesn't exist, preserving existing state if it does.
-            cols = list(candidate_dict.keys())
-            vals = [candidate_dict[c] for c in cols]
-            placeholders = ",".join(["%s"] * len(cols))
-            
-            query = f"""
-                INSERT INTO mtf_v2_watchlist ({",".join(cols)})
-                VALUES ({placeholders})
-                ON CONFLICT (symbol, box_id) DO NOTHING
-            """
-            cur.execute(query, vals)
-            conn.commit()
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cols = list(candidate_dict.keys())
+                vals = [candidate_dict[c] for c in cols]
+                placeholders = ",".join(["%s"] * len(cols))
+                
+                query = f"""
+                    INSERT INTO mtf_v2_watchlist ({",".join(cols)})
+                    VALUES ({placeholders})
+                    ON CONFLICT (symbol, box_id) DO NOTHING
+                """
+                cur.execute(query, vals)
+                conn.commit()
     except Exception as exc:
         logger.error("[%s] persist_new_watchlist_candidate failed: %s", candidate_dict.get("symbol"), exc)
-    finally:
-        conn.close()
 
 
 def update_state_in_db(record: MtfStateRecord, updates: Dict[str, Any]) -> bool:
@@ -203,32 +198,26 @@ def update_state_in_db(record: MtfStateRecord, updates: Dict[str, Any]) -> bool:
     updates["invalidation_reason"] = record.invalidation_reason
     updates["updated_at"] = datetime.now(IST)
     
-    conn = get_db_connection()
     try:
-        with conn.cursor() as cur:
-            # Add version increment to set clause
-            set_clause = ", ".join([f"{k} = %s" for k in updates.keys()]) + ", version = version + 1"
-            
-            vals = list(updates.values())
-            # WHERE symbol = %s AND box_id = %s AND version = %s
-            vals.extend([record.symbol, record.box_id, record.version])
-            
-            cur.execute(f"""
-                UPDATE mtf_v2_watchlist
-                SET {set_clause}
-                WHERE symbol = %s AND box_id = %s AND version = %s
-            """, vals)
-            conn.commit()
-            
-            if cur.rowcount == 0:
-                logger.warning("[%s] Concurrent update detected for box %s. Transition aborted.", record.symbol, record.box_id)
-                return False
-            
-            record.version += 1
-            return True
-            
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                set_clause = ", ".join([f"{k} = %s" for k in updates.keys()]) + ", version = version + 1"
+                vals = list(updates.values())
+                vals.extend([record.symbol, record.box_id, record.version])
+                
+                cur.execute(f"""
+                    UPDATE mtf_v2_watchlist
+                    SET {set_clause}
+                    WHERE symbol = %s AND box_id = %s AND version = %s
+                """, vals)
+                conn.commit()
+                
+                if cur.rowcount == 0:
+                    logger.warning("[%s] Concurrent update detected for box %s. Transition aborted.", record.symbol, record.box_id)
+                    return False
+                
+                record.version += 1
+                return True
     except Exception as exc:
         logger.error("[%s] update_state_in_db failed: %s", record.symbol, exc)
         return False
-    finally:
-        conn.close()
