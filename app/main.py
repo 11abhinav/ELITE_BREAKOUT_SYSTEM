@@ -142,6 +142,12 @@ def wait_for_bhavcopy_or_fallback(name: str) -> bool:
         now = datetime.now(IST)
         if now.weekday() >= 5:
             return True  # Weekend, no bhavcopy published
+
+        # On weekdays before 17:00 IST, today's market session hasn't concluded or evening Bhavcopy is not yet published.
+        # Immediately use latest available historical trading session dataset without blocking.
+        if now.hour < 17:
+            logger.info(f"[{name}] 🌅 Pre-evening hours ({now.strftime('%H:%M')} IST). Using latest available historical Bhavcopy dataset.")
+            return True
             
         try:
             # fetch_delivery_data handles caching and retries internally
