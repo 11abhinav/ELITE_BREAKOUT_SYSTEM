@@ -287,7 +287,6 @@ def _insert_notification_sync(notif_type: str, title: str, message: str, symbol:
     ]):
         logger.debug(f"🔇 Suppressed scanner completion notification: {title}")
         return
-
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -296,6 +295,13 @@ def _insert_notification_sync(notif_type: str, title: str, message: str, symbol:
                     VALUES (%s, %s, %s, %s)
                 ''', (notif_type, title, message, symbol))
             conn.commit()
+
+        # [EVENT-DRIVEN CACHE INVALIDATION] Invalidate all in-memory dashboard caches immediately
+        try:
+            from dashboard_server import invalidate_all_dashboard_caches
+            invalidate_all_dashboard_caches()
+        except Exception:
+            pass
 
         # [VERSION: ADMIN_MOBILE_PUSH_DISPATCH_v1.0] Dispatch WebPush to mobile devices whenever an admin notification occurs
         try:
@@ -8996,10 +9002,21 @@ def get_scanner_execution_history(
                 available_versions = _SEH_FILTERS_CACHE.get("versions") or ["v1"]
                 available_commits = _SEH_FILTERS_CACHE.get("commits") or []
 
-                # Total Count
-                cur.execute(f"SELECT COUNT(*) as cnt FROM scanner_execution_history WHERE {where_sql}", params)
-                cnt_row = cur.fetchone()
-                total_records = (cnt_row["cnt"] if cnt_row and hasattr(cnt_row, '__getitem__') and "cnt" in cnt_row else 0) if cnt_row else 0
+                # Summary metrics (respecting ALL active filters) — computes total_runs in the same single round-trip
+                summary_query = f"""
+                    SELECT
+                        COUNT(*) as total_runs,
+                        SUM(CASE WHEN lifecycle_status = 'COMPLETED' THEN 1 ELSE 0 END) as completed_runs,
+                        SUM(CASE WHEN quality_status = 'DEGRADED' THEN 1 ELSE 0 END) as degraded_runs,
+                        SUM(CASE WHEN lifecycle_status IN ('FAILED', 'TIMED_OUT', 'TIMEOUT_STALE', 'SERVER_RESTARTED', 'DOWN', 'ERROR') THEN 1 ELSE 0 END) as failed_runs,
+                        AVG(COALESCE(stale_ratio, 0.0)) as avg_stale_ratio
+                    FROM scanner_execution_history
+                    WHERE {where_sql};
+                """
+                cur.execute(summary_query, params)
+                stats = cur.fetchone() or {}
+
+                total_records = (stats["total_runs"] if stats and hasattr(stats, '__getitem__') and "total_runs" in stats else 0) or 0
 
                 # Paginated Rows with dynamic duration calculation
                 offset = (max(1, page) - 1) * per_page
@@ -9018,20 +9035,6 @@ def get_scanner_execution_history(
                 """
                 cur.execute(query, params + [per_page, offset])
                 rows = cur.fetchall() or []
-
-                # Summary metrics (respecting ALL active filters)
-                summary_query = f"""
-                    SELECT
-                        COUNT(*) as total_runs,
-                        SUM(CASE WHEN lifecycle_status = 'COMPLETED' THEN 1 ELSE 0 END) as completed_runs,
-                        SUM(CASE WHEN quality_status = 'DEGRADED' THEN 1 ELSE 0 END) as degraded_runs,
-                        SUM(CASE WHEN lifecycle_status IN ('FAILED', 'TIMED_OUT', 'TIMEOUT_STALE', 'SERVER_RESTARTED', 'DOWN', 'ERROR') THEN 1 ELSE 0 END) as failed_runs,
-                        AVG(COALESCE(stale_ratio, 0.0)) as avg_stale_ratio
-                    FROM scanner_execution_history
-                    WHERE {where_sql};
-                """
-                cur.execute(summary_query, params)
-                stats = cur.fetchone() or {}
 
                 total_runs = (stats["total_runs"] if stats and hasattr(stats, '__getitem__') and "total_runs" in stats else 0) or 0
                 completed_runs = (stats["completed_runs"] if stats and hasattr(stats, '__getitem__') and "completed_runs" in stats else 0) or 0

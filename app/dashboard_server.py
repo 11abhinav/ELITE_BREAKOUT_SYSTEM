@@ -680,6 +680,51 @@ def invalidate_notifications_cache():
     global _notifications_cache
     _notifications_cache["ts"] = 0.0
 
+def invalidate_all_dashboard_caches():
+    """
+    [EVENT-DRIVEN CACHE INVALIDATION]
+    Instantly resets all in-memory dashboard response caches when new alerts,
+    trades, exits, or health updates occur. Guarantees fresh data with 0ms delay.
+    """
+    global _todays_alerts_cache, _BREAKOUT_RESPONSE_CACHE, _SCANNER_STATUS_CACHE
+    global _SEH_API_CACHE, _ADVANCED_OUTCOMES_CACHE, _notifications_cache, _CAPITAL_INFO_CACHE
+    try:
+        _todays_alerts_cache["ts"] = 0
+        _todays_alerts_cache["admin_payload"] = None
+        _todays_alerts_cache["user_payload"] = None
+    except Exception:
+        pass
+    try:
+        _BREAKOUT_RESPONSE_CACHE["ts"] = 0
+        _BREAKOUT_RESPONSE_CACHE["payload"] = None
+    except Exception:
+        pass
+    try:
+        _SCANNER_STATUS_CACHE["ts"] = 0
+        _SCANNER_STATUS_CACHE["payload"] = None
+    except Exception:
+        pass
+    try:
+        _SEH_API_CACHE.clear()
+    except Exception:
+        pass
+    try:
+        _ADVANCED_OUTCOMES_CACHE["ts"] = 0
+        _ADVANCED_OUTCOMES_CACHE["payload"] = None
+    except Exception:
+        pass
+    try:
+        _notifications_cache["ts"] = 0
+        _notifications_cache["admin_payload"] = None
+        _notifications_cache["user_payload"] = None
+    except Exception:
+        pass
+    try:
+        _CAPITAL_INFO_CACHE["ts"] = 0
+        _CAPITAL_INFO_CACHE["payload"] = None
+    except Exception:
+        pass
+
 @app.route('/api/notifications', methods=['GET'])
 @login_required
 def get_notifications():
@@ -2537,17 +2582,27 @@ def api_expectancy_matrix():
     except Exception as e:
         logger.exception("❌ /api/analytics/expectancy_matrix failed")
         return jsonify({"matrix": [], "ambiguous_collision_pct": 0.0, "ambiguous_warning_triggered": False})
+_ADVANCED_OUTCOMES_CACHE: dict = {"ts": 0.0, "payload": None}
+
 @app.route("/api/v1/analytics/outcomes/advanced", methods=["GET"])
 @login_required
 def api_advanced_outcome_analytics():
     """
     Feature F-13: Advanced Outcome Analytics & Feature Attribution API.
     Returns telemetry coverage, dual confidence levels, feature attributions, score bands, capture efficiency, and rolling performance.
+    In-memory 30s TTL cache prevents heavy join queries and CPU-bound statistics on UI poll.
     """
+    global _ADVANCED_OUTCOMES_CACHE
+    now_ts = time.time()
+    if _ADVANCED_OUTCOMES_CACHE["payload"] is not None and (now_ts - _ADVANCED_OUTCOMES_CACHE["ts"]) < 30.0:
+        return Response(_ADVANCED_OUTCOMES_CACHE["payload"], mimetype="application/json")
+
     try:
         from outcome_tracker import compute_advanced_outcome_analytics
         data = compute_advanced_outcome_analytics()
-        return jsonify(data)
+        payload = json.dumps(data, default=str)
+        _ADVANCED_OUTCOMES_CACHE = {"ts": now_ts, "payload": payload}
+        return Response(payload, mimetype="application/json")
     except Exception as e:
         logger.exception("❌ /api/v1/analytics/outcomes/advanced failed")
         return jsonify({"error": str(e), "is_preview_mode": True, "overall_confidence": "LOW"}), 500
@@ -3602,13 +3657,16 @@ def api_trade_audit_log():
         logger.debug(f"Trade audit log fetch fallback: {e}")
         return jsonify([])
 
+_SEH_API_CACHE: dict = {}
+
 @app.route("/api/scanner_execution_history", methods=["GET"])
 @app.route("/api/funnel_telemetry", methods=["GET"])
 @app.route("/api/telemetry/pullback_health", methods=["GET"])
 @app.route("/api/telemetry/quality_audit", methods=["GET"])
 @login_required
 def api_scanner_execution_history():
-    """Returns filterable, paginated scanner execution history with telemetry stats."""
+    """Returns filterable, paginated scanner execution history with telemetry stats (5s in-memory TTL cache)."""
+    global _SEH_API_CACHE
     try:
         scanners_raw = request.args.getlist("scanner")
         if not scanners_raw:
@@ -3626,6 +3684,16 @@ def api_scanner_execution_history():
         page = int(request.args.get("page", 1))
         per_page = int(request.args.get("per_page", 25))
 
+        cache_key = f"{scanner_name}:{lifecycle_status}:{quality_status}:{date_range}:{search}:{system_version}:{git_commit}:{page}:{per_page}"
+        now_ts = time.time()
+        cached = _SEH_API_CACHE.get(cache_key)
+        if cached and (now_ts - cached["ts"]) < 5.0:
+            return Response(cached["payload"], mimetype="application/json", headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            })
+
         from database import get_scanner_execution_history
         res = get_scanner_execution_history(
             scanner_name=scanner_name,
@@ -3639,6 +3707,9 @@ def api_scanner_execution_history():
             per_page=per_page
         )
         payload = json.dumps(serialize_datetimes(res), default=str)
+        if len(_SEH_API_CACHE) > 50:
+            _SEH_API_CACHE.clear()
+        _SEH_API_CACHE[cache_key] = {"ts": now_ts, "payload": payload}
         return Response(payload, mimetype="application/json", headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
             "Pragma": "no-cache",
@@ -4517,17 +4588,21 @@ def api_breakout_watchlist():
                 ist = ZoneInfo('Asia/Kolkata')
                 symbols = list(set([d["symbol"] for d in data]))
 
-                # Refresh live prices dictionary at most once every 15s to avoid blocking server WSGI threads
+                # Refresh live prices dictionary asynchronously in background to avoid blocking server WSGI threads
                 if (now_sec - _BREAKOUT_CMP_LAST_FETCH) > 15:
-                    try:
-                        live_prices_dict = get_live_prices(symbols)
-                        for sym in symbols:
-                            price = live_prices_dict.get(sym)
-                            if price is not None and price > 0:
-                                _BREAKOUT_CMP_CACHE[sym] = {"price": price, "ts": datetime.now(ist).isoformat()}
-                        _BREAKOUT_CMP_LAST_FETCH = now_sec
-                    except Exception as ex:
-                        logger.warning(f"Failed live CMP fetch: {ex}")
+                    _BREAKOUT_CMP_LAST_FETCH = now_sec
+                    def _async_cmp_fetch(sym_list):
+                        try:
+                            from live_prices import get_live_prices
+                            live_prices_dict = get_live_prices(sym_list)
+                            for s in sym_list:
+                                p = live_prices_dict.get(s)
+                                if p is not None and p > 0:
+                                    _BREAKOUT_CMP_CACHE[s] = {"price": p, "ts": datetime.now(ist).isoformat()}
+                        except Exception as _bg_ex:
+                            logger.debug(f"Async breakout CMP fetch warning: {_bg_ex}")
+                    import threading
+                    threading.Thread(target=_async_cmp_fetch, args=(symbols,), daemon=True).start()
 
                 for d in data:
                     sym = d["symbol"]

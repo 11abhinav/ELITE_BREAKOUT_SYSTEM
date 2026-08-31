@@ -5770,13 +5770,10 @@ async function initDashboard() {
     renderScannerGrid(data.scanner_stats);
     loadNonCriticalErrors();
 
-    // Load secondary dashboard components concurrently (non-blocking)
+    // Load secondary dashboard components for default tab (non-blocking)
     Promise.allSettled([
       loadCapitalInfo(),
-      fetchSignalLadder(),
-      loadMultibaggerWatchlist(),
-      loadPendingUsers(),
-      loadAdvancedOutcomeAnalytics()
+      fetchSignalLadder()
     ]).catch(e => console.error("Error loading secondary dashboard components:", e));
   } catch (err) {
     console.error("Dashboard init error:", err);
@@ -5788,8 +5785,11 @@ async function initDashboard() {
     window.scrollTo(0, 0);
   }
 
-  // Auto-refresh scanner status & execution history every 10s
+  // Auto-refresh scanner status & execution history every 10s (with single-flight debounce)
+  let _isRefreshingStatus = false;
   async function refreshScannerStatus() {
+    if (_isRefreshingStatus) return;
+    _isRefreshingStatus = true;
     try {
       const live = await loadScannerStatus();
       if (live) {
@@ -5801,10 +5801,10 @@ async function initDashboard() {
         await fetchScannerExecutionHistory(currentSehPage);
       }
     } catch (e) { console.error("Error in refreshScannerStatus:", e); }
+    finally { _isRefreshingStatus = false; }
   }
 
-  // Kick off 10s timer loop immediately
-  refreshScannerStatus();
+  // Start 10s background polling loop (initial status was already loaded by initDashboard)
   setInterval(refreshScannerStatus, 10000);
 
   // SSE Stream Listener for Instant Real-Time Updates
