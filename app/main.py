@@ -1346,7 +1346,7 @@ def run_system_scheduler():
                 _exit_start_t = time.time()
                 with MemoryProfiler("WEALTH_ENGINE_5M", force_gc_cleanup=True):
                     from wealth_engine import run_wealth_intraday_update
-                    run_wealth_intraday_update(write_health=not should_run_full_scan)
+                    run_wealth_intraday_update(write_health=True)
                 duration_sec = round(time.time() - _exit_start_t, 1)
                 logger.info(f"✅ Wealth Engine (market hours) exit update completed in {format_duration(duration_sec)}")
                 upsert_scanner_health(
