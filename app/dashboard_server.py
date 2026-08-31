@@ -38,6 +38,7 @@ IST = ZoneInfo("Asia/Kolkata")
 
 from decimal import Decimal
 import numpy as np
+import pandas as pd
 
 # [RULE 67 CHANGE-RATIONALE]:
 # Robust serializer that handles Decimal (from PostgreSQL NUMERIC columns), numpy types,

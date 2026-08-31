@@ -297,9 +297,31 @@ def get_dynamic_cadence(interval: str) -> int:
 
 # [VERSION: MEMORY_RECALIBRATION_v1.0] Recalibrated profile budget from 350 MB to 500 MB to match steady-state process RSS.
 @profile_function("Price Fetch", budget_mb=500.0)
-def fetch_watchlist_data(watchlist: pd.DataFrame, period: str = "10d", interval: str = "15m", requester: str = None) -> dict[str, pd.DataFrame]:
+def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "15m", requester: str = None) -> dict[str, pd.DataFrame]:
     global _cache_hits, _cache_misses
     from telemetry_manager import telemetry
+    
+    # [RULE 67 CHANGE-RATIONALE]:
+    # Defensive normalization: Support callers passing a list of symbol strings (e.g. from get_elite_watchlist()),
+    # a pandas Series, or a DataFrame with either 'Stock' or 'symbol' column name.
+    if isinstance(watchlist, (list, set, tuple)):
+        watchlist = pd.DataFrame({"Stock": [str(s) for s in watchlist if s]})
+    elif isinstance(watchlist, pd.Series):
+        watchlist = pd.DataFrame({"Stock": [str(s) for s in watchlist.dropna().values if s]})
+    elif isinstance(watchlist, pd.DataFrame):
+        watchlist = watchlist.copy()
+        if "Stock" not in watchlist.columns:
+            if "symbol" in watchlist.columns:
+                watchlist["Stock"] = watchlist["symbol"]
+            elif "Symbol" in watchlist.columns:
+                watchlist["Stock"] = watchlist["Symbol"]
+            elif len(watchlist.columns) > 0:
+                watchlist["Stock"] = watchlist.iloc[:, 0]
+            else:
+                watchlist["Stock"] = []
+    else:
+        watchlist = pd.DataFrame({"Stock": []})
+
     # [VERSION: UNIFIED_1Y_CACHE_v2.0] Standardize all 1d requests to "1y" so EOD, Reversal, Pullback,
     # Wealth Engine and Multibagger all share one single cache key ("1d", "1y").
     if interval == "1d" and period in ("6mo", "1mo", "10d", "3mo", "2y"):
