@@ -1950,27 +1950,6 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                 logger.warning(f"⚠️ EOD data fetch returned {total_fetched_count}/{len(watchlist)} symbols (70% minimum required). EOD results may be incomplete.")
             else:
                 logger.info(f"✅ Successfully fetched {total_fetched_count} symbols for EOD phase")
-                rss_after_convert = process.memory_info().rss / 1024 / 1024
-                locals().pop('all_ticker_data', None)
-                locals().pop('ticker', None)
-                gc.collect()
-                rss_after_gc = process.memory_info().rss / 1024 / 1024
-                elapsed = time.time() - batch_start_time
-                logger.info(
-                    f"📊 EOD Batch {i//BATCH_SIZE + 1}/{(len(watchlist) + BATCH_SIZE - 1)//BATCH_SIZE}\n"
-                    f"Symbols: {len(chunk_df)}\n"
-                    f"Time: {elapsed:.1f} s\n"
-                    f"RSS before fetch: {rss_before:.1f} MB\n"
-                    f"RSS after fetch: {rss_after_fetch:.1f} MB\n"
-                    f"RSS after convert: {rss_after_convert:.1f} MB\n"
-                    f"RSS after cleanup: {rss_after_gc:.1f} MB"
-                )
-
-            # Check if we fetched enough data overall
-            if total_fetched_count < len(watchlist) * 0.70:
-                logger.warning(f"⚠️ EOD data fetch returned {total_fetched_count}/{len(watchlist)} symbols (70% minimum required). EOD results may be incomplete.")
-            else:
-                logger.info(f"✅ Successfully fetched {total_fetched_count} symbols for EOD phase")
         # Insert scan failures via batch
         if scan_failures and not is_test_mode:
             try:
