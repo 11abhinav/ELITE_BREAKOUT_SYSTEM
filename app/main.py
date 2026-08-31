@@ -2444,16 +2444,7 @@ def _trigger_wealth_exit():
 if __name__ == "__main__":
     forensics.take_snapshot("startup")
 
-    # 0. SINGLE-THREADED DB INIT — Run DDL migrations on main thread BEFORE worker threads start
-    try:
-        from database import init_db, reset_all_scanners_on_boot
-        init_db()
-        reset_all_scanners_on_boot()
-        logger.info("✅ [BOOT] Single-threaded DB schema initialization and scanner health boot reset complete.")
-    except Exception as _init_err:
-        logger.warning(f"⚠️ Single-threaded init_db warning: {_init_err}")
-
-    # 1. START FLASK DASHBOARD SERVER IMMEDIATELY (0ms latency for health checks & Coolify)
+    # 0. START FLASK DASHBOARD SERVER IMMEDIATELY (0ms latency for health checks & Coolify)
     if "--worker" not in sys.argv:
         try:
             from dashboard_server import start_dashboard_server_async
@@ -2461,6 +2452,15 @@ if __name__ == "__main__":
             logger.info("🌐 [BOOT] Dashboard server started asynchronously — ports 8000/8080/80 open instantly for healthchecks!")
         except Exception as _d_err:
             logger.error(f"❌ Could not start dashboard server: {_d_err}")
+
+    # 1. SINGLE-THREADED DB INIT — Run DDL migrations on main thread BEFORE worker threads start
+    try:
+        from database import init_db, reset_all_scanners_on_boot
+        init_db()
+        reset_all_scanners_on_boot()
+        logger.info("✅ [BOOT] Single-threaded DB schema initialization and scanner health boot reset complete.")
+    except Exception as _init_err:
+        logger.warning(f"⚠️ Single-threaded init_db warning: {_init_err}")
 
     # 2. SIGNAL HANDLERS FOR CLEAN SHUTDOWN
     def handle_sigterm(*args):
