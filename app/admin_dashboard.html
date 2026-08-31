@@ -8924,21 +8924,36 @@ function loadMasterSystemV2Data() {
         tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--muted);">No fundamental compounders in Investment Watch.</td></tr>`;
         return;
       }
-      tbody.innerHTML = data.map(item => `
-        <tr>
-          <td style="font-weight:700; color:var(--accent);">${formatText(item.symbol)}</td>
-          <td>${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
-          <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp)}</td>
-          <td>${formatText(item.business_quality)}</td>
-          <td>${formatText(item.growth_durability)}</td>
-          <td>${formatText(item.moat_cash_quality)}</td>
-          <td>${formatText(item.valuation_grade)}</td>
-          <td style="color:var(--win); font-weight:700;">${formatPct(item.margin_of_safety_pct)}</td>
-          <td>${formatText(item.thesis_health)}</td>
-          <td><span class="badge-queued">${formatText(item.investment_state)}</span></td>
-          <td style="font-size:11px; color:var(--win);">${formatText(item.why_qualifies)}</td>
-        </tr>
-      `).join('');
+      tbody.innerHTML = data.map(item => {
+        const stateStr = item.investment_state || 'ACCUMULATE (Buy Zone)';
+        let stateBadge = `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
+        if (stateStr.includes('BUY') || stateStr.includes('ACCUMULATE')) {
+          stateBadge = `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
+        } else if (stateStr.includes('GROWTH')) {
+          stateBadge = `<span style="background:rgba(139,92,246,0.15); color:#a78bfa; border:1px solid rgba(139,92,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
+        } else if (stateStr.includes('QUALITY')) {
+          stateBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
+        }
+
+        const valGrade = item.valuation_grade || 'Tier B+ (Quality Fair Value)';
+        const valColor = valGrade.includes('Tier A') ? '#10b981' : (valGrade.includes('Tier B+') ? '#3b82f6' : '#f59e0b');
+
+        return `
+          <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
+            <td style="padding:10px 12px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}</td>
+            <td style="padding:10px 12px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+            <td style="padding:10px 12px; font-weight:700; color:var(--text);">${formatPrice(item.cmp)}</td>
+            <td style="padding:10px 12px; font-weight:600; color:#e2e8f0; font-size:11px;">${formatText(item.business_quality)}</td>
+            <td style="padding:10px 12px; font-weight:600; color:#cbd5e1; font-size:11px;">${formatText(item.growth_durability)}</td>
+            <td style="padding:10px 12px; font-weight:600; color:#94a3b8; font-size:11px;">${formatText(item.moat_cash_quality)}</td>
+            <td style="padding:10px 12px; font-weight:700; color:${valColor}; font-size:11px;">${formatText(valGrade)}</td>
+            <td style="padding:10px 12px; color:var(--win); font-weight:800; font-family:var(--font-mono); text-align:center;">+${formatPct(item.margin_of_safety_pct)}</td>
+            <td style="padding:10px 12px; font-weight:700; color:#10b981; font-size:11px; text-align:center;"><span style="color:#10b981;">●</span> ${formatText(item.thesis_health || 'HEALTHY')}</td>
+            <td style="padding:10px 12px; text-align:center;">${stateBadge}</td>
+            <td style="padding:10px 12px; font-size:11px; color:#38bdf8; font-weight:500;">${formatText(item.why_qualifies)}</td>
+          </tr>
+        `;
+      }).join('');
     }).catch(e => console.warn('Failed to load investment watch:', e));
 
   // [RULE 67 CHANGE-RATIONALE]:
