@@ -1813,7 +1813,7 @@ def _main_wrapper(force_rebuild: bool = False, run_ctx=None):
                 error_msg=None,
                 processed_count=proc,
                 total_count=tot,
-                scheduled_for="05:00 IST",
+                scheduled_for="Daily 05:00 IST",
                 duration_seconds=duration_sec,
                 outcome=outcome
             )
@@ -2265,6 +2265,22 @@ def _main_impl(force_rebuild: bool = False, run_ctx=None):
         # [VERSION: DAILY_BUILDER_PATCH_v1.9] Deduplicate on exact Stock symbol after normalization to prevent DB PK violations
         final_df = final_df.drop_duplicates(subset=["Stock"], keep="first")
         
+        # [SANITY] Filter out unresolvable or delisted symbols against SymbolResolutionEngine
+        try:
+            from symbol_resolution_engine import get_symbol_resolver
+            resolver = get_symbol_resolver()
+            if resolver and hasattr(resolver, "_active_indexes") and resolver._active_indexes:
+                def _is_known(s):
+                    clean_s = str(s).strip().upper()
+                    return clean_s in resolver._active_indexes.idx_by_symbol or ("fyers", clean_s) in resolver._active_indexes.idx_provider_mapping or ("upstox", clean_s) in resolver._active_indexes.idx_provider_mapping
+                valid_mask = final_df["Stock"].apply(_is_known)
+                dropped = final_df[~valid_mask]["Stock"].tolist()
+                if dropped:
+                    logger.info(f"🧹 [WATCHLIST SANITY] Filtered out {len(dropped)} non-traded/unresolvable tickers: {dropped[:10]}")
+                    final_df = final_df[valid_mask].copy()
+        except Exception as _filter_err:
+            logger.debug(f"Watchlist symbol validation check: {_filter_err}")
+            
         logger.info(f"📋 [PROVENANCE] source_status={final_df['source_status'].value_counts().to_dict()}, build_date={final_df['build_date'].iloc[0]}")
 
         import threading
