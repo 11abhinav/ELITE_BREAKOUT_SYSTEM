@@ -1034,6 +1034,18 @@ async function loadData(forceRebuild = false) {
 
 
 
+const USER_PAGE_SIZE = 10;
+
+function escapeHTML(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 // ── KPIs
 
 let ALL_TRADES = [], activeKpi = null;
