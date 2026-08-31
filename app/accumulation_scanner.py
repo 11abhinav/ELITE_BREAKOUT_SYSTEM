@@ -555,6 +555,25 @@ class AccumulationScanner:
                             logger.warning(f"Could not persist accumulation alert for {sym}: {al_err}")
                     else:
                         health.record_metrics(rejected_inc=1)
+                        try:
+                            sc_val = float(res.get("score", 0.0))
+                            if sc_val >= 63.0:
+                                from near_miss_tracker import log_near_miss
+                                sl_t = res.get("sl_target") or {}
+                                log_near_miss(
+                                    symbol=sym,
+                                    scanner="ACCUMULATION",
+                                    breakout_type="ACCUMULATION_SETUP",
+                                    gate_name=str(res.get("rejection_reason") or "score_below_threshold"),
+                                    observed_value=sc_val,
+                                    threshold_value=70.0,
+                                    score=int(sc_val),
+                                    entry_price=float(res.get("cmp", 0.0)) or None,
+                                    stop_loss=float(sl_t.get("stop_loss", 0.0)) if sl_t.get("stop_loss") else None,
+                                    target_1=float(sl_t.get("target_1", 0.0)) if sl_t.get("target_1") else None,
+                                )
+                        except Exception:
+                            pass
 
             # Process all accumulated opportunities
             if trade_alerts_count > 0:

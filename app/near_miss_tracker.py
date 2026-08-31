@@ -54,6 +54,22 @@ def init_near_miss_schema() -> None:
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_near_misses_sym_scanner_date ON near_misses (symbol, scanner, logged_date)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_date ON near_misses (logged_date, scanner)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_symbol ON near_misses (symbol)")
+
+                # Backfill historical NULL stop_loss & target_1 from entry_price/cmp
+                cur.execute("""
+                    UPDATE near_misses nm
+                    SET entry_price = ROUND(m.cmp, 2)
+                    FROM stock_analysis_master m
+                    WHERE nm.symbol = m.symbol AND (nm.entry_price IS NULL OR nm.entry_price <= 0) AND m.cmp > 0;
+
+                    UPDATE near_misses
+                    SET stop_loss = ROUND(entry_price * 0.95, 2)
+                    WHERE (stop_loss IS NULL OR stop_loss <= 0) AND entry_price IS NOT NULL AND entry_price > 0;
+
+                    UPDATE near_misses
+                    SET target_1 = ROUND(entry_price + 2.0 * (entry_price - stop_loss), 2)
+                    WHERE (target_1 IS NULL OR target_1 <= 0) AND entry_price IS NOT NULL AND stop_loss IS NOT NULL;
+                """)
                 conn.commit()
     except Exception as e:
         logger.exception(f"Failed to initialize near_misses table: {e}")
@@ -73,6 +89,7 @@ def log_near_miss(
     """
     Logs a near-miss candidate rejected within 10% of a gate threshold into PostgreSQL.
     Enforces 1 entry per scanner per symbol per date.
+    Guarantees valid entry_price, stop_loss, and target_1 for post-rejection forensic tracking.
     """
     if not observed_value or not threshold_value or threshold_value == 0:
         return
@@ -100,6 +117,14 @@ def log_near_miss(
                         entry_price = float(row[0])
         except Exception:
             pass
+
+    # Ensure robust SL & Target 1 calculations
+    if entry_price and entry_price > 0:
+        if stop_loss is None or stop_loss <= 0:
+            stop_loss = round(entry_price * 0.95, 2)  # Conservative 5% default risk
+        if target_1 is None or target_1 <= 0:
+            risk_amt = abs(entry_price - stop_loss)
+            target_1 = round(entry_price + max(risk_amt * 2.0, entry_price * 0.08), 2)  # Minimum 2R or 8% target
 
     try:
         init_near_miss_schema()
@@ -129,6 +154,6 @@ def log_near_miss(
                     stop_loss, target_1, now_ist, today_date
                 ))
                 conn.commit()
-                logger.info(f"🎯 [NEAR-MISS LOGGED] {clean_symbol} ({clean_scanner}) gate '{clean_gate_name}': obs={observed_value:.2f} vs thresh={threshold_value:.2f} (delta: {delta_pct:.1f}%) | entry=₹{entry_price}")
+                logger.info(f"🎯 [NEAR-MISS LOGGED] {clean_symbol} ({clean_scanner}) gate '{clean_gate_name}': obs={observed_value:.2f} vs thresh={threshold_value:.2f} (delta: {delta_pct:.1f}%) | entry=₹{entry_price} | SL=₹{stop_loss} | T1=₹{target_1}")
     except Exception as e:
         logger.exception(f"Failed to log near-miss for {symbol}: {e}")

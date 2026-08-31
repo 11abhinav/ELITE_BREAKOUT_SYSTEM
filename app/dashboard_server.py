@@ -1045,7 +1045,8 @@ def api_get_near_misses():
                             SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
                                    nm.threshold_value, nm.delta_pct, nm.score,
                                    COALESCE(nm.entry_price, m.cmp) AS entry_price,
-                                   nm.stop_loss, nm.target_1,
+                                   COALESCE(nm.stop_loss, ROUND(COALESCE(nm.entry_price, m.cmp) * 0.95, 2)) AS stop_loss,
+                                   COALESCE(nm.target_1, ROUND(COALESCE(nm.entry_price, m.cmp) + 2.0 * (COALESCE(nm.entry_price, m.cmp) - COALESCE(nm.stop_loss, ROUND(COALESCE(nm.entry_price, m.cmp) * 0.95, 2))), 2)) AS target_1,
                                    nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
                             FROM near_misses nm
                             LEFT JOIN stock_analysis_master m ON m.symbol = nm.symbol
@@ -1059,7 +1060,8 @@ def api_get_near_misses():
                             SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
                                    nm.threshold_value, nm.delta_pct, nm.score,
                                    COALESCE(nm.entry_price, m.cmp) AS entry_price,
-                                   nm.stop_loss, nm.target_1,
+                                   COALESCE(nm.stop_loss, ROUND(COALESCE(nm.entry_price, m.cmp) * 0.95, 2)) AS stop_loss,
+                                   COALESCE(nm.target_1, ROUND(COALESCE(nm.entry_price, m.cmp) + 2.0 * (COALESCE(nm.entry_price, m.cmp) - COALESCE(nm.stop_loss, ROUND(COALESCE(nm.entry_price, m.cmp) * 0.95, 2))), 2)) AS target_1,
                                    nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
                             FROM near_misses nm
                             LEFT JOIN stock_analysis_master m ON m.symbol = nm.symbol
@@ -1072,7 +1074,8 @@ def api_get_near_misses():
                         SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
                                nm.threshold_value, nm.delta_pct, nm.score,
                                COALESCE(nm.entry_price, m.cmp) AS entry_price,
-                               nm.stop_loss, nm.target_1,
+                               COALESCE(nm.stop_loss, ROUND(COALESCE(nm.entry_price, m.cmp) * 0.95, 2)) AS stop_loss,
+                               COALESCE(nm.target_1, ROUND(COALESCE(nm.entry_price, m.cmp) + 2.0 * (COALESCE(nm.entry_price, m.cmp) - COALESCE(nm.stop_loss, ROUND(COALESCE(nm.entry_price, m.cmp) * 0.95, 2))), 2)) AS target_1,
                                nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
                         FROM near_misses nm
                         LEFT JOIN stock_analysis_master m ON m.symbol = nm.symbol

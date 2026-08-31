@@ -471,6 +471,22 @@ def _process_symbol(
                 state_record.state = "REJECTED"
                 updates["invalidated_at"] = ist_now
                 updates["invalidation_reason"] = "NOT_TRADEABLE"
+                try:
+                    from near_miss_tracker import log_near_miss
+                    log_near_miss(
+                        symbol=symbol,
+                        scanner="MULTI_TF",
+                        breakout_type="MULTI_TF",
+                        gate_name="rr_ratio_gate",
+                        observed_value=float(sl_target.get("rr_ratio", 0.0)),
+                        threshold_value=float(config.get("MIN_RR_RATIO", 1.5)),
+                        score=int(confluence.total_score),
+                        entry_price=float(sl_target.get("entry_price") or 0.0),
+                        stop_loss=float(sl_target.get("stop_loss") or 0.0),
+                        target_1=float(sl_target.get("target_1") or 0.0),
+                    )
+                except Exception:
+                    pass
             else:
                 # 9b. Tradeable -> Dispatch to OpportunityManager
                 if inserted:

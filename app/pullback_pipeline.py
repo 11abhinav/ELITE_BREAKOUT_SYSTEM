@@ -1012,6 +1012,19 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             )
             try:
                 from near_miss_tracker import log_near_miss
+                entry_px = float(c.entry_price) if hasattr(c, 'entry_price') and c.entry_price else None
+                sl_px = None
+                tgt_px = None
+                if entry_px and entry_px > 0:
+                    sl_calc = compute_sl_and_target(
+                        entry_price=entry_px,
+                        atr=getattr(c, "atr_val", entry_px * 0.025),
+                        mode="PULLBACK",
+                        swing_low=c.structure.pullback_low.price if hasattr(c, "structure") and hasattr(c.structure, "pullback_low") else None,
+                        swing_high=c.structure.impulse.end.price if hasattr(c, "structure") and hasattr(c.structure, "impulse") else None,
+                    )
+                    sl_px = float(sl_calc.get("stop_loss", 0.0)) if sl_calc.get("stop_loss") else round(entry_px * 0.95, 2)
+                    tgt_px = float(sl_calc.get("target_1", 0.0)) if sl_calc.get("target_1") else round(entry_px + 2.0 * (entry_px - sl_px), 2)
                 log_near_miss(
                     symbol=c.symbol,
                     scanner="PULLBACK",
@@ -1020,9 +1033,9 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                     observed_value=float(c.final_score),
                     threshold_value=float(required_threshold),
                     score=int(c.final_score),
-                    entry_price=float(c.entry_price) if hasattr(c, 'entry_price') and c.entry_price else None,
-                    stop_loss=float(c.sl_result.get("stop_loss", 0.0)) if hasattr(c, 'sl_result') and c.sl_result and c.sl_result.get("stop_loss") else None,
-                    target_1=float(c.sl_result.get("target_1", 0.0)) if hasattr(c, 'sl_result') and c.sl_result and c.sl_result.get("target_1") else None,
+                    entry_price=entry_px,
+                    stop_loss=sl_px,
+                    target_1=tgt_px,
                 )
             except Exception as _nm_e:
                 # [FIX-P4] Promote to WARNING so near-miss telemetry failures are visible in production logs.
@@ -1095,6 +1108,22 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                 actual=actual_risk_metrics,
                 required=required_risk_metrics
             )
+            try:
+                from near_miss_tracker import log_near_miss
+                log_near_miss(
+                    symbol=c.symbol,
+                    scanner="PULLBACK",
+                    breakout_type="PULLBACK_SETUP",
+                    gate_name=str(sl_result.get("rejection_reason") or "risk_rejected"),
+                    observed_value=float(nat_rr) if nat_rr > 0 else float(c.final_score),
+                    threshold_value=float(sl_result.get("min_rr_threshold", 2.0)) if nat_rr > 0 else 80.0,
+                    score=int(c.final_score),
+                    entry_price=entry_val,
+                    stop_loss=sl_val,
+                    target_1=t1_val,
+                )
+            except Exception:
+                pass
         else:
             c.sl_result = sl_result
             valid_risk_candidates.append(c)
