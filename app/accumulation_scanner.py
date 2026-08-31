@@ -472,7 +472,7 @@ class AccumulationScanner:
                                 breakout_type="ACCUMULATION",
                                 alert_time=datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
                                 scanner="ACCUMULATION",
-                                category="EOD",
+                                category="ACCUMULATION",
                                 entry_price=sl_tgt["breakout_level"],
                                 stop_loss=sl_tgt["stop_loss"],
                                 target_1=sl_tgt["target_1"],
