@@ -496,7 +496,10 @@ class AccumulationScanner:
                         if inserted and sl_tgt.get("tradable", True):
                             payload = {
                                 "symbol": sym,
+                                "scanner": "ACCUMULATION",
                                 "scanner_name": "ACCUMULATION",
+                                "breakout_type": "ACCUMULATION",
+                                "category": "ACCUMULATION",
                                 "priority": "HIGH" if state == "BREAKOUT_READY" else "MEDIUM",
                                 "timestamp": datetime.now(IST),
                                 "score": score,

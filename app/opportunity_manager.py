@@ -78,7 +78,7 @@ class OpportunityManager:
         """
         entry   = candidate.get("entry_price")
         current = candidate.get("current_price")
-        scanner = candidate.get("scanner", "MULTI_TF").upper()
+        scanner = str(candidate.get("scanner") or candidate.get("scanner_name") or "MULTI_TF").upper()
         max_drift = MAX_ENTRY_DRIFT.get(scanner, 1.0)
 
         if not entry or not current or entry <= 0:
@@ -206,14 +206,18 @@ class OpportunityManager:
             symbol = c.get("symbol", "?")
             counts[status] = counts.get(status, 0) + 1
 
+            scanner_val = str(c.get("scanner") or c.get("scanner_name") or "MULTI_TF").strip()
+            breakout_type_val = str(c.get("breakout_type") or scanner_val).strip()
+            category_val = c.get("category") or scanner_val
+
             if status == "FUNDED":
                 try:
                     inserted, reason, _, _ = save_alert_if_new(
                         symbol=symbol,
-                        breakout_type=c.get("breakout_type", "MULTI_TF"),
+                        breakout_type=breakout_type_val,
                         alert_time=now_ist,
-                        scanner=c.get("scanner", "MULTI_TF"),
-                        category=c.get("category"),
+                        scanner=scanner_val,
+                        category=category_val,
                         entry_price=c.get("entry_price"),
                         stop_loss=c.get("stop_loss"),
                         target_1=c.get("target_1"),
@@ -245,8 +249,8 @@ class OpportunityManager:
                         
                         save_candidate(
                             symbol=symbol,
-                            breakout_type=c.get("breakout_type", "MULTI_TF"),
-                            scanner=c.get("scanner", ""),
+                            breakout_type=breakout_type_val,
+                            scanner=scanner_val,
                             technical_score=c.get("technical_score", 0),
                             volume_ratio=c.get("volume_ratio", 0.0),
                             delivery_pct=c.get("delivery_pct", 0.0),
@@ -261,8 +265,8 @@ class OpportunityManager:
                     # Also persist as a candidate to maintain the 1:1 invariant
                     save_candidate(
                         symbol=symbol,
-                        breakout_type=c.get("breakout_type", "MULTI_TF"),
-                        scanner=c.get("scanner", ""),
+                        breakout_type=breakout_type_val,
+                        scanner=scanner_val,
                         technical_score=c.get("technical_score", 0),
                         volume_ratio=c.get("volume_ratio", 0.0),
                         delivery_pct=c.get("delivery_pct", 0.0),
@@ -282,8 +286,8 @@ class OpportunityManager:
                 try:
                     save_candidate(
                         symbol=symbol,
-                        breakout_type=c.get("breakout_type", "MULTI_TF"),
-                        scanner=c.get("scanner", ""),
+                        breakout_type=breakout_type_val,
+                        scanner=scanner_val,
                         technical_score=c.get("technical_score", 0),
                         volume_ratio=c.get("volume_ratio", 0.0),
                         delivery_pct=c.get("delivery_pct", 0.0),
