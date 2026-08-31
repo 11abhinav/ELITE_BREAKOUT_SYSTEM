@@ -517,13 +517,13 @@ class AutoSwitchingFetcher(DataFetcher):
             resolved = selector.get_providers(interval, fetch_type=fetch_type)
             mapped = []
             for p in resolved:
-                name = "yfinance" if p in ("yahoo", "bse") else p
-                if name not in mapped:
+                name = "upstox" if p in ("upstox",) else ("fyers" if p == "fyers" else p)
+                if name in ("fyers", "upstox") and name not in mapped:
                     mapped.append(name)
-            return mapped if mapped else ["fyers", "yfinance"]
+            return mapped if mapped else ["fyers", "upstox"]
         except Exception as e:
             logger.warning(f"Error resolving ProviderSelector route: {e}")
-            return ["fyers", "yfinance"]
+            return ["fyers", "upstox"]
 
     def _get_fetcher_by_name(self, name: str) -> DataFetcher:
         if name == "upstox":
@@ -812,89 +812,6 @@ class AutoSwitchingFetcher(DataFetcher):
                         logger.info(f"🔄 [Premium Fallback] {prov_name} recovered {succeeded_count} missing symbols in total!")
                 except Exception as e:
                     logger.warning(f"⚠️ {prov_name} premium fallback batch fetch exception: {e}.")
-
-        # 3. Fallback Phase: Process any missing symbols through fallback providers (yfinance, etc)
-        for prov_name in fallback_names:
-            if not missing_symbols:
-                break
-                
-            fetcher = self._get_fetcher_by_name(prov_name)
-            if not fetcher:
-                provider_telemetry[prov_name] = {
-                    "requested": len(missing_symbols), "succeeded": 0, "failed": len(missing_symbols),
-                    "reasons": {"provider_unavailable": len(missing_symbols)}, "latency_s": 0.0
-                }
-                continue
-                
-            current_batch = list(missing_symbols)
-            start_t = time.time()
-            prov_stats = {
-                "requested": len(current_batch), "succeeded": 0, "failed": 0,
-                "reasons": {"missing": 0, "timeout": 0, "rate_limit": 0, "quality_rejected": 0, "malformed": 0, "provider_unavailable": 0}
-            }
-            try:
-                prov_results = fetcher.get_batch_ohlcv(current_batch, interval, period, retries, range_from, range_to, caller=caller)
-                
-                for s in current_batch:
-                    res = prov_results.get(s)
-                    if res:
-                        fallback_results[s] = res
-                        if res.dataframe is not None and getattr(res, 'quality_report', None) and res.quality_report.is_valid:
-                            logger.info(f"✅ [{prov_name.upper()} FALLBACK ACCEPTED] {s}: df_shape={res.dataframe.shape}")
-                            results[s] = res
-                            if s in missing_symbols:
-                                missing_symbols.remove(s)
-                            prov_stats["succeeded"] += 1
-                        else:
-                            qr_valid = getattr(getattr(res, 'quality_report', None), 'is_valid', None)
-                            df_len = len(res.dataframe) if (res and res.dataframe is not None) else 0
-                            logger.warning(f"⚠️ [{prov_name.upper()} FALLBACK REJECTED] {s}: df_len={df_len}, quality_valid={qr_valid}, error='{getattr(res, 'error', None)}'")
-                            prov_stats["failed"] += 1
-                            err_msg = str(getattr(res, 'error', '') or '').lower()
-                            if "timeout" in err_msg:
-                                prov_stats["reasons"]["timeout"] += 1
-                            elif "rate" in err_msg or "429" in err_msg or "circuit" in err_msg:
-                                prov_stats["reasons"]["rate_limit"] += 1
-                            elif "quality" in err_msg or "reject" in err_msg:
-                                prov_stats["reasons"]["quality_rejected"] += 1
-                            elif "malformed" in err_msg or "format" in err_msg:
-                                prov_stats["reasons"]["malformed"] += 1
-                            else:
-                                prov_stats["reasons"]["missing"] += 1
-                    else:
-                        prov_stats["failed"] += 1
-                        prov_stats["reasons"]["missing"] += 1
-            except Exception as e:
-                prov_stats["failed"] = len(current_batch)
-                prov_stats["reasons"]["provider_unavailable"] = len(current_batch)
-                logger.warning(f"{prov_name} batch fetch exception: {e}.")
-                
-            prov_stats["latency_s"] = round(time.time() - start_t, 3)
-            provider_telemetry[prov_name] = prov_stats
-
-        # [VERSION: SINGLE_SYMBOL_RECOVERY_v1.0]
-        # RULE 89 MANDATORY RATIONALE:
-        # - When scanning 1,174 symbols, Yahoo Finance occasionally experiences transient rate limits (429) or timeouts
-        #   on 1 to 3 random tickers during bulk batch downloads.
-        # - Rather than immediately flagging those 1-3 symbols as DATA MISSING and firing high-priority notification alarms,
-        #   this recovery phase executes an isolated single-symbol download attempt via YFinanceFetcher.
-        # - Empirical test proved 100% recovery for transiently dropped tickers (e.g., STLTECH, DIACABS, LOTUSDEV, MTARTECH),
-        #   eliminating false positive DATA MISSING notifications.
-        if missing_symbols and len(missing_symbols) <= 20:
-            logger.info(f"🔄 Attempting targeted single-symbol recovery for {len(missing_symbols)} missing symbols via YFinance...")
-            recovered = []
-            for s in list(missing_symbols):
-                try:
-                    md = self.yfinance_fetcher.get_ohlcv(s, interval, period, retries=2, range_from=range_from, range_to=range_to)
-                    if md and md.dataframe is not None and getattr(md.dataframe, 'empty', False) is False:
-                        results[s] = md
-                        missing_symbols.remove(s)
-                        recovered.append(s)
-                except Exception as e:
-                    logger.warning(f"Single-symbol recovery failed for {s}: {e}")
-            if recovered:
-                logger.info(f"✅ Successfully recovered {len(recovered)} symbols via targeted YFinance retry: {recovered}")
-
         # Final Safety Net: Try resolving missing symbols from Postgres DB before emitting notifications
         if missing_symbols:
             try:

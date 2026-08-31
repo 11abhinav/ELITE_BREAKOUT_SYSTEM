@@ -45,25 +45,23 @@ class ProviderSelector:
         if entry and entry.preferred_provider:
             primary = entry.preferred_provider.lower()
             if primary == "fyers":
-                base_route = ["fyers", "upstox", "yahoo", "bse"]
+                base_route = ["fyers", "upstox"]
             elif primary == "upstox":
-                base_route = ["upstox", "fyers", "yahoo", "bse"]
-            elif primary == "yahoo":
-                base_route = ["yahoo", "upstox", "fyers", "bse"]
+                base_route = ["upstox", "fyers"]
             elif primary == "nse":
                 base_route = ["nse"]
             else:
-                base_route = [primary, "upstox", "fyers", "yahoo", "bse"]
+                base_route = [primary, "fyers", "upstox"]
         else:
             # 2. Configuration-driven policy routing from config.py
             routing_policy = getattr(config, "PROVIDER_ROUTING_POLICY", {})
-            base_route = list(routing_policy.get(canonical_key, routing_policy.get("default", ["upstox", "fyers", "yahoo", "bse"])))
+            base_route = list(routing_policy.get(canonical_key, routing_policy.get("default", ["fyers", "upstox"])))
 
         # [VERSION: ROUTING_PREFERENCE_FIX_v1.0] Respect configured DATA_PROVIDER preference (default: fyers).
         # Fyers is designed for high-concurrency batch intraday requests, while Upstox REST API
         # rate-limits heavy intraday batch fetches. Ensure configured DATA_PROVIDER is primary.
         configured_primary = getattr(config, "DATA_PROVIDER", "fyers").lower()
-        if configured_primary in ("fyers", "upstox", "yahoo", "bse"):
+        if configured_primary in ("fyers", "upstox"):
             if configured_primary not in base_route:
                 base_route = [configured_primary] + base_route
             elif base_route[0] != configured_primary:

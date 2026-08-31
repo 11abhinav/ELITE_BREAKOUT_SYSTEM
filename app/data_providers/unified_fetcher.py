@@ -76,91 +76,11 @@ class UnifiedFetcher:
                         return md.dataframe
                 except Exception as e:
                     logger.warning(f"⚠️ [Upstox] Failed to fetch historical {symbol}: {e}")
-            
-            elif provider == "yahoo":
-                try:
-                    from yf_rate_limiter import safe_yf_call, is_circuit_open
-                    if is_circuit_open():
-                        logger.warning(f"🚦 [YahooGateway] Circuit OPEN — skipping Yahoo historical fetch for '{symbol}'")
-                        continue
-                        
-                    import yfinance as yf
-                    # ── FORMAT GATE: validate Yahoo format before download ──────────────────
-                    try:
-                        from symbol_resolution_engine import get_symbol_resolver
-                        resolved = get_symbol_resolver().resolve(symbol, provider="yahoo")
-                        yf_symbol = resolved.mapped_symbol if (resolved and resolved.is_valid and resolved.mapped_symbol) else f"{symbol}.NS"
-                    except Exception as fmt_err:
-                        logger.error(f"🚫 [YahooFormat] Symbol resolution failed for '{symbol}': {fmt_err} — skipping Yahoo fetch for this symbol")
-                        continue
-                        
-                    logger.info(f"🔄 [Yahoo] Controlled recovery fetch for {yf_symbol}")
-                    def _do_yf_download():
-                        return yf.download(yf_symbol, interval=interval, period=period, progress=False, threads=False, auto_adjust=True, timeout=30)
-                        
-                    df = safe_yf_call(_do_yf_download, symbol=yf_symbol, context="UnifiedFetcher.fetch_historical")
-                        
-                    if df is not None and not df.empty:
-                        df = df.reset_index()
-                        if "Date" in df.columns:
-                            df.rename(columns={"Date": "Datetime"}, inplace=True)
-                        if isinstance(df.columns, pd.MultiIndex):
-                            df.columns = df.columns.get_level_values(0)
-                        else:
-                            df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
-                        logger.info(f"✅ [Yahoo] Successfully fetched historical {symbol}")
-                        entry = self.registry.get_entry(dataset_id)
-                        if entry:
-                            entry.provider_used = "yahoo"
-                            is_fallback = entry.preferred_provider and provider != entry.preferred_provider
-                            from datetime import datetime
-                            df.attrs = {
-                                "dataset": dataset_id,
-                                "provider": provider,
-                                "preferred_provider": entry.preferred_provider,
-                                "fallback_used": bool(is_fallback),
-                                "fetch_timestamp": datetime.now().isoformat()
-                            }
-                        return df
-                except Exception as e:
-                    logger.error(f"❌ [Yahoo] Failed to fetch historical {symbol}: {e}")
-                    
-            elif provider == "bse":
-                try:
-                    import yfinance as yf
-                    yf_symbol = symbol + ".BO"
-                    logger.info(f"🔄 [BSE] Falling back to {yf_symbol}")
-                    yf_acquire(context=f"UnifiedFetcher.fetch_historical | {yf_symbol}")
-                    try:
-                        df = yf.download(yf_symbol, interval=interval, period=period, progress=False, threads=False, auto_adjust=True, timeout=60)
-                    finally:
-                        yf_release()
 
-                    if df is not None and not df.empty:
-                        df = df.reset_index()
-                        if "Date" in df.columns:
-                            df.rename(columns={"Date": "Datetime"}, inplace=True)
-                        if isinstance(df.columns, pd.MultiIndex):
-                            df.columns = df.columns.get_level_values(0)
-                        else:
-                            df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
-                        logger.info(f"✅ [BSE] Successfully fetched historical {symbol}")
-                        entry = self.registry.get_entry(dataset_id)
-                        if entry:
-                            entry.provider_used = "bse"
-                            is_fallback = entry.preferred_provider and provider != entry.preferred_provider
-                            from datetime import datetime
-                            df.attrs = {
-                                "dataset": dataset_id,
-                                "provider": provider,
-                                "preferred_provider": entry.preferred_provider,
-                                "fallback_used": bool(is_fallback),
-                                "fetch_timestamp": datetime.now().isoformat()
-                            }
-                        return df
-                except Exception as e:
-                    logger.error(f"❌ [BSE] Failed to fetch historical {symbol}: {e}", exc_info=True)
-                    
+            elif provider in ("yahoo", "bse"):
+                logger.debug(f"Provider '{provider}' disabled in favor of official broker gateways.")
+                continue
+
         logger.error(f"❌ Exhausted all providers for historical {symbol}")
         return pd.DataFrame()
 

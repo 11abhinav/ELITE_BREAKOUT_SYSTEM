@@ -577,22 +577,22 @@ DATA_PROVIDER = os.getenv("DATA_PROVIDER", "fyers")  # fyers, yfinance, or kite
 ROUTING_POLICY_VERSION = 2
 
 PROVIDER_ROUTING_POLICY = {
-    "price_1d":  ["upstox", "fyers", "yahoo", "bse"],
-    "price_1wk": ["upstox", "fyers", "yahoo", "bse"],
-    "price_1mo": ["upstox", "fyers", "yahoo", "bse"],
+    "price_1d":  ["fyers", "upstox"],
+    "price_1wk": ["fyers", "upstox"],
+    "price_1mo": ["fyers", "upstox"],
 
-    "price_1h":  ["upstox", "fyers", "yahoo", "bse"],
-    "price_30m": ["upstox", "fyers", "yahoo", "bse"],
-    "price_15m": ["upstox", "fyers", "yahoo", "bse"],
-    "price_5m":  ["upstox", "fyers", "yahoo", "bse"],
-    "price_1m":  ["upstox", "fyers", "yahoo", "bse"],
+    "price_1h":  ["fyers", "upstox"],
+    "price_30m": ["fyers", "upstox"],
+    "price_15m": ["fyers", "upstox"],
+    "price_5m":  ["fyers", "upstox"],
+    "price_1m":  ["fyers", "upstox"],
 
     # Fyers & Upstox for live quotes
-    "live_quotes": ["upstox", "fyers", "yahoo", "bse"],
+    "live_quotes": ["fyers", "upstox"],
 
     "bhavcopy_delivery": ["nse_bhavcopy", "bse_bhavcopy"],
     "promoter_pledge":   ["bse_corporate", "nse_corporate"],
-    "default": ["upstox", "fyers", "yahoo", "bse"]
+    "default": ["fyers", "upstox"]
 }
 
 PROVIDER_CAPABILITIES = {

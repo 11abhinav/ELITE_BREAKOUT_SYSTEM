@@ -1397,7 +1397,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
         df = all_data.get(sym)
         if df is None or isinstance(df, ProviderResult):
             try:
-                upsert_fetch_error('yfinance', 'PRICE_CACHE', sym, interval, 'no_data_after_fetch', 'no_data_returned')
+                upsert_fetch_error('fyers', 'PRICE_CACHE', sym, interval, 'no_data_after_fetch', 'no_data_returned')
             except Exception:
                 pass
             all_data[sym] = None
@@ -1407,7 +1407,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
     if successful_syms:
         try:
             from database import delete_fetch_errors_batch_on_success
-            delete_fetch_errors_batch_on_success('yfinance', 'PRICE_CACHE', successful_syms, interval, 'no_data_after_fetch')
+            delete_fetch_errors_batch_on_success('fyers', 'PRICE_CACHE', successful_syms, interval, 'no_data_after_fetch')
         except Exception:
             pass
 
@@ -1419,12 +1419,12 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
         if total > 0:
             failure_rate = failed_fresh / total
             if failure_rate > 0.25:
-                mark_failure(f"yfinance:{interval}", f"Scanner failed: >25% stale/missing ({failed_fresh}/{total} records failed fresh fetch)")
+                mark_failure(f"fyers:{interval}", f"Scanner failed: >25% stale/missing ({failed_fresh}/{total} records failed fresh fetch)")
             else:
                 # >= 75% success is acceptable
-                mark_success(f"yfinance:{interval}")
+                mark_success(f"fyers:{interval}")
         else:
-            mark_failure(f"yfinance:{interval}", "No data returned (completely empty)")
+            mark_failure(f"fyers:{interval}", "No data returned (completely empty)")
     except Exception:
         pass
         
