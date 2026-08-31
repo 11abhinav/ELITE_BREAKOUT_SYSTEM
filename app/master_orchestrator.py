@@ -299,7 +299,7 @@ class MasterOrchestratorV2:
                 last_seen_price as cmp, 
                 trigger_level, 
                 distance_to_trigger_pct as distance_pct, 
-                COALESCE(primary_blocker_type, status_reason, 'Volume Confirmation Pending') as primary_blocker,
+                COALESCE(primary_blocker_type, status_reason) as primary_blocker,
                 COALESCE(last_change_summary, status_reason) as why_qualifies,
                 updated_at
             FROM scanner_candidates
@@ -308,27 +308,21 @@ class MasterOrchestratorV2:
             SELECT
                 symbol,
                 'ACCUMULATION' AS scanner,
-                stage,
-                quality_score,
-                maturity_score,
-                cmp,
-                trigger_level,
-                distance_pct,
-                primary_blocker,
-                why_qualifies,
-                updated_at
+                state AS stage,
+                score AS quality_score,
+                score AS maturity_score,
+                close AS cmp,
+                breakout_level AS trigger_level,
+                CASE WHEN close > 0 THEN ((breakout_level - close) / close * 100) ELSE NULL END AS distance_pct,
+                NULL AS primary_blocker,
+                NULL AS why_qualifies,
+                created_at AS updated_at
             FROM (
                 SELECT DISTINCT ON (symbol)
-                    symbol,
-                    state AS stage,
-                    score AS quality_score,
-                    score AS maturity_score,
-                    close AS cmp,
-                    breakout_level AS trigger_level,
-                    CASE WHEN close > 0 THEN ((breakout_level - close) / close * 100) ELSE NULL END AS distance_pct,
-                    COALESCE(invalidation_reason, 'Volume / Compression Gate Pending') AS primary_blocker,
-                    'Institutional Accumulation & Volatility Contraction' AS why_qualifies,
-                    created_at AS updated_at
+                    symbol, state, score, accumulation_score, compression_score, relative_strength_score,
+                    resistance_score, volume_structure_score, fundamental_score,
+                    close, breakout_level, stop_loss, target_1, risk_pct, rr_1,
+                    created_at
                 FROM accumulation_alerts
                 WHERE state IN ('PRE_BREAKOUT', 'ACCUMULATION_WATCH')
                   AND created_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date AT TIME ZONE 'Asia/Kolkata'
@@ -355,22 +349,66 @@ class MasterOrchestratorV2:
             source = "legacy_fallback"
 
         for item in watchlist:
+            sym = item.get("symbol")
             sc_name = str(item.get("scanner") or "ACCUMULATION").upper()
-            if not item.get("why_qualifies"):
-                if "MULTIBAGGER" in sc_name:
-                    item["why_qualifies"] = "High ROCE/ROE Fundamental Compounder Base Building"
-                elif "ACCUMULATION" in sc_name:
-                    item["why_qualifies"] = "Institutional Accumulation & Volatility Contraction"
-                elif "REVERSAL" in sc_name:
-                    item["why_qualifies"] = "Over-extended Dip Near Long-Term Support Zone"
-                elif "PULLBACK" in sc_name:
-                    item["why_qualifies"] = "Moving Average Retracement in Active Uptrend"
-                elif "MULTI" in sc_name:
-                    item["why_qualifies"] = "Multi-Timeframe Confluence & Momentum Building"
-                else:
-                    item["why_qualifies"] = "Consolidation Base Building Near Resistance"
+            stage_raw = str(item.get("stage") or "WATCH").upper()
 
-            item["rationale"] = item.get("rationale") or item.get("status_reason") or item["why_qualifies"]
+            # Dynamic CMP resolution via price cache
+            cmp_val = item.get("cmp")
+            try:
+                from price_cache import get_cached_price
+                cp = get_cached_price(sym)
+                if cp and float(cp) > 0:
+                    cmp_val = float(cp)
+                    item["cmp"] = round(cmp_val, 2)
+            except Exception:
+                pass
+
+            trig = item.get("trigger_level")
+            dist = item.get("distance_pct")
+            if trig and cmp_val and float(cmp_val) > 0:
+                dist = round(((float(trig) - float(cmp_val)) / float(cmp_val)) * 100.0, 2)
+                item["distance_pct"] = dist
+
+            # Human-readable Stage Progress
+            if "PRE_BREAKOUT" in stage_raw or "ARMED" in stage_raw:
+                item["stage"] = "⚡ PRE-BREAKOUT (Testing Highs)"
+            elif "ACCUMULATION_WATCH" in stage_raw or "WATCH" in stage_raw:
+                item["stage"] = "👁️ BASE BUILDING (Watch)"
+            elif "DEVELOPING" in stage_raw:
+                item["stage"] = "🔄 DEVELOPING BASE"
+            else:
+                item["stage"] = stage_raw.replace("_", " ").title()
+
+            # Dynamic, Stock-Specific Primary Blocker (User-friendly action requirement)
+            raw_blocker = str(item.get("primary_blocker") or "")
+            if not item.get("primary_blocker") or "Close below SL" in raw_blocker or "Volume Confirmation Pending" in raw_blocker:
+                if dist is not None and trig is not None:
+                    if dist <= 1.5:
+                        item["primary_blocker"] = f"Awaiting Breakout Volume Surge (Within {dist:.1f}% of ₹{float(trig):.2f})"
+                    elif dist <= 4.0:
+                        diff = abs(float(trig) - float(cmp_val)) if cmp_val else 0.0
+                        item["primary_blocker"] = f"Consolidating in Base (Needs +₹{diff:.2f} / +{dist:.1f}% move to trigger)"
+                    else:
+                        item["primary_blocker"] = f"Awaiting Price Approach to Breakout Level ₹{float(trig):.2f} (+{dist:.1f}%)"
+                else:
+                    item["primary_blocker"] = "Volume Surge & Breakout Trigger Pending"
+
+            # Dynamic, Stock-Specific Why It Qualifies (Distinct technical rationale)
+            raw_why = str(item.get("why_qualifies") or "")
+            mat_score = float(item.get("maturity_score") or item.get("quality_score") or 75.0)
+            if not item.get("why_qualifies") or "Institutional Accumulation & Volatility Contraction" in raw_why:
+                if "PRE_BREAKOUT" in stage_raw or (dist is not None and dist <= 2.5):
+                    trig_str = f"₹{float(trig):.2f}" if trig else "Resistance"
+                    item["why_qualifies"] = f"VCP Compression Complete (Score {mat_score:.1f}/100) — Pressing {trig_str}"
+                elif mat_score >= 75.0:
+                    item["why_qualifies"] = f"Institutional Accumulation (Score {mat_score:.1f}/100) — Tight Volatility Contraction"
+                elif dist is not None and dist <= 4.0:
+                    item["why_qualifies"] = f"High-Tight Flag Consolidation (Score {mat_score:.1f}/100) with Strong RS"
+                else:
+                    item["why_qualifies"] = f"Constructive Consolidation Base (Score {mat_score:.1f}/100) Building Volume Absorption"
+
+            item["rationale"] = item.get("why_qualifies")
             self._ensure_contract_keys(item, data_source=source)
 
         return watchlist

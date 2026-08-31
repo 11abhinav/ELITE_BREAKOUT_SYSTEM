@@ -8899,20 +8899,32 @@ function loadMasterSystemV2Data() {
         tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:20px; color:var(--muted);">No stocks currently in Watch stage.</td></tr>`;
         return;
       }
-      tbody.innerHTML = data.map(item => `
-        <tr>
-          <td style="font-weight:700;">${formatText(item.symbol)}</td>
-          <td>${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
-          <td>${formatText(item.scanner)}</td>
-          <td><span class="badge-queued">${formatText(item.stage)}</span></td>
-          <td>${formatText(item.maturity_score)}</td>
-          <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp)}</td>
-          <td>${formatPrice(item.trigger_level)}</td>
-          <td style="color:var(--amber); font-weight:700;">${formatPct(item.distance_pct)}</td>
-          <td style="color:var(--muted);">${formatText(item.primary_blocker)}</td>
-          <td style="font-size:11px; color:var(--accent);">${formatText(item.why_qualifies)}</td>
-        </tr>
-      `).join('');
+      tbody.innerHTML = data.map(item => {
+        const stageStr = item.stage || '👁️ BASE BUILDING (Watch)';
+        let stageBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stageStr)}</span>`;
+        if (stageStr.includes('PRE-BREAKOUT') || stageStr.includes('ARMED')) {
+          stageBadge = `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stageStr)}</span>`;
+        }
+
+        const distVal = item.distance_pct !== null && item.distance_pct !== undefined ? item.distance_pct : null;
+        const distColor = (distVal !== null && distVal <= 2.0) ? '#10b981' : '#f59e0b';
+        const distStr = distVal !== null ? (distVal > 0 ? `+${distVal.toFixed(2)}%` : `${distVal.toFixed(2)}%`) : '-';
+
+        return `
+          <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
+            <td style="padding:10px 12px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}</td>
+            <td style="padding:10px 12px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+            <td style="padding:10px 12px; font-weight:600; color:#94a3b8; font-size:11px;">${formatText(item.scanner)}</td>
+            <td style="padding:10px 12px; text-align:center;">${stageBadge}</td>
+            <td style="padding:10px 12px; text-align:center; font-weight:700; color:#e2e8f0;">${item.maturity_score ? Number(item.maturity_score).toFixed(1) : '-'}</td>
+            <td style="padding:10px 12px; font-weight:700; color:var(--text); font-family:var(--font-mono);">${formatPrice(item.cmp)}</td>
+            <td style="padding:10px 12px; font-weight:700; color:#38bdf8; font-family:var(--font-mono);">${formatPrice(item.trigger_level)}</td>
+            <td style="padding:10px 12px; color:${distColor}; font-weight:800; font-family:var(--font-mono); text-align:center;">${distStr}</td>
+            <td style="padding:10px 12px; font-size:11px; color:#fbbf24; font-weight:500;">${formatText(item.primary_blocker)}</td>
+            <td style="padding:10px 12px; font-size:11px; color:#38bdf8; font-weight:500;">${formatText(item.why_qualifies)}</td>
+          </tr>
+        `;
+      }).join('');
     }).catch(e => console.warn('Failed to load stocks to watch:', e));
 
   fetch('/api/v2/investment_watch')
