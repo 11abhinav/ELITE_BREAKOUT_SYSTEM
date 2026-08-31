@@ -343,6 +343,18 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
             if sym_entry and isinstance(sym_entry.get("data"), pd.DataFrame) and not sym_entry["data"].empty:
                 age = now_mono - sym_entry["ts"]
                 if age < cadence:
+                    # [VERSION: EOD_BOUNDARY_RAM_VALIDATION_v1.0]
+                    # For 1d data, verify that if market has closed (>= 15:30 IST), the RAM cached DataFrame
+                    # actually contains today's closed bar. If not, treat as cache miss to trigger EOD fetch.
+                    if interval == "1d":
+                        df_d = sym_entry["data"]
+                        t_col = 'Date' if 'Date' in df_d.columns else ('Datetime' if 'Datetime' in df_d.columns else None)
+                        last_bar_ts = df_d[t_col].iloc[-1] if t_col else (df_d.index[-1] if not df_d.index.empty else None)
+                        if last_bar_ts is not None:
+                            from market_utils import get_expected_latest_closed_daily_bar
+                            if pd.to_datetime(last_bar_ts).date() < get_expected_latest_closed_daily_bar():
+                                missing_symbols.append(s)
+                                continue
                     cached_result[s] = sym_entry["data"]
                     continue
             missing_symbols.append(s)
@@ -468,21 +480,17 @@ class CacheFreshnessPolicy:
 class DailyPolicy(CacheFreshnessPolicy):
     """
     Daily Cache Freshness Policy.
-    During active market hours or pre-market, the latest completed daily session is from the previous trading day.
-    During off-market hours (night/weekend), daily cache within 3 calendar days is considered fresh to avoid redundant downloads.
+    Uses get_expected_latest_closed_daily_bar() to determine the expected closed daily bar:
+    - Pre-market or active market hours (Mon-Fri 09:15-15:30): expected closed daily bar is previous trading day.
+    - Post-market (Mon-Fri >= 15:30): expected closed daily bar is today's session.
+    - Weekends/holidays: expected closed daily bar is the last completed trading day (Friday).
     """
     def is_fresh(self, last_ts: pd.Timestamp, now_dt: datetime = None) -> bool:
         if now_dt is None:
             now_dt = datetime.now(IST)
-        from market_utils import get_expected_latest_closed_daily_bar, is_market_open
+        from market_utils import get_expected_latest_closed_daily_bar
         expected_closed_bar = get_expected_latest_closed_daily_bar(now_dt)
-        if last_ts.date() >= expected_closed_bar:
-            return True
-        if not is_market_open(now_dt):
-            days_behind = (now_dt.date() - last_ts.date()).days
-            if days_behind <= 3:
-                return True
-        return False
+        return last_ts.date() >= expected_closed_bar
 
 
 # =====================================================================================
