@@ -2555,12 +2555,6 @@ def save_alert_if_new(
             except Exception as e:
                 logger.exception(f"Failed to start push thread")
 
-            try:
-                from performance_tracker import trigger_performance_rebuild
-                trigger_performance_rebuild()
-            except Exception as pe:
-                logger.error(f"Failed to trigger performance rebuild on new alert: {pe}")
-
         return inserted, "Inserted" if inserted else "DB CONFLICT (Duplicate)", capital_allocated, shares_bought
 
     if conn is None:

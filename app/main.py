@@ -645,12 +645,6 @@ def _run_eod_with_retries(today_str, session=None, used_fallback=False):
                 scheduled_for="Daily 18:30 IST (Post-Bhavcopy Delivery)",
                 duration_seconds=duration_sec
             )
-            if total > 0:
-                try:
-                    from performance_tracker import trigger_performance_rebuild
-                    trigger_performance_rebuild()
-                except Exception as pe:
-                    logger.error(f"Failed to trigger performance rebuild post-EOD: {pe}")
             logger.info("✅ EOD SCANNER | Completed successfully for today.")
             with MemoryProfiler("Cleanup - EOD", force_gc_cleanup=True):
                 pass
@@ -741,12 +735,6 @@ def _run_reversal_with_retries(today_str, session=None, used_fallback=False):
                 scheduled_for="Daily 18:30 IST (Post-Bhavcopy Delivery)",
                 duration_seconds=duration_sec
             )
-            if total > 0:
-                try:
-                    from performance_tracker import trigger_performance_rebuild
-                    trigger_performance_rebuild()
-                except Exception as pe:
-                    logger.error(f"Failed to trigger performance rebuild post-REVERSAL: {pe}")
             logger.info("✅ REVERSAL SCANNER | Completed successfully for today.")
             with MemoryProfiler("Cleanup - REVERSAL", force_gc_cleanup=True):
                 pass
@@ -1119,13 +1107,6 @@ def run_all_seven_scanners_non_market_boot():
                         logger.warning(f"⚠️ Could not set health to DOWN for failed boot scanner {name}: {status_err}")
 
                 time.sleep(3)
-
-            # 4. Trigger performance tracker build after all scanners finish
-            try:
-                from performance_tracker import trigger_performance_rebuild
-                trigger_performance_rebuild()
-            except Exception as _pt_err:
-                logger.warning(f"Post-boot scanner batch performance rebuild warning: {_pt_err}")
         finally:
             try:
                 # [VERSION: BOOT_CLEANUP_CONCURRENCY_v1.0] [RULE 67 CHANGE-RATIONALE]
@@ -2054,12 +2035,6 @@ def _run_multibagger_scanner_single():
             duration_seconds=dur_mb_single,
             run_id=run_ctx.run_id if run_ctx else None
         )
-        # Rebuild performance data on scanner completion (debounced, async)
-        try:
-            from performance_tracker import trigger_performance_rebuild
-            trigger_performance_rebuild()
-        except Exception as pe:
-            logger.error(f"Failed to trigger performance rebuild post-MULTIBAGGER: {pe}")
         telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_COMPLETE")
         telemetry.log_session_timeline("Completed Multibagger Scanner Cycle Successfully")
         logger.info("✅ MULTIBAGGER SCANNER | Completed successfully for today.")
@@ -2289,15 +2264,6 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
             except Exception:
                 pass
 
-            # Perform post-lock background tasks outside the global execution lock
-            time.sleep(5)
-            # Rebuild performance data on scan completion (debounced, async)
-            try:
-                from performance_tracker import trigger_performance_rebuild
-                trigger_performance_rebuild()
-            except Exception as pe:
-                logger.error(f"Failed to trigger performance rebuild post-manual-scan for {scanner_key}: {pe}")
-                
             logger.info(f"✅ ADMIN MANUAL TRIGGER | {scanner_key} completed successfully")
         except RuntimeError as e:
             if "already actively running" in str(e).lower():
