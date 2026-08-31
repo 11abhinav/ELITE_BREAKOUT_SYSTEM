@@ -154,7 +154,7 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
         stage_tracker.start_stage(3, "Process Symbols", "Evaluating compression and breakout models per symbol")
         logger.info("[MULTI_TF] Analyzing breakout signals for shortlisted symbols...")
         t_process_start = time.monotonic()
-        opp_manager = OpportunityManager()
+        opp_manager = OpportunityManager(policy=regime_ctx.get("policy", {}) if regime_ctx else {})
 
         target_evaluation_symbols = shortlisted_symbols if shortlisted_symbols else []
         for symbol in target_evaluation_symbols:
@@ -273,7 +273,7 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
         all_15m = fetch_watchlist_data(symbols, period="15d", interval="15m", requester="MULTI_TF_5M", run_ctx=real_run_ctx)
         all_5m  = fetch_watchlist_data(symbols, period="5d",  interval="5m",  requester="MULTI_TF_5M", run_ctx=real_run_ctx)
 
-        opp_manager = OpportunityManager()
+        opp_manager = OpportunityManager(policy=regime_ctx.get("policy", {}) if regime_ctx else {})
         for symbol in symbols:
             try:
                 _process_symbol(

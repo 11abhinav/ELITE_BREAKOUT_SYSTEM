@@ -54,8 +54,8 @@ class OpportunityManager:
         pool.process()             # end of sweep
     """
 
-    def __init__(self, policy: dict, pool: CandidatePool = None):
-        self.policy    = policy
+    def __init__(self, policy: dict = None, pool: CandidatePool = None):
+        self.policy    = policy if policy is not None else {}
         self._pool     = pool if pool is not None else InMemoryCandidatePool()
         self._outcomes: list[dict] = []   # All final outcomes for bulk persistence
 
