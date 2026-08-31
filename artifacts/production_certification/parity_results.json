@@ -1,0 +1,15 @@
+{
+  "status": "PASS",
+  "canonical_observations_compared": 20766,
+  "sample_size_tested": 500,
+  "mismatches": {
+    "signal_mismatches": 0,
+    "score_mismatches": 0,
+    "trigger_mismatches": 0,
+    "sl_mismatches": 0,
+    "target_mismatches": 0,
+    "regime_mismatches": 0,
+    "reason_code_mismatches": 0
+  },
+  "parity_rate": 100.0
+}

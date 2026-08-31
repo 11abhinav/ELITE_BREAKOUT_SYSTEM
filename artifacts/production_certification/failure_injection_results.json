@@ -1,0 +1,7 @@
+{
+  "status": "PASS",
+  "injected_cases_tested": 5,
+  "passed_injections": 5,
+  "stale_data_rejected": true,
+  "invariant": "Bad/Stale Data -> Zero Trades Generated (100% hard rejection)"
+}

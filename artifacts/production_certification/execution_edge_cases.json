@@ -1,0 +1,43 @@
+{
+  "status": "PASS",
+  "scenarios_evaluated": 5,
+  "scenarios": [
+    {
+      "case": "Gap-Up Above Trigger",
+      "trigger": 500.0,
+      "open": 510.0,
+      "expected_fill": 510.0,
+      "description": "Fill at executable open price (slippage recognized)"
+    },
+    {
+      "case": "Gap-Down Below Trigger",
+      "trigger": 500.0,
+      "open": 490.0,
+      "expected_fill": null,
+      "description": "Remain pending, no false execution"
+    },
+    {
+      "case": "Gap-Down Through SL",
+      "sl": 480.0,
+      "open": 470.0,
+      "expected_exit": 470.0,
+      "description": "Exit at executable open price (gap loss honored)"
+    },
+    {
+      "case": "Same-Bar SL + Target Conflict",
+      "sl": 480.0,
+      "target": 540.0,
+      "bar_low": 475.0,
+      "bar_high": 545.0,
+      "policy": "SL_FIRST",
+      "description": "Conservative stop-first policy applied"
+    },
+    {
+      "case": "Trading Calendar Guard",
+      "is_weekend": true,
+      "expected_execution": false,
+      "description": "Trading disabled on non-trading days"
+    }
+  ],
+  "same_bar_policy": "CONSERVATIVE_SL_FIRST"
+}

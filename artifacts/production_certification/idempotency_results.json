@@ -1,0 +1,8 @@
+{
+  "status": "PASS",
+  "box_id_deterministic": true,
+  "box_id_setup_isolation": true,
+  "alerts_unique_constraint_active": false,
+  "process_trade_state_isolated": true,
+  "idempotency_horizon": "EOD=(symbol, scanner, date) | MULTI_TF=(symbol, box_id, date)"
+}

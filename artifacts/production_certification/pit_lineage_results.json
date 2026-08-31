@@ -1,0 +1,7 @@
+{
+  "status": "PASS",
+  "tested_streams": 5,
+  "violations": [],
+  "forming_candle_isolated": true,
+  "inequality_enforced": "event_time <= publication_time <= consumption_time"
+}
