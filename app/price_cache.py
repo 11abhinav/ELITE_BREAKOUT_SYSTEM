@@ -1382,24 +1382,17 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
         pass
         
     try:
-        scanner_requesters = ("multibagger", "EOD", "REVERSAL", "PULLBACK", "WEALTH", "STOCK_ANALYZER", "performance_tracker")
-        if requester not in scanner_requesters and not (requester and (requester.startswith("MULTI_TF") or requester.startswith("SCHEDULER"))):
-            def upload_history_job():
-                try:
-                    from database import upload_history_bundle_to_db
-                    t_name = threading.current_thread().name
-                    logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | InitiatedBy='{requester or 'PriceCache'}' | Action='Uploading history bundle for interval={interval} to DB'")
-                    _t_start = time.perf_counter()
-                    upload_history_bundle_to_db(interval)
-                    dur_s = time.perf_counter() - _t_start
-                    logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Uploaded history bundle for interval={interval} to DB' | Duration={dur_s:.2f}s")
-                except Exception as e:
-                    logger.exception(f"Background history upload failed: {e}")
+        def upload_history_job():
+            try:
+                from database import upload_history_bundle_to_db
+                upload_history_bundle_to_db(interval)
+            except Exception as e:
+                logger.debug(f"Background history upload info: {e}")
 
-            from database import submit_background_upload
-            submit_background_upload(upload_history_job)
+        from database import submit_background_upload
+        submit_background_upload(upload_history_job)
     except Exception as _hb_up_err:
-        logger.error(f"❌ [PRICE_CACHE] History bundle auto-upload submission failed: {_hb_up_err}", exc_info=True)
+        logger.debug(f"History bundle auto-upload submission: {_hb_up_err}")
     
     return all_data
 
