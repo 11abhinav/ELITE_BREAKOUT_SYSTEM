@@ -3489,11 +3489,16 @@ def get_all_scanner_health() -> list[dict]:
         if not _g_lock.locked():
             with get_connection() as conn:
                 with conn.cursor() as cur:
-                    # Find stuck RUNNING scanners (>15 mins)
+                    # Find stuck RUNNING scanners:
+                    # 1. Heartbeat missing/stale for > 10 minutes (detects dead/crashed processes quickly)
+                    # 2. OR hard maximum execution ceiling exceeded (> 2 hours)
                     cur.execute("""
                         SELECT scanner_name FROM scanner_health
                         WHERE status = 'RUNNING'
-                          AND updated_at < NOW() - INTERVAL '15 minutes';
+                          AND (
+                              updated_at < NOW() - INTERVAL '10 minutes'
+                              OR last_run < NOW() - INTERVAL '2 hours'
+                          );
                     """)
                     stuck_rows = cur.fetchall()
                     for r in stuck_rows:
@@ -3501,7 +3506,7 @@ def get_all_scanner_health() -> list[dict]:
                         cur.execute("""
                             UPDATE scanner_health
                             SET status = 'DOWN',
-                                error_msg = 'Scanner execution timed out or process was terminated unexpectedly before completion',
+                                error_msg = 'Scanner execution timed out: heartbeat lost (>10m) or hard runtime ceiling exceeded (>2h)',
                                 is_acknowledged = FALSE,
                                 updated_at = NOW()
                             WHERE scanner_name = %s;
@@ -8601,19 +8606,18 @@ def is_scanner_actively_running(scanner_name: str, exclude_run_id: str = None, c
                     WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                       AND started_at < %s;
                 """, (_PROCESS_BOOT_TIME,))
-                # [VERSION: WATCHDOG_THRESHOLD_v2.0] Increased inactivity threshold from 15 min to 25 min
-                # so multi-pass scanners (Multibagger, Multi-TF) undergoing YFinance rate-limit backoff retries
-                # are NOT prematurely marked TIMEOUT_STALE while active heartbeats continue.
+                # Heartbeat lease model: Stale if no heartbeat in > 10 minutes OR if hard max runtime exceeded (> 2 hours)
                 cur.execute("""
                     UPDATE scanner_execution_history
                     SET completed_at = NOW(),
                         lifecycle_status = 'TIMEOUT_STALE',
-                        error_summary = 'Execution timed out after 25 minutes of inactivity',
-                        error_details = 'Watchdog auto-cleaned stale RUNNING state without recent heartbeat'
+                        error_summary = 'Execution timed out: missing heartbeat (>10m) or hard runtime exceeded (>2h)',
+                        error_details = 'Watchdog auto-cleaned stale RUNNING state with inactive heartbeat'
                     WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                       AND (
-                          heartbeat_at < NOW() - INTERVAL '25 minutes'
-                          OR (started_at < NOW() - INTERVAL '25 minutes' AND (heartbeat_at IS NULL OR heartbeat_at = started_at))
+                          (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '10 minutes')
+                          OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '10 minutes')
+                          OR started_at < NOW() - INTERVAL '2 hours'
                       );
                 """)
                 conn.commit()
@@ -8861,33 +8865,37 @@ def get_scanner_execution_history(
                             FROM scanner_execution_history
                             WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                               AND (
-                                  (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '20 minutes')
-                                  OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '20 minutes')
+                                  (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '10 minutes')
+                                  OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '10 minutes')
+                                  OR started_at < NOW() - INTERVAL '2 hours'
                               );
                         """)
                         orphaned_rows = cur.fetchall()
                         if orphaned_rows:
                             # [BUG FIX] UPDATE runs first; log message fires AFTER commit so it only
-                            # appears when the change actually persisted. Previous code logged
-                            # "Cleaned" before the UPDATE, so failed UPDATEs still produced spam.
+                            # appears when the change actually persisted.
                             cur.execute("""
                                 UPDATE scanner_execution_history
                                 SET completed_at = NOW(),
                                     lifecycle_status = 'TIMEOUT_STALE',
-                                    error_summary = 'Execution timed out due to process crash or stopped heartbeat',
-                                    error_details = 'Watchdog auto-cleaned stale RUNNING state: heartbeat inactive for >25 minutes'
+                                    error_summary = 'Execution timed out: missing heartbeat (>10m) or hard runtime exceeded (>2h)',
+                                    error_details = 'Watchdog auto-cleaned stale RUNNING state: heartbeat inactive for >10 minutes'
                                 WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                                   AND (
-                                      (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '25 minutes')
-                                      OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '25 minutes')
+                                      (heartbeat_at IS NOT NULL AND heartbeat_at < NOW() - INTERVAL '10 minutes')
+                                      OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '10 minutes')
+                                      OR started_at < NOW() - INTERVAL '2 hours'
                                   );
                             """)
                             cur.execute("""
                                 UPDATE scanner_health
                                 SET status = 'DOWN',
-                                    error_msg = 'Watchdog auto-cleaned orphaned RUNNING state (process crash/inactivity)'
+                                    error_msg = 'Watchdog auto-cleaned orphaned RUNNING state (missing heartbeat >10m or hard runtime >2h)'
                                 WHERE status = 'RUNNING'
-                                  AND updated_at < NOW() - INTERVAL '25 minutes';
+                                  AND (
+                                      updated_at < NOW() - INTERVAL '10 minutes'
+                                      OR last_run < NOW() - INTERVAL '2 hours'
+                                  );
                             """)
                             conn.commit()
                             # Log AFTER successful commit — accurate report of what was cleaned
@@ -8898,7 +8906,7 @@ def get_scanner_execution_history(
                                 hb_at = orphan.get("heartbeat_at")
                                 logger.warning(
                                     f"🧹 [WATCHDOG CLEANUP] Cleaned orphaned RUNNING run {r_id[:8]} for scanner '{sc_name}' | "
-                                    f"Reason: No heartbeat received for >20 minutes (started_at: {st_at}, heartbeat_at: {hb_at})"
+                                    f"Reason: No heartbeat received for >2 hours (started_at: {st_at}, heartbeat_at: {hb_at})"
                                 )
                         _ORPHAN_CLEANUP_LAST_RUN_TS = _now_mono
                     except Exception as _e_sweep:

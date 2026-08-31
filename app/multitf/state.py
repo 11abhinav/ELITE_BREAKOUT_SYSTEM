@@ -12,7 +12,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 import psycopg2.extras
 from zoneinfo import ZoneInfo
@@ -221,3 +221,27 @@ def update_state_in_db(record: MtfStateRecord, updates: Dict[str, Any]) -> bool:
     except Exception as exc:
         logger.error("[%s] update_state_in_db failed: %s", record.symbol, exc)
         return False
+
+
+def get_active_armed_candidates() -> List[Dict[str, Any]]:
+    """
+    Returns all active, non-invalidated, non-executed candidates from mtf_v2_watchlist
+    for lightweight 5-minute monitoring.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT *
+                    FROM mtf_v2_watchlist
+                    WHERE mtf_substate IN ('WATCHING', 'READY', 'ATTEMPT')
+                      AND (cooldown_until IS NULL OR cooldown_until <= NOW())
+                      AND invalidated_at IS NULL
+                    ORDER BY updated_at DESC;
+                """)
+                rows = cur.fetchall()
+                return [dict(r) for r in rows] if rows else []
+    except Exception as exc:
+        logger.error("get_active_armed_candidates failed: %s", exc)
+        return []
+

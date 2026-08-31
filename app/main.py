@@ -1328,8 +1328,8 @@ def run_system_scheduler():
             return False
 
     def safe_run_wealth_market_hours():
-        """Run Wealth Engine during market hours (5-min position CMP/Exit update, 15-min full BUY alert scan)."""
-        nonlocal last_wealth_market_run, last_wealth_full_scan_run
+        """Run Wealth Engine Exit Monitor during market hours (5-min position CMP/Trailing Stop Loss update)."""
+        nonlocal last_wealth_market_run
         start_time = time.time()
         try:
             now = datetime.now(IST)
@@ -1337,39 +1337,7 @@ def run_system_scheduler():
             # Only run once per 5 minutes (300 seconds)
             if last_wealth_market_run and (now - last_wealth_market_run).total_seconds() < 300:
                 return False
-            
-            # Check if 1 hour (3600s) has elapsed since last full BUY alert scan
-            should_run_full_scan = False
-            if last_wealth_full_scan_run is None or (now - last_wealth_full_scan_run).total_seconds() >= 3600:
-                should_run_full_scan = True
-
-            if should_run_full_scan:
-                if not is_scanner_stopped("Wealth Engine"):
-                    logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering FULL Wealth Engine Scan (1-hour BUY alert cycle)")
-                    from telemetry_manager import telemetry
-                    upsert_scanner_health("Wealth Engine", status="RUNNING", error_msg="Wealth Engine scan in progress...")
-                    telemetry.log_scheduler_event("WEALTH_ENGINE_15M", "CYCLE_START")
-                    _scan_start_t = time.time()
-                    try:
-                        with MemoryProfiler("WEALTH_ENGINE_15M", force_gc_cleanup=True):
-                            from wealth_engine import run_wealth_scan
-                            run_wealth_scan(trigger_type="SCHEDULED", scheduler_name="CRON")
-                            duration_sec = round(time.time() - _scan_start_t, 1)
-                        now_str = datetime.now(IST).isoformat()
-                        upsert_scanner_health(
-                            "Wealth Engine",
-                            status="OK",
-                            last_success=now_str,
-                            scheduled_for="Every 1h (09:15 AM - 03:30 PM IST)",
-                            duration_seconds=duration_sec
-                        )
-                        logger.info(f"✅ Wealth Engine (market hours) FULL SCAN completed in {format_duration(duration_sec)}")
-                    except Exception as run_err:
-                        logger.exception(f"❌ [CRITICAL SCANNER FAILURE] Wealth Engine scan failed: {run_err}")
-                        raise run_err
-                else:
-                    logger.info("⏭️ Wealth Engine BUY scan is PAUSED by Admin. Skipping 1-hour BUY scan.")
-                last_wealth_full_scan_run = now
+            last_wealth_market_run = now
 
             if not is_scanner_stopped("WEALTH_EXIT"):
                 logger.info(f"🕒 SCHEDULER | [{now.strftime('%H:%M')}] Triggering Wealth Engine Intraday Update (5-min exit loop)")
@@ -1550,7 +1518,8 @@ def run_system_scheduler():
 
     last_mb_exit = None
     last_perf = None
-    last_multi_tf = None          # [VERSION: SCHEDULER_CORRECTNESS_v1.0] Tracks last 15-min candle-aligned Multi-TF execution
+    last_multi_tf = None          # Tracks last 15-min candle-aligned Multi-TF intelligence run
+    last_multi_tf_5m = None       # Tracks last 5-min candle-aligned Multi-TF confirmation monitor
     daily_builder_ran = False
     wealth_initial_ran = False
     multibagger_initial_ran = False
@@ -1562,6 +1531,7 @@ def run_system_scheduler():
     evening_batch_deadline_logged = False
     warmup_ran = False
     last_accumulation_date = now_boot.date() if not is_market_boot else None
+    last_wealth_daily_date = now_boot.date() if not is_market_boot else None
 
     last_earnings_date = None  # kept as unused placeholder to avoid potential NameError in continued loop
     saturday_mb_refresh_ran = False
@@ -1694,47 +1664,42 @@ def run_system_scheduler():
                     # 3. Wealth Engine Market Hours Loop (5-min Exit Monitor runs always; 15-min BUY scan is gated internally)
                     safe_run_wealth_market_hours()
                 
-                # [VERSION: SCHEDULER_CORRECTNESS_v1.0] Multi-TF: 15-min candle-aligned cadence
-                # Runs on completed 15-minute bar boundaries (09:30, 09:45, 10:00 … 15:15).
-                # Stops at 15:30 
-                # [VERSION: SCHEDULER_CORRECTNESS_v2.0] Multi-TF: 5-min candle-aligned cadence for fast 5m triggers
-                # Phase A (full universe scan) runs on 15m boundaries inside multi_tf_scanner; Phase B/C/D runs every 5m.
-                if now.hour < 15 or (now.hour == 15 and now.minute < 30):  # Do not start new cycles after 15:29
-                    # Modified by user request to extend to 3:30 PM
-                    current_slot = now.replace(second=0, microsecond=0)
-                    current_slot = current_slot.replace(minute=(now.minute // 5) * 5)
-                    if last_multi_tf is None or current_slot > last_multi_tf:
-                        last_multi_tf = current_slot
-                        if not is_scanner_stopped("MULTI_TF"):
-                            logger.info(f"🚀 MULTI_TF SCAN | Starting 5m candle-aligned V2 cycle at {now.strftime('%H:%M:%S IST')}...")
-                            _trigger_multi_tf()
-                        else:
-                            logger.info("⏭️ MULTI_TF is STOPPED by Admin. Skipping candle-aligned cycle.")
+                # Multi-TF Dual-Cadence Execution Model:
+                # 1. Primary 15m Scan (Intelligence Layer: 09:30, 09:45, 10:00 … 15:15 IST)
+                #    Guarantees 15m candle is 100% closed with a +20s buffer before screening.
+                # 2. Secondary 5m Monitor (Confirmation Layer: 09:35, 09:40, 09:50, 09:55 … 15:25 IST)
+                #    Monitors stateful ARMED candidates only (<3s).
+                if (now.hour >= 9 and (now.hour < 15 or (now.hour == 15 and now.minute <= 30))):
+                    # Check 15m completed candle boundary (09:30, 09:45, 10:00 … 15:15)
+                    if (now.hour > 9 or now.minute >= 30) and (now.minute % 15 == 0) and now.second >= 20:
+                        slot_15m = now.replace(second=0, microsecond=0)
+                        if last_multi_tf is None or slot_15m > last_multi_tf:
+                            last_multi_tf = slot_15m
+                            if not is_scanner_stopped("MULTI_TF"):
+                                logger.info(f"🚀 MULTI_TF (15M) | Starting closed-candle aligned 15m intelligence cycle at {now.strftime('%H:%M:%S IST')}...")
+                                _trigger_multi_tf()
+                            else:
+                                logger.info("⏭️ MULTI_TF is STOPPED by Admin. Skipping 15m cycle.")
+
+                    # Check intermediate 5m completed candle boundary (09:35, 09:40, 09:50, 09:55 … 15:25)
+                    elif (now.hour > 9 or now.minute >= 35) and (now.minute % 5 == 0) and (now.minute % 15 != 0) and now.second >= 15:
+                        slot_5m = now.replace(second=0, microsecond=0)
+                        if last_multi_tf_5m is None or slot_5m > last_multi_tf_5m:
+                            last_multi_tf_5m = slot_5m
+                            if not is_scanner_stopped("MULTI_TF"):
+                                logger.info(f"⚡ MULTI_TF (5M MONITOR) | Starting lightweight ARMED candidate confirmation check at {now.strftime('%H:%M:%S IST')}...")
+                                _trigger_multi_tf_5m_monitor()
                 
                 check_scanner_staleness(now)
                 
-            # 15:45 - Accumulation Scanner (Post-Close Scan)
-            if (now.hour > 15 or (now.hour == 15 and now.minute >= 45)) and last_accumulation_date != now.date():
-                last_accumulation_date = now.date()
-                if not is_scanner_stopped("ACCUMULATION"):
-                    logger.info("🕒 SCHEDULER | [15:45] Triggering ACCUMULATION scanner (Post-Close Scan)")
-                    import threading
-                    threading.Thread(target=_trigger_accumulation, kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"}, name="AccumulationScanner", daemon=True).start()
-                else:
-                    logger.info("⏭️ ACCUMULATION is STOPPED by Admin. Skipping 15:45 run.")
-                
-            # 18:00 - Evening Scanners (EOD, Reversal, Pullback)
-            if now.hour >= 18 and not evening_scanners_ran:
+            # 15:45 - Evening Daily Scanners (EOD, Reversal, Pullback)
+            if (now.hour > 15 or (now.hour == 15 and now.minute >= 45)) and not evening_scanners_ran:
                 from main import wait_for_bhavcopy_or_fallback, _run_eod_with_retries, _run_reversal_with_retries, _run_pullback_with_retries
                 evening_scanners_ran = True
-
 
                 def _run_evening_batch_async():
                     import concurrent.futures
                     import pandas as pd
-                    # Removed scanner_execution_lock here because scanners (EOD/Reversal/Pullback) 
-                    # use their own _global_lock internally. Wrapping them in an outer lock causes
-                    # a Postgres advisory lock deadlock across connections in the same thread.
                     wait_for_bhavcopy_or_fallback("EVENING_SCANNERS")
                     logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback sequentially.")
                     today_str = datetime.now(IST).strftime("%Y-%m-%d")
@@ -1791,18 +1756,38 @@ def run_system_scheduler():
 
                 import threading
                 threading.Thread(target=_run_evening_batch_async, name="EveningBatch", daemon=True).start()
-            elif now.hour < 18:
+            elif now.hour < 15 or (now.hour == 15 and now.minute < 45):
                 evening_scanners_ran = False
                 evening_batch_deadline_logged = False
 
-                
-            # 19:00 - Multibagger Scanner (Independent top-level branch)
-            if now.hour >= 19 and last_multibagger_date != now.date():
+            # 16:15 - Accumulation Scanner (Post-Close Scan after NSE Delivery Reports published)
+            if (now.hour > 16 or (now.hour == 16 and now.minute >= 15)) and last_accumulation_date != now.date():
+                last_accumulation_date = now.date()
+                if not is_scanner_stopped("ACCUMULATION"):
+                    logger.info("🕒 SCHEDULER | [16:15] Triggering ACCUMULATION scanner (Post-Close Delivery Scan)")
+                    import threading
+                    threading.Thread(target=_trigger_accumulation, kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"}, name="AccumulationScanner", daemon=True).start()
+                else:
+                    logger.info("⏭️ ACCUMULATION is STOPPED by Admin. Skipping 16:15 run.")
+
+            # 17:00 - Wealth Engine Full Daily Scan (Post-Market Valuation & DCF Review)
+            if (now.hour > 17 or (now.hour == 17 and now.minute >= 0)) and last_wealth_daily_date != now.date():
+                last_wealth_daily_date = now.date()
+                if not is_scanner_stopped("Wealth Engine"):
+                    logger.info("🕒 SCHEDULER | [17:00] Triggering WEALTH ENGINE Full Daily Scan")
+                    import threading
+                    threading.Thread(target=_trigger_wealth_engine, kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"}, name="WealthEngineDaily", daemon=True).start()
+                else:
+                    logger.info("⏭️ Wealth Engine is STOPPED by Admin. Skipping 17:00 IST daily scan.")
+
+            # 17:30 - Multibagger Scanner Full Daily Scan
+            if (now.hour > 17 or (now.hour == 17 and now.minute >= 30)) and last_multibagger_date != now.date():
                 last_multibagger_date = now.date()
                 if not is_scanner_stopped("MULTIBAGGER"):
+                    logger.info("🕒 SCHEDULER | [17:30] Triggering MULTIBAGGER scanner (Daily Fundamental Scan)")
                     _run_multibagger_scanner_single()
                 else:
-                    logger.info("⏭️ MULTIBAGGER is STOPPED by Admin. Skipping 19:00 IST run.")
+                    logger.info("⏭️ MULTIBAGGER is STOPPED by Admin. Skipping 17:30 IST run.")
 
             # Earnings Calendar removed — earnings data was unused and added latency.
 
@@ -2204,6 +2189,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         # [VERSION: TRIGGER_AI_WORKER_v1.0] Add AI Worker trigger mapping and lock resolution
         "DAILY_BUILDER": _trigger_daily_builder,
         "MULTI_TF":      _trigger_multi_tf,
+        "MULTI_TF_5M":   _trigger_multi_tf_5m_monitor,
         "EOD":           _trigger_eod,
         "REVERSAL":      _trigger_reversal,
         "PULLBACK":      _trigger_pullback,
@@ -2389,6 +2375,26 @@ def _trigger_multi_tf(trigger_type="SCHEDULED", scheduler_name="CRON"):
         
     ist_now = datetime.now(ZoneInfo("Asia/Kolkata"))
     return run_multitf_v2(regime_ctx=regime_ctx, ist_now=ist_now, run_ctx=trigger_type)
+
+
+def _trigger_multi_tf_5m_monitor(trigger_type="SCHEDULED", scheduler_name="CRON"):
+    from multitf.scanner import run_multitf_5m_monitor
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    try:
+        from macro_utils import MarketRegimeEngine
+        raw_regime = MarketRegimeEngine.get_regime_context()
+        trend = raw_regime.get("trend", "NORMAL") if isinstance(raw_regime, dict) else "NORMAL"
+        regime_ctx = {"status": trend, **(raw_regime if isinstance(raw_regime, dict) else {})}
+    except Exception:
+        try:
+            from config import get_regime_state
+            regime_ctx = get_regime_state()
+        except Exception:
+            regime_ctx = {"status": "NORMAL"}
+        
+    ist_now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    return run_multitf_5m_monitor(regime_ctx=regime_ctx, ist_now=ist_now, run_ctx=trigger_type)
 
 
 def _trigger_eod(trigger_type="MANUAL", scheduler_name="MANUAL"):

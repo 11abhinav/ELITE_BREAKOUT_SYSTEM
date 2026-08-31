@@ -10,7 +10,10 @@
 import logging
 import time
 from datetime import datetime
-from typing import Dict, Any
+from zoneinfo import ZoneInfo
+from typing import Dict, Any, Optional, List
+
+IST = ZoneInfo("Asia/Kolkata")
 
 from config import MULTI_TF_V2_CONFIG
 from database import get_elite_watchlist, save_alert_if_new
@@ -19,7 +22,7 @@ from lock_utils import ProcessLock
 from database import upsert_scanner_health
 from price_cache import fetch_watchlist_data
 
-from multitf.data import load_multitf_data
+from multitf.data import load_multitf_data, strip_closed_candles
 from multitf.context import evaluate_1h_context, evaluate_30m_context, evaluate_market_context
 from multitf.consolidation import detect_15m_consolidation
 from multitf.pressure import evaluate_5m_pressure
@@ -30,6 +33,7 @@ from multitf.state import (
     handle_box_invalidation,
     persist_new_watchlist_candidate,
     update_state_in_db,
+    get_active_armed_candidates,
     MtfSubstate
 )
 from multitf.candidate import build_watchlist_candidate, build_confirmed_payload
@@ -42,14 +46,18 @@ _scan_lock = ProcessLock("multi_tf_scanner")
 
 def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str = "SCHEDULED"):
     """
-    Main entry point for MULTI_TF V2 (New Engine).
+    Main Primary Intelligence Layer for MULTI_TF V2 (15-Minute Cadence).
+    1. Pre-fetches 1d and 15m closed bars across universe.
+    2. Detects 15m consolidation setups.
+    3. Lazy-fetches 1h, 30m, 5m ONLY for shortlisted/armed candidate stocks.
+    4. Evaluates setups, targets, and dispatches breakout alerts.
     """
     if not _scan_lock.acquire(blocking=False):
         logger.warning("[MULTI_TF] Scanner is already running. Skipping cycle.")
         return
 
     logger.info("=" * 70)
-    logger.info("📊 MULTI_TF V2 ENGINE | Starting execution cycle...")
+    logger.info("📊 MULTI_TF V2 ENGINE | Starting 15m execution cycle (Lazy Fetch)...")
     logger.info("=" * 70)
 
     from telemetry_manager import telemetry
@@ -93,16 +101,50 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
 
         stage_tracker.end_stage(f"Loaded {len(watchlist)} symbols")
 
-        # Stage 2: Parallel Fetching
-        stage_tracker.start_stage(2, "Fetch Market Data", "Pre-fetching multi-timeframe candle bars")
-        logger.info("[MULTI_TF] Pre-fetching data (1d, 1h, 30m, 15m, 5m) for %d symbols...", len(watchlist))
+        # Stage 2: Intelligence Layer: Universe Pre-fetch (1d and 15m)
+        stage_tracker.start_stage(2, "Fetch Setup Data (1d, 15m)", "Pre-fetching 1d and 15m closed bars across universe")
+        logger.info("[MULTI_TF] Pre-fetching setup timeframes (1d, 15m) for %d universe symbols...", len(watchlist))
         t_fetch_start = time.monotonic()
 
         all_1d  = fetch_watchlist_data(watchlist, period="1y", interval="1d", requester="MULTI_TF", run_ctx=real_run_ctx)
-        all_1h  = fetch_watchlist_data(watchlist, period="45d", interval="1h", requester="MULTI_TF", run_ctx=real_run_ctx)
-        all_30m = fetch_watchlist_data(watchlist, period="20d", interval="30m", requester="MULTI_TF", run_ctx=real_run_ctx)
         all_15m = fetch_watchlist_data(watchlist, period="15d", interval="15m", requester="MULTI_TF", run_ctx=real_run_ctx)
-        all_5m  = fetch_watchlist_data(watchlist, period="5d",  interval="5m",  requester="MULTI_TF", run_ctx=real_run_ctx)
+
+        # Stage 2.5: Fast 15m Consolidation Screening across universe
+        shortlisted_symbols = []
+        consolidation_map = {}
+        for symbol in watchlist:
+            df_15m_raw = all_15m.get(symbol)
+            if df_15m_raw is None or (hasattr(df_15m_raw, "empty") and df_15m_raw.empty):
+                continue
+            df_15m_closed = strip_closed_candles(df_15m_raw, 15, ist_now)
+            if df_15m_closed is None or df_15m_closed.empty or len(df_15m_closed) < 14:
+                continue
+            atr_15m = float(df_15m_closed["ATR_14"].iloc[-1]) if "ATR_14" in df_15m_closed else 0.0
+            if atr_15m <= 0:
+                continue
+            cons = detect_15m_consolidation(df_15m_closed, atr_15m, ist_now, MULTI_TF_V2_CONFIG)
+            if cons.is_valid:
+                shortlisted_symbols.append(symbol)
+                consolidation_map[symbol] = cons
+
+        # Also include any previously ARMED candidates from DB to ensure active setups continue tracking
+        active_armed = get_active_armed_candidates()
+        for cand in active_armed:
+            sym = cand.get("symbol")
+            if sym and sym not in shortlisted_symbols:
+                shortlisted_symbols.append(sym)
+
+        logger.info(f"🎯 [MULTI_TF] Screened {len(watchlist)} symbols -> Found {len(shortlisted_symbols)} qualified/armed candidates for deep evaluation: {shortlisted_symbols}")
+
+        # Lazy fetch 1h, 30m, 5m ONLY for shortlisted candidates!
+        all_1h = {}
+        all_30m = {}
+        all_5m = {}
+        if shortlisted_symbols:
+            logger.info(f"⚡ [MULTI_TF] Lazy-fetching (1h, 30m, 5m) for {len(shortlisted_symbols)} shortlisted candidates...")
+            all_1h  = fetch_watchlist_data(shortlisted_symbols, period="45d", interval="1h", requester="MULTI_TF", run_ctx=real_run_ctx)
+            all_30m = fetch_watchlist_data(shortlisted_symbols, period="20d", interval="30m", requester="MULTI_TF", run_ctx=real_run_ctx)
+            all_5m  = fetch_watchlist_data(shortlisted_symbols, period="5d",  interval="5m",  requester="MULTI_TF", run_ctx=real_run_ctx)
 
         t_fetch_dur = round(time.monotonic() - t_fetch_start, 2)
         logger.info("⚡ [MULTI_TF] Completed market data pre-fetch in %ss", t_fetch_dur)
@@ -110,11 +152,12 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
 
         # Stage 3: Process Symbols
         stage_tracker.start_stage(3, "Process Symbols", "Evaluating compression and breakout models per symbol")
-        logger.info("[MULTI_TF] Analyzing breakout signals per symbol...")
+        logger.info("[MULTI_TF] Analyzing breakout signals for shortlisted symbols...")
         t_process_start = time.monotonic()
         opp_manager = OpportunityManager()
 
-        for symbol in watchlist:
+        target_evaluation_symbols = shortlisted_symbols if shortlisted_symbols else []
+        for symbol in target_evaluation_symbols:
             if real_run_ctx:
                 try:
                     if hasattr(real_run_ctx, "heartbeat"):
@@ -188,6 +231,99 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             except Exception:
                 pass
         telemetry.log_scheduler_event("MULTI_TF", "CYCLE_FAILED", error=str(exc))
+    finally:
+        _scan_lock.release()
+
+
+def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now: Optional[datetime] = None, run_ctx: Any = None):
+    """
+    Secondary Confirmation Layer: Runs every 5 minutes on closed 5m candles.
+    Only checks currently ARMED candidates from mtf_v2_watchlist.
+    Takes < 3 seconds to confirm 5m pressure/expansion and trigger alerts.
+    """
+    active_candidates = get_active_armed_candidates()
+    if not active_candidates:
+        logger.debug("[MULTI_TF_5M] No active armed candidates to monitor.")
+        return
+
+    if not _scan_lock.acquire(blocking=False):
+        logger.debug("[MULTI_TF_5M] Scanner lock busy. Skipping 5m monitor cycle.")
+        return
+
+    if ist_now is None:
+        ist_now = datetime.now(ZoneInfo("Asia/Kolkata") if "ZoneInfo" in globals() else None)
+    if regime_ctx is None:
+        regime_ctx = {"status": "NORMAL"}
+
+    trigger_type = run_ctx if isinstance(run_ctx, str) else "SCHEDULED"
+    from database import start_scanner_execution_run, complete_scanner_execution_run
+    try:
+        real_run_ctx = start_scanner_execution_run(scanner_name="MULTI_TF_5M", trigger_type=trigger_type, scheduler_name="CRON")
+    except Exception:
+        real_run_ctx = None
+
+    start_time = time.monotonic()
+    try:
+        symbols = list({c["symbol"] for c in active_candidates if c.get("symbol")})
+        logger.info(f"⚡ [MULTI_TF_5M] Monitoring {len(symbols)} ARMED candidates for 5m breakout: {symbols}")
+
+        all_1d  = fetch_watchlist_data(symbols, period="1y", interval="1d", requester="MULTI_TF_5M", run_ctx=real_run_ctx)
+        all_1h  = fetch_watchlist_data(symbols, period="45d", interval="1h", requester="MULTI_TF_5M", run_ctx=real_run_ctx)
+        all_30m = fetch_watchlist_data(symbols, period="20d", interval="30m", requester="MULTI_TF_5M", run_ctx=real_run_ctx)
+        all_15m = fetch_watchlist_data(symbols, period="15d", interval="15m", requester="MULTI_TF_5M", run_ctx=real_run_ctx)
+        all_5m  = fetch_watchlist_data(symbols, period="5d",  interval="5m",  requester="MULTI_TF_5M", run_ctx=real_run_ctx)
+
+        opp_manager = OpportunityManager()
+        for symbol in symbols:
+            try:
+                _process_symbol(
+                    symbol=symbol,
+                    ist_now=ist_now,
+                    regime_ctx=regime_ctx,
+                    opp_manager=opp_manager,
+                    all_1d=all_1d,
+                    all_1h=all_1h,
+                    all_30m=all_30m,
+                    all_15m=all_15m,
+                    all_5m=all_5m,
+                    config=MULTI_TF_V2_CONFIG
+                )
+            except Exception as e:
+                logger.error(f"[MULTI_TF_5M] Error evaluating {symbol}: {e}")
+
+        opp_manager.process()
+        duration = round(time.monotonic() - start_time, 2)
+        upsert_scanner_health(
+            scanner_name="MULTI_TF_5M",
+            status="OK",
+            outcome="SUCCESS",
+            processed_count=len(symbols),
+            total_count=len(symbols),
+            duration_seconds=duration
+        )
+        if real_run_ctx:
+            try:
+                real_run_ctx.set_total_stocks(len(symbols))
+                real_run_ctx.record_fresh_data(len(symbols))
+                complete_scanner_execution_run(real_run_ctx, status_override="COMPLETED")
+            except Exception:
+                pass
+        logger.info(f"✅ [MULTI_TF_5M] 5m monitor cycle complete in {duration}s for {len(symbols)} candidates.")
+    except Exception as exc:
+        duration = round(time.monotonic() - start_time, 2)
+        logger.error(f"[MULTI_TF_5M] Error during 5m monitor: {exc}")
+        upsert_scanner_health(
+            scanner_name="MULTI_TF_5M",
+            status="DOWN",
+            outcome="FAILED",
+            error_msg=str(exc),
+            duration_seconds=duration
+        )
+        if real_run_ctx:
+            try:
+                complete_scanner_execution_run(real_run_ctx, exception=exc)
+            except Exception:
+                pass
     finally:
         _scan_lock.release()
 
