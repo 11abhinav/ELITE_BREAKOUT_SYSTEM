@@ -1102,6 +1102,26 @@ def api_get_near_misses():
                     """)
                     rows = [dict(r) for r in cur.fetchall()]
 
+        # [AUDIT-FIX]: Enrich near_misses rows with live price_cache so CMP, Stop Loss, and Target 1 never show ₹-
+        for r in rows:
+            sym = r.get("symbol")
+            ep = r.get("entry_price")
+            if ep is None or float(ep or 0) <= 0:
+                try:
+                    from price_cache import get_cached_price
+                    cp = get_cached_price(sym)
+                    if cp and float(cp) > 0:
+                        ep = float(cp)
+                        r["entry_price"] = round(ep, 2)
+                except Exception:
+                    pass
+            if ep and float(ep) > 0:
+                if r.get("stop_loss") is None or float(r.get("stop_loss") or 0) <= 0:
+                    r["stop_loss"] = round(float(ep) * 0.95, 2)
+                if r.get("target_1") is None or float(r.get("target_1") or 0) <= 0:
+                    sl = float(r.get("stop_loss") or (float(ep) * 0.95))
+                    r["target_1"] = round(float(ep) + 2.0 * (float(ep) - sl), 2)
+
         try:
             rows = decorate_events(rows)
         except Exception as _ce_err:
@@ -3747,17 +3767,34 @@ def api_indices():
     # Background fetcher thread
     def _fetch_indices_bg():
         bg_data = {}
+        canonical_map = {
+            "NIFTY 50": "NIFTY 50",
+            "NIFTY 50.NS": "NIFTY 50",
+            "NIFTY50": "NIFTY 50",
+            "BANKNIFTY": "BANKNIFTY",
+            "BANKNIFTY.NS": "BANKNIFTY",
+            "NIFTY BANK": "BANKNIFTY",
+            "SENSEX": "SENSEX",
+            "SENSEX.NS": "SENSEX",
+            "SENSEX.BO": "SENSEX",
+            "BSE SENSEX": "SENSEX"
+        }
         try:
             from data_providers.unified_fetcher import fetcher
             results = fetcher.fetch_live_quotes(symbols_to_fetch, consumer="dashboard_indices")
             for sym, quote in results.items():
+                canon_name = canonical_map.get(sym.upper().strip(), sym.replace(".NS", "").replace(".BO", "").strip())
+                if canon_name not in ("NIFTY 50", "BANKNIFTY", "SENSEX"):
+                    continue
+                if canon_name in bg_data and bg_data[canon_name].get("price"):
+                    continue
                 if "v" in quote and "cmd" in quote["v"]:
                     lp = quote["v"]["cmd"]["c"]
                     prev_close = quote["v"]["cmd"].get("pc", lp)
                     pct_change = 0.0
                     if lp and prev_close:
                         pct_change = round(((lp - prev_close) / prev_close) * 100, 2)
-                    bg_data[sym] = {"price": lp, "pct_change": pct_change}
+                    bg_data[canon_name] = {"price": lp, "pct_change": pct_change}
         except Exception as e:
             logger.error(f"Error fetching indices via UnifiedFetcher (bg): {e}")
 
