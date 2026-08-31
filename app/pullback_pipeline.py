@@ -704,28 +704,17 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                             except Exception as e:
                                 return (None, "stale_data", "SUCCESS", None, sym)
                         else:
-                            _expected_max_age_days = 4
-                            _benchmark_date = ist_now.date()
-                            if _stale_col:
-                                try:
-                                    _last_ts = pd.to_datetime(df.iloc[-1][_stale_col])
-                                    if _last_ts.tzinfo is None: _last_ts = _last_ts.tz_localize("Asia/Kolkata")
-                                    else: _last_ts = _last_ts.tz_convert("Asia/Kolkata")
-                                    _bar_age_days = (_benchmark_date - _last_ts.date()).days
-                                    if _bar_age_days < 0 or _bar_age_days > _expected_max_age_days:
-                                        return (None, "stale_data", "SUCCESS", None, sym)
-                                except Exception as e:
+                            _target_val = df.index[-1] if isinstance(df.index, pd.DatetimeIndex) else (df.iloc[-1][_stale_col] if _stale_col else None)
+                            if _target_val is None:
+                                return (None, "stale_data", "SUCCESS", None, sym)
+                            try:
+                                from market_utils import evaluate_data_staleness
+                                _last_ts = pd.to_datetime(_target_val)
+                                _staleness = evaluate_data_staleness(_last_ts, ist_now)
+                                if _staleness["is_stale"]:
                                     return (None, "stale_data", "SUCCESS", None, sym)
-                            elif isinstance(df.index, pd.DatetimeIndex) and len(df) > 0:
-                                try:
-                                    _last_ts = pd.Timestamp(df.index[-1])
-                                    if _last_ts.tzinfo is not None: _last_ts = _last_ts.tz_convert("Asia/Kolkata")
-                                    else: _last_ts = _last_ts.tz_localize("Asia/Kolkata")
-                                    _bar_age_days = (_benchmark_date - _last_ts.date()).days
-                                    if _bar_age_days < 0 or _bar_age_days > _expected_max_age_days:
-                                        return (None, "stale_data", "SUCCESS", None, sym)
-                                except Exception as e:
-                                    return (None, "stale_data", "SUCCESS", None, sym)
+                            except Exception as e:
+                                return (None, "stale_data", "SUCCESS", None, sym)
 
                         if df.empty or len(df) < 15:
                             return (None, "insufficient_bars", "SUCCESS", None, sym)
