@@ -268,7 +268,7 @@ class MasterOrchestratorV2:
             SELECT symbol, scanner, breakout_type, entry_price, current_price as cmp, stop_loss, target_1, target_2, score as quality_grade, signals
             FROM alerts
             WHERE is_rejected = FALSE
-            ORDER BY alert_time DESC LIMIT 50
+            ORDER BY alert_time DESC LIMIT 100
         """
         signals = self._run_query(query)
 
@@ -329,7 +329,7 @@ class MasterOrchestratorV2:
                   AND created_at < ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date + 1) AT TIME ZONE 'Asia/Kolkata'
                 ORDER BY symbol, created_at DESC, id DESC
             ) sub
-            ORDER BY updated_at DESC LIMIT 50
+            ORDER BY updated_at DESC LIMIT 100
         """
         watchlist = self._run_query(query_v2)
         source = "scanner_candidates"
@@ -339,13 +339,13 @@ class MasterOrchestratorV2:
                 SELECT symbol, scanner, breakout_type as stage, technical_score as maturity_score, NULL as cmp, technical_score as quality_grade
                 FROM candidates
                 WHERE status != 'REJECTED'
-                ORDER BY created_at DESC LIMIT 50
+                ORDER BY created_at DESC LIMIT 100
             """
             watchlist = self._run_query(query_fallback)
             source = "legacy_fallback"
 
         if not watchlist:
-            watchlist = self._run_query("SELECT symbol, category as stage, current_state as status FROM breakout_watchlist LIMIT 50")
+            watchlist = self._run_query("SELECT symbol, category as stage, current_state as status FROM breakout_watchlist LIMIT 100")
             source = "legacy_fallback"
 
         for item in watchlist:
@@ -427,7 +427,7 @@ class MasterOrchestratorV2:
         inv_list = self._run_query(query)
 
         if not inv_list:
-            inv_list = self._run_query("SELECT symbol, category as investment_state FROM breakout_watchlist LIMIT 50")
+            inv_list = self._run_query("SELECT symbol, category as investment_state FROM breakout_watchlist LIMIT 100")
 
         if not inv_list:
             from config import DATA_DIR
@@ -436,7 +436,7 @@ class MasterOrchestratorV2:
                 try:
                     df = pd.read_parquet(mb_path)
                     if not df.empty:
-                        inv_list = df.head(50).to_dict(orient="records")
+                        inv_list = df.head(100).to_dict(orient="records")
                 except Exception:
                     pass
 
@@ -659,7 +659,7 @@ class MasterOrchestratorV2:
         query = """
             SELECT symbol, breakout_type as action, position_pct as target_position_pct, position_pct as current_position_pct, portfolio_bucket as sector, valuation_score as valuation_status, current_price as cmp, notes, entry_signal
             FROM wealth_buy_alert
-            ORDER BY alert_time DESC LIMIT 50
+            ORDER BY alert_time DESC LIMIT 100
         """
         actions = self._run_query(query)
         is_fallback = False
@@ -669,7 +669,7 @@ class MasterOrchestratorV2:
                 SELECT symbol, 'WATCHLIST_BASELINE' as action, 5.0 as target_position_pct, 0.0 as current_position_pct, 'ELITE_COMPOUNDER' as sector, quality_tier as valuation_status, price as cmp, business_quality as notes, 'Passed Quality Checklist (Tier ' || quality_tier || ')' as entry_signal
                 FROM daily_watchlist_v2
                 WHERE universe_status = 'ELITE'
-                ORDER BY universe_quality_score DESC LIMIT 20
+                ORDER BY universe_quality_score DESC LIMIT 40
             """
             actions = self._run_query(query_fb)
 
@@ -709,17 +709,24 @@ class MasterOrchestratorV2:
                     })
                 return res
         except Exception as e:
-            logger.warning(f"Failed to fetch scanner health: {e}")
+            logger.warning(f"Failed to fetch scanner health from DB: {e}")
+
+        # [AUDIT-FIX]: Use live evaluated count from DB instead of hardcoded 1174
+        try:
+            live_count_row = self._run_query("SELECT COUNT(DISTINCT symbol) as cnt FROM scanner_candidates")
+            live_symbols = (live_count_row[0].get("cnt") or 0) if live_count_row else 0
+        except Exception:
+            live_symbols = 0
 
         engines = ["EOD_V2", "MULTI_TF_V2", "REVERSAL_V2", "PULLBACK_V2", "ACCUMULATION_V2", "MULTIBAGGER_V2"]
         return [
             {
                 "scanner": eng,
                 "status": "DOWN",
-                "error_msg": "Database query failed",
-                "last_run": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "error_msg": "Database query failed — scanner health unavailable",
+                "last_run": datetime.now().strftime("%Y-%m-%d %H:%M IST"),
                 "duration_sec": 0.0,
-                "symbols_evaluated": 1174,
+                "symbols_evaluated": live_symbols,
                 "watch_count": 0,
                 "confirmed_count": 0
             } for eng in engines
@@ -740,7 +747,7 @@ class MasterOrchestratorV2:
         is_fallback = False
         if not rows:
             is_fallback = True
-            query_fb = "SELECT symbol, scanner_name as scanner, state, quality_score, last_seen_price as cmp FROM scanner_candidates WHERE state IN ('CANDIDATE', 'ARMED', 'DEVELOPING') AND COALESCE(quality_score, 75) >= 70.0 LIMIT 50"
+            query_fb = "SELECT symbol, scanner_name as scanner, state, quality_score, last_seen_price as cmp FROM scanner_candidates WHERE state IN ('CANDIDATE', 'ARMED', 'DEVELOPING') AND COALESCE(quality_score, 75) >= 70.0 LIMIT 100"
             rows = self._run_query(query_fb)
 
         symbol_map = {}
@@ -786,7 +793,7 @@ class MasterOrchestratorV2:
     def get_confluence_breakdown(self, symbol: str) -> Dict[str, Any]:
         """Returns 🌐 Confluence Breakdown for a specific symbol."""
         outcomes = {}
-        rows = self._run_query("SELECT scanner, state, score FROM scanner_candidates WHERE symbol = ?", params=(symbol,))
+        rows = self._run_query("SELECT scanner, state, score FROM scanner_candidates WHERE symbol = %s", params=(symbol,))
         for row in rows:
             outcomes[row["scanner"]] = {"state": row["state"], "score": row.get("score", 80.0)}
 

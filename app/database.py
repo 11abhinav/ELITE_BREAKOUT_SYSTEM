@@ -984,6 +984,14 @@ def init_db():
                     )
                 """)
 
+                # [AUDIT-FIX H1]: accumulation_alerts was missing dedicated indexes — full-table scan
+                # on every Stocks-to-Watch API call caused 2–5s slowness. Three indexes cover all
+                # query patterns: (state, created_at) for daily state-filter, (symbol) for per-symbol
+                # lookups, and (created_at DESC) for the DISTINCT ON date-range subquery.
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_accum_alerts_state_date ON accumulation_alerts (state, created_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_accum_alerts_symbol ON accumulation_alerts (symbol)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_accum_alerts_created_at ON accumulation_alerts (created_at DESC)")
+
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS accumulation_candidates (
                         id BIGSERIAL PRIMARY KEY,

@@ -5175,12 +5175,12 @@ function getEarningsBadgeHtml(item) {
       if (typeof playDing === 'function') playDing();
       try { if (typeof alertAudio !== 'undefined') alertAudio.play().catch(e => console.log(e)); } catch (e) { }
 
-      // Flash Title
+      // Flash Title — [AUDIT-FIX M1]: reduced from 1000ms to 2500ms (was 86,400 DOM ops/day per tab)
       let toggle = false;
       adminAlertInterval = setInterval(() => {
         document.title = toggle ? '⚠️ SYSTEM UPDATE!' : 'Elite Breakout System Admin';
         toggle = !toggle;
-      }, 1000);
+      }, 2500);
     }
 
     function dismissAlert() {
