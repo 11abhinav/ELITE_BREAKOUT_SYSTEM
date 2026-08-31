@@ -818,3 +818,20 @@ SCANNER_MULTI_TF = "MULTI_TF"
 # Scanner Telemetry
 SCANNER_DECISION_LOGGING = True
 
+# [RULE 67 CHANGE-RATIONALE]:
+# Exposes get_regime_state() helper in config.py for backward compatibility.
+# Delegates to MarketRegimeEngine.get_regime_context() / regime_engine with defensive fallback,
+# resolving any 'cannot import name get_regime_state from config' errors cleanly.
+def get_regime_state() -> dict:
+    try:
+        from macro_utils import MarketRegimeEngine
+        raw_regime = MarketRegimeEngine.get_regime_context()
+        trend = raw_regime.get("trend", "NORMAL") if isinstance(raw_regime, dict) else "NORMAL"
+        return {"status": trend, **(raw_regime if isinstance(raw_regime, dict) else {})}
+    except Exception:
+        try:
+            from regime_engine import get_market_regime
+            raw_regime = get_market_regime()
+            return {"status": raw_regime.get("market_regime", "NORMAL"), **(raw_regime if isinstance(raw_regime, dict) else {})}
+        except Exception:
+            return {"status": "NORMAL"}

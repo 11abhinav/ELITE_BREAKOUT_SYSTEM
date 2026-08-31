@@ -2373,16 +2373,24 @@ def _trigger_daily_builder(force_rebuild: bool = False, trigger_type="MANUAL", s
 
 def _trigger_multi_tf(trigger_type="SCHEDULED", scheduler_name="CRON"):
     from multitf.scanner import run_multitf_v2
-    from config import get_regime_state
     from datetime import datetime
     from zoneinfo import ZoneInfo
     
-    # Safe fallback if get_regime_state is not explicitly imported or available
+    # [RULE 67 CHANGE-RATIONALE]:
+    # Fixed ImportError: 'cannot import name get_regime_state from config'.
+    # Market regime in the unified system is provided by MarketRegimeEngine / regime_engine / config.get_regime_state.
+    # We safely fetch the current regime context with a robust fallback to {"status": "NORMAL"}.
     try:
-        from config import get_regime_state
-        regime_ctx = get_regime_state()
-    except ImportError:
-        regime_ctx = {"status": "NORMAL"}
+        from macro_utils import MarketRegimeEngine
+        raw_regime = MarketRegimeEngine.get_regime_context()
+        trend = raw_regime.get("trend", "NORMAL") if isinstance(raw_regime, dict) else "NORMAL"
+        regime_ctx = {"status": trend, **(raw_regime if isinstance(raw_regime, dict) else {})}
+    except Exception:
+        try:
+            from config import get_regime_state
+            regime_ctx = get_regime_state()
+        except Exception:
+            regime_ctx = {"status": "NORMAL"}
         
     ist_now = datetime.now(ZoneInfo("Asia/Kolkata"))
     return run_multitf_v2(regime_ctx=regime_ctx, ist_now=ist_now, run_ctx=trigger_type)

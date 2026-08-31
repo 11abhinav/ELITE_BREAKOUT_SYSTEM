@@ -538,9 +538,11 @@ def api_viewers():
         user_id = session.get("user_id")
         if user_id:
             ip = request.headers.get("X-Forwarded-For", request.remote_addr).split(",")[0].strip()
+            # [RULE 67 CHANGE-RATIONALE]:
+            # Pings user session in DB while still leveraging 3s cache for the heavy online list & message count lookup.
             ping_user_session(user_id, ip)
-            _viewers_cache["payload"] = None
-    elif _viewers_cache["payload"] is not None and (now_ts - _viewers_cache["timestamp"]) < 3.0:
+
+    if _viewers_cache["payload"] is not None and (now_ts - _viewers_cache["timestamp"]) < 3.0:
         return Response(_viewers_cache["payload"], mimetype="application/json")
 
     if (now_ts - _last_session_cleanup_ts) > 60.0:
@@ -930,6 +932,8 @@ def api_admin_users_update_status():
         return jsonify({"error": str(e)}), 500
 
 
+_NEAR_MISSES_CACHE = {}  # keyed by (days, sc_key) -> {"ts": float, "payload": str}
+
 @app.route("/api/near_misses", methods=["GET"])
 @app.route("/api/admin/near_misses", methods=["GET"])
 @login_required
@@ -941,6 +945,25 @@ def api_get_near_misses():
       - scanner: Filter by scanner (e.g. EOD, PULLBACK, REVERSAL)
     """
     days = request.args.get("days", 7, type=int)
+    scanners_raw = request.args.getlist("scanner")
+    if not scanners_raw:
+        scanner_param = request.args.get("scanner", None)
+        sc_list = [s.strip() for s in scanner_param.split(",") if s.strip()] if scanner_param else []
+    elif len(scanners_raw) == 1:
+        sc_list = [s.strip() for s in scanners_raw[0].split(",") if s.strip()]
+    else:
+        sc_list = [s.strip() for s in scanners_raw if s.strip()]
+    sc_list = [s for s in sc_list if s.upper() != "ALL"]
+
+    # [RULE 67 CHANGE-RATIONALE]:
+    # Cache near-misses query results for 5 seconds to absorb rapid tab switching and UI polling
+    # without repeatedly running join queries across near_misses and stock_analysis_master.
+    cache_key = (days, ",".join(sorted(sc_list)))
+    now_ts = time.time()
+    cached = _NEAR_MISSES_CACHE.get(cache_key)
+    if cached and (now_ts - cached["ts"]) < 5.0:
+        return Response(cached["payload"], mimetype="application/json")
+
     try:
         from database import get_connection
         from psycopg2.extras import RealDictCursor
@@ -949,16 +972,6 @@ def api_get_near_misses():
         
         IST = timezone(timedelta(hours=5, minutes=30))
         cutoff_date = (datetime.now(IST) - timedelta(days=days)).date()
-
-        scanners_raw = request.args.getlist("scanner")
-        if not scanners_raw:
-            scanner_param = request.args.get("scanner", None)
-            sc_list = [s.strip() for s in scanner_param.split(",") if s.strip()] if scanner_param else []
-        elif len(scanners_raw) == 1:
-            sc_list = [s.strip() for s in scanners_raw[0].split(",") if s.strip()]
-        else:
-            sc_list = [s.strip() for s in scanners_raw if s.strip()]
-        sc_list = [s for s in sc_list if s.upper() != "ALL"]
 
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -1024,11 +1037,12 @@ def api_get_near_misses():
 
         try:
             rows = decorate_events(rows)
-            # Cache disabled: removed cache check
         except Exception as _ce_err:
             pass
 
-        return jsonify(serialize_datetimes(rows))
+        payload = json.dumps(serialize_datetimes(rows))
+        _NEAR_MISSES_CACHE[cache_key] = {"ts": now_ts, "payload": payload}
+        return Response(payload, mimetype="application/json")
     except Exception as e:
         logger.error(f"Error fetching near_misses from DB: {e}")
         return jsonify([])
@@ -1763,13 +1777,20 @@ def api_admin_db_tables_summary():
     try:
         from database import get_all_database_tables_summary
         summary = get_all_database_tables_summary()
-        return jsonify({
+        res_dict = {
             "status": "ok",
             "total_tables": len(summary),
             "total_rows": sum(t["row_count"] for t in summary),
             "tables": summary,
             "timestamp": datetime.now(IST).isoformat()
-        })
+        }
+        # [RULE 67 CHANGE-RATIONALE]:
+        # Persists the serialized summary JSON in _TABLES_SUMMARY_CACHE. Previously, the cache was checked
+        # at the top but never saved on fetch, causing expensive catalog queries on every single request.
+        payload = json.dumps(res_dict)
+        _TABLES_SUMMARY_CACHE["ts"] = now_ts
+        _TABLES_SUMMARY_CACHE["payload"] = payload
+        return Response(payload, mimetype="application/json")
     except Exception as e:
         logger.debug(f"Failed to fetch database tables summary: {e}")
         return jsonify({"status": "ok", "total_tables": 0, "total_rows": 0, "tables": []})
@@ -3372,15 +3393,16 @@ _cached_worker_symbols = set()
 _cached_worker_symbols_time = 0
 
 _wealth_trades_cache = {"timestamp": 0, "trades": []}
+_WORKER_STATS_CACHE = {"ts": 0.0, "processed_count": 0, "total_count": 0}
 
 @app.route("/api/scanner_status")
 @app.route("/api/scanner_health")
 @login_required
 def api_scanner_status():
     """
-    Return per-scanner health stats and today's trades (3s TTL cache to protect DB connection pool).
+    Return per-scanner health stats and today's trades (10s TTL cache to protect DB connection pool).
     """
-    global _SCANNER_STATUS_CACHE
+    global _SCANNER_STATUS_CACHE, _WORKER_STATS_CACHE
     now_ts = time.time()
     if _SCANNER_STATUS_CACHE["payload"] is not None and (now_ts - _SCANNER_STATUS_CACHE["ts"]) < 10.0:
         return Response(_SCANNER_STATUS_CACHE["payload"], mimetype="application/json")
@@ -3432,37 +3454,49 @@ def api_scanner_status():
             total_count = None
             
             if sc in ["Pledge Worker", "AI Worker"]:
-                try:
-                    from database import get_ai_concall_stats, get_connection
-                    symbols_set = set()
-                    with get_connection() as conn:
-                        with conn.cursor() as cur:
-                            try:
-                                cur.execute('SELECT DISTINCT "Stock" FROM daily_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
-                                symbols_set.update(r[0] for r in cur.fetchall())
-                            except Exception:
-                                pass
-                            try:
-                                cur.execute('SELECT DISTINCT "Stock" FROM daily_excluded_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
-                                symbols_set.update(r[0] for r in cur.fetchall())
-                            except Exception:
-                                pass
+                # [RULE 67 CHANGE-RATIONALE]:
+                # Memoize worker universe size and cached count for 30 seconds to prevent scanning
+                # daily_watchlist and daily_excluded_watchlist on every 5s dashboard poll.
+                if (now_ts - _WORKER_STATS_CACHE["ts"]) < 30.0 and _WORKER_STATS_CACHE["total_count"] > 0:
+                    processed_count = _WORKER_STATS_CACHE["processed_count"]
+                    total_count = _WORKER_STATS_CACHE["total_count"]
+                else:
                     try:
-                        from constituent_service import ConstituentService
-                        if ConstituentService._cached_symbols:
-                            symbols_set.update(ConstituentService._cached_symbols)
-                        else:
-                            import threading
-                            threading.Thread(target=ConstituentService.fetch_constituents, daemon=True).start()
+                        from database import get_ai_concall_stats, get_connection
+                        symbols_set = set()
+                        with get_connection() as conn:
+                            with conn.cursor() as cur:
+                                try:
+                                    cur.execute('SELECT DISTINCT "Stock" FROM daily_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
+                                    symbols_set.update(r[0] for r in cur.fetchall())
+                                except Exception:
+                                    pass
+                                try:
+                                    cur.execute('SELECT DISTINCT "Stock" FROM daily_excluded_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'')
+                                    symbols_set.update(r[0] for r in cur.fetchall())
+                                except Exception:
+                                    pass
+                        try:
+                            from constituent_service import ConstituentService
+                            if ConstituentService._cached_symbols:
+                                symbols_set.update(ConstituentService._cached_symbols)
+                            else:
+                                import threading
+                                threading.Thread(target=ConstituentService.fetch_constituents, daemon=True).start()
+                        except Exception:
+                            pass
+                        
+                        symbols = list(symbols_set)
+                        stats = get_ai_concall_stats(symbols)
+                        processed_count = stats.get("total_cached", 0)
+                        total_count = len(symbols) or processed_count
+                        _WORKER_STATS_CACHE["ts"] = now_ts
+                        _WORKER_STATS_CACHE["processed_count"] = processed_count
+                        _WORKER_STATS_CACHE["total_count"] = total_count
                     except Exception:
-                        pass
-                    
-                    symbols = list(symbols_set)
-                    stats = get_ai_concall_stats(symbols)
-                    processed_count = stats.get("total_cached", 0)
-                    total_count = len(symbols)
-                except Exception:
-                    logger.exception("Failed to query fallback AI worker stats")
+                        logger.exception("Failed to query fallback AI worker stats")
+                        processed_count = _WORKER_STATS_CACHE.get("processed_count", 0)
+                        total_count = _WORKER_STATS_CACHE.get("total_count", 0)
 
             result[sc] = {
                     "status":        row["status"],
@@ -3780,26 +3814,38 @@ def api_all_tickers():
         return Response(_ALL_TICKERS_JSON_BYTES, mimetype="application/json")
 
     try:
-        import csv, os
-        tickers = set()
-        for f in ['data/elite_fundamental_watchlist.csv', 'data/elite_fundamental_watchlist_excluded.csv']:
-            if os.path.exists(f):
-                try:
-                    with open(f, 'r', encoding='utf-8') as file:
-                        reader = csv.DictReader(file)
-                        for row in reader:
-                            stk = row.get('Stock')
-                            if stk:
-                                tickers.add(stk.strip())
-                except Exception as e:
-                    logger.warning(f"Error reading {f} for tickers cache: {e}")
-        result = sorted(list(tickers)) if tickers else []
+        # [RULE 67 CHANGE-RATIONALE]:
+        # Fast in-memory symbol lookup from master dictionary or ConstituentService before falling back to disk/DB.
+        from stock_analyzer import _load_master_symbol_dictionary
+        m = _load_master_symbol_dictionary()
+        if m:
+            result = sorted(list(m.keys()))
+        else:
+            from constituent_service import ConstituentService
+            result = sorted(list(ConstituentService._cached_symbols)) if ConstituentService._cached_symbols else []
+        
+        if not result:
+            import csv, os
+            tickers = set()
+            for f in ['data/elite_fundamental_watchlist.csv', 'data/elite_fundamental_watchlist_excluded.csv']:
+                if os.path.exists(f):
+                    try:
+                        with open(f, 'r', encoding='utf-8') as file:
+                            reader = csv.DictReader(file)
+                            for row in reader:
+                                stk = row.get('Stock')
+                                if stk:
+                                    tickers.add(stk.strip())
+                    except Exception as e:
+                        logger.warning(f"Error reading {f} for tickers cache: {e}")
+            result = sorted(list(tickers)) if tickers else []
+
         _ALL_TICKERS_CACHE = result
         _ALL_TICKERS_JSON_BYTES = json.dumps(result).encode('utf-8')
         _ALL_TICKERS_TS = now_sec
         return Response(_ALL_TICKERS_JSON_BYTES, mimetype="application/json")
     except Exception as e:
-        logger.exception(f"Failed to fetch tickers")
+        logger.exception(f"Failed to fetch tickers: {e}")
         return jsonify([])
 
 def fetch_and_analyze_concall(symbol):
@@ -4471,30 +4517,17 @@ def api_breakout_watchlist():
                         d["last_updated"] = _BREAKOUT_CMP_CACHE[sym]["ts"]
                     else:
                         try:
+                            # [RULE 67 CHANGE-RATIONALE]:
+                            # Look up CMP from in-memory price_cache first, then stock_analysis_master.
+                            # Eliminates synchronous disk scans of 6 parquet timeframe files per symbol on the main request thread.
                             from price_cache import get_cached_price
                             fast_p = get_cached_price(sym)
                             if fast_p is not None and float(fast_p or 0) > 0:
                                 d["cmp"] = float(fast_p)
                                 d["last_updated"] = datetime.now(ist).isoformat()
-                            else:
-                                sym_clean = sym.replace(':', '_')
-                                latest_mtime = 0
-                                best_file = None
-                                for interval in ["1m", "5m", "15m", "30m", "1h", "1d"]:
-                                    file_path = os.path.join(DATA_DIR, "history", interval, f"{sym_clean}.parquet")
-                                    if os.path.exists(file_path):
-                                        mtime = os.path.getmtime(file_path)
-                                        if mtime > latest_mtime:
-                                            latest_mtime = mtime
-                                            best_file = file_path
-                                if best_file:
-                                    df = pd.read_parquet(best_file)
-                                    if not df.empty and "Close" in df.columns:
-                                        df_valid = df.dropna(subset=["Close"])
-                                        if not df_valid.empty:
-                                            dt_utc = datetime.utcfromtimestamp(latest_mtime).replace(tzinfo=ZoneInfo('UTC'))
-                                            d["cmp"] = float(df_valid["Close"].iloc[-1])
-                                            d["last_updated"] = dt_utc.astimezone(ist).isoformat()
+                            elif d.get("breakout_level"):
+                                d["cmp"] = float(d["breakout_level"])
+                                d["last_updated"] = datetime.now(ist).isoformat()
                         except Exception:
                             pass
             except Exception as e:
