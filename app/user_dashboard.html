@@ -1705,15 +1705,11 @@ document.addEventListener('click', e => {
   }
 });
 
-document.getElementById('searchTrades').addEventListener('input', () => { tradeCurrentPage = 1; renderTradeTable(); });
-document.getElementById('filterStatus').addEventListener('change', () => { tradeCurrentPage = 1; renderTradeTable(); });
-document.getElementById('filterScanner').addEventListener('change', () => { tradeCurrentPage = 1; renderTradeTable(); });
-document.getElementById('filterDate').addEventListener('change', () => { tradeCurrentPage = 1; renderTradeTable(); });
-
-['filterScanner','filterStatus','filterCategory','filterSymbol','filterDate'].forEach(id => {
-  if (document.getElementById(id)) {
-    document.getElementById(id).addEventListener('input', renderTradeTable);
-    document.getElementById(id).addEventListener('change', renderTradeTable);
+['searchTrades', 'filterScanner', 'filterStatus', 'filterCategory', 'filterSymbol', 'filterDate'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) {
+    el.addEventListener('input', () => { tradeCurrentPage = 1; renderTradeTable(); });
+    el.addEventListener('change', () => { tradeCurrentPage = 1; renderTradeTable(); });
   }
 });
 
