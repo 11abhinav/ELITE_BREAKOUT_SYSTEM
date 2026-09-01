@@ -1473,23 +1473,14 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
             # Architecture: Hard drawdown detected -> Corporate-action check -> Confirmed split -> SPLIT_ADJUSTED -> NO SELL
             _split_detected = False
             try:
-                import yfinance as yf
-                from datetime import date as _date_type
+                # [RULE 67 CHANGE-RATIONALE]:
+                # Use local RAM pre-loaded split map (get_bulk_split_factor) instead of making slow yfinance network HTTP requests.
+                # Previously, calling yf.Ticker(sym).splits for 50+ positions created 70+ seconds of synchronous network blocking,
+                # holding global_scanner_lock for 110s and delaying MULTI_TF scans.
+                from corporate_actions import get_bulk_split_factor
                 entry_date_obj = _coerce_to_date(r.get("entry_date"))
-                yf_sym = f"{sym}.NS"
-                yf_ticker = yf.Ticker(yf_sym)
-                splits = yf_ticker.splits  # pd.Series: date → ratio
-                if splits is not None and not splits.empty:
-                    # Find splits that occurred between entry_date and today
-                    today_ist = datetime.now(IST).date()
-                    relevant = splits[
-                        (splits.index.date >= (entry_date_obj or today_ist)) &
-                        (splits.index.date <= today_ist)
-                    ] if entry_date_obj else splits[splits.index.date <= today_ist]
-
-                    if not relevant.empty:
-                        cum_factor = relevant.prod()
-                        if cum_factor > 1.0:
+                cum_factor = get_bulk_split_factor(sym, entry_d=entry_date_obj)
+                if cum_factor > 1.0:
                             _split_detected = True
                             logger.warning(
                                 f"🔀 [SPLIT_GUARD] {sym}: Confirmed split(s) detected between entry and today "

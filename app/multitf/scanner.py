@@ -218,8 +218,8 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
         # Background sync updated history bundles to PostgreSQL parquet_cache so restarts never re-fetch
         try:
             from database import upload_history_bundle_to_db, submit_background_upload
-            submit_background_upload(lambda: upload_history_bundle_to_db("15m", force=True))
-            submit_background_upload(lambda: upload_history_bundle_to_db("1d"))
+            submit_background_upload(lambda: upload_history_bundle_to_db("15m", min_interval_sec=300.0))
+            submit_background_upload(lambda: upload_history_bundle_to_db("1d", min_interval_sec=300.0))
         except Exception as _sync_err:
             logger.debug(f"[MULTI_TF] History bundle background upload dispatch error: {_sync_err}")
 
