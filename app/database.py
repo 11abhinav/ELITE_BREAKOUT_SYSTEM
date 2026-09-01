@@ -3266,7 +3266,7 @@ def get_all_scanner_health() -> list[dict]:
     init_db()
     schedule_map = {
         "DAILY_BUILDER": "Daily 05:00 IST",
-        "MULTI_TF": "Every 15m (09:30 - 15:30 IST)",
+        "MULTI_TF": "Every 15m Scan / 5m Monitor (09:30 - 15:30 IST)",
         "EOD": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
         "REVERSAL": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
         "PULLBACK": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
