@@ -42,6 +42,7 @@ from sl_target_helper import compute_sl_and_target
 
 logger = logging.getLogger("multitf.scanner")
 _scan_lock = ProcessLock("multi_tf_scanner")
+_global_lock = ProcessLock("global_scanner_lock")
 
 
 def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str = "SCHEDULED"):
@@ -52,32 +53,58 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
     3. Lazy-fetches 1h, 30m, 5m ONLY for shortlisted/armed candidate stocks.
     4. Evaluates setups, targets, and dispatches breakout alerts.
     """
-    if not _scan_lock.acquire(blocking=False):
-        logger.warning("[MULTI_TF] Scanner is already running. Skipping cycle.")
+    if _scan_lock.locked():
+        logger.warning("🛑 [DUPLICATE GUARD] MULTI_TF Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
         return
 
-    logger.info("=" * 70)
-    logger.info("📊 MULTI_TF V2 ENGINE | Starting 15m execution cycle (Lazy Fetch)...")
-    logger.info("=" * 70)
-
-    from telemetry_manager import telemetry
-    from perf_utils import ScannerStageTracker
-
-    telemetry.log_scheduler_event("MULTI_TF", "CYCLE_START")
-    stage_tracker = ScannerStageTracker("MULTI_TF_V2")
-
-    # Create proper DB execution run context
-    trigger_type = run_ctx if isinstance(run_ctx, str) else "SCHEDULED"
-    from database import start_scanner_execution_run, complete_scanner_execution_run
-    try:
-        real_run_ctx = start_scanner_execution_run(scanner_name="MULTI_TF", trigger_type=trigger_type, scheduler_name="CRON")
-    except Exception as exc:
-        logger.warning(f"⚠️ [MULTI_TF] Could not create run_ctx: {exc}")
-        real_run_ctx = None
-
+    acquired_global = False
+    acquired_scan = False
     start_time = time.monotonic()
+    real_run_ctx = None
 
     try:
+        if not _scan_lock.acquire(blocking=False):
+            logger.warning("[MULTI_TF] Scanner is already running. Skipping cycle.")
+            return
+        acquired_scan = True
+
+        # Acquire universal global scanner lock
+        if not _global_lock.acquire(blocking=False, owner_scanner="MULTI_TF", operation="FULL_SCAN"):
+            logger.info("⏳ [MULTI_TF] Global scanner lock busy — waiting in queue until active scanner finishes...")
+            upsert_scanner_health("MULTI_TF", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
+
+            try:
+                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="MULTI_TF", operation="FULL_SCAN")
+            except Exception as lock_err:
+                logger.error(f"❌ [MULTI_TF] Error acquiring global lock: {lock_err}")
+                acquired_global = False
+
+            if not acquired_global:
+                logger.error("❌ [MULTI_TF] Failed to acquire global scanner lock after queue wait.")
+                upsert_scanner_health("MULTI_TF", "IDLE", error_msg="Lock acquisition timed out")
+                return
+        else:
+            acquired_global = True
+
+        logger.info("=" * 70)
+        logger.info("📊 MULTI_TF V2 ENGINE | Starting 15m execution cycle (Lazy Fetch)...")
+        logger.info("=" * 70)
+
+        from telemetry_manager import telemetry
+        from perf_utils import ScannerStageTracker
+
+        telemetry.log_scheduler_event("MULTI_TF", "CYCLE_START")
+        stage_tracker = ScannerStageTracker("MULTI_TF_V2")
+
+        # Create proper DB execution run context
+        trigger_type = run_ctx if isinstance(run_ctx, str) else "SCHEDULED"
+        from database import start_scanner_execution_run, complete_scanner_execution_run
+        try:
+            real_run_ctx = start_scanner_execution_run(scanner_name="MULTI_TF", trigger_type=trigger_type, scheduler_name="CRON")
+        except Exception as exc:
+            logger.warning(f"⚠️ [MULTI_TF] Could not create run_ctx: {exc}")
+            real_run_ctx = None
+
         stage_tracker.start_stage(1, "Load Watchlist", "Fetching elite watchlist symbols from DB")
         upsert_scanner_health(
             scanner_name="MULTI_TF",
@@ -97,6 +124,8 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             )
             stage_tracker.end_stage("Watchlist empty")
             telemetry.log_scheduler_event("MULTI_TF", "CYCLE_COMPLETE")
+            if real_run_ctx:
+                complete_scanner_execution_run(real_run_ctx)
             return
 
         stage_tracker.end_stage(f"Loaded {len(watchlist)} symbols")
@@ -240,7 +269,16 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
                 pass
         telemetry.log_scheduler_event("MULTI_TF", "CYCLE_FAILED", error=str(exc))
     finally:
-        _scan_lock.release()
+        if acquired_global:
+            try:
+                _global_lock.release()
+            except Exception as _ge:
+                logger.debug(f"Error releasing global lock: {_ge}")
+        if acquired_scan:
+            try:
+                _scan_lock.release()
+            except Exception as _se:
+                logger.debug(f"Error releasing scan lock: {_se}")
 
 
 def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now: Optional[datetime] = None, run_ctx: Any = None):

@@ -3306,7 +3306,7 @@ def get_all_scanner_health() -> list[dict]:
         except Exception as seed_err:
             logger.warning(f"Scanner health schedule sync warning: {seed_err}")
 
-    # Watchdog Auto-Healing: Only mark stuck RUNNING threads (>15 mins) as DOWN if global scanner lock is NOT held
+    # Watchdog Auto-Healing: Only mark stuck RUNNING threads as DOWN if global scanner lock is NOT held AND no fresh heartbeat exists
     try:
         from lock_utils import ProcessLock
         _g_lock = ProcessLock("global_scanner_lock")
@@ -3314,12 +3314,22 @@ def get_all_scanner_health() -> list[dict]:
             with get_connection() as conn:
                 with conn.cursor() as cur:
                     # Find stuck RUNNING scanners:
-                    # 1. Heartbeat missing/stale for > 10 minutes (detects dead/crashed processes quickly)
-                    # 2. OR hard maximum execution ceiling exceeded (> 2 hours)
+                    # Only mark as DOWN if BOTH:
+                    # 1. scanner_health.updated_at is > 10 minutes old
+                    # 2. AND there is NO active RUNNING/QUEUED execution in scanner_execution_history with a fresh heartbeat (within last 10m)
                     cur.execute("""
-                        SELECT scanner_name FROM scanner_health
-                        WHERE status = 'RUNNING'
-                          AND updated_at < NOW() - INTERVAL '10 minutes';
+                        SELECT sh.scanner_name FROM scanner_health sh
+                        WHERE sh.status = 'RUNNING'
+                          AND sh.updated_at < NOW() - INTERVAL '10 minutes'
+                          AND NOT EXISTS (
+                              SELECT 1 FROM scanner_execution_history seh
+                              WHERE seh.scanner_name = sh.scanner_name
+                                AND seh.lifecycle_status IN ('RUNNING', 'QUEUED')
+                                AND (
+                                    (seh.heartbeat_at IS NOT NULL AND seh.heartbeat_at >= NOW() - INTERVAL '10 minutes')
+                                    OR (seh.heartbeat_at IS NULL AND seh.started_at >= NOW() - INTERVAL '10 minutes')
+                                )
+                          );
                     """)
                     stuck_rows = cur.fetchall()
                     for r in stuck_rows:
@@ -8514,8 +8524,18 @@ def update_scanner_run_heartbeat(run_id: str):
                 cur.execute("""
                     UPDATE scanner_execution_history
                     SET heartbeat_at = NOW()
-                    WHERE run_id = %s AND lifecycle_status IN ('RUNNING', 'QUEUED');
+                    WHERE run_id = %s AND lifecycle_status IN ('RUNNING', 'QUEUED')
+                    RETURNING scanner_name;
                 """, (run_id,))
+                row = cur.fetchone()
+                if row and row[0]:
+                    sc_name = row[0]
+                    # Also keep scanner_health updated_at fresh so watchdog never marks active scanners as timed out!
+                    cur.execute("""
+                        UPDATE scanner_health
+                        SET updated_at = NOW()
+                        WHERE scanner_name = %s AND status = 'RUNNING';
+                    """, (sc_name,))
                 conn.commit()
     except Exception as e:
         logger.debug(f"Failed to update heartbeat for run {run_id}: {e}")
@@ -8684,13 +8704,15 @@ def get_scanner_execution_history(
                                       OR started_at < NOW() - INTERVAL '2 hours'
                                   );
                             """)
-                            cur.execute("""
-                                UPDATE scanner_health
-                                SET status = 'DOWN',
-                                    error_msg = 'Watchdog auto-cleaned orphaned RUNNING state (missing heartbeat >10m)'
-                                WHERE status = 'RUNNING'
-                                  AND updated_at < NOW() - INTERVAL '10 minutes';
-                            """)
+                            orphaned_sc_names = tuple(set(orphan.get("scanner_name") for orphan in orphaned_rows if orphan.get("scanner_name")))
+                            if orphaned_sc_names:
+                                cur.execute("""
+                                    UPDATE scanner_health
+                                    SET status = 'DOWN',
+                                        error_msg = 'Watchdog auto-cleaned orphaned RUNNING state (missing heartbeat >10m)'
+                                    WHERE status = 'RUNNING'
+                                      AND scanner_name IN %s;
+                                """, (orphaned_sc_names,))
                             conn.commit()
                             # Log AFTER successful commit — accurate report of what was cleaned
                             for orphan in orphaned_rows:
@@ -8700,7 +8722,7 @@ def get_scanner_execution_history(
                                 hb_at = orphan.get("heartbeat_at")
                                 logger.warning(
                                     f"🧹 [WATCHDOG CLEANUP] Cleaned orphaned RUNNING run {r_id[:8]} for scanner '{sc_name}' | "
-                                    f"Reason: No heartbeat received for >2 hours (started_at: {st_at}, heartbeat_at: {hb_at})"
+                                    f"Reason: Inactive heartbeat (>10m) or hard runtime ceiling (>2h) (started_at: {st_at}, heartbeat_at: {hb_at})"
                                 )
                         _ORPHAN_CLEANUP_LAST_RUN_TS = _now_mono
                     except Exception as _e_sweep:
