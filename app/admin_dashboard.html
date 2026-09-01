@@ -3,6 +3,17 @@
 
 <head>
 <script>
+// GLOBAL SECURITY & FORMATTING HELPERS (Hoisted to top of scope)
+function escapeHTML(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 // GLOBAL WATCHLIST DATA STATE & CACHE (Hoisted to top of scope)
 var WATCHLIST_ITEMS_CACHE = [];
 var _mwlData = [];
@@ -15,6 +26,7 @@ var _adminUserWlPage = 1;
 var _adminManualWlPage = 1;
 var _adminDbPage = 1;
 const ADMIN_PAGE_SIZE = 100;
+const USER_PAGE_SIZE = 100;
 
 function changeAdminPage(type, delta) {
     if (type === 'userWl') {
@@ -87,20 +99,20 @@ function changeAdminPage(type, delta) {
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/static/shared.css">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700&display=swap');
 
     /* ═══════════════════════════════════════════════
-       ELITE BREAKOUT — ADMIN DASHBOARD DESIGN SYSTEM
-       Light Mode First. Clean. Fast. Premium.
+       ELITE BREAKOUT — REDEFINED ULTRA-PREMIUM DESIGN SYSTEM
+       Next-Gen Financial Dashboard UI with Glassmorphism & High-Performance Typography
     ═══════════════════════════════════════════════ */
 
     :root {
       /* Surfaces */
-      --bg:         #f6f8fb;
+      --bg:         #f8fafc;
       --surface:    #ffffff;
       --card:       #ffffff;
-      --card2:      #f8fafc;
-      --card3:      #f1f5f9;
+      --card2:      #f1f5f9;
+      --card3:      #e2e8f0;
 
       /* Borders */
       --border:     #e2e8f0;
@@ -113,7 +125,7 @@ function changeAdminPage(type, delta) {
       --accent2:      #2563eb;
       --accent2-dim:  rgba(37,99,235,0.08);
 
-      /* Semantic */
+      /* Semantic Colors */
       --win:      #059669;
       --loss:     #dc2626;
       --open:     #2563eb;
@@ -130,34 +142,40 @@ function changeAdminPage(type, delta) {
       --muted2: #94a3b8;
 
       /* Typography */
-      --font-body: 'Inter', system-ui, -apple-system, sans-serif;
-      --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+      --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-body:    'Inter', system-ui, -apple-system, sans-serif;
+      --font-mono:    'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 
       /* Layout */
-      --radius:    8px;
-      --radius-sm: 5px;
-      --radius-lg: 12px;
+      --radius:    10px;
+      --radius-sm: 6px;
+      --radius-lg: 16px;
 
-      /* Shadows — clean, minimal */
-      --shadow:    0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
-      --shadow-md: 0 4px 12px rgba(0,0,0,.06), 0 2px 4px rgba(0,0,0,.04);
-      --shadow-lg: 0 8px 24px rgba(0,0,0,.08), 0 4px 8px rgba(0,0,0,.04);
+      /* Shadows */
+      --shadow:    0 1px 3px rgba(0,0,0,.04), 0 1px 2px rgba(0,0,0,.02);
+      --shadow-md: 0 4px 16px rgba(0,0,0,.06), 0 2px 4px rgba(0,0,0,.03);
+      --shadow-lg: 0 12px 32px rgba(0,0,0,.08), 0 4px 8px rgba(0,0,0,.04);
       --glow:      0 0 0 3px rgba(5,150,105,0.15);
     }
 
     [data-theme="dark"] {
-      --bg:      #0d1117;
-      --surface: #161b22;
-      --card:    #1c2128;
-      --card2:   #21262d;
-      --card3:   #2d333b;
-      --border:  rgba(255,255,255,.08);
+      --bg:      #080c14;
+      --surface: #0f172a;
+      --card:    #111827;
+      --card2:   #1a2236;
+      --card3:   #24304c;
+      --border:  rgba(255,255,255,.07);
       --border2: rgba(255,255,255,.14);
-      --text:    #e6edf3;
-      --muted:   #8b949e;
-      --muted2:  #6e7681;
-      --shadow:  0 1px 3px rgba(0,0,0,.3);
-      --shadow-md: 0 4px 12px rgba(0,0,0,.3);
+      --text:    #f1f5f9;
+      --muted:   #94a3b8;
+      --muted2:  #64748b;
+      --accent:       #00e5a0;
+      --accent-dim:   rgba(0,229,160,0.12);
+      --accent-hover: #00c88b;
+      --shadow:  0 2px 8px rgba(0,0,0,.4);
+      --shadow-md: 0 8px 24px rgba(0,0,0,.5);
+      --shadow-lg: 0 16px 40px rgba(0,0,0,.6);
+      --glow:      0 0 0 3px rgba(0,229,160,0.25);
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -175,12 +193,12 @@ function changeAdminPage(type, delta) {
     html { overflow-x: auto; }
 
     /* ── SCROLLBAR ── */
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar { width: 7px; height: 7px; }
     ::-webkit-scrollbar-track { background: var(--card2); border-radius: 4px; }
     ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--muted2); }
 
-    ::selection { background: var(--accent); color: #fff; }
+    ::selection { background: var(--accent); color: #080c14; font-weight: 600; }
 
     /* ─────────────────────────────────────────
        HEADER
@@ -189,36 +207,38 @@ function changeAdminPage(type, delta) {
       background: var(--card);
       border-bottom: 1px solid var(--border);
       padding: 0 28px;
-      height: 58px;
+      height: 60px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       position: sticky;
       top: 0;
       z-index: 999;
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      box-shadow: var(--shadow);
     }
 
-    .header-brand { display: flex; align-items: center; gap: 10px; }
+    .header-brand { display: flex; align-items: center; gap: 12px; }
 
     .header-dot {
-      width: 8px; height: 8px;
+      width: 9px; height: 9px;
       border-radius: 50%;
       background: var(--accent);
       animation: pulseDot 2s infinite;
-      box-shadow: 0 0 0 3px rgba(5,150,105,0.2);
+      box-shadow: 0 0 0 3px rgba(0,229,160,0.25);
     }
 
     @keyframes pulseDot {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.45; }
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.45; transform: scale(0.85); }
     }
 
     .header h1 {
-      font-size: 15px;
-      font-weight: 700;
-      letter-spacing: -0.3px;
+      font-family: var(--font-display);
+      font-size: 17px;
+      font-weight: 800;
+      letter-spacing: -0.4px;
       color: var(--text);
     }
 
@@ -244,13 +264,13 @@ function changeAdminPage(type, delta) {
       background: var(--card2);
       border: 1px solid var(--border);
       color: var(--muted);
-      padding: 7px 13px;
-      border-radius: var(--radius);
+      padding: 7px 14px;
+      border-radius: var(--radius-sm);
       cursor: pointer;
       font-size: 12px;
       font-family: var(--font-body);
-      font-weight: 500;
-      transition: all .18s;
+      font-weight: 600;
+      transition: all .18s ease;
       display: inline-flex;
       align-items: center;
       gap: 6px;
@@ -263,43 +283,45 @@ function changeAdminPage(type, delta) {
       color: var(--text);
       background: var(--card3);
       box-shadow: var(--shadow);
+      transform: translateY(-1px);
     }
 
     .refresh-btn.accent-btn {
       color: var(--accent);
-      border-color: rgba(5,150,105,0.3);
+      border-color: rgba(0,229,160,0.3);
       background: var(--accent-dim);
     }
 
     .refresh-btn.accent-btn:hover {
-      background: rgba(5,150,105,0.12);
+      background: rgba(0,229,160,0.18);
       border-color: var(--accent);
     }
 
     .refresh-btn.spinning svg { animation: spin .65s linear infinite; }
 
     /* ─────────────────────────────────────────
-       MULTI-TAB NAVIGATION SYSTEM
+       MULTI-TAB NAVIGATION SYSTEM (PILL SEGMENTED)
     ───────────────────────────────────────── */
     .admin-tabs-bar {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       background: var(--card);
       border: 1px solid var(--border);
       padding: 6px 8px;
       border-radius: var(--radius-lg);
-      margin-bottom: 24px;
-      box-shadow: var(--shadow);
+      margin-bottom: 20px;
+      box-shadow: var(--shadow-md);
       overflow-x: auto;
       white-space: nowrap;
+      scrollbar-width: thin;
     }
 
     .admin-tab-btn {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 10px 20px;
+      padding: 9px 18px;
       border-radius: var(--radius);
       border: 1px solid transparent;
       background: transparent;
@@ -308,19 +330,27 @@ function changeAdminPage(type, delta) {
       font-size: 13px;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.18s ease;
+      transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .admin-tab-btn:hover {
       color: var(--text);
       background: var(--card2);
       border-color: var(--border);
+      transform: translateY(-1px);
     }
 
     .admin-tab-btn.active {
-      color: #ffffff;
+      color: #080c14;
       background: var(--accent);
       border-color: var(--accent);
+      box-shadow: 0 4px 16px rgba(0, 229, 160, 0.35);
+      font-weight: 700;
+    }
+
+    [data-theme="light"] .admin-tab-btn.active {
+      color: #ffffff;
+      background: #059669;
       box-shadow: 0 4px 14px rgba(5, 150, 105, 0.35);
     }
 
@@ -330,11 +360,11 @@ function changeAdminPage(type, delta) {
 
     .tab-panel.active {
       display: block;
-      animation: fadeInTab 0.2s ease-out;
+      animation: fadeInTab 0.22s ease-out;
     }
 
     @keyframes fadeInTab {
-      from { opacity: 0; transform: translateY(4px); }
+      from { opacity: 0; transform: translateY(6px); }
       to { opacity: 1; transform: translateY(0); }
     }
 
@@ -1498,6 +1528,11 @@ function changeAdminPage(type, delta) {
             </div>
           </div>
 
+          <div class="filter-bar" style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
+            <input type="text" id="filterMasterSignalsInput" placeholder="🔍 Search Symbol..." oninput="filterMasterSignals(this.value)" style="width:240px; padding:6px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-family:var(--font-mono);" />
+            <div id="master-signals-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:600;"></div>
+          </div>
+
           <div id="master-signals-tbl-wrap" class="tbl-wrap">
             <table id="tbl-master-signals">
               <thead>
@@ -1540,6 +1575,11 @@ function changeAdminPage(type, delta) {
             </div>
           </div>
 
+          <div class="filter-bar" style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
+            <input type="text" id="filterStocksWatchInput" placeholder="🔍 Search Symbol / Scanner..." oninput="filterStocksWatch(this.value)" style="width:240px; padding:6px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-family:var(--font-mono);" />
+            <div id="stocks-watch-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:600;"></div>
+          </div>
+
           <div id="stocks-watch-tbl-wrap" class="tbl-wrap">
             <table id="tbl-stocks-watch">
               <thead>
@@ -1577,6 +1617,11 @@ function changeAdminPage(type, delta) {
             <div style="font-size:12px; color:var(--muted); line-height:1.5;">
               <strong>Long-Term Wealth Accumulation Screen</strong>: Tracks 3-5 year fundamental compounders evaluated on ROCE &gt; 20%, low debt, cash flow quality (OCF/PAT &gt; 1.0), and Margin of Safety %. Use this screen to accumulate quality businesses on market pullbacks.
             </div>
+          </div>
+
+          <div class="filter-bar" style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
+            <input type="text" id="filterInvestmentWatchInput" placeholder="🔍 Search Fundamental Symbol..." oninput="filterInvestmentWatch(this.value)" style="width:240px; padding:6px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-family:var(--font-mono);" />
+            <div id="investment-watch-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:600;"></div>
           </div>
 
           <div id="investment-watch-tbl-wrap" class="tbl-wrap">
@@ -1617,6 +1662,11 @@ function changeAdminPage(type, delta) {
             <div style="font-size:12px; color:var(--muted); line-height:1.5;">
               <strong>Forensic System Audit Screen</strong>: Tracks stocks rejected by scanner quality gates and audits their forward returns (+1D to +20D). Use this to verify whether rejections were <strong>GOOD_REJECTION</strong> (saved from loss) or <strong>BAD_REJECTION</strong> (missed a winner).
             </div>
+          </div>
+
+          <div class="filter-bar" style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
+            <input type="text" id="filterMissedOppsInput" placeholder="🔍 Search Rejected Symbol / Gate..." oninput="filterMissedOpps(this.value)" style="width:240px; padding:6px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-family:var(--font-mono);" />
+            <div id="missed-opps-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:600;"></div>
           </div>
 
           <div id="missed-opps-tbl-wrap" class="tbl-wrap">
@@ -1894,11 +1944,18 @@ function changeAdminPage(type, delta) {
             </thead>
             <tbody id="tradeBody"></tbody>
           </table>
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; padding: 0 8px;">
-            <div id="tradePaginationInfo" style="font-size:12px; color:var(--muted);"></div>
-            <div style="display:flex; gap:8px;">
-              <button class="btn btn-sm" id="tradePrevBtn" onclick="changeTradePage(-1)">Previous</button>
-              <button class="btn btn-sm" id="tradeNextBtn" onclick="changeTradePage(1)">Next</button>
+          <div class="pagination-bar" style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; padding:10px 14px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius); flex-wrap:wrap; gap:10px;">
+            <div id="tradePaginationInfo" style="font-size:12px; font-weight:600; color:var(--muted); font-family:var(--font-mono);"></div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span style="font-size:11px; color:var(--muted); font-weight:600;">Per Page:</span>
+              <select id="tradesPerPageSelect" onchange="setTradesPerPage(this.value)" style="background:var(--card); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:6px; font-size:11px; font-family:var(--font-mono);">
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100" selected>100</option>
+                <option value="250">250</option>
+              </select>
+              <button class="refresh-btn" id="tradePrevBtn" onclick="changeTradePage(-1)" style="padding:5px 12px; font-size:11px;">◀ Prev</button>
+              <button class="refresh-btn" id="tradeNextBtn" onclick="changeTradePage(1)" style="padding:5px 12px; font-size:11px;">Next ▶</button>
             </div>
           </div>
         </div>
@@ -3274,11 +3331,17 @@ function changeAdminPage(type, delta) {
     // ── KPIs
     let ALL_TRADES = [], activeKpi = null;
     let currentTradePage = 1;
-    const tradesPerPage = 100;
+    let tradesPerPage = 100;
     
     function changeTradePage(dir) {
       currentTradePage += dir;
       if (currentTradePage < 1) currentTradePage = 1;
+      renderTradeTable();
+    }
+
+    function setTradesPerPage(val) {
+      tradesPerPage = parseInt(val, 10) || 100;
+      currentTradePage = 1;
       renderTradeTable();
     }
 
@@ -3311,7 +3374,7 @@ function changeAdminPage(type, delta) {
         { id: 'winrate', label: 'Win Rate', value: judged.length > 0 ? winRate + '%' : '—', cls: winRate >= 55 ? 'green' : winRate >= 45 ? 'amber' : '', sub: judged.length > 0 ? `${winners.length}W / ${losers.length}L` : 'all positions active', filter: t => t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' },
         { id: 'avgret', label: 'Avg Return', value: judged.length > 0 ? pct(avgReturn) : '—', cls: avgReturn >= 0 ? 'green' : 'red', sub: 'per judged trade', filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) && t.pnl_pct != null },
         { id: 'avgwin', label: 'Avg Win', value: winners.length > 0 ? pct(avgWin) : '—', cls: 'green', sub: 'winners only', filter: t => t.status === 'WIN' || (t.status === 'CLOSED' && (t.pnl_pct || 0) > 0) },
-        { id: 'avgloss', label: 'Avg Loss', value: losers.length > 0 ? pct(avgLoss) : '—', cls: 'red', sub: 'losers only', filter: t => t.status === 'LOSS' || (t.status === 'CLOSED' && (t.pnl_pct || 0) <= 0) },
+        { id: 'avgloss', label: 'Avg Loss', value: losers.length > 0 ? pctLoss(avgLoss) : '—', cls: 'red', sub: 'losers only', filter: t => t.status === 'LOSS' || (t.status === 'CLOSED' && (t.pnl_pct || 0) <= 0) },
         { id: 'expect', label: 'Expectancy', value: judged.length > 0 ? pct(expectancy) : '—', cls: expectancy >= 0 ? 'green' : 'red', sub: 'WR×avgW+(1-WR)×avgL', filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) },
         { id: 'best', label: 'Best Trade', value: filteredTrades.length > 0 ? pct(bestTrade) : '—', cls: 'green', sub: '', filter: t => t.pnl_pct != null && t.pnl_pct === bestTrade },
         { id: 'worst', label: 'Worst Trade', value: filteredTrades.length > 0 ? pct(worstTrade) : '—', cls: 'red', sub: '', filter: t => t.pnl_pct != null && t.pnl_pct === worstTrade },
@@ -8874,6 +8937,63 @@ function renderDatabaseExplorerGrid() {
   grid.innerHTML = html;
 }
 
+window._nearMissesCache = [];
+
+function filterMissedOpps(query) {
+  const q = (query || '').trim().toUpperCase();
+  const filtered = window._nearMissesCache.filter(item => !q || (item.symbol || '').toUpperCase().includes(q) || (item.scanner || '').toUpperCase().includes(q) || (item.gate_name || '').toUpperCase().includes(q));
+  renderNearMissesRows(filtered);
+  const countEl = document.getElementById('missed-opps-count');
+  if (countEl) countEl.innerText = `${filtered.length} of ${window._nearMissesCache.length} rejections`;
+}
+
+function renderNearMissesRows(data) {
+  const tbody = document.getElementById('near-misses-tbody');
+  if (!tbody) return;
+  if (!Array.isArray(data) || data.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:24px; color:var(--muted);">No near-miss alerts recorded in the selected window.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = data.map(item => {
+    const deltaColor = item.delta_pct <= 3.0 ? '#ef4444' : (item.delta_pct <= 6.0 ? '#f59e0b' : '#3b82f6');
+    const statusBadge = item.is_fallback || item.status === 'FORENSIC_EXCLUSION_FALLBACK'
+      ? `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🔍 FORENSIC EXCLUSION</span>`
+      : (item.status === 'TARGET_HIT' 
+        ? `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🎯 TARGET HIT</span>`
+        : (item.status === 'STOP_HIT'
+          ? `<span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🛑 STOP HIT</span>`
+          : `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">⏳ TRACKING</span>`));
+
+    return `
+      <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
+        <td style="padding:10px 14px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}${getEarningsBadgeHtml(item)}</td>
+        <td style="padding:10px 14px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+        <td style="padding:10px 14px; font-weight:700; color:var(--text);">${formatPrice(item.cmp || item.entry_price)}</td>
+        <td style="padding:10px 14px; color:var(--muted); font-size:11px; font-weight:600;">${formatText(item.scanner)}</td>
+        <td style="padding:10px 14px; font-family:var(--font-mono); font-size:11px;">
+          <span style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); padding:3px 8px; border-radius:6px; font-weight:700; display:inline-block; box-shadow: 0 0 8px rgba(245,158,11,0.2);">${formatText(item.gate_name)}</span>
+        </td>
+        <td style="padding:10px 14px; text-align:center; font-family:var(--font-mono); font-size:11px;">
+          <span style="color:#10b981; font-weight:700;">${formatText(item.observed_value)}</span> / <span style="color:var(--muted);">${formatText(item.threshold_value)}</span>
+        </td>
+        <td style="padding:10px 14px; text-align:center; font-weight:700; font-size:11px; color:${deltaColor};">
+          ${formatPct(item.delta_pct)}
+        </td>
+        <td style="padding:10px 14px; text-align:right; font-family:var(--font-mono); font-size:11px;">
+          <span style="font-weight:700; color:var(--text);">${formatPrice(item.entry_price)}</span> | <span style="color:var(--muted);">SL: ${formatPrice(item.stop_loss)}</span> | <span style="color:var(--muted);">T1: ${formatPrice(item.target_1)}</span>
+        </td>
+        <td style="padding:10px 14px; text-align:center;">${statusBadge}</td>
+        <td style="padding:10px 14px; text-align:center; font-weight:700; font-family:var(--font-mono); color:${item.max_mfe_r > 0 ? '#10b981' : 'var(--muted)'};">
+          ${item.max_mfe_r ? '+' + item.max_mfe_r + 'R' : '-'}
+        </td>
+        <td style="padding:10px 14px; text-align:center; color:var(--muted); font-size:11px;">
+          ${formatISTDate(item.logged_at || item.logged_date)}
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
 function loadNearMisses() {
   const scannerEl = document.getElementById('near-miss-scanner-filter');
   const daysEl = document.getElementById('near-miss-days-filter');
@@ -8886,161 +9006,185 @@ function loadNearMisses() {
   fetch(`/api/near_misses?days=${days}&scanner=${encodeURIComponent(scanner)}`)
     .then(res => res.json())
     .then(data => {
-      if (!Array.isArray(data) || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:24px; color:var(--muted);">No near-miss alerts recorded in the selected window.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = data.map(item => {
-        const deltaColor = item.delta_pct <= 3.0 ? '#ef4444' : (item.delta_pct <= 6.0 ? '#f59e0b' : '#3b82f6');
-        const statusBadge = item.is_fallback || item.status === 'FORENSIC_EXCLUSION_FALLBACK'
-          ? `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🔍 FORENSIC EXCLUSION</span>`
-          : (item.status === 'TARGET_HIT' 
-            ? `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🎯 TARGET HIT</span>`
-            : (item.status === 'STOP_HIT'
-              ? `<span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🛑 STOP HIT</span>`
-              : `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">⏳ TRACKING</span>`));
-
-        return `
-          <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
-            <td style="padding:10px 14px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}${getEarningsBadgeHtml(item)}</td>
-            <td style="padding:10px 14px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
-            <td style="padding:10px 14px; font-weight:700; color:var(--text);">${formatPrice(item.cmp || item.entry_price)}</td>
-            <td style="padding:10px 14px; color:var(--muted); font-size:11px; font-weight:600;">${formatText(item.scanner)}</td>
-            <td style="padding:10px 14px; font-family:var(--font-mono); font-size:11px;">
-              <span style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); padding:3px 8px; border-radius:6px; font-weight:700; display:inline-block; box-shadow: 0 0 8px rgba(245,158,11,0.2);">${formatText(item.gate_name)}</span>
-            </td>
-            <td style="padding:10px 14px; text-align:center; font-family:var(--font-mono); font-size:11px;">
-              <span style="color:#10b981; font-weight:700;">${formatText(item.observed_value)}</span> / <span style="color:var(--muted);">${formatText(item.threshold_value)}</span>
-            </td>
-            <td style="padding:10px 14px; text-align:center; font-weight:700; font-size:11px; color:${deltaColor};">
-              ${formatPct(item.delta_pct)}
-            </td>
-            <td style="padding:10px 14px; text-align:right; font-family:var(--font-mono); font-size:11px;">
-              <span style="font-weight:700; color:var(--text);">${formatPrice(item.entry_price)}</span> | <span style="color:var(--muted);">SL: ${formatPrice(item.stop_loss)}</span> | <span style="color:var(--muted);">T1: ${formatPrice(item.target_1)}</span>
-            </td>
-            <td style="padding:10px 14px; text-align:center;">${statusBadge}</td>
-            <td style="padding:10px 14px; text-align:center; font-weight:700; font-family:var(--font-mono); color:${item.max_mfe_r > 0 ? '#10b981' : 'var(--muted)'};">
-              ${item.max_mfe_r ? '+' + item.max_mfe_r + 'R' : '-'}
-            </td>
-            <td style="padding:10px 14px; text-align:center; color:var(--muted); font-size:11px;">
-              ${formatISTDate(item.logged_at || item.logged_date)}
-            </td>
-          </tr>
-        `;
-      }).join('');
+      window._nearMissesCache = Array.isArray(data) ? data : [];
+      renderNearMissesRows(window._nearMissesCache);
+      const countEl = document.getElementById('missed-opps-count');
+      if (countEl) countEl.innerText = `${window._nearMissesCache.length} rejections`;
     })
     .catch(err => {
       console.warn('Failed to load near misses:', err);
-      tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:24px; color:var(--warn);">Failed to load near-miss diagnostics.</td></tr>`;
+      window._nearMissesCache = [];
+      renderNearMissesRows([]);
     });
+}
+
+window._masterAlertsCache = [];
+window._stocksWatchCache = [];
+window._investmentWatchCache = [];
+
+function filterMasterSignals(query) {
+  const q = (query || '').trim().toUpperCase();
+  const filtered = window._masterAlertsCache.filter(item => !q || (item.symbol || '').toUpperCase().includes(q) || (item.scanners || []).join(' ').toUpperCase().includes(q));
+  renderMasterSignalsRows(filtered);
+  const countEl = document.getElementById('master-signals-count');
+  if (countEl) countEl.innerText = `${filtered.length} of ${window._masterAlertsCache.length} signals`;
+}
+
+function renderMasterSignalsRows(data) {
+  const tbody = document.getElementById('master-signals-tbody');
+  if (!tbody) return;
+  if (!Array.isArray(data) || data.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:20px; color:var(--muted);">No active confirmed signals.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = data.map(item => `
+    <tr>
+      <td style="font-weight:700; color:var(--accent);">${formatText(item.symbol)}</td>
+      <td>${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+      <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp || item.entry_price)}</td>
+      <td>${(item.scanners || []).join(', ')}</td>
+      <td><span class="badge-ok">${formatText(item.state)}</span></td>
+      <td>${formatPrice(item.entry_price)}</td>
+      <td style="color:var(--loss);">${formatPrice(item.stop_loss)}</td>
+      <td style="color:var(--win);">${formatPrice(item.target_1)}</td>
+      <td style="color:var(--win);">${formatPrice(item.target_2)}</td>
+      <td>${formatText(item.rr_ratio)}</td>
+      <td>${formatText(item.quality_grade)}</td>
+      <td><span class="badge-ok">${formatText(item.meta_confluence_tier)}</span></td>
+      <td style="font-size:11px; color:var(--win);">${formatText(item.checklist_cleared || item.why_qualifies)}</td>
+    </tr>
+  `).join('');
+}
+
+function filterStocksWatch(query) {
+  const q = (query || '').trim().toUpperCase();
+  const filtered = window._stocksWatchCache.filter(item => !q || (item.symbol || '').toUpperCase().includes(q) || (item.scanner || '').toUpperCase().includes(q));
+  renderStocksWatchRows(filtered);
+  const countEl = document.getElementById('stocks-watch-count');
+  if (countEl) countEl.innerText = `${filtered.length} of ${window._stocksWatchCache.length} watching`;
+}
+
+function renderStocksWatchRows(data) {
+  const tbody = document.getElementById('stocks-watch-tbody');
+  if (!tbody) return;
+  if (!Array.isArray(data) || data.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:20px; color:var(--muted);">No stocks currently in Watch stage.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = data.map(item => {
+    const stageStr = item.stage || '👁️ BASE BUILDING (Watch)';
+    let stageBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stageStr)}</span>`;
+    if (stageStr.includes('PRE-BREAKOUT') || stageStr.includes('ARMED')) {
+      stageBadge = `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stageStr)}</span>`;
+    }
+
+    const distVal = item.distance_pct !== null && item.distance_pct !== undefined ? item.distance_pct : null;
+    const distColor = (distVal !== null && distVal <= 2.0) ? '#10b981' : '#f59e0b';
+    const distStr = distVal !== null ? (distVal > 0 ? `+${distVal.toFixed(2)}%` : `${distVal.toFixed(2)}%`) : '-';
+
+    return `
+      <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
+        <td style="padding:10px 12px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}</td>
+        <td style="padding:10px 12px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+        <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.scanner)}</td>
+        <td style="padding:10px 12px; text-align:center;">${stageBadge}</td>
+        <td style="padding:10px 12px; text-align:center; font-weight:700; color:var(--text);">${item.maturity_score ? Number(item.maturity_score).toFixed(1) : '-'}</td>
+        <td style="padding:10px 12px; font-weight:700; color:var(--text); font-family:var(--font-mono);">${formatPrice(item.cmp)}</td>
+        <td style="padding:10px 12px; font-weight:700; color:#38bdf8; font-family:var(--font-mono);">${formatPrice(item.trigger_level)}</td>
+        <td style="padding:10px 12px; color:${distColor}; font-weight:800; font-family:var(--font-mono); text-align:center;">${distStr}</td>
+        <td style="padding:10px 12px; font-size:11px; color:#fbbf24; font-weight:500;">${formatText(item.primary_blocker)}</td>
+        <td style="padding:10px 12px; font-size:11px; color:#38bdf8; font-weight:500;">${formatText(item.why_qualifies)}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function filterInvestmentWatch(query) {
+  const q = (query || '').trim().toUpperCase();
+  const filtered = window._investmentWatchCache.filter(item => !q || (item.symbol || '').toUpperCase().includes(q) || (item.business_quality || '').toUpperCase().includes(q));
+  renderInvestmentWatchRows(filtered);
+  const countEl = document.getElementById('investment-watch-count');
+  if (countEl) countEl.innerText = `${filtered.length} of ${window._investmentWatchCache.length} compounders`;
+}
+
+function renderInvestmentWatchRows(data) {
+  const tbody = document.getElementById('investment-watch-tbody');
+  if (!tbody) return;
+  if (!Array.isArray(data) || data.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--muted);">No fundamental compounders in Investment Watch.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = data.map(item => {
+    const stateStr = item.investment_state || 'ACCUMULATE (Buy Zone)';
+    let stateBadge = `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
+    if (stateStr.includes('BUY') || stateStr.includes('ACCUMULATE')) {
+      stateBadge = `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
+    } else if (stateStr.includes('GROWTH')) {
+      stateBadge = `<span style="background:rgba(139,92,246,0.15); color:#a78bfa; border:1px solid rgba(139,92,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
+    } else if (stateStr.includes('QUALITY')) {
+      stateBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
+    }
+
+    const valGrade = item.valuation_grade || 'Tier B+ (Quality Fair Value)';
+    const valColor = valGrade.includes('Tier A') ? '#10b981' : (valGrade.includes('Tier B+') ? '#3b82f6' : '#f59e0b');
+
+    return `
+      <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
+        <td style="padding:10px 12px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}</td>
+        <td style="padding:10px 12px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+        <td style="padding:10px 12px; font-weight:700; color:var(--text);">${formatPrice(item.cmp)}</td>
+        <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.business_quality)}</td>
+        <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.growth_durability)}</td>
+        <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.moat_cash_quality)}</td>
+        <td style="padding:10px 12px; font-weight:700; color:${valColor}; font-size:11px;">${formatText(valGrade)}</td>
+        <td style="padding:10px 12px; color:var(--win); font-weight:800; font-family:var(--font-mono); text-align:center;">${formatPct(item.margin_of_safety_pct)}</td>
+        <td style="padding:10px 12px; font-weight:700; color:#10b981; font-size:11px; text-align:center;"><span style="color:#10b981;">●</span> ${formatText(item.thesis_health || 'HEALTHY')}</td>
+        <td style="padding:10px 12px; text-align:center;">${stateBadge}</td>
+        <td style="padding:10px 12px; font-size:11px; color:#38bdf8; font-weight:500;">${formatText(item.why_qualifies)}</td>
+      </tr>
+    `;
+  }).join('');
 }
 
 function loadMasterSystemV2Data() {
   fetch('/api/v2/master_alerts')
     .then(r => r.json())
     .then(data => {
-      const tbody = document.getElementById('master-signals-tbody');
-      if (!tbody) return;
-      if (!Array.isArray(data) || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:20px; color:var(--muted);">No active confirmed signals.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = data.map(item => `
-        <tr>
-          <td style="font-weight:700; color:var(--accent);">${formatText(item.symbol)}</td>
-          <td>${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
-          <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp || item.entry_price)}</td>
-          <td>${(item.scanners || []).join(', ')}</td>
-          <td><span class="badge-ok">${formatText(item.state)}</span></td>
-          <td>${formatPrice(item.entry_price)}</td>
-          <td style="color:var(--loss);">${formatPrice(item.stop_loss)}</td>
-          <td style="color:var(--win);">${formatPrice(item.target_1)}</td>
-          <td style="color:var(--win);">${formatPrice(item.target_2)}</td>
-          <td>${formatText(item.rr_ratio)}</td>
-          <td>${formatText(item.quality_grade)}</td>
-          <td><span class="badge-ok">${formatText(item.meta_confluence_tier)}</span></td>
-          <td style="font-size:11px; color:var(--win);">${formatText(item.checklist_cleared || item.why_qualifies)}</td>
-        </tr>
-      `).join('');
-    }).catch(e => console.warn('Failed to load master alerts:', e));
+      window._masterAlertsCache = Array.isArray(data) ? data : [];
+      renderMasterSignalsRows(window._masterAlertsCache);
+      const countEl = document.getElementById('master-signals-count');
+      if (countEl) countEl.innerText = `${window._masterAlertsCache.length} confirmed signals`;
+    }).catch(e => {
+      console.warn('Failed to load master alerts:', e);
+      window._masterAlertsCache = [];
+      renderMasterSignalsRows([]);
+    });
 
   fetch('/api/v2/stocks_to_watch')
     .then(r => r.json())
     .then(data => {
-      const tbody = document.getElementById('stocks-watch-tbody');
-      if (!tbody) return;
-      if (!Array.isArray(data) || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:20px; color:var(--muted);">No stocks currently in Watch stage.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = data.map(item => {
-        const stageStr = item.stage || '👁️ BASE BUILDING (Watch)';
-        let stageBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stageStr)}</span>`;
-        if (stageStr.includes('PRE-BREAKOUT') || stageStr.includes('ARMED')) {
-          stageBadge = `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stageStr)}</span>`;
-        }
-
-        const distVal = item.distance_pct !== null && item.distance_pct !== undefined ? item.distance_pct : null;
-        const distColor = (distVal !== null && distVal <= 2.0) ? '#10b981' : '#f59e0b';
-        const distStr = distVal !== null ? (distVal > 0 ? `+${distVal.toFixed(2)}%` : `${distVal.toFixed(2)}%`) : '-';
-
-        return `
-          <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
-            <td style="padding:10px 12px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}</td>
-            <td style="padding:10px 12px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
-            <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.scanner)}</td>
-            <td style="padding:10px 12px; text-align:center;">${stageBadge}</td>
-            <td style="padding:10px 12px; text-align:center; font-weight:700; color:var(--text);">${item.maturity_score ? Number(item.maturity_score).toFixed(1) : '-'}</td>
-            <td style="padding:10px 12px; font-weight:700; color:var(--text); font-family:var(--font-mono);">${formatPrice(item.cmp)}</td>
-            <td style="padding:10px 12px; font-weight:700; color:#38bdf8; font-family:var(--font-mono);">${formatPrice(item.trigger_level)}</td>
-            <td style="padding:10px 12px; color:${distColor}; font-weight:800; font-family:var(--font-mono); text-align:center;">${distStr}</td>
-            <td style="padding:10px 12px; font-size:11px; color:#fbbf24; font-weight:500;">${formatText(item.primary_blocker)}</td>
-            <td style="padding:10px 12px; font-size:11px; color:#38bdf8; font-weight:500;">${formatText(item.why_qualifies)}</td>
-          </tr>
-        `;
-      }).join('');
-    }).catch(e => console.warn('Failed to load stocks to watch:', e));
+      window._stocksWatchCache = Array.isArray(data) ? data : [];
+      renderStocksWatchRows(window._stocksWatchCache);
+      const countEl = document.getElementById('stocks-watch-count');
+      if (countEl) countEl.innerText = `${window._stocksWatchCache.length} watching`;
+    }).catch(e => {
+      console.warn('Failed to load stocks to watch:', e);
+      window._stocksWatchCache = [];
+      renderStocksWatchRows([]);
+    });
 
   fetch('/api/v2/investment_watch')
     .then(r => r.json())
     .then(data => {
-      const tbody = document.getElementById('investment-watch-tbody');
-      if (!tbody) return;
-      if (!Array.isArray(data) || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--muted);">No fundamental compounders in Investment Watch.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = data.map(item => {
-        const stateStr = item.investment_state || 'ACCUMULATE (Buy Zone)';
-        let stateBadge = `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
-        if (stateStr.includes('BUY') || stateStr.includes('ACCUMULATE')) {
-          stateBadge = `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
-        } else if (stateStr.includes('GROWTH')) {
-          stateBadge = `<span style="background:rgba(139,92,246,0.15); color:#a78bfa; border:1px solid rgba(139,92,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
-        } else if (stateStr.includes('QUALITY')) {
-          stateBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
-        }
-
-        const valGrade = item.valuation_grade || 'Tier B+ (Quality Fair Value)';
-        const valColor = valGrade.includes('Tier A') ? '#10b981' : (valGrade.includes('Tier B+') ? '#3b82f6' : '#f59e0b');
-
-        return `
-          <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
-            <td style="padding:10px 12px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}</td>
-            <td style="padding:10px 12px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
-            <td style="padding:10px 12px; font-weight:700; color:var(--text);">${formatPrice(item.cmp)}</td>
-            <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.business_quality)}</td>
-            <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.growth_durability)}</td>
-            <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.moat_cash_quality)}</td>
-            <td style="padding:10px 12px; font-weight:700; color:${valColor}; font-size:11px;">${formatText(valGrade)}</td>
-            <td style="padding:10px 12px; color:var(--win); font-weight:800; font-family:var(--font-mono); text-align:center;">${formatPct(item.margin_of_safety_pct)}</td>
-            <td style="padding:10px 12px; font-weight:700; color:#10b981; font-size:11px; text-align:center;"><span style="color:#10b981;">●</span> ${formatText(item.thesis_health || 'HEALTHY')}</td>
-            <td style="padding:10px 12px; text-align:center;">${stateBadge}</td>
-            <td style="padding:10px 12px; font-size:11px; color:#38bdf8; font-weight:500;">${formatText(item.why_qualifies)}</td>
-          </tr>
-        `;
-      }).join('');
-    }).catch(e => console.warn('Failed to load investment watch:', e));
+      window._investmentWatchCache = Array.isArray(data) ? data : [];
+      renderInvestmentWatchRows(window._investmentWatchCache);
+      const countEl = document.getElementById('investment-watch-count');
+      if (countEl) countEl.innerText = `${window._investmentWatchCache.length} compounders`;
+    }).catch(e => {
+      console.warn('Failed to load investment watch:', e);
+      window._investmentWatchCache = [];
+      renderInvestmentWatchRows([]);
+    });
 
   // [RULE 67 CHANGE-RATIONALE]:
   // Added fetch to get dynamic universe health data from /api/v2/universe_health.
@@ -9294,7 +9438,11 @@ function loadConfluenceMatrixTab() {
         </tr>
       `).join('');
     })
-    .catch(e => console.warn('Failed to load confluence matrix:', e));
+    .catch(e => {
+      console.warn('Failed to load confluence matrix:', e);
+      const tbody = document.getElementById('confluence-matrix-tbody');
+      if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:20px; color:var(--muted);">No active multi-scanner confluence setups right now.</td></tr>`;
+    });
 }
 
 // Initial watchlist & database summary load

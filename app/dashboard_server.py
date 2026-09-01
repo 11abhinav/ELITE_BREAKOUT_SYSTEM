@@ -2319,37 +2319,26 @@ def api_macro_state():
 
 
 # ── Fetch errors & System logs API (admin) ───────────────────────────────────────
-_FETCH_ERRORS_CACHE = {"ts": 0, "payload": []}
 
 @app.route("/api/fetch_errors")
 @login_required
 def api_fetch_errors():
-    """Return recent aggregated fetch errors for admin triage (5s TTL cache to protect DB connection pool)."""
-    now_ts = time.time()
-    if (now_ts - _FETCH_ERRORS_CACHE["ts"]) < 5.0 and _FETCH_ERRORS_CACHE["payload"]:
-        return jsonify(_FETCH_ERRORS_CACHE["payload"])
+    """Return recent aggregated fetch errors for admin triage with zero stale caching and fast index lookup."""
     try:
+        limit = min(500, max(10, int(request.args.get("limit", 200))))
         from database import get_all_fetch_errors
-        rows = get_all_fetch_errors(200)
-        res = serialize_datetimes(rows)
-        _FETCH_ERRORS_CACHE["ts"] = now_ts
-        _FETCH_ERRORS_CACHE["payload"] = res
-        return jsonify(res)
+        rows = get_all_fetch_errors(limit)
+        return jsonify(serialize_datetimes(rows))
     except Exception as e:
         logger.warning(f"❌ /api/fetch_errors warning: {e}")
-        return jsonify(_FETCH_ERRORS_CACHE.get("payload") or []), 200
-
-_SYSTEM_LOGS_CACHE = {"ts": 0, "payload": None}
+        return jsonify([]), 200
 
 @app.route("/api/system_logs", methods=["GET"])
 @login_required
 def api_system_logs():
-    """Return unacknowledged system logs (5s TTL cache to prevent DB load on rapid UI polling)."""
-    global _SYSTEM_LOGS_CACHE
-    now_ts = time.time()
-    if _SYSTEM_LOGS_CACHE["payload"] is not None and (now_ts - _SYSTEM_LOGS_CACHE["ts"]) < 5.0:
-        return Response(_SYSTEM_LOGS_CACHE["payload"], mimetype="application/json")
+    """Return real-time unacknowledged system logs directly from PostgreSQL."""
     try:
+        limit = min(500, max(10, int(request.args.get("limit", 100))))
         from database import get_connection
         from psycopg2.extras import RealDictCursor
         with get_connection() as conn:
@@ -2368,18 +2357,15 @@ def api_system_logs():
                     WHERE is_acknowledged = FALSE
                     GROUP BY level, module, message
                     ORDER BY last_seen DESC
-                    LIMIT 100
-                """)
+                    LIMIT %s
+                """, (limit,))
                 logs = cur.fetchall()
-                # Format datetime to string
                 for log in logs:
                     if log['first_seen']:
                         log['first_seen'] = log['first_seen'].strftime('%Y-%m-%d %I:%M:%S %p')
                     if log['last_seen']:
                         log['last_seen'] = log['last_seen'].strftime('%Y-%m-%d %I:%M:%S %p')
-        payload = json.dumps(logs)
-        _SYSTEM_LOGS_CACHE = {"ts": now_ts, "payload": payload}
-        return Response(payload, mimetype="application/json")
+        return jsonify(logs)
     except Exception as e:
         logger.debug(f"Failed to fetch system logs: {e}")
         return jsonify([])
@@ -3680,16 +3666,13 @@ def api_trade_audit_log():
         logger.debug(f"Trade audit log fetch fallback: {e}")
         return jsonify([])
 
-_SEH_API_CACHE: dict = {}
-
 @app.route("/api/scanner_execution_history", methods=["GET"])
 @app.route("/api/funnel_telemetry", methods=["GET"])
 @app.route("/api/telemetry/pullback_health", methods=["GET"])
 @app.route("/api/telemetry/quality_audit", methods=["GET"])
 @login_required
 def api_scanner_execution_history():
-    """Returns filterable, paginated scanner execution history with telemetry stats (5s in-memory TTL cache)."""
-    global _SEH_API_CACHE
+    """Returns filterable, paginated scanner execution history directly from PostgreSQL."""
     try:
         scanners_raw = request.args.getlist("scanner")
         if not scanners_raw:
@@ -3707,16 +3690,6 @@ def api_scanner_execution_history():
         page = int(request.args.get("page", 1))
         per_page = int(request.args.get("per_page", 25))
 
-        cache_key = f"{scanner_name}:{lifecycle_status}:{quality_status}:{date_range}:{search}:{system_version}:{git_commit}:{page}:{per_page}"
-        now_ts = time.time()
-        cached = _SEH_API_CACHE.get(cache_key)
-        if cached and (now_ts - cached["ts"]) < 5.0:
-            return Response(cached["payload"], mimetype="application/json", headers={
-                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
-                "Pragma": "no-cache",
-                "Expires": "0"
-            })
-
         from database import get_scanner_execution_history
         res = get_scanner_execution_history(
             scanner_name=scanner_name,
@@ -3730,9 +3703,6 @@ def api_scanner_execution_history():
             per_page=per_page
         )
         payload = json.dumps(serialize_datetimes(res), default=str)
-        if len(_SEH_API_CACHE) > 50:
-            _SEH_API_CACHE.clear()
-        _SEH_API_CACHE[cache_key] = {"ts": now_ts, "payload": payload}
         return Response(payload, mimetype="application/json", headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
             "Pragma": "no-cache",

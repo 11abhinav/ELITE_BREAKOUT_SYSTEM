@@ -2,6 +2,18 @@
 <html lang="en">
 <head>
 <script>
+// GLOBAL SECURITY & FORMATTING HELPERS (Hoisted to top of scope)
+function escapeHTML(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+const USER_PAGE_SIZE = 10;
+
 // GLOBAL FETCH FORTIFICATION
 (function() {
   const originalFetch = window.fetch;
@@ -67,9 +79,9 @@
 <meta property="og:image" content="/static/icons/icon-512.png">
 
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700&display=swap');
   :root {
-    --bg:#f6f8fb; --surface:#ffffff; --card:#ffffff; --card2:#f8fafc; --card3:#f1f5f9;
+    --bg:#f8fafc; --surface:#ffffff; --card:#ffffff; --card2:#f1f5f9; --card3:#e2e8f0;
     --border:#e2e8f0; --border2:#cbd5e1;
     --accent:#059669; --accent-dim:rgba(5,150,105,0.08); --accent-hover:#047857;
     --accent2:#2563eb; --accent2-dim:rgba(37,99,235,0.08);
@@ -77,37 +89,39 @@
     --warn:#dc2626; --warn-dim:rgba(220,38,38,0.08);
     --amber:#d97706; --amber-dim:rgba(217,119,6,0.08);
     --text:#0f172a; --muted:#64748b; --muted2:#94a3b8;
+    --font-display:'Outfit',-apple-system,BlinkMacSystemFont,sans-serif;
     --font-body:'Inter',system-ui,-apple-system,sans-serif;
     --font-mono:'JetBrains Mono','Fira Code',ui-monospace,monospace;
-    --radius:8px; --radius-sm:5px; --radius-lg:12px;
-    --shadow:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
-    --shadow-md:0 4px 12px rgba(0,0,0,.06),0 2px 4px rgba(0,0,0,.04);
-    --shadow-lg:0 8px 24px rgba(0,0,0,.08),0 4px 8px rgba(0,0,0,.04);
+    --radius:10px; --radius-sm:6px; --radius-lg:16px;
+    --shadow:0 1px 3px rgba(0,0,0,.04),0 1px 2px rgba(0,0,0,.02);
+    --shadow-md:0 4px 16px rgba(0,0,0,.06),0 2px 4px rgba(0,0,0,.03);
+    --shadow-lg:0 12px 32px rgba(0,0,0,.08),0 4px 8px rgba(0,0,0,.04);
     --glow:0 0 0 3px rgba(5,150,105,0.15);
   }
   [data-theme="dark"] {
-    --bg:#0d1117; --surface:#161b22; --card:#1c2128; --card2:#21262d; --card3:#2d333b;
-    --border:rgba(255,255,255,.08); --border2:rgba(255,255,255,.14);
-    --text:#e6edf3; --muted:#8b949e; --muted2:#6e7681;
-    --shadow:0 1px 3px rgba(0,0,0,.3); --shadow-md:0 4px 12px rgba(0,0,0,.3);
+    --bg:#080c14; --surface:#0f172a; --card:#111827; --card2:#1a2236; --card3:#24304c;
+    --border:rgba(255,255,255,.07); --border2:rgba(255,255,255,.14);
+    --text:#f1f5f9; --muted:#94a3b8; --muted2:#64748b;
+    --accent:#00e5a0; --accent-dim:rgba(0,229,160,0.12); --accent-hover:#00c88b;
+    --shadow:0 2px 8px rgba(0,0,0,.4); --shadow-md:0 8px 24px rgba(0,0,0,.5);
   }
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
   html{overflow-x:auto;}
   body{background:var(--bg);color:var(--text);font-family:var(--font-body);font-size:14px;min-height:100vh;-webkit-font-smoothing:antialiased;overflow-x:auto;overflow-y:auto;}
-  ::-webkit-scrollbar{width:8px;height:8px;}
+  ::-webkit-scrollbar{width:7px;height:7px;}
   ::-webkit-scrollbar-track{background:var(--card2);border-radius:4px;}
   ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px;}
   ::-webkit-scrollbar-thumb:hover{background:var(--muted2);}
-  ::selection{background:var(--accent);color:#fff;}
-  .header{background:var(--card);border-bottom:1px solid var(--border);padding:0 28px;height:58px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:999;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);}
-  .header-brand{display:flex;align-items:center;gap:10px;}
-  .header-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulseDot 2s infinite;box-shadow:0 0 0 3px rgba(5,150,105,0.2);}
-  @keyframes pulseDot{0%,100%{opacity:1;}50%{opacity:0.45;}}
-  .header h1{font-size:15px;font-weight:700;letter-spacing:-0.3px;color:var(--text);}
+  ::selection{background:var(--accent);color:#080c14;font-weight:600;}
+  .header{background:var(--card);border-bottom:1px solid var(--border);padding:0 28px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:999;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:var(--shadow);}
+  .header-brand{display:flex;align-items:center;gap:12px;}
+  .header-dot{width:9px;height:9px;border-radius:50%;background:var(--accent);animation:pulseDot 2s infinite;box-shadow:0 0 0 3px rgba(0,229,160,0.25);}
+  @keyframes pulseDot{0%,100%{opacity:1;transform:scale(1);}50%{opacity:0.45;transform:scale(0.85);}}
+  .header h1{font-family:var(--font-display);font-size:17px;font-weight:800;letter-spacing:-0.4px;color:var(--text);}
   .header h1 span{color:var(--accent);}
   .header-sub{font-size:11px;color:var(--muted);font-family:var(--font-mono);margin-top:1px;}
   .header-right{display:flex;align-items:center;gap:8px;}
-  .header-stats{font-family:var(--font-mono);font-size:12px;color:var(--muted);padding:0 4px;}
+  .header-stats{font-family:var(--font-mono);font-size:11px;color:var(--accent);background:rgba(0,229,160,0.08);border:1px solid rgba(0,229,160,0.25);border-radius:6px;padding:5px 12px;white-space:nowrap;font-weight:700;}
   .refresh-btn{background:var(--card2);border:1px solid var(--border);color:var(--muted);padding:7px 13px;border-radius:var(--radius);cursor:pointer;font-size:12px;font-family:var(--font-body);font-weight:500;transition:all .18s;display:inline-flex;align-items:center;gap:6px;text-decoration:none;white-space:nowrap;}
   .refresh-btn:hover{border-color:var(--border2);color:var(--text);background:var(--card3);box-shadow:var(--shadow);}
   .refresh-btn.spinning svg{animation:spin .65s linear infinite;}
@@ -862,7 +876,8 @@ const C = {
   muted:'#6b7280', border:'rgba(255,255,255,.07)', text:'#e8eaf0',
 };
 
-const pct      = v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) + '%' : '—';
+const pct      = v => v != null ? (Number(v) > 0 ? '+' : '') + Number(v).toFixed(2) + '%' : '—';
+const pctLoss  = v => v != null ? (Number(v) > 0 ? '-' + Number(v).toFixed(2) : Number(v).toFixed(2)) + '%' : '—';
 const pctClass = v => v == null ? 'flat' : v > 0 ? 'pos' : v < 0 ? 'neg' : 'flat';
 const fmt      = v => v != null ? '₹' + Number(v).toLocaleString('en-IN', {maximumFractionDigits:2}) : '—';
 const badgeHtml = (s, t) => {
@@ -1079,7 +1094,7 @@ function renderKPIs(s) {
     { id: 'winrate', label: 'Win Rate', value: judged.length > 0 ? winRate + '%' : '—', cls: winRate >= 55 ? 'green' : winRate >= 45 ? 'amber' : '', sub: judged.length > 0 ? `${winners.length}W / ${losers.length}L` : 'all positions active', filter: t => t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' },
     { id: 'avgret', label: 'Avg Return', value: judged.length > 0 ? pct(avgReturn) : '—', cls: avgReturn >= 0 ? 'green' : 'red', sub: 'per judged trade', filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) && t.pnl_pct != null },
     { id: 'avgwin', label: 'Avg Win', value: winners.length > 0 ? pct(avgWin) : '—', cls: 'green', sub: 'winners only', filter: t => t.status === 'WIN' || (t.status === 'CLOSED' && (t.pnl_pct || 0) > 0) },
-    { id: 'avgloss', label: 'Avg Loss', value: losers.length > 0 ? pct(avgLoss) : '—', cls: 'red', sub: 'losers only', filter: t => t.status === 'LOSS' || (t.status === 'CLOSED' && (t.pnl_pct || 0) <= 0) },
+    { id: 'avgloss', label: 'Avg Loss', value: losers.length > 0 ? pctLoss(avgLoss) : '—', cls: 'red', sub: 'losers only', filter: t => t.status === 'LOSS' || (t.status === 'CLOSED' && (t.pnl_pct || 0) <= 0) },
     { id: 'expect', label: 'Expectancy', value: judged.length > 0 ? pct(expectancy) : '—', cls: expectancy >= 0 ? 'green' : 'red', sub: 'WR×avgW+(1-WR)×avgL', filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) },
     { id: 'best', label: 'Best Trade', value: filteredTrades.length > 0 ? pct(bestTrade) : '—', cls: 'green', sub: '', filter: t => t.pnl_pct != null && t.pnl_pct === bestTrade },
     { id: 'worst', label: 'Worst Trade', value: filteredTrades.length > 0 ? pct(worstTrade) : '—', cls: 'red', sub: '', filter: t => t.pnl_pct != null && t.pnl_pct === worstTrade },

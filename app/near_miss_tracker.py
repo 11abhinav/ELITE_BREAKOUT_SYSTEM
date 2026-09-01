@@ -38,38 +38,9 @@ def init_near_miss_schema() -> None:
                         max_mfe_r NUMERIC(5, 2) DEFAULT 0.0
                     )
                 """)
-                # Auto-migrate existing table columns from VARCHAR(30) to TEXT
-                cur.execute("""
-                    ALTER TABLE near_misses ALTER COLUMN symbol TYPE TEXT;
-                    ALTER TABLE near_misses ALTER COLUMN scanner TYPE TEXT;
-                    ALTER TABLE near_misses ALTER COLUMN breakout_type TYPE TEXT;
-                    ALTER TABLE near_misses ALTER COLUMN gate_name TYPE TEXT;
-                    ALTER TABLE near_misses ALTER COLUMN status TYPE TEXT;
-                """)
-                # Cleanup existing duplicate rows before creating UNIQUE index
-                cur.execute("""
-                    DELETE FROM near_misses a USING near_misses b
-                    WHERE a.id < b.id AND a.symbol = b.symbol AND a.scanner = b.scanner AND a.logged_date = b.logged_date;
-                """)
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_near_misses_sym_scanner_date ON near_misses (symbol, scanner, logged_date)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_date ON near_misses (logged_date, scanner)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_symbol ON near_misses (symbol)")
-
-                # Backfill historical NULL stop_loss & target_1 from entry_price/cmp
-                cur.execute("""
-                    UPDATE near_misses nm
-                    SET entry_price = ROUND(m.cmp, 2)
-                    FROM stock_analysis_master m
-                    WHERE nm.symbol = m.symbol AND (nm.entry_price IS NULL OR nm.entry_price <= 0) AND m.cmp > 0;
-
-                    UPDATE near_misses
-                    SET stop_loss = ROUND(entry_price * 0.95, 2)
-                    WHERE (stop_loss IS NULL OR stop_loss <= 0) AND entry_price IS NOT NULL AND entry_price > 0;
-
-                    UPDATE near_misses
-                    SET target_1 = ROUND(entry_price + 2.0 * (entry_price - stop_loss), 2)
-                    WHERE (target_1 IS NULL OR target_1 <= 0) AND entry_price IS NOT NULL AND stop_loss IS NOT NULL;
-                """)
                 conn.commit()
     except Exception as e:
         logger.exception(f"Failed to initialize near_misses table: {e}")
