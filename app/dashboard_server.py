@@ -2333,6 +2333,8 @@ def api_fetch_errors():
         logger.warning(f"❌ /api/fetch_errors warning: {e}")
         return jsonify([]), 200
 
+_SYSTEM_LOGS_CACHE: dict = {"ts": 0.0, "payload": None}
+
 @app.route("/api/system_logs", methods=["GET"])
 @login_required
 def api_system_logs():
@@ -2383,7 +2385,11 @@ def acknowledge_system_log():
             with conn.cursor() as cur:
                 cur.execute("UPDATE system_logs SET is_acknowledged = TRUE WHERE message = %s AND module = %s", (message, module))
             conn.commit()
-        _SYSTEM_LOGS_CACHE["ts"] = 0.0  # Invalidate system logs cache
+        # [RULE 67 - FIX RATIONALE]: Explicitly define and defensively invalidate _SYSTEM_LOGS_CACHE
+        # to prevent NameError exceptions when acknowledging or clearing system logs.
+        if "_SYSTEM_LOGS_CACHE" in globals() and isinstance(_SYSTEM_LOGS_CACHE, dict):
+            _SYSTEM_LOGS_CACHE["ts"] = 0.0
+            _SYSTEM_LOGS_CACHE["payload"] = None
         return jsonify({"status": "success"})
     except Exception as e:
         logger.exception(f"Failed to acknowledge system log")
@@ -2398,7 +2404,11 @@ def clear_all_system_logs():
             with conn.cursor() as cur:
                 cur.execute("UPDATE system_logs SET is_acknowledged = TRUE WHERE is_acknowledged = FALSE")
             conn.commit()
-        _SYSTEM_LOGS_CACHE["ts"] = 0.0  # Invalidate system logs cache
+        # [RULE 67 - FIX RATIONALE]: Explicitly define and defensively invalidate _SYSTEM_LOGS_CACHE
+        # to prevent NameError exceptions when acknowledging or clearing system logs.
+        if "_SYSTEM_LOGS_CACHE" in globals() and isinstance(_SYSTEM_LOGS_CACHE, dict):
+            _SYSTEM_LOGS_CACHE["ts"] = 0.0
+            _SYSTEM_LOGS_CACHE["payload"] = None
         return jsonify({"status": "success"})
     except Exception as e:
         logger.exception("Failed to clear all system logs")
