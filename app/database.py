@@ -8828,10 +8828,12 @@ def get_scanner_execution_history(
                     }
                 }
     except Exception as e:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
+        # [RULE 67 CHANGE-RATIONALE]: Ensure conn is defined before calling rollback to prevent NameError if connection failed
+        if 'conn' in locals() and conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
         logger.error(f"Failed to query scanner execution history: {e}")
         return {"records": [], "total_records": 0, "page": page, "per_page": per_page, "total_pages": 1, "available_versions": ["v1"], "available_commits": [], "summary_stats": {}}
 

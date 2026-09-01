@@ -4007,7 +4007,8 @@ function getEarningsBadgeHtml(item) {
           days_held: 0,
         }));
         document.getElementById('drill-title').textContent = `${meta.label} — Today's ${data.today_alerts} alert${data.today_alerts !== 1 ? 's' : ''}`;
-        document.getElementById('drill-body').innerHTML = buildTradeRows(trades, 20, 'drill-').join('');
+        /* [RULE 67 CHANGE-RATIONALE]: buildTradeRows returns a joined string. Calling .join('') on a primitive string throws TypeError. */
+        document.getElementById('drill-body').innerHTML = buildTradeRows(trades, 20, 'drill-');
       }
       document.getElementById('drill-panel').classList.add('open');
       document.getElementById('drill-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -4713,9 +4714,10 @@ function getEarningsBadgeHtml(item) {
     function renderTradeTable() {
       // Prevent rendering the All Trades table when user is viewing other admin tabs (e.g., Scanner Health)
       if (typeof activeAdminTab !== 'undefined' && activeAdminTab !== 'signals-trades') return;
-      const sc = document.getElementById('filterScanner').value;
-      const st = document.getElementById('filterStatus').value;
-      const sym = document.getElementById('filterSymbol').value.trim().toUpperCase();
+      /* [RULE 67 CHANGE-RATIONALE]: Add safe optional chaining to prevent TypeError if filter elements are not yet mounted on page load */
+      const sc = document.getElementById('filterScanner')?.value || '';
+      const st = document.getElementById('filterStatus')?.value || '';
+      const sym = (document.getElementById('filterSymbol')?.value || '').trim().toUpperCase();
       const dateFilt = document.getElementById('filterDate') ? document.getElementById('filterDate').value : 'ALL';
       
       const now = new Date();

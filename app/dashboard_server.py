@@ -1233,13 +1233,10 @@ def performance_json():
     if fallback_val:
         return Response(fallback_val, mimetype="application/json")
 
-    empty_data = json.dumps({
-        "generated_at": datetime.now(IST).isoformat(),
-        "trades": [],
-        "summary": { "total_alerts": 0, "win_rate": 0, "winners": 0, "losers": 0, "open_positions": 0, "sl_triggered": 0, "target_hit": 0 },
-        "by_scanner": {}, "by_category": {}, "equity_curve": [], "monthly": []
-    })
-    return Response(empty_data, mimetype="application/json")
+    # [RULE 67 CHANGE-RATIONALE]:
+    # Removed premature return of empty_data. If system_state cache is missing and 
+    # _build_instant_performance_fallback returns None, proceed to Tier 4 DB fallback 
+    # to construct complete trade records from PostgreSQL alerts table instead of returning 0 trades.
 
     # Fallback Tier 4: Direct alerts query if system_state performance_data is unavailable
     empty = {
