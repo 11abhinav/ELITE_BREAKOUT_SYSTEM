@@ -2310,6 +2310,7 @@ function changeAdminPage(type, delta) {
             <div style="display:flex; gap:8px; align-items:center;">
               <select id="near-miss-scanner-filter" onchange="loadNearMisses()" style="padding:4px 10px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:11px; font-weight:600;">
                 <option value="">All Scanners</option>
+                <option value="SHAKEOUT_RECLAIM">Shakeout Reclaim</option>
                 <option value="ACCUMULATION">Accumulation</option>
                 <option value="EOD">EOD Breakout</option>
                 <option value="REVERSAL">Reversal</option>
@@ -2527,6 +2528,10 @@ function changeAdminPage(type, delta) {
                   </div>
                 </div>
                 <div id="seh-scanner-checkbox-list" style="display:flex; flex-direction:column; gap:6px;">
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
+                    <input type="checkbox" class="seh-scanner-cb" value="SHAKEOUT_RECLAIM" onchange="onSehScannerChange()" checked />
+                    <span>Shakeout Reclaim Scanner</span>
+                  </label>
                   <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
                     <input type="checkbox" class="seh-scanner-cb" value="ACCUMULATION" onchange="onSehScannerChange()" checked />
                     <span>Accumulation Scanner</span>
@@ -3516,6 +3521,7 @@ function changeAdminPage(type, delta) {
       'EOD': { label: 'EOD Scanner', desc: 'Daily Breakout Scan · Daily 18:30 IST (Post-Bhavcopy)' },
       'REVERSAL': { label: 'Reversal Scanner', desc: 'Mean Reversion Scan · Daily 18:30 IST (Post-Bhavcopy)' },
       'PULLBACK': { label: 'Pullback Pipeline', desc: 'Pullback Continuation Scan · Daily 18:30 IST (Post-Bhavcopy)' },
+      'SHAKEOUT_RECLAIM': { label: 'Shakeout Reclaim Scanner', desc: 'V-Reversal Reclaim · Daily 16:00 IST' },
       'ACCUMULATION': { label: 'Accumulation Scanner', desc: 'Post-Close Delivery Scan · Daily 16:15 IST' },
       'MULTIBAGGER': { label: 'Multibagger Scanner', desc: 'Daily Fundamental Scan · Daily 17:30 IST' },
       'AI Worker': { label: 'AI Worker', desc: 'Concall & Fundamental Caching · Continuous' },
@@ -3663,7 +3669,7 @@ function getEarningsBadgeHtml(item) {
       }
 
       // Ensure all known scanners appear even if not in stats
-      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'MULTI_TF', 'ACCUMULATION', 'EOD', 'REVERSAL', 'PULLBACK', 'Wealth Engine', 'MULTIBAGGER', 'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT', 'Pledge Worker', 'AI Worker', 'Earnings Calendar'];
+      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'MULTI_TF', 'SHAKEOUT_RECLAIM', 'ACCUMULATION', 'EOD', 'REVERSAL', 'PULLBACK', 'Wealth Engine', 'MULTIBAGGER', 'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT', 'Pledge Worker', 'AI Worker', 'Earnings Calendar'];
       const allScanners = new Set([...Object.keys(SCANNER_META), ...Object.keys(scanner_stats)].filter(sc => ALLOWED_SCANNERS.includes(sc)));
       el.innerHTML = '';
 
@@ -7891,7 +7897,8 @@ function renderStockDiagnosticModal(data) {
     { key: 'pullback', label: '5. Pullback Continuation Pipeline', scanner: 'PULLBACK' },
     { key: 'accumulation', label: '6. Accumulation Scanner', scanner: 'ACCUMULATION' },
     { key: 'wealth_engine', label: '7. Wealth Engine', scanner: 'WEALTH' },
-    { key: 'multibagger', label: '8. Multibagger Engine', scanner: 'MULTIBAGGER' }
+    { key: 'multibagger', label: '8. Multibagger Engine', scanner: 'MULTIBAGGER' },
+    { key: 'shakeout_reclaim', label: '9. Shakeout Reclaim Scanner', scanner: 'SHAKEOUT_RECLAIM' }
   ];
 
   const funnelRowsHtml = funnelKeys.map(item => {

@@ -3271,6 +3271,7 @@ def get_all_scanner_health() -> list[dict]:
         "REVERSAL": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
         "PULLBACK": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
         "ACCUMULATION": "Daily 16:15 IST (Post-Close Delivery)",
+        "SHAKEOUT_RECLAIM": "Daily 16:00 IST (Post-Close Reclaim)",
         "Wealth Engine": "Daily 17:00 IST (Post-Market Scan)",
         "MULTIBAGGER": "Daily 17:30 IST (Daily Fundamental)",
         "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
