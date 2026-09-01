@@ -982,6 +982,10 @@ def init_db():
                 """)
 
                 # 14. instrument_registry, provider_instruments, symbol_mappings, resolution_history
+                # [RULE 67 - FIX RATIONALE]: Executing multiple DDLs in a single semicolon-joined batch string
+                # caused PostgreSQL parse syntax error at line 46 in psycopg2 during init_db startup.
+                # Each table and index is now isolated into its own dedicated cur.execute statement, matching
+                # the rest of init_db. Also includes full schema columns for both modern and legacy mapping queries.
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS instrument_registry (
                         instrument_id TEXT PRIMARY KEY,
@@ -995,9 +999,11 @@ def init_db():
                         is_active BOOLEAN DEFAULT TRUE,
                         created_at TIMESTAMPTZ DEFAULT NOW(),
                         updated_at TIMESTAMPTZ DEFAULT NOW()
-                    );
-                    CREATE INDEX IF NOT EXISTS idx_inst_reg_sym ON instrument_registry (symbol);
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_inst_reg_sym ON instrument_registry (symbol)")
 
+                cur.execute("""
                     CREATE TABLE IF NOT EXISTS provider_instruments (
                         provider TEXT NOT NULL,
                         instrument_id TEXT NOT NULL,
@@ -1007,18 +1013,20 @@ def init_db():
                         series TEXT,
                         updated_at TIMESTAMPTZ DEFAULT NOW(),
                         PRIMARY KEY (provider, instrument_id)
-                    );
-                    CREATE INDEX IF NOT EXISTS idx_prov_inst_sym ON provider_instruments (provider, provider_symbol);
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_prov_inst_sym ON provider_instruments (provider, provider_symbol)")
 
+                cur.execute("""
                     CREATE TABLE IF NOT EXISTS symbol_mappings (
-                        provider TEXT NOT NULL,
-                        original_symbol TEXT NOT NULL,
-                        mapped_symbol TEXT NOT NULL,
+                        provider TEXT,
+                        original_symbol TEXT,
+                        mapped_symbol TEXT,
                         instrument_id TEXT,
                         exchange TEXT,
                         series TEXT,
                         confidence_score INTEGER DEFAULT 100,
-                        mapping_source TEXT NOT NULL,
+                        mapping_source TEXT DEFAULT 'LEARNED',
                         status TEXT DEFAULT 'ACTIVE',
                         version INTEGER DEFAULT 1,
                         consecutive_failures INTEGER DEFAULT 0,
@@ -1026,10 +1034,20 @@ def init_db():
                         last_verified_at TIMESTAMPTZ DEFAULT NOW(),
                         retry_after TIMESTAMPTZ,
                         effective_from TIMESTAMPTZ DEFAULT NOW(),
-                        effective_to TIMESTAMPTZ
-                    );
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_symbol_mappings_prov_orig ON symbol_mappings (provider, original_symbol);
+                        effective_to TIMESTAMPTZ,
+                        mapping_type TEXT,
+                        original_sym TEXT,
+                        mapped_sym TEXT,
+                        mapping_state TEXT DEFAULT 'ACTIVE',
+                        failure_count INTEGER DEFAULT 0,
+                        last_verified TEXT,
+                        is_invalid BOOLEAN DEFAULT FALSE
+                    )
+                """)
+                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_symbol_mappings_prov_orig ON symbol_mappings (provider, original_symbol) WHERE provider IS NOT NULL AND original_symbol IS NOT NULL")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_symbol_mappings_legacy ON symbol_mappings (mapping_type, original_sym)")
 
+                cur.execute("""
                     CREATE TABLE IF NOT EXISTS resolution_history (
                         id BIGSERIAL PRIMARY KEY,
                         provider TEXT NOT NULL,
@@ -1041,9 +1059,9 @@ def init_db():
                         latency_ms DOUBLE PRECISION,
                         error_code TEXT,
                         created_at TIMESTAMPTZ DEFAULT NOW()
-                    );
-                    CREATE INDEX IF NOT EXISTS idx_res_hist_sym ON resolution_history (provider, original_symbol);
+                    )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_res_hist_sym ON resolution_history (provider, original_symbol)")
 
                 # 15. ai_concall_cache_v3
                 cur.execute("""
