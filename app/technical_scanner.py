@@ -1,6 +1,6 @@
 # =====================================================================================
 # app/technical_scanner.py
-# PRODUCTION-GRADE UNIFIED TECHNICAL PATTERN & ANTI-FAKE SCANNER — Daily 16:00 IST
+# PRODUCTION-GRADE UNIFIED TECHNICAL PATTERN & ANTI-FAKE SCANNER — Daily 18:15 IST
 #
 # RULE 67 MANDATORY CHANGE-RATIONALE:
 # - Institutional-grade technical scanner conforming to the "Permissive Pattern Discovery,
@@ -970,7 +970,7 @@ def run_technical_scan(
 ) -> int:
     """
     Main Execution Entry Point for Unified TECHNICAL Scanner.
-    Runs daily at 16:00 IST (4:00 PM IST) post-market close.
+    Runs daily at 18:15 IST (6:15 PM IST) post-market close.
     """
     if _scan_lock.locked():
         logger.warning("🛑 [DUPLICATE GUARD] TECHNICAL Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
@@ -1012,7 +1012,7 @@ def run_technical_scan(
         telemetry.log_scheduler_event("TECHNICAL", "CYCLE_START")
 
         logger.info("=" * 70)
-        logger.info("🚀 TECHNICAL SCANNER | Starting 4:00 PM Multi-Pattern Technical Execution...")
+        logger.info("🚀 TECHNICAL SCANNER | Starting 6:15 PM Multi-Pattern Technical Execution...")
         logger.info("=" * 70)
 
         if not real_run_ctx:
@@ -1031,7 +1031,7 @@ def run_technical_scan(
             scanner_name="TECHNICAL",
             status="RUNNING",
             error_msg="Multi-Pattern Technical scan in progress...",
-            scheduled_for="Daily 16:00 IST (Post-Close Technical Scan)",
+            scheduled_for="Daily 18:15 IST (Post-Close Technical Scan)",
         )
 
         # 1. Fetch Universe Watchlist (From Daily Builder master universe)
@@ -1051,7 +1051,7 @@ def run_technical_scan(
                 outcome="SUCCESS",
                 processed_count=0,
                 duration_seconds=round(time.monotonic() - start_time, 2),
-                scheduled_for="Daily 16:00 IST (Post-Close Technical Scan)",
+                scheduled_for="Daily 18:15 IST (Post-Close Technical Scan)",
             )
             telemetry.log_scheduler_event("TECHNICAL", "CYCLE_COMPLETE")
             if real_run_ctx:
@@ -1184,7 +1184,7 @@ def run_technical_scan(
             duration_seconds=duration,
             outcome="SUCCESS",
             error_msg=None,
-            scheduled_for="Daily 16:00 IST (Post-Close Technical Scan)",
+            scheduled_for="Daily 18:15 IST (Post-Close Technical Scan)",
         )
 
         telemetry.log_scheduler_event("TECHNICAL", "CYCLE_COMPLETE")
@@ -1202,7 +1202,7 @@ def run_technical_scan(
             error_msg=str(exc)[:500],
             duration_seconds=duration,
             outcome="FAILED",
-            scheduled_for="Daily 16:00 IST (Post-Close Technical Scan)",
+            scheduled_for="Daily 18:15 IST (Post-Close Technical Scan)",
         )
         telemetry.log_scheduler_event("TECHNICAL", "CYCLE_FAILED", error=str(exc))
         if real_run_ctx:

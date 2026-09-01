@@ -1737,15 +1737,15 @@ def run_system_scheduler():
                 evening_scanners_ran = False
                 evening_batch_deadline_logged = False
 
-            # 16:00 - Technical Scanner (Post-Close Bottom Absorption Scan)
-            if (now.hour > 16 or (now.hour == 16 and now.minute >= 0)) and last_technical_date != now.date():
+            # 18:15 - Technical Scanner (Post-Close Multi-Pattern Technical Scan)
+            if (now.hour > 18 or (now.hour == 18 and now.minute >= 15)) and last_technical_date != now.date():
                 last_technical_date = now.date()
                 if not is_scanner_stopped("TECHNICAL"):
-                    logger.info("🕒 SCHEDULER | [16:00] Triggering TECHNICAL scanner (Bottom Absorption Scan)")
+                    logger.info("🕒 SCHEDULER | [18:15] Triggering TECHNICAL scanner (Multi-Pattern Technical Scan)")
                     import threading
                     threading.Thread(target=_trigger_technical, kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"}, name="TechnicalScanner", daemon=True).start()
                 else:
-                    logger.info("⏭️ TECHNICAL is STOPPED by Admin. Skipping 16:00 run.")
+                    logger.info("⏭️ TECHNICAL is STOPPED by Admin. Skipping 18:15 run.")
 
             # 16:15 - Accumulation Scanner (Post-Close Scan after NSE Delivery Reports published)
             if (now.hour > 16 or (now.hour == 16 and now.minute >= 15)) and last_accumulation_date != now.date():
