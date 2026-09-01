@@ -575,7 +575,6 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
         # Direct broker fallback fetch if batch map did not return a valid DataFrame
         if df is None or not isinstance(df, pd.DataFrame) or df.empty:
             try:
-                from price_cache import fetch_watchlist_data
                 df_req = pd.DataFrame([{"Stock": sym_clean}])
                 res_dict = fetch_watchlist_data(df_req, interval="1d", period="1y", requester="StockAnalyzer")
                 bdf = res_dict.get(sym_clean)

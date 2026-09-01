@@ -1965,7 +1965,8 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
             all_historical_data = fetch_unified_historical(list(all_symbols_to_fetch), period="1y", interval="1d", requester="WEALTH_ENGINE_1D") or {}
         _stage_ms_hist_bulk = (time.perf_counter() - _t_hist_bulk) * 1000
         logger.info(f"⏱ [STAGE] 1D bulk_historical_fetch: {_stage_ms_hist_bulk:.0f}ms for {len(all_symbols_to_fetch)} symbols")
-        stage_tracker.end_stage(f"Acquired {len(all_historical_data)} historical dataframes")
+        valid_hist_count = sum(1 for v in all_historical_data.values() if isinstance(v, pd.DataFrame) and not v.empty)
+        stage_tracker.end_stage(f"Acquired {valid_hist_count}/{len(all_symbols_to_fetch)} historical dataframes")
 
         from config import SCAN_WORKER_THREADS
         stage_tracker.start_stage(4, "Indicator Calculation & Scoring", f"Workers={SCAN_WORKER_THREADS}")

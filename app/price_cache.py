@@ -1445,12 +1445,10 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
             except Exception as _b_up_err:
                 logger.debug(f"Incremental history bundle sync dispatch: {_b_up_err}")
 
-    logger.info(f"✅ Data secured for {len(all_data)}/{total} symbols [{interval}]")
-
     successful_syms = []
     for sym in symbols:
         df = all_data.get(sym)
-        if df is None or isinstance(df, ProviderResult):
+        if df is None or isinstance(df, ProviderResult) or not isinstance(df, pd.DataFrame) or df.empty:
             try:
                 upsert_fetch_error('fyers', 'PRICE_CACHE', sym, interval, 'no_data_after_fetch', 'no_data_returned')
             except Exception:
@@ -1458,6 +1456,8 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
             all_data[sym] = None
         else:
             successful_syms.append(sym)
+
+    logger.info(f"✅ Data secured for {len(successful_syms)}/{total} symbols [{interval}]")
 
     if successful_syms:
         try:
