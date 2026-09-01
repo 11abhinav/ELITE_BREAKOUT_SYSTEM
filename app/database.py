@@ -1026,7 +1026,7 @@ def init_db():
                         last_verified_at TIMESTAMPTZ DEFAULT NOW(),
                         retry_after TIMESTAMPTZ,
                         effective_from TIMESTAMPTZ DEFAULT NOW(),
-                        effective_to TIMESTAMPTZ,
+                        effective_to TIMESTAMPTZ
                     );
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_symbol_mappings_prov_orig ON symbol_mappings (provider, original_symbol);
 
