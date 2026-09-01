@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
 _scan_lock = ProcessLock("technical_scanner_lock")
+_global_lock = ProcessLock("global_scanner_lock")
 
 # =====================================================================================
 # CONFIGURABLE STRATEGY PARAMETERS & THRESHOLDS
@@ -971,30 +972,60 @@ def run_technical_scan(
     Main Execution Entry Point for Unified TECHNICAL Scanner.
     Runs daily at 16:00 IST (4:00 PM IST) post-market close.
     """
-    if not _scan_lock.acquire(blocking=False):
-        logger.warning("🔒 [TECHNICAL] Scanner is already running. Skipping duplicate cycle.")
+    if _scan_lock.locked():
+        logger.warning("🛑 [DUPLICATE GUARD] TECHNICAL Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
+        if run_ctx:
+            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner lock busy")
         return 0
 
+    acquired_global = False
+    acquired_scan = False
     start_time = time.monotonic()
-    telemetry.log_scheduler_event("TECHNICAL", "CYCLE_START")
-
-    logger.info("=" * 70)
-    logger.info("🚀 TECHNICAL SCANNER | Starting 4:00 PM Multi-Pattern Technical Execution...")
-    logger.info("=" * 70)
-
     real_run_ctx = run_ctx
-    if not real_run_ctx:
-        try:
-            real_run_ctx = start_scanner_execution_run(
-                scanner_name="TECHNICAL",
-                trigger_type=trigger_type,
-                scheduler_name=scheduler_name,
-            )
-        except Exception as exc:
-            logger.warning(f"⚠️ [TECHNICAL] Could not create run_ctx: {exc}")
-            real_run_ctx = None
 
     try:
+        if not _scan_lock.acquire(blocking=False):
+            logger.warning("🔒 [TECHNICAL] Scanner is already running. Skipping duplicate cycle.")
+            return 0
+        acquired_scan = True
+
+        # Acquire universal global scanner lock
+        if not _global_lock.acquire(blocking=False, owner_scanner="TECHNICAL", operation="FULL_SCAN"):
+            logger.info("⏳ [TECHNICAL] Global scanner lock busy — waiting in queue until active scanner finishes...")
+            upsert_scanner_health("TECHNICAL", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
+
+            try:
+                acquired_global = _global_lock.acquire(blocking=True, owner_scanner="TECHNICAL", operation="FULL_SCAN", run_ctx=real_run_ctx)
+            except Exception as lock_err:
+                logger.error(f"❌ [TECHNICAL] Error acquiring global lock: {lock_err}")
+                acquired_global = False
+
+            if not acquired_global:
+                logger.error("❌ [TECHNICAL] Failed to acquire global scanner lock after queue wait.")
+                if real_run_ctx:
+                    complete_scanner_execution_run(real_run_ctx, status_override="FAILED", stop_reason="Global lock acquire timeout")
+                upsert_scanner_health("TECHNICAL", "IDLE", error_msg="Lock acquisition timed out")
+                return 0
+        else:
+            acquired_global = True
+
+        telemetry.log_scheduler_event("TECHNICAL", "CYCLE_START")
+
+        logger.info("=" * 70)
+        logger.info("🚀 TECHNICAL SCANNER | Starting 4:00 PM Multi-Pattern Technical Execution...")
+        logger.info("=" * 70)
+
+        if not real_run_ctx:
+            try:
+                real_run_ctx = start_scanner_execution_run(
+                    scanner_name="TECHNICAL",
+                    trigger_type=trigger_type,
+                    scheduler_name=scheduler_name,
+                )
+            except Exception as exc:
+                logger.warning(f"⚠️ [TECHNICAL] Could not create run_ctx: {exc}")
+                real_run_ctx = None
+
         init_db()
         upsert_scanner_health(
             scanner_name="TECHNICAL",
@@ -1037,7 +1068,7 @@ def run_technical_scan(
 
         logger.info(f"📋 [TECHNICAL] Screening {len(watchlist)} universe stocks on Daily timeframe...")
 
-        # 2. Fetch 1d OHLCV Data for Watchlist
+        # 2. Fetch 1d OHLCV Data for Watchlist (with delta caching and heartbeat tracking)
         all_1d = fetch_watchlist_data(
             watchlist,
             period="1y",
@@ -1181,4 +1212,14 @@ def run_technical_scan(
                 pass
         return 0
     finally:
-        _scan_lock.release()
+        if acquired_global:
+            try:
+                _global_lock.release()
+            except Exception as _ge:
+                logger.debug(f"Error releasing global lock: {_ge}")
+        if acquired_scan:
+            try:
+                _scan_lock.release()
+            except Exception as _se:
+                logger.debug(f"Error releasing scan lock: {_se}")
+

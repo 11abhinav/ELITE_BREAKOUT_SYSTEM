@@ -424,9 +424,17 @@ class AccumulationScanner:
                     health.stop("ADMIN_STOP_DURING_PAUSE")
                     break
 
-                # Fetch daily OHLCV batch
+                # Fetch daily OHLCV batch (with delta caching and heartbeat tracking)
                 logger.info(f"📥 [ACCUMULATION] Fetching OHLCV data for batch {b_idx} ({len(batch)} symbols)...")
-                ohlcv_map = fetch_watchlist_data(pd.DataFrame({"Stock": batch}), period="1y", interval="1d")
+                ohlcv_map = fetch_watchlist_data(
+                    pd.DataFrame({"Stock": batch}),
+                    period="1y",
+                    interval="1d",
+                    requester="ACCUMULATION",
+                    run_ctx=run_ctx,
+                )
+                if run_ctx and hasattr(run_ctx, "heartbeat"):
+                    run_ctx.heartbeat(force=True)
 
                 for sym in batch:
                     df = ohlcv_map.get(sym)
