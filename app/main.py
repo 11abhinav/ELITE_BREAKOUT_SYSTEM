@@ -1329,7 +1329,7 @@ def run_system_scheduler():
                     "WEALTH_EXIT",
                     status="OK",
                     last_success=datetime.now(IST).isoformat(),
-                    scheduled_for="Every 5min (9:15 AM - 3:30 PM)",
+                    scheduled_for="Every 5min (09:15 - 15:30 IST)",
                     duration_seconds=duration_sec
                 )
             else:
@@ -1341,12 +1341,12 @@ def run_system_scheduler():
             if "actively running" in str(e).lower():
                 logger.info("⏳ Wealth Engine is actively running.")
                 return False
-            logger.exception("❌ SCHEDULER | Wealth Engine (market hours) crashed")
+            logger.exception("❌ SCHEDULER | WEALTH_EXIT (market hours) crashed")
             upsert_scanner_health(
-                "Wealth Engine",
+                "WEALTH_EXIT",
                 status="DOWN",
                 error_msg=str(e)[:500],
-                scheduled_for="Every 5min (9:15 AM - 3:30 PM)"
+                scheduled_for="Every 5min (09:15 - 15:30 IST)"
             )
             return False
 
