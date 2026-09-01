@@ -2338,6 +2338,13 @@ def save_alert_if_new(
             except Exception as e:
                 logger.exception(f"Failed to start push thread")
 
+            # Asynchronously rebuild performance_data.json so Dashboard Alert Table updates immediately
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception as _p_err:
+                logger.debug(f"Performance rebuild trigger error: {_p_err}")
+
         return inserted, "Inserted" if inserted else "DB CONFLICT (Duplicate)", capital_allocated, shares_bought
 
     if conn is None:

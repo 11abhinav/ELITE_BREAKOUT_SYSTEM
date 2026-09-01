@@ -1206,6 +1206,13 @@ def run_technical_scan(
         if real_run_ctx:
             complete_scanner_execution_run(real_run_ctx)
 
+        if alerts_saved > 0:
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception as _pr_err:
+                logger.debug(f"Performance rebuild trigger on technical alerts: {_pr_err}")
+
         return alerts_saved
 
     except Exception as exc:
