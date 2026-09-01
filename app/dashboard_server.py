@@ -1135,7 +1135,14 @@ def api_get_near_misses():
         return jsonify([])
 
 
+_INSTANT_PERF_CACHE = {"payload": None, "ts": 0.0}
+
 def _build_instant_performance_fallback():
+    global _INSTANT_PERF_CACHE
+    now_ts = time.time()
+    if _INSTANT_PERF_CACHE["payload"] is not None and (now_ts - _INSTANT_PERF_CACHE["ts"]) < 10.0:
+        return _INSTANT_PERF_CACHE["payload"]
+
     try:
         from database import get_all_alerts
         raw_alerts = get_all_alerts(limit=3000)
@@ -1224,7 +1231,10 @@ def _build_instant_performance_fallback():
             "trades": trades,
             "by_scanner": {}, "by_category": {}, "equity_curve": [], "monthly": []
         }
-        return json.dumps(payload, default=str)
+        res_str = json.dumps(payload, default=str)
+        _INSTANT_PERF_CACHE["payload"] = res_str
+        _INSTANT_PERF_CACHE["ts"] = now_ts
+        return res_str
     except Exception as e:
         logger.warning(f"Failed to build instant performance fallback: {e}")
         return None
@@ -3519,6 +3529,8 @@ _cached_worker_symbols_time = 0
 _wealth_trades_cache = {"timestamp": 0, "trades": []}
 _WORKER_STATS_CACHE = {"ts": 0.0, "processed_count": 0, "total_count": 0}
 
+_WEALTH_TODAY_TRADES_CACHE = {"trades": [], "ts": 0.0}
+
 @app.route("/api/scanner_status")
 @app.route("/api/scanner_health")
 @login_required
@@ -3526,7 +3538,7 @@ def api_scanner_status():
     """
     Return per-scanner health stats and today's trades (10s TTL cache to protect DB connection pool).
     """
-    global _SCANNER_STATUS_CACHE, _WORKER_STATS_CACHE
+    global _SCANNER_STATUS_CACHE, _WORKER_STATS_CACHE, _WEALTH_TODAY_TRADES_CACHE
     now_ts = time.time()
     if _SCANNER_STATUS_CACHE["payload"] is not None and (now_ts - _SCANNER_STATUS_CACHE["ts"]) < 10.0:
         return Response(_SCANNER_STATUS_CACHE["payload"], mimetype="application/json")
@@ -3546,33 +3558,39 @@ def api_scanner_status():
             today_trades = all_today_trades.get(sc, [])
             
             if sc == "Wealth Engine":
-                try:
-                    import os, pandas as pd
-                    from config import DATA_DIR
-                    wealth_path = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
-                    if os.path.exists(wealth_path):
-                        wdf = pd.read_parquet(wealth_path)
-                        if not wdf.empty and "Alert Date" in wdf.columns:
-                            wdf["Alert Date"] = pd.to_datetime(wdf["Alert Date"]).dt.strftime('%Y-%m-%d')
-                            today_w = wdf[wdf["Alert Date"] == today_str]
-                            today_trades = [
-                                {
-                                    "symbol": r.get("Stock", ""),
-                                    "category": "WEALTH",
-                                    "signals": "Wealth Engine Selection",
-                                    "entry_price": float(r.get("Entry Price", 0)) if r.get("Entry Price") else None,
-                                    "alert_time": r.get("Alert Date", ""),
-                                    "stop_loss": float(r.get("SL", 0)) if r.get("SL") else None,
-                                    "target_price": float(r.get("Target", 0)) if r.get("Target") else None,
-                                    "status": "OPEN",
-                                    "score": float(r.get("Score", 0)) if r.get("Score") else None,
-                                    "closed_at": None,
-                                    "pnl_pct": None,
-                                }
-                                for _, r in today_w.iterrows()
-                            ]
-                except Exception as _we_err:
-                    logger.debug(f"Wealth trades parse warning: {_we_err}")
+                # [RULE 67 CHANGE-RATIONALE]: Cache Wealth Engine parquet parse for 30 seconds to prevent blocking Flask request threads
+                if (now_ts - _WEALTH_TODAY_TRADES_CACHE["ts"]) < 30.0 and _WEALTH_TODAY_TRADES_CACHE["trades"]:
+                    today_trades = _WEALTH_TODAY_TRADES_CACHE["trades"]
+                else:
+                    try:
+                        import os, pandas as pd
+                        from config import DATA_DIR
+                        wealth_path = os.path.join(DATA_DIR, "elite_wealth_system.parquet")
+                        if os.path.exists(wealth_path):
+                            wdf = pd.read_parquet(wealth_path)
+                            if not wdf.empty and "Alert Date" in wdf.columns:
+                                wdf["Alert Date"] = pd.to_datetime(wdf["Alert Date"]).dt.strftime('%Y-%m-%d')
+                                today_w = wdf[wdf["Alert Date"] == today_str]
+                                today_trades = [
+                                    {
+                                        "symbol": r.get("Stock", ""),
+                                        "category": "WEALTH",
+                                        "signals": "Wealth Engine Selection",
+                                        "entry_price": float(r.get("Entry Price", 0)) if r.get("Entry Price") else None,
+                                        "alert_time": r.get("Alert Date", ""),
+                                        "stop_loss": float(r.get("SL", 0)) if r.get("SL") else None,
+                                        "target_price": float(r.get("Target", 0)) if r.get("Target") else None,
+                                        "status": "OPEN",
+                                        "score": float(r.get("Score", 0)) if r.get("Score") else None,
+                                        "closed_at": None,
+                                        "pnl_pct": None,
+                                    }
+                                    for _, r in today_w.iterrows()
+                                ]
+                                _WEALTH_TODAY_TRADES_CACHE["trades"] = today_trades
+                                _WEALTH_TODAY_TRADES_CACHE["ts"] = now_ts
+                    except Exception as _we_err:
+                        logger.debug(f"Wealth trades parse warning: {_we_err}")
 
             processed_count = None
             total_count = None

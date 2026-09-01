@@ -1587,6 +1587,8 @@ def init_db():
                     -- Adds compound indexes on started_at and lifecycle_status for instant paginated and filtered UI scans.
                     CREATE INDEX IF NOT EXISTS idx_seh_started_at ON scanner_execution_history(started_at DESC);
                     CREATE INDEX IF NOT EXISTS idx_seh_life_started ON scanner_execution_history(lifecycle_status, started_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_seh_perf_composite ON scanner_execution_history(lifecycle_status, quality_status, started_at DESC);
+                    CREATE INDEX IF NOT EXISTS idx_seh_scanner_life ON scanner_execution_history(scanner_name, lifecycle_status, started_at DESC);
                 """)
 
                 # [RULE 67 CHANGE-RATIONALE]:
@@ -3278,20 +3280,30 @@ def get_all_scanner_health() -> list[dict]:
         "AI Worker": "Continuous (Sat-Sun Active)",
     }
 
-    # Auto-seed and synchronize scheduled_for for all scanners so old DB values are overwritten
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                now_str = datetime.now(IST).isoformat()
-                for sc_name, sched_str in schedule_map.items():
-                    cur.execute("""
-                        INSERT INTO scanner_health (scanner_name, status, scheduled_for, updated_at)
-                        VALUES (%s, 'IDLE', %s, %s)
-                        ON CONFLICT (scanner_name) DO UPDATE SET scheduled_for = EXCLUDED.scheduled_for
-                    """, (sc_name, sched_str, now_str))
-                conn.commit()
-    except Exception as seed_err:
-        logger.warning(f"Scanner health schedule sync warning: {seed_err}")
+    # [RULE 67 CHANGE-RATIONALE]:
+    # Throttle auto-seed write operations to once every 60 seconds.
+    # Previously, running 13 INSERT/UPDATE queries on every single read GET request created
+    # heavy database write contention and added 200-500ms delay to every 10s UI poll.
+    global _HEALTH_SEED_LAST_RUN_TS
+    if '_HEALTH_SEED_LAST_RUN_TS' not in globals():
+        _HEALTH_SEED_LAST_RUN_TS = 0.0
+
+    _now_mono_h = time.monotonic()
+    if (_now_mono_h - _HEALTH_SEED_LAST_RUN_TS) >= 60.0:
+        _HEALTH_SEED_LAST_RUN_TS = _now_mono_h
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    now_str = datetime.now(IST).isoformat()
+                    for sc_name, sched_str in schedule_map.items():
+                        cur.execute("""
+                            INSERT INTO scanner_health (scanner_name, status, scheduled_for, updated_at)
+                            VALUES (%s, 'IDLE', %s, %s)
+                            ON CONFLICT (scanner_name) DO UPDATE SET scheduled_for = EXCLUDED.scheduled_for
+                        """, (sc_name, sched_str, now_str))
+                    conn.commit()
+        except Exception as seed_err:
+            logger.warning(f"Scanner health schedule sync warning: {seed_err}")
 
     # Watchdog Auto-Healing: Only mark stuck RUNNING threads (>15 mins) as DOWN if global scanner lock is NOT held
     try:
@@ -3681,6 +3693,10 @@ def mark_alert_seen(alert_id: int, role: str = "user") -> bool:
                 return False
 
 
+# [RULE 67 CHANGE-RATIONALE]:
+# Memoize system_state lookups in memory for 5 seconds to eliminate repetitive SQL queries.
+_SYSTEM_STATE_MEM_CACHE = {}  # key -> (value_str, timestamp)
+
 def save_system_state(key: str, value_str) -> None:
     """Save/update a value (string or dict/JSON payload) for a specific key."""
     init_db()
@@ -3690,6 +3706,8 @@ def save_system_state(key: str, value_str) -> None:
             value_str = json.dumps(value_str)
         elif value_str is not None:
             value_str = str(value_str)
+
+        _SYSTEM_STATE_MEM_CACHE[key] = (value_str, time.time())
 
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -3709,14 +3727,23 @@ def save_system_state(key: str, value_str) -> None:
 
 
 def get_system_state(key: str) -> Optional[str]:
-    """Retrieve system state value for a specific key."""
+    """Retrieve system state value for a specific key (5s TTL in-memory cache)."""
+    now_ts = time.time()
+    if key in _SYSTEM_STATE_MEM_CACHE:
+        val, ts = _SYSTEM_STATE_MEM_CACHE[key]
+        if (now_ts - ts) < 5.0:
+            return val
+
     init_db()
     with get_connection() as conn:
         with conn.cursor() as cur:
             try:
                 cur.execute("SELECT value FROM system_state WHERE key = %s", (key,))
                 row = cur.fetchone()
-                return row[0] if row else None
+                res = row[0] if row else None
+                if res is not None:
+                    _SYSTEM_STATE_MEM_CACHE[key] = (res, now_ts)
+                return res
             except Exception:
                 logger.exception(f"❌ get_system_state failed for key={key}")
                 return None

@@ -5938,7 +5938,8 @@ async function initDashboard() {
         if (typeof renderScannerGrid === 'function') renderScannerGrid(window._scannerStats);
         if (diagnosticsLoaded) loadNonCriticalErrors();
       }
-      if (typeof fetchScannerExecutionHistory === 'function') {
+      /* [RULE 67 CHANGE-RATIONALE]: Only poll execution history if user is actively viewing the Scanner Health & History tab */
+      if (typeof fetchScannerExecutionHistory === 'function' && typeof activeAdminTab !== 'undefined' && activeAdminTab === 'health-errors') {
         await fetchScannerExecutionHistory(currentSehPage);
       }
     } catch (e) { console.error("Error in refreshScannerStatus:", e); }
