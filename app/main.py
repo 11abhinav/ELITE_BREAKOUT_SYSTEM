@@ -1507,7 +1507,7 @@ def run_system_scheduler():
     evening_batch_deadline_logged = False
     warmup_ran = False
     last_accumulation_date = now_boot.date() if not is_market_boot else None
-    last_shakeout_date = now_boot.date() if not is_market_boot else None
+    last_technical_date = now_boot.date() if not is_market_boot else None
     last_wealth_daily_date = now_boot.date() if not is_market_boot else None
 
     last_earnings_date = None  # kept as unused placeholder to avoid potential NameError in continued loop
@@ -1737,15 +1737,15 @@ def run_system_scheduler():
                 evening_scanners_ran = False
                 evening_batch_deadline_logged = False
 
-            # 16:00 - Shakeout Reclaim Scanner (Post-Close V-Reversal / Red Candle Reclaim Scan)
-            if (now.hour > 16 or (now.hour == 16 and now.minute >= 0)) and last_shakeout_date != now.date():
-                last_shakeout_date = now.date()
-                if not is_scanner_stopped("SHAKEOUT_RECLAIM"):
-                    logger.info("🕒 SCHEDULER | [16:00] Triggering SHAKEOUT_RECLAIM scanner (V-Reversal Reclaim Scan)")
+            # 16:00 - Technical Scanner (Post-Close Bottom Absorption Scan)
+            if (now.hour > 16 or (now.hour == 16 and now.minute >= 0)) and last_technical_date != now.date():
+                last_technical_date = now.date()
+                if not is_scanner_stopped("TECHNICAL"):
+                    logger.info("🕒 SCHEDULER | [16:00] Triggering TECHNICAL scanner (Bottom Absorption Scan)")
                     import threading
-                    threading.Thread(target=_trigger_shakeout_reclaim, kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"}, name="ShakeoutReclaimScanner", daemon=True).start()
+                    threading.Thread(target=_trigger_technical, kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"}, name="TechnicalScanner", daemon=True).start()
                 else:
-                    logger.info("⏭️ SHAKEOUT_RECLAIM is STOPPED by Admin. Skipping 16:00 run.")
+                    logger.info("⏭️ TECHNICAL is STOPPED by Admin. Skipping 16:00 run.")
 
             # 16:15 - Accumulation Scanner (Post-Close Scan after NSE Delivery Reports published)
             if (now.hour > 16 or (now.hour == 16 and now.minute >= 15)) and last_accumulation_date != now.date():
@@ -2208,7 +2208,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "WEALTH_EXIT": _trigger_wealth_exit,
         "Earnings Calendar": None,  # removed
         "ACCUMULATION":  _trigger_accumulation,
-        "SHAKEOUT_RECLAIM": _trigger_shakeout_reclaim,
+        "TECHNICAL":     _trigger_technical,
     }
     
     fn = TRIGGER_MAP.get(scanner_key)
@@ -2230,7 +2230,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "WEALTH_EXIT": lambda: scanner_execution_lock,
         "Earnings Calendar": lambda: None,  # removed
         "ACCUMULATION":  lambda: __import__('accumulation_scanner')._accumulation_run_lock,
-        "SHAKEOUT_RECLAIM": lambda: __import__('shakeout_reclaim_scanner')._scan_lock,
+        "TECHNICAL":     lambda: __import__('technical_scanner')._scan_lock,
     }
     
     # Check in-memory thread lock first — if not locked, no scan is running in this process
@@ -2422,9 +2422,9 @@ def _trigger_accumulation(trigger_type="MANUAL", scheduler_name="MANUAL", run_ct
     scanner = AccumulationScanner()
     return scanner.start(force=True, run_ctx=run_ctx, trigger_type=trigger_type, scheduler_name=scheduler_name)
 
-def _trigger_shakeout_reclaim(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=None):
-    from shakeout_reclaim_scanner import run_shakeout_reclaim_scan
-    count = run_shakeout_reclaim_scan(trigger_type=trigger_type, scheduler_name=scheduler_name, run_ctx=run_ctx)
+def _trigger_technical(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=None):
+    from technical_scanner import run_technical_scan
+    count = run_technical_scan(trigger_type=trigger_type, scheduler_name=scheduler_name, run_ctx=run_ctx)
     return {"total_count": count, "processed_count": count}
 
 # [VERSION: TRIGGER_AI_WORKER_v1.1] Define _trigger_ai_worker
