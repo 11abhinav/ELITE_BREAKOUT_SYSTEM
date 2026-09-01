@@ -3266,16 +3266,16 @@ def get_all_scanner_health() -> list[dict]:
     init_db()
     schedule_map = {
         "DAILY_BUILDER": "Daily 05:00 IST",
-        "MULTI_TF": "Every 15m / 5m (09:30 - 15:30 IST)",
+        "MULTI_TF": "Every 15m (09:30 - 15:30 IST)",
         "EOD": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
         "REVERSAL": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
         "PULLBACK": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
         "ACCUMULATION": "Daily 16:15 IST (Post-Close Delivery)",
         "Wealth Engine": "Daily 17:00 IST (Post-Market Scan)",
         "MULTIBAGGER": "Daily 17:30 IST (Daily Fundamental)",
-        "PERFORMANCE_TRACKER": "Every 5min (09:15 - 15:30 IST)",
-        "MULTIBAGGER_EXIT": "Every 15min (09:15 - 15:30 IST)",
-        "WEALTH_EXIT": "Every 5min (09:15 - 15:30 IST)",
+        "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
+        "MULTIBAGGER_EXIT": "Exit Monitor · Every 15min (09:15 - 15:30 IST)",
+        "WEALTH_EXIT": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
         "Pledge Worker": "Continuous (Daily Refresh)",
         "AI Worker": "Continuous (Sat-Sun Active)",
     }
