@@ -1143,28 +1143,62 @@ def _build_instant_performance_fallback():
             return None
 
         trades = []
+        # [RULE 67 CHANGE-RATIONALE]: Ensure all trade fields (target_1..3, pnl_rs, exit_price, score, closed_at) are mapped in fallback trades payload
         for row in raw_alerts:
-            ep = float(row["entry_price"]) if row.get("entry_price") is not None else None
-            cp = float(row.get("current_price")) if row.get("current_price") is not None else ep
-            pnl = float(row.get("pnl_pct")) if row.get("pnl_pct") is not None else 0.0
+            def _safe_f(val_in):
+                return float(val_in) if val_in is not None else None
+
+            ep = _safe_f(row.get("entry_price"))
+            aep = _safe_f(row.get("actual_entry_price"))
+            cp = _safe_f(row.get("current_price")) or ep
+            xp = _safe_f(row.get("exit_price"))
+            pnl = _safe_f(row.get("pnl_pct")) or 0.0
+            pnl_rs = _safe_f(row.get("pnl_rs"))
             st = row.get("status") or "OPEN"
+            cap = _safe_f(row.get("capital_allocated"))
+            sh = row.get("shares_bought", 0)
+
+            if (pnl_rs is None or pnl_rs == 0) and xp is not None and ep and sh:
+                pnl_rs = round((xp - ep) * sh, 2)
+            elif (pnl_rs is None or pnl_rs == 0) and pnl is not None and cap:
+                pnl_rs = round((pnl / 100.0) * cap, 2)
+
+            at_val = row.get("alert_time")
+            at_str = at_val.isoformat() if hasattr(at_val, "isoformat") else (str(at_val) if at_val else "")
+            ad_val = row.get("alert_date")
+            ad_str = ad_val.isoformat()[:10] if hasattr(ad_val, "isoformat") else (str(ad_val)[:10] if ad_val else (at_str[:10] if at_str else ""))
+
             trades.append({
-                "id": row["id"],
-                "symbol": row["symbol"],
+                "id": row.get("id"),
+                "symbol": row.get("symbol"),
                 "scanner": row.get("scanner") or "",
                 "category": row.get("category") or "",
                 "signals": row.get("signals") or "",
-                "entry_date": str(row.get("alert_date") or row.get("alert_time") or "")[:10],
-                "alert_time": str(row.get("alert_time") or ""),
+                "entry_date": ad_str,
+                "alert_time": at_str,
                 "entry_price": ep,
-                "stop_loss": float(row["stop_loss"]) if row.get("stop_loss") is not None else None,
-                "target_price": float(row["target_price"]) if row.get("target_price") is not None else None,
+                "actual_entry_price": aep,
+                "stop_loss": _safe_f(row.get("stop_loss")),
+                "initial_stop_loss": _safe_f(row.get("initial_stop_loss")),
+                "target_price": _safe_f(row.get("target_price")),
+                "target_1": _safe_f(row.get("target_1")),
+                "target_2": _safe_f(row.get("target_2")),
+                "target_3": _safe_f(row.get("target_3")),
                 "current_price": cp,
+                "exit_price": xp,
                 "pnl_pct": pnl,
+                "pnl_rs": pnl_rs,
                 "status": st,
-                "shares_bought": row.get("shares_bought", 0),
-                "capital_allocated": float(row["capital_allocated"]) if row.get("capital_allocated") is not None else None,
+                "shares_bought": sh,
+                "capital_allocated": cap,
+                "score": row.get("score"),
+                "is_rejected": bool(row.get("is_rejected", False)),
+                "days_to_earnings": row.get("days_to_earnings"),
+                "earnings_date": row.get("earnings_date"),
+                "earnings_severity": row.get("earnings_severity"),
+                "warning_msg": row.get("warning_msg"),
                 "execution_state": row.get("execution_state"),
+                "closed_at": str(row.get("closed_at") or "") if row.get("closed_at") else None,
             })
 
         judged = [t for t in trades if t["status"] in ("WIN", "LOSS", "CLOSED")]

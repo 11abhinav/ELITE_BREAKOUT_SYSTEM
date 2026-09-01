@@ -3026,6 +3026,8 @@ function changeAdminPage(type, delta) {
     };
 
     const pct = v => v != null ? (v >= 0 ? '+' : '') + v.toFixed(2) + '%' : '—';
+    /* [RULE 67 CHANGE-RATIONALE]: Define pctLoss helper to format negative percentages for Avg Loss KPI without throwing ReferenceError */
+    const pctLoss = v => v != null ? (Number(v) > 0 ? '-' + Number(v).toFixed(2) : Number(v).toFixed(2)) + '%' : '—';
     const pctClass = v => v == null ? 'flat' : v > 0 ? 'pos' : v < 0 ? 'neg' : 'flat';
     const fmt = v => v != null ? '₹' + Number(v).toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—';
     const badgeHtml = (s, t) => {

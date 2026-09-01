@@ -1868,10 +1868,27 @@ def check_scanner_staleness(now):
                             is_stale = True
                             stale_msg = f"Stale: Did not complete successfully today (last success: {ls.strftime('%Y-%m-%d')})"
                 else:
-                    max_gap = cadence
-                    if gap_minutes > max_gap:
-                        is_stale = True
-                        stale_msg = f"Stale: No heartbeat in {int(gap_minutes)} minutes (expected every {max_gap // 3} min)"
+                    from market_utils import is_market_open
+                    # [RULE 67 CHANGE-RATIONALE]:
+                    # 1. Intraday scanners (MULTI_TF, MULTI_TF_5M, PERFORMANCE_TRACKER, WEALTH_EXIT) only run during active market hours (09:15-15:30 IST weekdays).
+                    #    Outside market hours (nights, weekends), large gaps are expected; skipping staleness check prevents false alarms.
+                    # 2. When stale DURING market hours, attempt auto-triggering first before declaring DOWN status.
+                    if is_market_open(now):
+                        max_gap = cadence
+                        if gap_minutes > max_gap:
+                            try:
+                                from main import trigger_scanner_manual
+                                auto_res = trigger_scanner_manual(sc)
+                                if auto_res and auto_res.get("status") == "success":
+                                    logger.info(f"🔄 [AUTO-RECOVERY] Auto-started stale scanner '{sc}' (gap: {int(gap_minutes)}m)")
+                                    continue
+                                else:
+                                    is_stale = True
+                                    fail_reason = auto_res.get("message", "Trigger failed") if auto_res else "Trigger failed"
+                                    stale_msg = f"Stale: No heartbeat in {int(gap_minutes)}m (Auto-start failed: {fail_reason})"
+                            except Exception as _trig_err:
+                                is_stale = True
+                                stale_msg = f"Stale: No heartbeat in {int(gap_minutes)}m (Auto-start error: {_trig_err})"
                 
                 if is_stale:
                     logger.warning(f"🕐 STALENESS DETECTED | {sc} | {stale_msg}")
