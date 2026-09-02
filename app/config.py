@@ -165,6 +165,8 @@ MULTI_TF_CONFIG = {
     "PULLBACK_TRIGGER_MODE": "PREVIOUS_CLOSE", # Alternatives: PREVIOUS_CLOSE, PREVIOUS_BODY, PREVIOUS_HIGH, PREVIOUS_OPEN, INSIDE_BAR
 }
 
+MULTI_TF_SCHEDULE_METADATA = "15m Universe Scan / 5m Armed Monitor (09:30–15:30 IST)"
+
 MULTI_TF_V2_CONFIG = {
     # ── CONTEXT (1H / 30m) ──
     "H1_BULLISH_SCORE":              10,
@@ -195,7 +197,7 @@ MULTI_TF_V2_CONFIG = {
     "MATURITY_TIGHTNESS_THRESHOLD": 8,      # If tightness score < 8, cap maturity at 10 pts
     # B. Tightness (20 pts): range / 15m ATR
     "SCORE_TIGHTNESS_MAX":          20,
-    # C. Resistance Quality (20 pts): std dev of top highs
+    # C. Resistance Quality (20 pts): std dev of top highs & ceiling stability
     "SCORE_RESISTANCE_QUALITY_MAX": 20,
     # D. Repeated Tests (15 pts): distinct touches
     "SCORE_REPEATED_TESTS_MAX":     15,
@@ -204,7 +206,7 @@ MULTI_TF_V2_CONFIG = {
     # F. Higher Lows (10 pts): rising lows = buyers getting aggressive
     "SCORE_HIGHER_LOWS_MAX":        10,
     "HIGHER_LOWS_MIN_RISE_ATR":     0.15,   # Strong HL: late_low >= early_low + 0.15× ATR
-    # G. Support Integrity (5 pts): % of bars touching lower zone
+    # G. Support Integrity (5 pts): rapid defense & structural integrity
     "SCORE_SUPPORT_INTEGRITY_MAX":  5,
     "SUPPORT_ZONE_ATR_MULT":        0.20,   # Lower zone = box_low + 0.20× ATR
     "SUPPORT_INTEGRITY_LOW_PCT":    0.20,   # < 20% of bars touch floor → clean support
@@ -215,32 +217,31 @@ MULTI_TF_V2_CONFIG = {
     "STRONG_SETUP_SCORE":           80,      # SUPER BASE tier
     "PREMIUM_SETUP_SCORE":          90,      # EXCEPTIONAL BASE tier
 
-    # ── V3: 5M BREAKOUT STRENGTH ENGINE (0-100) — 7 Components ──
-    # A. Volume Expansion / RVOL (30 pts)
-    "SCORE_RVOL_MAX":               30,
-    "RVOL_EXCEPTIONAL":             3.0,    # > 3.0× → 30 pts
-    "RVOL_VERY_STRONG":             2.0,    # 2.0–3.0× → 27 pts
-    "RVOL_STRONG":                  1.5,    # 1.5–2.0× → 22 pts
-    "RVOL_CONFIRMED":               1.25,   # 1.25–1.5× → 15 pts
-    "RVOL_NORMAL":                  1.0,    # 1.0–1.25× → 8 pts
+    # ── V3: 5M BREAKOUT STRENGTH ENGINE (0-100) — 7 Orthogonal Components ──
+    # A. Volume Expansion / RVOL (25 pts)
+    "SCORE_RVOL_MAX":               25,
+    "RVOL_EXCEPTIONAL":             3.0,    # > 3.0× → 25 pts
+    "RVOL_VERY_STRONG":             2.0,    # 2.0–3.0× → 22 pts
+    "RVOL_STRONG":                  1.5,    # 1.5–2.0× → 18 pts
+    "RVOL_CONFIRMED":               1.25,   # 1.25–1.5× → 12 pts
+    "RVOL_NORMAL":                  1.0,    # 1.0–1.25× → 6 pts
     # B. Volume Acceleration (10 pts): vs previous 5m bar
     "SCORE_VOL_ACCEL_MAX":          10,
-    # C. Breakout Magnitude (15 pts): (close-res)/5m ATR
-    "SCORE_MAGNITUDE_MAX":          15,
+    # C. Base-Relative Volume (10 pts): vs 15m consolidation median bar volume
+    "SCORE_BASE_REL_VOL_MAX":       10,
+    # D. Breakout Penetration (20 pts): Cross-validated ATR distance & % price expansion (NO double-counting)
+    "SCORE_PENETRATION_MAX":        20,
     "MAGNITUDE_IDEAL_MIN_ATR":      0.25,   # Below this → weaker penetration
     "MAGNITUDE_IDEAL_MAX_ATR":      0.70,   # Above this → possible extension
-    # D. Candle Quality (15 pts): close position + range expansion
+    # E. Candle Quality (15 pts): close position + range expansion
     "SCORE_CANDLE_QUALITY_MAX":     15,
-    # E. Breakout Velocity (10 pts): ATR/min
+    # F. Bar Breakout Velocity (10 pts): ATR/min
     "SCORE_VELOCITY_MAX":           10,
     "VELOCITY_EXPLOSIVE_ATR_MIN":   0.15,   # >= 0.15 ATR/min → EXPLOSIVE
     "VELOCITY_VERY_FAST_ATR_MIN":   0.08,   # >= 0.08 ATR/min → VERY FAST
     "VELOCITY_FAST_ATR_MIN":        0.04,   # >= 0.04 ATR/min → FAST
-    # F. Resistance Penetration (10 pts): % above resistance
-    "SCORE_PENETRATION_MAX":        10,
-    # G. Market-Relative Strength (10 pts): stock vs NIFTY at same bar
+    # G. Market/Sector Relative Strength (10 pts): stock vs NIFTY (omitted from denom if unavailable)
     "SCORE_MARKET_RS_MAX":          10,
-    "MARKET_RS_NEUTRAL":            5,      # Neutral points if NIFTY data unavailable
     "MARKET_RS_STRONG_LEAD":        0.005,  # stock > NIFTY + 0.5% → full points
 
     # Breakout quality tier thresholds (Breakout Score)

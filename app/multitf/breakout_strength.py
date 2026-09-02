@@ -35,31 +35,35 @@ logger = logging.getLogger("multitf.breakout_strength")
 
 @dataclass
 class BreakoutStrengthResult:
-    """Full breakdown of 5m Breakout Strength (0-100)."""
-    # Component scores
-    score_rvol: int = 0             # A. Volume Expansion (30 pts)
+    """Full breakdown of 5m Breakout Strength (0-100 across 7 orthogonal components)."""
+    # Component scores (100 pts total)
+    score_rvol: int = 0             # A. Volume Expansion (25 pts)
     score_vol_accel: int = 0        # B. Volume Acceleration (10 pts)
-    score_magnitude: int = 0        # C. Breakout Magnitude (15 pts)
-    score_candle_quality: int = 0   # D. Candle Quality (15 pts)
-    score_velocity: int = 0         # E. Breakout Velocity (10 pts)
-    score_penetration: int = 0      # F. Resistance Penetration (10 pts)
-    score_market_rs: int = 0        # G. Market-Relative Strength (10 pts)
+    score_base_rel_vol: int = 0     # C. Base-Relative Volume (10 pts)
+    score_penetration: int = 0      # D. Breakout Penetration (20 pts)
+    score_candle_quality: int = 0   # E. Candle Quality (15 pts)
+    score_velocity: int = 0         # F. Bar Breakout Velocity (10 pts)
+    score_market_rs: int = 0        # G. Market/Sector RS (10 pts)
     breakout_score: int = 0         # Total 0–100
 
     # Qualitative labels
     rvol_label: str = ""            # EXCEPTIONAL / VERY_STRONG / STRONG / CONFIRMED / NORMAL / WEAK
     velocity_label: str = ""        # EXPLOSIVE / VERY_FAST / FAST / NORMAL
     breakout_rating_label: str = "" # EXPLOSIVE / VERY_STRONG / STRONG / NORMAL / WEAK
+    breakout_energy_label: str = "" # EXTREME / HIGH / MODERATE / LOW
+    market_rs_label: str = ""       # STRONG_LEAD / OUTPERFORM / INLINE / LAGGING / UNAVAILABLE
 
-    # Raw computed metrics (exposed for alert builder)
+    # Raw computed metrics (exposed for alert builder & trade telemetry)
     volume_ratio: float = 0.0       # RVOL (time-of-day normalized)
     volume_acceleration: float = 0.0  # current_vol / prev_5m_vol
+    base_relative_volume: float = 0.0 # current_5m_vol / base_median_5m_vol
+    breakout_energy: float = 0.0    # (1/compression) * RVOL * penetration_atr * velocity_norm
     current_5m_volume: float = 0.0
     expected_volume: float = 0.0
     prev_5m_volume: float = 0.0
     penetration_atr: float = 0.0    # (close - resistance) / 5m ATR
     penetration_pct: float = 0.0    # (close - resistance) / resistance
-    velocity_atr_per_min: float = 0.0  # ATR/min
+    velocity_atr_per_min: float = 0.0  # Bar Breakout Velocity in ATR/min
     close_position: float = 0.0
     range_ratio: float = 0.0
     checklist: List[str] = field(default_factory=list)
@@ -68,10 +72,13 @@ class BreakoutStrengthResult:
         return {
             "breakout_score": self.breakout_score,
             "breakout_rating_label": self.breakout_rating_label,
+            "breakout_energy_label": self.breakout_energy_label,
             "rvol": round(self.volume_ratio, 2),
             "rvol_label": self.rvol_label,
             "velocity_label": self.velocity_label,
             "volume_acceleration": round(self.volume_acceleration, 2),
+            "base_relative_volume": round(self.base_relative_volume, 2),
+            "breakout_energy": round(self.breakout_energy, 2),
             "current_5m_volume": int(self.current_5m_volume),
             "expected_volume": int(self.expected_volume),
             "prev_5m_volume": int(self.prev_5m_volume),
@@ -80,13 +87,14 @@ class BreakoutStrengthResult:
             "velocity_atr_per_min": round(self.velocity_atr_per_min, 4),
             "close_position": round(self.close_position, 3),
             "range_ratio": round(self.range_ratio, 2),
+            "market_rs_label": self.market_rs_label,
             "score_breakdown": {
                 "rvol": self.score_rvol,
                 "vol_accel": self.score_vol_accel,
-                "magnitude": self.score_magnitude,
+                "base_rel_vol": self.score_base_rel_vol,
+                "penetration": self.score_penetration,
                 "candle_quality": self.score_candle_quality,
                 "velocity": self.score_velocity,
-                "penetration": self.score_penetration,
                 "market_rs": self.score_market_rs,
             }
         }
@@ -139,31 +147,31 @@ def compute_breakout_strength(
     res.range_ratio = range_ratio
     res.current_5m_volume = v
 
-    # ── A. VOLUME EXPANSION / RVOL (30 pts) ──────────────────────────────────
+    # ── A. VOLUME EXPANSION / RVOL (25 pts) ──────────────────────────────────
     vr = pressure_result.volume_ratio
     res.volume_ratio = vr
     expected_vol = pressure_result.__dict__.get("expected_volume", v / vr if vr > 0 else v)
     res.expected_volume = expected_vol
 
     if vr >= config.get("RVOL_EXCEPTIONAL", 3.0):
-        s_rvol = 30
+        s_rvol = 25
         res.rvol_label = "EXCEPTIONAL"
     elif vr >= config.get("RVOL_VERY_STRONG", 2.0):
-        s_rvol = 27
+        s_rvol = 22
         res.rvol_label = "VERY_STRONG"
     elif vr >= config.get("RVOL_STRONG", 1.5):
-        s_rvol = 22
+        s_rvol = 18
         res.rvol_label = "STRONG"
     elif vr >= config.get("RVOL_CONFIRMED", 1.25):
-        s_rvol = 15
+        s_rvol = 12
         res.rvol_label = "CONFIRMED"
     elif vr >= config.get("RVOL_NORMAL", 1.0):
-        s_rvol = 8
+        s_rvol = 6
         res.rvol_label = "NORMAL"
     else:
         s_rvol = 0
         res.rvol_label = "WEAK"
-    res.score_rvol = min(s_rvol, config.get("SCORE_RVOL_MAX", 30))
+    res.score_rvol = min(s_rvol, config.get("SCORE_RVOL_MAX", 25))
 
     # ── B. VOLUME ACCELERATION (10 pts) — vs previous 5m bar ─────────────────
     prev_vol = 0.0
@@ -189,30 +197,65 @@ def compute_breakout_strength(
         s_va = 0
     res.score_vol_accel = min(s_va, config.get("SCORE_VOL_ACCEL_MAX", 10))
 
-    # ── C. BREAKOUT MAGNITUDE (15 pts) — (close - res) / 5m ATR ──────────────
+    # ── C. BASE-RELATIVE VOLUME (10 pts) — vs consolidation median volume ─────
+    # Computes whether breakout volume decisively exceeded the base dormancy
+    base_median_vol = 0.0
+    if len(df_5m_closed) >= 6:
+        # Use median of earlier bars outside the immediate breakout bar
+        lookback_bars = min(len(df_5m_closed) - 1, 24)
+        base_median_vol = float(df_5m_closed["Volume"].iloc[-lookback_bars-1:-1].median())
+    if base_median_vol <= 0:
+        base_median_vol = expected_vol if expected_vol > 0 else v
+
+    base_rel_vol = v / base_median_vol if base_median_vol > 0 else 1.0
+    res.base_relative_volume = round(base_rel_vol, 2)
+
+    if base_rel_vol >= 3.0:
+        s_brv = 10
+    elif base_rel_vol >= 2.0:
+        s_brv = 8
+    elif base_rel_vol >= 1.5:
+        s_brv = 6
+    elif base_rel_vol >= 1.0:
+        s_brv = 3
+    else:
+        s_brv = 0
+    res.score_base_rel_vol = min(s_brv, config.get("SCORE_BASE_REL_VOL_MAX", 10))
+
+    # ── D. BREAKOUT PENETRATION (20 pts) — Cross-validated ATR & % Price ─────
+    # (Eliminated double-counting of magnitude + penetration)
     penetration_price = max(c - box_high, 0.0)
     penetration_atr = penetration_price / atr_5m_resolved
     penetration_pct = penetration_price / box_high if box_high > 0 else 0.0
     res.penetration_atr = round(penetration_atr, 3)
     res.penetration_pct = round(penetration_pct, 4)
 
+    # 10 pts for ATR penetration
     ideal_min = config.get("MAGNITUDE_IDEAL_MIN_ATR", 0.25)
     ideal_max = config.get("MAGNITUDE_IDEAL_MAX_ATR", 0.70)
-
-    if penetration_atr >= ideal_max:
-        s_mag = 10   # Strong but approaching extension territory
-    elif penetration_atr >= ideal_min:
-        # Linear scale 8→15 within ideal zone
-        frac = (penetration_atr - ideal_min) / (ideal_max - ideal_min)
-        s_mag = int(8 + frac * 7)
+    if ideal_min <= penetration_atr <= ideal_max:
+        s_pen_atr = 10
+    elif penetration_atr > ideal_max:
+        s_pen_atr = 7  # Overextended risk
     elif penetration_atr >= 0.10:
-        s_mag = 6
+        s_pen_atr = 5
     else:
-        s_mag = 3   # Barely through
-    res.score_magnitude = min(s_mag, config.get("SCORE_MAGNITUDE_MAX", 15))
+        s_pen_atr = 2  # Barely through
 
-    # ── D. CANDLE QUALITY (15 pts) — Close Position + Range Expansion ─────────
-    # Close position component (8 pts)
+    # 10 pts for % price expansion
+    pct_above = penetration_pct * 100
+    if 0.40 <= pct_above <= 1.20:
+        s_pen_pct = 10
+    elif pct_above > 1.20:
+        s_pen_pct = 6  # Chasing extension
+    elif pct_above >= 0.20:
+        s_pen_pct = 6
+    else:
+        s_pen_pct = 2
+
+    res.score_penetration = min(s_pen_atr + s_pen_pct, config.get("SCORE_PENETRATION_MAX", 20))
+
+    # ── E. CANDLE QUALITY (15 pts) — Close Position + Range Expansion ─────────
     if close_pos >= 0.90:
         s_cp = 8
     elif close_pos >= 0.75:
@@ -222,7 +265,6 @@ def compute_breakout_strength(
     else:
         s_cp = 1
 
-    # Range expansion component (7 pts)
     if range_ratio >= 2.0:
         s_rr = 7
     elif range_ratio >= 1.5:
@@ -231,13 +273,10 @@ def compute_breakout_strength(
         s_rr = 3
     else:
         s_rr = 1
-
     res.score_candle_quality = min(s_cp + s_rr, config.get("SCORE_CANDLE_QUALITY_MAX", 15))
 
-    # ── E. BREAKOUT VELOCITY (10 pts) — ATR/min ───────────────────────────────
-    # Estimate: use the breakout candle's range as proxy for price move over 5 mins
-    # Velocity = penetration_atr / time_elapsed_in_minutes
-    # For a completed 5m bar, use 5.0 minutes as elapsed time
+    # ── F. BAR BREAKOUT VELOCITY (10 pts) — ATR/min ───────────────────────────
+    # Closed-bar breakout velocity: (Close - Resistance) / 5 minutes in ATR units
     time_elapsed_min = 5.0
     velocity_atr_min = penetration_atr / time_elapsed_min if time_elapsed_min > 0 else 0.0
     res.velocity_atr_per_min = round(velocity_atr_min, 5)
@@ -260,23 +299,12 @@ def compute_breakout_strength(
         res.velocity_label = "NORMAL"
     res.score_velocity = min(s_vel, config.get("SCORE_VELOCITY_MAX", 10))
 
-    # ── F. RESISTANCE PENETRATION (10 pts) — % Above Resistance ──────────────
-    pct_above = penetration_pct * 100  # in percent
-    if 0.60 <= pct_above <= 1.20:
-        s_pen = 10
-    elif 0.30 <= pct_above < 0.60:
-        s_pen = 7
-    elif 0.00 < pct_above < 0.30:
-        s_pen = 3
-    else:
-        s_pen = 6   # > 1.2% likely overextended
-    res.score_penetration = min(s_pen, config.get("SCORE_PENETRATION_MAX", 10))
+    # ── G. MARKET/SECTOR RELATIVE STRENGTH (10 pts) ───────────────────────────
+    # If NIFTY is unavailable, exclude from denominator rather than awarding fake points
+    has_market_data = (nifty_5m is not None and not nifty_5m.empty and len(nifty_5m) >= 2)
+    s_mkt = 0
 
-    # ── G. MARKET-RELATIVE STRENGTH (10 pts) — Stock vs NIFTY ────────────────
-    neutral_pts = config.get("MARKET_RS_NEUTRAL", 5)
-    s_mkt = neutral_pts  # Default: neutral if NIFTY data unavailable
-
-    if nifty_5m is not None and not nifty_5m.empty and len(nifty_5m) >= 2:
+    if has_market_data:
         try:
             nifty_last_close = float(nifty_5m["Close"].iloc[-1])
             nifty_prev_close = float(nifty_5m["Close"].iloc[-2])
@@ -290,23 +318,53 @@ def compute_breakout_strength(
 
             if rs_diff >= strong_lead:
                 s_mkt = 10
+                res.market_rs_label = "STRONG_LEAD"
             elif rs_diff >= 0:
                 s_mkt = 6
+                res.market_rs_label = "OUTPERFORM"
             elif rs_diff >= -0.003:
                 s_mkt = 3
+                res.market_rs_label = "INLINE"
             else:
                 s_mkt = 0
+                res.market_rs_label = "LAGGING"
         except Exception as ex:
             logger.debug("[breakout_strength] NIFTY RS calc failed: %s", ex)
-            s_mkt = neutral_pts
+            has_market_data = False
+            res.market_rs_label = "UNAVAILABLE"
+    else:
+        res.market_rs_label = "UNAVAILABLE"
 
     res.score_market_rs = min(s_mkt, config.get("SCORE_MARKET_RS_MAX", 10))
 
+    # ── BREAKOUT ENERGY (Derived Classification Metric) ──────────────────────
+    # Energy = (1 / compression_ratio) * RVOL * penetration_atr * (velocity_score / 10)
+    comp_ratio = max(float(getattr(consolidation_result, "compression_ratio", 1.0)), 0.20)
+    vel_norm = max(res.score_velocity / 10.0, 0.2)
+    energy_val = (1.0 / comp_ratio) * vr * max(penetration_atr, 0.1) * vel_norm
+    res.breakout_energy = round(energy_val, 2)
+    if energy_val >= 2.5:
+        res.breakout_energy_label = "EXTREME"
+    elif energy_val >= 1.5:
+        res.breakout_energy_label = "HIGH"
+    elif energy_val >= 0.8:
+        res.breakout_energy_label = "MODERATE"
+    else:
+        res.breakout_energy_label = "LOW"
+
     # ── TOTAL SCORE + TIER LABEL ──────────────────────────────────────────────
-    total = (res.score_rvol + res.score_vol_accel + res.score_magnitude +
-             res.score_candle_quality + res.score_velocity +
-             res.score_penetration + res.score_market_rs)
-    res.breakout_score = min(total, 100)
+    raw_total = (res.score_rvol + res.score_vol_accel + res.score_base_rel_vol +
+                 res.score_penetration + res.score_candle_quality +
+                 res.score_velocity)
+
+    if has_market_data:
+        raw_total += res.score_market_rs
+        final_score = raw_total
+    else:
+        # Re-scale denominator: 90 max points re-scaled to 100
+        final_score = int(round((raw_total / 90.0) * 100))
+
+    res.breakout_score = min(final_score, 100)
 
     min_breakout = config.get("MIN_BREAKOUT_SCORE", 70)
     if res.breakout_score >= config.get("EXPLOSIVE_BREAKOUT_SCORE", 90):
@@ -415,6 +473,6 @@ def _build_checklist(res: BreakoutStrengthResult, cons, config: Dict[str, Any]) 
     checks.append(f"{tick(res.volume_ratio >= 1.25)} RVOL {res.volume_ratio:.2f}× ({res.rvol_label})")
     checks.append(f"{tick(res.close_position >= 0.60)} Strong candle (close pos {res.close_position:.2f})")
     checks.append(f"{tick(res.velocity_label in ('FAST', 'VERY_FAST', 'EXPLOSIVE'))} Velocity: {res.velocity_label}")
-    checks.append(f"{tick(res.score_rvol + res.score_vol_accel + res.score_magnitude >= 40)} Breakout strength {res.breakout_score}/100")
+    checks.append(f"{tick(res.score_rvol + res.score_vol_accel + res.score_penetration >= 40)} Breakout strength {res.breakout_score}/100")
 
     return checks

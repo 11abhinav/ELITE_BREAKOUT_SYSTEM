@@ -268,23 +268,54 @@ class MasterOrchestratorV2:
         return self._get_cached("confirmed_signals", 3.0, self._get_confirmed_signals_uncached)
 
     def _get_confirmed_signals_uncached(self) -> List[Dict[str, Any]]:
+        # [AUDIT FIX]: Query only OPEN, non-rejected, structurally valid technical signals.
+        # Exclude MULTIBAGGER (which is fundamental / long-term and has its own Investment Watch tab).
+        # Enforce mathematical invariants: entry > 0, stop_loss > 0, stop_loss < entry, target_1 > entry.
         query = """
-            SELECT symbol, scanner, breakout_type, entry_price, current_price as cmp, stop_loss, target_1, target_2, score as quality_grade, signals
+            SELECT symbol, scanner, breakout_type, entry_price, current_price as cmp, stop_loss, target_1, target_2, score as quality_grade, signals, alert_time, context
             FROM alerts
             WHERE is_rejected = FALSE
-            ORDER BY alert_time DESC LIMIT 100
+              AND status = 'OPEN'
+              AND scanner NOT IN ('MULTIBAGGER')
+              AND entry_price > 0
+              AND stop_loss > 0
+              AND stop_loss < entry_price
+              AND target_1 > entry_price
+            ORDER BY alert_time DESC LIMIT 150
         """
-        signals = self._run_query(query)
+        raw_signals = self._run_query(query)
 
-        for sig in signals:
+        seen_symbols = set()
+        signals = []
+
+        for sig in raw_signals:
+            sym = sig.get("symbol")
+            if not sym or sym in seen_symbols:
+                continue
+
+            entry = float(sig.get("entry_price") or 0.0)
+            sl = float(sig.get("stop_loss") or 0.0)
+            t1 = float(sig.get("target_1") or 0.0)
+            risk = entry - sl
+
+            if risk <= 0 or t1 <= entry:
+                continue
+
+            rr = round((t1 - entry) / risk, 2)
+            # Enforce minimum viable execution R:R of 1.25R
+            if rr < 1.25:
+                continue
+
+            seen_symbols.add(sym)
             sc_name = sig.get("scanner", "EOD")
             sig["state"] = "CONFIRMED"
             sig["scanners"] = [sc_name]
             sig["meta_confluence_tier"] = sig.get("meta_confluence_tier") or "STANDARD"
             sig["data_confidence"] = sig.get("data_confidence") or "HIGH"
-            sig["rr_ratio"] = round((sig.get("target_1", 0) - sig.get("entry_price", 0)) / max(0.01, (sig.get("entry_price", 0) - sig.get("stop_loss", 0))), 2) if sig.get("entry_price") and sig.get("stop_loss") else 2.0
+            sig["rr_ratio"] = rr
             sig["checklist_cleared"] = sig.get("signals") or sig.get("why_qualifies") or "Breakout Criteria & Risk Engine Verified"
             self._ensure_contract_keys(sig, data_source="alerts_table")
+            signals.append(sig)
 
         return signals
 

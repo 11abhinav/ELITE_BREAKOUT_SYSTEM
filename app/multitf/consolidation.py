@@ -68,6 +68,10 @@ class ConsolidationResult:
     higher_lows_strength: float = 0.0   # late_low_min - early_low_min (in price terms)
     compression_ratio: float = 1.0      # late_range_avg / early_range_avg (<1 = contracting)
     base_rating_label: str = ""         # EXCEPTIONAL / SUPER / GOOD / WATCH / REJECT
+    rejection_depth_declining: bool = False
+    time_near_resistance_pct: float = 0.0
+    failed_break_count: int = 0
+    supply_absorption_label: str = "MODERATE"
 
     # Legacy field aliases (backwards compat with scanner/state code)
     score_resistance_def: int = 0
@@ -100,6 +104,10 @@ class ConsolidationResult:
             "base_rating_label": self.base_rating_label,
             "has_higher_lows": self.has_higher_lows,
             "compression_ratio": round(self.compression_ratio, 3),
+            "rejection_depth_declining": self.rejection_depth_declining,
+            "time_near_resistance_pct": round(self.time_near_resistance_pct, 3),
+            "failed_break_count": self.failed_break_count,
+            "supply_absorption_label": self.supply_absorption_label,
             "score_breakdown": {
                 "maturity": self.score_maturity,
                 "tightness": self.score_tightness,
@@ -268,8 +276,10 @@ def _generate_box_id(df: pd.DataFrame, res: ConsolidationResult):
 
 
 def _compute_structure(df: pd.DataFrame, atr_15m: float, res: ConsolidationResult, config: Dict[str, Any]):
-    """Counts distinct resistance touches and detects higher-low structure."""
-    # Touch tolerance: max(0.15% of price, 0.08× 15m ATR) — ATR-normalized across all price ranges
+    """
+    Counts distinct resistance touches, tracks rejection depth progression,
+    and detects false-break history.
+    """
     tol_pct = config.get("RESISTANCE_TEST_TOL_PCT", 0.0015) * res.box_high
     tol_atr = config.get("RESISTANCE_TEST_TOL_ATR", 0.08) * atr_15m
     tol = max(tol_pct, tol_atr)
@@ -277,14 +287,56 @@ def _compute_structure(df: pd.DataFrame, atr_15m: float, res: ConsolidationResul
 
     tests = 0
     in_test = False
-    for high in df["High"].astype(float):
-        if high >= test_zone_low:
+    rejections = []
+    current_test_idx = None
+    false_breaks = 0
+
+    highs = df["High"].astype(float).values
+    lows = df["Low"].astype(float).values
+    closes = df["Close"].astype(float).values
+    n = len(df)
+
+    for i in range(n):
+        h = highs[i]
+        c = closes[i]
+        l = lows[i]
+
+        # False break check: bar traded above resistance but closed back below
+        if h > res.box_high and c <= res.box_high:
+            false_breaks += 1
+
+        if h >= test_zone_low:
             if not in_test:
                 tests += 1
                 in_test = True
+                current_test_idx = i
         else:
-            in_test = False
+            if in_test and current_test_idx is not None:
+                # Track the depth of pullback right after the test
+                pullback_depth = res.box_high - l
+                rejections.append(pullback_depth)
+                in_test = False
+
     res.resistance_test_count = max(tests, 1)
+    res.failed_break_count = false_breaks
+
+    # Declining rejection depth check: are successive pullbacks becoming shallower?
+    if len(rejections) >= 2:
+        res.rejection_depth_declining = (rejections[-1] <= rejections[0] * 0.90)
+
+    # Time near resistance: % of closes in top 35% of the base
+    upper_threshold = res.box_low + 0.65 * (res.box_high - res.box_low)
+    res.time_near_resistance_pct = float((closes >= upper_threshold).mean()) if n > 0 else 0.0
+
+    # Supply absorption qualitative classification
+    if res.resistance_test_count >= 3 and res.has_higher_lows and res.rejection_depth_declining:
+        res.supply_absorption_label = "EXCELLENT"
+    elif res.resistance_test_count >= 2 and (res.has_higher_lows or res.time_near_resistance_pct >= 0.50):
+        res.supply_absorption_label = "STRONG"
+    elif res.resistance_test_count >= 2:
+        res.supply_absorption_label = "MODERATE"
+    else:
+        res.supply_absorption_label = "EARLY"
 
 
 def _compute_scores(window_df: pd.DataFrame, full_df: pd.DataFrame, atr_15m: float, res: ConsolidationResult, config: Dict[str, Any]):
@@ -417,19 +469,26 @@ def _compute_scores(window_df: pd.DataFrame, full_df: pd.DataFrame, atr_15m: flo
     res.score_higher_lows = min(s_hl, config.get("SCORE_HIGHER_LOWS_MAX", 10))
     score += res.score_higher_lows
 
-    # ── G. SUPPORT INTEGRITY (5 pts) — Buyers Well Above the Floor ───────────
+    # ── G. SUPPORT INTEGRITY (5 pts) — Structural Defense Quality ───────────
+    # Defenses: distance of worst excursion below support, recovery speed, absence of breakdown
     s_si = 3  # Neutral
     if n >= 4 and atr_15m > 0:
-        support_zone = res.box_low + config.get("SUPPORT_ZONE_ATR_MULT", 0.20) * atr_15m
-        lows = window_df["Low"].astype(float)
-        pct_touching = float((lows <= support_zone).mean())
-        clean_floor_pct = config.get("SUPPORT_INTEGRITY_LOW_PCT", 0.20)
-        if pct_touching < clean_floor_pct:
-            s_si = 5   # Buyers consistently well above support
-        elif pct_touching < 0.40:
-            s_si = 3
+        lows = window_df["Low"].astype(float).values
+        closes = window_df["Close"].astype(float).values
+        worst_excursion_below = max(float(res.box_low - min(lows)), 0.0)
+        worst_excursion_atr = worst_excursion_below / atr_15m
+
+        # Check if any bar closed below the box floor (true structural breakdown)
+        closed_below_floor = any(c < res.box_low for c in closes)
+
+        if closed_below_floor:
+            s_si = 1   # Candle closed below floor = impaired integrity
+        elif worst_excursion_atr <= 0.08:
+            s_si = 5   # Flawless defense: price barely probed below support
+        elif worst_excursion_atr <= 0.20:
+            s_si = 4   # Good defense: minor wick sweep with immediate absorption
         else:
-            s_si = 1   # Floor frequently visited = weaker demand
+            s_si = 2   # Deep probe below support
     res.score_support_integrity = min(s_si, config.get("SCORE_SUPPORT_INTEGRITY_MAX", 5))
     score += res.score_support_integrity
 

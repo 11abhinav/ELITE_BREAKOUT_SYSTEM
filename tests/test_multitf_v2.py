@@ -382,14 +382,14 @@ class TestBreakoutStrengthEngineV3(unittest.TestCase):
         return df
 
     def test_high_rvol_gives_high_score(self):
-        """RVOL >= 2.0× should give 27+ pts on volume score."""
+        """RVOL >= 2.0× should give 22+ pts on volume score in 25-pt scale."""
         from multitf.breakout_strength import compute_breakout_strength
         cons = self._make_cons()
         df_5m = self._make_5m_df(breakout_vol=200000)
         pressure = PressureResult(is_confirmed=True, volume_ratio=2.5, range_ratio=2.0, live_position=0.88,
                                   momentum_score=22, current_5m_volume=200000, expected_volume=80000, prev_5m_volume=80000)
         brkout = compute_breakout_strength(pressure, cons, df_5m, None, self.now, self.config)
-        self.assertGreaterEqual(brkout.score_rvol, 27, "RVOL 2.5× should give >= 27 pts")
+        self.assertGreaterEqual(brkout.score_rvol, 22, "RVOL 2.5× should give >= 22 pts on 25-pt scale")
         self.assertEqual(brkout.rvol_label, "VERY_STRONG")
 
     def test_weak_rvol_gives_low_score(self):
@@ -412,6 +412,18 @@ class TestBreakoutStrengthEngineV3(unittest.TestCase):
                                   momentum_score=20, current_5m_volume=240000, prev_5m_volume=80000)
         brkout = compute_breakout_strength(pressure, cons, df_5m, None, self.now, self.config)
         self.assertGreaterEqual(brkout.score_vol_accel, 8, "3× prev vol should give >= 8 pts acceleration")
+
+    def test_base_relative_volume_and_energy(self):
+        """Breakout volume 2.5x consolidation median should award base-rel vol score and calculate energy."""
+        from multitf.breakout_strength import compute_breakout_strength
+        cons = self._make_cons(base_score=85)
+        df_5m = self._make_5m_df(breakout_vol=200000, prev_vol=80000, close=506.8)
+        pressure = PressureResult(is_confirmed=True, volume_ratio=2.5, range_ratio=2.2, live_position=0.90,
+                                  momentum_score=24, current_5m_volume=200000, prev_5m_volume=80000)
+        brkout = compute_breakout_strength(pressure, cons, df_5m, None, self.now, self.config)
+        self.assertGreaterEqual(brkout.score_base_rel_vol, 6, "Base-rel vol >= 2.0x should score >= 6 pts")
+        self.assertGreater(brkout.breakout_energy, 0.5, "Breakout energy should be positive")
+        self.assertIn(brkout.breakout_energy_label, ["EXTREME", "HIGH", "MODERATE", "LOW"])
 
 
 class TestAlertSeverityClassification(unittest.TestCase):

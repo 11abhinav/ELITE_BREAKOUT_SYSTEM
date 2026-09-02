@@ -9365,7 +9365,7 @@ function renderMasterSignalsRows(data) {
       <td style="color:var(--loss);">${formatPrice(item.stop_loss)}</td>
       <td style="color:var(--win);">${formatPrice(item.target_1)}</td>
       <td style="color:var(--win);">${formatPrice(item.target_2)}</td>
-      <td>${formatText(item.rr_ratio)}</td>
+      <td style="font-weight:600; color:${(parseFloat(item.rr_ratio) >= 1.5) ? 'var(--win)' : 'var(--text)'};">${(parseFloat(item.rr_ratio) > 0) ? `${parseFloat(item.rr_ratio).toFixed(2)}R` : '—'}</td>
       <td>${formatText(item.quality_grade)}</td>
       <td><span class="badge-ok">${formatText(item.meta_confluence_tier)}</span></td>
       <td style="font-size:11px; color:var(--win);">${formatText(item.checklist_cleared || item.why_qualifies)}</td>

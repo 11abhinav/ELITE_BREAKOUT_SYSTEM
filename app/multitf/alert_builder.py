@@ -129,6 +129,7 @@ def build_multitf_alert_message(
         f"Resistance:        ₹{c.box_high:.2f}",
         f"Tests:             {c.resistance_test_count}  {'(rising absorption)' if c.has_higher_lows else ''}",
         f"Higher Lows:       {'YES ↑ buyers aggressive' if c.has_higher_lows else 'NO'}",
+        f"Supply Absorption: {getattr(c, 'supply_absorption_label', 'MODERATE')}",
         "",
     ]
 
@@ -150,11 +151,13 @@ def build_multitf_alert_message(
         f"Penetration:       +{s.penetration_atr:.2f}× 5m ATR  (+{s.penetration_pct * 100:.2f}%)",
         f"Close Position:    {s.close_position:.2f} (top {int((1 - s.close_position) * 100)}%)",
         f"Velocity:          {s.velocity_label} {vel_em}",
+        f"Breakout Energy:   {s.breakout_energy:.2f} ({s.breakout_energy_label})",
         "",
         f"VOLUME",
         f"5m Volume:         {_fmt_vol(s.current_5m_volume)}",
         f"Expected:          {_fmt_vol(s.expected_volume)}",
         f"RVOL:              {s.volume_ratio:.2f}× {rvol_em}",
+        f"Base-Relative Vol: {s.base_relative_volume:.2f}× consolidation median",
         f"vs Previous 5m:    +{int((s.volume_acceleration - 1.0) * 100)}%" if s.volume_acceleration >= 1 else f"vs Previous 5m:    {int((s.volume_acceleration - 1.0) * 100)}%",
         "",
     ]
@@ -162,8 +165,8 @@ def build_multitf_alert_message(
     # Score breakdown (compact)
     lines += [
         f"  Score Breakdown:",
-        f"  RVOL {s.score_rvol}/30 | Accel {s.score_vol_accel}/10 | Magnitude {s.score_magnitude}/15 | Candle {s.score_candle_quality}/15",
-        f"  Velocity {s.score_velocity}/10 | Penetration {s.score_penetration}/10 | Market RS {s.score_market_rs}/10",
+        f"  RVOL {s.score_rvol}/25 | Accel {s.score_vol_accel}/10 | BaseVol {s.score_base_rel_vol}/10 | Penetr {s.score_penetration}/20",
+        f"  Candle {s.score_candle_quality}/15 | Velocity {s.score_velocity}/10 | Market RS {s.score_market_rs}/10 ({s.market_rs_label})",
         "",
     ]
 
