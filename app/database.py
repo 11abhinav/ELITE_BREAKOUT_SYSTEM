@@ -5498,53 +5498,41 @@ def save_df_to_table(table_name: str, df: pd.DataFrame):
     logger.info(f"✅ Saved {len(df)} rows to table '{table_name}' in database.")
 
 def check_data_exists_for_today() -> bool:
-    """Checks if the public table 'daily_watchlist' (fundamental watchlist) contains data for today's IST date."""
+    """Checks if Daily Builder universe data exists for today's IST date across parquet cache or DB tables."""
     init_db()
     from zoneinfo import ZoneInfo
     today_str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d")
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # 1. First check if 'daily_watchlist' table exists
-                cur.execute("""
-                    SELECT EXISTS (
-                        SELECT FROM information_schema.tables
-                        WHERE table_name = 'daily_watchlist'
-                    )
-                """)
-                if not cur.fetchone()[0]:
-                    return False
-
-                # 2. Find date column
-                cur.execute("""
-                    SELECT column_name
-                    FROM information_schema.columns
-                    WHERE table_name = 'daily_watchlist'
-                """)
-                db_cols_raw = [row[0] for row in cur.fetchall()]
-                db_cols_lower = [c.lower() for c in db_cols_raw]
-
-                date_col = None
-                for candidate in ["date", "run_date", "created_at", "added_at"]:
-                    if candidate in db_cols_lower:
-                        idx = db_cols_lower.index(candidate)
-                        date_col = db_cols_raw[idx]
-                        break
-
-                if not date_col:
-                    return False
-
-                # 3. Check row count for today (quote column name to handle case sensitivity)
-                cur.execute(f'SELECT COUNT(*) FROM daily_watchlist WHERE "{date_col}" = %s', (today_str,))
-                count = cur.fetchone()[0]
-
-                # 4. Check if parquet_cache is also up to date
+                # 1. Check parquet_cache for today
                 cur.execute("SELECT 1 FROM parquet_cache WHERE name = 'daily_builder' AND date = %s", (today_str,))
-                has_parquet = cur.fetchone() is not None
+                if cur.fetchone():
+                    return True
 
-                return count > 0 and has_parquet
+                # 2. Check if daily_watchlist_v2 or watchlist has rows for today
+                for tbl in ["daily_watchlist_v2", "watchlist", "daily_watchlist"]:
+                    cur.execute("""
+                        SELECT 1 FROM information_schema.tables
+                        WHERE table_schema = 'public' AND table_name = %s
+                    """, (tbl,))
+                    if cur.fetchone():
+                        # Table exists, check if date column has today's date
+                        cur.execute("""
+                            SELECT column_name
+                            FROM information_schema.columns
+                            WHERE table_schema = 'public' AND table_name = %s
+                        """, (tbl,))
+                        cols = [str(row[0] if isinstance(row, (tuple, list)) else row.get('column_name', '')).lower() for row in cur.fetchall()]
+                        date_col = next((c for c in ["date", "run_date", "created_at", "added_at"] if c in cols), None)
+                        if date_col:
+                            cur.execute(f'SELECT 1 FROM "{tbl}" WHERE "{date_col}"::text LIKE %s LIMIT 1', (f"{today_str}%",))
+                            if cur.fetchone():
+                                return True
+        return False
     except Exception as e:
-        logger.exception(f"Error checking if today's data exists in DB")
+        # [RULE 67 CHANGE-RATIONALE]: Log as warning instead of unhandled exception so callers can safely proceed
+        logger.warning(f"⚠️ check_data_exists_for_today warning: {e}")
         return False
 
 # ── Checkpoint persistence (audit trail) ──────────────────────────────────────────────
