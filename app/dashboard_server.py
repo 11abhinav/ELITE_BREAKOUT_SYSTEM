@@ -4762,22 +4762,27 @@ def api_breakout_watchlist():
 
                 for d in data:
                     sym = d["symbol"]
+                    # [RULE 67 CHANGE-RATIONALE]:
+                    # Attach live CMP from cache without overwriting the scanner's true 'last_updated' evaluation timestamp.
                     if sym in _BREAKOUT_CMP_CACHE:
                         d["cmp"] = _BREAKOUT_CMP_CACHE[sym]["price"]
-                        d["last_updated"] = _BREAKOUT_CMP_CACHE[sym]["ts"]
+                        d["cmp_updated"] = _BREAKOUT_CMP_CACHE[sym]["ts"]
+                        if not d.get("last_updated"):
+                            d["last_updated"] = _BREAKOUT_CMP_CACHE[sym]["ts"]
                     else:
                         try:
-                            # [RULE 67 CHANGE-RATIONALE]:
-                            # Look up CMP from in-memory price_cache first, then stock_analysis_master.
-                            # Eliminates synchronous disk scans of 6 parquet timeframe files per symbol on the main request thread.
                             from price_cache import get_cached_price
                             fast_p = get_cached_price(sym)
                             if fast_p is not None and float(fast_p or 0) > 0:
                                 d["cmp"] = float(fast_p)
-                                d["last_updated"] = datetime.now(ist).isoformat()
+                                d["cmp_updated"] = datetime.now(ist).isoformat()
+                                if not d.get("last_updated"):
+                                    d["last_updated"] = datetime.now(ist).isoformat()
                             elif d.get("breakout_level"):
                                 d["cmp"] = float(d["breakout_level"])
-                                d["last_updated"] = datetime.now(ist).isoformat()
+                                d["cmp_updated"] = datetime.now(ist).isoformat()
+                                if not d.get("last_updated"):
+                                    d["last_updated"] = datetime.now(ist).isoformat()
                         except Exception:
                             pass
             except Exception as e:

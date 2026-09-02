@@ -7136,34 +7136,40 @@ def get_elite_watchlist() -> list:
 
 def get_active_breakout_watchlist() -> list:
     """
-    Fetches active breakout setups for the Live Breakout Signal Ladder.
-    Pulls from both the new Multi-TF V3 engine (mtf_v2_watchlist) and legacy breakout_watchlist,
-    deduplicating by symbol so the newest Multi-TF state takes precedence.
+    Fetches active breakout setups for the Live Multi-TF Breakout Watchlist (Dual-Engine V3).
+    [RULE 67 CHANGE-RATIONALE]:
+    Decommissioned legacy 4-stage ladder reads from 'breakout_watchlist' and remapped fake states
+    ('HOURLY_APPROVED', 'SETUP_ARMED', 'ENTRY_READY').
+    Now queries directly from 'mtf_v2_watchlist' with true substates ('WATCHING', 'PRESSURE_BUILDING',
+    'ATTEMPT', 'BREAKOUT_CONFIRMED'), Base Quality Score (0-100), box boundaries (box_high, box_low,
+    box_width_pct), resistance test count, compression, and joins latest 'alerts' metadata
+    (severity, breakout_score, entry_price, stop_loss, target_1, rr_ratio).
     """
     results = []
     seen_symbols = set()
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # 1. First query new Multi-TF V3 consolidation setups
                 cur.execute("""
                     SELECT 
                         m.symbol,
-                        'MULTI_TF_V3' AS category,
-                        CASE 
-                            WHEN m.mtf_substate = 'WATCHING' THEN 'HOURLY_APPROVED'
-                            WHEN m.mtf_substate = 'PRESSURE_BUILDING' THEN 'SETUP_ARMED'
-                            WHEN m.mtf_substate = 'ATTEMPT' THEN 'ENTRY_READY'
-                            WHEN m.mtf_substate = 'BREAKOUT_CONFIRMED' THEN 'BREAKOUT_CONFIRMED'
-                            ELSE 'HOURLY_APPROVED'
-                        END AS current_state,
-                        'APPROVED' AS h1_status,
-                        'APPROVED' AS m30_status,
-                        'APPROVED' AS m15_status,
-                        CASE 
-                            WHEN m.mtf_substate IN ('ATTEMPT', 'BREAKOUT_CONFIRMED') THEN 'APPROVED'
-                            ELSE 'PENDING'
-                        END AS m5_status,
+                        m.box_id,
+                        'MULTI_TF' AS category,
+                        m.state AS canonical_state,
+                        m.mtf_substate,
+                        m.mtf_substate AS current_state,
+                        m.setup_score AS base_score,
+                        m.setup_score,
+                        m.box_high,
+                        m.box_low,
+                        m.box_mid,
+                        m.box_width_pct,
+                        m.box_width_atr,
+                        m.resistance_test_count,
+                        m.compression_score,
+                        m.higher_low_score,
+                        m.volume_ratio_5m,
+                        m.market_regime,
                         m.box_high AS breakout_level,
                         m.box_low AS support_level,
                         m.box_high AS trigger_level,
@@ -7171,21 +7177,39 @@ def get_active_breakout_watchlist() -> list:
                         2.0 AS max_extension_atr,
                         0.5 AS buffer_pct,
                         m.created_at AS armed_at,
+                        COALESCE(m.last_evaluated_at, m.updated_at, m.created_at) AS last_updated,
                         json_build_object(
                             'box_id', m.box_id,
                             'setup_score', m.setup_score,
                             'resistance_test_count', m.resistance_test_count,
+                            'compression_score', m.compression_score,
+                            'higher_low_score', m.higher_low_score,
                             'volume_ratio_5m', m.volume_ratio_5m,
-                            'range_ratio_5m', m.range_ratio_5m,
-                            'market_regime', m.market_regime
+                            'market_regime', m.market_regime,
+                            'box_width_pct', m.box_width_pct
                         )::text AS context_json,
-                        COALESCE(m.last_evaluated_at, m.updated_at, m.created_at) AS last_updated,
+                        a.context->>'severity' AS severity,
+                        a.context->>'severity_label' AS severity_label,
+                        (a.context->>'breakout_score')::numeric AS breakout_score,
+                        a.entry_price,
+                        a.stop_loss,
+                        a.target_1,
+                        (a.context->>'rr_ratio')::numeric AS rr_ratio,
                         FALSE AS earnings_flag,
                         999 AS days_to_earnings,
                         NULL::DATE AS earnings_date,
                         'NONE'::TEXT AS earnings_severity,
                         '' AS warning_msg
                     FROM mtf_v2_watchlist m
+                    LEFT JOIN LATERAL (
+                        SELECT context, entry_price, stop_loss, target_1
+                        FROM alerts 
+                        WHERE symbol = m.symbol 
+                          AND scanner = 'MULTI_TF'
+                          AND signals LIKE '%%BOX_ID=' || m.box_id || '%%'
+                        ORDER BY alert_time DESC 
+                        LIMIT 1
+                    ) a ON TRUE
                     WHERE m.mtf_substate IN ('WATCHING', 'PRESSURE_BUILDING', 'ATTEMPT', 'BREAKOUT_CONFIRMED')
                     AND (m.cooldown_until IS NULL OR m.cooldown_until < NOW())
                     AND (m.invalidated_at IS NULL OR m.invalidated_at > NOW())
@@ -7199,34 +7223,11 @@ def get_active_breakout_watchlist() -> list:
                         seen_symbols.add(sym)
                         results.append(d)
 
-                # 2. Query any active rows from breakout_watchlist
-                cur.execute("""
-                    SELECT b.symbol, b.category, b.current_state, b.h1_status, b.m30_status, b.m15_status, b.m5_status,
-                        b.breakout_level, b.support_level, b.trigger_level, b.invalidation_level, b.max_extension_atr, b.buffer_pct, b.armed_at,
-                        b.context_json, b.last_updated,
-                        FALSE                                                        AS earnings_flag,
-                        999                                                          AS days_to_earnings,
-                        NULL::DATE                                                   AS earnings_date,
-                        'NONE'::TEXT                                                 AS earnings_severity,
-                        ''                                                           AS warning_msg
-                    FROM breakout_watchlist b
-                    WHERE b.current_state IN ('HOURLY_APPROVED', 'SETUP_ARMED', 'BREAKOUT_CONFIRMED', 'ENTRY_READY')
-                    AND (b.cooldown_until IS NULL OR b.cooldown_until < NOW())
-                    AND (b.invalidated_at IS NULL OR b.invalidated_at > NOW())
-                    AND (b.expires_at IS NULL OR b.expires_at > NOW())
-                """)
-                columns = [desc[0] for desc in cur.description]
-                for row in cur.fetchall():
-                    d = dict(zip(columns, row))
-                    sym = d.get("symbol")
-                    if sym and sym not in seen_symbols:
-                        seen_symbols.add(sym)
-                        results.append(d)
-
         return results
     except Exception as e:
         logger.exception(f"❌ Failed to fetch active breakout_watchlist: {e}")
         return []
+
 
 def mark_breakout_watchlist_cooldown(symbol: str, state: str, hours: int = 24):
     if DONT_SAVE_ALERTS:

@@ -755,31 +755,36 @@ function playDing() {
 
     <!-- TAB 3: LIVE SIGNALS & MULTIBAGGER -->
     <div id="utab-live-signals" class="utab-panel">
-    <!-- ═══ LIVE SIGNAL LADDER ═══ -->
+    <!-- ═══ LIVE MULTI-TF BREAKOUT WATCHLIST (DUAL-ENGINE V3) ═══ -->
+    <!-- [RULE 67 CHANGE-RATIONALE]: Upgraded from legacy 4-stage signal ladder (1H/30m/15m/5m) to the Multi-TF V3 Dual-Engine Watchlist (Consolidation Quality + Breakout Strength & Severity) -->
     <div class="section-label" style="margin-top:20px; display:flex; justify-content:space-between; align-items:center;">
-      <span>Live Breakout Signal Ladder (MULTI_TF)</span>
+      <span>⚡ Live Multi-TF Breakout Watchlist (Dual-Engine V3)</span>
       <span id="signalLadderRefresh" style="font-size:12px; color:var(--muted); cursor:pointer; text-decoration:underline;" onclick="fetchSignalLadder()">Refresh</span>
     </div>
     <div class="card" style="margin-bottom:28px; padding:16px;">
       <div style="margin-bottom: 12px; display: flex; gap: 16px; font-size: 12px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--border);">
-        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-hourly" checked onchange="renderSignalLadder()"> <span id="label-hourly">Hourly Passed (1H) (0)</span></label>
-        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-setup" checked onchange="renderSignalLadder()"> <span id="label-setup">Setup Armed (30m) (0)</span></label>
-        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-entry" checked onchange="renderSignalLadder()"> <span id="label-entry">Entry Ready (15m) (0)</span></label>
-        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-triggered" checked onchange="renderSignalLadder()"> <span id="label-triggered">Triggered (5m) (0)</span></label>
+        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-watching" checked onchange="renderSignalLadder()"> <span id="label-watching" style="color:#60a5fa; font-weight:600;">Watching Base (0)</span></label>
+        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-pressure" checked onchange="renderSignalLadder()"> <span id="label-pressure" style="color:#fbbf24; font-weight:600;">Pressure Building (0)</span></label>
+        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-attempt" checked onchange="renderSignalLadder()"> <span id="label-attempt" style="color:#c084fc; font-weight:600;">Breakout Attempt (0)</span></label>
+        <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox" id="filter-confirmed" checked onchange="renderSignalLadder()"> <span id="label-confirmed" style="color:#4ade80; font-weight:600;">Confirmed Breakout (0)</span></label>
       </div>
-      <div style="max-height: 250px; overflow-y: auto;">
-        <table class="data-table" id="signal-ladder-table" style="width:100%; text-align:left; font-size:12px;">
+      <div style="max-height: 320px; overflow-y: auto; overflow-x: auto;">
+        <table class="data-table" id="signal-ladder-table" style="width:100%; min-width:860px; text-align:left; font-size:12px;">
           <thead>
             <tr>
               <th data-lcol="symbol" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Symbol</th>
-              <th data-lcol="current_state" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">State</th>
+              <th data-lcol="mtf_substate" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Stage</th>
+              <th data-lcol="setup_score" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Base Quality</th>
+              <th data-lcol="box_high" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Box High / Low</th>
+              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">Tests / Vol</th>
               <th data-lcol="cmp" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">CMP</th>
+              <th data-lcol="severity" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Severity / Score</th>
               <th data-lcol="last_updated" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Updated ▼</th>
               <th style="padding-bottom:8px; border-bottom:1px solid var(--border); text-align:right;">Chart</th>
             </tr>
           </thead>
           <tbody id="signal-ladder-body">
-            <tr><td colspan="3" style="text-align: center; color: var(--muted); padding:12px;">Loading active signals...</td></tr>
+            <tr><td colspan="9" style="text-align: center; color: var(--muted); padding:12px;">Loading active setups...</td></tr>
           </tbody>
         </table>
       </div>
@@ -1161,24 +1166,47 @@ window.fetchSignalLadder = async function() {
   }
 };
 
+// [RULE 67 CHANGE-RATIONALE]:
+// Upgraded window.renderSignalLadder to render the Multi-TF V3 Dual-Engine Watchlist:
+// Substates (WATCHING, PRESSURE_BUILDING, ATTEMPT, BREAKOUT_CONFIRMED), Base Quality Score (0-100),
+// Box High/Low range, Resistance Test count, 5m RVOL, and Breakout Severity (A+, EXPLOSIVE, SUPER, GOOD).
 window.renderSignalLadder = function() {
   const tbody = document.getElementById('signal-ladder-body');
   if (!tbody) return;
   if (!window._signalLadderData || window._signalLadderData.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:12px;">No active signals</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:16px;">No active Multi-TF setups tracking right now</td></tr>';
       return;
   }
   
-  const h = document.getElementById('filter-hourly')?.checked;
-  const s = document.getElementById('filter-setup')?.checked;
-  const e = document.getElementById('filter-entry')?.checked;
-  const t = document.getElementById('filter-triggered')?.checked;
+  const w = document.getElementById('filter-watching')?.checked ?? true;
+  const p = document.getElementById('filter-pressure')?.checked ?? true;
+  const a_att = document.getElementById('filter-attempt')?.checked ?? true;
+  const c = document.getElementById('filter-confirmed')?.checked ?? true;
+  
+  let countWatching = 0, countPressure = 0, countAttempt = 0, countConfirmed = 0;
+  window._signalLadderData.forEach(d => {
+      const st = (d.mtf_substate || d.current_state || '').toUpperCase();
+      if (st === 'WATCHING' || st === 'HOURLY_APPROVED') countWatching++;
+      else if (st === 'PRESSURE_BUILDING' || st === 'SETUP_ARMED') countPressure++;
+      else if (st === 'ATTEMPT' || st === 'ENTRY_READY') countAttempt++;
+      else if (st === 'BREAKOUT_CONFIRMED' || st === 'TRIGGERED') countConfirmed++;
+  });
+  
+  const labelWatching = document.getElementById('label-watching');
+  if (labelWatching) labelWatching.innerText = `Watching Base (${countWatching})`;
+  const labelPressure = document.getElementById('label-pressure');
+  if (labelPressure) labelPressure.innerText = `Pressure Building (${countPressure})`;
+  const labelAttempt = document.getElementById('label-attempt');
+  if (labelAttempt) labelAttempt.innerText = `Breakout Attempt (${countAttempt})`;
+  const labelConfirmed = document.getElementById('label-confirmed');
+  if (labelConfirmed) labelConfirmed.innerText = `Confirmed Breakout (${countConfirmed})`;
   
   let filtered = window._signalLadderData.filter(d => {
-      if (d.current_state === 'HOURLY_APPROVED' && h) return true;
-      if (d.current_state === 'SETUP_ARMED' && s) return true;
-      if (d.current_state === 'ENTRY_READY' && e) return true;
-      if (d.current_state === 'BREAKOUT_CONFIRMED' && t) return true;
+      const st = (d.mtf_substate || d.current_state || '').toUpperCase();
+      if ((st === 'WATCHING' || st === 'HOURLY_APPROVED') && w) return true;
+      if ((st === 'PRESSURE_BUILDING' || st === 'SETUP_ARMED') && p) return true;
+      if ((st === 'ATTEMPT' || st === 'ENTRY_READY') && a_att) return true;
+      if ((st === 'BREAKOUT_CONFIRMED' || st === 'TRIGGERED') && c) return true;
       return false;
   });
   
@@ -1186,39 +1214,79 @@ window.renderSignalLadder = function() {
   filtered.sort((a,b) => {
       let va = a[ladderSortCol] || '';
       let vb = b[ladderSortCol] || '';
-      if (ladderSortCol === 'cmp') { va = parseFloat(va)||0; vb = parseFloat(vb)||0; }
+      if (ladderSortCol === 'cmp' || ladderSortCol === 'setup_score' || ladderSortCol === 'box_high') { 
+          va = parseFloat(va)||0; 
+          vb = parseFloat(vb)||0; 
+      }
       if (va < vb) return -1 * sortDirNum;
       if (va > vb) return 1 * sortDirNum;
       return 0;
   });
   
-  document.getElementById('label-hourly').innerText = `Hourly Passed (1H) (${window._signalLadderData.filter(d=>d.current_state==='HOURLY_APPROVED').length})`;
-  document.getElementById('label-setup').innerText = `Setup Armed (30m) (${window._signalLadderData.filter(d=>d.current_state==='SETUP_ARMED').length})`;
-  document.getElementById('label-entry').innerText = `Entry Ready (15m) (${window._signalLadderData.filter(d=>d.current_state==='ENTRY_READY').length})`;
-  document.getElementById('label-triggered').innerText = `Triggered (5m) (${window._signalLadderData.filter(d=>d.current_state==='BREAKOUT_CONFIRMED').length})`;
-  
   if (filtered.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:12px;">No signals match filters</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:16px;">No setups match selected stage filters</td></tr>';
       return;
   }
   
   const html = filtered.map(d => {
-      let color = 'var(--muted)';
-      if(d.current_state === 'HOURLY_APPROVED') color = '#3498db';
-      if(d.current_state === 'SETUP_ARMED') color = '#f39c12';
-      if(d.current_state === 'ENTRY_READY') color = '#9b59b6';
-      if(d.current_state === 'BREAKOUT_CONFIRMED') color = '#2ecc71';
+      const st = (d.mtf_substate || d.current_state || 'WATCHING').toUpperCase();
+      let stageBadge = '';
+      if (st === 'WATCHING' || st === 'HOURLY_APPROVED') {
+          stageBadge = '<span style="background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.4); padding:2px 8px; border-radius:4px; font-weight:700; font-size:10px; display:inline-block;">WATCHING</span>';
+      } else if (st === 'PRESSURE_BUILDING' || st === 'SETUP_ARMED') {
+          stageBadge = '<span style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.4); padding:2px 8px; border-radius:4px; font-weight:700; font-size:10px; display:inline-block;">⚡ PRESSURE</span>';
+      } else if (st === 'ATTEMPT' || st === 'ENTRY_READY') {
+          stageBadge = '<span style="background:rgba(168,85,247,0.15); color:#c084fc; border:1px solid rgba(168,85,247,0.4); padding:2px 8px; border-radius:4px; font-weight:700; font-size:10px; display:inline-block;">🚀 ATTEMPT (5M)</span>';
+      } else if (st === 'BREAKOUT_CONFIRMED' || st === 'TRIGGERED') {
+          stageBadge = '<span style="background:rgba(34,197,94,0.15); color:#4ade80; border:1px solid rgba(34,197,94,0.4); padding:2px 8px; border-radius:4px; font-weight:700; font-size:10px; display:inline-block;">✅ CONFIRMED</span>';
+      } else {
+          stageBadge = `<span style="background:rgba(156,163,175,0.15); color:var(--muted); border:1px solid var(--border); padding:2px 8px; border-radius:4px; font-weight:700; font-size:10px; display:inline-block;">${st}</span>`;
+      }
+      
+      const score = parseFloat(d.setup_score || d.base_score || 0);
+      let scoreColor = '#60a5fa';
+      if (score >= 85) scoreColor = '#4ade80';
+      else if (score >= 70) scoreColor = '#fbbf24';
+      const scoreBadge = `<span style="font-family:var(--font-mono); font-weight:700; color:${scoreColor}; font-size:11px;">${score > 0 ? Math.round(score) + '/100' : '—'}</span>`;
+
+      const boxHigh = d.box_high || d.breakout_level;
+      const boxLow = d.box_low || d.support_level;
+      const highStr = boxHigh ? '₹' + parseFloat(boxHigh).toFixed(2) : '—';
+      const lowStr = boxLow ? '₹' + parseFloat(boxLow).toFixed(2) : '—';
+      const widthPct = d.box_width_pct ? ` <span style="color:var(--muted); font-size:10px;">(${parseFloat(d.box_width_pct).toFixed(1)}%)</span>` : '';
+      const rangeHtml = `<div style="font-family:var(--font-mono); font-size:11px;">${highStr} <span style="color:var(--muted);">/</span> ${lowStr}${widthPct}</div>`;
+
+      const tests = d.resistance_test_count || 0;
+      const volRatio = parseFloat(d.volume_ratio_5m || 0);
+      const volText = volRatio > 0 ? `${volRatio.toFixed(1)}x vol` : 'Normal';
+      const testsHtml = `<div style="font-size:11px;"><span style="font-weight:600;">${tests} tests</span> · <span style="color:var(--muted);">${volText}</span></div>`;
+
+      let severityHtml = '<span style="color:var(--muted); font-size:11px;">—</span>';
+      if (st === 'BREAKOUT_CONFIRMED' || st === 'TRIGGERED' || d.severity) {
+          const sev = d.severity || 'GOOD';
+          let sevColor = '#4ade80';
+          let sevIcon = '🟢';
+          if (sev === 'A_PLUS') { sevColor = '#fbbf24'; sevIcon = '👑'; }
+          else if (sev === 'EXPLOSIVE') { sevColor = '#f87171'; sevIcon = '🔥'; }
+          else if (sev === 'SUPER') { sevColor = '#c084fc'; sevIcon = '⚡'; }
+
+          const brkScore = d.breakout_score ? ` <span style="font-size:10px; color:var(--muted);">[${Math.round(d.breakout_score)}]</span>` : '';
+          severityHtml = `<span style="color:${sevColor}; font-weight:700; font-size:11px;">${sevIcon} ${d.severity_label || sev}${brkScore}</span>`;
+      }
       
       const cmpStr = d.cmp ? '₹' + Number(d.cmp).toLocaleString('en-IN', {maximumFractionDigits:2}) : '—';
       const lastUpd = fmtTs(d.last_updated);
-
       
       return `<tr>
-          <td style="font-weight:700;">${d.symbol}${getEarningsBadgeHtml(d)}</td>
-          <td><span style="color:${color}; font-weight:600;">${d.current_state}</span></td>
-          <td>${cmpStr}</td>
-          <td style="color:var(--muted); font-size:11px;">${lastUpd}</td>
-          <td style="text-align:right;"><button onclick="openChart('${d.symbol}', ${d.cmp || 0});" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:4px; font-size:11px; cursor:pointer;">📈 Chart</button></td>
+          <td style="font-weight:700; padding:8px 0; border-bottom:1px solid var(--border); cursor:pointer;" onclick="openChart('${d.symbol}', ${d.cmp || 0})">${d.symbol}${getEarningsBadgeHtml(d)}</td>
+          <td style="padding:8px 0; border-bottom:1px solid var(--border);">${stageBadge}</td>
+          <td style="padding:8px 0; border-bottom:1px solid var(--border);">${scoreBadge}</td>
+          <td style="padding:8px 0; border-bottom:1px solid var(--border);">${rangeHtml}</td>
+          <td style="padding:8px 0; border-bottom:1px solid var(--border);">${testsHtml}</td>
+          <td style="font-family:var(--font-mono); font-size:11px; font-weight:600; padding:8px 0; border-bottom:1px solid var(--border);">${cmpStr}</td>
+          <td style="padding:8px 0; border-bottom:1px solid var(--border);">${severityHtml}</td>
+          <td style="color:var(--muted); font-size:11px; padding:8px 0; border-bottom:1px solid var(--border);">${lastUpd}</td>
+          <td style="text-align:right; padding:8px 0; border-bottom:1px solid var(--border);"><button onclick="openChart('${d.symbol}', ${d.cmp || 0});" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:4px; font-size:11px; cursor:pointer;">📈 Chart</button></td>
       </tr>`;
   }).join('');
   
