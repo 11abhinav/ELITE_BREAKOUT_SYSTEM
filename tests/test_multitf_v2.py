@@ -518,6 +518,34 @@ class TestAlertSeverityClassification(unittest.TestCase):
         computed_atr = _get_atr(df_no_atr)
         self.assertGreater(computed_atr, 0.0)
 
+    def test_build_watchlist_candidate_canonical_state(self):
+        """Validates that build_watchlist_candidate properly maps canonical state without AttributeError."""
+        from multitf.candidate import build_watchlist_candidate
+        from multitf.data import MultitfDataBundle
+        from unittest.mock import MagicMock
+
+        bundle = MagicMock(spec=MultitfDataBundle)
+        bundle.prov_1h = None
+        bundle.prov_30m = None
+        bundle.prov_15m = None
+        bundle.prov_5m = None
+
+        cons = self._make_cons(80, False, 2)
+        cons.box_id = "TEST_15M_BOX"
+        ist_now = datetime(2026, 9, 2, 11, 30, tzinfo=IST)
+        candidate = build_watchlist_candidate(
+            bundle=bundle,
+            consolidation=cons,
+            ctx_1h={"score": 80},
+            ctx_30m={"score": 80},
+            market_ctx={"regime": "BULL"},
+            ist_now=ist_now
+        )
+        self.assertEqual(candidate["state"], "WATCH")
+        self.assertEqual(candidate["mtf_substate"], "WATCHING")
+        self.assertEqual(candidate["symbol"], "TEST")
+        self.assertEqual(candidate["box_id"], "TEST_15M_BOX")
+
 
 if __name__ == "__main__":
     unittest.main()

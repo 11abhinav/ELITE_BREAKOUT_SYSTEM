@@ -31,7 +31,9 @@ def build_watchlist_candidate(
     Builds the flat dictionary for inserting a NEW consolidation into mtf_v2_watchlist.
     """
     substate = MtfSubstate.WATCHING
-    canonical_state = to_canonical(substate).value
+    # RULE 67 FIX: to_canonical() in multitf/state.py returns a str directly (e.g. 'WATCH'),
+    # not an Enum with a .value attribute. Calling .value raised an AttributeError ('str' object has no attribute 'value').
+    canonical_state = to_canonical(substate)
 
     # Extract provenance
     prov_1h = bundle.prov_1h.to_dict() if bundle.prov_1h else {}
