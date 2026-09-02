@@ -649,16 +649,26 @@ def api_user_info():
     user_id = session.get('user_id')
     username = session.get('username', '')
     first_name = session.get('first_name')
+    email = session.get('email', '')
     role = session.get('role', 'user')
 
-    if not first_name:
+    if not first_name or not email:
         try:
-            from database import get_user_first_name
-            first_name = get_user_first_name(user_id)
-            if first_name:
-                session['first_name'] = first_name
+            from database import get_connection
+            from psycopg2.extras import RealDictCursor
+            with get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("SELECT first_name, email FROM users WHERE id = %s", (user_id,))
+                    u_row = cur.fetchone()
+                    if u_row:
+                        if u_row.get('first_name'):
+                            first_name = u_row['first_name']
+                            session['first_name'] = first_name
+                        if u_row.get('email'):
+                            email = u_row['email']
+                            session['email'] = email
         except Exception as e:
-            logger.debug(f"Could not fetch first_name for user {user_id}: {e}")
+            logger.debug(f"Could not fetch user profile details for user {user_id}: {e}")
 
     if not first_name:
         parts = username.replace("_", " ").replace(".", " ").strip().split()
@@ -670,6 +680,7 @@ def api_user_info():
         "user_id": user_id,
         "username": username,
         "first_name": first_name,
+        "email": email or "",
         "role": role
     })
 
