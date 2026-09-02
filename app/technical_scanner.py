@@ -79,8 +79,19 @@ BULL_FLAG_MAX_RETRACE = 0.45        # Maximum retracement ratio of pole (45%)
 BULL_FLAG_MAX_VOL_RATIO = 0.85      # Avg Flag Volume / Avg Pole Volume <= 0.85
 
 SHAKEOUT_MIN_DECLINE_PCT = 4.0      # Minimum prior drop % for shakeout setup
-DOUBLE_BOTTOM_MAX_DIFF_PCT = 2.5    # Max % difference between Trough 1 and Trough 2
-DOUBLE_BOTTOM_MIN_HEIGHT_PCT = 3.5  # Minimum neckline height % above troughs
+
+# [DOUBLE BOTTOM HARDENING]:
+# True reversal pattern requires:
+# 1. Preceding markdown/downtrend of at least 7.0% or 2.0x ATR into Trough 1.
+# 2. Spacing between Trough 1 and Trough 2 of at least 8 bars (up to 45 bars).
+# 3. Maximum price discrepancy between troughs <= 2.5%.
+# 4. Clean neckline peak between troughs >= 4.0% above troughs.
+# 5. Fresh breakout timing: today is the initial breakout through the neckline.
+DOUBLE_BOTTOM_MIN_PRIOR_DROP_PCT = 7.0 # Minimum prior downtrend % into Trough 1
+DOUBLE_BOTTOM_MIN_TROUGH_BARS = 8      # Minimum daily bars between Trough 1 and Trough 2
+DOUBLE_BOTTOM_MAX_TROUGH_BARS = 45     # Maximum daily bars between Trough 1 and Trough 2
+DOUBLE_BOTTOM_MAX_DIFF_PCT = 2.5       # Max % difference between Trough 1 and Trough 2
+DOUBLE_BOTTOM_MIN_HEIGHT_PCT = 4.0     # Minimum neckline height % above troughs
 
 CUP_HANDLE_MIN_DEPTH_PCT = 5.0      # Minimum cup depth %
 CUP_HANDLE_MAX_DEPTH_PCT = 30.0     # Maximum cup depth %
@@ -94,6 +105,36 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
         return float(val)
     except Exception:
         return default
+
+
+def _find_swing_pivots(highs: np.ndarray, lows: np.ndarray, lookback: int = 2) -> Tuple[List[int], List[int]]:
+    """
+    Identifies robust multi-bar fractal swing highs (peaks) and swing lows (troughs).
+    A bar i is a swing low if lows[i] < all other lows in [i - lookback, i + lookback].
+    A bar i is a swing high if highs[i] > all other highs in [i - lookback, i + lookback].
+    Strict inequality prevents flat continuous price plateaus from registering as dozens of fake pivots.
+    """
+    n = len(highs)
+    peak_indices: List[int] = []
+    trough_indices: List[int] = []
+
+    if n < (2 * lookback + 1):
+        return peak_indices, trough_indices
+
+    for i in range(lookback, n - lookback):
+        # Trough test: strictly lower than neighbors
+        left_lows = lows[i - lookback: i]
+        right_lows = lows[i + 1: i + lookback + 1]
+        if lows[i] < np.min(left_lows) and lows[i] < np.min(right_lows):
+            trough_indices.append(i)
+
+        # Peak test: strictly higher than neighbors
+        left_highs = highs[i - lookback: i]
+        right_highs = highs[i + 1: i + lookback + 1]
+        if highs[i] > np.max(left_highs) and highs[i] > np.max(right_highs):
+            peak_indices.append(i)
+
+    return peak_indices, trough_indices
 
 
 # =====================================================================================
@@ -285,13 +326,22 @@ def _detect_shakeout_reclaim(df: pd.DataFrame, atr14: float) -> Optional[Dict[st
 
 def _detect_double_bottom(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any]]:
     """
-    Tier A Pattern: Double Bottom Breakout
-    - Two troughs within 2.5% price difference separated by 5 to 30 bars.
-    - Neckline peak between troughs with height >= 3.5%.
-    - Today closes cleanly above neckline resistance.
+    Tier A Pattern: Double Bottom Breakout (Reversal)
+    
+    [RULE 67 MANDATORY REFACTOR]:
+    A genuine Double Bottom is a classic reversal structure, NOT a random pause.
+    It requires strict mathematical invariants:
+    1. Preceding Downtrend: Prior selloff of >= 7.0% (or >= 2.0x ATR) into Trough 1.
+    2. Multi-Bar Swing Lows: Troughs must be genuine multi-bar fractals (not 1-bar noise).
+    3. Structural Spacing: Troughs separated by 8 to 45 daily bars.
+    4. Price Symmetry: Trough 2 within 2.5% of Trough 1.
+    5. Neckline Clearance: High between troughs must be >= 4.0% above troughs.
+    6. Fresh Breakout Timing: Today's candle must be the INITIAL breakout crossing above
+       the neckline (c_today >= neckline * 1.002 and c_yesterday <= neckline * 1.01).
+       Prevents stale breakouts from firing weeks after the event.
     """
     n = len(df)
-    if n < 25:
+    if n < 35:
         return None
 
     highs = df["High"].values
@@ -299,65 +349,114 @@ def _detect_double_bottom(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, 
     closes = df["Close"].values
     today_idx = n - 1
     c_today = _safe_float(closes[today_idx])
+    c_yesterday = _safe_float(closes[today_idx - 1])
 
-    window_start = max(0, today_idx - 40)
-    sub_lows = lows[window_start: today_idx]
+    # Search window up to 70 bars back
+    window_start = max(0, today_idx - 70)
+    w_highs = highs[window_start: today_idx]
+    w_lows = lows[window_start: today_idx]
 
-    if len(sub_lows) < 15:
+    if len(w_lows) < 20:
         return None
 
-    local_min_indices = []
-    for i in range(1, len(sub_lows) - 1):
-        if sub_lows[i] <= sub_lows[i - 1] and sub_lows[i] <= sub_lows[i + 1]:
-            local_min_indices.append(window_start + i)
+    # Use 2-bar fractal lookback to identify real swing lows
+    _, rel_troughs = _find_swing_pivots(w_highs, w_lows, lookback=2)
+    local_trough_indices = [window_start + idx for idx in rel_troughs]
 
-    if len(local_min_indices) < 2:
+    if len(local_trough_indices) < 2:
         return None
 
-    for t1 in local_min_indices[:-1]:
-        for t2 in local_min_indices:
-            if t2 <= t1 + 4 or t2 >= today_idx - 1:
+    for i in range(len(local_trough_indices) - 1):
+        t1 = local_trough_indices[i]
+        for j in range(i + 1, len(local_trough_indices)):
+            t2 = local_trough_indices[j]
+
+            # Spacing between troughs: 8 to 45 daily bars
+            bars_between = t2 - t1
+            if bars_between < DOUBLE_BOTTOM_MIN_TROUGH_BARS or bars_between > DOUBLE_BOTTOM_MAX_TROUGH_BARS:
+                continue
+
+            # T2 must have finished forming before today (at least 2 bars of recovery)
+            if t2 >= today_idx - 1:
                 continue
 
             l1_val = float(lows[t1])
             l2_val = float(lows[t2])
 
+            # Invariant 1: Troughs price symmetry within 2.5%
             diff_pct = abs(l1_val - l2_val) / min(l1_val, l2_val) * 100.0
             if diff_pct > DOUBLE_BOTTOM_MAX_DIFF_PCT:
                 continue
 
-            neckline_val = float(np.max(highs[t1: t2 + 1]))
-            pattern_height_pct = (neckline_val - min(l1_val, l2_val)) / min(l1_val, l2_val) * 100.0
+            # Invariant 2: Prior Downtrend into Trough 1
+            # Check price drop from high before T1 (lookback 10-30 bars prior to T1)
+            pre_t1_start = max(0, t1 - 30)
+            if t1 - pre_t1_start < 5:
+                continue
+            pre_t1_high = float(np.max(highs[pre_t1_start: t1]))
+            prior_drop_pct = (pre_t1_high - l1_val) / max(pre_t1_high, 1.0) * 100.0
+            prior_drop_points = pre_t1_high - l1_val
+
+            if prior_drop_pct < DOUBLE_BOTTOM_MIN_PRIOR_DROP_PCT and prior_drop_points < (2.0 * atr14):
+                continue  # REJECT: No preceding downtrend (not a reversal setup)
+
+            # Invariant 3: Clean Neckline Peak between Troughs
+            neckline_window = highs[t1 + 1: t2]
+            if len(neckline_window) < 3:
+                continue
+            neckline_val = float(np.max(neckline_window))
+            trough_base = min(l1_val, l2_val)
+            pattern_height_pct = (neckline_val - trough_base) / max(trough_base, 1.0) * 100.0
 
             if pattern_height_pct < DOUBLE_BOTTOM_MIN_HEIGHT_PCT:
+                continue  # REJECT: Neckline too shallow
+
+            # Invariant 4: No severe breakdown between or after troughs
+            # Prices between T1 and T2 must not crash significantly below trough floor
+            mid_lows = lows[t1: t2 + 1]
+            if np.min(mid_lows) < (trough_base * 0.975):
                 continue
 
-            if c_today >= neckline_val * 1.002:
-                sl_level = round(max(l2_val * 0.995, neckline_val * 0.96), 2)
-                # Look for major overhead swing high before the double bottom pattern
-                pre_pattern_highs = highs[max(0, t1 - 40): t1]
-                higher_res = [h for h in pre_pattern_highs if h > c_today * 1.02]
-                major_target_res = float(max(higher_res)) if higher_res else (c_today * 1.20)
-                return {
-                    "pattern": "DOUBLE_BOTTOM",
-                    "tier": "TIER_A",
-                    "trough_1": round(l1_val, 2),
-                    "trough_2": round(l2_val, 2),
-                    "neckline": round(neckline_val, 2),
-                    "trough_diff_pct": round(diff_pct, 2),
-                    "pattern_height_pct": round(pattern_height_pct, 2),
-                    "invalidation_level": sl_level,
-                    "target_resistance": round(major_target_res, 2),
-                    "pattern_quality_score": 24,
-                    "description": f"Double Bottom Breakout (Neckline ₹{neckline_val:.2f}, Height {pattern_height_pct:.1f}%)",
-                }
+            # Invariant 5: Fresh Breakout Timing Gate
+            # Today must cross above neckline (c_today >= neckline * 1.002)
+            # Yesterday must have been below or testing the neckline (c_yesterday <= neckline * 1.015)
+            # This ensures we alert on the BREAKOUT day, not 15 days later!
+            if c_today < neckline_val * 1.002:
+                continue
+            if c_yesterday > neckline_val * 1.025:
+                continue  # REJECT: Breakout occurred days ago (stale alert)
+
+            sl_level = round(max(l2_val * 0.995, neckline_val * 0.96), 2)
+            pre_pattern_highs = highs[max(0, t1 - 40): t1]
+            higher_res = [h for h in pre_pattern_highs if h > c_today * 1.02]
+            major_target_res = float(max(higher_res)) if higher_res else (neckline_val + (neckline_val - trough_base))
+
+            return {
+                "pattern": "DOUBLE_BOTTOM",
+                "tier": "TIER_A",
+                "trough_1": round(l1_val, 2),
+                "trough_2": round(l2_val, 2),
+                "neckline": round(neckline_val, 2),
+                "trough_diff_pct": round(diff_pct, 2),
+                "prior_drop_pct": round(prior_drop_pct, 1),
+                "pattern_height_pct": round(pattern_height_pct, 2),
+                "trough_bars": bars_between,
+                "invalidation_level": sl_level,
+                "target_resistance": round(major_target_res, 2),
+                "pattern_quality_score": 25 if diff_pct <= 1.0 and prior_drop_pct >= 10.0 else 22,
+                "description": (
+                    f"Double Bottom Breakout (Neckline ₹{neckline_val:.2f}, "
+                    f"Prior Drop -{prior_drop_pct:.1f}%, Height {pattern_height_pct:.1f}%, {bars_between}b apart)"
+                ),
+            }
     return None
 
 
 def _detect_v_reversal(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any]]:
     """
     Tier A Pattern: V-Reversal Recovery
-    - Sharp decline >= 5% followed by multiple consecutive recovery bars and higher low/high structure.
+    - Sharp decline >= 5% or >= 2.0x ATR followed by strong multi-bar recovery >= 55%.
+    - Fresh recovery momentum (today crosses upper midpoint of the drop).
     """
     n = len(df)
     if n < 15:
@@ -375,7 +474,7 @@ def _detect_v_reversal(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any
     if c_today <= o_today:
         return None
 
-    lookback = min(12, n - 2)
+    lookback = min(15, n - 2)
     recent_highs = highs[today_idx - lookback: today_idx - 2]
     recent_lows = lows[today_idx - lookback: today_idx]
 
@@ -387,11 +486,12 @@ def _detect_v_reversal(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any
     drop_points = drop_high - trough_low
     drop_pct = (drop_points / max(drop_high, 1.0)) * 100.0
 
-    if drop_pct < 5.0 and drop_points < (1.5 * atr14):
+    if drop_pct < 5.0 and drop_points < (2.0 * atr14):
         return None
 
     recovery_pct = (c_today - trough_low) / max(drop_points, 0.01) * 100.0
-    if recovery_pct < 35.0:
+    # Require at least 55% recovery of the drop (reversal confirmation, not dead cat bounce)
+    if recovery_pct < 55.0:
         return None
 
     # Pre-drop overhead high or measured expansion
@@ -419,7 +519,7 @@ def _detect_cup_and_handle(df: pd.DataFrame, atr14: float) -> Optional[Dict[str,
     Tier B Pattern: Cup & Handle Breakout
     - Rounded U-base over 20-50 bars (depth 5% - 30%).
     - Handle pullback in upper 35% portion of cup (depth <= 35% of cup).
-    - Breakout above rim.
+    - Fresh breakout above rim (today crosses rim, yesterday was below/at rim).
     """
     n = len(df)
     if n < 30:
@@ -430,8 +530,9 @@ def _detect_cup_and_handle(df: pd.DataFrame, atr14: float) -> Optional[Dict[str,
     closes = df["Close"].values
     today_idx = n - 1
     c_today = _safe_float(closes[today_idx])
+    c_yesterday = _safe_float(closes[today_idx - 1])
 
-    for handle_len in range(3, 10):
+    for handle_len in range(3, 12):
         rim_idx = today_idx - handle_len
         if rim_idx < 15:
             continue
@@ -439,7 +540,7 @@ def _detect_cup_and_handle(df: pd.DataFrame, atr14: float) -> Optional[Dict[str,
         handle_low = float(np.min(lows[rim_idx: today_idx]))
         rim_high = float(highs[rim_idx])
 
-        for cup_len in range(15, min(45, rim_idx)):
+        for cup_len in range(15, min(50, rim_idx)):
             left_rim_idx = rim_idx - cup_len
             left_rim_high = float(np.max(highs[left_rim_idx: left_rim_idx + 4]))
             cup_bottom = float(np.min(lows[left_rim_idx: rim_idx]))
@@ -457,7 +558,8 @@ def _detect_cup_and_handle(df: pd.DataFrame, atr14: float) -> Optional[Dict[str,
             if handle_depth > (cup_depth * CUP_HANDLE_MAX_HANDLE_RETRACE):
                 continue
 
-            if c_today >= rim_high * 1.002:
+            # Fresh Breakout timing
+            if c_today >= rim_high * 1.002 and c_yesterday <= rim_high * 1.02:
                 sl_level = round(handle_low * 0.995, 2)
                 measured_target = rim_high + cup_depth
                 return {
@@ -469,7 +571,7 @@ def _detect_cup_and_handle(df: pd.DataFrame, atr14: float) -> Optional[Dict[str,
                     "invalidation_level": sl_level,
                     "target_resistance": round(measured_target, 2),
                     "pattern_quality_score": 19,
-                    "description": f"Cup & Handle Breakout (Rim ₹{rim_high:.2f}, Cup -{cup_depth_pct:.1f}%)",
+                    "description": f"Cup & Handle Breakout (Rim ₹{rim_high:.2f}, Cup -{cup_depth_pct:.1f}%, Handle {handle_len}b)",
                 }
     return None
 
@@ -478,10 +580,11 @@ def _detect_ascending_triangle(df: pd.DataFrame, atr14: float) -> Optional[Dict[
     """
     Tier B Pattern: Ascending Triangle Breakout
     - Flat horizontal resistance line (2+ peaks within 1.2%).
-    - Ascending swing lows compressing upward (2+ higher lows).
+    - Multi-bar ascending swing lows compressing upward (2+ higher lows).
+    - Fresh breakout today through horizontal ceiling.
     """
     n = len(df)
-    if n < 20:
+    if n < 25:
         return None
 
     highs = df["High"].values
@@ -489,39 +592,42 @@ def _detect_ascending_triangle(df: pd.DataFrame, atr14: float) -> Optional[Dict[
     closes = df["Close"].values
     today_idx = n - 1
     c_today = _safe_float(closes[today_idx])
+    c_yesterday = _safe_float(closes[today_idx - 1])
 
-    lookback = min(30, n - 2)
+    lookback = min(40, n - 2)
     sub_highs = highs[today_idx - lookback: today_idx]
     sub_lows = lows[today_idx - lookback: today_idx]
 
-    if len(sub_highs) < 12:
+    if len(sub_highs) < 15:
         return None
 
-    peaks = []
-    for i in range(1, len(sub_highs) - 1):
-        if sub_highs[i] > sub_highs[i - 1] and sub_highs[i] > sub_highs[i + 1]:
-            peaks.append(float(sub_highs[i]))
+    peaks, troughs = _find_swing_pivots(sub_highs, sub_lows, lookback=2)
 
-    if len(peaks) < 2:
+    if len(peaks) < 2 or len(troughs) < 2:
         return None
 
-    res_level = float(np.max(peaks))
-    near_peaks = [p for p in peaks if (res_level - p) / res_level <= 0.015]
+    peak_vals = [float(sub_highs[p]) for p in peaks]
+    trough_vals = [float(sub_lows[t]) for t in troughs]
+
+    res_level = float(np.max(peak_vals))
+    near_peaks = [p for p in peak_vals if (res_level - p) / res_level <= 0.015]
     if len(near_peaks) < 2:
         return None
 
-    troughs = []
-    for i in range(1, len(sub_lows) - 1):
-        if sub_lows[i] < sub_lows[i - 1] and sub_lows[i] < sub_lows[i + 1]:
-            troughs.append(float(sub_lows[i]))
-
-    if len(troughs) < 2 or troughs[-1] <= troughs[0]:
+    # Verify ascending sequence: later trough must be strictly higher than earlier trough
+    if trough_vals[-1] <= trough_vals[0] * 1.01:
         return None
 
-    if c_today >= res_level * 1.002:
-        last_low = troughs[-1]
+    # Check for higher lows slope consistency
+    is_ascending = all(trough_vals[k] >= trough_vals[k-1] * 0.995 for k in range(1, len(trough_vals)))
+    if not is_ascending:
+        return None
+
+    # Fresh breakout timing: today crosses resistance, yesterday was at or below
+    if c_today >= res_level * 1.002 and c_yesterday <= res_level * 1.02:
+        last_low = trough_vals[-1]
         sl_level = round(last_low * 0.995, 2)
-        measured_target = res_level + (res_level - troughs[0])
+        measured_target = res_level + (res_level - trough_vals[0])
         return {
             "pattern": "ASCENDING_TRIANGLE",
             "tier": "TIER_B",
@@ -529,7 +635,7 @@ def _detect_ascending_triangle(df: pd.DataFrame, atr14: float) -> Optional[Dict[
             "ascending_lows_count": len(troughs),
             "invalidation_level": sl_level,
             "target_resistance": round(measured_target, 2),
-            "pattern_quality_score": 18,
+            "pattern_quality_score": 20,
             "description": f"Ascending Triangle Breakout (Res ₹{res_level:.2f}, Lows +{len(troughs)})",
         }
     return None
@@ -538,10 +644,11 @@ def _detect_ascending_triangle(df: pd.DataFrame, atr14: float) -> Optional[Dict[
 def _detect_bull_pennant(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any]]:
     """
     Tier B Pattern: Bull Pennant
-    - Symmetrical converging trendlines after strong pole.
+    - Symmetrical converging coil (3 to 10 bars) following a strong directional pole (>=6.0% or 2.5x ATR).
+    - Fresh breakout today above pennant upper boundary.
     """
     n = len(df)
-    if n < 15:
+    if n < 18:
         return None
 
     highs = df["High"].values
@@ -549,8 +656,9 @@ def _detect_bull_pennant(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, A
     closes = df["Close"].values
     today_idx = n - 1
     c_today = _safe_float(closes[today_idx])
+    c_yesterday = _safe_float(closes[today_idx - 1])
 
-    for pennant_len in range(3, 8):
+    for pennant_len in range(3, 10):
         pole_end = today_idx - pennant_len
         if pole_end < 4:
             continue
@@ -560,7 +668,7 @@ def _detect_bull_pennant(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, A
         pole_high = float(np.max(highs[pole_start: pole_end + 1]))
         pole_gain = (pole_high - pole_low) / max(pole_low, 1.0) * 100.0
 
-        if pole_gain < 5.0:
+        if pole_gain < 6.0 and (pole_high - pole_low) < (2.0 * atr14):
             continue
 
         p_highs = highs[pole_end: today_idx]
@@ -568,7 +676,7 @@ def _detect_bull_pennant(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, A
 
         if len(p_highs) >= 3 and p_highs[-1] <= p_highs[0] and p_lows[-1] >= p_lows[0]:
             pennant_top = float(np.max(p_highs))
-            if c_today >= pennant_top * 1.002:
+            if c_today >= pennant_top * 1.002 and c_yesterday <= pennant_top * 1.02:
                 sl_level = round(float(np.min(p_lows)) * 0.995, 2)
                 pole_move = pole_high - pole_low
                 pre_highs = highs[max(0, pole_start - 30): pole_start]
@@ -581,7 +689,7 @@ def _detect_bull_pennant(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, A
                     "pennant_bars": pennant_len,
                     "invalidation_level": sl_level,
                     "target_resistance": round(target_res, 2),
-                    "pattern_quality_score": 17,
+                    "pattern_quality_score": 18,
                     "description": f"Bull Pennant Breakout (Pole +{pole_gain:.1f}%, Pennant {pennant_len}b)",
                 }
     return None
@@ -590,10 +698,11 @@ def _detect_bull_pennant(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, A
 def _detect_higher_low_reversal(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any]]:
     """
     Tier B Pattern: Higher-Low Structure Break
-    - Higher swing low followed by break above prior swing high.
+    - 2-bar swing pivots confirm a distinct higher low followed by a break above the intervening swing high.
+    - Fresh breakout timing.
     """
     n = len(df)
-    if n < 20:
+    if n < 25:
         return None
 
     highs = df["High"].values
@@ -601,30 +710,36 @@ def _detect_higher_low_reversal(df: pd.DataFrame, atr14: float) -> Optional[Dict
     closes = df["Close"].values
     today_idx = n - 1
     c_today = _safe_float(closes[today_idx])
+    c_yesterday = _safe_float(closes[today_idx - 1])
 
-    sub_lows = lows[today_idx - 25: today_idx]
-    sub_highs = highs[today_idx - 25: today_idx]
+    lookback = min(35, n - 2)
+    sub_highs = highs[today_idx - lookback: today_idx]
+    sub_lows = lows[today_idx - lookback: today_idx]
 
-    if len(sub_lows) < 12:
+    if len(sub_lows) < 15:
         return None
 
-    trough_indices = []
-    for i in range(1, len(sub_lows) - 1):
-        if sub_lows[i] < sub_lows[i - 1] and sub_lows[i] < sub_lows[i + 1]:
-            trough_indices.append(i)
+    peaks, troughs = _find_swing_pivots(sub_highs, sub_lows, lookback=2)
 
-    if len(trough_indices) < 2:
+    if len(troughs) < 2 or len(peaks) < 1:
         return None
 
-    l1_idx = trough_indices[-2]
-    l2_idx = trough_indices[-1]
+    l1_idx = troughs[-2]
+    l2_idx = troughs[-1]
 
-    if sub_lows[l2_idx] <= sub_lows[l1_idx] * 1.005:
+    # l2 must be higher than l1
+    if sub_lows[l2_idx] <= sub_lows[l1_idx] * 1.01:
         return None
 
-    h1_val = float(np.max(sub_highs[l1_idx: l2_idx + 1]))
+    # Find peak between l1 and l2
+    valid_peaks = [p for p in peaks if l1_idx < p < l2_idx]
+    if not valid_peaks:
+        # Fallback to max high between l1 and l2
+        h1_val = float(np.max(sub_highs[l1_idx: l2_idx + 1]))
+    else:
+        h1_val = float(sub_highs[valid_peaks[-1]])
 
-    if c_today >= h1_val * 1.002:
+    if c_today >= h1_val * 1.002 and c_yesterday <= h1_val * 1.02:
         sl_level = round(float(sub_lows[l2_idx]) * 0.995, 2)
         overhead_high = float(np.max(sub_highs))
         target_res = overhead_high if overhead_high > c_today * 1.02 else (c_today * 1.15)
@@ -635,7 +750,7 @@ def _detect_higher_low_reversal(df: pd.DataFrame, atr14: float) -> Optional[Dict
             "higher_low": round(float(sub_lows[l2_idx]), 2),
             "invalidation_level": sl_level,
             "target_resistance": round(target_res, 2),
-            "pattern_quality_score": 16,
+            "pattern_quality_score": 17,
             "description": f"Higher-Low Structure Break (Swing High ₹{h1_val:.2f}, Low ₹{sub_lows[l2_idx]:.2f})",
         }
     return None
