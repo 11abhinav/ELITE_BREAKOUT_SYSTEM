@@ -12,6 +12,7 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Dict, Any, Optional, List
+import pandas as pd
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -45,6 +46,32 @@ from sl_target_helper import compute_sl_and_target
 logger = logging.getLogger("multitf.scanner")
 _scan_lock = ProcessLock("multi_tf_scanner")
 _global_lock = ProcessLock("global_scanner_lock")
+
+
+def _get_atr(df, default: float = 0.0) -> float:
+    """Extracts ATR from DataFrame checking 'ATR_14', 'ATR', or 'ATR20', with rolling TrueRange fallback."""
+    if df is None or not hasattr(df, "empty") or df.empty:
+        return default
+    for col in ("ATR_14", "ATR", "ATR20"):
+        if col in df.columns and len(df[col]) > 0:
+            val = float(df[col].iloc[-1])
+            if val > 0:
+                return val
+    # Fallback: compute last 14-bar True Range average if OHLC columns exist
+    try:
+        if all(c in df.columns for c in ("High", "Low", "Close")) and len(df) >= 2:
+            prev_c = df["Close"].shift(1)
+            tr = pd.concat([
+                df["High"] - df["Low"],
+                (df["High"] - prev_c).abs(),
+                (df["Low"] - prev_c).abs()
+            ], axis=1).max(axis=1)
+            atr_calc = float(tr.tail(14).mean())
+            if atr_calc > 0:
+                return atr_calc
+    except Exception:
+        pass
+    return default
 
 
 def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str = "SCHEDULED"):
@@ -150,7 +177,7 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             df_15m_closed = strip_closed_candles(df_15m_raw, 15, ist_now)
             if df_15m_closed is None or df_15m_closed.empty or len(df_15m_closed) < 14:
                 continue
-            atr_15m = float(df_15m_closed["ATR_14"].iloc[-1]) if "ATR_14" in df_15m_closed else 0.0
+            atr_15m = _get_atr(df_15m_closed)
             if atr_15m <= 0:
                 continue
             cons = detect_15m_consolidation(df_15m_closed, atr_15m, ist_now, MULTI_TF_V2_CONFIG)
@@ -394,8 +421,8 @@ def _process_symbol(
         return
 
     # Extract indicators
-    atr_15m = float(bundle.df_15m_closed["ATR_14"].iloc[-1]) if "ATR_14" in bundle.df_15m_closed else 0.0
-    atr_5m = float(bundle.df_5m_closed["ATR_14"].iloc[-1]) if "ATR_14" in bundle.df_5m_closed else 0.0
+    atr_15m = _get_atr(bundle.df_15m_closed)
+    atr_5m = _get_atr(bundle.df_5m_closed)
     if atr_15m <= 0 or atr_5m <= 0:
         return
 
@@ -442,7 +469,7 @@ def _process_symbol(
         return # Cooling down
 
     # 5. Pressure / Expansion (5m Live + Closed)
-    daily_atr_val = float(bundle.df_1d["ATR_14"].iloc[-1]) if (bundle.df_1d is not None and not bundle.df_1d.empty and "ATR_14" in bundle.df_1d) else 0.0
+    daily_atr_val = _get_atr(bundle.df_1d)
     pressure = evaluate_5m_pressure(
         live_candle=bundle.live_5m,
         df_5m_closed=bundle.df_5m_closed,

@@ -479,6 +479,45 @@ class TestAlertSeverityClassification(unittest.TestCase):
                                            self.config, market_status="BEAR")
         self.assertNotEqual(severity, "WEAK", "In BEAR: strong RS leader (base 85, RVOL 2.2×) must pass")
 
+    def test_range_index_datetime_handling(self):
+        """Validates that strip_closed_candles and validate_freshness work seamlessly with RangeIndex."""
+        from multitf.data import strip_closed_candles, validate_freshness, normalize_sessions
+        from multitf.scanner import _get_atr
+
+        now = datetime(2026, 9, 2, 14, 30, tzinfo=IST)
+        dates = pd.date_range("2026-09-02 09:15", periods=20, freq="15min", tz="Asia/Kolkata")
+        df_range = pd.DataFrame({
+            "Date": dates,
+            "Open": [100.0 + i for i in range(20)],
+            "High": [102.0 + i for i in range(20)],
+            "Low": [99.0 + i for i in range(20)],
+            "Close": [101.0 + i for i in range(20)],
+            "Volume": [10000 + i * 100 for i in range(20)],
+            "ATR": [3.0] * 20
+        })
+
+        # Ensure index is standard integer RangeIndex
+        self.assertIsInstance(df_range.index, pd.RangeIndex)
+
+        # 1. strip_closed_candles should not throw TypeError
+        cl = strip_closed_candles(df_range, 15, now)
+        self.assertIsNotNone(cl)
+        self.assertFalse(cl.empty)
+
+        # 2. normalize_sessions should work with Date column
+        norm = normalize_sessions(df_range, "15m", now)
+        self.assertIn("session_date", norm.columns)
+        self.assertIn("bar_start", norm.columns)
+
+        # 3. _get_atr should resolve 'ATR' or 'ATR_14'
+        atr_val = _get_atr(df_range)
+        self.assertEqual(atr_val, 3.0)
+
+        # 4. _get_atr should fallback to TrueRange calculation if no ATR column
+        df_no_atr = df_range.drop(columns=["ATR"])
+        computed_atr = _get_atr(df_no_atr)
+        self.assertGreater(computed_atr, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

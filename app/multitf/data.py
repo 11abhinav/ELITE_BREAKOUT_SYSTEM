@@ -40,6 +40,37 @@ _TF_MINUTES = {
 }
 
 
+def _get_bar_timestamp(df: pd.DataFrame, pos: int = -1) -> Optional[pd.Timestamp]:
+    """
+    Safely extracts an IST-aware Timestamp from a DataFrame at row `pos`,
+    handling DatetimeIndex, RangeIndex with 'Date'/'Datetime'/'timestamp' column,
+    and string/naive formats.
+    """
+    if df is None or df.empty:
+        return None
+    try:
+        val = None
+        if isinstance(df.index, pd.DatetimeIndex):
+            val = df.index[pos]
+        elif "Date" in df.columns:
+            val = df["Date"].iloc[pos]
+        elif "Datetime" in df.columns:
+            val = df["Datetime"].iloc[pos]
+        elif "timestamp" in df.columns:
+            val = df["timestamp"].iloc[pos]
+        else:
+            val = df.index[pos]
+
+        ts = pd.to_datetime(val)
+        if hasattr(ts, "tzinfo") and ts.tzinfo is None:
+            ts = ts.tz_localize("Asia/Kolkata")
+        elif hasattr(ts, "tzinfo") and ts.tzinfo is not None:
+            ts = ts.tz_convert(IST)
+        return ts
+    except Exception:
+        return None
+
+
 # ─── Result dataclasses ──────────────────────────────────────────────────────
 
 @dataclass
@@ -225,15 +256,13 @@ def validate_freshness(
     max_staleness_min = tf_min + 5  # 1 extra period of headroom
 
     try:
-        last_idx = df.index[-1]
-        if hasattr(last_idx, "tzinfo") and last_idx.tzinfo is None:
-            last_idx = last_idx.tz_localize("Asia/Kolkata")
-        elif hasattr(last_idx, "tzinfo") and last_idx.tzinfo is not None:
-            last_idx = last_idx.astimezone(IST)
-        age_min = (ist_now - last_idx).total_seconds() / 60.0
+        last_ts = _get_bar_timestamp(df, -1)
+        if last_ts is None:
+            return False
+        age_min = (ist_now.replace(tzinfo=IST) if ist_now.tzinfo is None else ist_now - last_ts).total_seconds() / 60.0
         return age_min <= max_staleness_min
     except Exception as exc:
-        logger.warning("[freshness] %s %s: failed to compute age — %s", interval, df.index[-1], exc)
+        logger.warning("[freshness] %s: failed to compute age — %s", interval, exc)
         return False
 
 
@@ -257,21 +286,31 @@ def normalize_sessions(
     out = df.copy()
 
     try:
-        idx = out.index
-        if hasattr(idx[0], "tzinfo") and idx[0].tzinfo is None:
-            idx = idx.tz_localize("Asia/Kolkata")
-        elif hasattr(idx[0], "tzinfo") and idx[0].tzinfo is not None:
-            idx = idx.tz_convert(IST)
-
-        out.index = idx
-        out["session_date"] = idx.date
-        out["bar_start"]    = idx
-        open_minutes = _NSE_OPEN_H * 60 + _NSE_OPEN_M
-        out["minutes_from_open"] = (
-            idx.hour * 60 + idx.minute - open_minutes
-        )
+        if isinstance(out.index, pd.DatetimeIndex):
+            idx = out.index
+            if idx.tz is None:
+                idx = idx.tz_localize("Asia/Kolkata")
+            else:
+                idx = idx.tz_convert(IST)
+            out.index = idx
+            out["bar_start"] = idx
+            out["session_date"] = idx.date
+            open_minutes = _NSE_OPEN_H * 60 + _NSE_OPEN_M
+            out["minutes_from_open"] = idx.hour * 60 + idx.minute - open_minutes
+        else:
+            time_col = "Date" if "Date" in out.columns else ("Datetime" if "Datetime" in out.columns else None)
+            if time_col:
+                bar_starts = pd.to_datetime(out[time_col])
+                if bar_starts.dt.tz is None:
+                    bar_starts = bar_starts.dt.tz_localize("Asia/Kolkata")
+                else:
+                    bar_starts = bar_starts.dt.tz_convert(IST)
+                out["bar_start"] = bar_starts
+                out["session_date"] = bar_starts.dt.date
+                open_minutes = _NSE_OPEN_H * 60 + _NSE_OPEN_M
+                out["minutes_from_open"] = bar_starts.dt.hour * 60 + bar_starts.dt.minute - open_minutes
     except Exception as exc:
-        logger.warning("[normalize_sessions] %s %s: %s", interval, df.index[0], exc)
+        logger.warning("[normalize_sessions] %s: %s", interval, exc)
 
     return out
 
@@ -293,14 +332,12 @@ def strip_closed_candles(
         return df
 
     try:
-        last_idx = df.index[-1]
-        if hasattr(last_idx, "tzinfo") and last_idx.tzinfo is None:
-            last_idx = pd.Timestamp(last_idx).tz_localize("Asia/Kolkata")
-        elif hasattr(last_idx, "tzinfo") and last_idx.tzinfo is not None:
-            last_idx = pd.Timestamp(last_idx).tz_convert(IST)
+        last_ts = _get_bar_timestamp(df, -1)
+        if last_ts is None:
+            return df.iloc[:-1].copy() if len(df) > 1 else df.copy()
 
         # A bar that started at T is closed at T + tf_minutes
-        bar_close_ts = last_idx + timedelta(minutes=tf_minutes)
+        bar_close_ts = last_ts + timedelta(minutes=tf_minutes)
         now_ts = ist_now if ist_now.tzinfo else ist_now.replace(tzinfo=IST)
 
         if now_ts < bar_close_ts:
@@ -335,8 +372,10 @@ def _build_provenance(
         return TFProvenance(interval=interval, symbol=symbol, source=source, is_stale=True)
 
     try:
-        last_ts = str(df.index[-1])
-        first_ts = str(df.index[0])
+        first_ts_val = _get_bar_timestamp(df, 0)
+        last_ts_val = _get_bar_timestamp(df, -1)
+        first_ts = first_ts_val.isoformat() if first_ts_val else str(df.index[0])
+        last_ts = last_ts_val.isoformat() if last_ts_val else str(df.index[-1])
     except Exception:
         last_ts = first_ts = None
 
@@ -375,14 +414,13 @@ def _extract_live_candle(
 
     try:
         last_row = raw_df.iloc[-1]
-        last_idx = raw_df.index[-1]
-        if hasattr(last_idx, "tzinfo") and last_idx.tzinfo is None:
-            last_idx = pd.Timestamp(last_idx).tz_localize("Asia/Kolkata")
-        elif hasattr(last_idx, "tzinfo") and last_idx.tzinfo is not None:
-            last_idx = pd.Timestamp(last_idx).tz_convert(IST)
+        last_ts = _get_bar_timestamp(raw_df, -1)
+        if last_ts is None:
+            return None
 
         # Only return if the last bar started in the current/recent 5m slot
-        bar_start_delta = (ist_now.replace(tzinfo=IST) - last_idx).total_seconds()
+        now_ts = ist_now if ist_now.tzinfo else ist_now.replace(tzinfo=IST)
+        bar_start_delta = (now_ts - last_ts).total_seconds()
         if 0 <= bar_start_delta < 300:
             return last_row
         return None
