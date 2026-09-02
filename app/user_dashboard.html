@@ -1351,9 +1351,21 @@ function buildTradeRows(trades, maxAbs, prefix) {
     const isOpen = expandedIds.has(id);
     const sc = t.score != null ? `<span class="score-pill ${scoreClass(t.score)}">${t.score}</span>` : '—';
 
+    // [RULE 67 CHANGE-RATIONALE]: Row highlight per user instruction:
+    // Only profit trades in green, and SL trades in red; neutral / breakeven (0.00%) remain unhighlighted.
+    const isProfit = (t.status === 'WIN' || t.status === 'PROFIT' || (t.status && t.status.startsWith('PARTIAL_WIN')) || t.exit_signal === 'TARGET' || (t.pnl_pct != null && t.pnl_pct > 0.001) || (pnlRsVal > 0));
+    const isSL = (t.status === 'LOSS' || t.exit_signal === 'STOP_LOSS' || (t.exit_reason && (t.exit_reason.includes('SL') || t.exit_reason.includes('STOP_LOSS'))) || (t.pnl_pct != null && t.pnl_pct < -0.001) || (pnlRsVal < 0) || (t.stop_loss > 0 && (t.current_price || t.exit_price) > 0 && (t.current_price || t.exit_price) <= t.stop_loss));
+
+    let rowHighlightStyle = '';
+    if (isProfit) {
+      rowHighlightStyle = 'background-color: rgba(0, 212, 161, 0.08); border-left: 3px solid #00d4a1;';
+    } else if (isSL) {
+      rowHighlightStyle = 'background-color: rgba(255, 77, 109, 0.08); border-left: 3px solid #ff4d6d;';
+    }
+
     let eventMarkHtml = getEarningsBadgeHtml(t);
     return `
-    <tr class="main-row${isOpen?' open':''}" id="mr-${id}" onclick="toggleDetail('${id}', '${t.symbol}')">
+    <tr class="main-row${isOpen?' open':''}" id="mr-${id}" onclick="toggleDetail('${id}', '${t.symbol}')" style="${rowHighlightStyle}">
       <td>${isOpen?'\u25bc':'\u25b6'}</td>
       <td style="font-weight:700;color:var(--text);letter-spacing:-.3px">${t.symbol}${eventMarkHtml}</td>
       <td style="color:var(--muted);font-family:var(--font-mono);font-size:11px">${fmtAlertTime(t.alert_time||t.entry_date)}</td>
