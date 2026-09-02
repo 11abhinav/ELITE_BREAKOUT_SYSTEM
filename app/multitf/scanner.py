@@ -27,6 +27,8 @@ from multitf.context import evaluate_1h_context, evaluate_30m_context, evaluate_
 from multitf.consolidation import detect_15m_consolidation
 from multitf.pressure import evaluate_5m_pressure
 from multitf.confluence import evaluate_breakout_confluence
+from multitf.breakout_strength import compute_breakout_strength, classify_alert_severity, SEVERITY_EMOJI, SEVERITY_LABEL
+from multitf.alert_builder import build_multitf_alert_message
 from multitf.state import (
     load_state,
     apply_ttl_and_cooldown,
@@ -453,101 +455,197 @@ def _process_symbol(
 
     updates = {}
 
-    if pressure.is_confirmed and state_record.mtf_substate != MtfSubstate.BREAKOUT_CONFIRMED:
-        # 6. Confluence Evaluation
-        confluence = evaluate_breakout_confluence(
-            consolidation=consolidation,
-            pressure=pressure,
-            ctx_1h=ctx_1h,
-            ctx_30m=ctx_30m,
-            market_ctx=market_ctx,
-            config=config
-        )
+    # Check 14:15 IST trigger generation cutoff
+    cutoff_str = config.get("ENTRY_CUTOFF_TIME", "14:15")
+    try:
+        cutoff_time = datetime.strptime(cutoff_str, "%H:%M").time()
+        is_past_cutoff = (ist_now.time() >= cutoff_time)
+    except Exception:
+        is_past_cutoff = False
 
-        if confluence.is_approved:
-            # 7. R:R Target Generation
-            sl_target = compute_sl_and_target(
-                entry_price=float(bundle.df_5m_closed["Close"].iloc[-1]),
-                atr=atr_5m,
-                ticker=bundle.df_1h,  # Pass 1H for structural targets
-                mode="MULTI_TF_V2",
-                box_low=consolidation.box_low
+    if pressure.is_confirmed:
+        if state_record.mtf_substate == MtfSubstate.BREAKOUT_CONFIRMED:
+            # [RULE: MODEL B IS TRADE EVOLUTION, NOT A DUPLICATE TRADE]
+            if pressure.trigger_model == "MODEL_B_RETEST":
+                logger.info(f"🛡️ [{symbol}] Breakout Retest Defended @ ₹{current_price:.2f} — Trade Evolution recorded.")
+                updates["last_retest_ts"] = ist_now
+        elif not is_past_cutoff:
+            # 6. Confluence Evaluation
+            confluence = evaluate_breakout_confluence(
+                consolidation=consolidation,
+                pressure=pressure,
+                ctx_1h=ctx_1h,
+                ctx_30m=ctx_30m,
+                market_ctx=market_ctx,
+                config=config
             )
 
-            # 8. Canonical Alert Registration (Record the setup regardless of economic tradeability)
-            idempotency_signals = f"BOX_ID={consolidation.box_id}"
+            if confluence.is_approved:
+                # 7. [V3] Breakout Strength Engine
+                nifty_5m = bundle.__dict__.get("df_nifty_5m", None)  # Optional NIFTY 5m for market-RS
+                brkout_strength = compute_breakout_strength(
+                    pressure_result=pressure,
+                    consolidation_result=consolidation,
+                    df_5m_closed=bundle.df_5m_closed,
+                    nifty_5m=nifty_5m,
+                    ist_now=ist_now,
+                    config=config
+                )
 
-            tradeability_status = "NOT_TRADEABLE" if sl_target.get("is_rejected") else "TRADEABLE"
-            tradeability_reason = "RR_REJECTED" if sl_target.get("is_rejected") else ""
+                # 8. Alert Severity Classification
+                market_status = str(market_ctx.get("status", "NORMAL"))
+                severity = classify_alert_severity(
+                    consolidation_result=consolidation,
+                    breakout_result=brkout_strength,
+                    config=config,
+                    market_status=market_status
+                )
 
-            inserted, _, _, _ = save_alert_if_new(
-                symbol=symbol,
-                breakout_type="MULTI_TF",
-                alert_time=ist_now.strftime("%Y-%m-%d %H:%M:%S"),
-                scanner="MULTI_TF",
-                category="INTRADAY",
-                entry_price=sl_target.get("entry_price"),
-                stop_loss=sl_target.get("stop_loss"),
-                target_1=sl_target.get("target_1"),
-                target_2=sl_target.get("target_2"),
-                target_3=sl_target.get("target_3"),
-                signals=idempotency_signals,
-                score=int(confluence.total_score),
-                volume_ratio=pressure.volume_ratio,
-                context={
-                    "box_id": consolidation.box_id,
-                    "rr_ratio": sl_target.get("rr_ratio"),
-                    "signal_status": "CONFIRMED",
-                    "tradeability_status": tradeability_status,
-                    "tradeability_reason": tradeability_reason
-                }
-            )
+                # Weak breakouts → DB log only (no push)
+                if severity == "WEAK":
+                    logger.info("[%s] Breakout confirmed but classified WEAK (base=%d, brk=%d). Logging to DB only.",
+                                symbol, consolidation.setup_score, brkout_strength.breakout_score)
 
-            if sl_target.get("is_rejected"):
-                # 9a. Tradeability Rejection (Structurally valid, but poor RR)
-                logger.info("[%s] CONFIRMED breakout rejected by R:R gate (%.2f < %.2f). Marked NOT_TRADEABLE.",
-                            symbol, sl_target.get("rr_ratio", 0), config.get("MIN_RR_RATIO", 1.5))
-                state_record.mtf_substate = MtfSubstate.INVALIDATED
-                state_record.state = "REJECTED"
-                updates["invalidated_at"] = ist_now
-                updates["invalidation_reason"] = "NOT_TRADEABLE"
-                try:
-                    from near_miss_tracker import log_near_miss
-                    log_near_miss(
-                        symbol=symbol,
-                        scanner="MULTI_TF",
-                        breakout_type="MULTI_TF",
-                        gate_name="rr_ratio_gate",
-                        observed_value=float(sl_target.get("rr_ratio", 0.0)),
-                        threshold_value=float(config.get("MIN_RR_RATIO", 1.5)),
-                        score=int(confluence.total_score),
-                        entry_price=float(sl_target.get("entry_price") or 0.0),
-                        stop_loss=float(sl_target.get("stop_loss") or 0.0),
-                        target_1=float(sl_target.get("target_1") or 0.0),
-                    )
-                except Exception:
-                    pass
-            else:
-                # 9b. Tradeable -> Dispatch to OpportunityManager
-                if inserted:
-                    payload = build_confirmed_payload(
-                        bundle=bundle,
-                        consolidation=consolidation,
-                        pressure=pressure,
-                        confluence=confluence,
-                        sl_target=sl_target,
-                        ist_now=ist_now
-                    )
-                    opp_manager.add(payload)
+                # 9. R:R Target Generation
+                sl_target = compute_sl_and_target(
+                    entry_price=float(bundle.df_5m_closed["Close"].iloc[-1]),
+                    atr=atr_5m,
+                    ticker=bundle.df_1h,  # Pass 1H for structural targets
+                    mode="MULTI_TF_V2",
+                    box_low=consolidation.box_low
+                )
+
+                # 10. Canonical Alert Registration
+                idempotency_signals = f"BOX_ID={consolidation.box_id}"
+
+                tradeability_status = "NOT_TRADEABLE" if sl_target.get("is_rejected") else "TRADEABLE"
+                tradeability_reason = "RR_REJECTED" if sl_target.get("is_rejected") else ""
+
+                inserted, _, _, _ = save_alert_if_new(
+                    symbol=symbol,
+                    breakout_type="MULTI_TF",
+                    alert_time=ist_now.strftime("%Y-%m-%d %H:%M:%S"),
+                    scanner="MULTI_TF",
+                    category="INTRADAY",
+                    entry_price=sl_target.get("entry_price"),
+                    stop_loss=sl_target.get("stop_loss"),
+                    target_1=sl_target.get("target_1"),
+                    target_2=sl_target.get("target_2"),
+                    target_3=sl_target.get("target_3"),
+                    signals=idempotency_signals,
+                    score=int(consolidation.setup_score),   # V3: use base score as primary
+                    volume_ratio=pressure.volume_ratio,
+                    context={
+                        # Core IDs
+                        "box_id": consolidation.box_id,
+                        "signal_status": "CONFIRMED",
+                        "trigger_model": pressure.trigger_model,
+                        "tradeability_status": tradeability_status,
+                        "tradeability_reason": tradeability_reason,
+                        "rr_ratio": sl_target.get("rr_ratio"),
+                        # [V3] Base Quality
+                        "base_score": consolidation.setup_score,
+                        "base_rating": consolidation.base_rating_label,
+                        "has_higher_lows": consolidation.has_higher_lows,
+                        "compression_ratio": consolidation.compression_ratio,
+                        "resistance_tests": consolidation.resistance_test_count,
+                        "base_score_breakdown": {
+                            "maturity": consolidation.score_maturity,
+                            "tightness": consolidation.score_tightness,
+                            "resistance_quality": consolidation.score_resistance_quality,
+                            "repeated_tests": consolidation.score_repeated_tests,
+                            "compression": consolidation.score_compression,
+                            "higher_lows": consolidation.score_higher_lows,
+                            "support_integrity": consolidation.score_support_integrity,
+                        },
+                        # [V3] Breakout Strength
+                        "breakout_score": brkout_strength.breakout_score,
+                        "breakout_rating": brkout_strength.breakout_rating_label,
+                        "severity": severity,
+                        "severity_label": SEVERITY_LABEL.get(severity, severity),
+                        "rvol": round(pressure.volume_ratio, 2),
+                        "rvol_label": brkout_strength.rvol_label,
+                        "volume_acceleration": brkout_strength.volume_acceleration,
+                        "velocity_label": brkout_strength.velocity_label,
+                        "penetration_atr": brkout_strength.penetration_atr,
+                        "close_position": brkout_strength.close_position,
+                        "breakout_score_breakdown": brkout_strength.score_breakdown if hasattr(brkout_strength, 'score_breakdown') else brkout_strength.to_dict().get("score_breakdown"),
+                    }
+                )
+
+                if sl_target.get("is_rejected"):
+                    # 9a. Tradeability Rejection (Structurally valid, but poor RR)
+                    logger.info("[%s] CONFIRMED breakout rejected by R:R gate (%.2f < %.2f). Marked NOT_TRADEABLE.",
+                                symbol, sl_target.get("rr_ratio", 0), config.get("MIN_RR_RATIO", 1.5))
+                    state_record.mtf_substate = MtfSubstate.INVALIDATED
+                    state_record.state = "REJECTED"
+                    updates["invalidated_at"] = ist_now
+                    updates["invalidation_reason"] = "NOT_TRADEABLE"
+                    try:
+                        from near_miss_tracker import log_near_miss
+                        log_near_miss(
+                            symbol=symbol,
+                            scanner="MULTI_TF",
+                            breakout_type="MULTI_TF",
+                            gate_name="rr_ratio_gate",
+                            observed_value=float(sl_target.get("rr_ratio", 0.0)),
+                            threshold_value=float(config.get("MIN_RR_RATIO", 1.5)),
+                            score=int(confluence.total_score),
+                            entry_price=float(sl_target.get("entry_price") or 0.0),
+                            stop_loss=float(sl_target.get("stop_loss") or 0.0),
+                            target_1=float(sl_target.get("target_1") or 0.0),
+                        )
+                    except Exception:
+                        pass
                 else:
-                    logger.debug("[%s] Alert already processed for box %s, skipping OpportunityManager.", symbol, consolidation.box_id)
+                    # 11b. Tradeable → Dispatch to OpportunityManager
+                    if inserted:
+                        # [V3] Build rich structured alert message
+                        rich_message = build_multitf_alert_message(
+                            symbol=symbol,
+                            exchange="NSE",
+                            consolidation=consolidation,
+                            pressure=pressure,
+                            breakout_strength=brkout_strength,
+                            severity=severity,
+                            sl_levels={
+                                "entry": float(sl_target.get("entry_price") or 0),
+                                "stop":  float(sl_target.get("stop_loss") or 0),
+                                "t1":    float(sl_target.get("target_1") or 0),
+                                "t2":    float(sl_target.get("target_2") or 0),
+                                "t3":    float(sl_target.get("target_3") or 0),
+                                "rr_ratio": float(sl_target.get("rr_ratio") or 0),
+                                "extension_daily_atr": float(sl_target.get("extension_daily_atr") or 0),
+                            },
+                            ist_now=ist_now
+                        )
+                        logger.info("[%s] %s Alert (base=%d, brk=%d):\n%s",
+                                    symbol, SEVERITY_EMOJI.get(severity, "🟢"),
+                                    consolidation.setup_score, brkout_strength.breakout_score, rich_message)
 
-                state_record.mtf_substate = MtfSubstate.BREAKOUT_CONFIRMED
-                state_record.state = "CONFIRMED"
-                updates["last_confirmation_ts"] = ist_now
+                        payload = build_confirmed_payload(
+                            bundle=bundle,
+                            consolidation=consolidation,
+                            pressure=pressure,
+                            confluence=None,
+                            sl_target=sl_target,
+                            ist_now=ist_now,
+                            alert_message=rich_message,
+                            severity=severity,
+                            breakout_strength=brkout_strength
+                        )
+                        opp_manager.add(payload)
+                    else:
+                        logger.debug("[%s] Alert already processed for box %s, skipping OpportunityManager.", symbol, consolidation.box_id)
+
+                    state_record.mtf_substate = MtfSubstate.BREAKOUT_CONFIRMED
+                    state_record.state = "CONFIRMED"
+                    updates["last_confirmation_ts"] = ist_now
+        else:
+            logger.debug(f"⏳ [{symbol}] Entry cutoff ({cutoff_str} IST) reached — skipping new trade initiation.")
 
     elif pressure.is_attempt and state_record.mtf_substate == MtfSubstate.WATCHING:
-        # Switch to ATTEMPT state
+        # Switch to ATTEMPT state (Informational BREAKOUT_APPROACHING on watchlist, not a trade order)
         state_record.mtf_substate = MtfSubstate.ATTEMPT
         state_record.state = "CANDIDATE"
         state_record.attempt_count += 1

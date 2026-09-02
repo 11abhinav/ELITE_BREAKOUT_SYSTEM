@@ -166,64 +166,129 @@ MULTI_TF_CONFIG = {
 }
 
 MULTI_TF_V2_CONFIG = {
+    # ── CONTEXT (1H / 30m) ──
     "H1_BULLISH_SCORE":              10,
     "H1_NEUTRAL_SCORE":              0,
     "H1_BEARISH_SCORE":             -10,
     "M30_ROOM_THRESHOLD_PCT":       0.02,
     "M30_ROOM_SCORE":               10,
-    "MIN_CONSOLIDATION_BARS":       4,       # [REDESIGN] 4-6 fifteen-minute bars (~1 to 1.5 hours) for intraday base
-    "MAX_CONSOLIDATION_BARS":       16,      # Maximum active base window lookback
+
+    # ── BASE GEOMETRY ──
+    "MIN_CONSOLIDATION_BARS":       4,       # Adaptive base window (4–12 candles)
+    "MAX_CONSOLIDATION_BARS":       12,      # Upper bound (>12 = excessive unless still tight)
     "MIN_BOX_OCCUPANCY":            0.65,
     "MAX_BOX_WIDTH_PCT":            0.035,
-    "MAX_BOX_WIDTH_ATR":            1.50,    # [REDESIGN] Adaptive range width <= 1.5x 15m ATR
-    "MIN_RESISTANCE_TESTS":         2,       # [REDESIGN] Minimum 2 distinct resistance touches
+    "MAX_BOX_WIDTH_ATR":            1.50,    # Hard reject: range > 1.5× 15m ATR
+    "MIN_RESISTANCE_TESTS":         2,       # Minimum distinct resistance touches required
     "GAP_PCT_THRESHOLD":            0.0075,
     "GAP_ATR_MULT":                 1.0,
     "BOX_HIGH_QUANTILE":            0.90,
     "BOX_LOW_QUANTILE":             0.10,
-    "RESISTANCE_TEST_TOL_PCT":      0.003,   # 0.3% resistance touch tolerance
-    "RESISTANCE_TEST_TOL_ATR":      0.15,
+    "RESISTANCE_TEST_TOL_PCT":      0.0015,  # max(0.15% of price, 0.08× ATR) for touch detection
+    "RESISTANCE_TEST_TOL_ATR":      0.08,
     "PIVOT_CONFIRM_ATR_MULT":       0.20,
     "PIVOT_CONFIRM_BOX_MULT":       0.15,
-    # ── 15M CONSOLIDATION QUALITY SCORE (0-100) ──
-    "SCORE_RESISTANCE_DEF_MAX":     20,      # Clear horizontal resistance definition
-    "SCORE_TIGHT_RANGE_MAX":        20,      # Adaptive range <= 1.5x ATR
-    "SCORE_RESISTANCE_TESTS_MAX":   15,      # Multi-touch confirmation (>=2 touches)
-    "SCORE_COMPRESSION_VCP_MAX":    15,      # Volatility contraction / VCP
-    "SCORE_PRIOR_BULLISH_MAX":      15,      # Upper portion of swing / EMA20 hold
-    "SCORE_CLEAN_ACTION_MAX":       10,      # Clean candles (no giant wicks)
-    "SCORE_LIQUIDITY_MAX":          5,       # Liquidity floor (Rs 5 Cr+)
-    "MIN_SETUP_SCORE":              70,      # [REDESIGN] >= 70 arms 15M_BREAKOUT_WATCH
-    "MONITOR_SETUP_SCORE":          55,      # 55-69 monitor candidate
-    "STRONG_SETUP_SCORE":           80,
-    "PREMIUM_SETUP_SCORE":          90,
-    # ── 5M LIVE EXECUTION TRIGGER THRESHOLDS ──
+
+    # ── V3: BASE QUALITY ENGINE (0-100) — 7 Components ──
+    # A. Maturity (15 pts): duration × quality interaction
+    "SCORE_MATURITY_MAX":           15,
+    "MATURITY_TIGHTNESS_THRESHOLD": 8,      # If tightness score < 8, cap maturity at 10 pts
+    # B. Tightness (20 pts): range / 15m ATR
+    "SCORE_TIGHTNESS_MAX":          20,
+    # C. Resistance Quality (20 pts): std dev of top highs
+    "SCORE_RESISTANCE_QUALITY_MAX": 20,
+    # D. Repeated Tests (15 pts): distinct touches
+    "SCORE_REPEATED_TESTS_MAX":     15,
+    # E. Compression/VCP (15 pts): early-ATR / late-ATR
+    "SCORE_COMPRESSION_MAX":        15,
+    # F. Higher Lows (10 pts): rising lows = buyers getting aggressive
+    "SCORE_HIGHER_LOWS_MAX":        10,
+    "HIGHER_LOWS_MIN_RISE_ATR":     0.15,   # Strong HL: late_low >= early_low + 0.15× ATR
+    # G. Support Integrity (5 pts): % of bars touching lower zone
+    "SCORE_SUPPORT_INTEGRITY_MAX":  5,
+    "SUPPORT_ZONE_ATR_MULT":        0.20,   # Lower zone = box_low + 0.20× ATR
+    "SUPPORT_INTEGRITY_LOW_PCT":    0.20,   # < 20% of bars touch floor → clean support
+
+    # Quality tier thresholds (Base Score)
+    "MIN_SETUP_SCORE":              70,      # >= 70 → 15M_BREAKOUT_WATCH
+    "MONITOR_SETUP_SCORE":          60,      # 60–69 → log only
+    "STRONG_SETUP_SCORE":           80,      # SUPER BASE tier
+    "PREMIUM_SETUP_SCORE":          90,      # EXCEPTIONAL BASE tier
+
+    # ── V3: 5M BREAKOUT STRENGTH ENGINE (0-100) — 7 Components ──
+    # A. Volume Expansion / RVOL (30 pts)
+    "SCORE_RVOL_MAX":               30,
+    "RVOL_EXCEPTIONAL":             3.0,    # > 3.0× → 30 pts
+    "RVOL_VERY_STRONG":             2.0,    # 2.0–3.0× → 27 pts
+    "RVOL_STRONG":                  1.5,    # 1.5–2.0× → 22 pts
+    "RVOL_CONFIRMED":               1.25,   # 1.25–1.5× → 15 pts
+    "RVOL_NORMAL":                  1.0,    # 1.0–1.25× → 8 pts
+    # B. Volume Acceleration (10 pts): vs previous 5m bar
+    "SCORE_VOL_ACCEL_MAX":          10,
+    # C. Breakout Magnitude (15 pts): (close-res)/5m ATR
+    "SCORE_MAGNITUDE_MAX":          15,
+    "MAGNITUDE_IDEAL_MIN_ATR":      0.25,   # Below this → weaker penetration
+    "MAGNITUDE_IDEAL_MAX_ATR":      0.70,   # Above this → possible extension
+    # D. Candle Quality (15 pts): close position + range expansion
+    "SCORE_CANDLE_QUALITY_MAX":     15,
+    # E. Breakout Velocity (10 pts): ATR/min
+    "SCORE_VELOCITY_MAX":           10,
+    "VELOCITY_EXPLOSIVE_ATR_MIN":   0.15,   # >= 0.15 ATR/min → EXPLOSIVE
+    "VELOCITY_VERY_FAST_ATR_MIN":   0.08,   # >= 0.08 ATR/min → VERY FAST
+    "VELOCITY_FAST_ATR_MIN":        0.04,   # >= 0.04 ATR/min → FAST
+    # F. Resistance Penetration (10 pts): % above resistance
+    "SCORE_PENETRATION_MAX":        10,
+    # G. Market-Relative Strength (10 pts): stock vs NIFTY at same bar
+    "SCORE_MARKET_RS_MAX":          10,
+    "MARKET_RS_NEUTRAL":            5,      # Neutral points if NIFTY data unavailable
+    "MARKET_RS_STRONG_LEAD":        0.005,  # stock > NIFTY + 0.5% → full points
+
+    # Breakout quality tier thresholds (Breakout Score)
+    "MIN_BREAKOUT_SCORE":           70,      # < 70 → WEAK, DB-only (no push)
+    "STRONG_BREAKOUT_SCORE":        80,      # SUPER tier
+    "EXPLOSIVE_BREAKOUT_SCORE":     90,      # EXPLOSIVE tier
+
+    # ── V3: ALERT SEVERITY CLASSIFICATION ──
+    "SEVERITY_APLUS_BASE":          90,      # A+ SETUP: base >= 90
+    "SEVERITY_APLUS_BREAKOUT":      90,      # AND breakout >= 90
+    "SEVERITY_APLUS_RVOL":          2.0,     # AND RVOL >= 2×
+    "SEVERITY_EXPLOSIVE_BASE":      85,      # EXPLOSIVE: base >= 85
+    "SEVERITY_EXPLOSIVE_BREAKOUT":  88,      # AND breakout >= 88
+    "SEVERITY_EXPLOSIVE_RVOL":      2.0,     # AND RVOL >= 2×
+    "SEVERITY_SUPER_BASE":          80,      # SUPER: base >= 80
+    "SEVERITY_SUPER_BREAKOUT":      80,      # AND breakout >= 80
+    "SEVERITY_GOOD_BASE":           70,      # GOOD: base >= 70
+    "SEVERITY_GOOD_BREAKOUT":       70,      # AND breakout >= 70
+
+    # ── 5M LIVE TRIGGER GATES ──
     "MIN_RANGE_EXPANSION":          1.15,
     "MIN_VOLUME_EXPANSION_ATTEMPT": 1.20,
-    "MIN_VOLUME_EXPANSION_CONFIRM": 1.25,    # [REDESIGN] Diurnal/Rolling RVOL >= 1.25x for confirmed breakout
+    "MIN_VOLUME_EXPANSION_CONFIRM": 1.25,
     "MIN_LIVE_POSITION_ATTEMPT":    0.60,
-    "MIN_CLOSE_POSITION_CONFIRMED": 0.60,    # [REDESIGN] Close Position >= 0.60 (strong top-tier close)
-    "MAX_EXTENSION_DAILY_ATR":      0.50,    # [REDESIGN] Reject if close > Resistance + 0.50x Daily ATR
-    "PULLBACK_RETEST_TOL_ATR":      0.15,    # Retest defense tolerance (Model B)
+    "MIN_CLOSE_POSITION_CONFIRMED": 0.60,
+    "MAX_EXTENSION_15M_ATR":        0.80,    # Local cap: (Close−Res)/15m ATR <= 0.80
+    "MAX_EXTENSION_DAILY_ATR":      0.50,    # Daily cap: (Close−Res)/Daily ATR <= 0.50
+    "PULLBACK_RETEST_TOL_ATR":      0.15,
+    "ENTRY_CUTOFF_TIME":            "14:15",
+
+    # ── VOLUME BASELINE ──
     "MIN_VOLUME_PROJECTION_FRAC":   0.25,
     "FIRST_CANDLE_SLOT":            "09:15",
     "FIRST_CANDLE_VOLUME_MULT":     0.80,
     "APPROACH_ATR_MULT":            0.10,
     "BREAKOUT_BUFFER_ATR_MULT":     0.10,
     "SLOT_BASELINE_SESSIONS":       10,
+
+    # ── STATE MACHINE ──
     "MAX_ATTEMPT_BARS":             3,
     "ATTEMPT_RESET_ATR_MULT":       0.50,
     "FAILED_BREAKOUT_COOLDOWN_MIN": 30,
-    # ── CONFLUENCE WEIGHTS (40% Structure, 40% Pressure/Volume, 20% Context) ──
-    "MIN_CONFLUENCE_SCORE":         65,
-    "MIN_STRUCTURE_CONFLUENCE":     25,
-    "MIN_MOMENTUM_CONFLUENCE":      25,
-    "MIN_CONTEXT_CONFLUENCE":       5,
-    "MIN_TOTAL_CONFLUENCE":         65,
-    "CONFLUENCE_STRUCTURE_MAX":     40,
-    "CONFLUENCE_MOMENTUM_MAX":      25,
-    "CONFLUENCE_VOLUME_MAX":        15,
-    "CONFLUENCE_CONTEXT_MAX":       20,
+
+    # ── SOFT MARKET REGIME SHIELD ──
+    "BEAR_MIN_TOTAL_SCORE":         80,      # In BEAR/CRASH: total base+breakout must be >= 80
+    "BEAR_MIN_RVOL":                1.50,    # AND RVOL >= 1.5×
+
+    # ── TRADE QUALITY ──
     "MIN_RR_RATIO":                 1.5,
 }
 

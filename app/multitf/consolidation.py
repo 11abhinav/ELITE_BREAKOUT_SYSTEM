@@ -30,13 +30,13 @@ class ConsolidationResult:
     symbol: str
     is_valid: bool
     box_id: str = ""
-    
+
     # Window info
     start_ts: Optional[pd.Timestamp] = None
     end_ts: Optional[pd.Timestamp] = None
     bars_count: int = 0
     sessions_count: int = 1
-    
+
     # Geometry
     box_high: float = 0.0
     box_low: float = 0.0
@@ -47,31 +47,43 @@ class ConsolidationResult:
     box_width_pct: float = 0.0
     box_width_atr: float = 0.0
     box_occupancy: float = 0.0
-    
+
     # Structure
     resistance_test_count: int = 0
     last_confirmed_pivot_level: float = 0.0
     last_confirmed_pivot_ts: Optional[pd.Timestamp] = None
-    
-    # [REDESIGN] 15m Consolidation Quality Score (0-100 Breakdown)
-    score_resistance_def: int = 0    # Max 20: Clear horizontal resistance ceiling
-    score_tight_range: int = 0       # Max 20: Adaptive range width <= 1.5x ATR
-    score_resistance_tests: int = 0  # Max 15: Multi-touch confirmation (>=2 touches)
-    score_compression_vcp: int = 0   # Max 15: Volatility contraction / VCP
-    score_prior_bullish: int = 0     # Max 15: Upper portion of recent swing / EMA20 hold
-    score_clean_action: int = 0      # Max 10: Clean price action (no giant wicks)
-    score_liquidity: int = 0         # Max 5:  Adequate liquidity (>= Rs 5 Cr turnover)
-    setup_score: int = 0             # Total 0-100
-    
-    # Legacy field mappings for backwards compatibility
+
+    # [V3] 15m BASE QUALITY ENGINE (0-100) — 7 Component Breakdown
+    score_maturity: int = 0             # A. Max 15: Duration × quality interaction
+    score_tightness: int = 0            # B. Max 20: Range/ATR (tighter = better)
+    score_resistance_quality: int = 0   # C. Max 20: Ceiling std dev (sharper = better)
+    score_repeated_tests: int = 0       # D. Max 15: Distinct touches (2=10, 3=13, 4+=15)
+    score_compression: int = 0          # E. Max 15: Late-ATR / Early-ATR contraction
+    score_higher_lows: int = 0          # F. Max 10: Rising lows = buyers getting aggressive
+    score_support_integrity: int = 0    # G. Max 5:  Few floor touches = buyers well above support
+    setup_score: int = 0                # Total 0–100
+
+    # Structural insights exposed for downstream engines
+    has_higher_lows: bool = False
+    higher_lows_strength: float = 0.0   # late_low_min - early_low_min (in price terms)
+    compression_ratio: float = 1.0      # late_range_avg / early_range_avg (<1 = contracting)
+    base_rating_label: str = ""         # EXCEPTIONAL / SUPER / GOOD / WATCH / REJECT
+
+    # Legacy field aliases (backwards compat with scanner/state code)
+    score_resistance_def: int = 0
+    score_tight_range: int = 0
+    score_resistance_tests: int = 0
+    score_compression_vcp: int = 0
+    score_prior_bullish: int = 0
+    score_clean_action: int = 0
+    score_liquidity: int = 0
     score_duration: int = 0
-    score_compression: int = 0
     score_atr: int = 0
     score_occupancy: int = 0
     score_tests: int = 0
     score_hl: int = 0
     score_vol: int = 0
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "is_valid": self.is_valid,
@@ -85,14 +97,17 @@ class ConsolidationResult:
             "box_occupancy": round(self.box_occupancy, 2),
             "resistance_test_count": self.resistance_test_count,
             "setup_score": self.setup_score,
+            "base_rating_label": self.base_rating_label,
+            "has_higher_lows": self.has_higher_lows,
+            "compression_ratio": round(self.compression_ratio, 3),
             "score_breakdown": {
-                "resistance_def": self.score_resistance_def,
-                "tight_range": self.score_tight_range,
-                "resistance_tests": self.score_resistance_tests,
-                "compression_vcp": self.score_compression_vcp,
-                "prior_bullish": self.score_prior_bullish,
-                "clean_action": self.score_clean_action,
-                "liquidity": self.score_liquidity
+                "maturity": self.score_maturity,
+                "tightness": self.score_tightness,
+                "resistance_quality": self.score_resistance_quality,
+                "repeated_tests": self.score_repeated_tests,
+                "compression": self.score_compression,
+                "higher_lows": self.score_higher_lows,
+                "support_integrity": self.score_support_integrity,
             }
         }
 
@@ -253,17 +268,15 @@ def _generate_box_id(df: pd.DataFrame, res: ConsolidationResult):
 
 
 def _compute_structure(df: pd.DataFrame, atr_15m: float, res: ConsolidationResult, config: Dict[str, Any]):
-    """Counts distinct resistance tests and detects higher-low pivot structure."""
-    # Resistance test tolerance: 0.15% to 0.3% of price or 0.10x ATR
-    tol_pct = config.get("RESISTANCE_TEST_TOL_PCT", 0.002) * res.box_high
-    tol_atr = config.get("RESISTANCE_TEST_TOL_ATR", 0.10) * atr_15m
-    tol = min(tol_pct, tol_atr) if (tol_pct > 0 and tol_atr > 0) else max(tol_pct, tol_atr)
-
+    """Counts distinct resistance touches and detects higher-low structure."""
+    # Touch tolerance: max(0.15% of price, 0.08× 15m ATR) — ATR-normalized across all price ranges
+    tol_pct = config.get("RESISTANCE_TEST_TOL_PCT", 0.0015) * res.box_high
+    tol_atr = config.get("RESISTANCE_TEST_TOL_ATR", 0.08) * atr_15m
+    tol = max(tol_pct, tol_atr)
     test_zone_low = res.box_high - tol
 
     tests = 0
     in_test = False
-
     for high in df["High"].astype(float):
         if high >= test_zone_low:
             if not in_test:
@@ -271,150 +284,174 @@ def _compute_structure(df: pd.DataFrame, atr_15m: float, res: ConsolidationResul
                 in_test = True
         else:
             in_test = False
-
     res.resistance_test_count = max(tests, 1)
-
-    # Higher Lows Check (early vs late half of base)
-    if len(df) >= 4:
-        half = len(df) // 2
-        early_min = float(df["Low"].iloc[:half].min())
-        late_min = float(df["Low"].iloc[half:].min())
-
-        if late_min >= early_min:
-            res.last_confirmed_pivot_level = late_min
-            res.last_confirmed_pivot_ts = df["Low"].iloc[half:].idxmin()
 
 
 def _compute_scores(window_df: pd.DataFrame, full_df: pd.DataFrame, atr_15m: float, res: ConsolidationResult, config: Dict[str, Any]):
     """
-    [REDESIGN] 15M CONSOLIDATION QUALITY SCORE (0-100 Scale):
-      1. Clear Resistance Definition (Max 20 pts)
-      2. Adaptive Tight Range <= 1.5x ATR (Max 20 pts)
-      3. Multiple Resistance Touches >= 2 (Max 15 pts)
-      4. Volatility Contraction / VCP (Max 15 pts)
-      5. Prior Bullish Structure / EMA20 Hold (Max 15 pts)
-      6. Clean Price Action (Max 10 pts)
-      7. Liquidity Floor (Max 5 pts)
+    [V3] 15M BASE QUALITY ENGINE — 7-Component 0-100 Consolidation Quality Score:
+      A. Maturity (15 pts):           Duration × quality interaction
+      B. Tightness (20 pts):          Range/ATR (≤0.75 = exceptional coil)
+      C. Resistance Quality (20 pts): Ceiling std dev (sharper = better)
+      D. Repeated Tests (15 pts):     Distinct touches (2=10, 3=13, 4+=15)
+      E. Compression/VCP (15 pts):    Late-ATR / Early-ATR (contracting = better)
+      F. Higher Lows (10 pts):        Rising lows = buyers getting aggressive
+      G. Support Integrity (5 pts):   Low % of bars touching floor = buyers well above support
     """
+    n = len(window_df)
     score = 0
 
-    # 1. Clear Resistance Definition (Max 20 pts)
-    # A clear ceiling formed by highs near box_high
-    highs = window_df["High"].astype(float)
-    max_high = float(highs.max())
-    diff_from_ceiling = abs(max_high - res.box_high) / res.box_high if res.box_high > 0 else 0
-    if diff_from_ceiling <= 0.003:
-        s_res_def = 20
-    elif diff_from_ceiling <= 0.006:
-        s_res_def = 15
+    # ── A. MATURITY (15 pts) — Duration × Quality Interaction ────────────────
+    if n >= 12:
+        s_mat = 15
+    elif n >= 10:
+        s_mat = 14
+    elif n >= 8:
+        s_mat = 12
+    elif n >= 6:
+        s_mat = 9
+    elif n >= 4:
+        s_mat = 6
     else:
-        s_res_def = 10
-    res.score_resistance_def = min(s_res_def, config.get("SCORE_RESISTANCE_DEF_MAX", 20))
-    score += res.score_resistance_def
+        s_mat = 0
+    # Interaction: if base is wide (tightness score < 8 threshold), cap maturity at 10
+    tightness_cap = config.get("MATURITY_TIGHTNESS_THRESHOLD", 8)
+    if res.box_width_atr > 1.25 and s_mat > 10:
+        s_mat = 10  # Longer sloppy base = no extra bonus
+    res.score_maturity = min(s_mat, config.get("SCORE_MATURITY_MAX", 15))
+    score += res.score_maturity
 
-    # 2. Adaptive Tight Range (Max 20 pts)
-    # Range width relative to 15m ATR
-    w_atr = res.box_width_atr
-    if w_atr <= 1.20:
+    # ── B. TIGHTNESS (20 pts) — Range/ATR ────────────────────────────────────
+    w = res.box_width_atr
+    if w <= 0.75:
         s_tight = 20
-    elif w_atr <= 1.50:
-        s_tight = 16
-    elif w_atr <= 1.80:
-        s_tight = 10
-    elif w_atr <= 2.20:
-        s_tight = 5
+    elif w <= 1.00:
+        s_tight = 17
+    elif w <= 1.25:
+        s_tight = 13
+    elif w <= 1.50:
+        s_tight = 8
     else:
-        s_tight = 0
-    res.score_tight_range = min(s_tight, config.get("SCORE_TIGHT_RANGE_MAX", 20))
-    score += res.score_tight_range
+        s_tight = 0   # Fails hard gate in detect_15m_consolidation already
+    res.score_tightness = min(s_tight, config.get("SCORE_TIGHTNESS_MAX", 20))
+    score += res.score_tightness
 
-    # 3. Multiple Resistance Touches (Max 15 pts)
+    # ── C. RESISTANCE QUALITY (20 pts) — Ceiling Precision ───────────────────
+    highs = window_df["High"].astype(float)
+    top_highs = highs[highs >= res.box_high - (0.15 * atr_15m)]
+    std_top = float(top_highs.std()) if len(top_highs) >= 2 else 0.0
+    std_pct = std_top / res.box_high if res.box_high > 0 else 0.0
+    if len(top_highs) >= 2 and std_pct <= 0.0010:
+        s_rq = 20
+    elif len(top_highs) >= 2 and std_pct <= 0.0020:
+        s_rq = 16
+    elif len(top_highs) >= 2 and std_pct <= 0.0035:
+        s_rq = 12
+    elif len(top_highs) >= 1:
+        s_rq = 8
+    else:
+        s_rq = 4
+    res.score_resistance_quality = min(s_rq, config.get("SCORE_RESISTANCE_QUALITY_MAX", 20))
+    score += res.score_resistance_quality
+
+    # ── D. REPEATED TESTS (15 pts) — Distinct Touches ────────────────────────
     t = res.resistance_test_count
-    if t >= 3:
+    if t >= 4:
         s_tests = 15
+    elif t == 3:
+        s_tests = 13
     elif t == 2:
-        s_tests = 12
+        s_tests = 10
     elif t == 1:
-        s_tests = 5
+        s_tests = 3
     else:
         s_tests = 0
-    res.score_resistance_tests = min(s_tests, config.get("SCORE_RESISTANCE_TESTS_MAX", 15))
-    score += res.score_resistance_tests
+    res.score_repeated_tests = min(s_tests, config.get("SCORE_REPEATED_TESTS_MAX", 15))
+    score += res.score_repeated_tests
 
-    # 4. Volatility Contraction / VCP (Max 15 pts)
-    # Checks if candle ranges or ATR is contracting inside the base
-    s_vcp = 0
-    if len(window_df) >= 4:
-        half = len(window_df) // 2
-        early_ranges = (window_df["High"].iloc[:half] - window_df["Low"].iloc[:half]).mean()
-        late_ranges = (window_df["High"].iloc[half:] - window_df["Low"].iloc[half:]).mean()
-        if early_ranges > 0 and (late_ranges / early_ranges) <= 0.85:
-            s_vcp += 10
-        elif early_ranges > 0 and (late_ranges / early_ranges) <= 1.00:
-            s_vcp += 6
+    # ── E. COMPRESSION / VCP (15 pts) — Volatility Contracting ───────────────
+    s_comp = 8  # Neutral: not enough bars to determine
+    if n >= 4:
+        half = n // 2
+        early_ranges = (window_df["High"].iloc[:half] - window_df["Low"].iloc[:half]).values.astype(float)
+        late_ranges  = (window_df["High"].iloc[half:] - window_df["Low"].iloc[half:]).values.astype(float)
+        mean_early = float(np.mean(early_ranges)) if len(early_ranges) > 0 else 0.0
+        mean_late  = float(np.mean(late_ranges))  if len(late_ranges) > 0 else 0.0
+        if mean_early > 0:
+            comp_ratio = mean_late / mean_early
+            res.compression_ratio = round(comp_ratio, 3)
+            if comp_ratio <= 0.60:
+                s_comp = 15
+            elif comp_ratio <= 0.75:
+                s_comp = 12
+            elif comp_ratio <= 0.90:
+                s_comp = 8
+            elif comp_ratio <= 1.00:
+                s_comp = 4
+            else:
+                s_comp = 0  # Expanding volatility = bad
+    res.score_compression = min(s_comp, config.get("SCORE_COMPRESSION_MAX", 15))
+    score += res.score_compression
 
-        # Check Bollinger Band width contraction if present
-        if "BB_WIDTH_PCTILE" in window_df.columns:
-            bb_p = float(window_df["BB_WIDTH_PCTILE"].iloc[-1])
-            if bb_p < 0.45:
-                s_vcp += 5
-            elif bb_p < 0.60:
-                s_vcp += 3
+    # ── F. HIGHER LOWS (10 pts) — Rising Lows = Buyers Getting Aggressive ────
+    s_hl = 0
+    if n >= 4:
+        half = n // 2
+        early_lows = window_df["Low"].iloc[:half].astype(float)
+        late_lows  = window_df["Low"].iloc[half:].astype(float)
+        early_low_min = float(early_lows.min())
+        late_low_min  = float(late_lows.min())
+        hl_rise = late_low_min - early_low_min
+        res.higher_lows_strength = round(hl_rise, 2)
+        min_strong_rise = config.get("HIGHER_LOWS_MIN_RISE_ATR", 0.15) * atr_15m
+        if hl_rise >= min_strong_rise:
+            s_hl = 10
+            res.has_higher_lows = True
+        elif hl_rise >= 0:
+            s_hl = 7
+            res.has_higher_lows = True
+        elif hl_rise >= -(0.10 * atr_15m):
+            s_hl = 4  # Approximately flat
         else:
-            s_vcp += 5  # default neutral bonus when BB indicator not pre-calculated
-    else:
-        s_vcp = 8
-    res.score_compression_vcp = min(s_vcp, config.get("SCORE_COMPRESSION_VCP_MAX", 15))
-    score += res.score_compression_vcp
+            s_hl = 0  # Lower lows = weakness inside base
+    res.score_higher_lows = min(s_hl, config.get("SCORE_HIGHER_LOWS_MAX", 10))
+    score += res.score_higher_lows
 
-    # 5. Prior Bullish Structure & EMA Support (Max 15 pts)
-    # Checks if price is in upper half of recent swing or holding above 15m EMA20
-    s_prior = 0
-    last_close = float(window_df["Close"].iloc[-1])
-    if "EMA20" in window_df.columns and pd.notna(window_df["EMA20"].iloc[-1]):
-        ema20 = float(window_df["EMA20"].iloc[-1])
-        if last_close >= ema20:
-            s_prior = 15
-        elif last_close >= 0.995 * ema20:
-            s_prior = 10
+    # ── G. SUPPORT INTEGRITY (5 pts) — Buyers Well Above the Floor ───────────
+    s_si = 3  # Neutral
+    if n >= 4 and atr_15m > 0:
+        support_zone = res.box_low + config.get("SUPPORT_ZONE_ATR_MULT", 0.20) * atr_15m
+        lows = window_df["Low"].astype(float)
+        pct_touching = float((lows <= support_zone).mean())
+        clean_floor_pct = config.get("SUPPORT_INTEGRITY_LOW_PCT", 0.20)
+        if pct_touching < clean_floor_pct:
+            s_si = 5   # Buyers consistently well above support
+        elif pct_touching < 0.40:
+            s_si = 3
         else:
-            s_prior = 5
-    else:
-        # Fallback to base position vs recent swing
-        swing_range = res.hard_high - res.hard_low
-        if swing_range > 0 and (last_close - res.hard_low) / swing_range >= 0.50:
-            s_prior = 15
-        else:
-            s_prior = 8
-    res.score_prior_bullish = min(s_prior, config.get("SCORE_PRIOR_BULLISH_MAX", 15))
-    score += res.score_prior_bullish
+            s_si = 1   # Floor frequently visited = weaker demand
+    res.score_support_integrity = min(s_si, config.get("SCORE_SUPPORT_INTEGRITY_MAX", 5))
+    score += res.score_support_integrity
 
-    # 6. Clean Price Action (Max 10 pts)
-    # Penalize giant outlier wicks (> 2.0x ATR) that disrupt clean base formation
-    candle_ranges = window_df["High"] - window_df["Low"]
-    max_candle_range = float(candle_ranges.max()) if len(candle_ranges) > 0 else 0
-    if atr_15m > 0 and max_candle_range <= 1.50 * atr_15m:
-        s_clean = 10
-    elif atr_15m > 0 and max_candle_range <= 2.20 * atr_15m:
-        s_clean = 7
-    else:
-        s_clean = 3
-    res.score_clean_action = min(s_clean, config.get("SCORE_CLEAN_ACTION_MAX", 10))
-    score += res.score_clean_action
-
-    # 7. Liquidity Floor (Max 5 pts)
-    # Daily turnover >= Rs 5.0 Cr
-    s_liq = 5
-    res.score_liquidity = min(s_liq, config.get("SCORE_LIQUIDITY_MAX", 5))
-    score += res.score_liquidity
-
-    # Legacy score assignments for backwards compatibility
-    res.score_duration = int((res.bars_count / 16.0) * 20)
-    res.score_compression = res.score_compression_vcp
-    res.score_atr = res.score_tight_range
-    res.score_occupancy = int(res.box_occupancy * 10)
-    res.score_tests = res.score_resistance_tests
-    res.score_hl = res.score_prior_bullish
-    res.score_vol = res.score_liquidity
-
+    # ── TOTAL + TIER LABEL ────────────────────────────────────────────────────
     res.setup_score = min(score, 100)
+
+    # Populate legacy aliases for backward compatibility
+    res.score_resistance_def  = res.score_resistance_quality
+    res.score_tight_range     = res.score_tightness
+    res.score_resistance_tests = res.score_repeated_tests
+    res.score_compression_vcp = res.score_compression
+    res.score_hl              = res.score_higher_lows
+
+    if res.setup_score >= 90:
+        res.base_rating_label = "EXCEPTIONAL"
+    elif res.setup_score >= 80:
+        res.base_rating_label = "SUPER"
+    elif res.setup_score >= 70:
+        res.base_rating_label = "GOOD"
+    elif res.setup_score >= 60:
+        res.base_rating_label = "WATCH"
+    else:
+        res.base_rating_label = "REJECT"
+
+

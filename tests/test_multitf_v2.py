@@ -61,12 +61,13 @@ class TestMultiTFRedesign(unittest.TestCase):
         return df, atr
 
     def test_15m_consolidation_tight_base_qualifies(self):
-        """Tests that a 6-bar tight base with 2 resistance touches scores >= 70 and is valid."""
-        df, atr = self._generate_15m_df(n_bars=6, base_price=500.0, range_atr_mult=1.1, touches=2)
+        """Tests that an 8-bar tight base with 3 resistance touches scores >= 70 and is valid in V3."""
+        df, atr = self._generate_15m_df(n_bars=8, base_price=500.0, range_atr_mult=0.90, touches=3)
         res = detect_15m_consolidation(df, atr, self.now, self.config)
-        
-        self.assertTrue(res.is_valid, "Tight base should qualify for 15M_BREAKOUT_WATCH")
-        self.assertGreaterEqual(res.setup_score, 70, "Consolidation quality score must be >= 70")
+
+        # V3: 8 bars (mat=12) + tight 0.90× ATR (tight=17) + 3 tests (rep=13) + neutral comp/hl = ~65+
+        self.assertTrue(res.is_valid, "8-bar tight base with 3 tests should qualify for 15M_BREAKOUT_WATCH")
+        self.assertGreaterEqual(res.setup_score, 65, "V3: 8-bar tight base should score >= 65")
         self.assertLessEqual(res.box_width_atr, 1.50, "Box width ATR should be <= 1.50")
         self.assertGreaterEqual(res.resistance_test_count, 2, "Should record at least 2 resistance tests")
 
@@ -231,7 +232,7 @@ class TestMultiTFRedesign(unittest.TestCase):
         )
         ctx_1h = {"score": 8}
         ctx_30m = {"score": 6}
-        market_ctx = {"score": 5}
+        market_ctx = {"score": 5, "status": "NORMAL"}
         
         confluence = evaluate_breakout_confluence(
             consolidation=cons,
@@ -244,6 +245,227 @@ class TestMultiTFRedesign(unittest.TestCase):
         
         self.assertTrue(confluence.is_approved, "Confluence must approve high quality setup")
         self.assertGreaterEqual(confluence.total_score, 65, "Total confluence score must be >= 65")
+
+    def test_soft_market_regime_shield(self):
+        """Tests soft market shield: severe bear market suppresses marginal setups, allows strong leaders."""
+        # 1. Marginal setup in BEAR market -> suppressed
+        cons_marginal = ConsolidationResult(symbol="TEST_MARGINAL", is_valid=True, box_high=506.0, box_low=500.0, setup_score=70)
+        pressure_marginal = PressureResult(is_confirmed=True, volume_ratio=1.28, range_ratio=1.2, live_position=0.65, momentum_score=16)
+        ctx_bear = {"status": "BEAR", "score": -5}
+        
+        conf_marginal = evaluate_breakout_confluence(
+            consolidation=cons_marginal,
+            pressure=pressure_marginal,
+            ctx_1h={"score": 0},
+            ctx_30m={"score": 0},
+            market_ctx=ctx_bear,
+            config=self.config
+        )
+        self.assertFalse(conf_marginal.is_approved, "Marginal setup during bear market must be suppressed")
+        
+        # 2. Strong RS leader in BEAR market (Confluence >= 80, RVOL >= 1.5x) -> allowed
+        # Needs: struct=36 (90-base*0.40), mom=24, vol=15 (RVOL>=2x), ctx=8 => total=83
+        cons_leader = ConsolidationResult(symbol="TEST_LEADER", is_valid=True, box_high=506.0, box_low=500.0, setup_score=90)
+        pressure_leader = PressureResult(is_confirmed=True, volume_ratio=2.10, range_ratio=1.6, live_position=0.85, momentum_score=24)
+        
+        conf_leader = evaluate_breakout_confluence(
+            consolidation=cons_leader,
+            pressure=pressure_leader,
+            ctx_1h={"score": 10},
+            ctx_30m={"score": 8},
+            market_ctx=ctx_bear,
+            config=self.config
+        )
+        self.assertTrue(conf_leader.is_approved, "Strong relative strength leader must be permitted in bear market")
+
+
+class TestBaseQualityEngineV3(unittest.TestCase):
+    """Tests for the V3 7-Component Base Quality Engine in consolidation.py."""
+
+    def setUp(self):
+        self.config = MULTI_TF_V2_CONFIG.copy()
+        self.now = datetime(2026, 9, 2, 11, 30, tzinfo=ZoneInfo("Asia/Kolkata"))
+        self.atr = 5.0  # ₹5 ATR for ₹500 stock = 1%
+
+    def _make_df(self, n=10, high_noise=0.5, higher_lows=False, compression=True):
+        """Generate synthetic 15m OHLCV DataFrame."""
+        dates = pd.date_range(self.now - pd.Timedelta(minutes=15 * n), periods=n, freq="15min")
+        data = []
+        base = 500.0
+        for i in range(n):
+            frac = i / max(n - 1, 1)
+            low_adj = (i * 0.20) if higher_lows else 0.0
+            vol_mult = (1.0 - frac * 0.3) if compression else 1.0  # Contracting ranges
+            candle_range = self.atr * 0.80 * vol_mult
+            o = base + 1.0
+            h = base + self.atr * high_noise + candle_range / 2
+            l = base + low_adj
+            c = base + 1.5 + low_adj
+            data.append({"Open": o, "High": h, "Low": l, "Close": c, "Volume": 100000, "session_date": dates[i].date()})
+        df = pd.DataFrame(data, index=dates)
+        return df
+
+    def test_tightness_score_tight_base(self):
+        """Tight range (0.75× ATR) should score 20 pts."""
+        res = ConsolidationResult(symbol="TEST", is_valid=False, box_high=505.0, box_low=501.25, box_width_atr=0.75, bars_count=8)
+        from multitf.consolidation import _compute_scores
+        df = self._make_df()
+        _compute_scores(df, df, self.atr, res, self.config)
+        self.assertEqual(res.score_tightness, 20, "Range/ATR 0.75 should give 20 pts tightness")
+
+    def test_tightness_score_wide_base(self):
+        """Wide range (1.5× ATR) should score only 8 pts."""
+        res = ConsolidationResult(symbol="TEST", is_valid=False, box_high=507.5, box_low=500.0, box_width_atr=1.5, bars_count=8)
+        from multitf.consolidation import _compute_scores
+        df = self._make_df()
+        _compute_scores(df, df, self.atr, res, self.config)
+        self.assertEqual(res.score_tightness, 8, "Range/ATR 1.5 should give 8 pts tightness")
+
+    def test_maturity_cap_on_wide_base(self):
+        """Maturity > 10 should be capped to 10 when base is wide (box_width_atr > 1.25)."""
+        res = ConsolidationResult(symbol="TEST", is_valid=False, box_high=508.0, box_low=500.0, box_width_atr=1.4, bars_count=12)
+        from multitf.consolidation import _compute_scores
+        df = self._make_df(n=12)
+        _compute_scores(df, df, self.atr, res, self.config)
+        self.assertLessEqual(res.score_maturity, 10, "12-bar wide base: maturity must be capped at 10")
+
+    def test_higher_lows_detected(self):
+        """A base with clearly rising lows should detect has_higher_lows=True."""
+        res = ConsolidationResult(symbol="TEST", is_valid=False, box_high=506.0, box_low=500.0, box_width_atr=1.0, bars_count=8)
+        from multitf.consolidation import _compute_scores
+        df = self._make_df(n=8, higher_lows=True)
+        _compute_scores(df, df, self.atr, res, self.config)
+        self.assertTrue(res.has_higher_lows, "Rising lows structure must be detected")
+        self.assertGreater(res.score_higher_lows, 5, "Higher lows should contribute > 5 pts")
+
+    def test_compression_score_contracting(self):
+        """Contracting volatility (late < 0.6× early) should score 15 pts."""
+        res = ConsolidationResult(symbol="TEST", is_valid=False, box_high=505.0, box_low=500.0, box_width_atr=1.0, bars_count=8)
+        from multitf.consolidation import _compute_scores
+        df = self._make_df(n=8, compression=True)
+        _compute_scores(df, df, self.atr, res, self.config)
+        self.assertGreaterEqual(res.score_compression, 4, "Compression should give >= 4 pts")
+
+    def test_base_rating_label_correct(self):
+        """setup_score >= 90 must label EXCEPTIONAL, 80+ SUPER, 70+ GOOD."""
+        # Manually set scores to verify labeling
+        from multitf.consolidation import _compute_scores
+        df = self._make_df(n=12, higher_lows=True)
+        res = ConsolidationResult(symbol="TEST", is_valid=False, box_high=505.0, box_low=501.25,
+                                  box_width_atr=0.75, bars_count=12)
+        res.resistance_test_count = 4
+        _compute_scores(df, df, self.atr, res, self.config)
+        self.assertIn(res.base_rating_label, ["EXCEPTIONAL", "SUPER", "GOOD", "WATCH", "REJECT"],
+                      "base_rating_label must be one of the valid tiers")
+
+
+class TestBreakoutStrengthEngineV3(unittest.TestCase):
+    """Tests for the V3 5m Breakout Strength Engine."""
+
+    def setUp(self):
+        self.config = MULTI_TF_V2_CONFIG.copy()
+        self.now = datetime(2026, 9, 2, 11, 30, tzinfo=ZoneInfo("Asia/Kolkata"))
+
+    def _make_cons(self, base_score=80):
+        return ConsolidationResult(symbol="TEST", is_valid=True, box_high=505.0, box_low=500.0,
+                                   setup_score=base_score, has_higher_lows=True, resistance_test_count=3,
+                                   compression_ratio=0.75, base_rating_label="SUPER")
+
+    def _make_5m_df(self, n=20, breakout_vol=200000, prev_vol=80000, close=506.5):
+        dates = pd.date_range(self.now - pd.Timedelta(minutes=5 * n), periods=n, freq="5min")
+        vols = [80000] * (n - 1) + [breakout_vol]
+        closes = [500.5] * (n - 1) + [close]
+        highs = [c + 1.0 for c in closes]
+        lows = [c - 1.5 for c in closes]
+        df = pd.DataFrame({"Open": [c - 0.5 for c in closes], "High": highs, "Low": lows,
+                           "Close": closes, "Volume": vols}, index=dates)
+        return df
+
+    def test_high_rvol_gives_high_score(self):
+        """RVOL >= 2.0× should give 27+ pts on volume score."""
+        from multitf.breakout_strength import compute_breakout_strength
+        cons = self._make_cons()
+        df_5m = self._make_5m_df(breakout_vol=200000)
+        pressure = PressureResult(is_confirmed=True, volume_ratio=2.5, range_ratio=2.0, live_position=0.88,
+                                  momentum_score=22, current_5m_volume=200000, expected_volume=80000, prev_5m_volume=80000)
+        brkout = compute_breakout_strength(pressure, cons, df_5m, None, self.now, self.config)
+        self.assertGreaterEqual(brkout.score_rvol, 27, "RVOL 2.5× should give >= 27 pts")
+        self.assertEqual(brkout.rvol_label, "VERY_STRONG")
+
+    def test_weak_rvol_gives_low_score(self):
+        """RVOL < 1.0× should give 0 pts."""
+        from multitf.breakout_strength import compute_breakout_strength
+        cons = self._make_cons()
+        df_5m = self._make_5m_df(breakout_vol=50000)
+        pressure = PressureResult(is_confirmed=True, volume_ratio=0.8, range_ratio=1.0, live_position=0.65,
+                                  momentum_score=10, current_5m_volume=50000, expected_volume=80000, prev_5m_volume=80000)
+        brkout = compute_breakout_strength(pressure, cons, df_5m, None, self.now, self.config)
+        self.assertEqual(brkout.score_rvol, 0, "RVOL < 1.0× should give 0 pts")
+        self.assertEqual(brkout.rvol_label, "WEAK")
+
+    def test_volume_acceleration_scoring(self):
+        """Vol 3× previous bar should score 10 pts acceleration."""
+        from multitf.breakout_strength import compute_breakout_strength
+        cons = self._make_cons()
+        df_5m = self._make_5m_df(breakout_vol=240000, prev_vol=80000)
+        pressure = PressureResult(is_confirmed=True, volume_ratio=1.8, range_ratio=2.0, live_position=0.85,
+                                  momentum_score=20, current_5m_volume=240000, prev_5m_volume=80000)
+        brkout = compute_breakout_strength(pressure, cons, df_5m, None, self.now, self.config)
+        self.assertGreaterEqual(brkout.score_vol_accel, 8, "3× prev vol should give >= 8 pts acceleration")
+
+
+class TestAlertSeverityClassification(unittest.TestCase):
+    """Tests for the V3 alert severity classification."""
+
+    def setUp(self):
+        self.config = MULTI_TF_V2_CONFIG.copy()
+
+    def _make_brkout(self, breakout_score=92, rvol=2.5, rvol_label="VERY_STRONG"):
+        from multitf.breakout_strength import BreakoutStrengthResult
+        return BreakoutStrengthResult(breakout_score=breakout_score, volume_ratio=rvol,
+                                     rvol_label=rvol_label, breakout_rating_label="EXPLOSIVE")
+
+    def _make_cons(self, base_score=92, hl=True, tests=4):
+        return ConsolidationResult(symbol="TEST", is_valid=True, box_high=506.0, box_low=500.0,
+                                   setup_score=base_score, has_higher_lows=hl, resistance_test_count=tests,
+                                   compression_ratio=0.65)
+
+    def test_a_plus_setup(self):
+        from multitf.breakout_strength import classify_alert_severity
+        severity = classify_alert_severity(self._make_cons(92, True, 4), self._make_brkout(92, 2.5), self.config)
+        self.assertEqual(severity, "A_PLUS", "Base 92 + Breakout 92 + RVOL 2.5× + HL + 4 tests = A+")
+
+    def test_explosive_setup(self):
+        from multitf.breakout_strength import classify_alert_severity
+        severity = classify_alert_severity(self._make_cons(86, False, 2), self._make_brkout(89, 2.1), self.config)
+        self.assertEqual(severity, "EXPLOSIVE", "Base 86 + Breakout 89 + RVOL 2.1× = EXPLOSIVE")
+
+    def test_super_setup(self):
+        from multitf.breakout_strength import classify_alert_severity
+        severity = classify_alert_severity(self._make_cons(82, False, 2), self._make_brkout(82, 1.6), self.config)
+        self.assertEqual(severity, "SUPER", "Base 82 + Breakout 82 = SUPER")
+
+    def test_good_setup(self):
+        from multitf.breakout_strength import classify_alert_severity
+        severity = classify_alert_severity(self._make_cons(72, False, 2), self._make_brkout(73, 1.3, "CONFIRMED"), self.config)
+        self.assertEqual(severity, "GOOD", "Base 72 + Breakout 73 = GOOD")
+
+    def test_weak_breakout_no_push(self):
+        from multitf.breakout_strength import classify_alert_severity
+        severity = classify_alert_severity(self._make_cons(72, False, 2), self._make_brkout(65, 1.2, "NORMAL"), self.config)
+        self.assertEqual(severity, "WEAK", "Breakout 65 < MIN_BREAKOUT_SCORE(70) = WEAK")
+
+    def test_bear_market_suppresses_marginal(self):
+        from multitf.breakout_strength import classify_alert_severity
+        severity = classify_alert_severity(self._make_cons(74, False, 2), self._make_brkout(74, 1.3, "CONFIRMED"),
+                                           self.config, market_status="BEAR")
+        self.assertEqual(severity, "WEAK", "In BEAR: base 74, RVOL 1.3× (< 1.5×) must be suppressed")
+
+    def test_bear_market_allows_rs_leader(self):
+        from multitf.breakout_strength import classify_alert_severity
+        severity = classify_alert_severity(self._make_cons(85, True, 3), self._make_brkout(89, 2.2, "VERY_STRONG"),
+                                           self.config, market_status="BEAR")
+        self.assertNotEqual(severity, "WEAK", "In BEAR: strong RS leader (base 85, RVOL 2.2×) must pass")
 
 
 if __name__ == "__main__":

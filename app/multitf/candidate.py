@@ -8,7 +8,7 @@
 
 import logging
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from multitf.data import MultitfDataBundle
 from multitf.consolidation import ConsolidationResult
@@ -91,31 +91,40 @@ def build_confirmed_payload(
     bundle: MultitfDataBundle,
     consolidation: ConsolidationResult,
     pressure: PressureResult,
-    confluence: ConfluenceResult,
+    confluence: Optional[ConfluenceResult],
     sl_target: Dict[str, Any],
-    ist_now: datetime
+    ist_now: datetime,
+    # [V3] Optional V3 fields
+    alert_message: str = "",
+    severity: str = "",
+    breakout_strength=None
 ) -> Dict[str, Any]:
     """
     Builds the fully hydrated payload per section §37 of the architecture spec,
     ready for submission to OpportunityManager.
+    [V3]: Now includes base_score, breakout_score, severity, rich alert message.
     """
     # Requires strictly validated data from the closed 5m bar that triggered confirmation
     c_bar = bundle.df_5m_closed.iloc[-1]
-    
+
+    # V3: conviction_score is now the base quality score (primary); keep legacy field populated
+    conviction = consolidation.setup_score if consolidation.setup_score > 0 else (confluence.total_score if confluence else 0)
+    components = confluence.to_dict()["components"] if confluence else {}
+
     payload = {
         "symbol": bundle.symbol,
         "scanner_name": "MULTI_TF",
-        "scanner_version": "2.0",
+        "scanner_version": "3.0",
         "signal_type": "BREAKOUT",
         "tf_primary": "15m",
         "tf_trigger": "5m",
         "timestamp": ist_now.isoformat(),
-        
+
         # Core execution pricing
         "close_price": float(c_bar["Close"]),
         "trigger_price": float(c_bar["Close"]),
         "volume": int(c_bar["Volume"]),
-        
+
         # SL/Target mapping
         "stop_loss": sl_target.get("stop_loss", 0.0),
         "target": sl_target.get("target_1", 0.0),
@@ -126,11 +135,20 @@ def build_confirmed_payload(
         "risk_pct": sl_target.get("risk_pct", 0.0),
         "sl_basis": sl_target.get("sl_basis", "UNKNOWN"),
         "target_basis": sl_target.get("target_basis", "UNKNOWN"),
-        
-        # Confluence Grade
-        "conviction_score": confluence.total_score,
-        "components": confluence.to_dict()["components"],
-        
+
+        # [V3] Dual-Score Conviction
+        "conviction_score": conviction,
+        "base_score": consolidation.setup_score,
+        "base_rating": consolidation.base_rating_label,
+        "breakout_score": breakout_strength.breakout_score if breakout_strength else 0,
+        "breakout_rating": breakout_strength.breakout_rating_label if breakout_strength else "",
+        "severity": severity,
+        "has_higher_lows": consolidation.has_higher_lows,
+        "compression_ratio": consolidation.compression_ratio,
+        "rvol_label": breakout_strength.rvol_label if breakout_strength else "",
+        "velocity_label": breakout_strength.velocity_label if breakout_strength else "",
+        "components": components,
+
         # Setup Geometry (for UI rendering and telemetry)
         "box_high": consolidation.box_high,
         "box_low": consolidation.box_low,
@@ -139,7 +157,10 @@ def build_confirmed_payload(
         "distance_to_box_high": pressure.distance_to_box_high,
         "volume_ratio": pressure.volume_ratio,
         "range_ratio": pressure.range_ratio,
-        
+
+        # [V3] Rich alert message for Telegram/push
+        "alert_message": alert_message,
+
         # Mandatory Provenance
         "provenance": {
             "15m": bundle.prov_15m.to_dict() if bundle.prov_15m else {},
@@ -148,5 +169,7 @@ def build_confirmed_payload(
             "30m": bundle.prov_30m.to_dict() if bundle.prov_30m else {}
         }
     }
-    
+
     return payload
+
+

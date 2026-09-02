@@ -28,14 +28,21 @@ class PressureResult:
     is_confirmed: bool = False
     is_overextended: bool = False
     trigger_model: str = ""  # MODEL_A_DIRECT, MODEL_B_RETEST
-    
+
     volume_ratio: float = 0.0
     range_ratio: float = 0.0
     live_position: float = 0.0
     distance_to_box_high: float = 0.0
-    
+
     attempt_bar_boundary: int = 0
     momentum_score: int = 0
+
+    # [V3] Additional fields for Breakout Strength Engine consumption
+    volume_acceleration: float = 1.0  # current_5m_vol / prev_5m_vol
+    expected_volume: float = 0.0      # Time-of-day baseline volume
+    prev_5m_volume: float = 0.0       # Previous closed 5m bar volume
+    current_5m_volume: float = 0.0    # Current (last confirmed) 5m bar volume
+
 
 
 def evaluate_5m_pressure(
@@ -45,7 +52,8 @@ def evaluate_5m_pressure(
     atr_5m: float,
     ist_now: datetime,
     config: Dict[str, Any],
-    daily_atr: float = 0.0
+    daily_atr: float = 0.0,
+    atr_15m: float = 0.0
 ) -> PressureResult:
     """
     Evaluates both the live candle (for ATTEMPT) and the last closed candle (for CONFIRMED).
@@ -62,7 +70,7 @@ def evaluate_5m_pressure(
 
     # 2. Check for CONFIRMED Breakout (using strictly closed candle)
     last_closed = df_5m_closed.iloc[-1]
-    _evaluate_confirmed(last_closed, box_high, atr_5m, median_range, df_5m_closed, res, config, daily_atr)
+    _evaluate_confirmed(last_closed, box_high, atr_5m, median_range, df_5m_closed, res, config, daily_atr, atr_15m)
 
     # 3. Check for ATTEMPT (using forming live candle)
     if live_candle is not None and not res.is_confirmed:
@@ -79,7 +87,8 @@ def _evaluate_confirmed(
     df_5m_closed: pd.DataFrame,
     res: PressureResult,
     config: Dict[str, Any],
-    daily_atr: float = 0.0
+    daily_atr: float = 0.0,
+    atr_15m: float = 0.0
 ):
     """
     Evaluates confirmed breakout using Model A (Direct Breakout) or Model B (Retest Defense).
@@ -102,11 +111,18 @@ def _evaluate_confirmed(
     slot_vol_avg = _calc_slot_volume_baseline(bar_ts, df_5m_closed, config)
     vol_ratio = v / slot_vol_avg if slot_vol_avg > 0 else 1.0
 
-    # [ANTI-FAKE-BREAKOUT GUARD]: Over-extension Cap
-    # If price already exploded > 0.50x Daily ATR past resistance, reject chasing
-    ref_daily_atr = daily_atr if daily_atr > 0 else (atr_5m * 17.0 if atr_5m > 0 else c * 0.02)
-    max_ext_mult = config.get("MAX_EXTENSION_DAILY_ATR", 0.50)
-    if c > box_high + (max_ext_mult * ref_daily_atr):
+    # [ANTI-FAKE-BREAKOUT GUARD]: Dual-Scale Over-extension Protection
+    # 1. Local 15m Extension Cap: (Close - Res) / 15m ATR <= 0.80 (prevents chasing local expansion)
+    ref_15m_atr = atr_15m if atr_15m > 0 else (atr_5m * 2.0 if atr_5m > 0 else 1.0)
+    max_ext_local = config.get("MAX_EXTENSION_15M_ATR", 0.80)
+    if c > box_high + (max_ext_local * ref_15m_atr):
+        res.is_overextended = True
+        return
+
+    # 2. Daily Extension Cap: (Close - Res) / Daily ATR <= 0.50 (checks daily range exhaustion)
+    ref_daily_atr = daily_atr if daily_atr > 0 else (ref_15m_atr * 8.0 if ref_15m_atr > 0 else c * 0.02)
+    max_ext_daily = config.get("MAX_EXTENSION_DAILY_ATR", 0.50)
+    if c > box_high + (max_ext_daily * ref_daily_atr):
         res.is_overextended = True
         return
 
@@ -133,6 +149,12 @@ def _evaluate_confirmed(
         res.live_position = close_pos
         res.distance_to_box_high = c - box_high
         res.momentum_score = min(25, int((range_ratio + vol_ratio) * 7.0))
+        # [V3] Populate additional fields for BreakoutStrengthEngine
+        res.current_5m_volume = v
+        res.expected_volume = slot_vol_avg
+        prev_vol = float(df_5m_closed.iloc[-2]["Volume"]) if len(df_5m_closed) >= 2 else 0.0
+        res.prev_5m_volume = prev_vol
+        res.volume_acceleration = round(v / prev_vol, 3) if prev_vol > 0 else 1.0
         return
 
     # ── MODEL A: Direct Breakout ──────────────────────────────────────────────
@@ -145,6 +167,12 @@ def _evaluate_confirmed(
         res.live_position = close_pos
         res.distance_to_box_high = c - box_high
         res.momentum_score = min(25, int((range_ratio + vol_ratio) * 7.5))
+        # [V3] Populate additional fields for BreakoutStrengthEngine
+        res.current_5m_volume = v
+        res.expected_volume = slot_vol_avg
+        prev_vol = float(df_5m_closed.iloc[-2]["Volume"]) if len(df_5m_closed) >= 2 else 0.0
+        res.prev_5m_volume = prev_vol
+        res.volume_acceleration = round(v / prev_vol, 3) if prev_vol > 0 else 1.0
         return
 
 
