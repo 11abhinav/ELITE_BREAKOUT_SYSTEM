@@ -154,3 +154,117 @@ def get_sector_regime(sector_name: str) -> dict:
         "sector_breadth": 0.75, # 75% stocks advancing/above SMA
         "sector_regime": "BULLISH_STRONG"
     }
+
+from dataclasses import dataclass
+from typing import Optional, Tuple
+
+@dataclass(frozen=True)
+class RegimePolicy:
+    regime_name: str
+    min_diurnal_rvol: float
+    max_atr_extension: float
+    min_rsi: float
+    max_new_entries_permitted: bool
+    risk_multiplier: float
+    allowed_strategies: Tuple[str, ...]
+
+REGIME_POLICIES = {
+    "BULL_STRONG": RegimePolicy(
+        regime_name="BULL_STRONG",
+        min_diurnal_rvol=1.15,
+        max_atr_extension=2.50,
+        min_rsi=52.0,
+        max_new_entries_permitted=True,
+        risk_multiplier=1.00,
+        allowed_strategies=("MULTI_TF", "EOD_BREAKOUT", "PULLBACK", "WEALTH")
+    ),
+    "BULL_NORMAL": RegimePolicy(
+        regime_name="BULL_NORMAL",
+        min_diurnal_rvol=1.25,
+        max_atr_extension=2.00,
+        min_rsi=55.0,
+        max_new_entries_permitted=True,
+        risk_multiplier=0.85,
+        allowed_strategies=("MULTI_TF", "EOD_BREAKOUT", "PULLBACK", "REVERSAL", "WEALTH")
+    ),
+    "RANGE": RegimePolicy(
+        regime_name="RANGE",
+        min_diurnal_rvol=1.40,
+        max_atr_extension=1.60,
+        min_rsi=58.0,
+        max_new_entries_permitted=True,
+        risk_multiplier=0.60,
+        allowed_strategies=("REVERSAL", "PULLBACK", "ACCUMULATION")
+    ),
+    "BEAR_NORMAL": RegimePolicy(
+        regime_name="BEAR_NORMAL",
+        min_diurnal_rvol=1.60,
+        max_atr_extension=1.30,
+        min_rsi=62.0,
+        max_new_entries_permitted=True,
+        risk_multiplier=0.40,
+        allowed_strategies=("REVERSAL", "ACCUMULATION")
+    ),
+    "BEAR_STRONG": RegimePolicy(
+        regime_name="BEAR_STRONG",
+        min_diurnal_rvol=1.75,
+        max_atr_extension=1.15,
+        min_rsi=65.0,
+        max_new_entries_permitted=False,
+        risk_multiplier=0.20,
+        allowed_strategies=("REVERSAL",)
+    ),
+    "HIGH_VOL_EVENT": RegimePolicy(
+        regime_name="HIGH_VOL_EVENT", # India VIX >= 22.0 or 1-day Nifty plunge >= 2.0%
+        min_diurnal_rvol=2.00,
+        max_atr_extension=1.00,
+        min_rsi=65.0,
+        max_new_entries_permitted=False, # Zero fresh breakout entries; defensive exits only
+        risk_multiplier=0.00,
+        allowed_strategies=()
+    ),
+}
+
+def get_regime_policy(regime_name: Optional[str] = None) -> RegimePolicy:
+    """
+    Returns the immutable RegimePolicy object for the active or requested market regime.
+    """
+    if not regime_name:
+        regime_dict = get_market_regime()
+        regime_name = regime_dict.get("market_regime", "BULL_NORMAL")
+    return REGIME_POLICIES.get(regime_name, REGIME_POLICIES["BULL_NORMAL"])
+
+def calculate_sector_score_bonus(sector_rs_pct: Optional[float]) -> float:
+    """
+    Computes continuous bounded sector relative strength bonus.
+    Avoids arbitrary discrete step functions.
+    Maps 0-100 percentile into a [-10.0, +10.0] continuous score contribution.
+    """
+    if sector_rs_pct is None:
+        return 0.0
+    clipped_pct = max(0.0, min(100.0, float(sector_rs_pct)))
+    # Linear continuous mapping centered at 50th percentile (50 -> 0, 100 -> +10, 0 -> -10)
+    bonus = (clipped_pct - 50.0) / 5.0
+    return round(max(-10.0, min(10.0, bonus)), 2)
+
+def calculate_normalized_meta_score(
+    tech_score: float,
+    diurnal_rvol: Optional[float],
+    sector_rs_pct: Optional[float],
+    fundamental_score: float = 75.0,
+) -> float:
+    """
+    Computes normalized 0-100 meta conviction score across four standardized inputs:
+      • TechScore: 0 - 100
+      • Diurnal RVOL: Scaled from 0.5x-2.5x into 0 - 100
+      • Sector RS: 0 - 100 percentile
+      • Fundamental Score: 0 - 100 health
+    """
+    t_score = max(0.0, min(100.0, float(tech_score or 0.0)))
+    rvol_val = max(0.5, min(2.5, float(diurnal_rvol or 1.0)))
+    v_score = (rvol_val - 0.5) / 2.0 * 100.0
+    s_score = max(0.0, min(100.0, float(sector_rs_pct if sector_rs_pct is not None else 50.0)))
+    f_score = max(0.0, min(100.0, float(fundamental_score if fundamental_score is not None else 75.0)))
+    
+    meta = (0.35 * t_score) + (0.25 * v_score) + (0.20 * s_score) + (0.20 * f_score)
+    return round(meta, 1)

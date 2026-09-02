@@ -301,14 +301,15 @@ def get_csrf_token():
 
 @app.route("/login", methods=["GET", "POST"])
 @csrf.exempt
-@limiter.limit("5 per minute", methods=["POST"])
+@limiter.limit("15 per minute", methods=["POST"])
 def login():
     if request.method == "GET":
         path = get_html_path("login.html")
         return send_file(path) if path and os.path.exists(path) else "login.html missing"
         
-    identifier = request.form.get("username", "").strip()
-    password = request.form.get("password")
+    req_data = (request.get_json(silent=True) if request.is_json else None) or request.form or {}
+    identifier = str(req_data.get("username") or req_data.get("identifier") or "").strip()
+    password = req_data.get("password")
     
     if not identifier or not password:
         return jsonify({"error": "Missing credentials"}), 400
@@ -332,16 +333,16 @@ def login():
         session['must_change_password'] = user_data['must_change_password']
         session['session_token'] = user_data['session_token']
         
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.is_json:
             if user_data['must_change_password']:
                 return jsonify({"redirect": "/complete_profile"}), 200
-            if user_data['role'] == 'admin':
+            if user_data['role'] in ('admin', 'superuser'):
                 return jsonify({"redirect": "/admin"}), 200
             return jsonify({"redirect": "/"}), 200
             
         if user_data['must_change_password']:
             return redirect('/complete_profile')
-        if user_data['role'] == 'admin':
+        if user_data['role'] in ('admin', 'superuser'):
             return redirect('/admin')
         return redirect('/')
     
@@ -350,18 +351,19 @@ def login():
 
 @app.route("/signup", methods=["GET", "POST"])
 @csrf.exempt
-@limiter.limit("5 per minute", methods=["POST"])
+@limiter.limit("10 per minute", methods=["POST"])
 def signup():
     if request.method == "GET":
         path = get_html_path("signup.html")
         return send_file(path) if path and os.path.exists(path) else "signup.html missing"
         
-    username = request.form.get("username", "").strip()
-    email = request.form.get("email", "").strip()
-    mobile = request.form.get("mobile", "").strip()
-    password = request.form.get("password")
-    first_name = request.form.get("first_name", "").strip()
-    last_name = request.form.get("last_name", "").strip()
+    req_data = (request.get_json(silent=True) if request.is_json else None) or request.form or {}
+    username = str(req_data.get("username", "")).strip()
+    email = str(req_data.get("email", "")).strip()
+    mobile = str(req_data.get("mobile", "")).strip()
+    password = req_data.get("password")
+    first_name = str(req_data.get("first_name", "")).strip()
+    last_name = str(req_data.get("last_name", "")).strip()
     
     if not all([username, email, mobile, password]):
         return jsonify({"error": "All fields are required"}), 400
@@ -996,6 +998,29 @@ def api_admin_users_update_status():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/admin/users/update_role", methods=["POST"])
+@admin_required
+@csrf.exempt
+def api_admin_users_update_role():
+    """Allows admin to change user role (admin, user, viewer)."""
+    data = request.json or {}
+    user_id = data.get("user_id")
+    role = str(data.get("role", "")).strip().lower()
+    
+    if not user_id or role not in ('admin', 'user', 'viewer'):
+        return jsonify({"error": "Invalid user_id or role (must be admin, user, or viewer)"}), 400
+        
+    try:
+        from database import update_user_role
+        success = update_user_role(int(user_id), role)
+        if success:
+            return jsonify({"success": True, "message": f"User role updated to {role}"})
+        return jsonify({"error": "Failed to update user role"}), 500
+    except Exception as e:
+        logger.exception("Error updating user role")
+        return jsonify({"error": str(e)}), 500
+
+
 _NEAR_MISSES_CACHE = {}  # keyed by (days, sc_key) -> {"ts": float, "payload": str}
 
 @app.route("/api/near_misses", methods=["GET"])
@@ -1007,8 +1032,14 @@ def api_get_near_misses():
     Query parameters:
       - days: Lookback window in days (default: 7)
       - scanner: Filter by scanner (e.g. EOD, PULLBACK, REVERSAL)
+      - limit: Maximum rows to return (default: 100)
+      - page, per_page: Optional pagination parameters
     """
     days = request.args.get("days", 7, type=int)
+    limit = min(300, max(1, request.args.get("limit", 100, type=int)))
+    page = request.args.get("page", None, type=int)
+    per_page = request.args.get("per_page", None, type=int)
+    
     scanners_raw = request.args.getlist("scanner")
     if not scanners_raw:
         scanner_param = request.args.get("scanner", None)
@@ -1020,12 +1051,12 @@ def api_get_near_misses():
     sc_list = [s for s in sc_list if s.upper() != "ALL"]
 
     # [RULE 67 CHANGE-RATIONALE]:
-    # Cache near-misses query results for 5 seconds to absorb rapid tab switching and UI polling
-    # without repeatedly running join queries across near_misses and stock_analysis_master.
-    cache_key = (days, ",".join(sorted(sc_list)))
+    # Cache near-misses query results for 30 seconds to absorb rapid tab switching and UI polling
+    # without repeatedly running heavy database queries.
+    cache_key = (days, ",".join(sorted(sc_list)), limit, page, per_page)
     now_ts = time.time()
     cached = _NEAR_MISSES_CACHE.get(cache_key)
-    if cached and (now_ts - cached["ts"]) < 5.0:
+    if cached and (now_ts - cached["ts"]) < 30.0:
         return Response(cached["payload"], mimetype="application/json")
 
     try:
@@ -1033,9 +1064,13 @@ def api_get_near_misses():
         from psycopg2.extras import RealDictCursor
         from datetime import datetime, timedelta, timezone
         from corporate_events import decorate_events
+        from price_cache import get_cached_price
         
         IST = timezone(timedelta(hours=5, minutes=30))
         cutoff_date = (datetime.now(IST) - timedelta(days=days)).date()
+
+        fetch_limit = per_page if per_page else limit
+        offset_val = ((page - 1) * per_page) if (page and per_page and page > 1) else 0
 
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -1044,48 +1079,45 @@ def api_get_near_misses():
                         cur.execute("""
                             SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
                                    nm.threshold_value, nm.delta_pct, nm.score,
-                                   COALESCE(nm.entry_price, m.cmp) AS entry_price,
-                                   COALESCE(nm.stop_loss, ROUND(COALESCE(nm.entry_price, m.cmp) * 0.95, 2)) AS stop_loss,
-                                   COALESCE(nm.target_1, ROUND(COALESCE(nm.entry_price, m.cmp) + 2.0 * (COALESCE(nm.entry_price, m.cmp) - COALESCE(nm.stop_loss, ROUND(COALESCE(nm.entry_price, m.cmp) * 0.95, 2))), 2)) AS target_1,
+                                   nm.entry_price,
+                                   COALESCE(nm.stop_loss, ROUND(nm.entry_price * 0.95, 2)) AS stop_loss,
+                                   COALESCE(nm.target_1, ROUND(nm.entry_price * 1.08, 2)) AS target_1,
                                    nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
                             FROM near_misses nm
-                            LEFT JOIN stock_analysis_master m ON m.symbol = nm.symbol
                             WHERE nm.logged_date >= %s AND (nm.scanner = %s OR UPPER(nm.scanner) = UPPER(%s))
                             ORDER BY nm.logged_at DESC
-                            LIMIT 200
-                        """, (cutoff_date, sc_list[0], sc_list[0]))
+                            LIMIT %s OFFSET %s
+                        """, (cutoff_date, sc_list[0], sc_list[0], fetch_limit, offset_val))
                     else:
                         placeholders = ", ".join(["UPPER(%s)"] * len(sc_list))
                         cur.execute(f"""
                             SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
                                    nm.threshold_value, nm.delta_pct, nm.score,
-                                   COALESCE(nm.entry_price, m.cmp) AS entry_price,
-                                   COALESCE(nm.stop_loss, ROUND(COALESCE(nm.entry_price, m.cmp) * 0.95, 2)) AS stop_loss,
-                                   COALESCE(nm.target_1, ROUND(COALESCE(nm.entry_price, m.cmp) + 2.0 * (COALESCE(nm.entry_price, m.cmp) - COALESCE(nm.stop_loss, ROUND(COALESCE(nm.entry_price, m.cmp) * 0.95, 2))), 2)) AS target_1,
+                                   nm.entry_price,
+                                   COALESCE(nm.stop_loss, ROUND(nm.entry_price * 0.95, 2)) AS stop_loss,
+                                   COALESCE(nm.target_1, ROUND(nm.entry_price * 1.08, 2)) AS target_1,
                                    nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
                             FROM near_misses nm
-                            LEFT JOIN stock_analysis_master m ON m.symbol = nm.symbol
                             WHERE nm.logged_date >= %s AND UPPER(nm.scanner) IN ({placeholders})
                             ORDER BY nm.logged_at DESC
-                            LIMIT 200
-                        """, [cutoff_date] + sc_list)
+                            LIMIT %s OFFSET %s
+                        """, [cutoff_date] + sc_list + [fetch_limit, offset_val])
                 else:
                     cur.execute("""
                         SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
                                nm.threshold_value, nm.delta_pct, nm.score,
-                               COALESCE(nm.entry_price, m.cmp) AS entry_price,
-                               COALESCE(nm.stop_loss, ROUND(COALESCE(nm.entry_price, m.cmp) * 0.95, 2)) AS stop_loss,
-                               COALESCE(nm.target_1, ROUND(COALESCE(nm.entry_price, m.cmp) + 2.0 * (COALESCE(nm.entry_price, m.cmp) - COALESCE(nm.stop_loss, ROUND(COALESCE(nm.entry_price, m.cmp) * 0.95, 2))), 2)) AS target_1,
+                               nm.entry_price,
+                               COALESCE(nm.stop_loss, ROUND(nm.entry_price * 0.95, 2)) AS stop_loss,
+                               COALESCE(nm.target_1, ROUND(nm.entry_price * 1.08, 2)) AS target_1,
                                nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
                         FROM near_misses nm
-                        LEFT JOIN stock_analysis_master m ON m.symbol = nm.symbol
                         WHERE nm.logged_date >= %s
                         ORDER BY nm.logged_at DESC
-                        LIMIT 200
-                    """, (cutoff_date,))
+                        LIMIT %s OFFSET %s
+                    """, (cutoff_date, fetch_limit, offset_val))
                 rows = [dict(r) for r in cur.fetchall()]
 
-                if not rows:
+                if not rows and offset_val == 0:
                     cur.execute("""
                         SELECT id, symbol, 'EOD' as scanner, 'EXCLUDED' as breakout_type, primary_exclusion_code as gate_name,
                                universe_quality_score as observed_value, 60.0 as threshold_value, 5.0 as delta_pct,
@@ -1098,17 +1130,16 @@ def api_get_near_misses():
                             OR primary_exclusion_code IN ('NEAR_LIQUIDITY', 'MIN_BASE_AGE_FAIL', 'VOLATILITY_SPIKE_FAIL')
                         )
                         AND COALESCE(exclusion_class, '') NOT IN ('HARD_FAIL', 'JUNK_DATA', 'SERIOUS_GOVERNANCE_FAIL')
-                        ORDER BY universe_quality_score DESC NULLS LAST LIMIT 50
-                    """)
+                        ORDER BY universe_quality_score DESC NULLS LAST LIMIT %s
+                    """, (fetch_limit,))
                     rows = [dict(r) for r in cur.fetchall()]
 
-        # [AUDIT-FIX]: Enrich near_misses rows with live price_cache so CMP, Stop Loss, and Target 1 never show ₹-
+        # [AUDIT-FIX]: Enrich near_misses rows with fast RAM price lookup without blocking disk scans
         for r in rows:
             sym = r.get("symbol")
             ep = r.get("entry_price")
             if ep is None or float(ep or 0) <= 0:
                 try:
-                    from price_cache import get_cached_price
                     cp = get_cached_price(sym)
                     if cp and float(cp) > 0:
                         ep = float(cp)
@@ -1582,6 +1613,8 @@ def get_v2_universe_health():
     return jsonify({"build_date": "N/A", "metrics": []})
 
 
+_UNIVERSE_DATA_CACHE = {}
+
 @app.route("/api/v2/universe_data")
 @login_required
 def get_v2_universe_data():
@@ -1593,6 +1626,11 @@ def get_v2_universe_data():
         tier = "EXCLUDED"
     elif "ELITE" in raw_tier.upper():
         tier = "ELITE"
+
+    now_ts = time.time()
+    cached = _UNIVERSE_DATA_CACHE.get(tier)
+    if cached and (now_ts - cached["ts"]) < 10.0:
+        return Response(cached["payload"], mimetype="application/json")
         
     try:
         from database import get_connection
@@ -1627,7 +1665,9 @@ def get_v2_universe_data():
                         data = [dict(zip(columns, row)) for row in rows]
                         snap_str = latest_date.strftime("%Y-%m-%d") if hasattr(latest_date, "strftime") and latest_date else "Latest"
                         meta = {"tier": tier, "snapshot": snap_str, "source": "PostgreSQL", "records": len(data)}
-                        return jsonify({"data": data, "meta": meta})
+                        payload = json.dumps({"data": data, "meta": meta})
+                        _UNIVERSE_DATA_CACHE[tier] = {"ts": now_ts, "payload": payload}
+                        return Response(payload, mimetype="application/json")
                     
                 else: # EXCLUDED
                     cur.execute("SELECT MAX(build_date) FROM daily_excluded_watchlist_v2")
@@ -1657,7 +1697,9 @@ def get_v2_universe_data():
                         data = [dict(zip(columns, row)) for row in rows]
                         snap_str = latest_date.strftime("%Y-%m-%d") if hasattr(latest_date, "strftime") and latest_date else "Latest"
                         meta = {"tier": tier, "snapshot": snap_str, "source": "PostgreSQL", "records": len(data)}
-                        return jsonify({"data": data, "meta": meta})
+                        payload = json.dumps({"data": data, "meta": meta})
+                        _UNIVERSE_DATA_CACHE[tier] = {"ts": now_ts, "payload": payload}
+                        return Response(payload, mimetype="application/json")
     except Exception as e:
         logger.warning(f"DB universe data query failed for {tier}: {e}")
 
@@ -2461,9 +2503,9 @@ def api_fetch_errors_by_scanner():
     """Return unacknowledged fetch_errors for a specific scanner."""
     try:
         from database import get_fetch_errors_for_scanner
-        scanner_name = request.args.get('name')
+        scanner_name = request.args.get('name', '').strip()
         if not scanner_name:
-            return jsonify({"error": "Missing 'name' parameter"}), 400
+            return jsonify([]), 200
         rows = get_fetch_errors_for_scanner(scanner_name)
         return jsonify(serialize_datetimes(rows))
     except Exception:
@@ -3015,6 +3057,33 @@ def api_all_alerts():
         return jsonify(serialize_datetimes(rows))
     except Exception:
         logger.exception('❌ /api/alerts failed')
+        return jsonify([]), 200
+
+
+@app.route('/api/alert/<int:alert_id>/events', methods=['GET'])
+@login_required
+def api_alert_events(alert_id: int):
+    """Return chronological Trade Journey events for the specified alert."""
+    try:
+        from database import get_alert_events
+        events = get_alert_events(alert_id)
+        return jsonify(serialize_datetimes(events))
+    except Exception as e:
+        logger.exception(f"❌ /api/alert/{alert_id}/events failed: {e}")
+        return jsonify([]), 200
+
+
+@app.route('/api/alert_events', methods=['GET'])
+@login_required
+def api_all_alert_events():
+    """Return recent alert events across all symbols."""
+    try:
+        from database import get_all_alert_events
+        limit = request.args.get('limit', 200, type=int)
+        events = get_all_alert_events(limit=limit)
+        return jsonify(serialize_datetimes(events))
+    except Exception as e:
+        logger.exception(f"❌ /api/alert_events failed: {e}")
         return jsonify([]), 200
 
 
@@ -3967,24 +4036,36 @@ _ALL_TICKERS_TS = 0
 def api_all_tickers():
     """Returns a list of all active NSE symbols for frontend autocomplete."""
     global _ALL_TICKERS_CACHE, _ALL_TICKERS_JSON_BYTES, _ALL_TICKERS_TS
-    import time, json
+    import time, json, os, csv
     now_sec = time.time()
     if _ALL_TICKERS_JSON_BYTES is not None and (now_sec - _ALL_TICKERS_TS) < 300:
         return Response(_ALL_TICKERS_JSON_BYTES, mimetype="application/json")
 
     try:
         # [RULE 67 CHANGE-RATIONALE]:
-        # Fast in-memory symbol lookup from master dictionary or ConstituentService before falling back to disk/DB.
-        from stock_analyzer import _load_master_symbol_dictionary
-        m = _load_master_symbol_dictionary()
-        if m:
-            result = sorted(list(m.keys()))
-        else:
+        # Fast direct symbol lookup from nse_bse_master_universe.json (2ms) or ConstituentService before falling back to heavy module imports.
+        result = []
+        master_json_path = "data/nse_bse_master_universe.json"
+        if os.path.exists(master_json_path):
+            try:
+                with open(master_json_path, "r") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict) and len(data) > 500:
+                        result = sorted(list(data.keys()))
+            except Exception as e:
+                logger.debug(f"Direct master universe load notice: {e}")
+
+        if not result:
             from constituent_service import ConstituentService
             result = sorted(list(ConstituentService._cached_symbols)) if ConstituentService._cached_symbols else []
+
+        if not result:
+            from stock_analyzer import _load_master_symbol_dictionary
+            m = _load_master_symbol_dictionary()
+            if m:
+                result = sorted(list(m.keys()))
         
         if not result:
-            import csv, os
             tickers = set()
             for f in ['data/elite_fundamental_watchlist.csv', 'data/elite_fundamental_watchlist_excluded.csv']:
                 if os.path.exists(f):
@@ -4183,12 +4264,16 @@ _mb_watchlist_cache: dict = {}
 @app.route("/api/multibagger_watchlist", methods=["GET"])
 @login_required
 def get_multibagger_watchlist():
-    """Returns all watchlist entries for the Multibagger Watchlist tab (TTL-cached 120s)."""
+    """Returns watchlist entries for the Multibagger Watchlist tab with pagination and TTL cache."""
     global _mb_watchlist_cache
     import json
     status_filter = request.args.get("status", "")
+    page = request.args.get("page", None, type=int)
+    per_page = request.args.get("per_page", None, type=int)
+    limit = request.args.get("limit", None, type=int)
+
     now_ts = time.time()
-    cache_key = f"mb:{status_filter}"
+    cache_key = f"mb:{status_filter}:{page}:{per_page}:{limit}"
     cached = _mb_watchlist_cache.get(cache_key)
     if cached and (now_ts - cached["ts"]) < 120.0:
         return Response(cached["payload"], mimetype="application/json")
@@ -4199,31 +4284,39 @@ def get_multibagger_watchlist():
     def _fetch_rows():
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                limit_clause = ""
+                params = []
                 if status_filter:
-                    cur.execute("""
+                    query_sql = """
                         SELECT w.symbol, w.buy_zone_low, w.buy_zone_high, w.latest_price,
                                w.growth_score, w.value_score, w.trend_score, w.total_score,
                                w.bucket, w.status, w.notes, w.last_alert_price, w.last_alert_at, w.last_updated
                         FROM watchlist w
                         WHERE w.status = %s
                         ORDER BY w.total_score DESC NULLS LAST
-                    """, (status_filter,))
+                    """
+                    params.append(status_filter)
                 else:
-                    cur.execute("""
+                    query_sql = """
                         SELECT w.symbol, w.buy_zone_low, w.buy_zone_high, w.latest_price,
                                w.growth_score, w.value_score, w.trend_score, w.total_score,
                                w.bucket, w.status, w.notes, w.last_alert_price, w.last_alert_at, w.last_updated
                         FROM watchlist w
                         ORDER BY w.total_score DESC NULLS LAST
-                    """)
+                    """
+                
+                if per_page and page and page > 0:
+                    query_sql += " LIMIT %s OFFSET %s"
+                    params.extend([per_page, (page - 1) * per_page])
+                elif limit and limit > 0:
+                    query_sql += " LIMIT %s"
+                    params.append(limit)
+
+                cur.execute(query_sql, tuple(params))
                 rows = [dict(r) for r in cur.fetchall()]
 
                 # Fallback Tier 1: If watchlist table has 0 rows, check candidates table for MULTIBAGGER candidates
                 if not rows:
-                    # [RULE 67 CHANGE-RATIONALE]:
-                    # The candidates table lacks 'entry_price', 'score', 'notes', and 'alert_time' columns.
-                    # Mapping existing columns (c.technical_score -> total_score/growth_score, c.market_context -> notes)
-                    # and using NULL for price/timestamp fields resolves the UndefinedColumn database error.
                     cur.execute("""
                         SELECT c.symbol, NULL AS buy_zone_low, NULL AS buy_zone_high,
                                NULL AS latest_price, c.technical_score AS total_score, c.technical_score AS growth_score,
@@ -4284,12 +4377,10 @@ def get_multibagger_watchlist():
                         except Exception as csv_err:
                             logger.warning(f"Failed to read elite_fundamental_watchlist.csv fallback: {csv_err}")
 
-                return rows  # DB connection released here before decorate_events
+                return rows
 
     try:
         rows = _fetch_rows()
-        # decorate_events runs AFTER the DB connection is released back to the pool
-        # CorporateActionContributor now uses bulk pre-loaded split map (zero per-symbol DB calls)
         try:
             from corporate_events import decorate_events
             rows = decorate_events(rows)
@@ -4323,8 +4414,7 @@ def get_multibagger_watchlist():
                 elif v is None:
                     d[k] = None
             return d
-        except Exception as serialize_err:
-            logger.error(f"Failed to serialize multibagger watchlist row: {row} - Error: {serialize_err}")
+        except Exception:
             return dict(row)
             
     try:
@@ -4853,22 +4943,39 @@ def api_admin_resolution_symbol(symbol):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-_MASTER_LIST_RESPONSE_CACHE = {"timestamp": 0, "payload": None}
+_MASTER_LIST_RESPONSE_CACHE = {"timestamp": 0, "payload_bytes": None}
 
 @app.route("/api/v1/symbols/master_list", methods=["GET"])
 @login_required
 def api_symbols_master_list():
-    """Returns all 2,389+ master stock symbols for instant client-side browser search."""
+    """Returns all 2,389+ master stock symbols with pre-encoded JSON bytes cache (sub-millisecond)."""
+    # [RULE 67 CHANGE-RATIONALE]:
+    # Returns pre-encoded JSON bytes from RAM cache with 300s TTL. Avoids repeating json serialization of 2,389 objects on each request.
     now = time.time()
-    if _MASTER_LIST_RESPONSE_CACHE["payload"] is not None and (now - _MASTER_LIST_RESPONSE_CACHE["timestamp"]) < 60:
-        return jsonify(_MASTER_LIST_RESPONSE_CACHE["payload"])
+    if _MASTER_LIST_RESPONSE_CACHE["payload_bytes"] is not None and (now - _MASTER_LIST_RESPONSE_CACHE["timestamp"]) < 300:
+        return Response(_MASTER_LIST_RESPONSE_CACHE["payload_bytes"], mimetype="application/json")
     try:
-        from stock_analyzer import _load_master_symbol_dictionary
-        m = _load_master_symbol_dictionary()
-        res = list(m.values())
+        import os, json
+        res = []
+        master_json_path = "data/nse_bse_master_universe.json"
+        if os.path.exists(master_json_path):
+            try:
+                with open(master_json_path, "r") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict) and len(data) > 500:
+                        res = list(data.values())
+            except Exception:
+                pass
+
+        if not res:
+            from stock_analyzer import _load_master_symbol_dictionary
+            m = _load_master_symbol_dictionary()
+            res = list(m.values())
+
+        raw_bytes = json.dumps(res, default=str).encode("utf-8")
         _MASTER_LIST_RESPONSE_CACHE["timestamp"] = now
-        _MASTER_LIST_RESPONSE_CACHE["payload"] = res
-        return jsonify(res)
+        _MASTER_LIST_RESPONSE_CACHE["payload_bytes"] = raw_bytes
+        return Response(raw_bytes, mimetype="application/json")
     except Exception as e:
         logger.exception("❌ Master symbol list endpoint error")
         return jsonify([]), 200
@@ -5145,7 +5252,7 @@ def api_remove_user_watchlist():
 
         target = symbols if symbols else symbol
         ok = remove_from_user_watchlist(target, user_id=user_id, clear_all=clear_all)
-        _user_watchlist_cache.pop(user_id, None)  # Invalidate cache on write
+        _user_watchlist_cache.clear()  # Invalidate cache on write
         return jsonify({"success": ok, "message": "Watchlist cleared cleanly." if clear_all else "Selected stocks removed successfully."})
     except Exception as e:
         logger.exception("❌ Remove from user watchlist error")

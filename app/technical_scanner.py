@@ -785,39 +785,43 @@ def detect_technical_setup(df: pd.DataFrame, symbol: str) -> Optional[Dict[str, 
         atr14 = c_today * 0.02
 
     # ── PERMISSIVE PATTERN DISCOVERY (8 PRIMARY STRUCTURES) ─────────────────────────
+    # [WARM-UP PROTECTED GEOMETRIC WINDOW]
+    # Retain the recent 120-bar lookback window for pattern geometric algorithms
+    # while preserving all warm-up computed indicator columns (EMA200, MACD, ATR14, RSI14).
+    df_window = df.tail(120).copy() if len(df) > 120 else df
     candidate_patterns = []
 
     # Tier A Patterns
-    bf = _detect_bull_flag(df, atr14)
+    bf = _detect_bull_flag(df_window, atr14)
     if bf:
         candidate_patterns.append(bf)
 
-    sr = _detect_shakeout_reclaim(df, atr14)
+    sr = _detect_shakeout_reclaim(df_window, atr14)
     if sr:
         candidate_patterns.append(sr)
 
-    db = _detect_double_bottom(df, atr14)
+    db = _detect_double_bottom(df_window, atr14)
     if db:
         candidate_patterns.append(db)
 
-    vr = _detect_v_reversal(df, atr14)
+    vr = _detect_v_reversal(df_window, atr14)
     if vr:
         candidate_patterns.append(vr)
 
     # Tier B Patterns
-    ch = _detect_cup_and_handle(df, atr14)
+    ch = _detect_cup_and_handle(df_window, atr14)
     if ch:
         candidate_patterns.append(ch)
 
-    at = _detect_ascending_triangle(df, atr14)
+    at = _detect_ascending_triangle(df_window, atr14)
     if at:
         candidate_patterns.append(at)
 
-    bp = _detect_bull_pennant(df, atr14)
+    bp = _detect_bull_pennant(df_window, atr14)
     if bp:
         candidate_patterns.append(bp)
 
-    hl = _detect_higher_low_reversal(df, atr14)
+    hl = _detect_higher_low_reversal(df_window, atr14)
     if hl:
         candidate_patterns.append(hl)
 

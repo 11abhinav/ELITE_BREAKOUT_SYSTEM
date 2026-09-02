@@ -1791,6 +1791,8 @@ def clear_price_cache():
     return stats_before, stats_after
 
 
+_FAST_CMP_MEMO: dict = {}  # symbol -> (price, source, is_live, timestamp, cache_time)
+
 def get_cached_df(symbol: str, interval: str = "1d", period: str = "1y") -> pd.DataFrame:
     """Retrieve a cached dataframe from RAM or disk parquet without making network requests."""
     key = (interval, period)
@@ -1822,6 +1824,11 @@ def get_cached_df(symbol: str, interval: str = "1d", period: str = "1y") -> pd.D
             try:
                 df = pd.read_parquet(file_path)
                 if df is not None and not df.empty:
+                    # [RULE 67 CHANGE-RATIONALE]: Cache disk-read dataframe in RAM to eliminate redundant disk scans
+                    with _lock:
+                        if key not in _cache or not isinstance(_cache[key], dict):
+                            _cache[key] = {}
+                        _cache[key][symbol] = {"data": df, "timestamp": time.time() if "time" in globals() else 0}
                     return df
             except Exception:
                 pass
@@ -1830,24 +1837,36 @@ def get_cached_df(symbol: str, interval: str = "1d", period: str = "1y") -> pd.D
 
 def get_cached_price_details(symbol: str) -> Tuple[Optional[float], str, bool, Optional[str]]:
     """
-    [VERSION: CMP_CACHE_PROVENANCE_v1.1] [RULE 67 CHANGE-RATIONALE]
-    Resolves price details from RAM live cache or daily Parquet cache.
-    Uses RAM-only get_cached_live_price to eliminate single-symbol network calls.
+    [VERSION: CMP_CACHE_PROVENANCE_v1.2] [RULE 67 CHANGE-RATIONALE]
+    Resolves price details from RAM live cache, fast in-memory memoization, or daily Parquet cache.
+    Uses RAM-first architecture to eliminate blocking synchronous disk scans during API request handling.
     """
+    import time as _t_mod
     from datetime import datetime
     from zoneinfo import ZoneInfo
     
-    # 1. Check live prices RAM cache first (non-blocking)
+    clean_sym = str(symbol).split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "")
+    now_mono = _t_mod.monotonic()
+
+    # 1. Check live prices RAM cache first (non-blocking O(1))
     try:
         from live_prices import get_cached_live_price
-        p = get_cached_live_price(symbol)
+        p = get_cached_live_price(symbol) or get_cached_live_price(clean_sym)
         if p is not None and float(p) > 0:
             now_str = datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d %H:%M:%S')
-            return float(p), "LIVE_TICK", True, now_str
+            res = (float(p), "LIVE_TICK", True, now_str)
+            _FAST_CMP_MEMO[clean_sym] = (*res, now_mono)
+            return res
     except Exception:
         pass
 
-    # 2. Fallback to daily close cache
+    # 2. Check fast RAM CMP memo (30s TTL)
+    if clean_sym in _FAST_CMP_MEMO:
+        cached_tuple = _FAST_CMP_MEMO[clean_sym]
+        if (now_mono - cached_tuple[4]) < 30.0:
+            return cached_tuple[0], cached_tuple[1], cached_tuple[2], cached_tuple[3]
+
+    # 3. Fallback to daily close cache (memoized in RAM after first read)
     try:
         df = get_cached_df(symbol, interval="1d", period="10d")
         if df is not None and not df.empty and "Close" in df.columns:
@@ -1856,11 +1875,15 @@ def get_cached_price_details(symbol: str) -> Tuple[Optional[float], str, bool, O
                 last_row = valid_df.iloc[-1]
                 dt = last_row.get("Datetime") or last_row.name
                 dt_str = str(dt) if dt else None
-                return float(last_row["Close"]), "DAILY_CACHE", False, dt_str
+                res = (float(last_row["Close"]), "DAILY_CACHE", False, dt_str)
+                _FAST_CMP_MEMO[clean_sym] = (*res, now_mono)
+                return res
     except Exception:
         pass
 
-    return None, "UNAVAILABLE", False, None
+    res = (None, "UNAVAILABLE", False, None)
+    _FAST_CMP_MEMO[clean_sym] = (*res, now_mono)
+    return res
 
 
 def get_cached_price(symbol: str) -> Optional[float]:

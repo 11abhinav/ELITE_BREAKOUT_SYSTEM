@@ -58,6 +58,54 @@ def _safe_float(val, default=0.0):
     except Exception:
         return default
 
+def calculate_diurnal_rvol(
+    current_bar_time: Any,
+    current_volume: float,
+    historical_15m_df: pd.DataFrame,
+    lookback_sessions: int = 20,
+    min_sessions: int = 5,
+) -> Optional[float]:
+    """
+    Computes lookahead-safe, time-of-day normalized relative volume.
+    
+    Guarantees:
+      1. historical_15m_df is filtered strictly to sessions strictly prior to current_bar_time.date().
+      2. Exactly matches identical intraday time bucket (%H:%M).
+      3. Returns None if insufficient history (< min_sessions) or zero baseline.
+    """
+    if current_volume is None or current_volume < 0 or historical_15m_df is None or historical_15m_df.empty:
+        return None
+
+    try:
+        if isinstance(current_bar_time, pd.Timestamp):
+            eval_date = current_bar_time.date()
+            time_str = current_bar_time.strftime("%H:%M")
+        else:
+            ts = pd.to_datetime(current_bar_time)
+            eval_date = ts.date()
+            time_str = ts.strftime("%H:%M")
+
+        if isinstance(historical_15m_df.index, pd.DatetimeIndex):
+            prior_df = historical_15m_df[historical_15m_df.index.date < eval_date]
+        else:
+            prior_df = historical_15m_df
+
+        if prior_df.empty or "Volume" not in prior_df.columns:
+            return None
+
+        same_time_bars = prior_df[prior_df.index.strftime("%H:%M") == time_str].tail(lookback_sessions)
+        if len(same_time_bars) < min_sessions:
+            return None
+
+        baseline = float(same_time_bars["Volume"].median())
+        if baseline <= 0:
+            return None
+
+        return round(float(current_volume) / baseline, 2)
+    except Exception as e:
+        logger.debug(f"Diurnal RVOL calculation exception: {e}")
+        return None
+
 def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = None, pre_fetched_h1_df: pd.DataFrame = None, allow_live_fetch: bool = True, fund_data: dict = None, **kwargs) -> dict:
     """
     Evaluates a single symbol against the production Multi-TF Intraday scanner rules.
@@ -1132,7 +1180,15 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                     else:
                         mean_vol = _safe_float(df["Volume"].iloc[:-1].mean()) or 1.0
                     mean_vol = max(mean_vol, 1.0)
-                    vol_ratio = _safe_float(latest.get("Volume")) / mean_vol
+                    rvol_rolling = _safe_float(latest.get("Volume")) / mean_vol
+
+                    bar_ts = latest.name if isinstance(latest.name, (pd.Timestamp, datetime)) else pd.to_datetime(latest.get("Date", datetime.now(IST)))
+                    rvol_diurnal = calculate_diurnal_rvol(
+                        current_bar_time=bar_ts,
+                        current_volume=_safe_float(latest.get("Volume")),
+                        historical_15m_df=df
+                    )
+                    vol_ratio = rvol_diurnal if rvol_diurnal is not None else rvol_rolling
             
                     candle_range = _safe_float(latest.get("High")) - _safe_float(latest.get("Low"))
                     if candle_range > 0:
@@ -1145,16 +1201,17 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                     # [FIX MTF-14] Extension limit uses daily-scale ref_atr (consistent with Phase C admission band)
                     if close > trigger_level + (max_ext_atr * ref_atr):
                         dist_atr = (close - trigger_level) / ref_atr if ref_atr > 0 else 0
-                        logger.info(f"🚫 {symbol} PhaseD Reject | Reason=PD01_OVER_EXTENDED | Trigger={trigger_level:.2f} Close={close:.2f} PrevHigh={float(prev['High']):.2f} RefATR={ref_atr:.2f} ATR_Extension={dist_atr:.2f} VolRatio={vol_ratio:.2f} ClosePos={close_position:.2f} Pattern=N/A")
+                        logger.info(f"🚫 {symbol} PhaseD Reject | Reason=PD01_OVER_EXTENDED | Trigger={trigger_level:.2f} Close={close:.2f} PrevHigh={float(prev['High']):.2f} RefATR={ref_atr:.2f} ATR_Extension={dist_atr:.2f} VolRatio={vol_ratio:.2f} (Diurnal={rvol_diurnal}, Rolling={rvol_rolling:.2f}) ClosePos={close_position:.2f} Pattern=N/A")
                         return
 
                     is_ready = False
                     trigger_type = ""
             
                     # Thrust/Continuation Trigger
-                    # Price breaks local high while still close to level, with mandatory volume expansion (>= 1.25x)
+                    # Price breaks local high while still close to level, with mandatory volume expansion (>= 1.25x rolling or >= 1.20x diurnal)
                     min_thrust_vol = float(MULTI_TF_CONFIG.get("MIN_VOLUME_RATIO", 1.25))
-                    if close > float(prev["High"]) and close > (trigger_level + buffer_val) and vol_ratio >= min_thrust_vol:
+                    vol_confirmed = (rvol_diurnal >= 1.20) if rvol_diurnal is not None else (vol_ratio >= min_thrust_vol)
+                    if close > float(prev["High"]) and close > (trigger_level + buffer_val) and vol_confirmed:
                         if close_position >= 0.60:
                             is_ready = True
                             trigger_type = "thrust"

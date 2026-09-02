@@ -905,15 +905,26 @@ def run_evening_scanners():
                              f"Scanners will run with independent fetching as fallback.")
             evening_session = None
 
-        logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback sequentially.")
+        logger.info("🚀 Bhavcopy is ready! Spawning Accumulation, EOD, Reversal, and Pullback sequentially.")
         
-        # Run EOD Scanner (receives session; falls back to independent fetch if session=None)
+        # 1. Run Accumulation Scanner (Runs at 18:35 IST post-Bhavcopy with verified delivery %)
+        try:
+            from database import is_scanner_stopped
+            if not is_scanner_stopped("ACCUMULATION"):
+                logger.info("Starting Accumulation Scanner (18:35 IST Post-Bhavcopy)...")
+                _trigger_accumulation(trigger_type="SCHEDULED", scheduler_name="CRON")
+            else:
+                logger.info("⏭️ Accumulation Scanner is STOPPED by Admin. Skipping.")
+        except Exception as _acc_err:
+            logger.error(f"❌ Accumulation Scanner in evening batch failed: {_acc_err}")
+
+        # 2. Run EOD Scanner (receives session; falls back to independent fetch if session=None)
         _run_eod_with_retries(today_str, session=evening_session, used_fallback=used_fallback)
         
-        # Run Reversal Scanner
+        # 3. Run Reversal Scanner
         _run_reversal_with_retries(today_str, session=evening_session, used_fallback=used_fallback)
 
-        # Run Pullback Scanner (after EOD & Reversal finish)
+        # 4. Run Pullback Scanner (after EOD & Reversal finish)
         _run_pullback_with_retries(today_str, session=evening_session, used_fallback=used_fallback)
 
         # Verify actual execution outcome from database health records before declaring status
@@ -925,12 +936,13 @@ def run_evening_scanners():
             last_success = str(rec.get("last_success", ""))
             return rec.get("status") in ["OK", "DEGRADED_FALLBACK"] and last_success.startswith(today_str)
             
+        acc_ok = _check_scanner_ok("ACCUMULATION")
         eod_ok = _check_scanner_ok("EOD")
         rev_ok = _check_scanner_ok("REVERSAL")
         pb_ok  = _check_scanner_ok("PULLBACK")
 
-        if eod_ok and rev_ok and pb_ok:
-            logger.info("✅ All Evening Scanners (EOD, Reversal, & Pullback) completed successfully for today.")
+        if acc_ok and eod_ok and rev_ok and pb_ok:
+            logger.info("✅ All Evening Scanners (Accumulation, EOD, Reversal, & Pullback) completed successfully for today.")
             telemetry.log_scheduler_event("EVENING_SCANNERS", "CYCLE_COMPLETE")
             telemetry.log_session_timeline("Completed Evening Scanners Cycle Successfully")
         else:
@@ -1686,8 +1698,9 @@ def run_system_scheduler():
                     queued_at = None
                     if not global_lock.acquire(blocking=False):
                         queued_at = time.monotonic()
-                        logger.info("⏳ [EVENING_BATCH] Global scanner lock busy — marking EOD/Reversal/Pullback as QUEUED...")
+                        logger.info("⏳ [EVENING_BATCH] Global scanner lock busy — marking ACCUMULATION/EOD/REVERSAL/PULLBACK as QUEUED...")
                         from database import upsert_scanner_health
+                        if not is_scanner_stopped("ACCUMULATION"): upsert_scanner_health("ACCUMULATION", "QUEUED", error_msg="Waiting for global lock...", scheduled_for="Daily 18:35 IST (Post-Bhavcopy / Verified Evening Batch)")
                         if not is_scanner_stopped("EOD"): upsert_scanner_health("EOD", "QUEUED", error_msg="Waiting for global lock...")
                         if not is_scanner_stopped("REVERSAL"): upsert_scanner_health("REVERSAL", "QUEUED", error_msg="Waiting for global lock...")
                         if not is_scanner_stopped("PULLBACK"): upsert_scanner_health("PULLBACK", "QUEUED", error_msg="Waiting for global lock...")
@@ -1708,18 +1721,28 @@ def run_system_scheduler():
                             session = None
 
                         try:
+                            # 1. Accumulation Scanner (Runs at 18:35 IST post-Bhavcopy with verified delivery %)
+                            if not is_scanner_stopped("ACCUMULATION"):
+                                logger.info("Starting Accumulation Scanner (18:35 IST Post-Bhavcopy)...")
+                                _trigger_accumulation(trigger_type="SCHEDULED", scheduler_name="CRON")
+                            else:
+                                logger.info("⏭️ Accumulation Scanner is STOPPED by Admin. Skipping.")
+
+                            # 2. EOD Scanner
                             if not is_scanner_stopped("EOD"):
                                 logger.info("Starting EOD Scanner...")
                                 _run_eod_with_retries(today_str, session)
                             else:
                                 logger.info("⏭️ EOD Scanner is STOPPED by Admin. Skipping.")
 
+                            # 3. Reversal Scanner
                             if not is_scanner_stopped("REVERSAL"):
                                 logger.info("Starting Reversal Scanner...")
                                 _run_reversal_with_retries(today_str, session)
                             else:
                                 logger.info("⏭️ Reversal Scanner is STOPPED by Admin. Skipping.")
 
+                            # 4. Pullback Pipeline
                             if not is_scanner_stopped("PULLBACK"):
                                 logger.info("Starting Pullback Pipeline...")
                                 _run_pullback_with_retries(today_str, session)
@@ -1746,16 +1769,6 @@ def run_system_scheduler():
                     threading.Thread(target=_trigger_technical, kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"}, name="TechnicalScanner", daemon=True).start()
                 else:
                     logger.info("⏭️ TECHNICAL is STOPPED by Admin. Skipping 18:15 run.")
-
-            # 16:15 - Accumulation Scanner (Post-Close Scan after NSE Delivery Reports published)
-            if (now.hour > 16 or (now.hour == 16 and now.minute >= 15)) and last_accumulation_date != now.date():
-                last_accumulation_date = now.date()
-                if not is_scanner_stopped("ACCUMULATION"):
-                    logger.info("🕒 SCHEDULER | [16:15] Triggering ACCUMULATION scanner (Post-Close Delivery Scan)")
-                    import threading
-                    threading.Thread(target=_trigger_accumulation, kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"}, name="AccumulationScanner", daemon=True).start()
-                else:
-                    logger.info("⏭️ ACCUMULATION is STOPPED by Admin. Skipping 16:15 run.")
 
             # 17:00 - Wealth Engine Full Daily Scan (Post-Market Valuation & DCF Review)
             if (now.hour > 17 or (now.hour == 17 and now.minute >= 0)) and last_wealth_daily_date != now.date():

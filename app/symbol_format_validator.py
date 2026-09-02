@@ -36,6 +36,11 @@ _FYERS_VALID_RE = re.compile(
     r"^(NSE|BSE|MCX):[A-Z0-9&\.\-]+(-EQ|-BE|-SM|-ST|-A|-B|-T|-M|-X|-XC|-XD|-XT|-INDEX|-FUT|-OPT)$"
 )
 
+# ── Yahoo Finance valid patterns (e.g. RELIANCE.NS, ALKEM.BO, ^NSEI, ^BSESN) ────────────
+_YAHOO_VALID_RE = re.compile(
+    r"^(\^[A-Z0-9]+|[A-Z0-9&\.\-]+(\.NS|\.BO))$"
+)
+
 
 def validate_fyers_symbol(sym: str) -> str:
     """

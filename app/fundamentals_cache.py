@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
 CACHE_FILE = "data/fundamentals_cache.json"
+_IN_MEMORY_FUNDAMENTALS_CACHE = None
+_IN_MEMORY_FUNDAMENTALS_MTIME = 0.0
 
 FUNDAMENTAL_REFRESH_SCHEDULE = {
     "NIFTY_500":     7,    # days
@@ -25,6 +27,19 @@ FUNDAMENTAL_REFRESH_SCHEDULE = {
 }
 
 def load_cache() -> dict:
+    # [RULE 67 CHANGE-RATIONALE]:
+    # Memoizes loaded fundamentals cache in RAM and syncs with DatasetRegistry.
+    # Prevents repeated multi-megabyte JSON file disk reads on consecutive get_fundamentals() lookups in request loops.
+    global _IN_MEMORY_FUNDAMENTALS_CACHE, _IN_MEMORY_FUNDAMENTALS_MTIME
+    try:
+        from data_registry import registry
+        cached_reg = registry.get("fundamentals_cache")
+        if isinstance(cached_reg, dict) and cached_reg:
+            _IN_MEMORY_FUNDAMENTALS_CACHE = cached_reg
+            return cached_reg
+    except Exception:
+        pass
+
     if not os.path.exists(CACHE_FILE):
         try:
             from database import download_parquet_from_db
@@ -35,17 +50,37 @@ def load_cache() -> dict:
             
     if os.path.exists(CACHE_FILE):
         try:
+            mtime = os.path.getmtime(CACHE_FILE)
+            if _IN_MEMORY_FUNDAMENTALS_CACHE is not None and mtime <= _IN_MEMORY_FUNDAMENTALS_MTIME:
+                return _IN_MEMORY_FUNDAMENTALS_CACHE
             with open(CACHE_FILE) as f:
-                return json.load(f)
+                data = json.load(f)
+                if isinstance(data, dict):
+                    _IN_MEMORY_FUNDAMENTALS_CACHE = data
+                    _IN_MEMORY_FUNDAMENTALS_MTIME = mtime
+                    try:
+                        from data_registry import registry
+                        registry.put("fundamentals_cache", data)
+                    except Exception:
+                        pass
+                    return data
         except Exception:
             pass
-    return {}
+    return _IN_MEMORY_FUNDAMENTALS_CACHE or {}
 
 def save_cache(cache_data: dict, upload_to_db=False):
     # [RULE 67] Strip any None (null) values to prevent cache poisoning.
     # Only non-None values are written to disk to avoid key-exists-but-None
     # false positives in get_cached_fundamentals() validity checks.
+    global _IN_MEMORY_FUNDAMENTALS_CACHE, _IN_MEMORY_FUNDAMENTALS_MTIME
     clean_cache = {k: v for k, v in cache_data.items() if v is not None}
+    _IN_MEMORY_FUNDAMENTALS_CACHE = clean_cache
+    _IN_MEMORY_FUNDAMENTALS_MTIME = time.time() if "time" in globals() else datetime.now().timestamp()
+    try:
+        from data_registry import registry
+        registry.put("fundamentals_cache", clean_cache)
+    except Exception:
+        pass
     os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
     # Write local file atomically first — local file is the authoritative source of truth.
     tmp_path = CACHE_FILE + ".tmp"

@@ -455,8 +455,8 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             event = {"type": "T1_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
 
             new_rem = rem_shares - shares_to_sell
-            # Rule: SL-002
-            new_sl = effective_entry if new_rem > 0 else sl  # Raise to Breakeven only if remaining shares exist
+            # Monotonic Ratchet Invariant: Stop Loss never loosens/moves backward
+            new_sl = round(max(float(sl or 0.0), float(effective_entry * 1.003)), 2) if new_rem > 0 else sl  # Breakeven + 0.3% cost buffer
             new_status = "PARTIAL_WIN_1"
             execution_state = "PARTIAL_1_HIT"
 
@@ -503,8 +503,8 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             event = {"type": "T2_HIT", "price": exit_p, "shares": shares_to_sell, "pnl": round(pnl_rs_event, 2), "time": ts_str}
 
             new_rem = rem_shares - shares_to_sell
-            # Rule: SL-002
-            new_sl = t1 if new_rem > 0 else sl  # Raise to T1 only if remaining shares exist
+            # Monotonic Ratchet Invariant: Stop Loss never loosens/moves backward
+            new_sl = max(float(sl or 0.0), float(t1)) if new_rem > 0 else sl  # Raise to T1 only if remaining shares exist
             new_status = "PARTIAL_WIN_2"
             execution_state = "PARTIAL_2_HIT"
 
@@ -895,6 +895,12 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             "structural_failure_stop": _f(row.get("structural_failure_stop")),
             "exit_signal":   _extract_exit_reason(row),
             "exit_reason":   _extract_exit_reason(row),
+            "trade_evolution_state": row.get("trade_evolution_state", "INITIAL"),
+            "evidence_count": row.get("evidence_count", 1),
+            "distinct_patterns_count": row.get("distinct_patterns_count", 1),
+            "confirmation_quality": row.get("confirmation_quality", "INITIAL"),
+            "last_event_type": row.get("last_event_type", "NEW_ENTRY"),
+            "last_event_date": str(row.get("last_event_date") or ""),
             "_db_closed":    row.get("status") in ("WIN", "LOSS", "CLOSED"),  # internal flag
         })
 

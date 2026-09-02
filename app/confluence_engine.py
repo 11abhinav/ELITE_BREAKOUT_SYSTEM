@@ -119,3 +119,43 @@ def evaluate_cross_scanner_confluence(
         "sample_size_floor_passed": sample_size_floor_passed,
         "data_confidence": "HIGH"
     }
+
+
+def evaluate_confluence_shortlist() -> List[Dict[str, Any]]:
+    """
+    Evaluates latest database alerts across all scanners and returns the active confluence shortlist.
+    """
+    try:
+        from database import get_all_alerts, get_market_regime
+        regime = "NEUTRAL"
+        try:
+            reg = get_market_regime()
+            if isinstance(reg, dict):
+                regime = reg.get("regime", "NEUTRAL")
+        except Exception:
+            pass
+
+        alerts = get_all_alerts(limit=200) or []
+        by_symbol: Dict[str, Dict[str, Any]] = {}
+        for a in alerts:
+            sym = a.get("symbol")
+            if not sym:
+                continue
+            sc = a.get("scanner_name") or a.get("scanner") or "EOD"
+            st = a.get("status") or "CONFIRMED"
+            if sym not in by_symbol:
+                by_symbol[sym] = {}
+            by_symbol[sym][sc] = {"state": st, "investment_state": a.get("investment_state", "")}
+
+        results = []
+        today_str = date.today().isoformat()
+        for sym, sc_map in by_symbol.items():
+            conf = evaluate_cross_scanner_confluence(sym, today_str, sc_map, macro_regime=regime)
+            if conf.get("meta_score", 0) >= 60.0:
+                results.append(conf)
+
+        results.sort(key=lambda x: x.get("meta_score", 0), reverse=True)
+        return results
+    except Exception as e:
+        logger.exception("Error evaluating confluence shortlist")
+        return []

@@ -2393,10 +2393,10 @@ function changeAdminPage(type, delta) {
           <div class="tbl-wrap" style="margin-top: 16px;">
             <table>
               <thead><tr>
-                <th>ID</th><th>Username</th><th>Email</th><th>Mobile</th><th>Role</th><th>Status</th><th>Action</th>
+                <th>ID</th><th>Full Name</th><th>Username</th><th>Email</th><th>Mobile</th><th>Role</th><th>Status</th><th>Actions</th>
               </tr></thead>
               <tbody id="userSearchResults">
-                <tr><td colspan="7" style="text-align:center;color:var(--muted)">Loading user directory...</td></tr>
+                <tr><td colspan="8" style="text-align:center;color:var(--muted)">Loading user directory...</td></tr>
               </tbody>
             </table>
           </div>
@@ -3146,24 +3146,35 @@ function changeAdminPage(type, delta) {
       };
     }
 
-    function toggleUserManagement() {
+    function toggleUserManagement(forceExpand) {
       const body = document.getElementById('user-management-body');
-      const icon = document.getElementById('user-management-icon');
-      const status = document.getElementById('user-management-status');
-      
-      if (body.style.display === 'none') {
+      const btn = document.getElementById('user-management-toggle-btn');
+      if (!body) return;
+      const shouldExpand = forceExpand !== undefined ? forceExpand : (body.style.display === 'none' || body.style.display === '');
+      if (shouldExpand) {
         body.style.display = 'block';
-        icon.style.transform = 'rotate(180deg)';
-        status.textContent = 'Click to collapse';
-        // Auto search if not loaded yet
-        if(document.getElementById('userSearchResults').innerHTML.includes("Search for users above.")) {
-           searchUsers();
-        }
+        if (btn) btn.textContent = '🔽 Collapse';
+        searchUsers();
       } else {
         body.style.display = 'none';
-        icon.style.transform = 'rotate(0deg)';
-        status.textContent = 'Click to expand';
+        if (btn) btn.textContent = '▶️ Expand';
       }
+    }
+
+    function focusAndManageUser(username) {
+      switchAdminTab('watchlist-users');
+      toggleUserManagement(true);
+      const input = document.getElementById('userSearchInput');
+      if (input) {
+        input.value = username || '';
+      }
+      searchUsers();
+      setTimeout(() => {
+        const body = document.getElementById('user-management-body');
+        if (body) {
+          body.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 150);
     }
 
     // [VERSION: SCANNER_TAB_USERMGMT_v1.0]
@@ -3190,16 +3201,18 @@ function changeAdminPage(type, delta) {
             const statusLabel = u.is_active ? 'Active' : 'Inactive';
             const role = (u.role || 'user').toUpperCase();
             const roleColor = role === 'ADMIN' ? '#f59e0b' : '#3b82f6';
+            const displayName = u.name || u.display_name || (u.first_name ? (u.first_name + ' ' + (u.last_name||'')) : '') || u.username || '-';
+            const safeUsername = (u.username || '').replace(/'/g, "\\'");
             return `
               <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
-                <td style="padding:10px 12px; font-weight:700; color:var(--text);">${u.name || u.display_name || '-'}</td>
+                <td style="padding:10px 12px; font-weight:700; color:var(--text);">${displayName}</td>
                 <td style="padding:10px 12px; color:var(--muted); font-size:11px;">${u.email || '-'}</td>
                 <td style="padding:10px 12px; color:var(--muted); font-size:11px;">${u.mobile || '-'}</td>
                 <td style="padding:10px 12px; text-align:center;"><span style="background:rgba(245,158,11,0.12); color:${roleColor}; border:1px solid ${roleColor}33; padding:2px 8px; border-radius:6px; font-size:11px; font-weight:700;">${role}</span></td>
                 <td style="padding:10px 12px; text-align:center;"><span style="color:${statusColor}; font-weight:700; font-size:11px;">● ${statusLabel}</span></td>
                 <td style="padding:10px 12px; color:var(--muted); font-size:11px;">${u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN') : '-'}</td>
                 <td style="padding:10px 12px; text-align:center;">
-                  <button onclick="switchAdminTab('watchlist-users')" style="font-size:11px; padding:3px 10px; background:var(--accent); color:#000; border:none; border-radius:5px; cursor:pointer; font-weight:700;">Manage →</button>
+                  <button onclick="focusAndManageUser('${safeUsername}')" class="refresh-btn" style="font-size:11px; padding:4px 10px; background:var(--accent); color:#000; border:none; border-radius:5px; cursor:pointer; font-weight:700;">Manage →</button>
                 </td>
               </tr>`;
           }).join('');
@@ -3522,7 +3535,7 @@ function changeAdminPage(type, delta) {
       'REVERSAL': { label: 'Reversal Scanner', desc: 'Mean Reversion Scan · Daily 18:30 IST (Post-Bhavcopy)' },
       'PULLBACK': { label: 'Pullback Pipeline', desc: 'Pullback Continuation Scan · Daily 18:30 IST (Post-Bhavcopy)' },
       'TECHNICAL': { label: 'Technical Scanner', desc: 'Multi-Pattern Technical · Daily 18:15 IST' },
-      'ACCUMULATION': { label: 'Accumulation Scanner', desc: 'Post-Close Delivery Scan · Daily 16:15 IST' },
+      'ACCUMULATION': { label: 'Accumulation Scanner', desc: 'Post-Bhavcopy Delivery Scan · Daily 18:35 IST' },
       'MULTIBAGGER': { label: 'Multibagger Scanner', desc: 'Daily Fundamental Scan · Daily 17:30 IST' },
       'AI Worker': { label: 'AI Worker', desc: 'Concall & Fundamental Caching · Continuous' },
       'Pledge Worker': { label: 'Pledge Worker', desc: 'Promoter Pledge Tracking · Continuous' },
@@ -4049,6 +4062,114 @@ function getEarningsBadgeHtml(item) {
       return { totalRs, totalPct };
     }
 
+    function formatOrdinal(n) {
+      if (n === 1) return '1st';
+      if (n === 2) return '2nd';
+      if (n === 3) return '3rd';
+      return n + 'th';
+    }
+
+    function getEvolutionBadgeHtml(t) {
+      const state = t.trade_evolution_state || 'INITIAL';
+      const evCount = t.evidence_count || 1;
+      const quality = t.confirmation_quality || 'INITIAL';
+      const ord = formatOrdinal(evCount);
+
+      if (state === 'PYRAMID_READY') {
+        return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(16,185,129,0.18); color:#10b981; border:1px solid rgba(16,185,129,0.4); font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; cursor:pointer; margin-left:4px;" title="Pyramid Candidate (${ord} confirmation, Quality: ${quality}). Click to view Trade Journey.">🔥 PYRAMID · ${ord.toUpperCase()} CONFIRMATION</span>`;
+      } else if (state === 'RECONFIRMED') {
+        return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(245,158,11,0.18); color:#f59e0b; border:1px solid rgba(245,158,11,0.4); font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; cursor:pointer; margin-left:4px;" title="Thesis Re-Confirmed (${ord} confirmation). Click to view Trade Journey.">🔁 RECONFIRMED · ${ord.toUpperCase()}</span>`;
+      } else if (state === 'ADD_BLOCKED' || state === 'LOSING') {
+        return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(239,68,68,0.18); color:#ef4444; border:1px solid rgba(239,68,68,0.4); font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; cursor:pointer; margin-left:4px;" title="Add Blocked (${ord} trigger). Click to view Trade Journey.">⚠️ ADD BLOCKED · ${ord.toUpperCase()}</span>`;
+      } else if (state === 'EXTENDED') {
+        return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(139,92,246,0.18); color:#a78bfa; border:1px solid rgba(139,92,246,0.4); font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; cursor:pointer; margin-left:4px;" title="Extended from EMA20 (${ord} trigger). Click to view Trade Journey.">⚡ EXTENDED · ${ord.toUpperCase()}</span>`;
+      } else if (evCount > 1) {
+        return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(59,130,246,0.18); color:#60a5fa; border:1px solid rgba(59,130,246,0.4); font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; cursor:pointer; margin-left:4px;" title="${ord} confirmed. Click to view Trade Journey.">⭐ ${ord.toUpperCase()} CONFIRMED</span>`;
+      }
+      return '';
+    }
+
+    async function loadTradeJourney(alertId, elementId) {
+      const el = document.getElementById(elementId);
+      if (!el || !alertId) return;
+      try {
+        const res = await fetch(`/api/alert/${alertId}/events`);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const events = await res.json();
+        if (!events || events.length === 0) {
+          el.innerHTML = `<span style="color:var(--muted)">Initial entry recorded. No multi-day re-triggers yet.</span>`;
+          return;
+        }
+        const timelineHtml = events.map((ev, idx) => {
+          const isInitial = (ev.event_type === 'NEW_ENTRY');
+          const isPyramid = (ev.event_type === 'PYRAMID_CANDIDATE');
+          const isReconfirm = (ev.event_type === 'THESIS_RECONFIRMATION');
+          const isBlocked = (ev.event_type === 'RECORD_ONLY_NO_ADD');
+          const ord = formatOrdinal(idx + 1);
+          
+          const badgeColor = isPyramid ? '#10b981' : isReconfirm ? '#f59e0b' : isBlocked ? '#ef4444' : '#60a5fa';
+          const badgeBg = isPyramid ? 'rgba(16,185,129,0.15)' : isReconfirm ? 'rgba(245,158,11,0.15)' : isBlocked ? 'rgba(239,68,68,0.15)' : 'rgba(96,165,250,0.15)';
+          const pnlColor = (ev.pnl_since_entry_pct >= 0) ? '#10b981' : '#ef4444';
+          const pnlSign = (ev.pnl_since_entry_pct >= 0) ? '+' : '';
+
+          return `
+            <div style="display:flex; align-items:flex-start; gap:10px; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid rgba(255,255,255,0.05); flex-wrap:wrap;">
+              <div style="min-width:70px; font-size:10px; color:var(--muted);">${ev.event_date}</div>
+              <div style="min-width:140px;">
+                <span style="display:inline-block; padding:2px 6px; border-radius:4px; font-size:9px; font-weight:800; background:${badgeBg}; color:${badgeColor}; border:1px solid ${badgeColor}40;">
+                  ${isInitial ? '🆕 INITIAL ENTRY' : isPyramid ? `🔥 PYRAMID (${ord.toUpperCase()})` : isReconfirm ? `🔁 RECONFIRMED (${ord.toUpperCase()})` : `⚠️ ADD BLOCKED (${ord.toUpperCase()})`}
+                </span>
+              </div>
+              <div style="min-width:130px; font-weight:700;">
+                ${(ev.pattern || 'BREAKOUT').replace(/_/g, ' ')} @ ₹${Number(ev.trigger_price || 0).toFixed(2)}
+              </div>
+              <div style="min-width:65px; color:${pnlColor}; font-weight:700;">
+                ${pnlSign}${Number(ev.pnl_since_entry_pct || 0).toFixed(1)}%
+              </div>
+              <div style="flex:1; font-size:10px; color:var(--muted); min-width:180px;">
+                Score: ${ev.score || '—'} · RVOL: ${Number(ev.rvol || 1).toFixed(1)}x · R:R: ${Number(ev.remaining_rr_to_resistance || 2).toFixed(1)}R
+                ${ev.suggested_trailing_sl ? `· <span style="color:var(--accent);">Trail SL: ₹${Number(ev.suggested_trailing_sl).toFixed(2)}</span>` : ''}
+                ${ev.reason_code ? `· <span style="color:var(--text)">${ev.reason_code.replace(/_/g, ' ')}</span>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('');
+        el.innerHTML = `
+          <div style="display:flex; flex-direction:column; gap:4px;">
+            ${timelineHtml}
+            <div style="font-size:10px; color:var(--muted); font-style:italic; margin-top:4px;">
+              💡 Note: Re-triggers and pyramid candidates identify continuation opportunities. Positions are not automatically resized; manage additions per your risk rules.
+            </div>
+          </div>`;
+      } catch (err) {
+        el.innerHTML = `<span style="color:var(--warn)">Failed to load journey: ${err.message}</span>`;
+      }
+    }
+
+    function showTradeJourneyModal(alertId, symbol) {
+      const modalId = 'trade-journey-modal';
+      let modal = document.getElementById(modalId);
+      if (!modal) {
+        modal = document.createElement('div');
+        modal.id = modalId;
+        modal.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.7); z-index:99999; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px);';
+        document.body.appendChild(modal);
+      }
+      modal.innerHTML = `
+        <div style="background:var(--card); border:1px solid var(--border); border-radius:12px; padding:24px; max-width:700px; width:90%; max-height:80vh; overflow-y:auto; box-shadow:0 20px 40px rgba(0,0,0,0.5);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid var(--border); padding-bottom:12px;">
+            <div style="font-size:16px; font-weight:800; color:var(--text); display:flex; align-items:center; gap:8px;">
+              <span>🗺️ Trade Evolution Journey:</span> <span style="color:var(--accent); font-family:var(--font-mono);">${symbol}</span>
+            </div>
+            <button onclick="document.getElementById('${modalId}').style.display='none';" style="background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; font-weight:700;">✕</button>
+          </div>
+          <div id="modal-tj-content" style="font-family:var(--font-mono); font-size:11px;">Loading timeline...</div>
+        </div>
+      `;
+      modal.style.display = 'flex';
+      loadTradeJourney(alertId, 'modal-tj-content');
+    }
+
     function buildTradeRows(trades, maxAbs, prefix) {
       return trades.map((t, i) => {
         const id = (prefix || 'tr-') + i;
@@ -4068,12 +4189,13 @@ function getEarningsBadgeHtml(item) {
             `<input type="checkbox" class="trade-checkbox" value="${t.id}" onchange="updateBulkActionsVisibility()">`;
 
         let eventMarkHtml = getEarningsBadgeHtml(t);
+        let evolutionBadge = getEvolutionBadgeHtml(t);
 
         return `
-    <tr class="main-row${isOpen ? ' open' : ''}" id="mr-${id}" onclick="toggleDetail('${id}', '${t.symbol}', '${key}')" style="${missingStyle}">
+    <tr class="main-row${isOpen ? ' open' : ''}" id="mr-${id}" onclick="toggleDetail('${id}', '${t.symbol}', '${key}', ${t.id})" style="${missingStyle}">
       <td onclick="event.stopPropagation();">${checkboxHtml}</td>
       <td>${isOpen ? '\u25bc' : '\u25b6'}</td>
-      <td style="font-weight:700;color:var(--text);letter-spacing:-.3px">${t.symbol}${eventMarkHtml}</td>
+      <td style="font-weight:700;color:var(--text);letter-spacing:-.3px">${t.symbol}${eventMarkHtml}${evolutionBadge}</td>
       <td style="color:var(--muted);font-family:var(--font-mono);font-size:11px">${fmtAlertTime(t.alert_time || t.entry_date)}</td>
       <td><span class="badge badge-scanner">${t.scanner || '—'}</span></td>
       <td>${badgeHtml(t.status, t)}</td>
@@ -4158,6 +4280,20 @@ function getEarningsBadgeHtml(item) {
           }
             </div>
           </div>
+
+          <!-- Trade Evolution Journey Timeline Component -->
+          <div class="detail-item" style="grid-column: 1 / -1; background: var(--card2); border: 1px solid var(--border); padding: 12px 16px; border-radius: 8px; margin-top: 6px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <div class="detail-label" style="color:var(--accent); font-weight:800; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">
+                🗺️ Trade Evolution Journey (${t.evidence_count || 1} Evidence Points)
+              </div>
+              <button onclick="event.stopPropagation(); loadTradeJourney(${t.id}, 'tj-${id}');" style="background:rgba(0,212,161,0.12); border:1px solid var(--accent); color:var(--accent); padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer;">🔄 Refresh Journey</button>
+            </div>
+            <div id="tj-${id}" style="font-size:11px; color:var(--text); font-family:var(--font-mono);">
+              <span style="color:var(--muted)">Loading Trade Journey timeline...</span>
+            </div>
+          </div>
+
           ${(t.exit_signal || t.exit_reason) ? `
           <div class="detail-item" style="grid-column: 1 / -1; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); padding: 10px 14px; border-radius: 6px; margin-top: 4px;">
             <div class="detail-label" style="color: #dc2626; font-weight: 800; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;">🛑 Exit Reason / Trigger Signal</div>
@@ -4201,7 +4337,7 @@ function getEarningsBadgeHtml(item) {
     }
 
     window.NOTICES_CACHE = window.NOTICES_CACHE || {};
-    async function toggleDetail(id, symbol, key) {
+    async function toggleDetail(id, symbol, key, alertDbId) {
       const mainRow = document.getElementById('mr-' + id);
       const panel = document.getElementById('dp-' + id);
       if (!panel) return;
@@ -4218,28 +4354,35 @@ function getEarningsBadgeHtml(item) {
         if (symbol && !window.NOTICES_CACHE[symbol]) {
           fetchNotices(symbol, 'notices-' + id);
         }
+        
+        // Auto-load Trade Journey timeline
+        const tjEl = document.getElementById('tj-' + id);
+        const resolvedId = alertDbId || (ehEl && ehEl.dataset.alertId ? parseInt(ehEl.dataset.alertId, 10) : null);
+        if (tjEl && resolvedId) {
+          loadTradeJourney(resolvedId, 'tj-' + id);
+        }
+
         // Fetch exit_history on-demand to populate the Exit History panel
         const ehEl = document.getElementById('eh-' + id);
         if (ehEl) {
-          // Read alertDbId directly from the data attribute — no fragile key lookup needed
-          const alertDbId = ehEl.dataset.alertId ? parseInt(ehEl.dataset.alertId, 10) : null;
-          if (alertDbId) {
-            const cacheKey = String(alertDbId);
+          const finalAlertDbId = resolvedId || (ehEl.dataset.alertId ? parseInt(ehEl.dataset.alertId, 10) : null);
+          if (finalAlertDbId) {
+            const cacheKey = String(finalAlertDbId);
             if (!EXIT_HISTORY_CACHE.has(cacheKey)) {
               try {
-                const r = await fetch('/api/alert/exit_history/' + alertDbId);
+                const r = await fetch('/api/alert/exit_history/' + finalAlertDbId);
                 if (r.ok) {
                   const eh = await r.json();
                   EXIT_HISTORY_CACHE.set(cacheKey, eh);
-                  renderExitHistory(ehEl, eh, alertDbId);
+                  renderExitHistory(ehEl, eh, finalAlertDbId);
                 } else {
-                  renderExitHistory(ehEl, null, alertDbId);
+                  renderExitHistory(ehEl, null, finalAlertDbId);
                 }
               } catch(e) {
-                renderExitHistory(ehEl, null, alertDbId);
+                renderExitHistory(ehEl, null, finalAlertDbId);
               }
             } else {
-              renderExitHistory(ehEl, EXIT_HISTORY_CACHE.get(cacheKey), alertDbId);
+              renderExitHistory(ehEl, EXIT_HISTORY_CACHE.get(cacheKey), finalAlertDbId);
             }
           } else {
             ehEl.textContent = '—';
@@ -7034,11 +7177,10 @@ async function fetchUserInfo() {
         const res = await fetch('/api/user_info');
         if (res.ok) {
             const data = await res.json();
-            if (data.first_name) {
-                const el = document.getElementById('user-display-name');
-                if (el) el.textContent = data.first_name;
-                document.title = `${data.first_name}'s Screener Dashboard`;
-            }
+            const displayName = data.first_name || data.username || 'User';
+            const el = document.getElementById('user-display-name');
+            if (el) el.textContent = displayName;
+            document.title = `${displayName}'s Screener Dashboard`;
         }
     } catch(e) {}
 }
@@ -7220,6 +7362,34 @@ async function rejectUser(id) {
   </div>
 </div>
 
+<!-- EDIT USER ROLE MODAL -->
+<div id="editRoleModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center; backdrop-filter:blur(5px);">
+  <div class="card" style="width:100%; max-width:380px; padding:24px; position:relative; background:var(--card); border:1px solid var(--border); border-radius:12px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h3 style="margin:0; font-size:16px; font-weight:800; color:var(--text); display:flex; align-items:center; gap:8px;">
+        <span>⚙️</span> Manage User Role
+      </h3>
+      <button onclick="document.getElementById('editRoleModal').style.display='none'" style="background:none; border:none; color:var(--muted); font-size:20px; cursor:pointer;">&times;</button>
+    </div>
+    <p style="font-size:12px; color:var(--muted); margin-bottom:16px;">
+      Change authorization role for <strong id="editRoleUsernameDisplay" style="color:var(--text);"></strong>
+    </p>
+    <input type="hidden" id="editRoleUserId">
+    <div style="margin-bottom:18px;">
+      <label style="display:block; font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; margin-bottom:6px;">Select Role</label>
+      <select id="editRoleSelect" style="width:100%; padding:10px; background:var(--card2); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:13px; font-weight:700;">
+        <option value="user">User (Standard Access)</option>
+        <option value="admin">Admin (Full Administrative Access)</option>
+        <option value="viewer">Viewer (Read-Only Access)</option>
+      </select>
+    </div>
+    <div style="display:flex; justify-content:flex-end; gap:8px;">
+      <button onclick="document.getElementById('editRoleModal').style.display='none'" class="refresh-btn" style="padding:8px 16px; font-size:12px;">Cancel</button>
+      <button onclick="submitEditRole()" class="refresh-btn" style="padding:8px 16px; font-size:12px; background:var(--accent); color:#000; font-weight:700; border:none; border-radius:6px;">Save Role</button>
+    </div>
+  </div>
+</div>
+
 <script>
 let userSearchTimeout = null;
 function debounceSearchUsers() {
@@ -7230,39 +7400,97 @@ function debounceSearchUsers() {
 }
 
 async function searchUsers() {
-  const query = document.getElementById('userSearchInput').value;
-  const status = document.getElementById('userStatusFilter').value;
+  const query = (document.getElementById('userSearchInput') || {}).value || '';
+  const status = (document.getElementById('userStatusFilter') || {}).value || 'all';
   const tbody = document.getElementById('userSearchResults');
-  // Removed innerHTML Loading to prevent screen flashing during background refresh
+  if (!tbody) return;
   try {
     const res = await fetch(`/api/admin/users/search?q=${encodeURIComponent(query)}&status=${encodeURIComponent(status)}`);
     const data = await res.json();
     if (data.users && data.users.length > 0) {
       let html = '';
       data.users.forEach(u => {
+        const displayName = u.name || u.display_name || (u.first_name ? (u.first_name + ' ' + (u.last_name||'')) : '') || u.username || '-';
+        const roleStr = (u.role || 'user').toLowerCase();
+        const roleBadge = roleStr === 'admin' ? 'badge-warn' : 'badge-neutral';
+        const safeUsername = (u.username || '').replace(/'/g, "\\'");
         html += `
           <tr>
             <td>${u.user_id}</td>
-            <td>${u.username}</td>
-            <td>${u.email}</td>
-            <td>${u.mobile}</td>
-            <td>${u.role}</td>
+            <td style="font-weight:700; color:var(--text);">${displayName}</td>
+            <td><span style="color:var(--muted); font-size:12px; font-family:var(--font-mono);">${u.username ? '@' + u.username : '-'}</span></td>
+            <td style="color:var(--muted); font-size:12px;">${u.email || '-'}</td>
+            <td style="color:var(--muted); font-size:12px;">${u.mobile || '-'}</td>
+            <td><span class="badge ${roleBadge}">${roleStr.toUpperCase()}</span></td>
             <td>${u.is_active ? '<span class="badge badge-win">Active</span>' : '<span class="badge badge-loss">Inactive</span>'}</td>
-            <td>
+            <td style="white-space:nowrap;">
               ${!u.is_active 
-                ? `<button onclick="approveUser(${u.user_id})" class="refresh-btn" style="padding:4px 8px; font-size:11px; background:var(--accent); color:#fff; margin-right:4px; border:none;">✅ Approve</button>` 
-                : `<button onclick="openDeactivateModal(${u.user_id}, '${u.username.replace(/'/g, "\\'")}')" class="refresh-btn" style="padding:4px 8px; font-size:11px; background:var(--warn); color:#fff; border:none; margin-right:4px;">❌ Deactivate</button>`}
-              <button onclick="openResetPasswordModal(${u.user_id})" class="refresh-btn" style="padding:4px 8px; font-size:11px;">🔑 Reset Pwd</button>
+                ? `<button onclick="updateUserStatusDirect(${u.user_id}, 'approved')" class="refresh-btn" style="padding:4px 8px; font-size:11px; background:var(--accent); color:#000; margin-right:4px; border:none; font-weight:700;">✅ Approve</button>` 
+                : `<button onclick="openDeactivateModal(${u.user_id}, '${safeUsername}')" class="refresh-btn" style="padding:4px 8px; font-size:11px; background:var(--warn); color:#fff; border:none; margin-right:4px;">❌ Deactivate</button>`}
+              <button onclick="openResetPasswordModal(${u.user_id})" class="refresh-btn" style="padding:4px 8px; font-size:11px; margin-right:4px;">🔑 Reset Pwd</button>
+              <button onclick="openEditRoleModal(${u.user_id}, '${safeUsername}', '${roleStr}')" class="refresh-btn" style="padding:4px 8px; font-size:11px;">⚙️ Role</button>
             </td>
           </tr>
         `;
       });
       tbody.innerHTML = html;
     } else {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted)">No users found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--muted)">No users found.</td></tr>';
     }
   } catch(e) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--warn)">Error searching users.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--warn)">Error searching users.</td></tr>';
+  }
+}
+
+async function updateUserStatusDirect(userId, status) {
+  try {
+    const res = await fetch('/api/admin/users/update_status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, status: status })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showCustomToast(`User status updated to ${status}!`, 'success');
+      searchUsers();
+      if (typeof scannerTabSearchUsers === 'function') scannerTabSearchUsers();
+    } else {
+      showCustomToast(data.error || 'Failed to update user status', 'error');
+    }
+  } catch (e) {
+    showCustomToast('Network error updating user status', 'error');
+  }
+}
+
+function openEditRoleModal(userId, username, currentRole) {
+  document.getElementById('editRoleUserId').value = userId;
+  document.getElementById('editRoleUsernameDisplay').textContent = username ? `@${username}` : `User #${userId}`;
+  document.getElementById('editRoleSelect').value = (currentRole || 'user').toLowerCase();
+  document.getElementById('editRoleModal').style.display = 'flex';
+}
+
+async function submitEditRole() {
+  const userId = document.getElementById('editRoleUserId').value;
+  const role = document.getElementById('editRoleSelect').value;
+  if (!userId || !role) return;
+
+  try {
+    const res = await fetch('/api/admin/users/update_role', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, role: role })
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      showCustomToast(`User role updated to ${role.toUpperCase()}!`, 'success');
+      document.getElementById('editRoleModal').style.display = 'none';
+      searchUsers();
+      if (typeof scannerTabSearchUsers === 'function') scannerTabSearchUsers();
+    } else {
+      showCustomToast(data.error || 'Failed to update role', 'error');
+    }
+  } catch(e) {
+    showCustomToast('Error updating role.', 'error');
   }
 }
 
@@ -7299,6 +7527,7 @@ async function submitDeactivateUser() {
     if (res.ok) {
       document.getElementById('deactivateUserModal').style.display = 'none';
       searchUsers(); // refresh the user list
+      if (typeof scannerTabSearchUsers === 'function') scannerTabSearchUsers();
     } else {
       showCustomToast("Failed to deactivate user.", 'error');
     }
@@ -8523,19 +8752,6 @@ function downloadManualWatchlistCSV() {
   window.open('/admin/export/watchlist/manual', '_blank');
 }
 
-function toggleUserManagement() {
-  const body = document.getElementById('user-management-body');
-  const btn = document.getElementById('user-management-toggle-btn');
-  if (!body) return;
-  if (body.style.display === 'none' || body.style.display === '') {
-    body.style.display = 'block';
-    if (btn) btn.textContent = '🔽 Collapse';
-  } else {
-    body.style.display = 'none';
-    if (btn) btn.textContent = '▶️ Expand';
-  }
-}
-
 function loadUserWatchlist() {
   // [VERSION: WATCHLIST_PERF_v1.0] Uses shared cache from _fetchWatchlist()
   _fetchWatchlist()
@@ -9006,7 +9222,9 @@ function renderNearMissesRows(data) {
   }).join('');
 }
 
-function loadNearMisses() {
+let _lastNearMissesFetchTs = 0;
+let _lastNearMissesKey = '';
+function loadNearMisses(forceRefresh = false) {
   const scannerEl = document.getElementById('near-miss-scanner-filter');
   const daysEl = document.getElementById('near-miss-days-filter');
   const tbody = document.getElementById('near-misses-tbody');
@@ -9014,6 +9232,16 @@ function loadNearMisses() {
 
   const scanner = scannerEl ? scannerEl.value : '';
   const days = daysEl ? daysEl.value : 7;
+  const cacheKey = `${days}_${scanner}`;
+  const now = Date.now();
+
+  if (!forceRefresh && (now - _lastNearMissesFetchTs < 5000) && _lastNearMissesKey === cacheKey && window._nearMissesCache && window._nearMissesCache.length > 0) {
+    renderNearMissesRows(window._nearMissesCache);
+    return;
+  }
+
+  _lastNearMissesFetchTs = now;
+  _lastNearMissesKey = cacheKey;
 
   fetch(`/api/near_misses?days=${days}&scanner=${encodeURIComponent(scanner)}`)
     .then(res => res.json())
@@ -9158,7 +9386,17 @@ function renderInvestmentWatchRows(data) {
   }).join('');
 }
 
-function loadMasterSystemV2Data() {
+let _lastMasterFetchTs = 0;
+function loadMasterSystemV2Data(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && (now - _lastMasterFetchTs < 5000) && window._masterAlertsCache && window._masterAlertsCache.length > 0) {
+    renderMasterSignalsRows(window._masterAlertsCache);
+    renderStocksWatchRows(window._stocksWatchCache);
+    renderInvestmentWatchRows(window._investmentWatchCache);
+    return;
+  }
+  _lastMasterFetchTs = now;
+
   fetch('/api/v2/master_alerts')
     .then(r => r.json())
     .then(data => {
@@ -9254,7 +9492,14 @@ function loadMasterSystemV2Data() {
     }).catch(e => console.warn('Failed to load universe health:', e));
 }
 
-function loadWealthEngineTab(forceRefresh) {
+let _lastWealthFetchTs = 0;
+function loadWealthEngineTab(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && (now - _lastWealthFetchTs < 5000)) {
+    return;
+  }
+  _lastWealthFetchTs = now;
+
   fetch('/api/v2/portfolio_actions')
     .then(r => r.json())
     .then(data => {

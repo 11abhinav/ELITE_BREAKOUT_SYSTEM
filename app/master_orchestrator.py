@@ -152,26 +152,30 @@ class MasterOrchestratorV2:
         }
 
     def _run_query(self, query: str, params=None) -> List[Dict[str, Any]]:
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=UserWarning)
-            try:
-                from database import get_connection
-                with get_connection() as conn:
-                    df = pd.read_sql_query(query, conn, params=params)
-                    if df is not None and not df.empty:
-                        return df.to_dict(orient="records")
-            except Exception as e:
-                logger.debug(f"Postgres query fallback to SQLite: {e}")
-                if os.path.exists(self.db_path):
-                    try:
-                        conn = sqlite3.connect(self.db_path)
-                        df = pd.read_sql_query(query, conn, params=params)
-                        conn.close()
-                        if df is not None and not df.empty:
-                            return df.to_dict(orient="records")
-                    except Exception:
-                        pass
+        # [RULE 67 CHANGE-RATIONALE]:
+        # Direct psycopg2 RealDictCursor query execution eliminates heavy pandas DataFrame memory allocations
+        # and serialization conversions on every API query.
+        try:
+            from database import get_connection
+            from psycopg2.extras import RealDictCursor
+            with get_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute(query, params)
+                    rows = cur.fetchall()
+                    return [dict(r) for r in rows]
+        except Exception as e:
+            logger.debug(f"Postgres query fallback to SQLite: {e}")
+            if os.path.exists(self.db_path):
+                try:
+                    conn = sqlite3.connect(self.db_path)
+                    conn.row_factory = sqlite3.Row
+                    cur = conn.cursor()
+                    cur.execute(query, params or ())
+                    rows = cur.fetchall()
+                    conn.close()
+                    return [dict(r) for r in rows]
+                except Exception:
+                    pass
         return []
 
     def get_trusted_cmp_details(self, symbol: str, fallback_price: Optional[float] = None) -> Dict[str, Any]:
@@ -742,7 +746,9 @@ class MasterOrchestratorV2:
         return self._get_cached("confluence_setups", 3.0, self._get_all_confluence_setups_uncached)
 
     def _get_all_confluence_setups_uncached(self) -> List[Dict[str, Any]]:
-        query = "SELECT symbol, scanner, breakout_type as state, score as quality_score, current_price as cmp FROM alerts"
+        # [RULE 67 CHANGE-RATIONALE]:
+        # Filter alerts to active 30-day window with limit 500 to leverage idx_alerts_date and eliminate full-table scans.
+        query = "SELECT symbol, scanner, breakout_type as state, score as quality_score, current_price as cmp FROM alerts WHERE alert_date >= CURRENT_DATE - INTERVAL '30 days' ORDER BY alert_time DESC LIMIT 500"
         rows = self._run_query(query)
         is_fallback = False
         if not rows:

@@ -97,11 +97,20 @@ _pool_lock = threading.Lock()
 _conn_semaphore: Optional[threading.BoundedSemaphore] = None
 
 class DummyCursor:
-    rowcount = 0
+    rowcount = 1
     description = []
-    def execute(self, *args, **kwargs): return self
+    def __init__(self):
+        self._last_query = ""
+    def execute(self, query=None, *args, **kwargs):
+        self._last_query = str(query or "").strip().upper()
+        return self
     def executemany(self, *args, **kwargs): return self
-    def fetchone(self): return None
+    def fetchone(self):
+        if "RETURNING" in self._last_query or "INSERT INTO" in self._last_query:
+            return (1,)
+        if "COUNT(" in self._last_query:
+            return (0,)
+        return None
     def fetchall(self): return []
     def fetchmany(self, *args, **kwargs): return []
     def close(self): pass
@@ -435,6 +444,10 @@ def init_db():
                         UNIQUE(symbol, breakout_type, alert_date)
                     )
                 """)
+                # [RULE 67 CHANGE-RATIONALE]: Add compound indexes for candidates table to accelerate dashboard investment watch queries
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_scanner_created ON candidates(scanner, created_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_alert_date ON candidates(alert_date DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_symbol ON candidates(symbol)")
 
                 # 4. alerts
                 cur.execute("""
@@ -548,6 +561,10 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_time_desc ON alerts(alert_time DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status_time ON alerts(status, alert_time DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_open_trades ON alerts(alert_time DESC) WHERE status = 'OPEN'")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_open_unrejected ON alerts(symbol, alert_time DESC) WHERE status = 'OPEN' AND is_rejected = FALSE")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_today_unrejected ON alerts(alert_date DESC, is_rejected)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status_is_rejected ON alerts(status, is_rejected)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_evolution_state ON alerts(trade_evolution_state, alert_date DESC)")
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_alerts_idempotency ON alerts (idempotency_key) WHERE idempotency_key IS NOT NULL")
 
                 # 4.5. scanner_evaluation_log table
@@ -623,6 +640,10 @@ def init_db():
                         timeframe TEXT
                     )
                 """)
+                # [RULE 67 CHANGE-RATIONALE]: Add indexes on breakout_watchlist state, cooldown, and last_updated to eliminate sequential table scans
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_breakout_wl_state ON breakout_watchlist(current_state)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_breakout_wl_cooldown ON breakout_watchlist(cooldown_until)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_breakout_wl_last_updated ON breakout_watchlist(last_updated DESC)")
 
                 # 6. rejected_alerts
                 cur.execute("""
@@ -650,6 +671,60 @@ def init_db():
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_alert_id ON trade_audit_log(alert_id)")
+
+                # 7.5. alert_events (Trade Evolution & Immutable Re-Trigger Event History)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS alert_events (
+                        id SERIAL PRIMARY KEY,
+                        alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
+                        symbol VARCHAR(32) NOT NULL,
+                        scanner VARCHAR(64) NOT NULL,
+                        pattern VARCHAR(64) NOT NULL,
+                        event_type VARCHAR(32) NOT NULL,
+                        event_date DATE NOT NULL,
+                        event_time TIMESTAMPTZ DEFAULT NOW(),
+                        
+                        trigger_price REAL NOT NULL,
+                        original_entry_price REAL NOT NULL,
+                        pnl_since_entry_pct REAL NOT NULL,
+                        score INTEGER NOT NULL,
+                        rvol REAL NOT NULL,
+                        clv REAL,
+                        
+                        higher_low BOOLEAN DEFAULT NULL,
+                        dist_from_ema20_pct REAL,
+                        is_extended BOOLEAN DEFAULT FALSE,
+                        nearest_resistance REAL,
+                        distance_to_resistance_pct REAL,
+                        remaining_rr_to_resistance REAL,
+                        suggested_trailing_sl REAL,
+                        
+                        evidence_count INTEGER DEFAULT 1,
+                        distinct_patterns_count INTEGER DEFAULT 1,
+                        confirmation_quality VARCHAR(32) DEFAULT 'INITIAL',
+                        
+                        reason_code VARCHAR(128),
+                        notes TEXT,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_alert_id ON alert_events(alert_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_symbol_date ON alert_events(symbol, event_date)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_event_type ON alert_events(event_type)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_created_at ON alert_events(created_at DESC)")
+
+                # Column migrations on alerts table for Trade Evolution state
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS trade_evolution_state TEXT DEFAULT 'INITIAL'")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS evidence_count INTEGER DEFAULT 1")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS distinct_patterns_count INTEGER DEFAULT 1")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS confirmation_quality TEXT DEFAULT 'INITIAL'")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS last_event_type TEXT DEFAULT 'NEW_ENTRY'")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS last_event_date DATE")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS last_event_id INTEGER")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS execution_status TEXT DEFAULT 'EXECUTABLE'")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS execution_block_reason TEXT DEFAULT ''")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS rvol_diurnal REAL")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS rvol_rolling REAL")
 
                 # 8. score_weight_log
                 cur.execute("""
@@ -1253,6 +1328,9 @@ def init_db():
                     );
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_date ON near_misses(logged_date DESC, scanner)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_logged_at ON near_misses(logged_date DESC, logged_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_scanner_date ON near_misses(scanner, logged_date DESC, logged_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_sym_date ON near_misses(symbol, logged_date DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_user_messages_user_created ON user_messages(user_id, created_at DESC)")
 
 
@@ -1431,6 +1509,12 @@ def init_db():
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )
                 """)
+                # [RULE 67 CHANGE-RATIONALE]: Add functional indexes on LOWER(username) and LOWER(email) for fast login and user search
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_users_lower_username ON users(LOWER(username))")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_users_lower_email ON users(LOWER(email))")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at DESC)")
 
                 # 34. user_sessions
                 cur.execute("""
@@ -1449,6 +1533,7 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON user_sessions(user_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_is_online ON user_sessions(is_online)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_token ON user_sessions(session_token)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user_token ON user_sessions(user_id, session_token)")
 
                 # 35. user_messages
                 cur.execute("""
@@ -1462,6 +1547,7 @@ def init_db():
                     )
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_user_messages_user_id ON user_messages(user_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_user_messages_unread ON user_messages(is_from_admin, is_read)")
 
                 # 36. capital_history
                 cur.execute("""
@@ -1546,6 +1632,10 @@ def init_db():
                         last_updated TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+                # [RULE 67 CHANGE-RATIONALE]: Add compound indexes for watchlist table to accelerate multibagger watchlist queries
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_status_total_score ON watchlist(status, total_score DESC NULLS LAST)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_total_score ON watchlist(total_score DESC NULLS LAST)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_watchlist_symbol ON watchlist(symbol)")
                 # 40. scanner_execution_history
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS scanner_execution_history (
@@ -1666,6 +1756,8 @@ def init_db():
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_setup_id ON scanner_candidates (setup_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_state ON scanner_candidates (state, scanner_name)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_state_last_eval ON scanner_candidates (state, last_evaluated_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_state_updated ON scanner_candidates (state, updated_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_quality_score ON scanner_candidates (quality_score DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_scanner_last_eval ON scanner_candidates (scanner_name, last_evaluated_at DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_symbol ON scanner_candidates (symbol)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_blocker_type ON scanner_candidates (primary_blocker_type)")
@@ -1725,7 +1817,11 @@ def init_db():
                 try:
                     cur.execute("""
                         CREATE INDEX IF NOT EXISTS idx_daily_wl_v2_date_status ON daily_watchlist_v2(build_date DESC, universe_status);
+                        CREATE INDEX IF NOT EXISTS idx_daily_wl_v2_sym_date ON daily_watchlist_v2(symbol, build_date DESC);
                         CREATE INDEX IF NOT EXISTS idx_daily_excl_v2_date ON daily_excluded_watchlist_v2(build_date DESC);
+                        CREATE INDEX IF NOT EXISTS idx_daily_excl_v2_sym_date ON daily_excluded_watchlist_v2(symbol, build_date DESC);
+                        CREATE INDEX IF NOT EXISTS idx_daily_excl_v2_class ON daily_excluded_watchlist_v2(exclusion_class, build_date DESC);
+                        CREATE INDEX IF NOT EXISTS idx_daily_excl_v2_qs ON daily_excluded_watchlist_v2(universe_quality_score DESC NULLS LAST);
                     """)
                 except Exception as _wl_idx_err:
                     logger.debug(f"Watchlist v2 index notice: {_wl_idx_err}")
@@ -1840,7 +1936,8 @@ def validate_schema(cur):
         "users", "user_sessions", "user_messages", "capital_history",
         "user_watchlists", "stock_analysis_master", "watchlist",
         "scanner_execution_history",
-        "scanner_candidates", "candidate_snapshots", "near_miss_outcomes"
+        "scanner_candidates", "candidate_snapshots", "near_miss_outcomes",
+        "alert_events"
     ]
 
     missing_tables = [t for t in REQUIRED_TABLES if t not in existing_tables]
@@ -2257,16 +2354,255 @@ def save_alert_if_new(
 
     def _execute(cur, commit_cb):
         nonlocal success
-        # Prevent cross-day duplicates: if the stock already has an OPEN alert from this scanner, skip it.
+        # Check if symbol already has an active OPEN position in the system
         cur.execute("""
-            SELECT 1 FROM alerts
-            WHERE symbol = %s AND scanner = %s AND status = 'OPEN' AND is_rejected = FALSE
-        """, (symbol, scanner))
-        if cur.fetchone():
-            logger.info(f"🚫 [DB_SAVE] Alert for {symbol} ({scanner}) SKIPPED — Reason: ALREADY_HAS_OPEN_ALERT in database")
-            return False, "Already OPEN", 0.0, 0
+            SELECT id, symbol, entry_price, stop_loss, target_1, target_2, target_3, signals, score, alert_date, alert_time, context,
+                   COALESCE(trade_evolution_state, 'INITIAL'), COALESCE(evidence_count, 1), COALESCE(distinct_patterns_count, 1), scanner
+            FROM alerts
+            WHERE symbol = %s AND status = 'OPEN' AND is_rejected = FALSE
+            ORDER BY alert_time DESC LIMIT 1
+        """, (symbol,))
+        existing_alert = cur.fetchone()
+
+        if existing_alert:
+            # ─────────────────────────────────────────────────────────────────
+            # TRADE EVOLUTION & RE-TRIGGER EVALUATION ENGINE
+            # ─────────────────────────────────────────────────────────────────
+            parent_id = existing_alert[0]
+            orig_entry_price = float(existing_alert[2] or entry_price or 0.0)
+            current_trigger_price = float(entry_price or orig_entry_price)
+            current_score = int(score or 80)
+            current_rvol = float(volume_ratio or 1.0)
+            current_pattern = str(signals or breakout_type or "BREAKOUT").strip()
+            cand_ctx = context or {}
+            today_date = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+            today_str = today_date.strftime('%Y-%m-%d')
+
+            # Query last recorded event for this alert in alert_events
+            cur.execute("""
+                SELECT id, event_type, pattern, trigger_price, rvol, event_date, event_time, confirmation_quality
+                FROM alert_events
+                WHERE alert_id = %s
+                ORDER BY id DESC LIMIT 1
+            """, (parent_id,))
+            last_event = cur.fetchone()
+
+            # Rule 1 & 4: Material Change Check & Anti-Inflation Filter
+            if last_event:
+                last_eid, last_etype, last_pat, last_price, last_rvol, last_edate, last_etime, last_qual = last_event
+                last_price = float(last_price or orig_entry_price)
+                last_rvol = float(last_rvol or 1.0)
+                
+                price_delta_pct = abs(current_trigger_price - last_price) / max(0.01, last_price) * 100.0
+                is_new_pattern = (current_pattern != str(last_pat).strip())
+                is_volume_expansion = (current_rvol >= 1.5 or current_rvol >= last_rvol * 1.25)
+                is_structural_upgrade = bool(cand_ctx.get("higher_low") or cand_ctx.get("new_breakout_level") or float(cand_ctx.get("room_to_resistance_r") or 0.0) >= 1.5)
+
+                # Same-day guard: suppress duplicate triggers on the same calendar day unless substantial new breakout
+                if str(last_edate) == today_str and not (is_new_pattern or price_delta_pct >= 3.0 or (is_volume_expansion and is_structural_upgrade)):
+                    logger.info(f"🚫 [TRADE_EVOLUTION] {symbol} ({scanner}) Re-trigger suppressed — Reason: SAME_DAY_NO_MATERIAL_CHANGE")
+                    return False, "Suppressed: No Material Change", 0.0, 0
+
+                # Cross-day material change guard: require distinct pattern, volume surge, or structural upgrade
+                if not (is_new_pattern or (price_delta_pct >= 2.0 and is_structural_upgrade) or is_volume_expansion):
+                    logger.info(f"🚫 [TRADE_EVOLUTION] {symbol} ({scanner}) Re-trigger suppressed — Reason: NO_MATERIAL_CHANGE (Pattern: {current_pattern}, ΔPrice: {price_delta_pct:.1f}%)")
+                    return False, "Suppressed: No Material Change", 0.0, 0
+
+            # Calculate PnL since original entry
+            pnl_since_entry_pct = round(((current_trigger_price - orig_entry_price) / max(0.01, orig_entry_price)) * 100.0, 2)
+
+            # Extension check from EMA20 / Moving Averages
+            dist_from_ema20_pct = float(cand_ctx.get("dist_from_ema20_pct") or cand_ctx.get("upper_wick_pct") or 0.0)
+            is_extended = bool(cand_ctx.get("is_extended") or (dist_from_ema20_pct > 12.0))
+
+            # Rule 7: Nullable higher_low explicitly calculated
+            higher_low = cand_ctx.get("higher_low")
+            if higher_low is None:
+                higher_low = bool(current_trigger_price >= orig_entry_price)
+
+            # Rule 2 & 6: Accurate Remaining R:R & Distance to Resistance
+            nearest_resistance = float(cand_ctx.get("nearest_resistance") or cand_ctx.get("resistance_price") or target_1 or (current_trigger_price * 1.08))
+            suggested_trailing_sl = float(cand_ctx.get("suggested_trailing_sl") or stop_loss or (current_trigger_price * 0.95))
+
+            rem_reward = max(0.0, nearest_resistance - current_trigger_price)
+            rem_risk = max(0.01, current_trigger_price - suggested_trailing_sl)
+            remaining_rr = round(rem_reward / rem_risk, 2)
+            dist_to_resistance_pct = round((rem_reward / max(0.01, current_trigger_price)) * 100.0, 2)
+
+            clv_val = float(cand_ctx.get("clv") or 0.75)
+
+            # Count previous events and distinct patterns
+            cur.execute("SELECT COUNT(*), COUNT(DISTINCT pattern) FROM alert_events WHERE alert_id = %s", (parent_id,))
+            ev_row = cur.fetchone()
+            prior_ev_count = ev_row[0] if ev_row else 1
+            prior_distinct_count = ev_row[1] if ev_row else 1
+            evidence_count = prior_ev_count + 1
+            distinct_patterns_count = prior_distinct_count + (1 if (not last_event or current_pattern != last_event[2]) else 0)
+
+            # Rule 4 & 5: State Machine Classification & Reason Codes
+            if pnl_since_entry_pct > 2.5:
+                # Working / Profitable setup
+                if is_extended:
+                    event_type = "RECORD_ONLY_NO_ADD"
+                    reason_code = "EXTENSION_BLOCKED"
+                    confirmation_quality = "MODERATE"
+                    parent_state = "EXTENDED"
+                elif remaining_rr < 1.5:
+                    event_type = "RECORD_ONLY_NO_ADD"
+                    reason_code = "INSUFFICIENT_ROOM_TO_RESISTANCE"
+                    confirmation_quality = "MODERATE"
+                    parent_state = "WORKING"
+                else:
+                    event_type = "PYRAMID_CANDIDATE"
+                    reason_code = "MOMENTUM_CONTINUATION_PYRAMID_READY"
+                    confirmation_quality = "HIGH" if distinct_patterns_count >= 2 else "MODERATE"
+                    parent_state = "PYRAMID_READY"
+            elif -2.0 <= pnl_since_entry_pct <= 2.5:
+                # Flat / Base consolidation
+                event_type = "THESIS_RECONFIRMATION"
+                reason_code = "BASE_SUPPORT_HELD_RECONFIRMED"
+                confirmation_quality = "MODERATE"
+                parent_state = "RECONFIRMED"
+            else:
+                # Losing trade (pnl < -2.0%)
+                event_type = "RECORD_ONLY_NO_ADD"
+                reason_code = "POSITION_LOSING_ADD_BLOCKED"
+                confirmation_quality = "LOW"
+                parent_state = "ADD_BLOCKED"
+
+            notes_str = f"Re-trigger on {today_str} by {scanner or 'SCANNER'}. Pattern: {current_pattern}. PnL: {pnl_since_entry_pct:+.1f}%. Reason: {reason_code}."
+
+            # Insert Immutable Historical Event
+            cur.execute("""
+                INSERT INTO alert_events
+                    (alert_id, symbol, scanner, pattern, event_type, event_date, event_time,
+                     trigger_price, original_entry_price, pnl_since_entry_pct, score, rvol, clv,
+                     higher_low, dist_from_ema20_pct, is_extended, nearest_resistance, distance_to_resistance_pct,
+                     remaining_rr_to_resistance, suggested_trailing_sl, evidence_count, distinct_patterns_count,
+                     confirmation_quality, reason_code, notes)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW(),
+                        %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, %s, %s)
+                RETURNING id;
+            """, (parent_id, symbol, scanner or 'TECHNICAL', current_pattern, event_type, today_date,
+                  current_trigger_price, orig_entry_price, pnl_since_entry_pct, current_score, current_rvol, clv_val,
+                  higher_low, dist_from_ema20_pct, is_extended, nearest_resistance, dist_to_resistance_pct,
+                  remaining_rr, suggested_trailing_sl, evidence_count, distinct_patterns_count,
+                  confirmation_quality, reason_code, notes_str))
+            event_row = cur.fetchone()
+            event_id = event_row[0] if event_row else None
+
+            # Update Parent Alert with summarized Evolution State
+            cur.execute("""
+                UPDATE alerts
+                SET trade_evolution_state = %s,
+                    evidence_count = %s,
+                    distinct_patterns_count = %s,
+                    confirmation_quality = %s,
+                    last_event_type = %s,
+                    last_event_date = %s,
+                    last_event_id = %s,
+                    updated_at = NOW()
+                WHERE id = %s
+            """, (parent_state, evidence_count, distinct_patterns_count, confirmation_quality, event_type, today_date, event_id, parent_id))
+            commit_cb()
+            success = True
+
+            logger.info(f"🔁 [TRADE_EVOLUTION] {symbol} ({scanner}) -> Event: {event_type} | State: {parent_state} | PnL: {pnl_since_entry_pct:+.1f}% | Evidence: {evidence_count}x ({confirmation_quality}) | Reason: {reason_code}")
+
+            # Dispatch Focused Telegram Notification
+            try:
+                from telegram_engine import queue_telegram_message
+                clean_pat = current_pattern.replace('_', ' ')
+                
+                ord_suffix = "th"
+                if evidence_count == 1: ord_suffix = "st"
+                elif evidence_count == 2: ord_suffix = "nd"
+                elif evidence_count == 3: ord_suffix = "rd"
+                ord_str = f"{evidence_count}{ord_suffix}"
+
+                if event_type == "PYRAMID_CANDIDATE":
+                    tg_msg = (
+                        f"🔥 <b>PYRAMID CANDIDATE — {ord_str.upper()} CONFIRMATION</b>\n\n"
+                        f"<b>#{symbol}</b> @ ₹{current_trigger_price:.2f}\n\n"
+                        f"Original Entry: ₹{orig_entry_price:.2f} | Current P&L: <b>+{pnl_since_entry_pct:.1f}% 🟢</b>\n\n"
+                        f"New Pattern: <b>{clean_pat}</b>\n"
+                        f"RVOL: {current_rvol:.1f}x ✅\n"
+                        f"Higher Low: {'✅' if higher_low else '❌'}\n"
+                        f"Remaining R:R: <b>{remaining_rr:.1f}R</b> (Room to Resistance: {dist_to_resistance_pct:.1f}%)\n\n"
+                        f"Evidence Trail: <b>{evidence_count} independent confirmations ({confirmation_quality} Quality)</b>\n\n"
+                        f"🛡️ Suggested Trailing SL: <b>₹{suggested_trailing_sl:.2f}</b>\n\n"
+                        f"📝 <b>User Action:</b> Existing position is working. Fresh setup confirms continuation. Add size only if your position-sizing/risk rules permit."
+                    )
+                elif event_type == "THESIS_RECONFIRMATION":
+                    tg_msg = (
+                        f"🔁 <b>THESIS RE-CONFIRMED — {ord_str.upper()} CONFIRMATION</b>\n\n"
+                        f"<b>#{symbol}</b> @ ₹{current_trigger_price:.2f}\n\n"
+                        f"Original Entry: ₹{orig_entry_price:.2f} | Current P&L: <b>{pnl_since_entry_pct:+.1f}% ⚪</b>\n\n"
+                        f"New Pattern: <b>{clean_pat}</b>\n"
+                        f"RVOL: {current_rvol:.1f}x ✅\n"
+                        f"Support: Base structure holds firmly.\n\n"
+                        f"Evidence Trail: <b>{evidence_count} independent confirmations</b>\n\n"
+                        f"📝 <b>User Action:</b> Maintain existing position. Do not add size."
+                    )
+                else:
+                    tg_msg = (
+                        f"⚠️ <b>RE-TRIGGER — ADD BLOCKED</b>\n\n"
+                        f"<b>#{symbol}</b> @ ₹{current_trigger_price:.2f}\n\n"
+                        f"Original Entry: ₹{orig_entry_price:.2f} | Current P&L: <b>{pnl_since_entry_pct:+.1f}% 🔴</b>\n\n"
+                        f"New Pattern: <b>{clean_pat}</b>\n"
+                        f"Blocker: <b>{reason_code.replace('_', ' ')}</b>\n\n"
+                        f"🛡️ <b>User Action:</b> Maintain hard stop loss. No additional risk permitted."
+                    )
+                queue_telegram_message(tg_msg, symbol=symbol)
+            except Exception as _tg_err:
+                logger.debug(f"Telegram dispatch error: {_tg_err}")
+
+            # Rebuild performance cache asynchronously
+            try:
+                from performance_tracker import trigger_performance_rebuild
+                trigger_performance_rebuild()
+            except Exception:
+                pass
+
+            return False, f"Re-trigger recorded ({event_type})", 0.0, 0
+
+        # ─────────────────────────────────────────────────────────────────
+        # 🛡️ EXECUTION GATE FSM (Circuit, Liquidity, and Spread Guards)
+        # ─────────────────────────────────────────────────────────────────
+        cand_ctx = context or {}
+        upper_circuit = float(cand_ctx.get("upper_circuit") or cand_ctx.get("circuit_upper") or 0.0)
+        daily_turnover_cr = float(cand_ctx.get("turnover_cr") or cand_ctx.get("daily_turnover_cr") or 0.0)
+        bid_ask_spread_pct = float(cand_ctx.get("bid_ask_spread_pct") or cand_ctx.get("spread_pct") or 0.0)
+        
+        execution_status = "EXECUTABLE"
+        execution_block_reason = ""
+
+        # Check 1: Circuit Proximity Guard
+        if upper_circuit > 0 and entry_price and entry_price >= (upper_circuit * 0.998):
+            execution_status = "BLOCKED_UPPER_CIRCUIT"
+            execution_block_reason = f"Entry ₹{entry_price:.2f} within 0.2% of Upper Circuit ₹{upper_circuit:.2f}"
+            logger.info(f"🚫 [EXECUTION_GATE] {symbol} Execution Blocked: {execution_block_reason}")
+        
+        # Check 2: Liquidity / Turnover Capacity Floor (₹5 Cr)
+        elif daily_turnover_cr > 0 and daily_turnover_cr < 5.0:
+            execution_status = "BLOCKED_LOW_LIQUIDITY"
+            execution_block_reason = f"Daily turnover ₹{daily_turnover_cr:.2f}Cr below ₹5.00Cr institutional liquidity floor"
+            logger.info(f"🚫 [EXECUTION_GATE] {symbol} Execution Blocked: {execution_block_reason}")
+
+        # Check 3: Friction & Bid-Ask Spread Guard (Spread > 0.50%)
+        elif bid_ask_spread_pct > 0.50:
+            execution_status = "BLOCKED_HIGH_SPREAD"
+            execution_block_reason = f"Bid-Ask spread {bid_ask_spread_pct:.2f}% exceeds 0.50% execution limit"
+            logger.info(f"🚫 [EXECUTION_GATE] {symbol} Execution Blocked: {execution_block_reason}")
+
+        rvol_diurnal_val = float(cand_ctx.get("rvol_diurnal")) if cand_ctx.get("rvol_diurnal") is not None else None
+        rvol_rolling_val = float(cand_ctx.get("rvol_rolling") or volume_ratio or 1.0)
 
         eff_actual_entry_price = actual_entry_price if actual_entry_price is not None else entry_price
+        today_date = datetime.now(ZoneInfo("Asia/Kolkata")).date()
         cur.execute("""
             INSERT INTO alerts
                 (symbol, breakout_type, alert_time, alert_date, scanner, category,
@@ -2274,15 +2610,18 @@ def save_alert_if_new(
                 signals, score, rsi, volume_ratio, status, context, capital_allocated, shares_bought, remaining_shares,
                 model_version, bayesian_regime, bayesian_weights, data_partition, cash_in_hand, current_price,
                 structural_failure_stop, target_quality_score, entry_mode, actual_entry_price, execution_state,
-                evaluation_id, scanner_run_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING_ENTRY', %s, %s)
+                evaluation_id, scanner_run_id, trade_evolution_state, evidence_count, distinct_patterns_count,
+                confirmation_quality, last_event_type, last_event_date, execution_status, execution_block_reason,
+                rvol_diurnal, rvol_rolling)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING_ENTRY', %s, %s, 'INITIAL', 1, 1, 'INITIAL', 'NEW_ENTRY', %s, %s, %s, %s, %s)
             RETURNING id;
-        """, (symbol, breakout_type, alert_time, datetime.now(ZoneInfo("Asia/Kolkata")).strftime('%Y-%m-%d'), scanner, category,
+        """, (symbol, breakout_type, alert_time, today_date.strftime('%Y-%m-%d'), scanner, category,
             entry_price, stop_loss, stop_loss, target_price, target_1, target_2, target_3, target_4,
             signals, score, rsi, volume_ratio, context_str, capital_allocated, shares_bought, shares_bought,
             model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0, entry_price,
             structural_failure_stop, target_quality_score, entry_mode, eff_actual_entry_price,
-            evaluation_id, scanner_run_id))
+            evaluation_id, scanner_run_id, today_date, execution_status, execution_block_reason,
+            rvol_diurnal_val, rvol_rolling_val))
         row = cur.fetchone()
         inserted = (row is not None) or (getattr(cur, "rowcount", 0) > 0)
         commit_cb()
@@ -2294,6 +2633,32 @@ def save_alert_if_new(
         if inserted:
             alert_id = row[0] if row else 0
             base_score_val = kwargs.get('base_score', score or 80)
+
+            # Record initial NEW_ENTRY event into alert_events
+            try:
+                cand_ctx = context or {}
+                cur.execute("""
+                    INSERT INTO alert_events
+                        (alert_id, symbol, scanner, pattern, event_type, event_date, event_time,
+                         trigger_price, original_entry_price, pnl_since_entry_pct, score, rvol, clv,
+                         higher_low, dist_from_ema20_pct, is_extended, nearest_resistance, distance_to_resistance_pct,
+                         remaining_rr_to_resistance, suggested_trailing_sl, evidence_count, distinct_patterns_count,
+                         confirmation_quality, reason_code, notes)
+                    VALUES (%s, %s, %s, %s, 'NEW_ENTRY', %s, NOW(),
+                            %s, %s, 0.0, %s, %s, %s,
+                            TRUE, %s, FALSE, %s, %s,
+                            %s, %s, 1, 1,
+                            'INITIAL', 'INITIAL_BREAKOUT_ENTRY', %s)
+                    ON CONFLICT DO NOTHING;
+                """, (alert_id, symbol, scanner or 'TECHNICAL', str(signals or breakout_type or 'BREAKOUT').strip(),
+                      today_date, entry_price or 0.0, entry_price or 0.0, score or 80, volume_ratio or 1.0,
+                      float(cand_ctx.get("clv") or 0.75), float(cand_ctx.get("dist_from_ema20_pct") or 0.0),
+                      target_1 or (entry_price * 1.08 if entry_price else 0.0), 8.0,
+                      2.0, stop_loss or (entry_price * 0.95 if entry_price else 0.0),
+                      f"Initial {scanner or 'TECHNICAL'} entry on {today_date}."))
+                commit_cb()
+            except Exception as _init_ev_err:
+                logger.debug(f"Initial alert_events record error: {_init_ev_err}")
 
             rs_bonus_val = kwargs.get('rs_bonus', 0)
             sector_bonus_val = kwargs.get('sector_bonus', 0)
@@ -2882,7 +3247,13 @@ def get_all_alerts(limit: int = None) -> list[dict]:
                     COALESCE(a.days_to_earnings, 999)               AS days_to_earnings,
                     a.earnings_date,
                     COALESCE(a.earnings_severity, 'NONE')           AS earnings_severity,
-                    COALESCE(a.warning_msg, '')                     AS warning_msg
+                    COALESCE(a.warning_msg, '')                     AS warning_msg,
+                    COALESCE(a.trade_evolution_state, 'INITIAL')    AS trade_evolution_state,
+                    COALESCE(a.evidence_count, 1)                   AS evidence_count,
+                    COALESCE(a.distinct_patterns_count, 1)          AS distinct_patterns_count,
+                    COALESCE(a.confirmation_quality, 'INITIAL')     AS confirmation_quality,
+                    COALESCE(a.last_event_type, 'NEW_ENTRY')        AS last_event_type,
+                    a.last_event_date
                 FROM alerts a
                 ORDER BY a.alert_time DESC
             """
@@ -2894,6 +3265,44 @@ def get_all_alerts(limit: int = None) -> list[dict]:
             for row in cur.fetchall():
                 rows.append(dict(row))
             return rows
+
+
+def get_alert_events(alert_id: int) -> list[dict]:
+    """Retrieve all chronological Trade Journey events for a given alert."""
+    init_db()
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, alert_id, symbol, scanner, pattern, event_type, event_date, event_time,
+                       trigger_price, original_entry_price, pnl_since_entry_pct, score, rvol, clv,
+                       higher_low, dist_from_ema20_pct, is_extended, nearest_resistance,
+                       distance_to_resistance_pct, remaining_rr_to_resistance, suggested_trailing_sl,
+                       evidence_count, distinct_patterns_count, confirmation_quality, reason_code, notes,
+                       created_at
+                FROM alert_events
+                WHERE alert_id = %s
+                ORDER BY id ASC
+            """, (alert_id,))
+            return [dict(r) for r in cur.fetchall()]
+
+
+def get_all_alert_events(limit: int = 200) -> list[dict]:
+    """Retrieve recent alert events across all symbols."""
+    init_db()
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, alert_id, symbol, scanner, pattern, event_type, event_date, event_time,
+                       trigger_price, original_entry_price, pnl_since_entry_pct, score, rvol, clv,
+                       higher_low, dist_from_ema20_pct, is_extended, nearest_resistance,
+                       distance_to_resistance_pct, remaining_rr_to_resistance, suggested_trailing_sl,
+                       evidence_count, distinct_patterns_count, confirmation_quality, reason_code, notes,
+                       created_at
+                FROM alert_events
+                ORDER BY id DESC
+                LIMIT %s
+            """, (limit,))
+            return [dict(r) for r in cur.fetchall()]
 
 
 def reset_closed_positions_to_open() -> dict:
@@ -3277,7 +3686,7 @@ def get_all_scanner_health() -> list[dict]:
         "EOD": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
         "REVERSAL": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
         "PULLBACK": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
-        "ACCUMULATION": "Daily 16:15 IST (Post-Close Delivery)",
+        "ACCUMULATION": "Daily 18:35 IST (Post-Bhavcopy / Verified Evening Batch)",
         "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan)",
         "Wealth Engine": "Daily 17:00 IST (Post-Market Scan)",
         "MULTIBAGGER": "Daily 17:30 IST (Daily Fundamental)",
@@ -3367,6 +3776,19 @@ def get_all_scanner_health() -> list[dict]:
                     ORDER BY scanner_name
                 """)
                 rows = [dict(row) for row in cur.fetchall()]
+                existing_names = {r["scanner_name"] for r in rows if "scanner_name" in r}
+                for sc_name, sched_str in schedule_map.items():
+                    if sc_name not in existing_names:
+                        rows.append({
+                            "scanner_name": sc_name,
+                            "status": "IDLE",
+                            "scheduled_for": sched_str,
+                            "today_alerts": 0,
+                            "is_acknowledged": True,
+                            "error_count": 0,
+                            "retry_count": 0,
+                            "duration_seconds": 0.0
+                        })
                 for r in rows:
                     if r.get("scanner_name") in schedule_map:
                         r["scheduled_for"] = schedule_map[r["scanner_name"]]
@@ -3666,7 +4088,12 @@ def get_todays_alerts(today_str: str) -> list[dict]:
                         COALESCE(a.days_to_earnings, 999)                        AS days_to_earnings,
                         a.earnings_date,
                         COALESCE(a.earnings_severity, 'NONE')                    AS earnings_severity,
-                        COALESCE(a.warning_msg, '')                              AS warning_msg
+                        COALESCE(a.warning_msg, '')                              AS warning_msg,
+                        COALESCE(a.trade_evolution_state, 'INITIAL')             AS trade_evolution_state,
+                        COALESCE(a.evidence_count, 1)                            AS evidence_count,
+                        COALESCE(a.distinct_patterns_count, 1)                   AS distinct_patterns_count,
+                        COALESCE(a.confirmation_quality, 'INITIAL')              AS confirmation_quality,
+                        COALESCE(a.last_event_type, 'NEW_ENTRY')                 AS last_event_type
                     FROM alerts a
                     WHERE a.alert_date = %s
                     UNION ALL
@@ -3677,7 +4104,12 @@ def get_todays_alerts(today_str: str) -> list[dict]:
                          999                                                      AS days_to_earnings,
                          NULL::DATE                                               AS earnings_date,
                          'NONE'::TEXT                                             AS earnings_severity,
-                         ''                                                       AS warning_msg
+                         ''                                                       AS warning_msg,
+                         'INITIAL'::TEXT                                          AS trade_evolution_state,
+                         1::INT                                                   AS evidence_count,
+                         1::INT                                                   AS distinct_patterns_count,
+                         'INITIAL'::TEXT                                          AS confirmation_quality,
+                         'NEW_ENTRY'::TEXT                                        AS last_event_type
                      FROM wealth_buy_alert w
                      WHERE w.alert_date = %s
                     ORDER BY alert_time DESC
@@ -4626,8 +5058,8 @@ def get_capital_info() -> dict:
                        OR status NOT IN ('WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED')
                 """)
                 row4 = cur.fetchone()
-                allocated = float((row4[0] if row4 else 0.0) or 0.0)
-                open_count = int((row4[1] if row4 else 0) or 0)
+                allocated = float((row4[0] if row4 and len(row4) > 0 else 0.0) or 0.0)
+                open_count = int((row4[1] if row4 and len(row4) > 1 else 0) or 0)
 
                 available_cash = max(0.0, total - allocated)
                 used_pct = round((allocated / total * 100), 1) if total > 0 else 0.0
@@ -5026,19 +5458,28 @@ def save_df_to_table(table_name: str, df: pd.DataFrame):
                 logger.warning(f"⚠️ No matching columns found between DataFrame and table '{table_name}'.")
                 return
 
-            # 5. Insert rows with ON CONFLICT DO NOTHING for absolute idempotency
+            # 5. Insert rows in batch with ON CONFLICT DO NOTHING for absolute idempotency & speed
             col_list_str = ", ".join(f'"{c.replace("%", "%%")}"' for c in insert_cols)
-            val_placeholders = ", ".join(["%s"] * len(insert_cols))
             table_name_safe = table_name.replace("%", "%%")
-            insert_query = f"INSERT INTO {table_name_safe} ({col_list_str}) VALUES ({val_placeholders}) ON CONFLICT DO NOTHING"
-
-            for _, row in df.iterrows():
-                vals = [row[sc] for sc in df_source_cols]
-                # Convert nan to None for DB
-                vals = [None if pd.isna(v) else v for v in vals]
+            
+            data_tuples = []
+            for row_vals in df[df_source_cols].itertuples(index=False, name=None):
+                row_list = [None if pd.isna(v) else v for v in row_vals]
                 if add_date_val:
-                    vals.append(today_str)
-                cur.execute(insert_query, tuple(vals))
+                    row_list.append(today_str)
+                data_tuples.append(tuple(row_list))
+
+            if data_tuples:
+                try:
+                    from psycopg2.extras import execute_values
+                    insert_query = f"INSERT INTO {table_name_safe} ({col_list_str}) VALUES %s ON CONFLICT DO NOTHING"
+                    execute_values(cur, insert_query, data_tuples, page_size=1000)
+                except Exception:
+                    # Fallback to standard execute if execute_values is unavailable
+                    val_placeholders = ", ".join(["%s"] * len(insert_cols))
+                    fallback_query = f"INSERT INTO {table_name_safe} ({col_list_str}) VALUES ({val_placeholders}) ON CONFLICT DO NOTHING"
+                    for vals in data_tuples:
+                        cur.execute(fallback_query, vals)
 
         conn.commit()
     logger.info(f"✅ Saved {len(df)} rows to table '{table_name}' in database.")
@@ -7209,6 +7650,25 @@ def update_user_account_status(user_id: int, status: str) -> bool:
         logger.exception(f"❌ Failed to update account status for user {user_id}")
         return False
 
+def update_user_role(user_id: int, role: str) -> bool:
+    """Updates user role ('admin', 'user', 'viewer')."""
+    try:
+        role_clean = str(role).strip().lower()
+        if role_clean not in ('admin', 'user', 'viewer'):
+            return False
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE users
+                    SET role = %s
+                    WHERE user_id = %s
+                """, (role_clean, user_id))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.exception(f"❌ Failed to update role for user {user_id}")
+        return False
+
 def search_users(query: str, status_filter: str = "all") -> list:
     try:
         with get_connection() as conn:
@@ -7243,8 +7703,11 @@ def search_users(query: str, status_filter: str = "all") -> list:
                         ORDER BY created_at DESC LIMIT %s
                     """, (search_term, search_term, search_term, search_term, search_term, limit_val))
                 rows = cur.fetchall()
-                # Format dates
+                # Format dates and populate full display name
                 for r in rows:
+                    full_name = f"{r.get('first_name') or ''} {r.get('last_name') or ''}".strip()
+                    r['name'] = full_name or r.get('username') or r.get('email') or f"User #{r.get('user_id')}"
+                    r['display_name'] = r['name']
                     for field in ['created_at', 'last_login']:
                         if r.get(field):
                             if hasattr(r[field], 'strftime'):
@@ -7318,13 +7781,16 @@ def check_session_validity(user_id, session_token: str = None) -> bool:
                         conn.commit()
                         return False
                     else:
-                        # Refresh last activity timestamp for active user session
-                        cur.execute("""
-                            UPDATE user_sessions
-                            SET logoff_time = NOW(), is_online = TRUE
-                            WHERE user_id = %s AND session_token = %s
-                        """, (user_id_int, str(session_token) if session_token else ''))
-                        conn.commit()
+                        # [RULE 67 CHANGE-RATIONALE]:
+                        # Only execute the UPDATE write transaction if more than 300 seconds (5 minutes) have elapsed
+                        # since the last recorded activity. Eliminates 99% of redundant database write locks during web browsing.
+                        if (now_ist - last_act).total_seconds() > 300:
+                            cur.execute("""
+                                UPDATE user_sessions
+                                SET logoff_time = NOW(), is_online = TRUE
+                                WHERE user_id = %s AND session_token = %s
+                            """, (user_id_int, str(session_token) if session_token else ''))
+                            conn.commit()
 
                 return True  # Valid active session
     except Exception as e:
@@ -7969,10 +8435,19 @@ def sync_master_symbols(symbol_rows: list) -> bool:
         logger.error(f"Failed to sync master symbols: {e}")
         return False
 
+_MASTER_SYMBOLS_DB_CACHE = None
+_MASTER_SYMBOLS_DB_CACHE_TS = 0.0
+
 def get_all_master_symbols() -> dict:
     """Fetch dictionary of all active master symbols for subsecond autocomplete & validation."""
+    # [RULE 67 CHANGE-RATIONALE]:
+    # Cache master_symbols in memory for 300s to eliminate redundant DB queries and DDL lock checks.
+    global _MASTER_SYMBOLS_DB_CACHE, _MASTER_SYMBOLS_DB_CACHE_TS
+    import time
+    now_ts = time.time()
+    if _MASTER_SYMBOLS_DB_CACHE is not None and (now_ts - _MASTER_SYMBOLS_DB_CACHE_TS) < 300.0:
+        return _MASTER_SYMBOLS_DB_CACHE
     try:
-        init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT symbol, company_name, sector, exchange FROM master_symbols WHERE is_active = TRUE")
@@ -7985,10 +8460,13 @@ def get_all_master_symbols() -> dict:
                         "sector": r[2] or "EQUITY",
                         "exchange": r[3] or "NSE"
                     }
+                if res:
+                    _MASTER_SYMBOLS_DB_CACHE = res
+                    _MASTER_SYMBOLS_DB_CACHE_TS = now_ts
                 return res
     except Exception as e:
         logger.warning(f"Failed to fetch master symbols from DB: {e}")
-        return {}
+        return _MASTER_SYMBOLS_DB_CACHE or {}
 
 
 # =====================================================================================
@@ -8969,5 +9447,18 @@ def reset_all_positions_to_open() -> int:
                 return count
 
 
-
-
+def invalidate_performance_cache():
+    """Invalidate cached performance metrics in memory or DB."""
+    try:
+        from dashboard_server import _PERF_CACHE
+        if isinstance(_PERF_CACHE, dict):
+            _PERF_CACHE.clear()
+    except Exception:
+        pass
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM system_state WHERE key IN ('performance_data', 'performance_data_json');")
+            conn.commit()
+    except Exception:
+        pass

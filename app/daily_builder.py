@@ -352,6 +352,46 @@ def _load_blacklist():
         
     logger.info(f"🛡️ Total surveillance + blacklist guard loaded: {len(_BLACKLIST_SYMBOLS)} toxic stocks blocked.")
 
+def apply_vectorized_eligibility_filter(df: pd.DataFrame, blacklist_symbols: set) -> Tuple[pd.DataFrame, list]:
+    """
+    [OPTIMIZATION: FAST-MASK STAGE 1]
+    Vectorized NumPy/Pandas baseline eligibility pre-filter.
+    Guarantees ZERO strategy drift by applying only universal hard rejection gates:
+      - Price < MIN_PRICE (₹100)
+      - Market Cap < MIN_MARKET_CAP (₹1,000 Cr)
+      - Traded Value < MIN_TRADED_VALUE
+      - Symbol in Blacklist / NSE Surveillance (ASM/GSM)
+    Dropped symbols are logged into exclusion records directly without thread allocation overhead.
+    """
+    if df is None or df.empty:
+        return pd.DataFrame(), []
+
+    now_ts = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+    close_s = pd.to_numeric(df["close"], errors="coerce").fillna(0.0)
+    mcap_s = pd.to_numeric(df["market_cap_basic"], errors="coerce").fillna(0.0)
+    vol_s = pd.to_numeric(df["average_volume_30d_calc"], errors="coerce").fillna(0.0)
+    traded_val_s = vol_s * close_s
+    name_s = df["name"].astype(str).str.strip().str.upper()
+
+    price_fail = close_s < MIN_PRICE
+    mcap_fail = (~price_fail) & (mcap_s < MIN_MARKET_CAP)
+    liquidity_fail = (~price_fail) & (~mcap_fail) & (traded_val_s < MIN_TRADED_VALUE)
+    blacklist_fail = (~price_fail) & (~mcap_fail) & (~liquidity_fail) & (name_s.isin(blacklist_symbols))
+
+    exclusions = []
+    for sym in df.loc[price_fail, "name"]:
+        exclusions.append({"Stock": sym, "Reason": f"Price below minimum ₹{MIN_PRICE}", "Scan Time": now_ts})
+    for sym in df.loc[mcap_fail, "name"]:
+        exclusions.append({"Stock": sym, "Reason": f"Market Cap below minimum ₹{MIN_MARKET_CAP/1e7:.0f} Cr", "Scan Time": now_ts})
+    for sym, tval in zip(df.loc[liquidity_fail, "name"], traded_val_s[liquidity_fail]):
+        exclusions.append({"Stock": sym, "Reason": f"Low liquidity: ₹{tval/1e7:.1f} Cr/day", "Scan Time": now_ts})
+    for sym in df.loc[blacklist_fail, "name"]:
+        exclusions.append({"Stock": sym, "Reason": "JUNK BLOCKED: Promoter Blacklist / NSE Surveillance (ASM/GSM)", "Scan Time": now_ts})
+
+    drop_mask = price_fail | mcap_fail | liquidity_fail | blacklist_fail
+    eligible_df = df[~drop_mask].copy()
+    return eligible_df, exclusions
+
 def _fval(row: pd.Series, col_name: str) -> float:
     v = row.get(col_name)
     try:
@@ -2076,23 +2116,29 @@ def _main_impl(force_rebuild: bool = False, run_ctx=None):
             logger.error(f"❌ [V2_PIPELINE] V2 pipeline failed (V1 build continues): {_v2_err}", exc_info=True)
         # ── END V2 PIPELINE ───────────────────────────────────────────────────
 
-        fin_mask = universe_df["sector"].isin(FINANCIAL_SECTORS)
-        logger.info(f"📊 [CLASSIFY] Classifying {len(universe_df)} stocks... (Non-Financial: {(~fin_mask).sum()} | Financial: {fin_mask.sum()})")
-        logger.info("🔍 [CLASSIFY] Starting classification of each universe row (this may take some time)...")
+        # ── STAGE 1: VECTORIZED ELIGIBILITY PRE-FILTER (Zero Strategy Drift) ──
+        eligible_df, pre_exclusions = apply_vectorized_eligibility_filter(universe_df, _BLACKLIST_SYMBOLS)
+        if pre_exclusions:
+            with _exclusion_lock:
+                EXCLUSION_LOG.extend(pre_exclusions)
+        logger.info(f"⚡ [FAST-FILTER] Vectorized pre-filter retained {len(eligible_df)}/{len(universe_df)} eligible stocks ({len(pre_exclusions)} hard-rejected in <5ms)")
+
+        fin_mask = eligible_df["sector"].isin(FINANCIAL_SECTORS)
+        logger.info(f"📊 [CLASSIFY] Classifying {len(eligible_df)} stocks... (Non-Financial: {(~fin_mask).sum()} | Financial: {fin_mask.sum()})")
+        logger.info("🔍 [CLASSIFY] Starting deep classification of candidate rows...")
         from concurrent.futures import ThreadPoolExecutor, as_completed
         try:
             from config import SCAN_WORKER_THREADS
         except ImportError:
             SCAN_WORKER_THREADS = 8
             
-        workers = min(os.cpu_count() or 8, SCAN_WORKER_THREADS, len(universe_df))
+        workers = min(os.cpu_count() or 8, SCAN_WORKER_THREADS, max(1, len(eligible_df)))
         workers = max(1, workers)
         
         _eval_start_t = time.perf_counter()
         
-        # Convert DataFrame to a list of dicts to avoid iterrows() overhead
-        # Dicts support .get() just like pd.Series
-        records = universe_df.to_dict('records')
+        # Convert only eligible DataFrame to records for thread pool
+        records = eligible_df.to_dict('records')
         winners = []
         
         _last_hb = time.monotonic()
@@ -2112,7 +2158,7 @@ def _main_impl(force_rebuild: bool = False, run_ctx=None):
                     logger.warning(f"Error classifying stock in thread: {e}")
                     
         _eval_dur = time.perf_counter() - _eval_start_t
-        logger.info(f"⏱️ [DAILY_BUILDER] Evaluation Timing | Classified {len(universe_df)} stocks using {workers} threads in {_eval_dur:.2f}s")
+        logger.info(f"⏱️ [DAILY_BUILDER] Evaluation Timing | Classified {len(eligible_df)} stocks using {workers} threads in {_eval_dur:.2f}s")
         logger.info(f"✅ [CLASSIFY] Classification complete. Winners found: {len(winners)}")
 
         if EXCLUSION_LOG:

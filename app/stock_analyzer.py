@@ -4,6 +4,8 @@
 # =====================================================================================
 
 import os
+import re
+import time
 import json
 import logging
 from datetime import datetime
@@ -19,13 +21,6 @@ from technical_indicators import apply_indicators
 from fundamentals_cache import get_fundamentals
 from watchlist_cache import get_watchlist
 from sl_target_helper import compute_sl_and_target
-from eod_scanner import evaluate_eod_symbol
-from reversal_scanner import evaluate_reversal_symbol
-from pullback_pipeline import evaluate_pullback_symbol
-from wealth_engine import evaluate_wealth_symbol
-from multibagger import evaluate_multibagger_symbol
-from multi_tf_scanner import evaluate_multi_tf_symbol
-from daily_builder import evaluate_daily_builder_symbol
 from database import (
     init_db, get_connection, save_alert_if_new,
     get_user_watchlist, update_user_watchlist_scan_result,
@@ -295,9 +290,12 @@ _MASTER_SYMBOLS_CACHE = None
 _MASTER_PRECOMPILED_LIST = None
 _MASTER_SYMBOLS_MTIME = 0
 
+_CLEAN_SYM_RE = re.compile(r"[\s\-\&\.]+")
+_PREFIX_SYM_RE = re.compile(r"^(NSE|BSE):")
+
 def _load_master_symbol_dictionary() -> dict:
     global _MASTER_SYMBOLS_CACHE, _MASTER_PRECOMPILED_LIST, _MASTER_SYMBOLS_MTIME
-    import os, re, json
+    import os, json
 
     now_ts = datetime.now(IST).timestamp()
     with _MASTER_LOCK:
@@ -338,22 +336,24 @@ def _load_master_symbol_dictionary() -> dict:
         if k not in master:
             master[k] = v
 
-    # 1. Load from DB table master_symbols
-    try:
-        from database import get_all_master_symbols
-        db_symbols = get_all_master_symbols()
-        if db_symbols:
-            master.update(db_symbols)
-    except Exception as e:
-        logger.warning(f"Error loading master_symbols from DB in autocomplete: {e}")
+    # 1. Load from DB table master_symbols (if master has < 1000 items)
+    if len(master) < 1000:
+        try:
+            from database import get_all_master_symbols
+            db_symbols = get_all_master_symbols()
+            if db_symbols:
+                master.update(db_symbols)
+        except Exception as e:
+            logger.warning(f"Error loading master_symbols from DB in autocomplete: {e}")
 
-    # 2. Load from temp_universe.parquet
-    if os.path.exists("data/temp_universe.parquet"):
+    # 2. Load from temp_universe.parquet if still under-populated
+    if len(master) < 1000 and os.path.exists("data/temp_universe.parquet"):
         try:
             df = pd.read_parquet("data/temp_universe.parquet")
-            for _, r in df.iterrows():
+            records = df.to_dict(orient="records")
+            for r in records:
                 raw = str(r.get("ticker", "")).upper()
-                sym = re.sub(r"^(NSE|BSE):", "", raw).replace(".NS", "").replace(".BO", "").strip()
+                sym = _PREFIX_SYM_RE.sub("", raw).replace(".NS", "").replace(".BO", "").strip()
                 name = str(r.get("name", sym)).strip()
                 sec = str(r.get("sector", "EQUITY")).strip()
                 if sym and sym not in master:
@@ -365,12 +365,12 @@ def _load_master_symbol_dictionary() -> dict:
         except Exception as e:
             logger.warning(f"Error loading temp_universe in autocomplete: {e}")
 
-    # 3. Pre-compile search-ready tuple array for instant <1ms autocomplete
+    # 3. Pre-compile search-ready tuple array for instant <1ms autocomplete using precompiled regex
     compiled_list = []
     for sym, item in master.items():
         comp = str(item.get("company_name", sym)).upper()
-        sym_nospace = re.sub(r"[\s\-\&\.]+", "", sym)
-        comp_nospace = re.sub(r"[\s\-\&\.]+", "", comp)
+        sym_nospace = _CLEAN_SYM_RE.sub("", sym)
+        comp_nospace = _CLEAN_SYM_RE.sub("", comp)
         compiled_list.append((sym, item, sym_nospace, comp, comp_nospace))
 
     _MASTER_SYMBOLS_CACHE = master
@@ -816,6 +816,15 @@ def analyze_symbol(symbol: str, user_id: str = "DEFAULT_USER", is_deep_analysis:
     deficits = []
 
     # ---------------- STAGE 1: DAILY BUILDER (UNIVERSE ELIGIBILITY) ----------------
+    # [RULE 67 CHANGE-RATIONALE]: Lazy import scanner evaluator functions inside analyze_symbol to keep module import sub-10ms for autocomplete
+    from daily_builder import evaluate_daily_builder_symbol
+    from eod_scanner import evaluate_eod_symbol
+    from reversal_scanner import evaluate_reversal_symbol
+    from pullback_pipeline import evaluate_pullback_symbol
+    from wealth_engine import evaluate_wealth_symbol
+    from multibagger import evaluate_multibagger_symbol
+    from multi_tf_scanner import evaluate_multi_tf_symbol
+
     db_eval = evaluate_daily_builder_symbol(sym_clean, df, fund_data=fund_data, ignore_min_price=True)
     db_pass = db_eval.get("qualified", False)
     db_reasons = db_eval.get("reasons", [])
