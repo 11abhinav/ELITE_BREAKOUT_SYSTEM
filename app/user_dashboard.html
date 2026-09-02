@@ -1251,9 +1251,9 @@ window.renderSignalLadder = function() {
 
       const boxHigh = d.box_high || d.breakout_level;
       const boxLow = d.box_low || d.support_level;
-      const highStr = boxHigh ? '₹' + parseFloat(boxHigh).toFixed(2) : '—';
-      const lowStr = boxLow ? '₹' + parseFloat(boxLow).toFixed(2) : '—';
-      const widthPct = d.box_width_pct ? ` <span style="color:var(--muted); font-size:10px;">(${parseFloat(d.box_width_pct).toFixed(1)}%)</span>` : '';
+      const highStr = (boxHigh && parseFloat(boxHigh) > 0) ? '₹' + parseFloat(boxHigh).toFixed(2) : '—';
+      const lowStr = (boxLow && parseFloat(boxLow) > 0) ? '₹' + parseFloat(boxLow).toFixed(2) : '—';
+      const widthPct = (d.box_width_pct && parseFloat(d.box_width_pct) > 0) ? ` <span style="color:var(--muted); font-size:10px;">(${parseFloat(d.box_width_pct).toFixed(1)}%)</span>` : '';
       const rangeHtml = `<div style="font-family:var(--font-mono); font-size:11px;">${highStr} <span style="color:var(--muted);">/</span> ${lowStr}${widthPct}</div>`;
 
       const tests = d.resistance_test_count || 0;
