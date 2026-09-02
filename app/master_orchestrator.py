@@ -264,8 +264,8 @@ class MasterOrchestratorV2:
         return item
 
     def get_confirmed_signals(self) -> List[Dict[str, Any]]:
-        """[RULE 67 CHANGE-RATIONALE]: Returns confirmed signals with 3s TTL cache to protect DB connection pool."""
-        return self._get_cached("confirmed_signals", 3.0, self._get_confirmed_signals_uncached)
+        """[RULE 67 CHANGE-RATIONALE]: Returns confirmed signals with zero caching directly from PostgreSQL alerts table per zero-cache policy."""
+        return self._get_confirmed_signals_uncached()
 
     def _get_confirmed_signals_uncached(self) -> List[Dict[str, Any]]:
         # [AUDIT FIX]: Query only OPEN, non-rejected, structurally valid technical signals.

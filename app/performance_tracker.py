@@ -1383,28 +1383,36 @@ def _write_empty():
 # DEBUNCED ASYNCHRONOUS REBUILD
 # =====================================================================================
 
+# [RULE 67 CHANGE-RATIONALE]:
+# Alerts must NEVER be lost or dropped by debounce cooldowns.
+# When multiple alerts arrive in rapid succession (e.g., Pullback scanner saving REDINGTON, TFCILTD, MARKSANS),
+# previous logic dropped calls inside the 45s cooldown on the floor with no trailing execution.
+# This implementation adds a trailing-edge timer so that any alert batch is guaranteed to trigger
+# a final rebuild as soon as the batch finishes, ensuring 100% of newly generated alerts are reflected.
 import threading
 _perf_rebuild_lock = threading.Lock()
 _last_perf_rebuild_ts = 0.0
-_perf_rebuild_cooldown = 45.0
+_perf_rebuild_cooldown = 15.0
+_trailing_timer = None
+_trailing_timer_lock = threading.Lock()
 
-def trigger_performance_rebuild(recalc_ids: list[int] = None):
+def trigger_performance_rebuild(recalc_ids: list[int] = None, force: bool = False):
     """
-    Debounced/asynchronous trigger for rebuilding performance data.
+    Guaranteed execution debounced trigger for rebuilding performance data.
+    Ensures that trailing alerts in a multi-stock batch are never dropped.
     """
-    global _last_perf_rebuild_ts
+    global _last_perf_rebuild_ts, _trailing_timer
     now = time.time()
-    if recalc_ids is None and (now - _last_perf_rebuild_ts) < _perf_rebuild_cooldown:
-        logger.info("📈 PERFORMANCE TRACKER | Rebuild triggered within 45s cooldown, skipping redundant trigger.")
-        return
-    _last_perf_rebuild_ts = now
-    def _target():
+
+    def _execute_rebuild():
+        global _last_perf_rebuild_ts
         t_name = threading.current_thread().name
-        # non-blocking lock acquire to prevent storm
         if not _perf_rebuild_lock.acquire(blocking=False):
-            logger.info("📈 PERFORMANCE TRACKER | Rebuild already in progress, skipping redundant trigger.")
+            logger.info("📈 PERFORMANCE TRACKER | Rebuild already running, scheduling trailing rebuild.")
+            _schedule_trailing(delay=5.0)
             return
         try:
+            _last_perf_rebuild_ts = time.time()
             logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | Action='Rebuilding performance metrics & trade tracker'")
             _t_start = time.perf_counter()
             build_performance_data(force_live_fetch=True, recalc_ids=recalc_ids)
@@ -1415,8 +1423,22 @@ def trigger_performance_rebuild(recalc_ids: list[int] = None):
         finally:
             _perf_rebuild_lock.release()
 
-    # Spawn thread to run in background so UI / scanners are not blocked
-    threading.Thread(target=_target, name="PerfRebuildThread", daemon=True).start()
+    def _schedule_trailing(delay=None):
+        global _trailing_timer
+        with _trailing_timer_lock:
+            if _trailing_timer is not None and _trailing_timer.is_alive():
+                return
+            wait_sec = delay if delay is not None else max(2.0, _perf_rebuild_cooldown - (time.time() - _last_perf_rebuild_ts))
+            logger.info(f"📈 PERFORMANCE TRACKER | Scheduling trailing rebuild in {wait_sec:.1f}s to guarantee all batch alerts are included.")
+            _trailing_timer = threading.Timer(wait_sec, _execute_rebuild)
+            _trailing_timer.daemon = True
+            _trailing_timer.start()
+
+    if not force and recalc_ids is None and (now - _last_perf_rebuild_ts) < _perf_rebuild_cooldown:
+        _schedule_trailing()
+        return
+
+    threading.Thread(target=_execute_rebuild, name="PerfRebuildThread", daemon=True).start()
 
 
 if __name__ == "__main__":

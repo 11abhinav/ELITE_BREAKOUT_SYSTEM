@@ -2723,6 +2723,13 @@ def save_alert_if_new(
             except Exception as _p_err:
                 logger.debug(f"Performance rebuild trigger error: {_p_err}")
 
+            # [RULE 67 CHANGE-RATIONALE]: Ensure newly saved alert invalidates any dashboard response caches immediately
+            try:
+                from dashboard_server import invalidate_all_dashboard_caches
+                invalidate_all_dashboard_caches()
+            except Exception:
+                pass
+
         return inserted, "Inserted" if inserted else "DB CONFLICT (Duplicate)", capital_allocated, shares_bought
 
     if conn is None:

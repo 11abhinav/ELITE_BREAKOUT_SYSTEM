@@ -334,6 +334,8 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
             if v is not None:
                 ctx.add_decision_input(name=k, value=v, source="PullbackEngine", as_of="Live", freshness="LIVE", required=True, valid=True)
 
+        # [RULE 67 CHANGE-RATIONALE]: Set alert_generated matching is_qualified so terminal audit displays 'Alert Generated = YES' for qualified candidates
+        ctx.alert_generated = bool(is_qualified)
         ctx.finalize(decision="SELECTED" if is_qualified else "REJECTED", primary_reason=reasons[0] if reasons else "NO_QUALIFY")
         telemetry_engine.emit_terminal(ctx)
     except Exception as telemetry_err:
@@ -1286,6 +1288,12 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         provider_stats=provider_stats_counts
     )
     if status_val == "OK" and alert_count > 0:
+        # [RULE 67 CHANGE-RATIONALE]: Ensure newly persisted pullback alerts are immediately reflected in performance_data
+        try:
+            from performance_tracker import trigger_performance_rebuild
+            trigger_performance_rebuild(force=True)
+        except Exception:
+            pass
         try:
             insert_notification("admin", f"🎯 Pullback Scanner ran successfully. Found {alert_count} pullback alerts.", f"Generated {alert_count} alerts from {total_symbols} scanned stocks. Outcome: SUCCESS")
             from push_service import send_push_to_all

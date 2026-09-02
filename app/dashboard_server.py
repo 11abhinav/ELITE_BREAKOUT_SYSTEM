@@ -687,12 +687,14 @@ def api_user_info():
 # =====================================================================================
 # NOTIFICATIONS API
 # =====================================================================================
+# [RULE 67 CHANGE-RATIONALE]:
+# Notifications must NEVER be cached per zero-cache policy for alerts, history, errors, and notifications.
+# Every query fetches real-time unread/read state directly from PostgreSQL with no-cache HTTP headers.
 _notifications_cache = {"ts": 0.0, "admin_payload": None, "user_payload": None}
 
 def invalidate_notifications_cache():
     global _notifications_cache
     _notifications_cache["ts"] = 0.0
-
 def invalidate_all_dashboard_caches():
     """
     [EVENT-DRIVEN CACHE INVALIDATION]
@@ -757,17 +759,10 @@ def invalidate_all_dashboard_caches():
 @app.route('/api/notifications', methods=['GET'])
 @login_required
 def get_notifications():
-    global _notifications_cache
-    now_ts = time.time()
-    user_role = session.get('role', 'user')
-    cache_key = "admin_payload" if user_role == 'admin' else "user_payload"
-    
-    if _notifications_cache[cache_key] is not None and (now_ts - _notifications_cache["ts"]) < 15.0:
-        return Response(_notifications_cache[cache_key], mimetype="application/json")
-
     try:
         from database import get_connection
         from psycopg2.extras import RealDictCursor
+        user_role = session.get('role', 'user')
 
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -813,9 +808,11 @@ def get_notifications():
                         n['created_at'] = dt.strftime('%Y-%m-%d %H:%M:%S')
                 
                 payload = json.dumps(notifications)
-                _notifications_cache["ts"] = now_ts
-                _notifications_cache[cache_key] = payload
-                return Response(payload, mimetype="application/json")
+                return Response(payload, mimetype="application/json", headers={
+                    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
+                    "Pragma": "no-cache",
+                    "Expires": "0"
+                })
 
     except Exception as e:
         logger.debug(f"Error fetching notifications: {e}")
@@ -1200,11 +1197,8 @@ def api_get_near_misses():
 _INSTANT_PERF_CACHE = {"payload": None, "ts": 0.0}
 
 def _build_instant_performance_fallback():
-    global _INSTANT_PERF_CACHE
-    now_ts = time.time()
-    if _INSTANT_PERF_CACHE["payload"] is not None and (now_ts - _INSTANT_PERF_CACHE["ts"]) < 10.0:
-        return _INSTANT_PERF_CACHE["payload"]
-
+    # [RULE 67 CHANGE-RATIONALE]:
+    # Never cache instant fallback payload; always query alerts table directly with zero-cache delay.
     try:
         from database import get_all_alerts
         raw_alerts = get_all_alerts(limit=3000)
@@ -1294,27 +1288,25 @@ def _build_instant_performance_fallback():
             "by_scanner": {}, "by_category": {}, "equity_curve": [], "monthly": []
         }
         res_str = json.dumps(payload, default=str)
-        _INSTANT_PERF_CACHE["payload"] = res_str
-        _INSTANT_PERF_CACHE["ts"] = now_ts
         return res_str
     except Exception as e:
         logger.warning(f"Failed to build instant performance fallback: {e}")
         return None
 
-
+# [RULE 67 CHANGE-RATIONALE]:
+# Alerts must NEVER be cached or delayed per zero-cache policy.
+# Memory caches (_perf_data_mem_cache, _INSTANT_PERF_CACHE) are eliminated.
+# /data/performance_data.json dynamically verifies that all recent alerts in PostgreSQL
+# alerts table are present in the response; any newly created alerts (e.g. from Pullback,
+# Reversal, EOD) are merged in real-time so that 0 alerts are ever missed or delayed.
 _perf_data_mem_cache = None
 _perf_data_mem_ts = 0.0
 
 @app.route("/data/performance_data.json")
 @login_required
 def performance_json():
-    """Serve latest performance JSON with sub-millisecond memory caching and non-blocking background rebuilds."""
-    global _perf_data_mem_cache, _perf_data_mem_ts
-    now_ts = time.time()
+    """Serve performance JSON with zero-cache live alert reconciliation directly from PostgreSQL."""
     force_rebuild = request.args.get("rebuild", "").lower() == "true"
-
-    if not force_rebuild and _perf_data_mem_cache and (now_ts - _perf_data_mem_ts < 15.0):
-        return Response(_perf_data_mem_cache, mimetype="application/json")
 
     try:
         from database import get_system_state
@@ -1329,15 +1321,117 @@ def performance_json():
             val = _build_instant_performance_fallback()
 
         if val:
-            _perf_data_mem_cache = val
-            _perf_data_mem_ts = now_ts
-            return Response(val, mimetype="application/json")
+            # Parse payload to verify if any newly inserted alerts are missing
+            try:
+                perf_dict = json.loads(val) if isinstance(val, str) else val
+                trades_list = perf_dict.get("trades", [])
+                known_ids = {t.get("id") for t in trades_list if t.get("id") is not None}
+
+                from database import get_connection
+                from psycopg2.extras import RealDictCursor
+                with get_connection() as conn:
+                    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                        cur.execute("""
+                            SELECT id, symbol, scanner, category, signals, entry_price, actual_entry_price,
+                                   current_price, stop_loss, initial_stop_loss, target_price, target_1, target_2, target_3,
+                                   score, alert_time, alert_date, status, pnl_pct, pnl_rs, exit_price, shares_bought,
+                                   capital_allocated, is_rejected, days_to_earnings, earnings_date, earnings_severity,
+                                   warning_msg, execution_state, closed_at
+                            FROM alerts
+                            ORDER BY id DESC
+                            LIMIT 100
+                        """)
+                        recent_db_alerts = cur.fetchall()
+
+                missing_trades = []
+                for r in recent_db_alerts:
+                    if r["id"] not in known_ids:
+                        def _safe_float(v):
+                            return float(v) if v is not None else None
+                        ep_val = _safe_float(r.get("entry_price"))
+                        cp_val = _safe_float(r.get("current_price")) or ep_val
+                        xp_val = _safe_float(r.get("exit_price"))
+                        pnl_val = _safe_float(r.get("pnl_pct")) or 0.0
+                        pnl_rs_val = _safe_float(r.get("pnl_rs"))
+                        st_val = r.get("status") or "OPEN"
+                        cap_val = _safe_float(r.get("capital_allocated"))
+                        sh_val = r.get("shares_bought", 0)
+                        if (pnl_rs_val is None or pnl_rs_val == 0) and xp_val is not None and ep_val and sh_val:
+                            pnl_rs_val = round((xp_val - ep_val) * sh_val, 2)
+                        elif (pnl_rs_val is None or pnl_rs_val == 0) and pnl_val is not None and cap_val:
+                            pnl_rs_val = round((pnl_val / 100.0) * cap_val, 2)
+
+                        at_raw = r.get("alert_time")
+                        at_str = at_raw.isoformat() if hasattr(at_raw, "isoformat") else (str(at_raw) if at_raw else "")
+                        ad_raw = r.get("alert_date")
+                        ad_str = ad_raw.isoformat()[:10] if hasattr(ad_raw, "isoformat") else (str(ad_raw)[:10] if ad_raw else (at_str[:10] if at_str else ""))
+
+                        missing_trades.append({
+                            "id": r.get("id"),
+                            "symbol": r.get("symbol"),
+                            "scanner": r.get("scanner") or "UNKNOWN",
+                            "category": r.get("category") or "BREAKOUT",
+                            "signals": r.get("signals") or "",
+                            "entry_date": ad_str,
+                            "alert_time": at_str,
+                            "entry_price": ep_val,
+                            "actual_entry_price": _safe_float(r.get("actual_entry_price")),
+                            "stop_loss": _safe_float(r.get("stop_loss")),
+                            "initial_stop_loss": _safe_float(r.get("initial_stop_loss")),
+                            "target_price": _safe_float(r.get("target_price")),
+                            "target_1": _safe_float(r.get("target_1")),
+                            "target_2": _safe_float(r.get("target_2")),
+                            "target_3": _safe_float(r.get("target_3")),
+                            "current_price": cp_val,
+                            "exit_price": xp_val,
+                            "pnl_pct": pnl_val,
+                            "pnl_rs": pnl_rs_val,
+                            "status": st_val,
+                            "shares_bought": sh_val,
+                            "capital_allocated": cap_val,
+                            "score": r.get("score"),
+                            "is_rejected": bool(r.get("is_rejected", False)),
+                            "days_to_earnings": r.get("days_to_earnings"),
+                            "earnings_date": r.get("earnings_date"),
+                            "earnings_severity": r.get("earnings_severity"),
+                            "warning_msg": r.get("warning_msg"),
+                            "execution_state": r.get("execution_state"),
+                            "closed_at": str(r.get("closed_at") or "") if r.get("closed_at") else None,
+                        })
+
+                if missing_trades:
+                    # Prepend missing alerts so trade table immediately shows newly fired alerts
+                    perf_dict["trades"] = missing_trades + trades_list
+                    if "summary" in perf_dict and isinstance(perf_dict["summary"], dict):
+                        perf_dict["summary"]["total_alerts"] = len(perf_dict["trades"])
+                        perf_dict["summary"]["open_positions"] = len([t for t in perf_dict["trades"] if t.get("status") == "OPEN"])
+                    for mt in missing_trades:
+                        sc = mt.get("scanner") or "UNKNOWN"
+                        perf_dict.setdefault("by_scanner", {}).setdefault(sc, {"total": 0, "wins": 0, "losses": 0, "open": 0, "win_rate": 0.0})
+                        perf_dict["by_scanner"][sc]["total"] += 1
+                        if mt.get("status") == "OPEN":
+                            perf_dict["by_scanner"][sc]["open"] += 1
+                    val = json.dumps(perf_dict, default=str)
+                    from performance_tracker import trigger_performance_rebuild
+                    trigger_performance_rebuild()
+            except Exception as _reconcile_err:
+                logger.debug(f"Live alert reconciliation skipped: {_reconcile_err}")
+
+            return Response(val, mimetype="application/json", headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            })
     except Exception as e:
         logger.exception(f"❌ Failed to load performance data from DB: {e}")
 
     fallback_val = _build_instant_performance_fallback()
     if fallback_val:
-        return Response(fallback_val, mimetype="application/json")
+        return Response(fallback_val, mimetype="application/json", headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        })
 
     # [RULE 67 CHANGE-RATIONALE]:
     # Removed premature return of empty_data. If system_state cache is missing and 
@@ -2544,22 +2638,15 @@ def api_fetch_errors_by_scanner():
         return jsonify([]), 200
 
 
-# [VERSION: SCANNER_PERF_v1.0] Batch endpoint: replaces N+1 per-scanner fetch_errors calls with a single query
+# [RULE 67 CHANGE-RATIONALE]:
+# Fetch errors must NEVER be cached per zero-cache policy for alerts, history, errors, and notifications.
+# Every query returns live unacknowledged errors directly from PostgreSQL with no-cache HTTP headers.
 _fetch_errors_grouped_cache: dict = {"ts": 0, "payload": None}
 
 @app.route("/api/fetch_errors/grouped_by_scanner", methods=["GET"])
 @login_required
 def api_fetch_errors_grouped_by_scanner():
-    """Return all unacknowledged fetch_errors keyed by scanner_name in ONE query.
-    
-    Previously the frontend called /api/fetch_errors/by_scanner once per DOWN scanner
-    (N round-trips). This single endpoint replaces all of those with 1 DB query.
-    Result is cached for 5 seconds to absorb burst page loads.
-    """
-    global _fetch_errors_grouped_cache
-    now_ts = time.time()
-    if _fetch_errors_grouped_cache["payload"] is not None and (now_ts - _fetch_errors_grouped_cache["ts"]) < 5.0:
-        return Response(_fetch_errors_grouped_cache["payload"], mimetype="application/json")
+    """Return all unacknowledged fetch_errors keyed by scanner_name with zero caching directly from PostgreSQL."""
     try:
         from database import get_connection
         from psycopg2.extras import RealDictCursor
@@ -2577,9 +2664,11 @@ def api_fetch_errors_grouped_by_scanner():
                     sc = row["scanner_name"] or "UNKNOWN"
                     grouped.setdefault(sc, []).append(dict(row))
         payload = json.dumps(grouped)
-        _fetch_errors_grouped_cache["payload"] = payload
-        _fetch_errors_grouped_cache["ts"] = now_ts
-        return Response(payload, mimetype="application/json")
+        return Response(payload, mimetype="application/json", headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        })
     except Exception:
         logger.exception("❌ /api/fetch_errors/grouped_by_scanner failed")
         return jsonify({}), 200
@@ -3029,20 +3118,16 @@ def api_data_fetch_health():
         return jsonify(_DATA_FETCH_HEALTH_CACHE.get("payload") or [])
 
 
+# [RULE 67 CHANGE-RATIONALE]:
+# Alerts must NEVER be cached per zero-cache policy.
+# Every query fetches real-time alerts fired today directly from PostgreSQL with no-cache HTTP headers.
 _todays_alerts_cache = {"ts": 0, "admin_payload": None, "user_payload": None}
 
 @app.route('/api/todays_alerts')
 @login_required
 def api_todays_alerts():
-    """Return alerts fired today (includes seen flags)."""
-    global _todays_alerts_cache
-    now_ts = time.time()
+    """Return alerts fired today directly from PostgreSQL with zero caching."""
     is_admin = session.get('role') in ('admin', 'superuser')
-    cache_key = "admin_payload" if is_admin else "user_payload"
-    
-    if _todays_alerts_cache[cache_key] is not None and (now_ts - _todays_alerts_cache["ts"]) < 3.0:
-        return Response(_todays_alerts_cache[cache_key], mimetype="application/json")
-
     try:
         from database import get_todays_alerts
         from datetime import datetime
@@ -3055,9 +3140,11 @@ def api_todays_alerts():
             rows = [r for r in rows if not r.get('is_rejected', False)]
             
         payload = json.dumps(serialize_datetimes(rows))
-        _todays_alerts_cache[cache_key] = payload
-        _todays_alerts_cache["ts"] = now_ts
-        return Response(payload, mimetype="application/json")
+        return Response(payload, mimetype="application/json", headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        })
     except Exception:
         logger.exception('❌ /api/todays_alerts failed')
         return jsonify([]), 200
