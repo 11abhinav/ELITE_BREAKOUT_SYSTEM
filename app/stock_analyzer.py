@@ -476,8 +476,9 @@ def search_symbols_autocomplete(query: str, limit: int = 10) -> list:
 
     all_matches = exact_matches + prefix_matches + contains_matches
 
-    # Dynamic fallback for newly listed IPOs / stocks not yet in local precompiled list
-    if len(all_matches) < limit and len(q_raw) >= 3:
+    # Dynamic fallback for newly listed IPOs / stocks only when NO local matches exist
+    # [RULE 67 CHANGE-RATIONALE]: Avoid slow blocking external HTTP calls when local database already has matching symbols
+    if not all_matches and len(q_raw) >= 3:
         try:
             import urllib.request, json
             req = urllib.request.Request(

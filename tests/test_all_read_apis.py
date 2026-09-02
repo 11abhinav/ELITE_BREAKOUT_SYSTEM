@@ -81,14 +81,14 @@ class TestAllReadAPIs(unittest.TestCase):
                 try:
                     res = client.get(endpoint)
                     status = res.status_code
-                    if status not in [200, 304, 404, 401, 403]:
+                    if status != 200:
                         failed += 1
                         errors.append(f"{endpoint} -> HTTP {status}")
                 except Exception as e:
                     failed += 1
                     errors.append(f"{endpoint} -> {type(e).__name__}: {str(e)}")
 
-        self.assertEqual(failed, 0, f"Endpoints failed: {errors}")
+        self.assertEqual(failed, 0, f"Endpoints failed to return HTTP 200: {errors}")
 
 if __name__ == "__main__":
     unittest.main()

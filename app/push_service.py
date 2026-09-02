@@ -22,17 +22,25 @@ def _get_push_throttle() -> dict:
     from session_context import get_session_cache_or_fallback
     return get_session_cache_or_fallback("push_throttle", _push_throttle_cache, logger)
 
+_VAPID_KEYPAIR_CACHE = None
+
 def get_vapid_keys():
     """Retrieve VAPID keys from env vars, DB system_state, or persistent fallback pair."""
+    global _VAPID_KEYPAIR_CACHE
+    if _VAPID_KEYPAIR_CACHE is not None:
+        return _VAPID_KEYPAIR_CACHE
+
     pub = os.getenv("VAPID_PUBLIC_KEY")
     priv = os.getenv("VAPID_PRIVATE_KEY")
     if pub and priv:
+        _VAPID_KEYPAIR_CACHE = (pub, priv)
         return pub, priv
 
     try:
         db_pub = database.get_system_state("vapid_public_key")
         db_priv = database.get_system_state("vapid_private_key")
         if db_pub and db_priv:
+            _VAPID_KEYPAIR_CACHE = (db_pub, db_priv)
             return db_pub, db_priv
     except Exception as e:
         logger.warning(f"Could not read VAPID keys from system_state: {e}")
@@ -46,6 +54,7 @@ def get_vapid_keys():
     except Exception:
         pass
 
+    _VAPID_KEYPAIR_CACHE = (fallback_pub, fallback_priv)
     return fallback_pub, fallback_priv
 
 def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", bypass_throttle: bool = False):

@@ -1078,14 +1078,8 @@ def api_get_near_misses():
         sc_list = [s.strip() for s in scanners_raw if s.strip()]
     sc_list = [s for s in sc_list if s.upper() != "ALL"]
 
-    # [RULE 67 CHANGE-RATIONALE]:
-    # Cache near-misses query results for 30 seconds to absorb rapid tab switching and UI polling
-    # without repeatedly running heavy database queries.
-    cache_key = (days, ",".join(sorted(sc_list)), limit, page, per_page)
+    # [RULE 67 CHANGE-RATIONALE]: Zero-cache policy: Query near_misses directly from database without memory cache
     now_ts = time.time()
-    cached = _NEAR_MISSES_CACHE.get(cache_key)
-    if cached and (now_ts - cached["ts"]) < 30.0:
-        return Response(cached["payload"], mimetype="application/json")
 
     try:
         from database import get_connection
@@ -1187,8 +1181,9 @@ def api_get_near_misses():
             pass
 
         payload = json.dumps(serialize_datetimes(rows), default=str)
-        _NEAR_MISSES_CACHE[cache_key] = {"ts": now_ts, "payload": payload}
-        return Response(payload, mimetype="application/json")
+        resp = Response(payload, mimetype="application/json")
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resp
     except Exception as e:
         logger.error(f"Error fetching near_misses from DB: {e}")
         return jsonify([])
@@ -1591,10 +1586,8 @@ def get_v2_universe_health():
     Dynamically counts daily watchlist admissions (ELITE, NEAR_QUALIFIED) and excluded stocks.
     Uses 10s TTL response cache to eliminate DB load during UI polling.
     """
-    global _UNIVERSE_HEALTH_CACHE
+    # [RULE 67 CHANGE-RATIONALE]: Zero-cache policy: Universe health served in real-time from DB/files without memory caching
     now_ts = time.time()
-    if _UNIVERSE_HEALTH_CACHE["payload"] is not None and (now_ts - _UNIVERSE_HEALTH_CACHE["ts"]) < 10.0:
-        return Response(_UNIVERSE_HEALTH_CACHE["payload"], mimetype="application/json")
     try:
         from database import get_connection
         with get_connection() as conn:
@@ -1608,7 +1601,7 @@ def get_v2_universe_health():
                     WHERE build_date = (SELECT MAX(build_date) FROM daily_watchlist_v2);
                 """)
                 row = cur.fetchone()
-                if row and row[2]:
+                if row and len(row) >= 3 and row[2]:
                     elite_count = row[0] or 0
                     nq_count = row[1] or 0
                     latest_date = row[2]
@@ -1653,9 +1646,9 @@ def get_v2_universe_health():
                                 }
                             ]
                         })
-                        _UNIVERSE_HEALTH_CACHE["ts"] = now_ts
-                        _UNIVERSE_HEALTH_CACHE["payload"] = res_payload
-                        return Response(res_payload, mimetype="application/json")
+                        resp = Response(res_payload, mimetype="application/json")
+                        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+                        return resp
     except Exception as e:
         logger.warning(f"DB universe health query failed: {e}")
 
@@ -1729,9 +1722,9 @@ def get_v2_universe_health():
                     }
                 ]
             })
-            _UNIVERSE_HEALTH_CACHE["ts"] = now_ts
-            _UNIVERSE_HEALTH_CACHE["payload"] = res_payload
-            return Response(res_payload, mimetype="application/json")
+            resp = Response(res_payload, mimetype="application/json")
+            resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            return resp
     except Exception as fe:
         logger.warning(f"Parquet fallback for universe health failed: {fe}")
 
@@ -3828,12 +3821,12 @@ def api_scanner_status():
                         total_count = _WORKER_STATS_CACHE.get("total_count", 0)
 
             result[sc] = {
-                    "status":        row["status"],
-                    "last_success":  row["last_success"],
+                    "status":        row.get("status", "IDLE"),
+                    "last_success":  row.get("last_success"),
                     "today_alerts":  len(today_trades),
-                    "error":         row["error_msg"],
-                    "updated_at":    row["updated_at"],
-                    "is_acknowledged": row["is_acknowledged"],
+                    "error":         row.get("error_msg"),
+                    "updated_at":    row.get("updated_at"),
+                    "is_acknowledged": row.get("is_acknowledged", False),
                     "processed_count": processed_count if sc in ["Pledge Worker", "AI Worker"] else row.get("processed_count"),
                     "total_count":   total_count if sc in ["Pledge Worker", "AI Worker"] else row.get("total_count"),
                     "scheduled_for": row.get("scheduled_for"),
