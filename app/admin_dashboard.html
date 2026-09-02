@@ -885,6 +885,82 @@ function changeAdminPage(type, delta) {
     .badge-rejected { background: rgba(220,38,38,.07); color: #dc2626; border: 1px solid rgba(220,38,38,.15); text-decoration: line-through; opacity: 0.8; }
     .badge-scanner { background: rgba(217,119,6,.1);  color: var(--amber); font-family: var(--font-mono); border: 1px solid rgba(217,119,6,.2); }
 
+    /* ── STOCKS TO WATCH & INVESTMENT WATCH THEME-AWARE STYLES ── */
+    .badge-stage-watch {
+      background: rgba(37, 99, 235, 0.12);
+      color: #1d4ed8;
+      border: 1px solid rgba(37, 99, 235, 0.28);
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 11px;
+      display: inline-block;
+    }
+    [data-theme="dark"] .badge-stage-watch {
+      background: rgba(59, 130, 246, 0.18);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.35);
+    }
+
+    .badge-stage-armed {
+      background: rgba(217, 119, 6, 0.12);
+      color: #b45309;
+      border: 1px solid rgba(217, 119, 6, 0.3);
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 11px;
+      display: inline-block;
+    }
+    [data-theme="dark"] .badge-stage-armed {
+      background: rgba(245, 158, 11, 0.18);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.35);
+    }
+
+    .scanner-pill {
+      background: var(--card2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      display: inline-block;
+    }
+
+    .cell-trigger-price {
+      color: #0284c7;
+      font-weight: 700;
+      font-family: var(--font-mono);
+    }
+    [data-theme="dark"] .cell-trigger-price {
+      color: #38bdf8;
+    }
+
+    .cell-blocker-text {
+      color: #b45309;
+      font-weight: 600;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    [data-theme="dark"] .cell-blocker-text {
+      color: #fbbf24;
+      font-weight: 500;
+    }
+
+    .cell-qualifies-text {
+      color: #0369a1;
+      font-weight: 600;
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    [data-theme="dark"] .cell-qualifies-text {
+      color: #38bdf8;
+      font-weight: 500;
+    }
+
     .pos   { color: var(--win); }
     .neg   { color: var(--loss); }
     .flat  { color: var(--muted); }
@@ -9314,27 +9390,27 @@ function renderStocksWatchRows(data) {
   }
   tbody.innerHTML = data.map(item => {
     const stageStr = item.stage || '👁️ BASE BUILDING (Watch)';
-    let stageBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stageStr)}</span>`;
+    let stageBadge = `<span class="badge-stage-watch">${formatText(stageStr)}</span>`;
     if (stageStr.includes('PRE-BREAKOUT') || stageStr.includes('ARMED')) {
-      stageBadge = `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stageStr)}</span>`;
+      stageBadge = `<span class="badge-stage-armed">${formatText(stageStr)}</span>`;
     }
 
     const distVal = item.distance_pct !== null && item.distance_pct !== undefined ? item.distance_pct : null;
-    const distColor = (distVal !== null && distVal <= 2.0) ? '#10b981' : '#f59e0b';
+    const distColor = (distVal !== null && distVal <= 2.0) ? 'var(--win)' : 'var(--amber)';
     const distStr = distVal !== null ? (distVal > 0 ? `+${distVal.toFixed(2)}%` : `${distVal.toFixed(2)}%`) : '-';
 
     return `
-      <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
+      <tr style="border-bottom:1px solid var(--border); font-size:12px;">
         <td style="padding:10px 12px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}</td>
         <td style="padding:10px 12px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
-        <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.scanner)}</td>
+        <td style="padding:10px 12px;"><span class="scanner-pill">${formatText(item.scanner)}</span></td>
         <td style="padding:10px 12px; text-align:center;">${stageBadge}</td>
         <td style="padding:10px 12px; text-align:center; font-weight:700; color:var(--text);">${item.maturity_score ? Number(item.maturity_score).toFixed(1) : '-'}</td>
         <td style="padding:10px 12px; font-weight:700; color:var(--text); font-family:var(--font-mono);">${formatPrice(item.cmp)}</td>
-        <td style="padding:10px 12px; font-weight:700; color:#38bdf8; font-family:var(--font-mono);">${formatPrice(item.trigger_level)}</td>
+        <td style="padding:10px 12px;" class="cell-trigger-price">${formatPrice(item.trigger_level)}</td>
         <td style="padding:10px 12px; color:${distColor}; font-weight:800; font-family:var(--font-mono); text-align:center;">${distStr}</td>
-        <td style="padding:10px 12px; font-size:11px; color:#fbbf24; font-weight:500;">${formatText(item.primary_blocker)}</td>
-        <td style="padding:10px 12px; font-size:11px; color:#38bdf8; font-weight:500;">${formatText(item.why_qualifies)}</td>
+        <td style="padding:10px 12px;" class="cell-blocker-text">${formatText(item.primary_blocker)}</td>
+        <td style="padding:10px 12px;" class="cell-qualifies-text">${formatText(item.why_qualifies)}</td>
       </tr>
     `;
   }).join('');
@@ -9357,31 +9433,31 @@ function renderInvestmentWatchRows(data) {
   }
   tbody.innerHTML = data.map(item => {
     const stateStr = item.investment_state || 'ACCUMULATE (Buy Zone)';
-    let stateBadge = `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
+    let stateBadge = `<span class="badge-stage-armed">${formatText(stateStr)}</span>`;
     if (stateStr.includes('BUY') || stateStr.includes('ACCUMULATE')) {
-      stateBadge = `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
+      stateBadge = `<span style="background:rgba(16,185,129,0.15); color:var(--win); border:1px solid rgba(16,185,129,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
     } else if (stateStr.includes('GROWTH')) {
-      stateBadge = `<span style="background:rgba(139,92,246,0.15); color:#a78bfa; border:1px solid rgba(139,92,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
+      stateBadge = `<span style="background:rgba(139,92,246,0.15); color:#8b5cf6; border:1px solid rgba(139,92,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
     } else if (stateStr.includes('QUALITY')) {
-      stateBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
+      stateBadge = `<span class="badge-stage-watch">${formatText(stateStr)}</span>`;
     }
 
     const valGrade = item.valuation_grade || 'Tier B+ (Quality Fair Value)';
-    const valColor = valGrade.includes('Tier A') ? '#10b981' : (valGrade.includes('Tier B+') ? '#3b82f6' : '#f59e0b');
+    const valColor = valGrade.includes('Tier A') ? 'var(--win)' : (valGrade.includes('Tier B+') ? 'var(--accent2)' : 'var(--amber)');
 
     return `
-      <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
+      <tr style="border-bottom:1px solid var(--border); font-size:12px;">
         <td style="padding:10px 12px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}</td>
         <td style="padding:10px 12px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
-        <td style="padding:10px 12px; font-weight:700; color:var(--text);">${formatPrice(item.cmp)}</td>
+        <td style="padding:10px 12px; font-weight:700; color:var(--text); font-family:var(--font-mono);">${formatPrice(item.cmp)}</td>
         <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.business_quality)}</td>
         <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.growth_durability)}</td>
         <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.moat_cash_quality)}</td>
         <td style="padding:10px 12px; font-weight:700; color:${valColor}; font-size:11px;">${formatText(valGrade)}</td>
         <td style="padding:10px 12px; color:var(--win); font-weight:800; font-family:var(--font-mono); text-align:center;">${formatPct(item.margin_of_safety_pct)}</td>
-        <td style="padding:10px 12px; font-weight:700; color:#10b981; font-size:11px; text-align:center;"><span style="color:#10b981;">●</span> ${formatText(item.thesis_health || 'HEALTHY')}</td>
+        <td style="padding:10px 12px; font-weight:700; color:var(--win); font-size:11px; text-align:center;"><span style="color:var(--win);">●</span> ${formatText(item.thesis_health || 'HEALTHY')}</td>
         <td style="padding:10px 12px; text-align:center;">${stateBadge}</td>
-        <td style="padding:10px 12px; font-size:11px; color:#38bdf8; font-weight:500;">${formatText(item.why_qualifies)}</td>
+        <td style="padding:10px 12px;" class="cell-qualifies-text">${formatText(item.why_qualifies)}</td>
       </tr>
     `;
   }).join('');

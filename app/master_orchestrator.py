@@ -294,46 +294,64 @@ class MasterOrchestratorV2:
 
     def _get_stocks_to_watch_uncached(self) -> List[Dict[str, Any]]:
         query_v2 = """
-            SELECT 
-                symbol, 
-                scanner_name as scanner, 
-                state as stage, 
-                quality_score,
-                quality_score as maturity_score, 
-                last_seen_price as cmp, 
-                trigger_level, 
-                distance_to_trigger_pct as distance_pct, 
-                COALESCE(primary_blocker_type, status_reason) as primary_blocker,
-                COALESCE(last_change_summary, status_reason) as why_qualifies,
-                updated_at
-            FROM scanner_candidates
-            WHERE state IN ('WATCH', 'CANDIDATE', 'ARMED', 'DEVELOPING')
-            UNION ALL
-            SELECT
-                symbol,
-                'ACCUMULATION' AS scanner,
-                state AS stage,
-                score AS quality_score,
-                score AS maturity_score,
-                close AS cmp,
-                breakout_level AS trigger_level,
-                CASE WHEN close > 0 THEN ((breakout_level - close) / close * 100) ELSE NULL END AS distance_pct,
-                NULL AS primary_blocker,
-                NULL AS why_qualifies,
-                created_at AS updated_at
-            FROM (
-                SELECT DISTINCT ON (symbol)
-                    symbol, state, score, accumulation_score, compression_score, relative_strength_score,
-                    resistance_score, volume_structure_score, fundamental_score,
-                    close, breakout_level, stop_loss, target_1, risk_pct, rr_1,
-                    created_at
+            WITH all_watch AS (
+                SELECT 
+                    symbol, 
+                    scanner_name as scanner, 
+                    state as stage, 
+                    quality_score,
+                    quality_score as maturity_score, 
+                    last_seen_price as cmp, 
+                    trigger_level, 
+                    distance_to_trigger_pct as distance_pct, 
+                    COALESCE(primary_blocker_type, status_reason) as primary_blocker,
+                    COALESCE(last_change_summary, status_reason) as why_qualifies,
+                    updated_at
+                FROM scanner_candidates
+                WHERE state IN ('WATCH', 'CANDIDATE', 'ARMED', 'DEVELOPING', 'PRE_BREAKOUT', 'ACCUMULATION_WATCH', 'BASE_BUILDING')
+                
+                UNION ALL
+                
+                SELECT
+                    symbol,
+                    'ACCUMULATION' AS scanner,
+                    state AS stage,
+                    score AS quality_score,
+                    score AS maturity_score,
+                    close AS cmp,
+                    breakout_level AS trigger_level,
+                    CASE WHEN close > 0 THEN ((breakout_level - close) / close * 100) ELSE NULL END AS distance_pct,
+                    'Volume Surge & Breakout Trigger Pending' AS primary_blocker,
+                    'Institutional Accumulation & Volatility Contraction' AS why_qualifies,
+                    created_at AS updated_at
                 FROM accumulation_alerts
                 WHERE state IN ('PRE_BREAKOUT', 'ACCUMULATION_WATCH')
-                  AND created_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date AT TIME ZONE 'Asia/Kolkata'
-                  AND created_at < ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata')::date + 1) AT TIME ZONE 'Asia/Kolkata'
-                ORDER BY symbol, created_at DESC, id DESC
-            ) sub
-            ORDER BY updated_at DESC LIMIT 100
+                  AND created_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Kolkata' - INTERVAL '7 days')
+                
+                UNION ALL
+                
+                SELECT
+                    symbol,
+                    COALESCE(category, 'MULTI_TF') AS scanner,
+                    current_state AS stage,
+                    80.0 AS quality_score,
+                    80.0 AS maturity_score,
+                    NULL AS cmp,
+                    COALESCE(trigger_level, breakout_level) AS trigger_level,
+                    buffer_pct AS distance_pct,
+                    'Volume Surge & Breakout Trigger Pending' AS primary_blocker,
+                    'Multi-Timeframe Breakout Base Setup' AS why_qualifies,
+                    last_updated AS updated_at
+                FROM breakout_watchlist
+                WHERE is_active = TRUE 
+                  AND current_state IN ('WATCH', 'ARMED', 'DEVELOPING', 'BASE_BUILDING', 'CANDIDATE')
+            )
+            SELECT DISTINCT ON (symbol)
+                symbol, scanner, stage, quality_score, maturity_score, cmp, trigger_level,
+                distance_pct, primary_blocker, why_qualifies, updated_at
+            FROM all_watch
+            ORDER BY symbol, updated_at DESC
+            LIMIT 100
         """
         watchlist = self._run_query(query_v2)
         source = "scanner_candidates"
