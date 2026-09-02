@@ -776,7 +776,7 @@ function playDing() {
               <th data-lcol="mtf_substate" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Stage</th>
               <th data-lcol="setup_score" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Base Quality</th>
               <th data-lcol="box_high" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Box High / Low</th>
-              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">Tests / Vol</th>
+              <th style="padding-bottom:8px; border-bottom:1px solid var(--border);">Resistance Touches / RVOL</th>
               <th data-lcol="cmp" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">CMP</th>
               <th data-lcol="severity" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Severity / Score</th>
               <th data-lcol="last_updated" style="cursor:pointer; padding-bottom:8px; border-bottom:1px solid var(--border);">Updated ▼</th>
@@ -1256,12 +1256,12 @@ window.renderSignalLadder = function() {
       const widthPct = (d.box_width_pct && parseFloat(d.box_width_pct) > 0) ? ` <span style="color:var(--muted); font-size:10px;">(${parseFloat(d.box_width_pct).toFixed(1)}%)</span>` : '';
       const rangeHtml = `<div style="font-family:var(--font-mono); font-size:11px;">${highStr} <span style="color:var(--muted);">/</span> ${lowStr}${widthPct}</div>`;
 
-      const tests = d.resistance_test_count || 0;
+      const tests = d.resistance_test_count || 2;
       const volRatio = parseFloat(d.volume_ratio_5m || 0);
-      const volText = volRatio > 0 ? `${volRatio.toFixed(1)}x vol` : 'Normal';
-      const testsHtml = `<div style="font-size:11px;"><span style="font-weight:600;">${tests} tests</span> · <span style="color:var(--muted);">${volText}</span></div>`;
+      const volText = volRatio > 0 ? `${volRatio.toFixed(1)}x Vol` : 'Normal Vol';
+      const testsHtml = `<div style="font-size:11px;"><span style="font-weight:600; color:var(--text);">${tests} Res Touches</span> · <span style="color:var(--muted);">${volText}</span></div>`;
 
-      let severityHtml = '<span style="color:var(--muted); font-size:11px;">—</span>';
+      let severityHtml = '';
       if (st === 'BREAKOUT_CONFIRMED' || st === 'TRIGGERED' || d.severity) {
           const sev = d.severity || 'GOOD';
           let sevColor = '#4ade80';
@@ -1272,6 +1272,12 @@ window.renderSignalLadder = function() {
 
           const brkScore = d.breakout_score ? ` <span style="font-size:10px; color:var(--muted);">[${Math.round(d.breakout_score)}]</span>` : '';
           severityHtml = `<span style="color:${sevColor}; font-weight:700; font-size:11px;">${sevIcon} ${d.severity_label || sev}${brkScore}</span>`;
+      } else if (st === 'ATTEMPT' || st === 'ENTRY_READY') {
+          severityHtml = `<span style="color:#c084fc; font-weight:700; font-size:10px; letter-spacing:0.3px;">🚀 BREAKOUT ATTEMPT</span>`;
+      } else if (st === 'PRESSURE_BUILDING' || st === 'SETUP_ARMED') {
+          severityHtml = `<span style="color:#fbbf24; font-weight:700; font-size:10px; letter-spacing:0.3px;">⚡ ACCUMULATING</span>`;
+      } else {
+          severityHtml = `<span style="color:#60a5fa; font-weight:700; font-size:10px; letter-spacing:0.3px;">🔍 BASE FORMING</span>`;
       }
       
       const cmpStr = d.cmp ? '₹' + Number(d.cmp).toLocaleString('en-IN', {maximumFractionDigits:2}) : '—';
