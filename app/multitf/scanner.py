@@ -440,13 +440,15 @@ def _process_symbol(
         return # Cooling down
 
     # 5. Pressure / Expansion (5m Live + Closed)
+    daily_atr_val = float(bundle.df_1d["ATR_14"].iloc[-1]) if (bundle.df_1d is not None and not bundle.df_1d.empty and "ATR_14" in bundle.df_1d) else 0.0
     pressure = evaluate_5m_pressure(
         live_candle=bundle.live_5m,
         df_5m_closed=bundle.df_5m_closed,
         box_high=consolidation.box_high,
         atr_5m=atr_5m,
         ist_now=ist_now,
-        config=config
+        config=config,
+        daily_atr=daily_atr_val
     )
 
     updates = {}

@@ -171,34 +171,40 @@ MULTI_TF_V2_CONFIG = {
     "H1_BEARISH_SCORE":             -10,
     "M30_ROOM_THRESHOLD_PCT":       0.02,
     "M30_ROOM_SCORE":               10,
-    "MIN_CONSOLIDATION_BARS":       24,
-    "MIN_BOX_OCCUPANCY":            0.70,
-    "MAX_BOX_WIDTH_PCT":            0.025,
-    "MAX_BOX_WIDTH_ATR":            3.0,
-    "MIN_RESISTANCE_TESTS":         2,
+    "MIN_CONSOLIDATION_BARS":       4,       # [REDESIGN] 4-6 fifteen-minute bars (~1 to 1.5 hours) for intraday base
+    "MAX_CONSOLIDATION_BARS":       16,      # Maximum active base window lookback
+    "MIN_BOX_OCCUPANCY":            0.65,
+    "MAX_BOX_WIDTH_PCT":            0.035,
+    "MAX_BOX_WIDTH_ATR":            1.50,    # [REDESIGN] Adaptive range width <= 1.5x 15m ATR
+    "MIN_RESISTANCE_TESTS":         2,       # [REDESIGN] Minimum 2 distinct resistance touches
     "GAP_PCT_THRESHOLD":            0.0075,
     "GAP_ATR_MULT":                 1.0,
     "BOX_HIGH_QUANTILE":            0.90,
     "BOX_LOW_QUANTILE":             0.10,
-    "RESISTANCE_TEST_TOL_PCT":      0.002,
+    "RESISTANCE_TEST_TOL_PCT":      0.003,   # 0.3% resistance touch tolerance
     "RESISTANCE_TEST_TOL_ATR":      0.15,
     "PIVOT_CONFIRM_ATR_MULT":       0.20,
     "PIVOT_CONFIRM_BOX_MULT":       0.15,
-    "SCORE_DURATION_MAX":           20,
-    "SCORE_COMPRESSION_MAX":        20,
-    "SCORE_ATR_CONTRACTION_MAX":    15,
-    "SCORE_OCCUPANCY_MAX":          10,
-    "SCORE_RESISTANCE_TESTS_MAX":   15,
-    "SCORE_HIGHER_LOWS_MAX":        15,
-    "SCORE_VOLUME_BEHAVIOR_MAX":    5,
-    "MIN_SETUP_SCORE":              60,
-    "STRONG_SETUP_SCORE":           75,
-    "PREMIUM_SETUP_SCORE":          85,
-    "MIN_RANGE_EXPANSION":          1.25,
-    "MIN_VOLUME_EXPANSION_ATTEMPT": 1.40,
-    "MIN_VOLUME_EXPANSION_CONFIRM": 1.50,
-    "MIN_LIVE_POSITION_ATTEMPT":    0.70,
-    "MIN_CLOSE_POSITION_CONFIRMED": 0.75,
+    # ── 15M CONSOLIDATION QUALITY SCORE (0-100) ──
+    "SCORE_RESISTANCE_DEF_MAX":     20,      # Clear horizontal resistance definition
+    "SCORE_TIGHT_RANGE_MAX":        20,      # Adaptive range <= 1.5x ATR
+    "SCORE_RESISTANCE_TESTS_MAX":   15,      # Multi-touch confirmation (>=2 touches)
+    "SCORE_COMPRESSION_VCP_MAX":    15,      # Volatility contraction / VCP
+    "SCORE_PRIOR_BULLISH_MAX":      15,      # Upper portion of swing / EMA20 hold
+    "SCORE_CLEAN_ACTION_MAX":       10,      # Clean candles (no giant wicks)
+    "SCORE_LIQUIDITY_MAX":          5,       # Liquidity floor (Rs 5 Cr+)
+    "MIN_SETUP_SCORE":              70,      # [REDESIGN] >= 70 arms 15M_BREAKOUT_WATCH
+    "MONITOR_SETUP_SCORE":          55,      # 55-69 monitor candidate
+    "STRONG_SETUP_SCORE":           80,
+    "PREMIUM_SETUP_SCORE":          90,
+    # ── 5M LIVE EXECUTION TRIGGER THRESHOLDS ──
+    "MIN_RANGE_EXPANSION":          1.15,
+    "MIN_VOLUME_EXPANSION_ATTEMPT": 1.20,
+    "MIN_VOLUME_EXPANSION_CONFIRM": 1.25,    # [REDESIGN] Diurnal/Rolling RVOL >= 1.25x for confirmed breakout
+    "MIN_LIVE_POSITION_ATTEMPT":    0.60,
+    "MIN_CLOSE_POSITION_CONFIRMED": 0.60,    # [REDESIGN] Close Position >= 0.60 (strong top-tier close)
+    "MAX_EXTENSION_DAILY_ATR":      0.50,    # [REDESIGN] Reject if close > Resistance + 0.50x Daily ATR
+    "PULLBACK_RETEST_TOL_ATR":      0.15,    # Retest defense tolerance (Model B)
     "MIN_VOLUME_PROJECTION_FRAC":   0.25,
     "FIRST_CANDLE_SLOT":            "09:15",
     "FIRST_CANDLE_VOLUME_MULT":     0.80,
@@ -208,13 +214,14 @@ MULTI_TF_V2_CONFIG = {
     "MAX_ATTEMPT_BARS":             3,
     "ATTEMPT_RESET_ATR_MULT":       0.50,
     "FAILED_BREAKOUT_COOLDOWN_MIN": 30,
-    "MIN_CONFLUENCE_SCORE":         60,
-    "MIN_STRUCTURE_CONFLUENCE":     15,
-    "MIN_MOMENTUM_CONFLUENCE":      15,
-    "MIN_CONTEXT_CONFLUENCE":       10,
-    "MIN_TOTAL_CONFLUENCE":         60,
-    "CONFLUENCE_STRUCTURE_MAX":     35,
-    "CONFLUENCE_MOMENTUM_MAX":      30,
+    # ── CONFLUENCE WEIGHTS (40% Structure, 40% Pressure/Volume, 20% Context) ──
+    "MIN_CONFLUENCE_SCORE":         65,
+    "MIN_STRUCTURE_CONFLUENCE":     25,
+    "MIN_MOMENTUM_CONFLUENCE":      25,
+    "MIN_CONTEXT_CONFLUENCE":       5,
+    "MIN_TOTAL_CONFLUENCE":         65,
+    "CONFLUENCE_STRUCTURE_MAX":     40,
+    "CONFLUENCE_MOMENTUM_MAX":      25,
     "CONFLUENCE_VOLUME_MAX":        15,
     "CONFLUENCE_CONTEXT_MAX":       20,
     "MIN_RR_RATIO":                 1.5,

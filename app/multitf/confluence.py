@@ -1,12 +1,15 @@
 # =====================================================================================
 # app/multitf/confluence.py
-# MULTI_TF V2 — Confluence Engine
+# MULTI_TF V2 — Confluence Engine (REDESIGNED)
 #
-# Responsibility: Grades the final Confirmed Breakout signal by combining Structure (15m),
-# Momentum (5m), Volume, and Context (1H/30m/Regime).
+# Responsibility: Grades the final Confirmed Breakout signal by combining Structure (15m Base),
+# Momentum & Volume (5m Execution), and Context (1H/30m/Regime).
 #
-# Emits a final 0-100 score. If this score exceeds MIN_CONFLUENCE_SCORE, the setup is
-# sent to OpportunityManager for execution.
+# Weight Distribution:
+#   - Structure (15m Base Quality): 40%
+#   - Momentum (5m Expansion):      25%
+#   - Volume Confirmation:          15%
+#   - Context (1H, 30m, Regime):    20%
 # =====================================================================================
 
 import logging
@@ -53,7 +56,8 @@ def evaluate_breakout_confluence(
     config: Dict[str, Any]
 ) -> ConfluenceResult:
     """
-    Called ONLY when pressure.is_confirmed is True.
+    Called when 5m pressure.is_confirmed is True.
+    Combines 15m base structure quality, 5m breakout momentum, volume expansion, and market context.
     """
     res = ConfluenceResult()
     if not pressure.is_confirmed:
@@ -61,16 +65,14 @@ def evaluate_breakout_confluence(
         
     score = 0
     
-    # 1. Structure (from 15m Consolidation) — Max 35
-    # The setup_score is 0-100, we scale it to max 35.
-    struct_max = config.get("CONFLUENCE_STRUCTURE_MAX", 35)
+    # 1. Structure (from 15m Consolidation Base) — Max 40
+    struct_max = config.get("CONFLUENCE_STRUCTURE_MAX", 40)
     s_struct = int((consolidation.setup_score / 100.0) * struct_max)
     res.score_structure = min(s_struct, struct_max)
     score += res.score_structure
     
-    # 2. Momentum (from 5m Pressure) — Max 30
-    # The momentum_score from pressure is already 0-30 scaled.
-    mom_max = config.get("CONFLUENCE_MOMENTUM_MAX", 30)
+    # 2. Momentum (from 5m Pressure) — Max 25
+    mom_max = config.get("CONFLUENCE_MOMENTUM_MAX", 25)
     s_mom = min(pressure.momentum_score, mom_max)
     res.score_momentum = s_mom
     score += res.score_momentum
@@ -78,14 +80,20 @@ def evaluate_breakout_confluence(
     # 3. Volume Confirmation — Max 15
     vol_max = config.get("CONFLUENCE_VOLUME_MAX", 15)
     vr = pressure.volume_ratio
-    if vr >= 2.5: s_vol = 15
-    elif vr >= 2.0: s_vol = 12
-    elif vr >= 1.5: s_vol = 8
-    else: s_vol = 4
+    if vr >= 2.0:
+        s_vol = 15
+    elif vr >= 1.5:
+        s_vol = 12
+    elif vr >= 1.25:
+        s_vol = 9
+    elif vr >= 1.15:
+        s_vol = 6
+    else:
+        s_vol = 3
     res.score_volume = min(s_vol, vol_max)
     score += res.score_volume
     
-    # 4. Context Alignment (1H + 30m + Regime) — Max 20
+    # 4. Context Alignment (1H + 30m + Regime) — Max 20 (Soft Context Gate)
     ctx_max = config.get("CONFLUENCE_CONTEXT_MAX", 20)
     
     c_1h = ctx_1h.get("score", 0)       # -10 to +10
@@ -94,7 +102,6 @@ def evaluate_breakout_confluence(
     
     raw_ctx = c_1h + c_30m + c_mkt
     
-    # Scale: A raw score of 20+ yields max points. Negative raw score yields 0.
     if raw_ctx <= 0:
         s_ctx = 0
     else:
@@ -103,14 +110,19 @@ def evaluate_breakout_confluence(
     res.score_context = min(s_ctx, ctx_max)
     score += res.score_context
     
-    # Final Evaluation
-    res.total_score = score
+    # Final Confluence Evaluation
+    res.total_score = min(score, 100)
     
-    # Strict Mandatory Gates (Config-driven)
-    struct_pass = res.score_structure >= config.get("MIN_STRUCTURE_CONFLUENCE", 15)
-    mom_pass = res.score_momentum >= config.get("MIN_MOMENTUM_CONFLUENCE", 15)
-    ctx_pass = res.score_context >= config.get("MIN_CONTEXT_CONFLUENCE", 10)
-    total_pass = score >= config.get("MIN_TOTAL_CONFLUENCE", 60)
+    # Multi-component approval check
+    min_struct = config.get("MIN_STRUCTURE_CONFLUENCE", 25)
+    min_mom = config.get("MIN_MOMENTUM_CONFLUENCE", 15)
+    min_ctx = config.get("MIN_CONTEXT_CONFLUENCE", 0)  # Soft context gate (non-blocking if base is great)
+    min_total = config.get("MIN_TOTAL_CONFLUENCE", 65)
+    
+    struct_pass = res.score_structure >= min_struct
+    mom_pass = (res.score_momentum + res.score_volume) >= min_mom
+    ctx_pass = res.score_context >= min_ctx
+    total_pass = res.total_score >= min_total
     
     if struct_pass and mom_pass and ctx_pass and total_pass:
         res.is_approved = True
