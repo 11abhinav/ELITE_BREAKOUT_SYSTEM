@@ -658,7 +658,7 @@ def api_user_info():
             from psycopg2.extras import RealDictCursor
             with get_connection() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute("SELECT first_name, email FROM users WHERE id = %s", (user_id,))
+                    cur.execute("SELECT first_name, email FROM users WHERE user_id = %s", (user_id,))
                     u_row = cur.fetchone()
                     if u_row:
                         if u_row.get('first_name'):
