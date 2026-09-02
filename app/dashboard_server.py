@@ -697,10 +697,11 @@ def invalidate_all_dashboard_caches():
     """
     [EVENT-DRIVEN CACHE INVALIDATION]
     Instantly resets all in-memory dashboard response caches when new alerts,
-    trades, exits, or health updates occur. Guarantees fresh data with 0ms delay.
+    trades, exits, errors, or health updates occur. Guarantees fresh data with 0ms delay.
     """
     global _todays_alerts_cache, _BREAKOUT_RESPONSE_CACHE, _SCANNER_STATUS_CACHE
     global _SEH_API_CACHE, _ADVANCED_OUTCOMES_CACHE, _notifications_cache, _CAPITAL_INFO_CACHE
+    global _fetch_errors_grouped_cache, _UNIVERSE_HEALTH_CACHE, _PENDING_USERS_CACHE
     try:
         _todays_alerts_cache["ts"] = 0
         _todays_alerts_cache["admin_payload"] = None
@@ -730,6 +731,21 @@ def invalidate_all_dashboard_caches():
         _notifications_cache["ts"] = 0
         _notifications_cache["admin_payload"] = None
         _notifications_cache["user_payload"] = None
+    except Exception:
+        pass
+    try:
+        _fetch_errors_grouped_cache["ts"] = 0
+        _fetch_errors_grouped_cache["payload"] = None
+    except Exception:
+        pass
+    try:
+        _UNIVERSE_HEALTH_CACHE["ts"] = 0
+        _UNIVERSE_HEALTH_CACHE["payload"] = None
+    except Exception:
+        pass
+    try:
+        _PENDING_USERS_CACHE["ts"] = 0
+        _PENDING_USERS_CACHE["payload"] = None
     except Exception:
         pass
     try:
@@ -814,6 +830,7 @@ def mark_notification_seen(notif_id):
             with conn.cursor() as cur:
                 cur.execute('UPDATE global_notifications SET is_seen = TRUE WHERE id = %s', (notif_id,))
             conn.commit()
+        invalidate_notifications_cache()
         return jsonify({"status": "success"})
     except Exception as e:
         logger.exception(f"Error marking notification as seen")
@@ -828,6 +845,7 @@ def mark_all_notifications_seen():
             with conn.cursor() as cur:
                 cur.execute('UPDATE global_notifications SET is_seen = TRUE WHERE is_seen = FALSE')
             conn.commit()
+        invalidate_notifications_cache()
         return jsonify({"status": "success"})
     except Exception as e:
         logger.exception(f"Error marking all notifications as seen")
@@ -842,6 +860,7 @@ def clear_all_notifications():
             with conn.cursor() as cur:
                 cur.execute('DELETE FROM global_notifications')
             conn.commit()
+        invalidate_notifications_cache()
         return jsonify({"status": "success"})
     except Exception as e:
         logger.exception(f"Error clearing all notifications")
@@ -856,6 +875,7 @@ def clear_notification(id):
             with conn.cursor() as cur:
                 cur.execute('DELETE FROM global_notifications WHERE id = %s', (id,))
             conn.commit()
+        invalidate_notifications_cache()
         return jsonify({"status": "success"})
     except Exception as e:
         logger.exception(f"Error clearing notification {id}")

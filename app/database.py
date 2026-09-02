@@ -4780,6 +4780,11 @@ def upsert_fetch_error(source_name: str, scanner_name: str, symbol: str, interva
                         last_error_msg = COALESCE(EXCLUDED.last_error_msg, fetch_errors.last_error_msg)
                 """, (source_name, scanner_name, symbol, interval, category, now, now, error_msg))
                 conn.commit()
+                try:
+                    from dashboard_server import invalidate_all_dashboard_caches
+                    invalidate_all_dashboard_caches()
+                except Exception:
+                    pass
             except Exception:
                 conn.rollback()
                 logger.exception(f"❌ upsert_fetch_error failed for {source_name}/{symbol}")
@@ -4803,6 +4808,11 @@ def delete_fetch_errors_batch_on_success(source_name: str, scanner_name: str, sy
                         WHERE source_name = %s AND scanner_name = %s AND symbol = ANY(%s) AND interval = %s AND category = %s
                     """, (source_name, scanner_name, list(symbols), interval, category))
                     conn.commit()
+                    try:
+                        from dashboard_server import invalidate_all_dashboard_caches
+                        invalidate_all_dashboard_caches()
+                    except Exception:
+                        pass
                 except Exception:
                     conn.rollback()
                     logger.exception(f"❌ delete_fetch_errors_batch_on_success failed for {len(symbols)} symbols")
