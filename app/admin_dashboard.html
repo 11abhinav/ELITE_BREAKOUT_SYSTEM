@@ -2727,6 +2727,22 @@ function changeAdminPage(type, delta) {
             </div>
           </div>
 
+          <!-- ACTIVE SCANNER ERRORS & ISSUE TRACKING PANEL -->
+          <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="display:flex; align-items:center; gap:8px;">
+              ⚠️ Active Scanner Errors &amp; Failures
+              <span id="scannerErrorsCountBadge" style="display:none; font-size:11px; background:rgba(255,77,109,0.15); color:#ff4d6d; border:1px solid #ff4d6d; padding:2px 8px; border-radius:12px; font-weight:700;">
+                0 Issues
+              </span>
+            </span>
+            <div id="scannerErrorsHeaderBtns">
+              <button class="btn btn-sm" onclick="refreshScannerErrorsPanel()" style="font-size:12px;">🔄 Refresh</button>
+            </div>
+          </div>
+          <div id="scannerErrorsContainer" style="margin-bottom:28px;">
+            <div class="card" style="padding:16px; text-align:center; color:var(--muted);">Loading scanner errors...</div>
+          </div>
+
           <!-- SYSTEM LOGS PANEL (Python Errors) -->
           <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
             <span>System Logs (Unhandled Python Errors)</span>
@@ -3035,6 +3051,7 @@ function changeAdminPage(type, delta) {
              document.getElementById('diagnostics-status').textContent = 'Active';
            });
         }
+        if (typeof loadScannerErrors === 'function') loadScannerErrors();
         if (typeof fetchSystemLogs === 'function') fetchSystemLogs();
         if (typeof fetchScannerExecutionHistory === 'function') fetchScannerExecutionHistory(1);
         if (typeof loadValidationHealth === 'function') loadValidationHealth();
@@ -4021,6 +4038,9 @@ function getEarningsBadgeHtml(item) {
         </div>`;
         }
         el.innerHTML = html_buffer;
+        if (typeof renderScannerErrors === 'function') {
+          renderScannerErrors(scanner_stats);
+        }
       })();
     }
 
@@ -5517,6 +5537,7 @@ function getEarningsBadgeHtml(item) {
         promises.push(searchUsers());
         promises.push(loadManualWatchlist());
       } else if (tab === 'health-errors') {
+        promises.push(loadScannerErrors());
         promises.push(fetchSystemLogs());
         promises.push(loadNonCriticalErrors());
         promises.push(loadValidationHealth());
@@ -6065,6 +6086,141 @@ async function clearAllErrors() {
   } catch (e) {
     console.error('Error clearing all errors:', e);
     showCustomToast('Error clearing all errors', 'error');
+  }
+}
+
+// ── ACTIVE SCANNER ERRORS & ISSUE TRACKING (BOTTOM OF TAB 3)
+async function refreshScannerErrorsPanel() {
+  await loadScannerErrors();
+}
+
+async function loadScannerErrors() {
+  try {
+    const res = await fetch('/api/scanner_health');
+    if (!res.ok) return;
+    const scannerStats = await res.json();
+    renderScannerErrors(scannerStats);
+  } catch (e) {
+    console.error('Error loading scanner errors:', e);
+  }
+}
+
+function renderScannerErrors(scannerStats) {
+  const container = document.getElementById('scannerErrorsContainer');
+  const countBadge = document.getElementById('scannerErrorsCountBadge');
+  if (!container) return;
+
+  if (!scannerStats || typeof scannerStats !== 'object') {
+    container.innerHTML = '<div class="card" style="padding:16px; text-align:center; color:var(--muted);">No scanner health data available.</div>';
+    if (countBadge) countBadge.style.display = 'none';
+    return;
+  }
+
+  // Find all scanners with issues or non-empty error_msg
+  const problemScanners = [];
+  for (const [scName, data] of Object.entries(scannerStats)) {
+    const status = String(data.status || '').toUpperCase();
+    const hasErrorMsg = Boolean(data.error && String(data.error).trim().length > 0);
+    const isDownStatus = Boolean(
+      status === 'DOWN' || 
+      status === 'DEGRADED' || 
+      status === 'FAILED' || 
+      status.includes('FAIL') || 
+      status.includes('ERROR') || 
+      status.includes('CRASH') || 
+      status.includes('TIMEOUT') ||
+      status.includes('STALE')
+    );
+
+    if (hasErrorMsg || isDownStatus) {
+      problemScanners.push({
+        scanner_name: scName,
+        status: data.status || 'UNKNOWN',
+        error: data.error || (isDownStatus ? `Scanner reported status ${status}` : 'Unknown issue'),
+        is_acknowledged: Boolean(data.is_acknowledged),
+        last_success: data.last_success,
+        updated_at: data.updated_at,
+        today_alerts: data.today_alerts,
+        duration_seconds: data.duration_seconds
+      });
+    }
+  }
+
+  if (countBadge) {
+    if (problemScanners.length > 0) {
+      countBadge.innerText = `${problemScanners.length} Issue${problemScanners.length > 1 ? 's' : ''}`;
+      countBadge.style.display = 'inline-block';
+    } else {
+      countBadge.style.display = 'none';
+    }
+  }
+
+  if (problemScanners.length === 0) {
+    container.innerHTML = `
+      <div class="card" style="padding:20px; text-align:center; background:var(--card); border:1px solid rgba(0,212,161,0.2); border-radius:10px;">
+        <div style="font-size:24px; margin-bottom:6px;">🛡️</div>
+        <div style="font-weight:700; color:var(--accent); font-size:14px;">All Scanners Healthy &amp; Operational</div>
+        <div style="font-size:12px; color:var(--muted); margin-top:4px;">No scanner execution failures, timeout stalls, or errors detected across the scanner suite.</div>
+      </div>`;
+    return;
+  }
+
+  let html = '<div style="display:flex; flex-direction:column; gap:12px;">';
+  problemScanners.forEach((item, idx) => {
+    const isAck = item.is_acknowledged;
+    const borderCol = isAck ? 'var(--border)' : '#ff4d6d';
+    const bgOpacity = isAck ? 'background:var(--card2);' : 'background:rgba(255,77,109,0.05);';
+    const safeError = escapeHTML(item.error);
+    const lastSeen = item.updated_at ? timeAgo(item.updated_at) : 'recently';
+
+    html += `
+      <div class="card" style="margin-bottom:0; padding:16px; border-left:4px solid ${borderCol}; border-radius:8px; ${bgOpacity}">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span class="badge" style="background:#ff4d6d; color:#fff; font-weight:800; font-size:11px; padding:3px 8px;">
+              ${escapeHTML(item.status)}
+            </span>
+            <span style="font-size:15px; font-weight:800; color:var(--text); font-family:var(--font-mono);">
+              ${escapeHTML(item.scanner_name)}
+            </span>
+            ${isAck ? `<span style="font-size:10px; color:var(--muted); background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px;">Acknowledged</span>` : ''}
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="font-size:11px; color:var(--muted); text-align:right;">
+              Reported: <strong style="color:var(--text);">${lastSeen}</strong>
+              ${item.last_success ? ` · Last Success: ${timeAgo(item.last_success)}` : ''}
+            </div>
+            <button class="btn btn-sm" onclick="ackScannerError('${encodeURIComponent(item.scanner_name)}')" style="font-size:11px; padding:4px 10px; background:rgba(255,77,109,0.15); color:#ff4d6d; border:1px solid #ff4d6d; font-weight:700; cursor:pointer;">
+              Dismiss Warning
+            </button>
+          </div>
+        </div>
+
+        <div style="background:var(--bg); padding:12px; border-radius:6px; border:1px solid var(--border); font-family:var(--font-mono); font-size:12px; color:#f87171; white-space:pre-wrap; word-break:break-word; max-height:180px; overflow-y:auto; line-height:1.4;">
+          ${safeError}
+        </div>
+      </div>
+    `;
+  });
+  html += '</div>';
+
+  container.innerHTML = html;
+}
+
+async function ackScannerError(encodedName) {
+  try {
+    const sc = decodeURIComponent(encodedName);
+    const endpoint = `/api/scanner_health/acknowledge/${encodeURIComponent(sc)}`;
+    const res = await fetch(endpoint, { method: 'POST' });
+    if (res.ok) {
+      showCustomToast(`Dismissed error warning for ${sc}`, 'success');
+      await doRefresh();
+    } else {
+      showCustomToast(`Failed to dismiss error for ${sc}`, 'error');
+    }
+  } catch (e) {
+    console.error('Failed to acknowledge scanner error:', e);
+    showCustomToast('Error dismissing warning', 'error');
   }
 }
 

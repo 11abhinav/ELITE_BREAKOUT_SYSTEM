@@ -3688,6 +3688,20 @@ def upsert_scanner_health(
             except Exception as auto_rel_err:
                 logger.warning(f"Failed to auto-release lock for crashed scanner {scanner_name}: {auto_rel_err}")
 
+        # Propagate scanner errors into system_logs table for bottom dashboard visibility
+        if (status and str(status).upper() in ("DOWN", "FAILED", "DEGRADED")) or error_msg:
+            try:
+                err_text = str(error_msg or f"Scanner {scanner_name} transitioned to {status}")
+                with get_connection() as _log_conn:
+                    with _log_conn.cursor() as _log_cur:
+                        _log_cur.execute("""
+                            INSERT INTO system_logs (level, module, message, traceback, created_at, is_acknowledged)
+                            VALUES ('ERROR', %s, %s, %s, NOW(), FALSE)
+                        """, (f"SCANNER:{scanner_name}", f"[{scanner_name}] {err_text}", f"Status: {status} | Caller: {_caller}"))
+                    _log_conn.commit()
+            except Exception as _log_err:
+                pass
+
 
 
 def get_all_scanner_health() -> list[dict]:
