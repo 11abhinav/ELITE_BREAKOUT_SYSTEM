@@ -7135,9 +7135,71 @@ def get_elite_watchlist() -> list:
         return []
 
 def get_active_breakout_watchlist() -> list:
+    """
+    Fetches active breakout setups for the Live Breakout Signal Ladder.
+    Pulls from both the new Multi-TF V3 engine (mtf_v2_watchlist) and legacy breakout_watchlist,
+    deduplicating by symbol so the newest Multi-TF state takes precedence.
+    """
+    results = []
+    seen_symbols = set()
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
+                # 1. First query new Multi-TF V3 consolidation setups
+                cur.execute("""
+                    SELECT 
+                        m.symbol,
+                        'MULTI_TF_V3' AS category,
+                        CASE 
+                            WHEN m.mtf_substate = 'WATCHING' THEN 'HOURLY_APPROVED'
+                            WHEN m.mtf_substate = 'PRESSURE_BUILDING' THEN 'SETUP_ARMED'
+                            WHEN m.mtf_substate = 'ATTEMPT' THEN 'ENTRY_READY'
+                            WHEN m.mtf_substate = 'BREAKOUT_CONFIRMED' THEN 'BREAKOUT_CONFIRMED'
+                            ELSE 'HOURLY_APPROVED'
+                        END AS current_state,
+                        'APPROVED' AS h1_status,
+                        'APPROVED' AS m30_status,
+                        'APPROVED' AS m15_status,
+                        CASE 
+                            WHEN m.mtf_substate IN ('ATTEMPT', 'BREAKOUT_CONFIRMED') THEN 'APPROVED'
+                            ELSE 'PENDING'
+                        END AS m5_status,
+                        m.box_high AS breakout_level,
+                        m.box_low AS support_level,
+                        m.box_high AS trigger_level,
+                        m.box_low AS invalidation_level,
+                        2.0 AS max_extension_atr,
+                        0.5 AS buffer_pct,
+                        m.created_at AS armed_at,
+                        json_build_object(
+                            'box_id', m.box_id,
+                            'setup_score', m.setup_score,
+                            'resistance_test_count', m.resistance_test_count,
+                            'volume_ratio_5m', m.volume_ratio_5m,
+                            'range_ratio_5m', m.range_ratio_5m,
+                            'market_regime', m.market_regime
+                        )::text AS context_json,
+                        COALESCE(m.last_evaluated_at, m.updated_at, m.created_at) AS last_updated,
+                        FALSE AS earnings_flag,
+                        999 AS days_to_earnings,
+                        NULL::DATE AS earnings_date,
+                        'NONE'::TEXT AS earnings_severity,
+                        '' AS warning_msg
+                    FROM mtf_v2_watchlist m
+                    WHERE m.mtf_substate IN ('WATCHING', 'PRESSURE_BUILDING', 'ATTEMPT', 'BREAKOUT_CONFIRMED')
+                    AND (m.cooldown_until IS NULL OR m.cooldown_until < NOW())
+                    AND (m.invalidated_at IS NULL OR m.invalidated_at > NOW())
+                    ORDER BY m.updated_at DESC
+                """)
+                columns = [desc[0] for desc in cur.description]
+                for row in cur.fetchall():
+                    d = dict(zip(columns, row))
+                    sym = d.get("symbol")
+                    if sym and sym not in seen_symbols:
+                        seen_symbols.add(sym)
+                        results.append(d)
+
+                # 2. Query any active rows from breakout_watchlist
                 cur.execute("""
                     SELECT b.symbol, b.category, b.current_state, b.h1_status, b.m30_status, b.m15_status, b.m5_status,
                         b.breakout_level, b.support_level, b.trigger_level, b.invalidation_level, b.max_extension_atr, b.buffer_pct, b.armed_at,
@@ -7154,7 +7216,14 @@ def get_active_breakout_watchlist() -> list:
                     AND (b.expires_at IS NULL OR b.expires_at > NOW())
                 """)
                 columns = [desc[0] for desc in cur.description]
-                return [dict(zip(columns, row)) for row in cur.fetchall()]
+                for row in cur.fetchall():
+                    d = dict(zip(columns, row))
+                    sym = d.get("symbol")
+                    if sym and sym not in seen_symbols:
+                        seen_symbols.add(sym)
+                        results.append(d)
+
+        return results
     except Exception as e:
         logger.exception(f"❌ Failed to fetch active breakout_watchlist: {e}")
         return []

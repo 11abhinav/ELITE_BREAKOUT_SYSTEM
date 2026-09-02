@@ -3568,7 +3568,7 @@ function changeAdminPage(type, delta) {
       if (labelTriggered) labelTriggered.textContent = `Triggered (5m) (${countTriggered})`;
 
       if (!window.signalLadderData || window.signalLadderData.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--muted); padding:12px;">No active setups tracking right now.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--muted); padding:12px;">No active setups tracking right now.</td></tr>';
         return;
       }
 
@@ -3586,7 +3586,7 @@ function changeAdminPage(type, delta) {
       });
 
       if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--muted); padding:12px;">No setups match selected filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--muted); padding:12px;">No setups match selected filters.</td></tr>';
         return;
       }
 
