@@ -163,8 +163,9 @@ def detect_15m_consolidation(
         # 6. Composite 0-100 Consolidation Quality Scoring
         _compute_scores(window_df, df_15m_closed, atr_15m, res, config)
 
-        # 7. Final Validation Gate (>= 70 qualifies for 15M_BREAKOUT_WATCH)
-        min_setup_score = config.get("MIN_SETUP_SCORE", 70)
+        # 7. Final Validation Gate (>= 60 qualifies for 15M_BREAKOUT_WATCH, alerts enforce >= 70)
+        # [RULE 67 CHANGE-RATIONALE]: Allow developing bases (score >= 60) into watchlist so user can track forming bases
+        min_setup_score = config.get("MONITOR_SETUP_SCORE", 60)
         if res.setup_score >= min_setup_score and res.resistance_test_count >= 1:
             res.is_valid = True
 

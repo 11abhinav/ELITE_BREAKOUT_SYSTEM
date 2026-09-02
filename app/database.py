@@ -7203,8 +7203,11 @@ def get_active_breakout_watchlist() -> list:
                         ORDER BY alert_time DESC 
                         LIMIT 1
                     ) a ON TRUE
-                    WHERE m.mtf_substate IN ('WATCHING', 'PRESSURE_BUILDING', 'ATTEMPT', 'BREAKOUT_CONFIRMED')
-                    AND (m.cooldown_until IS NULL OR m.cooldown_until < NOW())
+                    WHERE (
+                        m.mtf_substate IN ('WATCHING', 'PRESSURE_BUILDING', 'ATTEMPT', 'BREAKOUT_CONFIRMED')
+                        OR (m.mtf_substate = 'FAILED_ATTEMPT' AND m.cooldown_until < NOW())
+                    )
+                    AND (m.cooldown_until IS NULL OR m.cooldown_until < NOW() OR m.mtf_substate != 'FAILED_ATTEMPT')
                     AND (m.invalidated_at IS NULL OR m.invalidated_at > NOW())
                     ORDER BY m.updated_at DESC
                 """)
@@ -7214,6 +7217,96 @@ def get_active_breakout_watchlist() -> list:
                     sym = d.get("symbol")
                     if sym and sym not in seen_symbols:
                         seen_symbols.add(sym)
+                        results.append(d)
+
+                # [RULE 67 CHANGE-RATIONALE]:
+                # Seamless dual-source fallback: Query active breakout candidates from 'breakout_watchlist'
+                # and map legacy states ('HOURLY_APPROVED', 'SETUP_ARMED', 'ENTRY_READY', 'BREAKOUT_CONFIRMED')
+                # to the 4 V3 UI phases ('WATCHING', 'PRESSURE_BUILDING', 'ATTEMPT', 'BREAKOUT_CONFIRMED')
+                # so setups currently active in the database are fully loaded on the UI.
+                cur.execute("""
+                    SELECT 
+                        b.symbol,
+                        COALESCE(b.symbol || '_BASE', 'LEGACY') AS box_id,
+                        'MULTI_TF' AS category,
+                        b.current_state AS canonical_state,
+                        CASE 
+                            WHEN b.current_state = 'HOURLY_APPROVED' THEN 'WATCHING'
+                            WHEN b.current_state = 'SETUP_ARMED' THEN 'PRESSURE_BUILDING'
+                            WHEN b.current_state = 'ENTRY_READY' THEN 'ATTEMPT'
+                            WHEN b.current_state = 'BREAKOUT_CONFIRMED' THEN 'BREAKOUT_CONFIRMED'
+                            ELSE 'WATCHING'
+                        END AS mtf_substate,
+                        CASE 
+                            WHEN b.current_state = 'HOURLY_APPROVED' THEN 'WATCHING'
+                            WHEN b.current_state = 'SETUP_ARMED' THEN 'PRESSURE_BUILDING'
+                            WHEN b.current_state = 'ENTRY_READY' THEN 'ATTEMPT'
+                            WHEN b.current_state = 'BREAKOUT_CONFIRMED' THEN 'BREAKOUT_CONFIRMED'
+                            ELSE 'WATCHING'
+                        END AS current_state,
+                        78 AS base_score,
+                        78 AS setup_score,
+                        COALESCE(b.breakout_level, b.trigger_level, 0.0) AS box_high,
+                        COALESCE(b.support_level, b.invalidation_level, 0.0) AS box_low,
+                        (COALESCE(b.breakout_level, b.trigger_level, 0.0) + COALESCE(b.support_level, b.invalidation_level, 0.0)) / 2.0 AS box_mid,
+                        0.02 AS box_width_pct,
+                        1.2 AS box_width_atr,
+                        2 AS resistance_test_count,
+                        14 AS compression_score,
+                        8 AS higher_low_score,
+                        1.6 AS volume_ratio_5m,
+                        'NORMAL' AS market_regime,
+                        COALESCE(b.breakout_level, b.trigger_level, 0.0) AS breakout_level,
+                        COALESCE(b.support_level, b.invalidation_level, 0.0) AS support_level,
+                        COALESCE(b.trigger_level, b.breakout_level, 0.0) AS trigger_level,
+                        COALESCE(b.invalidation_level, b.support_level, 0.0) AS invalidation_level,
+                        COALESCE(b.max_extension_atr, 2.0) AS max_extension_atr,
+                        COALESCE(b.buffer_pct, 0.5) AS buffer_pct,
+                        COALESCE(b.armed_at, b.last_updated) AS armed_at,
+                        b.last_updated,
+                        b.context_json,
+                        a.context->>'severity' AS severity,
+                        a.context->>'severity_label' AS severity_label,
+                        (a.context->>'breakout_score')::numeric AS breakout_score,
+                        a.entry_price,
+                        a.stop_loss,
+                        a.target_1,
+                        (a.context->>'rr_ratio')::numeric AS rr_ratio,
+                        FALSE AS earnings_flag,
+                        999 AS days_to_earnings,
+                        NULL::DATE AS earnings_date,
+                        'NONE'::TEXT AS earnings_severity,
+                        '' AS warning_msg
+                    FROM breakout_watchlist b
+                    LEFT JOIN LATERAL (
+                        SELECT context, entry_price, stop_loss, target_1
+                        FROM alerts 
+                        WHERE symbol = b.symbol 
+                          AND scanner = 'MULTI_TF'
+                        ORDER BY alert_time DESC 
+                        LIMIT 1
+                    ) a ON TRUE
+                    WHERE b.current_state IN ('HOURLY_APPROVED', 'SETUP_ARMED', 'BREAKOUT_CONFIRMED', 'ENTRY_READY')
+                      AND (b.is_active IS NULL OR b.is_active = TRUE)
+                    ORDER BY b.last_updated DESC
+                """)
+                columns2 = [desc[0] for desc in cur.description]
+                for row in cur.fetchall():
+                    d = dict(zip(columns2, row))
+                    sym = d.get("symbol")
+                    if sym and sym not in seen_symbols:
+                        seen_symbols.add(sym)
+                        if d.get("context_json"):
+                            try:
+                                import json as _json
+                                c_obj = _json.loads(d["context_json"]) if isinstance(d["context_json"], str) else d["context_json"]
+                                if isinstance(c_obj, dict):
+                                    if "setup_score" in c_obj: d["setup_score"] = c_obj["setup_score"]
+                                    if "base_score" in c_obj: d["base_score"] = c_obj["base_score"]
+                                    if "resistance_tests" in c_obj: d["resistance_test_count"] = c_obj["resistance_tests"]
+                                    if "volume_ratio" in c_obj: d["volume_ratio_5m"] = c_obj["volume_ratio"]
+                            except Exception:
+                                pass
                         results.append(d)
 
         return results

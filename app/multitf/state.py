@@ -234,7 +234,7 @@ def get_active_armed_candidates() -> List[Dict[str, Any]]:
                 cur.execute("""
                     SELECT *
                     FROM mtf_v2_watchlist
-                    WHERE mtf_substate IN ('WATCHING', 'READY', 'ATTEMPT')
+                    WHERE mtf_substate IN ('WATCHING', 'PRESSURE_BUILDING', 'ATTEMPT')
                       AND (cooldown_until IS NULL OR cooldown_until <= NOW())
                       AND invalidated_at IS NULL
                     ORDER BY updated_at DESC;

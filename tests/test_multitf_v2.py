@@ -547,5 +547,59 @@ class TestAlertSeverityClassification(unittest.TestCase):
         self.assertEqual(candidate["box_id"], "TEST_15M_BOX")
 
 
+class TestBreakoutWatchlistDualSource(unittest.TestCase):
+    """Validates that get_active_breakout_watchlist maps both V3 and legacy breakout_watchlist data."""
+
+    def test_dual_source_mapping(self):
+        from unittest.mock import patch, MagicMock
+        from database import get_active_breakout_watchlist
+
+        mock_conn = MagicMock()
+        mock_cur = MagicMock()
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+
+        # Query 1 (mtf_v2_watchlist) returns 0 rows
+        # Query 2 (breakout_watchlist) returns sample legacy rows (like user's DB screenshot)
+        desc1 = [("symbol",), ("box_id",), ("category",), ("canonical_state",), ("mtf_substate",),
+                 ("current_state",), ("base_score",), ("setup_score",), ("box_high",), ("box_low",),
+                 ("box_mid",), ("box_width_pct",), ("box_width_atr",), ("resistance_test_count",),
+                 ("compression_score",), ("higher_low_score",), ("volume_ratio_5m",), ("market_regime",),
+                 ("breakout_level",), ("support_level",), ("trigger_level",), ("invalidation_level",),
+                 ("max_extension_atr",), ("buffer_pct",), ("armed_at",), ("last_updated",),
+                 ("context_json",), ("severity",), ("severity_label",), ("breakout_score",),
+                 ("entry_price",), ("stop_loss",), ("target_1",), ("rr_ratio",), ("earnings_flag",),
+                 ("days_to_earnings",), ("earnings_date",), ("earnings_severity",), ("warning_msg",)]
+        
+        legacy_row1 = ("LAURUSLABS", "LAURUSLABS_BASE", "MULTI_TF", "ENTRY_READY", "ATTEMPT",
+                       "ATTEMPT", 78, 78, 1935.8, 1900.0, 1917.9, 0.02, 1.2, 2, 14, 8, 1.6,
+                       "NORMAL", 1935.8, 1900.0, 1935.8, 1900.0, 2.0, 0.5, "2026-08-29 18:03:52",
+                       "2026-08-29 18:03:52", '{"setup_score": 82}', None, None, None, None, None,
+                       None, None, False, 999, None, "NONE", "")
+        
+        legacy_row2 = ("SBCL", "SBCL_BASE", "MULTI_TF", "SETUP_ARMED", "PRESSURE_BUILDING",
+                       "PRESSURE_BUILDING", 78, 78, 1087.95, 1050.0, 1068.9, 0.02, 1.2, 2, 14, 8, 1.6,
+                       "NORMAL", 1087.95, 1050.0, 1087.95, 1050.0, 2.0, 0.5, "2026-08-29 18:03:52",
+                       "2026-08-29 18:03:52", '{"setup_score": 79}', None, None, None, None, None,
+                       None, None, False, 999, None, "NONE", "")
+
+        mock_cur.description = desc1
+        mock_cur.fetchall.side_effect = [
+            [],                      # Query 1 (mtf_v2_watchlist): empty
+            [legacy_row1, legacy_row2] # Query 2 (breakout_watchlist): populated
+        ]
+
+        with patch("database.get_connection", return_value=mock_conn):
+            res = get_active_breakout_watchlist()
+
+        self.assertEqual(len(res), 2, "Should have retrieved both legacy rows")
+        self.assertEqual(res[0]["symbol"], "LAURUSLABS")
+        self.assertEqual(res[0]["mtf_substate"], "ATTEMPT")
+        self.assertEqual(res[0]["setup_score"], 82, "Parsed from context_json")
+        self.assertEqual(res[0]["box_high"], 1935.8)
+        self.assertEqual(res[1]["symbol"], "SBCL")
+        self.assertEqual(res[1]["mtf_substate"], "PRESSURE_BUILDING")
+
+
 if __name__ == "__main__":
     unittest.main()

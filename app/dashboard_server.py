@@ -4804,16 +4804,14 @@ def start_dashboard_server_async():
 
 _BREAKOUT_CMP_CACHE = {}
 _BREAKOUT_CMP_LAST_FETCH = 0
-_BREAKOUT_RESPONSE_CACHE = {"ts": 0.0, "payload": None}
 
 @app.route("/api/breakout_watchlist", methods=["GET"])
 @login_required
 def api_breakout_watchlist():
-    """Returns the live multi-tf breakout watchlist from the database (10s response cache for sub-5ms UI reads)."""
-    global _BREAKOUT_CMP_CACHE, _BREAKOUT_CMP_LAST_FETCH, _BREAKOUT_RESPONSE_CACHE
+    """Returns the live multi-tf breakout watchlist from the database in real-time (zero caching)."""
+    global _BREAKOUT_CMP_CACHE, _BREAKOUT_CMP_LAST_FETCH
     now_sec = time.time()
-    if _BREAKOUT_RESPONSE_CACHE["payload"] is not None and (now_sec - _BREAKOUT_RESPONSE_CACHE["ts"]) < 10.0:
-        return Response(_BREAKOUT_RESPONSE_CACHE["payload"], mimetype="application/json")
+    # [RULE 67 CHANGE-RATIONALE]: Zero-cache policy enforced: Alerts/Watchlists must never be cached in memory.
 
     try:
         from database import get_active_breakout_watchlist
@@ -4882,8 +4880,9 @@ def api_breakout_watchlist():
                 adjust_trade_for_corporate_actions(item)
 
         payload = json.dumps({"status": "success", "data": serialize_datetimes(data)}, default=str)
-        _BREAKOUT_RESPONSE_CACHE = {"ts": now_sec, "payload": payload}
-        return Response(payload, mimetype="application/json")
+        resp = Response(payload, mimetype="application/json")
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        return resp
     except Exception as e:
         logger.exception("Failed to fetch breakout watchlist.")
         return jsonify({"status": "error", "message": str(e)}), 500
