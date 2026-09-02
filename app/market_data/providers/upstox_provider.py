@@ -406,7 +406,8 @@ class UpstoxProvider(ProviderInterface):
             self._health_score = max(0, self._health_score - 2)
             status_code = e.response.status_code if e.response is not None else 0
             if status_code == 400:
-                logger.warning(f"⚠️ [UPSTOX HTTP 400] Stale or invalid instrument key for {symbol}. Invalidating cached key and refreshing master CSV...")
+                # [RULE 67 CHANGE-RATIONALE]: Log HTTP 400 as warning instead of error since invalid/discontinued ticker requests should not trigger system error alerts
+                logger.warning(f"⚠️ [UPSTOX HTTP 400] Stale or invalid instrument key for {symbol} ({e}). Invalidating cached key...")
                 try:
                     from market_data.providers.upstox_instrument_mapper import mapper
                     clean_sym = str(symbol).strip().upper()
@@ -417,7 +418,8 @@ class UpstoxProvider(ProviderInterface):
                     mapper.trigger_background_download(force=True)
                 except Exception as _inv_err:
                     logger.debug(f"Failed to invalidate stale key for {symbol}: {_inv_err}")
-            logger.error(f"Upstox fetch HTTP error for {symbol}: {e}")
+            else:
+                logger.error(f"Upstox fetch HTTP error for {symbol}: {e}")
             latency = (datetime.now() - start_time).total_seconds() * 1000
             prov = DataProvenance(self.provider_name, start_time, latency, 0.0)
             return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error=f"HTTP {status_code}")

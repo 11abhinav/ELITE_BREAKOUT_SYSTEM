@@ -545,12 +545,36 @@ def init_db():
                         bars_to_sl INTEGER,
                         outcome_labels JSONB DEFAULT '{}'::jsonb,
                         weighted_realized_r REAL,
+                        trade_evolution_state TEXT DEFAULT 'INITIAL',
+                        evidence_count INTEGER DEFAULT 1,
+                        distinct_patterns_count INTEGER DEFAULT 1,
+                        confirmation_quality TEXT DEFAULT 'INITIAL',
+                        last_event_type TEXT DEFAULT 'NEW_ENTRY',
+                        last_event_date DATE,
+                        last_event_id INTEGER,
+                        execution_status TEXT DEFAULT 'EXECUTABLE',
+                        execution_block_reason TEXT DEFAULT '',
+                        rvol_diurnal REAL,
+                        rvol_rolling REAL,
                         created_at TIMESTAMPTZ DEFAULT NOW(),
                         updated_at TIMESTAMPTZ DEFAULT NOW(),
                         CONSTRAINT alerts_dedup_idx UNIQUE (symbol, breakout_type, scanner, alert_date),
                         CONSTRAINT chk_alerts_status CHECK (status IN ('OPEN', 'WIN', 'LOSS', 'EXPIRED', 'NEUTRAL', 'CLOSED', 'ACTIVE', 'REJECTED', 'PARTIAL_WIN', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING'))
                     )
                 """)
+                # [RULE 67 CHANGE-RATIONALE]: Ensure column migrations for alerts table run BEFORE index creation so existing DBs don't abort with UndefinedColumn
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS trade_evolution_state TEXT DEFAULT 'INITIAL'")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS evidence_count INTEGER DEFAULT 1")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS distinct_patterns_count INTEGER DEFAULT 1")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS confirmation_quality TEXT DEFAULT 'INITIAL'")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS last_event_type TEXT DEFAULT 'NEW_ENTRY'")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS last_event_date DATE")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS last_event_id INTEGER")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS execution_status TEXT DEFAULT 'EXECUTABLE'")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS execution_block_reason TEXT DEFAULT ''")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS rvol_diurnal REAL")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS rvol_rolling REAL")
+
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_symbol ON alerts(symbol)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_date ON alerts(alert_date)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_symbol_date ON alerts(symbol, alert_date)")
@@ -713,18 +737,7 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_event_type ON alert_events(event_type)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_created_at ON alert_events(created_at DESC)")
 
-                # Column migrations on alerts table for Trade Evolution state
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS trade_evolution_state TEXT DEFAULT 'INITIAL'")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS evidence_count INTEGER DEFAULT 1")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS distinct_patterns_count INTEGER DEFAULT 1")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS confirmation_quality TEXT DEFAULT 'INITIAL'")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS last_event_type TEXT DEFAULT 'NEW_ENTRY'")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS last_event_date DATE")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS last_event_id INTEGER")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS execution_status TEXT DEFAULT 'EXECUTABLE'")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS execution_block_reason TEXT DEFAULT ''")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS rvol_diurnal REAL")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS rvol_rolling REAL")
+
 
                 # 8. score_weight_log
                 cur.execute("""
