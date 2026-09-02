@@ -14,6 +14,22 @@ function escapeHTML(str) {
     .replace(/'/g, '&#039;');
 }
 
+function parseToISTDate(ts) {
+  if (!ts) return null;
+  let str = String(ts).trim();
+  str = str.replace(/\s*(GMT|UTC).*$/i, '');
+  if (str.includes('T') || str.includes(' ')) {
+    if (!str.includes('T')) str = str.replace(' ', 'T');
+    if (!str.includes('+') && !str.includes('Z') && !/-\d{2}:\d{2}$/.test(str)) {
+      str += '+05:30';
+    }
+  } else if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    str += 'T00:00:00+05:30';
+  }
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 // GLOBAL WATCHLIST DATA STATE & CACHE (Hoisted to top of scope)
 var WATCHLIST_ITEMS_CACHE = [];
 var _mwlData = [];
@@ -25,8 +41,8 @@ var _userWatchlistData = [];
 var _adminUserWlPage = 1;
 var _adminManualWlPage = 1;
 var _adminDbPage = 1;
-const ADMIN_PAGE_SIZE = 100;
-const USER_PAGE_SIZE = 100;
+var ADMIN_PAGE_SIZE = 100;
+var USER_PAGE_SIZE = 100;
 
 function changeAdminPage(type, delta) {
     if (type === 'userWl') {
@@ -2964,21 +2980,6 @@ function changeAdminPage(type, delta) {
     }
 
     // ── CONSTANTS
-    const parseToISTDate = (ts) => {
-      if (!ts) return null;
-      let str = String(ts).trim();
-      str = str.replace(/\s*(GMT|UTC).*$/i, '');
-      if (str.includes('T') || str.includes(' ')) {
-        if (!str.includes('T')) str = str.replace(' ', 'T');
-        if (!str.includes('+') && !str.includes('Z') && !/-\d{2}:\d{2}$/.test(str)) {
-          str += '+05:30';
-        }
-      } else if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-        str += 'T00:00:00+05:30';
-      }
-      const d = new Date(str);
-      return isNaN(d.getTime()) ? null : d;
-    };
 
     // Format alert_time as "DD-MM HH:MM" (24h IST) for the table date column
     const fmtAlertTime = ts => {

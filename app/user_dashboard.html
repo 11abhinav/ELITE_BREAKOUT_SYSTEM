@@ -12,6 +12,23 @@ function escapeHTML(str) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
+
+function parseToISTDate(ts) {
+  if (!ts) return null;
+  let str = String(ts).trim();
+  str = str.replace(/\s*(GMT|UTC).*$/i, '');
+  if (str.includes('T') || str.includes(' ')) {
+    if (!str.includes('T')) str = str.replace(' ', 'T');
+    if (!str.includes('+') && !str.includes('Z') && !/-\d{2}:\d{2}$/.test(str)) {
+      str += '+05:30';
+    }
+  } else if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    str += 'T00:00:00+05:30';
+  }
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 var USER_PAGE_SIZE = 10;
 
 // GLOBAL FETCH FORTIFICATION
@@ -891,21 +908,6 @@ const badgeHtml = (s, t) => {
   return `<span class="badge ${m[displayStatus] || 'badge-neutral'}">${displayStatus}</span>`;
 };
 const scoreClass = v => v >= 85 ? 'score-high' : v >= 75 ? 'score-mid' : 'score-low';
-const parseToISTDate = (ts) => {
-  if (!ts) return null;
-  let str = String(ts).trim();
-  str = str.replace(/\s*(GMT|UTC).*$/i, '');
-  if (str.includes('T') || str.includes(' ')) {
-    if (!str.includes('T')) str = str.replace(' ', 'T');
-    if (!str.includes('+') && !str.includes('Z') && !/-\d{2}:\d{2}$/.test(str)) {
-      str += '+05:30';
-    }
-  } else if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-    str += 'T00:00:00+05:30';
-  }
-  const d = new Date(str);
-  return isNaN(d.getTime()) ? null : d;
-};
 
 const timeAgo = ts => {
   if (!ts) return '—';
