@@ -7261,7 +7261,11 @@ def get_active_breakout_watchlist() -> list:
                         COALESCE(b.breakout_level, b.trigger_level, 0.0) AS box_high,
                         COALESCE(b.support_level, b.invalidation_level, 0.0) AS box_low,
                         (COALESCE(b.breakout_level, b.trigger_level, 0.0) + COALESCE(b.support_level, b.invalidation_level, 0.0)) / 2.0 AS box_mid,
-                        NULL::numeric AS box_width_pct,
+                        CASE 
+                            WHEN COALESCE(b.support_level, b.invalidation_level, 0.0) > 0 
+                            THEN ((COALESCE(b.breakout_level, b.trigger_level, 0.0) - COALESCE(b.support_level, b.invalidation_level, 0.0)) / COALESCE(b.support_level, b.invalidation_level, 0.0)) * 100.0 
+                            ELSE NULL 
+                        END AS box_width_pct,
                         NULL::numeric AS box_width_atr,
                         NULL::integer AS resistance_test_count,
                         NULL::numeric AS compression_score,
@@ -7300,7 +7304,6 @@ def get_active_breakout_watchlist() -> list:
                     ) a ON TRUE
                     WHERE b.current_state IN ('HOURLY_APPROVED', 'SETUP_ARMED', 'BREAKOUT_CONFIRMED', 'ENTRY_READY')
                       AND (b.is_active IS NULL OR b.is_active = TRUE)
-                      AND b.last_updated >= NOW() - INTERVAL '24 hours'
                     ORDER BY b.last_updated DESC
                 """)
                 columns2 = [desc[0] for desc in cur.description]
