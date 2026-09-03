@@ -1456,12 +1456,11 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                 time.sleep(0.5)
 
             # [VERSION: BATCH_HEARTBEAT_PULSE_v1.0] Pulse heartbeat to DB so watchdog never marks long multi-batch runs as TIMEOUT_STALE
+            # [RULE 67 CHANGE-RATIONALE]: Do not blindly call mark_fresh here; each scanner accurately classifies fresh, stale, and incomplete based on actual returned DataFrames.
             if run_ctx:
                 try:
                     if hasattr(run_ctx, "heartbeat"):
                         run_ctx.heartbeat(force=True)
-                    if hasattr(run_ctx, "mark_fresh"):
-                        run_ctx.mark_fresh(len(batch))
                 except Exception as _hb_err:
                     logger.debug(f"Heartbeat pulse error during batch download: {_hb_err}")
 
