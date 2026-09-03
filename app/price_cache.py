@@ -349,8 +349,19 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
             # [VERSION: UNIFIED_1Y_CACHE_v2.0] Cross-period RAM lookup: if requesting "1y" and not found, check "2y" RAM slot.
             if not sym_entry and interval == "1d":
                 sym_entry = _cache.get(("1d", "2y"), {}).get(s)
-            if sym_entry and isinstance(sym_entry.get("data"), pd.DataFrame) and not sym_entry["data"].empty:
-                age = now_mono - sym_entry["ts"]
+            if isinstance(sym_entry, pd.DataFrame) and not sym_entry.empty:
+                cached_result[s] = sym_entry
+                continue
+            elif isinstance(sym_entry, dict) and isinstance(sym_entry.get("data"), pd.DataFrame) and not sym_entry["data"].empty:
+                # [RULE 67 CHANGE-RATIONALE]: Defensive timestamp resolution preventing KeyError: 'ts' if entry has 'timestamp' or missing ts
+                entry_ts = sym_entry.get("ts")
+                if entry_ts is not None:
+                    age = now_mono - entry_ts
+                elif sym_entry.get("timestamp") is not None:
+                    age = time.time() - sym_entry["timestamp"]
+                else:
+                    age = cadence + 1  # Force refresh if missing
+
                 if age < cadence:
                     # [VERSION: EOD_BOUNDARY_RAM_VALIDATION_v1.0]
                     # For 1d data, verify that if market has closed (>= 15:30 IST), the RAM cached DataFrame
@@ -391,8 +402,19 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
             now_mono = time.monotonic()
             for s in missing_symbols:
                 sym_entry = cache_dict.get(s)
-                if sym_entry and isinstance(sym_entry.get("data"), pd.DataFrame) and not sym_entry["data"].empty:
-                    if (now_mono - sym_entry["ts"]) < cadence:
+                if isinstance(sym_entry, pd.DataFrame) and not sym_entry.empty:
+                    cached_result[s] = sym_entry
+                    continue
+                elif isinstance(sym_entry, dict) and isinstance(sym_entry.get("data"), pd.DataFrame) and not sym_entry["data"].empty:
+                    entry_ts = sym_entry.get("ts")
+                    if entry_ts is not None:
+                        age = now_mono - entry_ts
+                    elif sym_entry.get("timestamp") is not None:
+                        age = time.time() - sym_entry["timestamp"]
+                    else:
+                        age = cadence + 1
+
+                    if age < cadence:
                         cached_result[s] = sym_entry["data"]
                         continue
                 still_missing.append(s)
@@ -1828,7 +1850,11 @@ def get_cached_df(symbol: str, interval: str = "1d", period: str = "1y") -> pd.D
                     with _lock:
                         if key not in _cache or not isinstance(_cache[key], dict):
                             _cache[key] = {}
-                        _cache[key][symbol] = {"data": df, "timestamp": time.time() if "time" in globals() else 0}
+                        _cache[key][symbol] = {
+                            "data": df,
+                            "ts": time.monotonic(),
+                            "timestamp": time.time()
+                        }
                     return df
             except Exception:
                 pass
