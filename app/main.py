@@ -1658,26 +1658,45 @@ def run_system_scheduler():
                 #    Guarantees 15m candle is 100% closed with a +20s buffer before screening.
                 # 2. Secondary 5m Monitor (Confirmation Layer: 09:35, 09:40, 09:50, 09:55 … 15:25 IST)
                 #    Monitors stateful ARMED candidates only (<3s).
-                if (now.hour >= 9 and (now.hour < 15 or (now.hour == 15 and now.minute <= 30))):
+                # [RULE 67 CHANGE-RATIONALE]: Refresh timestamp and use slot-based boundary checking in background threads.
+                # Previously, synchronous exit monitors running at :00 delayed the scheduler loop past :00:59,
+                # causing the narrow (now.minute % 15 == 0 and now.second >= 20) check to evaluate to False and miss the slot entirely.
+                from datetime import timedelta as _td
+                now_mtf = datetime.now(IST)
+                if (now_mtf.hour >= 9 and (now_mtf.hour < 15 or (now_mtf.hour == 15 and now_mtf.minute <= 30))):
                     # Check 15m completed candle boundary (09:30, 09:45, 10:00 … 15:15)
-                    if (now.hour > 9 or now.minute >= 30) and (now.minute % 15 == 0) and now.second >= 20:
-                        slot_15m = now.replace(second=0, microsecond=0)
+                    slot_15m_min = (now_mtf.minute // 15) * 15
+                    slot_15m = now_mtf.replace(minute=slot_15m_min, second=0, microsecond=0)
+                    if (now_mtf.hour > 9 or now_mtf.minute >= 30) and now_mtf >= (slot_15m + _td(seconds=20)):
                         if last_multi_tf is None or slot_15m > last_multi_tf:
                             last_multi_tf = slot_15m
                             if not is_scanner_stopped("MULTI_TF"):
-                                logger.info(f"🚀 MULTI_TF (15M) | Starting closed-candle aligned 15m intelligence cycle at {now.strftime('%H:%M:%S IST')}...")
-                                _trigger_multi_tf()
+                                logger.info(f"🚀 MULTI_TF (15M) | Starting closed-candle aligned 15m intelligence cycle for slot {slot_15m.strftime('%H:%M')} IST...")
+                                import threading
+                                threading.Thread(
+                                    target=_trigger_multi_tf,
+                                    kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"},
+                                    name=f"MultiTF-15m-{slot_15m.strftime('%H%M')}",
+                                    daemon=True
+                                ).start()
                             else:
                                 logger.info("⏭️ MULTI_TF is STOPPED by Admin. Skipping 15m cycle.")
 
                     # Check intermediate 5m completed candle boundary (09:35, 09:40, 09:50, 09:55 … 15:25)
-                    elif (now.hour > 9 or now.minute >= 35) and (now.minute % 5 == 0) and (now.minute % 15 != 0) and now.second >= 15:
-                        slot_5m = now.replace(second=0, microsecond=0)
+                    slot_5m_min = (now_mtf.minute // 5) * 5
+                    slot_5m = now_mtf.replace(minute=slot_5m_min, second=0, microsecond=0)
+                    if slot_5m.minute % 15 != 0 and (now_mtf.hour > 9 or now_mtf.minute >= 35) and now_mtf >= (slot_5m + _td(seconds=15)):
                         if last_multi_tf_5m is None or slot_5m > last_multi_tf_5m:
                             last_multi_tf_5m = slot_5m
                             if not is_scanner_stopped("MULTI_TF"):
-                                logger.info(f"⚡ MULTI_TF (5M MONITOR) | Starting lightweight ARMED candidate confirmation check at {now.strftime('%H:%M:%S IST')}...")
-                                _trigger_multi_tf_5m_monitor()
+                                logger.info(f"⚡ MULTI_TF (5M MONITOR) | Starting lightweight ARMED candidate confirmation check for slot {slot_5m.strftime('%H:%M')} IST...")
+                                import threading
+                                threading.Thread(
+                                    target=_trigger_multi_tf_5m_monitor,
+                                    kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"},
+                                    name=f"MultiTF-5m-{slot_5m.strftime('%H%M')}",
+                                    daemon=True
+                                ).start()
                 
                 check_scanner_staleness(now)
                 

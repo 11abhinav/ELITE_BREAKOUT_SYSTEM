@@ -7122,10 +7122,21 @@ def get_elite_watchlist() -> list:
                     WHERE symbol IS NOT NULL AND symbol != ''
                 """)
                 rows = cur.fetchall()
-                return sorted([r[0] for r in rows if r[0]])
+                if rows:
+                    return sorted([r[0] for r in rows if r[0]])
     except Exception as e:
-        logger.error(f"Failed to fetch elite watchlist: {e}")
-        return []
+        logger.error(f"Failed to fetch elite watchlist from DB: {e}")
+
+    # Fallback to parquet watchlist cache so intraday scanners never encounter an empty universe
+    try:
+        from watchlist_cache import get_watchlist
+        import pandas as pd
+        wl = get_watchlist()
+        if isinstance(wl, pd.DataFrame) and "Stock" in wl.columns and not wl.empty:
+            return sorted(wl["Stock"].dropna().unique().tolist())
+    except Exception as e2:
+        logger.error(f"Failed to fetch elite watchlist fallback from cache: {e2}")
+    return []
 
 def get_active_breakout_watchlist() -> list:
     """
