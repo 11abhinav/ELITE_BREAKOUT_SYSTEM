@@ -182,9 +182,9 @@ def _find_valid_window(df: pd.DataFrame, atr_15m: float, config: Dict[str, Any])
     Takes recent 4 to 16 closed candles. If an overnight gap exceeds GAP_PCT_THRESHOLD,
     the consolidation window bounds to the current day.
     """
-    max_bars = config.get("MAX_CONSOLIDATION_BARS", 16)
-    gap_pct_limit = config.get("GAP_PCT_THRESHOLD", 0.0075)
-    gap_atr_limit = config.get("GAP_ATR_MULT", 1.0) * (atr_15m if atr_15m > 0 else 1.0)
+    max_bars = config.get("MAX_CONSOLIDATION_BARS", 35)
+    gap_pct_limit = config.get("GAP_PCT_THRESHOLD", 0.020)
+    gap_atr_limit = config.get("GAP_ATR_MULT", 2.0) * (atr_15m if atr_15m > 0 else 1.0)
 
     # Slice to max lookback bars first
     recent_slice = df.iloc[-max_bars:].copy()

@@ -176,18 +176,22 @@ MULTI_TF_V2_CONFIG = {
     "M30_ROOM_SCORE":               10,
 
     # ── BASE GEOMETRY ──
-    "MIN_CONSOLIDATION_BARS":       4,       # Adaptive base window (4–12 candles)
-    "MAX_CONSOLIDATION_BARS":       12,      # Upper bound (>12 = excessive unless still tight)
-    "MIN_BOX_OCCUPANCY":            0.65,
-    "MAX_BOX_WIDTH_PCT":            0.035,
-    "MAX_BOX_WIDTH_ATR":            1.50,    # Hard reject: range > 1.5× 15m ATR
-    "MIN_RESISTANCE_TESTS":         2,       # Minimum distinct resistance touches required
-    "GAP_PCT_THRESHOLD":            0.0075,
-    "GAP_ATR_MULT":                 1.0,
+    # [RULE 67 CHANGE-RATIONALE]: Increased MAX_CONSOLIDATION_BARS from 12 to 35 so high-quality multi-day
+    # consolidation bases (yesterday + today) are captured instead of getting arbitrarily cut off.
+    # Adjusted GAP_PCT_THRESHOLD from 0.0075 (0.75%) to 0.02 (2.0%) to prevent morning opening moves
+    # from prematurely destroying valid consolidations. Set MONITOR_SETUP_SCORE to 50 for WATCHING bases.
+    "MIN_CONSOLIDATION_BARS":       4,       # Adaptive base window (4–35 candles)
+    "MAX_CONSOLIDATION_BARS":       35,      # Multi-day base lookback (up to 1.5 sessions)
+    "MIN_BOX_OCCUPANCY":            0.60,
+    "MAX_BOX_WIDTH_PCT":            0.045,
+    "MAX_BOX_WIDTH_ATR":            2.20,    # Range cap: range <= 2.2× 15m ATR
+    "MIN_RESISTANCE_TESTS":         1,       # At least 1 touch required for initial watching base
+    "GAP_PCT_THRESHOLD":            0.020,   # 2.0% gap limit to avoid truncating normal multi-day bases
+    "GAP_ATR_MULT":                 2.0,
     "BOX_HIGH_QUANTILE":            0.90,
     "BOX_LOW_QUANTILE":             0.10,
-    "RESISTANCE_TEST_TOL_PCT":      0.0015,  # max(0.15% of price, 0.08× ATR) for touch detection
-    "RESISTANCE_TEST_TOL_ATR":      0.08,
+    "RESISTANCE_TEST_TOL_PCT":      0.0020,  # 0.20% of price for touch detection
+    "RESISTANCE_TEST_TOL_ATR":      0.10,
     "PIVOT_CONFIRM_ATR_MULT":       0.20,
     "PIVOT_CONFIRM_BOX_MULT":       0.15,
 
@@ -213,7 +217,7 @@ MULTI_TF_V2_CONFIG = {
 
     # Quality tier thresholds (Base Score)
     "MIN_SETUP_SCORE":              70,      # >= 70 → 15M_BREAKOUT_WATCH
-    "MONITOR_SETUP_SCORE":          60,      # 60–69 → log only
+    "MONITOR_SETUP_SCORE":          50,      # >= 50 → WATCHING base in watchlist
     "STRONG_SETUP_SCORE":           80,      # SUPER BASE tier
     "PREMIUM_SETUP_SCORE":          90,      # EXCEPTIONAL BASE tier
 

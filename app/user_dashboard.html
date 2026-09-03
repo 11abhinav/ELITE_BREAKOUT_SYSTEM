@@ -1257,10 +1257,33 @@ window.renderSignalLadder = function() {
       const rangeHtml = `<div style="font-family:var(--font-mono); font-size:11px;">${highStr} <span style="color:var(--muted);">/</span> ${lowStr}${widthPct}</div>`;
 
       const tests = d.resistance_test_count;
-      const testsStr = (tests != null && tests !== undefined && !isNaN(tests) && tests > 0) ? `${tests} Res Touches` : (st === 'WATCHING' ? 'Base Forming' : 'Testing Res');
+      const cmpVal = parseFloat(d.cmp || 0);
+      const triggerVal = parseFloat(boxHigh || 0);
+      let distHtml = '';
+      if (cmpVal > 0 && triggerVal > 0) {
+          const distPct = ((triggerVal - cmpVal) / triggerVal) * 100;
+          if (distPct < -0.2) {
+              distHtml = `<span style="color:#4ade80; font-weight:700;">🚀 Broken Out (+${Math.abs(distPct).toFixed(1)}%)</span>`;
+          } else if (distPct >= -0.2 && distPct <= 0.4) {
+              distHtml = `<span style="color:#22c55e; font-weight:700;">🎯 At Trigger (${Math.abs(distPct).toFixed(1)}%)</span>`;
+          } else if (distPct > 0.4 && distPct <= 1.5) {
+              distHtml = `<span style="color:#fbbf24; font-weight:600;">⚡ ${distPct.toFixed(1)}% to Trigger</span>`;
+          } else {
+              distHtml = `<span style="color:var(--text);">${distPct.toFixed(1)}% to Trigger</span>`;
+          }
+      } else if (tests != null && tests > 0) {
+          distHtml = `<span style="font-weight:600; color:var(--text);">${tests} Res Touches</span>`;
+      } else {
+          distHtml = `<span style="color:var(--muted);">${st === 'WATCHING' ? 'Base Forming' : 'Developing'}</span>`;
+      }
+
       const volRatio = parseFloat(d.volume_ratio_5m || 0);
-      const volText = volRatio > 0 ? `${volRatio.toFixed(1)}x Vol` : 'Normal Vol';
-      const testsHtml = `<div style="font-size:11px;"><span style="font-weight:600; color:var(--text);">${testsStr}</span> · <span style="color:var(--muted);">${volText}</span></div>`;
+      const volText = volRatio >= 1.25 
+          ? `<span style="color:#f59e0b; font-weight:700;">🔥 ${volRatio.toFixed(1)}x Vol</span>` 
+          : (volRatio > 0 ? `<span style="color:var(--muted);">${volRatio.toFixed(1)}x Vol</span>` : `<span style="color:var(--muted);">Normal Vol</span>`);
+
+      const touchBadge = (tests != null && tests > 0) ? ` <span style="font-size:10px; color:var(--muted); font-weight:normal;">(${tests} Tests)</span>` : '';
+      const testsHtml = `<div style="font-size:11px; line-height:1.4;"><div>${distHtml}${touchBadge}</div><div style="font-size:10px; margin-top:2px;">${volText}</div></div>`;
 
       let severityHtml = '';
       if (st === 'BREAKOUT_CONFIRMED' || st === 'TRIGGERED' || d.severity) {
