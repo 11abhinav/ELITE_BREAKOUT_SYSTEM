@@ -7256,17 +7256,17 @@ def get_active_breakout_watchlist() -> list:
                             WHEN b.current_state = 'BREAKOUT_CONFIRMED' THEN 'BREAKOUT_CONFIRMED'
                             ELSE 'WATCHING'
                         END AS current_state,
-                        78 AS base_score,
-                        78 AS setup_score,
+                        NULL::numeric AS base_score,
+                        NULL::numeric AS setup_score,
                         COALESCE(b.breakout_level, b.trigger_level, 0.0) AS box_high,
                         COALESCE(b.support_level, b.invalidation_level, 0.0) AS box_low,
                         (COALESCE(b.breakout_level, b.trigger_level, 0.0) + COALESCE(b.support_level, b.invalidation_level, 0.0)) / 2.0 AS box_mid,
-                        0.02 AS box_width_pct,
-                        1.2 AS box_width_atr,
-                        2 AS resistance_test_count,
-                        14 AS compression_score,
-                        8 AS higher_low_score,
-                        1.6 AS volume_ratio_5m,
+                        NULL::numeric AS box_width_pct,
+                        NULL::numeric AS box_width_atr,
+                        NULL::integer AS resistance_test_count,
+                        NULL::numeric AS compression_score,
+                        NULL::numeric AS higher_low_score,
+                        NULL::numeric AS volume_ratio_5m,
                         'NORMAL' AS market_regime,
                         COALESCE(b.breakout_level, b.trigger_level, 0.0) AS breakout_level,
                         COALESCE(b.support_level, b.invalidation_level, 0.0) AS support_level,
@@ -7300,6 +7300,7 @@ def get_active_breakout_watchlist() -> list:
                     ) a ON TRUE
                     WHERE b.current_state IN ('HOURLY_APPROVED', 'SETUP_ARMED', 'BREAKOUT_CONFIRMED', 'ENTRY_READY')
                       AND (b.is_active IS NULL OR b.is_active = TRUE)
+                      AND b.last_updated >= NOW() - INTERVAL '24 hours'
                     ORDER BY b.last_updated DESC
                 """)
                 columns2 = [desc[0] for desc in cur.description]

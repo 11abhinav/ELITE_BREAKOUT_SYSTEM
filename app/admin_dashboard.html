@@ -3610,10 +3610,11 @@ function changeAdminPage(type, delta) {
         const widthPct = (item.box_width_pct && parseFloat(item.box_width_pct) > 0) ? ` <span style="color:var(--muted); font-size:10px;">(${parseFloat(item.box_width_pct).toFixed(1)}%)</span>` : '';
         const rangeHtml = `<div style="font-family:var(--font-mono); font-size:11px;">${highStr} <span style="color:var(--muted);">/</span> ${lowStr}${widthPct}</div>`;
 
-        const tests = item.resistance_test_count || 2;
+        const tests = item.resistance_test_count;
+        const testsStr = (tests != null && tests !== undefined && !isNaN(tests) && tests > 0) ? `${tests} Res Touches` : (st === 'WATCHING' ? 'Base Forming' : 'Testing Res');
         const volRatio = parseFloat(item.volume_ratio_5m || 0);
         const volText = volRatio > 0 ? `${volRatio.toFixed(1)}x Vol` : 'Normal Vol';
-        const testsHtml = `<div style="font-size:11px;"><span style="font-weight:600; color:var(--text);">${tests} Res Touches</span> · <span style="color:var(--muted);">${volText}</span></div>`;
+        const testsHtml = `<div style="font-size:11px;"><span style="font-weight:600; color:var(--text);">${testsStr}</span> · <span style="color:var(--muted);">${volText}</span></div>`;
 
         let timeStr = '—';
         if (item.last_updated) {
