@@ -7304,6 +7304,7 @@ def get_active_breakout_watchlist() -> list:
                     ) a ON TRUE
                     WHERE b.current_state IN ('HOURLY_APPROVED', 'SETUP_ARMED', 'BREAKOUT_CONFIRMED', 'ENTRY_READY')
                       AND (b.is_active IS NULL OR b.is_active = TRUE)
+                      AND b.last_updated >= NOW() - INTERVAL '24 hours'
                     ORDER BY b.last_updated DESC
                 """)
                 columns2 = [desc[0] for desc in cur.description]
