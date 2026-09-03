@@ -476,13 +476,18 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
                 _cache[cache_key][symbol] = {
                     "data": df,
                     "ts": now_mono,
+                    "timestamp": time.time(),
                     "data_as_of": data_as_of,
                     "provider": provider_name,
                     "schema_version": "v8.4.0",
                     "fetch_interval": interval,
                     "fetch_period": period
                 }
-    final_res = {s: cached_result.get(s) for s in watchlist["Stock"]}
+                # [RULE 67 CHANGE-RATIONALE]: Ensure newly fetched DataFrames are populated into cached_result so final_res returns them to caller
+                cached_result[symbol] = df
+            else:
+                cached_result[symbol] = None
+    final_res = {s: (cached_result.get(s) if cached_result.get(s) is not None else (result.get(s) if result else None)) for s in watchlist["Stock"]}
 
     # [VERSION: POST_MARKET_CMP_ALIGNMENT_v1.0]
     # When fetching 1d data post-market (>= 15:30 IST on a weekday), verify that every symbol's
