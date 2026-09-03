@@ -124,7 +124,8 @@ def detect_15m_consolidation(
     df_15m_closed: Optional[pd.DataFrame],
     atr_15m: float,
     ist_now: datetime,
-    config: Dict[str, Any]
+    config: Dict[str, Any],
+    symbol: Optional[str] = None
 ) -> ConsolidationResult:
     """
     Main entry point for 15m consolidation base detection.
@@ -134,12 +135,12 @@ def detect_15m_consolidation(
       3. Computes 0-100 Consolidation Quality Score.
       4. Qualifies setup as valid when setup_score >= MIN_SETUP_SCORE (default 70).
     """
+    sym = symbol or (df_15m_closed.attrs.get("symbol") if df_15m_closed is not None else None) or "?"
     min_bars = config.get("MIN_CONSOLIDATION_BARS", 4)
     if df_15m_closed is None or len(df_15m_closed) < min_bars:
-        return ConsolidationResult(symbol="?", is_valid=False)
+        return ConsolidationResult(symbol=sym, is_valid=False)
 
-    symbol = df_15m_closed.attrs.get("symbol", "?")
-    res = ConsolidationResult(symbol=symbol, is_valid=False)
+    res = ConsolidationResult(symbol=sym, is_valid=False)
 
     try:
         # 1. Find Valid Base Window (respects overnight gap policy and max lookback)
@@ -190,10 +191,11 @@ def _find_valid_window(df: pd.DataFrame, atr_15m: float, config: Dict[str, Any])
     recent_slice = df.iloc[-max_bars:].copy()
     
     if "session_date" not in recent_slice.columns:
-        if isinstance(recent_slice.index, pd.DatetimeIndex):
-            recent_slice["session_date"] = recent_slice.index.date
+        if "Date" in recent_slice.columns:
+            recent_slice["session_date"] = pd.to_datetime(recent_slice["Date"]).dt.date
         else:
-            recent_slice["session_date"] = pd.to_datetime(recent_slice.get("Date", recent_slice.index)).dt.date
+            dt_idx = pd.to_datetime(recent_slice.index)
+            recent_slice["session_date"] = dt_idx.date if hasattr(dt_idx, "date") else [d.date() for d in dt_idx]
 
     window_start_idx = recent_slice.index[0]
     dates = list(recent_slice["session_date"].unique())

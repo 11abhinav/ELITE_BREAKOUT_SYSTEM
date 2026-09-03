@@ -185,7 +185,7 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             atr_15m = _get_atr(df_15m_closed)
             if atr_15m <= 0:
                 continue
-            cons = detect_15m_consolidation(df_15m_closed, atr_15m, ist_now, MULTI_TF_V2_CONFIG)
+            cons = detect_15m_consolidation(df_15m_closed, atr_15m, ist_now, MULTI_TF_V2_CONFIG, symbol=symbol)
             if cons.is_valid:
                 shortlisted_symbols.append(symbol)
                 consolidation_map[symbol] = cons
