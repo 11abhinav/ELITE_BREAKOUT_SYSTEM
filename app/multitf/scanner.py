@@ -134,11 +134,15 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             logger.warning(f"⚠️ [MULTI_TF] Could not create run_ctx: {exc}")
             real_run_ctx = None
 
+        # [RULE 67 CHANGE-RATIONALE]: Explicitly record scheduled_for in scanner_health so
+        # the dashboard always displays accurate, true schedule timings without relying on background seeders.
+        _MTF_SCHEDULE = "Every 15m Scan / 5m Monitor (09:30 - 15:30 IST)"
         stage_tracker.start_stage(1, "Load Watchlist", "Fetching elite watchlist symbols from DB")
         upsert_scanner_health(
             scanner_name="MULTI_TF",
             status="RUNNING",
-            error_msg="Scan execution in progress..."
+            error_msg="Scan execution in progress...",
+            scheduled_for=_MTF_SCHEDULE
         )
 
         watchlist = get_elite_watchlist()
@@ -149,7 +153,8 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
                 status="OK",
                 outcome="SUCCESS",
                 processed_count=0,
-                duration_seconds=round(time.monotonic() - start_time, 2)
+                duration_seconds=round(time.monotonic() - start_time, 2),
+                scheduled_for=_MTF_SCHEDULE
             )
             stage_tracker.end_stage("Watchlist empty")
             telemetry.log_scheduler_event("MULTI_TF", "CYCLE_COMPLETE")
@@ -259,7 +264,8 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             outcome="SUCCESS",
             processed_count=len(watchlist),
             total_count=len(watchlist),
-            duration_seconds=duration
+            duration_seconds=duration,
+            scheduled_for=_MTF_SCHEDULE
         )
 
         if real_run_ctx:
@@ -289,7 +295,8 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             status="DOWN",
             outcome="FAILED",
             error_msg=str(exc),
-            duration_seconds=duration
+            duration_seconds=duration,
+            scheduled_for=_MTF_SCHEDULE
         )
         if real_run_ctx:
             try:
@@ -368,13 +375,15 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
 
         opp_manager.process()
         duration = round(time.monotonic() - start_time, 2)
+        _MTF_5M_SCHEDULE = "Every 5min Monitor (09:35 - 15:25 IST)"
         upsert_scanner_health(
             scanner_name="MULTI_TF_5M",
             status="OK",
             outcome="SUCCESS",
             processed_count=len(symbols),
             total_count=len(symbols),
-            duration_seconds=duration
+            duration_seconds=duration,
+            scheduled_for=_MTF_5M_SCHEDULE
         )
         if real_run_ctx:
             try:
@@ -386,13 +395,15 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
         logger.info(f"✅ [MULTI_TF_5M] 5m monitor cycle complete in {duration}s for {len(symbols)} candidates.")
     except Exception as exc:
         duration = round(time.monotonic() - start_time, 2)
+        _MTF_5M_SCHEDULE = "Every 5min Monitor (09:35 - 15:25 IST)"
         logger.error(f"[MULTI_TF_5M] Error during 5m monitor: {exc}")
         upsert_scanner_health(
             scanner_name="MULTI_TF_5M",
             status="DOWN",
             outcome="FAILED",
             error_msg=str(exc),
-            duration_seconds=duration
+            duration_seconds=duration,
+            scheduled_for=_MTF_5M_SCHEDULE
         )
         if real_run_ctx:
             try:

@@ -601,6 +601,9 @@ class AccumulationScanner:
 
             dur_sec = round((datetime.now(IST) - start_time).total_seconds(), 2)
             now_str = datetime.now(IST).isoformat()
+            # [RULE 67 CHANGE-RATIONALE]: Explicitly record scheduled_for in scanner_health so
+            # the dashboard displays accurate execution timings.
+            _ACC_SCHEDULE = "Daily 18:35 IST (Post-Bhavcopy / Verified Evening Batch)"
             upsert_scanner_health(
                 "ACCUMULATION",
                 status="OK",
@@ -608,7 +611,8 @@ class AccumulationScanner:
                 today_alerts=trade_alerts_count,
                 processed_count=len(symbols),
                 total_count=len(symbols),
-                duration_seconds=dur_sec
+                duration_seconds=dur_sec,
+                scheduled_for=_ACC_SCHEDULE
             )
             if run_ctx:
                 complete_scanner_execution_run(run_ctx)
@@ -635,11 +639,13 @@ class AccumulationScanner:
                 except Exception:
                     pass
             dur_sec = round((datetime.now(IST) - start_time).total_seconds(), 2)
+            _ACC_SCHEDULE = "Daily 18:35 IST (Post-Bhavcopy / Verified Evening Batch)"
             upsert_scanner_health(
                 "ACCUMULATION",
                 status="DOWN",
                 error_msg=str(exc),
-                duration_seconds=dur_sec
+                duration_seconds=dur_sec,
+                scheduled_for=_ACC_SCHEDULE
             )
             if run_ctx:
                 try:
