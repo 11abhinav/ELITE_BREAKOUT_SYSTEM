@@ -5301,17 +5301,48 @@ def delete_stale_parquet_from_db(name: str) -> bool:
         logger.exception(f"❌ Failed to delete stale {name} from DB")
         return False
 
+from dataclasses import dataclass
+
+@dataclass
+class BundleUploadState:
+    generation: int = 0
+    uploaded_generation: int = 0
+    upload_in_progress: bool = False
+    pending: bool = False
+
+_bundle_states: dict[str, BundleUploadState] = {}
+_bundle_state_lock = threading.Lock()
 _last_bundle_upload_time: dict[str, float] = {}
 _last_bundle_checksum: dict[str, str] = {}
+
+def advance_interval_generation(interval: str) -> int:
+    """
+    [RULE 67 CHANGE-RATIONALE: GENERATION_BASED_PERSISTENCE_v1.0]
+    Advances the mutation batch generation counter once per completed fetch/write batch.
+    Enforces that bundle persistence represents consistent mutation batches rather than
+    triggering 121 individual uploads for 121 parquet writes.
+    """
+    with _bundle_state_lock:
+        st = _bundle_states.setdefault(interval, BundleUploadState())
+        st.generation += 1
+        return st.generation
+
+def get_interval_generation(interval: str) -> tuple[int, int]:
+    """Returns (current_generation, uploaded_generation) for this interval."""
+    with _bundle_state_lock:
+        st = _bundle_states.setdefault(interval, BundleUploadState())
+        return st.generation, st.uploaded_generation
 
 def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 60.0, force: bool = False) -> bool:
     """
     Compresses all OHLCV parquet and metadata sidecars in data/history/{interval}/
     into a tar.gz bundle and persists to PostgreSQL parquet_cache under name 'history_bundle_{interval}'.
 
-    [OPTIMIZATION: MD5_CHECKSUM_FIRST_v1.0]
-    Checks MD5 checksum first. If files have changed, uploads immediately to PostgreSQL DB
-    without time throttling so history is never lost across server restarts.
+    [RULE 67 CHANGE-RATIONALE: GENERATION_COALESCING_v1.0]
+    1. Tracks generation vs uploaded_generation to ensure no redundant bundle uploads.
+    2. Coalesces concurrent upload requests: if an upload is already running, marks pending=True.
+    3. Captures target_upload_generation BEFORE tar creation to eliminate snapshot race conditions.
+    4. Only holds _DB_WRITE_LOCK during the actual SQL INSERT/UPDATE, never during OS tar compression.
     """
     import io
     import time
@@ -5322,26 +5353,46 @@ def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 
     global _last_bundle_upload_time, _last_bundle_checksum
     now_ts = time.time()
 
-    # [OPTIMIZATION: FAST_PATH_THROTTLE_v1.0] Check time throttle before running heavy OS tar compression
-    if not force and (now_ts - _last_bundle_upload_time.get(interval, 0)) < min_interval_sec:
-        return True
+    target_upload_generation = 0
+    with _bundle_state_lock:
+        st = _bundle_states.setdefault(interval, BundleUploadState())
+        if not force and st.generation == st.uploaded_generation and (now_ts - _last_bundle_upload_time.get(interval, 0)) < min_interval_sec:
+            logger.debug(f"ℹ️ [HISTORY BUNDLE] Interval {interval} generation {st.generation} already uploaded. Skipping.")
+            return True
+        if st.upload_in_progress:
+            st.pending = True
+            logger.debug(f"⏳ [HISTORY BUNDLE] Upload already in progress for {interval}. Marked pending (current_gen={st.generation}).")
+            return True
+        st.upload_in_progress = True
+        st.pending = False
+        target_upload_generation = st.generation
 
     history_dir = os.path.join(DATA_DIR, "history", interval)
     if not os.path.exists(history_dir):
         logger.warning(f"⚠️ [HISTORY BUNDLE DB SYNC SKIPPED] Directory does not exist: {history_dir}")
+        with _bundle_state_lock:
+            st = _bundle_states.setdefault(interval, BundleUploadState())
+            st.upload_in_progress = False
         return False
 
     files = [f for f in os.listdir(history_dir) if f.endswith(".parquet") or f.endswith(".meta.json")]
     if not files:
         logger.warning(f"⚠️ [HISTORY BUNDLE DB SYNC SKIPPED] No files to compress in {history_dir}")
+        with _bundle_state_lock:
+            st = _bundle_states.setdefault(interval, BundleUploadState())
+            st.upload_in_progress = False
         return False
 
     if not os.getenv("DATABASE_URL"):
         logger.debug("DATABASE_URL is not set. Skipping history bundle DB upload.")
+        with _bundle_state_lock:
+            st = _bundle_states.setdefault(interval, BundleUploadState())
+            st.upload_in_progress = False
         return False
 
     init_db()
     today = datetime.now(IST).strftime("%Y-%m-%d")
+    upload_success = False
     try:
         import subprocess
         import tempfile
@@ -5364,9 +5415,10 @@ def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 
         os.remove(tmp_path)
         current_md5 = hashlib.md5(binary_data).hexdigest()
 
-        if not force and _last_bundle_checksum.get(interval) == current_md5:
-            logger.info(f"ℹ️ [HISTORY BUNDLE DB SYNC] Skipped history_bundle_{interval} upload — dataset unchanged (MD5: {current_md5[:8]})")
+        if not force and _last_bundle_checksum.get(interval) == current_md5 and st.generation == target_upload_generation:
+            logger.info(f"ℹ️ [HISTORY BUNDLE DB SYNC] Skipped history_bundle_{interval} upload — dataset unchanged (MD5: {current_md5[:8]}, Gen: {target_upload_generation})")
             _last_bundle_upload_time[interval] = now_ts
+            upload_success = True
             return True
 
         name = f"history_bundle_{interval}"
@@ -5384,11 +5436,26 @@ def upload_history_bundle_to_db(interval: str = "1d", min_interval_sec: float = 
 
         _last_bundle_upload_time[interval] = now_ts
         _last_bundle_checksum[interval] = current_md5
-        logger.info(f"💾 [HISTORY BUNDLE DB SYNC SUCCESS] Uploaded {len(files)} files ({len(binary_data)/1024.0:.1f} KB, MD5: {current_md5[:8]}) for {name} to DB parquet_cache for {today}")
+        upload_success = True
+        logger.info(f"💾 [HISTORY BUNDLE DB SYNC SUCCESS] Uploaded {len(files)} files ({len(binary_data)/1024.0:.1f} KB, MD5: {current_md5[:8]}, Gen: {target_upload_generation}) for {name} to DB parquet_cache for {today}")
         return True
     except Exception as e:
         logger.error(f"❌ [HISTORY BUNDLE DB SYNC FAILURE] Failed to upload history bundle for {interval} to DB: {e}", exc_info=True)
         return False
+    finally:
+        follow_up_needed = False
+        with _bundle_state_lock:
+            st = _bundle_states.setdefault(interval, BundleUploadState())
+            st.upload_in_progress = False
+            if upload_success:
+                st.uploaded_generation = max(st.uploaded_generation, target_upload_generation)
+            if st.pending or st.generation > st.uploaded_generation:
+                st.pending = False
+                follow_up_needed = True
+
+        if follow_up_needed:
+            logger.info(f"🔄 [HISTORY BUNDLE COALESCE] Generation advanced during sync for {interval} (gen={st.generation} > uploaded={st.uploaded_generation}). Triggering coalesced follow-up.")
+            submit_background_upload(lambda _iv=interval: upload_history_bundle_to_db(_iv, force=True))
 
 def restore_history_bundle_from_db(interval: str = "1d") -> bool:
     """

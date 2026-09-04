@@ -173,6 +173,11 @@ class ScannerRunContext:
     def increment_alerts(self, count: int = 1):
         self.add_alert(count)
 
+    def set_alerts(self, count: int):
+        with self._lock:
+            self.alerts_generated = max(0, int(count))
+            self.heartbeat()
+
     def record_api_call(self, count: int = 1):
         with self._lock:
             self.api_calls += count

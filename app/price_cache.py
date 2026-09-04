@@ -997,6 +997,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
             )
 
     # Process each coalesced group
+    any_parquet_written = False
     for group_key, items in coalesced_groups.items():
         group_symbols = [item[0] for item in items]
         group_total = len(group_symbols)
@@ -1393,6 +1394,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             tmp_file_path = f"{file_path}.tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}"
                             all_data[sym].to_parquet(tmp_file_path, compression='snappy')
                             os.replace(tmp_file_path, file_path)
+                            any_parquet_written = True
 
                             meta_path = file_path.replace('.parquet', '.meta.json')
                             val_score = getattr(n_rep, 'quality_score', 100) if n_rep else 100
@@ -1464,12 +1466,9 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                 except Exception as _hb_err:
                     logger.debug(f"Heartbeat pulse error during batch download: {_hb_err}")
 
-            # Incrementally sync batch progress to PostgreSQL parquet_cache (throttled to 60s)
-            try:
-                from database import upload_history_bundle_to_db, submit_background_upload
-                submit_background_upload(lambda _iv=interval: upload_history_bundle_to_db(_iv, min_interval_sec=60.0))
-            except Exception as _b_up_err:
-                logger.debug(f"Incremental history bundle sync dispatch: {_b_up_err}")
+            # [RULE 67 CHANGE-RATIONALE: REMOVE_INNER_LOOP_BUNDLE_SYNC_v1.0]
+            # Inner-loop 45MB tar + DB upload removed to eliminate ~2.5min I/O thrashing between sub-batches.
+            # Persistence is now decoupled and handled once per fetch cycle via generation coalescing.
 
     successful_syms = []
     for sym in symbols:
@@ -1509,18 +1508,16 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
     except Exception:
         pass
         
-    try:
-        def upload_history_job():
-            try:
-                from database import upload_history_bundle_to_db
-                upload_history_bundle_to_db(interval)
-            except Exception as e:
-                logger.debug(f"Background history upload info: {e}")
-
-        from database import submit_background_upload
-        submit_background_upload(upload_history_job)
-    except Exception as _hb_up_err:
-        logger.debug(f"History bundle auto-upload submission: {_hb_up_err}")
+    if any_parquet_written:
+        try:
+            from database import advance_interval_generation, upload_history_bundle_to_db, submit_background_upload
+            # [RULE 67 CHANGE-RATIONALE: BATCH_GENERATION_ADVANCE_v1.0]
+            # Advance mutation generation once per completed fetch cycle rather than 121 times per file write.
+            new_gen = advance_interval_generation(interval)
+            logger.info(f"⚡ [PRICE_CACHE] Mutated {interval} cache (gen={new_gen}). Scheduling background bundle persistence.")
+            submit_background_upload(lambda _iv=interval: upload_history_bundle_to_db(_iv))
+        except Exception as _hb_up_err:
+            logger.debug(f"History bundle auto-upload submission: {_hb_up_err}")
     
     return all_data
 

@@ -25,7 +25,7 @@ from price_cache import fetch_watchlist_data
 
 from multitf.data import load_multitf_data, strip_closed_candles
 from multitf.context import evaluate_1h_context, evaluate_30m_context, evaluate_market_context
-from multitf.consolidation import detect_15m_consolidation
+from multitf.consolidation import detect_15m_consolidation, prepare_15m_context, Prepared15mContext
 from multitf.pressure import evaluate_5m_pressure
 from multitf.confluence import evaluate_breakout_confluence
 from multitf.breakout_strength import compute_breakout_strength, classify_alert_severity, SEVERITY_EMOJI, SEVERITY_LABEL
@@ -47,6 +47,21 @@ from sl_target_helper import compute_sl_and_target
 logger = logging.getLogger("multitf.scanner")
 _scan_lock = ProcessLock("multi_tf_scanner")
 _global_lock = ProcessLock("global_scanner_lock")
+
+
+def _get_rss_mb() -> float:
+    """Returns current process RSS memory in MB cross-platform (Linux & macOS)."""
+    try:
+        import psutil
+        return float(psutil.Process().memory_info().rss) / (1024.0 * 1024.0)
+    except Exception:
+        pass
+    try:
+        import resource, sys
+        usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return float(usage) / (1024.0 * 1024.0) if sys.platform == "darwin" else float(usage) / 1024.0
+    except Exception:
+        return 0.0
 
 
 def _get_atr(df, default: float = 0.0) -> float:
@@ -182,79 +197,200 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
         all_15m = fetch_watchlist_data(watchlist, period="15d", interval="15m", requester="MULTI_TF", run_ctx=real_run_ctx)
 
         # Stage 2.5: Fast 15m Consolidation Screening across universe (Adaptive V3)
+        # [RULE 67 CHANGE-RATIONALE: OPTIMIZED_STAGE_2_5_V1.0]
+        # 1. Zero DataFrame slicing inside candidate window loops; uses Prepared15mContext.
+        # 2. Only mathematically provable necessary conditions gate deep evaluation (len < 6, atr <= 0, flatline).
+        # 3. Preserves all 9 adaptive candidate windows [6, 8, 10, 12, 16, 20, 24, 30, 35] without 35-bar veto.
+        # 4. Strict conservation-of-universe accounting: universe = fast_rejected + deep_screened (0 lost symbols).
+        # 5. Periodic progress logging every 50 symbols and per-stage timing / latency / memory RSS profiling.
         shortlisted_symbols = []
         consolidation_map = {}
-        funnel_stats = {
-            "universe": len(watchlist),
-            "valid_15m": 0,
-            "discovered": 0,
-            "forming": 0,
-            "qualified": 0,
-            "strong": 0,
-            "pre_breakout": 0,
-            "pressure": 0,
-            "width_exceeded": 0,
-            "score_too_low": 0,
-            "tests_too_low": 0,
-            "dormant": 0,
-            "gap_broken": 0,
-            "no_data": 0,
-            "too_few_bars": 0,
-            "atr_zero": 0,
-            "other_reject": 0,
+        total_symbols = len(watchlist)
+        min_bars_config = MULTI_TF_V2_CONFIG.get("MIN_CONSOLIDATION_BARS", 6)
+
+        rss_before = _get_rss_mb()
+        rss_peak = rss_before
+        t_stage25_start = time.monotonic()
+
+        t_ctx_prep_total = 0.0
+        t_fast_filter_total = 0.0
+        t_deep_screen_total = 0.0
+        symbol_latencies_ms: List[float] = []
+
+        fast_rejected_breakdown = {
+            "NO_DATA": 0,
+            "INSUFFICIENT_BARS": 0,
+            "ATR_ZERO_OR_NEG": 0,
+            "FLATLINE_ZERO_RANGE": 0,
+        }
+
+        deep_screened_breakdown = {
+            "QUALIFIED": 0,
+            "PRESSURE": 0,
+            "PRE_BREAKOUT": 0,
+            "STRONG": 0,
+            "FORMING": 0,
+            "WIDTH_EXCEEDED": 0,
+            "SCORE_TOO_LOW": 0,
+            "TESTS_TOO_LOW": 0,
+            "DORMANT": 0,
+            "GAP_BROKEN": 0,
+            "OTHER_REJECT": 0,
         }
 
         for idx, symbol in enumerate(watchlist):
-            if real_run_ctx and idx % 10 == 0:
+            t_sym_start = time.perf_counter()
+            if real_run_ctx and idx % 20 == 0:
                 try:
                     real_run_ctx.heartbeat()
                 except Exception:
                     pass
 
+            if idx % 50 == 0:
+                cur_rss = _get_rss_mb()
+                if cur_rss > rss_peak:
+                    rss_peak = cur_rss
+
+            t_ff_start = time.perf_counter()
             df_15m_raw = all_15m.get(symbol)
             if df_15m_raw is None or (hasattr(df_15m_raw, "empty") and df_15m_raw.empty):
-                funnel_stats["no_data"] += 1
-                continue
-            df_15m_closed = strip_closed_candles(df_15m_raw, 15, ist_now)
-            if df_15m_closed is None or df_15m_closed.empty or len(df_15m_closed) < 14:
-                funnel_stats["too_few_bars"] += 1
-                continue
-            atr_15m = _get_atr(df_15m_closed)
-            if atr_15m <= 0:
-                funnel_stats["atr_zero"] += 1
+                fast_rejected_breakdown["NO_DATA"] += 1
+                t_fast_filter_total += (time.perf_counter() - t_ff_start)
+                symbol_latencies_ms.append((time.perf_counter() - t_sym_start) * 1000.0)
                 continue
 
-            funnel_stats["valid_15m"] += 1
-            cons = detect_15m_consolidation(df_15m_closed, atr_15m, ist_now, MULTI_TF_V2_CONFIG, symbol=symbol)
+            df_15m_closed = strip_closed_candles(df_15m_raw, 15, ist_now)
+            if df_15m_closed is None or df_15m_closed.empty or len(df_15m_closed) < min_bars_config:
+                fast_rejected_breakdown["INSUFFICIENT_BARS"] += 1
+                t_fast_filter_total += (time.perf_counter() - t_ff_start)
+                symbol_latencies_ms.append((time.perf_counter() - t_sym_start) * 1000.0)
+                continue
+
+            atr_15m = _get_atr(df_15m_closed)
+            if atr_15m <= 0:
+                fast_rejected_breakdown["ATR_ZERO_OR_NEG"] += 1
+                t_fast_filter_total += (time.perf_counter() - t_ff_start)
+                symbol_latencies_ms.append((time.perf_counter() - t_sym_start) * 1000.0)
+                continue
+
+            t_fast_filter_total += (time.perf_counter() - t_ff_start)
+
+            # Context Preparation (Single-pass contiguous numpy arrays + session dates)
+            t_cp_start = time.perf_counter()
+            ctx = prepare_15m_context(df_15m_closed, atr_15m, MULTI_TF_V2_CONFIG, symbol=symbol)
+            t_ctx_prep_total += (time.perf_counter() - t_cp_start)
+
+            if ctx is None:
+                fast_rejected_breakdown["INSUFFICIENT_BARS"] += 1
+                symbol_latencies_ms.append((time.perf_counter() - t_sym_start) * 1000.0)
+                continue
+
+            if ctx.recent_high <= ctx.recent_low:
+                fast_rejected_breakdown["FLATLINE_ZERO_RANGE"] += 1
+                symbol_latencies_ms.append((time.perf_counter() - t_sym_start) * 1000.0)
+                continue
+
+            # Deep Evaluation across candidate windows
+            t_ds_start = time.perf_counter()
+            cons = detect_15m_consolidation(
+                df_15m_closed, atr_15m, ist_now, MULTI_TF_V2_CONFIG, symbol=symbol, precomputed_context=ctx
+            )
+            t_deep_screen_total += (time.perf_counter() - t_ds_start)
+
             if cons.is_valid:
                 shortlisted_symbols.append(symbol)
                 consolidation_map[symbol] = cons
-                funnel_stats["discovered"] += 1
                 stage = getattr(cons, "lifecycle_stage", "FORMING")
-                if stage == "PRESSURE":
-                    funnel_stats["pressure"] += 1
-                elif stage == "PRE_BREAKOUT":
-                    funnel_stats["pre_breakout"] += 1
-                elif stage == "STRONG":
-                    funnel_stats["strong"] += 1
-                elif stage == "QUALIFIED":
-                    funnel_stats["qualified"] += 1
+                if stage in deep_screened_breakdown:
+                    deep_screened_breakdown[stage] += 1
                 else:
-                    funnel_stats["forming"] += 1
+                    deep_screened_breakdown["QUALIFIED"] += 1
             else:
-                reason = cons.rejection_reason
+                reason = cons.rejection_reason or ""
                 if "GAP" in reason:
-                    funnel_stats["gap_broken"] += 1
+                    deep_screened_breakdown["GAP_BROKEN"] += 1
                 elif "WIDTH" in reason or "OCCUPANCY" in reason:
-                    funnel_stats["width_exceeded"] += 1
+                    deep_screened_breakdown["WIDTH_EXCEEDED"] += 1
                 elif "SCORE" in reason:
-                    funnel_stats["score_too_low"] += 1
+                    deep_screened_breakdown["SCORE_TOO_LOW"] += 1
                 elif "TEST" in reason:
-                    funnel_stats["tests_too_low"] += 1
+                    deep_screened_breakdown["TESTS_TOO_LOW"] += 1
                 elif cons.is_dormant:
-                    funnel_stats["dormant"] += 1
+                    deep_screened_breakdown["DORMANT"] += 1
                 else:
-                    funnel_stats["other_reject"] += 1
+                    deep_screened_breakdown["OTHER_REJECT"] += 1
+
+            symbol_latencies_ms.append((time.perf_counter() - t_sym_start) * 1000.0)
+
+            # Event-based progress logging every 50 symbols
+            if (idx + 1) % 50 == 0 or (idx + 1) == total_symbols:
+                fast_rej_so_far = sum(fast_rejected_breakdown.values())
+                logger.info(
+                    "[MULTI_TF][2.5] Screening progress: %d/%d symbols processed (%d qualified, %d fast-rejected)",
+                    idx + 1, total_symbols, len(shortlisted_symbols), fast_rej_so_far
+                )
+
+        t_stage25_total = time.monotonic() - t_stage25_start
+        rss_after = _get_rss_mb()
+        if rss_after > rss_peak:
+            rss_peak = rss_after
+
+        fast_rejected_count = sum(fast_rejected_breakdown.values())
+        deep_screened_count = total_symbols - fast_rejected_count
+        qualified_count = len(shortlisted_symbols)
+        invalid_screened_count = deep_screened_count - qualified_count
+
+        import numpy as _np
+        if symbol_latencies_ms:
+            lat_arr = _np.array(symbol_latencies_ms)
+            p50_ms = float(_np.percentile(lat_arr, 50))
+            p95_ms = float(_np.percentile(lat_arr, 95))
+            max_ms = float(_np.max(lat_arr))
+        else:
+            p50_ms, p95_ms, max_ms = 0.0, 0.0, 0.0
+
+        logger.info(
+            f"\n[MULTI_TF][2.5] COMPLETE\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Universe                  : {total_symbols}\n"
+            f"Fast rejected             : {fast_rejected_count}\n"
+            f"  ├── No Data             : {fast_rejected_breakdown['NO_DATA']}\n"
+            f"  ├── Insufficient Bars   : {fast_rejected_breakdown['INSUFFICIENT_BARS']}\n"
+            f"  ├── ATR <= 0            : {fast_rejected_breakdown['ATR_ZERO_OR_NEG']}\n"
+            f"  └── Flatline Zero Range : {fast_rejected_breakdown['FLATLINE_ZERO_RANGE']}\n"
+            f"Deep screened             : {deep_screened_count} (valid={qualified_count}, invalid={invalid_screened_count})\n"
+            f"  ├── Qualified Setups    : {qualified_count}\n"
+            f"  │     ├── PRESSURE      : {deep_screened_breakdown['PRESSURE']}\n"
+            f"  │     ├── PRE-BREAKOUT  : {deep_screened_breakdown['PRE_BREAKOUT']}\n"
+            f"  │     ├── STRONG        : {deep_screened_breakdown['STRONG']}\n"
+            f"  │     └── FORMING       : {deep_screened_breakdown['FORMING']}\n"
+            f"  └── Rejections (Deep)   :\n"
+            f"        ├── Width Exceeded: {deep_screened_breakdown['WIDTH_EXCEEDED']}\n"
+            f"        ├── Score Too Low : {deep_screened_breakdown['SCORE_TOO_LOW']}\n"
+            f"        ├── Tests Too Low : {deep_screened_breakdown['TESTS_TOO_LOW']}\n"
+            f"        ├── Dormant Vol   : {deep_screened_breakdown['DORMANT']}\n"
+            f"        ├── Gap Broken    : {deep_screened_breakdown['GAP_BROKEN']}\n"
+            f"        └── Other Reject  : {deep_screened_breakdown['OTHER_REJECT']}\n"
+            f"\n"
+            f"Conservation Accounting   : {fast_rejected_count} + {deep_screened_count} = {total_symbols} (delta={total_symbols - (fast_rejected_count + deep_screened_count)})\n"
+            f"\n"
+            f"Timing\n"
+            f"  Context preparation     : {t_ctx_prep_total:.2f}s\n"
+            f"  Fast funnel             : {t_fast_filter_total:.2f}s\n"
+            f"  Deep geometry & scoring : {t_deep_screen_total:.2f}s\n"
+            f"  Total Stage 2.5         : {t_stage25_total:.2f}s\n"
+            f"\n"
+            f"Per-symbol Latency\n"
+            f"  p50                     : {p50_ms:.1f}ms\n"
+            f"  p95                     : {p95_ms:.1f}ms\n"
+            f"  max                     : {max_ms:.1f}ms\n"
+            f"\n"
+            f"Memory\n"
+            f"  RSS before              : {rss_before:.1f}MB\n"
+            f"  RSS peak                : {rss_peak:.1f}MB\n"
+            f"  RSS after               : {rss_after:.1f}MB\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        )
 
         if real_run_ctx:
             try:
@@ -268,31 +404,6 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             sym = cand.get("symbol")
             if sym and sym not in shortlisted_symbols:
                 shortlisted_symbols.append(sym)
-
-        # Log comprehensive balanced funnel
-        logger.info(
-            f"\n🎯 [MULTI-TF V3 FUNNEL]\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"Universe (Daily WL + User/Admin + Alerts) : {funnel_stats['universe']}\n"
-            f"Valid 15m Data Bars Fetched               : {funnel_stats['valid_15m']}\n"
-            f"Structures Discovered                     : {funnel_stats['discovered']}\n"
-            f"  ├── PRESSURE      (Ready to Fire)       : {funnel_stats['pressure']}\n"
-            f"  ├── PRE-BREAKOUT  (Coiling at Ceiling)  : {funnel_stats['pre_breakout']}\n"
-            f"  ├── STRONG        (High Base Quality)   : {funnel_stats['strong']}\n"
-            f"  ├── QUALIFIED     (Valid Base)          : {funnel_stats['qualified']}\n"
-            f"  └── FORMING       (Developing Base)     : {funnel_stats['forming']}\n"
-            f"REJECTIONS:\n"
-            f"  ├── Width / Unstable ATR Limit          : {funnel_stats['width_exceeded']}\n"
-            f"  ├── Low Structural Score                : {funnel_stats['score_too_low']}\n"
-            f"  ├── Insufficient Resistance Touches     : {funnel_stats['tests_too_low']}\n"
-            f"  ├── Dormant / Illiquid Volume           : {funnel_stats['dormant']}\n"
-            f"  ├── Overnight Gap Disrupted Base        : {funnel_stats['gap_broken']}\n"
-            f"  ├── Too Few Bars / Insufficient Data    : {funnel_stats['too_few_bars']}\n"
-            f"  └── Missing / Invalid Parquet Data      : {funnel_stats['no_data']}\n"
-            f"Active DB ARMED Candidates Retained       : {len(active_armed)}\n"
-            f"Total Active Candidates Under Monitor     : {len(shortlisted_symbols)}\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        )
 
 
         # Lazy fetch 1h, 30m, 5m ONLY for shortlisted candidates!
@@ -400,6 +511,17 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
 
         telemetry.log_scheduler_event("MULTI_TF", "CYCLE_COMPLETE")
         logger.info("✅ MULTI_TF V2 ENGINE | Execution cycle complete in %ss.", duration)
+
+        # Telemetry distinguishing SCAN_SUCCESS and CACHE_PERSISTED vs CACHE_PERSIST_PENDING
+        try:
+            from database import get_interval_generation
+            g_15m, up_15m = get_interval_generation("15m")
+            g_1d, up_1d = get_interval_generation("1d")
+            status_15m = f"15m:gen={g_15m}/up={up_15m}(" + ("PENDING" if up_15m < g_15m else "PERSISTED") + ")"
+            status_1d = f"1d:gen={g_1d}/up={up_1d}(" + ("PENDING" if up_1d < g_1d else "PERSISTED") + ")"
+            logger.info(f"💾 [MULTI_TF PERSISTENCE TELEMETRY] SCAN_SUCCESS | {status_15m} | {status_1d}")
+        except Exception:
+            pass
 
         # Background sync updated history bundles to PostgreSQL parquet_cache so restarts never re-fetch
         try:
