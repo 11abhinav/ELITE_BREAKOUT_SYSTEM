@@ -716,10 +716,57 @@ def _process_symbol(
         updates["last_attempt_ts"] = ist_now
         updates["attempt_bar_boundary"] = pressure.attempt_bar_boundary
 
-    # 10. Sync state changes to DB
-    # [FIX: ALWAYS_STAMP_EVALUATED_v1.0]
-    # Previously only called when updates were non-empty OR state != WATCHING.
-    # Stocks in WATCHING with no transition never got written → last_evaluated_at/updated_at
-    # stayed at creation time → UI showed "03 Sept 5:01 pm" even after running all day.
-    # Now always write so every 15m cycle stamps current IST time into last_evaluated_at.
+    # 10. Sync all live evaluation data to DB on every cycle
+    # [FIX: LIVE_DATA_ALWAYS_REFRESH_v1.0]
+    # Previously only state-transition fields were written. Box geometry, scores,
+    # pressure metrics, context scores, candle timestamps were frozen at first insert.
+    # Now every 15m cycle refreshes ALL columns so the UI always shows current data.
+    prov_1h  = bundle.prov_1h.to_dict()  if bundle.prov_1h  else {}
+    prov_30m = bundle.prov_30m.to_dict() if bundle.prov_30m else {}
+    prov_15m = bundle.prov_15m.to_dict() if bundle.prov_15m else {}
+    prov_5m  = bundle.prov_5m.to_dict()  if bundle.prov_5m  else {}
+
+    updates.update({
+        # Box geometry (refreshed each 15m — box can evolve as new bars close)
+        "box_high":               consolidation.box_high,
+        "box_low":                consolidation.box_low,
+        "box_mid":                consolidation.box_mid,
+        "box_value_center":       consolidation.box_value_center,
+        "hard_high":              consolidation.hard_high,
+        "hard_low":               consolidation.hard_low,
+        "box_width_pct":          consolidation.box_width_pct,
+        "box_width_atr":          consolidation.box_width_atr,
+        "box_occupancy":          consolidation.box_occupancy,
+        "consolidation_bars":     consolidation.bars_count,
+        "consolidation_sessions": consolidation.sessions_count,
+        "consolidation_end_ts":   consolidation.end_ts,
+        # Base quality scores (recomputed each scan)
+        "resistance_test_count":      consolidation.resistance_test_count,
+        "higher_low_score":           consolidation.score_hl,
+        "compression_score":          consolidation.score_compression,
+        "setup_score":                consolidation.setup_score,
+        "last_confirmed_pivot_level": consolidation.last_confirmed_pivot_level,
+        "last_confirmed_pivot_ts":    consolidation.last_confirmed_pivot_ts,
+        # Pressure metrics (live 5m state)
+        "pressure_state":       pressure.label if hasattr(pressure, "label") else None,
+        "volume_ratio_5m":      round(pressure.volume_ratio, 4) if pressure.volume_ratio else None,
+        "range_ratio_5m":       round(pressure.range_ratio, 4) if hasattr(pressure, "range_ratio") and pressure.range_ratio else None,
+        "distance_to_box_high": round(consolidation.box_high - current_price, 4) if current_price else None,
+        "live_position_5m":     round(current_price, 4) if current_price else None,
+        # Multi-TF context scores
+        "context_1h_score":  ctx_1h.get("score",  0),
+        "context_30m_score": ctx_30m.get("score", 0),
+        "market_regime":     market_ctx.get("regime", "UNKNOWN"),
+        # Data freshness provenance
+        "data_source_1h":  prov_1h.get("source",  ""),
+        "data_source_30m": prov_30m.get("source", ""),
+        "data_source_15m": prov_15m.get("source", ""),
+        "data_source_5m":  prov_5m.get("source",  ""),
+        "candle_ts_1h":    prov_1h.get("last_candle_ts"),
+        "candle_ts_30m":   prov_30m.get("last_candle_ts"),
+        "candle_ts_15m":   prov_15m.get("last_candle_ts"),
+        "candle_ts_5m":    prov_5m.get("last_candle_ts"),
+    })
+
     update_state_in_db(state_record, updates)
+
