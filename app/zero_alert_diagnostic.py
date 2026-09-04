@@ -125,12 +125,14 @@ class SingleTerminalTracker:
         with self._lock:
             sum_terminal = sum(self._counts.values())
             delta = self.total_universe - sum_terminal
+            untracked = self._counts.get("UNTRACKED_DROP", 0)
             return {
                 "total_universe": self.total_universe,
                 "terminal_counts": dict(sorted(self._counts.items(), key=lambda x: x[1], reverse=True)),
                 "sum_terminal": sum_terminal,
                 "conservation_delta": delta,
-                "is_conserved": (delta == 0),
+                "untracked_drop": untracked,
+                "is_conserved": (delta == 0 and untracked == 0),
                 "recorded_symbols_count": len(self._dispositions)
             }
 
@@ -398,8 +400,15 @@ def format_zero_alert_diagnostic_block(
         for stg in stage_waterfall:
             lines.append(f"      ├── {stg['stage']:<24}: {stg['entered']:>4} entered → {stg['passed']:>4} passed (loss: {stg['eliminated']} [{stg['attrition_pct']:.1f}%])")
 
-    lines.append(f"  • Near Miss Candidates      : {near_miss_count}")
-    lines.append(f"  • Conservation Check        : {conservation_summary.get('sum_terminal', 0)}/{conservation_summary.get('total_universe', 0)} terminal outcomes (Delta: {conservation_summary.get('conservation_delta', 0)})")
+    untracked = conservation_summary.get("untracked_drop", 0)
+    delta = conservation_summary.get("conservation_delta", 0)
+    total_u = conservation_summary.get("total_universe", 0)
+    sum_t = conservation_summary.get("sum_terminal", 0)
+    if delta == 0 and untracked == 0:
+        cons_str = f"{sum_t}/{total_u} terminal outcomes (Delta: 0, UNTRACKED: 0) [PASS]"
+    else:
+        cons_str = f"{sum_t}/{total_u} terminal outcomes (Delta: {delta}, UNTRACKED: {untracked}) [ANOMALY DETECTED]"
+    lines.append(f"  • Conservation Check        : {cons_str}")
     lines.append(f"  • Recommendation            : {classification_result.get('recommendation', 'None')}")
 
     return lines

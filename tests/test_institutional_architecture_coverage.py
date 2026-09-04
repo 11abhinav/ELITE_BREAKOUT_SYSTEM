@@ -142,10 +142,16 @@ class TestInstitutionalArchitectureCoverage(unittest.TestCase):
         from symbol_router import SymbolRouter, RoutingState, ProviderErrorCode
 
         router = SymbolRouter()
-        # 1. Verify static pre-seeding
+        # 1. Verify static pre-seeding across all timeframes
         self.assertEqual(router.get_route("LTIM", "1d"), RoutingState.UPSTOX_ONLY)
         self.assertEqual(router.get_route("NSE:LTIM", "1h"), RoutingState.UPSTOX_ONLY)
         self.assertEqual(router.get_route("LTIM", "15m"), RoutingState.UPSTOX_ONLY)
+        self.assertEqual(router.get_route("LTIM", "5m"), RoutingState.UPSTOX_ONLY)
+
+        # 1b. Verify non-contamination: standard NSE/BSE symbols remain LOAD_BALANCED
+        self.assertEqual(router.get_route("RELIANCE", "1d"), RoutingState.LOAD_BALANCED)
+        self.assertEqual(router.get_route("NSE:INFY", "15m"), RoutingState.LOAD_BALANCED)
+        self.assertEqual(router.get_route("BSE:500325", "1d"), RoutingState.LOAD_BALANCED)
 
         # 2. Verify error classification for Fyers symbol misses
         err_str = "Invalid symbol: All Fyers series candidates failed for LTIM (['NSE:LTIM-EQ', 'BSE:LTIM-EQ'])"
