@@ -965,10 +965,8 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
                 complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
             else:
                 try:
-                    from database import start_scanner_execution_run, complete_scanner_execution_run
-                    skip_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type=trigger_type, scheduler_name=scheduler_name)
-                    if skip_ctx:
-                        complete_scanner_execution_run(skip_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner lock held (previous run active)")
+                    from database import record_skipped_execution_run
+                    record_skipped_execution_run(scanner_name="Wealth Engine", trigger_type=trigger_type, scheduler_name=scheduler_name, stop_reason="Scanner lock held (previous run active)")
                 except Exception:
                     pass
             upsert_scanner_health("Wealth Engine", "IDLE", error_msg="Duplicate trigger skipped")
@@ -2837,10 +2835,8 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
     if not _wealth_exit_lock.acquire(blocking=False):
         logger.info("🛑 [WEALTH_EXIT] In-memory lock held. Another WEALTH_EXIT run is actively executing. Skipping duplicate.")
         try:
-            from database import start_scanner_execution_run, complete_scanner_execution_run
-            dup_ctx = start_scanner_execution_run(scanner_name="WEALTH_EXIT", trigger_type="SCHEDULED", scheduler_name="CRON")
-            if dup_ctx:
-                complete_scanner_execution_run(dup_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="In-memory lock held (previous run active)")
+            from database import record_skipped_execution_run
+            record_skipped_execution_run(scanner_name="WEALTH_EXIT", trigger_type="SCHEDULED", scheduler_name="CRON", stop_reason="In-memory lock held (previous run active)")
         except Exception:
             pass
         return None

@@ -1095,6 +1095,12 @@ def run_technical_scan(
         logger.warning("🛑 [DUPLICATE GUARD] TECHNICAL Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
         if run_ctx:
             complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner lock busy")
+        else:
+            try:
+                from database import record_skipped_execution_run
+                record_skipped_execution_run(scanner_name="TECHNICAL", trigger_type=trigger_type, scheduler_name=scheduler_name, stop_reason="Scanner lock held (previous run active)")
+            except Exception:
+                pass
         return 0
 
     acquired_global = False
@@ -1105,6 +1111,11 @@ def run_technical_scan(
     try:
         if not _scan_lock.acquire(blocking=False):
             logger.warning("🔒 [TECHNICAL] Scanner is already running. Skipping duplicate cycle.")
+            try:
+                from database import record_skipped_execution_run
+                record_skipped_execution_run(scanner_name="TECHNICAL", trigger_type=trigger_type, scheduler_name=scheduler_name, stop_reason="Scanner lock held (previous run active)")
+            except Exception:
+                pass
             return 0
         acquired_scan = True
 

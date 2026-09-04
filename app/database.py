@@ -9247,6 +9247,44 @@ def is_any_heavy_scanner_running(exclude_run_id: str = None) -> bool:
     return is_scanner_actively_running(scanner_name="ANY", exclude_run_id=exclude_run_id, check_system_wide=True)
 
 
+def record_skipped_execution_run(
+    scanner_name: str,
+    trigger_type: str = "SCHEDULED",
+    scheduler_name: str = "CRON",
+    stop_reason: str = "Scanner lock held (previous run active)"
+) -> Optional[str]:
+    """Directly records a SKIPPED_DUPLICATE entry in scanner_execution_history without triggering concurrency blocks."""
+    from scanner_run_context import ScannerRunContext
+    ctx = ScannerRunContext(
+        scanner_name=scanner_name,
+        trigger_type=trigger_type,
+        scheduler_name=scheduler_name,
+        total_stocks=0
+    )
+    ctx.set_stop_reason(stop_reason)
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO scanner_execution_history (
+                        run_id, parent_run_id, retry_attempt, scanner_name,
+                        lifecycle_status, quality_status, trigger_type, scheduler_name,
+                        system_version, git_commit, started_at, execution_started_at,
+                        completed_at, heartbeat_at, total_stocks, stop_reason
+                    ) VALUES (%s, %s, %s, %s, 'SKIPPED_DUPLICATE', 'NORMAL', %s, %s, %s, %s, NOW(), NOW(), NOW(), NOW(), 0, %s);
+                """, (
+                    ctx.run_id, ctx.parent_run_id, ctx.retry_attempt, ctx.scanner_name,
+                    ctx.trigger_type, ctx.scheduler_name, ctx.system_version, ctx.git_commit,
+                    stop_reason
+                ))
+                conn.commit()
+                logger.info(f"📜 [EXECUTION HISTORY] Recorded SKIPPED_DUPLICATE run {ctx.run_id[:8]} for {scanner_name} | Reason: {stop_reason}")
+                return ctx.run_id
+    except Exception as e:
+        logger.debug(f"Failed to record skipped execution history for {scanner_name}: {e}")
+        return None
+
+
 def start_scanner_execution_run(
     scanner_name: str,
     trigger_type: str = "SCHEDULED",
@@ -9263,7 +9301,9 @@ def start_scanner_execution_run(
     If an instance of scanner_name is already RUNNING or QUEUED, a second run is rejected
     with a RuntimeError("Scanner '<scanner_name>' is already actively running!").
     """
-    if not allow_concurrent and is_scanner_actively_running(scanner_name):
+    status_upper = (initial_status or "RUNNING").upper()
+    is_skip_record = status_upper in ("SKIPPED_DUPLICATE", "SKIPPED")
+    if not allow_concurrent and not is_skip_record and is_scanner_actively_running(scanner_name):
         logger.warning(f"🛑 [CONCURRENCY_PREVENTION] Scanner '{scanner_name}' is ALREADY actively running in DB. Aborting duplicate run.")
         raise RuntimeError(f"Scanner '{scanner_name}' is already actively running!")
 
@@ -9276,12 +9316,11 @@ def start_scanner_execution_run(
         retry_attempt=retry_attempt,
         total_stocks=total_stocks
     )
-    status_upper = (initial_status or "RUNNING").upper()
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 # Concurrency re-check inside transaction to prevent race conditions
-                if not allow_concurrent:
+                if not allow_concurrent and not is_skip_record:
                     cur.execute("""
                         SELECT run_id FROM scanner_execution_history
                         WHERE LOWER(scanner_name) = LOWER(%s)
@@ -9297,12 +9336,13 @@ def start_scanner_execution_run(
                         raise RuntimeError(f"Scanner '{scanner_name}' is already actively running!")
 
                 exec_started_sql = "NOW()" if status_upper == "RUNNING" else "NULL"
+                completed_sql = "NOW()" if is_skip_record else "NULL"
                 cur.execute(f"""
                     INSERT INTO scanner_execution_history (
                         run_id, parent_run_id, retry_attempt, scanner_name,
                         lifecycle_status, quality_status, trigger_type, scheduler_name,
-                        system_version, git_commit, started_at, execution_started_at, heartbeat_at, total_stocks
-                    ) VALUES (%s, %s, %s, %s, %s, 'NORMAL', %s, %s, %s, %s, NOW(), {exec_started_sql}, NOW(), %s);
+                        system_version, git_commit, started_at, execution_started_at, completed_at, heartbeat_at, total_stocks
+                    ) VALUES (%s, %s, %s, %s, %s, 'NORMAL', %s, %s, %s, %s, NOW(), {exec_started_sql}, {completed_sql}, NOW(), %s);
                 """, (
                     ctx.run_id, ctx.parent_run_id, ctx.retry_attempt, ctx.scanner_name,
                     status_upper, ctx.trigger_type, ctx.scheduler_name, ctx.system_version, ctx.git_commit, ctx.total_stocks
@@ -9314,7 +9354,7 @@ def start_scanner_execution_run(
     except Exception as e:
         logger.warning(f"Failed to insert scanner execution history for {scanner_name}: {e}")
 
-    if hasattr(ctx, "start_heartbeat_worker"):
+    if not is_skip_record and hasattr(ctx, "start_heartbeat_worker"):
         try:
             ctx.start_heartbeat_worker()
         except Exception:

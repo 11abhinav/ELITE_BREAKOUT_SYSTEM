@@ -321,6 +321,11 @@ class AccumulationScanner:
 
         if not _accumulation_run_lock.acquire(blocking=False):
             logger.info("⏳ ACCUMULATION scanner already running in another thread. Skipping.")
+            try:
+                from database import record_skipped_execution_run
+                record_skipped_execution_run(scanner_name="ACCUMULATION", trigger_type=trigger_type, scheduler_name=scheduler_name, stop_reason="Scanner lock held (previous run active)")
+            except Exception:
+                pass
             return {"status": "SKIPPED", "reason": "ALREADY_RUNNING"}
         start_time = datetime.now(IST)
         run_id = f"acc_run_{start_time.strftime('%Y%m%d_%H%M%S')}"

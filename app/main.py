@@ -332,6 +332,11 @@ def _run_performance_tracker_single():
         return
     if not _perf_tracker_lock.acquire(blocking=False):
         logger.info("🛑 [PERFORMANCE_TRACKER] In-memory lock held. Another pass is actively executing. Skipping.")
+        try:
+            from database import record_skipped_execution_run
+            record_skipped_execution_run(scanner_name="PERFORMANCE_TRACKER", trigger_type="SCHEDULED", scheduler_name="CRON", stop_reason="In-memory lock held (previous run active)")
+        except Exception:
+            pass
         return
     start_time = time.time()
     run_ctx = None

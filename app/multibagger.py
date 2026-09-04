@@ -2520,6 +2520,15 @@ def run_standalone_exit_monitor(is_test_mode: bool = False, run_ctx=None):
     """Entry point for the 5-minute scheduler to check exits only."""
     if not _mb_exit_lock.acquire(blocking=False):
         logger.info("🛑 [MULTIBAGGER_EXIT] In-memory lock held. Another MULTIBAGGER_EXIT run is actively executing. Skipping.")
+        if run_ctx:
+            from database import complete_scanner_execution_run
+            complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="In-memory lock held (previous run active)")
+        else:
+            try:
+                from database import record_skipped_execution_run
+                record_skipped_execution_run(scanner_name="MULTIBAGGER_EXIT", trigger_type="SCHEDULED", scheduler_name="CRON", stop_reason="In-memory lock held (previous run active)")
+            except Exception:
+                pass
         return
     try:
         from database import get_connection
@@ -2645,6 +2654,12 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
             logger.warning("🛑 MULTIBAGGER Scanner is ALREADY actively running. Skipping duplicate execution.")
             if run_ctx:
                 complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
+            else:
+                try:
+                    from database import record_skipped_execution_run
+                    record_skipped_execution_run(scanner_name="MULTIBAGGER", trigger_type=trigger_type, scheduler_name=scheduler_name, stop_reason="Scanner lock held (previous run active)")
+                except Exception:
+                    pass
             upsert_scanner_health("MULTIBAGGER", "IDLE", error_msg="Duplicate trigger skipped")
             return {}
         acquired_scan = True

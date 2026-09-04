@@ -18,7 +18,7 @@ class TestDailyBuilderAndTechnicalScannerOptimizations(unittest.TestCase):
             "name": ["STOCK_VALID", "STOCK_PENNY", "STOCK_MICRO", "STOCK_ILLIQUID", "STOCK_BLACK"],
             "close": [500.0, 50.0, 300.0, 200.0, 600.0],  # STOCK_PENNY fails < 100
             "market_cap_basic": [50_000_000_000, 20_000_000_000, 500_000_000, 30_000_000_000, 40_000_000_000],  # STOCK_MICRO fails < 1000Cr
-            "average_volume_30d_calc": [100_000, 200_000, 100_000, 100, 100_000],  # STOCK_ILLIQUID fails traded val
+            "average_volume_30d_calc": [400_000, 200_000, 100_000, 100, 400_000],  # STOCK_ILLIQUID fails traded val
         }
         df = pd.DataFrame(data)
         blacklist = {"STOCK_BLACK"}

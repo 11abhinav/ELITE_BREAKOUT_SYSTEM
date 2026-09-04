@@ -142,6 +142,12 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
             logger.warning("🛑 EOD Scanner is ALREADY actively running. Skipping duplicate execution.")
             if run_ctx:
                 complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
+            else:
+                try:
+                    from database import record_skipped_execution_run
+                    record_skipped_execution_run(scanner_name="EOD", trigger_type=trigger_type, scheduler_name=scheduler_name, stop_reason="Scanner lock held (previous run active)")
+                except Exception:
+                    pass
             upsert_scanner_health("EOD", "IDLE", error_msg="Duplicate trigger skipped")
             return 0
         acquired_scan = True

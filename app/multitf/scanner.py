@@ -96,10 +96,8 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
         if not _scan_lock.acquire(blocking=False):
             logger.warning("[MULTI_TF] Scanner is already running. Skipping cycle.")
             try:
-                from database import start_scanner_execution_run, complete_scanner_execution_run
-                skip_ctx = start_scanner_execution_run(scanner_name="MULTI_TF", trigger_type="SCHEDULED", scheduler_name="CRON")
-                if skip_ctx:
-                    complete_scanner_execution_run(skip_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner lock held (previous run active)")
+                from database import record_skipped_execution_run
+                record_skipped_execution_run(scanner_name="MULTI_TF", trigger_type="SCHEDULED", scheduler_name="CRON", stop_reason="Scanner lock held (previous run active)")
             except Exception:
                 pass
             return

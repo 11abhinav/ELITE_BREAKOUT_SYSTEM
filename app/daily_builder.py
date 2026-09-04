@@ -1754,6 +1754,12 @@ def main(force_rebuild: bool = False, run_ctx=None, trigger_type="SCHEDULED", sc
             if run_ctx:
                 from database import complete_scanner_execution_run
                 complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
+            else:
+                try:
+                    from database import record_skipped_execution_run
+                    record_skipped_execution_run(scanner_name="DAILY_BUILDER", trigger_type=trigger_type, scheduler_name=scheduler_name, stop_reason="Scanner lock held (previous run active)")
+                except Exception:
+                    pass
             return
         acquired_build = True
 
