@@ -98,6 +98,60 @@ def load_state(symbol: str, box_id: str) -> Optional[MtfStateRecord]:
         return None
 
 
+def find_active_box_for_symbol(
+    symbol: str,
+    box_high: float,
+    atr_15m: float,
+    tol_pct: float = 0.010,
+    tol_atr: float = 0.50
+) -> Optional[MtfStateRecord]:
+    """
+    Finds an existing active (unconfirmed, non-invalidated) box record for this symbol
+    whose ceiling level is within tolerance of the newly detected box_high.
+    Allows the same underlying structure to evolve smoothly across expanding windows
+    (e.g. 8-bar coil -> 12-bar base -> 16-bar shelf) without creating fragmented duplicate rows.
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute("""
+                    SELECT box_id, box_high, box_low, state, mtf_substate, attempt_count,
+                           last_attempt_ts, attempt_started_ts, attempt_bar_boundary,
+                           attempt_ttl_expires_at, cooldown_until, invalidated_at,
+                           invalidation_reason, version
+                    FROM mtf_v2_watchlist
+                    WHERE symbol = %s
+                      AND invalidated_at IS NULL
+                      AND mtf_substate NOT IN ('CONFIRMED', 'INVALIDATED')
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                """, (symbol,))
+                row = cur.fetchone()
+                if row:
+                    prev_high = float(row["box_high"]) if row["box_high"] is not None else 0.0
+                    allowed_delta = max(box_high * tol_pct, atr_15m * tol_atr)
+                    if abs(prev_high - box_high) <= allowed_delta:
+                        return MtfStateRecord(
+                            symbol=symbol,
+                            box_id=row["box_id"],
+                            state=row["state"],
+                            mtf_substate=row["mtf_substate"],
+                            attempt_count=row["attempt_count"],
+                            last_attempt_ts=row["last_attempt_ts"],
+                            attempt_started_ts=row["attempt_started_ts"],
+                            attempt_bar_boundary=row["attempt_bar_boundary"],
+                            attempt_ttl_expires_at=row["attempt_ttl_expires_at"],
+                            cooldown_until=row["cooldown_until"],
+                            invalidated_at=row["invalidated_at"],
+                            invalidation_reason=row["invalidation_reason"],
+                            version=row.get("version", 1)
+                        )
+    except Exception as exc:
+        logger.error("[%s] find_active_box_for_symbol failed: %s", symbol, exc)
+    return None
+
+
+
 def apply_ttl_and_cooldown(record: MtfStateRecord, ist_now: datetime, current_5m_bars: int) -> bool:
     """
     Evaluates time-to-live for ATTEMPTs and expiry for FAILED_ATTEMPT cooldowns.

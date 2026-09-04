@@ -50,16 +50,20 @@ class TestAdaptiveMTFV3Consolidation(unittest.TestCase):
         return df
 
     def test_duration_width_limits(self):
-        """Dynamic limits must scale with bar count."""
-        max_atr_8, max_pct_8 = get_duration_width_limits(8, self.config)
-        max_atr_12, max_pct_12 = get_duration_width_limits(12, self.config)
-        max_atr_20, max_pct_20 = get_duration_width_limits(20, self.config)
-        max_atr_35, max_pct_35 = get_duration_width_limits(35, self.config)
+        """Continuous limits must scale smoothly and monotonically with bar count."""
+        max_atr_6, _ = get_duration_width_limits(6, self.config)
+        max_atr_8, _ = get_duration_width_limits(8, self.config)
+        max_atr_12, _ = get_duration_width_limits(12, self.config)
+        max_atr_20, _ = get_duration_width_limits(20, self.config)
+        max_atr_35, _ = get_duration_width_limits(35, self.config)
 
-        self.assertLessEqual(max_atr_8, 2.0)
-        self.assertGreaterEqual(max_atr_12, 2.2)
-        self.assertGreaterEqual(max_atr_20, 2.8)
-        self.assertGreaterEqual(max_atr_35, 3.5)
+        # Monotonic smooth expansion without discrete step jumps
+        self.assertLess(max_atr_6, max_atr_8)
+        self.assertLess(max_atr_8, max_atr_12)
+        self.assertLess(max_atr_12, max_atr_20)
+        self.assertLess(max_atr_20, max_atr_35)
+        self.assertGreaterEqual(max_atr_6, 2.0)
+        self.assertGreaterEqual(max_atr_35, 3.6)
 
     def test_intraday_tight_coil_discovered_despite_prior_volatility(self):
         """
@@ -115,6 +119,20 @@ class TestAdaptiveMTFV3Consolidation(unittest.TestCase):
         for w_df, sess_count in windows:
             self.assertEqual(sess_count, 1, "Gap > 2% must prevent window from spanning across sessions")
 
+    def test_decoupled_base_quality_and_proximity(self):
+        """Base quality must remain high even if price is in the middle of the base."""
+        # Base with close right in the middle
+        df = self._generate_synthetic_df(n=12, base_high=505.0, base_low=501.0)
+        # Ensure last close is at 503.0 (exact middle)
+        df.iloc[-1, df.columns.get_loc("Close")] = 503.0
+
+        res = detect_15m_consolidation(df, self.atr, self.now, self.config, symbol="MID_BASE")
+        self.assertTrue(res.is_valid)
+        self.assertGreaterEqual(res.base_quality_score, 60, "Base quality should not be penalized by price location")
+        self.assertLess(res.proximity_score, 70, "Middle price should have moderate proximity score")
+        self.assertIn(res.lifecycle_stage, ["FORMING", "QUALIFIED", "STRONG"])
+
 
 if __name__ == "__main__":
     unittest.main()
+

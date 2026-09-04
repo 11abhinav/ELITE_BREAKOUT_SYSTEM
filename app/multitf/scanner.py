@@ -17,7 +17,7 @@ import pandas as pd
 IST = ZoneInfo("Asia/Kolkata")
 
 from config import MULTI_TF_V2_CONFIG
-from database import get_elite_watchlist, save_alert_if_new
+from database import get_elite_watchlist, get_multitf_universe, save_alert_if_new
 from opportunity_manager import OpportunityManager
 from lock_utils import ProcessLock
 from database import upsert_scanner_health
@@ -32,6 +32,7 @@ from multitf.breakout_strength import compute_breakout_strength, classify_alert_
 from multitf.alert_builder import build_multitf_alert_message
 from multitf.state import (
     load_state,
+    find_active_box_for_symbol,
     apply_ttl_and_cooldown,
     handle_box_invalidation,
     persist_new_watchlist_candidate,
@@ -145,7 +146,7 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             scheduled_for=_MTF_SCHEDULE
         )
 
-        watchlist = get_elite_watchlist()
+        watchlist = get_multitf_universe()
         if not watchlist:
             logger.warning("[MULTI_TF] Watchlist empty.")
             upsert_scanner_health(
@@ -176,17 +177,23 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
         shortlisted_symbols = []
         consolidation_map = {}
         funnel_stats = {
-            "total": len(watchlist),
-            "no_data": 0,
-            "too_few_bars": 0,
-            "atr_zero": 0,
-            "gap_broken": 0,
+            "universe": len(watchlist),
+            "valid_15m": 0,
+            "discovered": 0,
+            "forming": 0,
+            "qualified": 0,
+            "strong": 0,
+            "pre_breakout": 0,
+            "pressure": 0,
             "width_exceeded": 0,
             "score_too_low": 0,
             "tests_too_low": 0,
             "dormant": 0,
+            "gap_broken": 0,
+            "no_data": 0,
+            "too_few_bars": 0,
+            "atr_zero": 0,
             "other_reject": 0,
-            "qualified": 0,
         }
 
         for symbol in watchlist:
@@ -202,11 +209,24 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             if atr_15m <= 0:
                 funnel_stats["atr_zero"] += 1
                 continue
+
+            funnel_stats["valid_15m"] += 1
             cons = detect_15m_consolidation(df_15m_closed, atr_15m, ist_now, MULTI_TF_V2_CONFIG, symbol=symbol)
             if cons.is_valid:
                 shortlisted_symbols.append(symbol)
                 consolidation_map[symbol] = cons
-                funnel_stats["qualified"] += 1
+                funnel_stats["discovered"] += 1
+                stage = getattr(cons, "lifecycle_stage", "FORMING")
+                if stage == "PRESSURE":
+                    funnel_stats["pressure"] += 1
+                elif stage == "PRE_BREAKOUT":
+                    funnel_stats["pre_breakout"] += 1
+                elif stage == "STRONG":
+                    funnel_stats["strong"] += 1
+                elif stage == "QUALIFIED":
+                    funnel_stats["qualified"] += 1
+                else:
+                    funnel_stats["forming"] += 1
             else:
                 reason = cons.rejection_reason
                 if "GAP" in reason:
@@ -229,13 +249,31 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             if sym and sym not in shortlisted_symbols:
                 shortlisted_symbols.append(sym)
 
+        # Log comprehensive balanced funnel
         logger.info(
-            f"🎯 [MULTI_TF] Screened {len(watchlist)} symbols -> Found {len(shortlisted_symbols)} candidates "
-            f"(New Qualified={funnel_stats['qualified']}, Active DB Armed={len(active_armed)}): {shortlisted_symbols} | "
-            f"Funnel: width_exceeded={funnel_stats['width_exceeded']}, score_too_low={funnel_stats['score_too_low']}, "
-            f"tests_too_low={funnel_stats['tests_too_low']}, dormant={funnel_stats['dormant']}, "
-            f"no_data={funnel_stats['no_data']}, too_few_bars={funnel_stats['too_few_bars']}"
+            f"\n🎯 [MULTI-TF V3 FUNNEL]\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Universe (Daily WL + User/Admin + Alerts) : {funnel_stats['universe']}\n"
+            f"Valid 15m Data Bars Fetched               : {funnel_stats['valid_15m']}\n"
+            f"Structures Discovered                     : {funnel_stats['discovered']}\n"
+            f"  ├── PRESSURE      (Ready to Fire)       : {funnel_stats['pressure']}\n"
+            f"  ├── PRE-BREAKOUT  (Coiling at Ceiling)  : {funnel_stats['pre_breakout']}\n"
+            f"  ├── STRONG        (High Base Quality)   : {funnel_stats['strong']}\n"
+            f"  ├── QUALIFIED     (Valid Base)          : {funnel_stats['qualified']}\n"
+            f"  └── FORMING       (Developing Base)     : {funnel_stats['forming']}\n"
+            f"REJECTIONS:\n"
+            f"  ├── Width / Unstable ATR Limit          : {funnel_stats['width_exceeded']}\n"
+            f"  ├── Low Structural Score                : {funnel_stats['score_too_low']}\n"
+            f"  ├── Insufficient Resistance Touches     : {funnel_stats['tests_too_low']}\n"
+            f"  ├── Dormant / Illiquid Volume           : {funnel_stats['dormant']}\n"
+            f"  ├── Overnight Gap Disrupted Base        : {funnel_stats['gap_broken']}\n"
+            f"  ├── Too Few Bars / Insufficient Data    : {funnel_stats['too_few_bars']}\n"
+            f"  └── Missing / Invalid Parquet Data      : {funnel_stats['no_data']}\n"
+            f"Active DB ARMED Candidates Retained       : {len(active_armed)}\n"
+            f"Total Active Candidates Under Monitor     : {len(shortlisted_symbols)}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         )
+
 
         # Lazy fetch 1h, 30m, 5m ONLY for shortlisted candidates!
         all_1h = {}
@@ -495,9 +533,16 @@ def _process_symbol(
     if not consolidation.is_valid:
         return
 
-    # 3. State Management
-    state_record = load_state(symbol, consolidation.box_id)
-    is_new = (state_record is None)
+    # 3. State Management & Stable Box Lineage
+    active_record = find_active_box_for_symbol(symbol, consolidation.box_high, atr_15m)
+    if active_record:
+        # Re-use the existing box_id so the structure evolves without duplicate records
+        consolidation.box_id = active_record.box_id
+        state_record = active_record
+        is_new = False
+    else:
+        state_record = load_state(symbol, consolidation.box_id)
+        is_new = (state_record is None)
 
     # 4. Context Evaluation (lazy, only needed if valid setup exists)
     ctx_1h = evaluate_1h_context(bundle.df_1h, config)

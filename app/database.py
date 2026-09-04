@@ -7109,6 +7109,95 @@ def get_mtf_target_universe() -> 'pd.DataFrame':
         return pd.DataFrame(columns=["Stock"])
 
 
+def get_multitf_universe() -> list:
+    """
+    Returns the comprehensive deduplicated universe of symbols for the Multi-TF scanner.
+    Combines:
+      1. Daily fundamental watchlist (daily_watchlist_v2)
+      2. Manual watchlists of users and admin (user_watchlists)
+      3. All historical & active system alerts (alerts)
+      4. Wealth / Multibagger alerts (wealth_buy_alert)
+      5. Breakout watchlist candidates (breakout_watchlist)
+    """
+    init_db()
+    symbols = set()
+    counts = {}
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # 1. Daily Watchlist V2
+                try:
+                    cur.execute("SELECT DISTINCT symbol FROM daily_watchlist_v2 WHERE symbol IS NOT NULL AND symbol != ''")
+                    dw_syms = {r[0].strip().upper() for r in cur.fetchall() if r[0]}
+                    counts["daily_watchlist"] = len(dw_syms)
+                    symbols.update(dw_syms)
+                except Exception as ex_dw:
+                    logger.warning(f"[MULTI_TF_UNIVERSE] Error querying daily_watchlist_v2: {ex_dw}")
+                    counts["daily_watchlist"] = 0
+
+                # 2. User & Admin Manual Watchlists
+                try:
+                    cur.execute("SELECT DISTINCT symbol FROM user_watchlists WHERE symbol IS NOT NULL AND symbol != ''")
+                    uw_syms = {r[0].strip().upper() for r in cur.fetchall() if r[0]}
+                    counts["user_admin_watchlists"] = len(uw_syms)
+                    symbols.update(uw_syms)
+                except Exception as ex_uw:
+                    logger.warning(f"[MULTI_TF_UNIVERSE] Error querying user_watchlists: {ex_uw}")
+                    counts["user_admin_watchlists"] = 0
+
+                # 3. System Alerts
+                try:
+                    cur.execute("SELECT DISTINCT symbol FROM alerts WHERE symbol IS NOT NULL AND symbol != ''")
+                    al_syms = {r[0].strip().upper() for r in cur.fetchall() if r[0]}
+                    counts["alerts"] = len(al_syms)
+                    symbols.update(al_syms)
+                except Exception as ex_al:
+                    logger.warning(f"[MULTI_TF_UNIVERSE] Error querying alerts: {ex_al}")
+                    counts["alerts"] = 0
+
+                # 4. Wealth Alerts
+                try:
+                    cur.execute("SELECT DISTINCT symbol FROM wealth_buy_alert WHERE symbol IS NOT NULL AND symbol != ''")
+                    w_syms = {r[0].strip().upper() for r in cur.fetchall() if r[0]}
+                    counts["wealth_alerts"] = len(w_syms)
+                    symbols.update(w_syms)
+                except Exception as ex_w:
+                    logger.warning(f"[MULTI_TF_UNIVERSE] Error querying wealth_buy_alert: {ex_w}")
+                    counts["wealth_alerts"] = 0
+
+                # 5. Breakout Watchlist
+                try:
+                    cur.execute("SELECT DISTINCT symbol FROM breakout_watchlist WHERE symbol IS NOT NULL AND symbol != ''")
+                    bw_syms = {r[0].strip().upper() for r in cur.fetchall() if r[0]}
+                    counts["breakout_watchlist"] = len(bw_syms)
+                    symbols.update(bw_syms)
+                except Exception as ex_bw:
+                    logger.warning(f"[MULTI_TF_UNIVERSE] Error querying breakout_watchlist: {ex_bw}")
+                    counts["breakout_watchlist"] = 0
+
+        final_symbols = sorted(list(symbols))
+        if final_symbols:
+            logger.info(
+                f"[MULTI_TF_UNIVERSE] Loaded {len(final_symbols)} distinct symbols "
+                f"(Daily WL: {counts.get('daily_watchlist', 0)}, "
+                f"User/Admin WL: {counts.get('user_admin_watchlists', 0)}, "
+                f"Alerts: {counts.get('alerts', 0)}, "
+                f"Wealth: {counts.get('wealth_alerts', 0)}, "
+                f"Breakout WL: {counts.get('breakout_watchlist', 0)})"
+            )
+            return final_symbols
+    except Exception as e:
+        logger.error(f"[MULTI_TF_UNIVERSE] DB connection error: {e}")
+
+    # Fallback to get_elite_watchlist()
+    fallback = get_elite_watchlist()
+    if fallback:
+        logger.warning(f"[MULTI_TF_UNIVERSE] Falling back to get_elite_watchlist() ({len(fallback)} symbols)")
+        return fallback
+    return []
+
+
+
 def get_elite_watchlist() -> list:
     """
     Returns the list of active symbols in the V2 watchlist (daily_watchlist_v2)
