@@ -114,10 +114,12 @@ def test_multi_scanner_invariance_under_v530():
         ema_20=1485.0, latest_volume=190000.0, volume_sma20=100000.0, close_yesterday=1470.0,
         sma_200_yesterday=1395.0, today_open=1480.0, today_close=1500.0
     )
-    assert entry_confirmed(mb_data) is False # 1.9x < 2.0x fails
+    ok, _ = entry_confirmed(mb_data)
+    assert ok is False # 1.9x < 2.0x fails
 
     mb_data.latest_volume = 210000.0
-    assert entry_confirmed(mb_data) is True # 2.1x >= 2.0x passes
+    ok_pass, _ = entry_confirmed(mb_data)
+    assert ok_pass is True # 2.1x >= 2.0x passes
 
     # 3. WEALTH_ENGINE v5.2.0 Sector Cap (20%)
     assert MAX_SECTOR_PCT == 0.20

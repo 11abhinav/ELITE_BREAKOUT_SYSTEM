@@ -58,6 +58,12 @@ from database import (
     save_alert_if_new,
     upsert_scanner_health,
 )
+from zero_alert_diagnostic import (
+    SingleTerminalTracker,
+    StageWaterfallTracker,
+    classify_zero_alert_run,
+    format_zero_alert_diagnostic_block,
+)
 from price_cache import fetch_watchlist_data
 from watchlist_cache import get_watchlist
 from config import (
@@ -1533,6 +1539,11 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
         logger.exception("Failed to fetch pledge map")
         pledge_map = {}
 
+    all_universe_symbols = [str(s) for s in watchlist["Stock"].tolist() if s]
+    terminal_tracker = SingleTerminalTracker(all_universe_symbols)
+    waterfall = StageWaterfallTracker(["UNIVERSE_PREP", "POLICY_FILTER", "VALID_DATA", "TECHNICAL_SETUP", "FINAL_ALERTS"])
+    waterfall.set_stage_count("UNIVERSE_PREP", len(watchlist))
+
     total_alerts = 0
     shortlisted_alerts = []
     rejected = defaultdict(int)
@@ -1573,6 +1584,14 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
     scan_watchlist = watchlist[
         ~watchlist["Stock"].map(_canonical_symbol).isin(excluded_symbols)
     ].copy()
+
+    waterfall.set_stage_count("POLICY_FILTER", len(scan_watchlist))
+    for s in all_universe_symbols:
+        can_s = _canonical_symbol(s)
+        if can_s in live_blacklist:
+            terminal_tracker.record_terminal(s, "BLACKLIST_EXCLUDED", "Surveillance live blacklist")
+        elif not force and (can_s in cooldown_syms or can_s in failed_cooldown_syms):
+            terminal_tracker.record_terminal(s, "COOLDOWN_ACTIVE", "Active cooldown from recent alert or failed reversal")
 
     pre_filtered_count = len(watchlist) - len(scan_watchlist)
     rejected["blacklist_or_cooldown_pre_filtered"] = pre_filtered_count
@@ -1836,7 +1855,9 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                         if ticker_data is None:
                             with _batch_lock:
                                 rejected["no_data"] += 1
+                                terminal_tracker.record_terminal(symbol, "DATA_UNAVAILABLE", "No price data returned by provider")
                                 telemetry_logger.record_reject(symbol, "DATA", "NO_DATA", None, None, start_time=_row_start_time)
+                            logger.info(f"🚫 [REVERSAL] {symbol} REJECTED — No price data returned by provider")
                             return
 
                         with _batch_lock:
@@ -1848,8 +1869,9 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                             invalid_timestamp_count += 1
                             with _batch_lock:
                                 rejected["invalid_timestamp"] += 1
+                                terminal_tracker.record_terminal(symbol, "INVALID_TIMESTAMP", "invalid/missing timestamp")
                                 telemetry_logger.record_reject(symbol, "DATA", "INVALID_TIMESTAMP", None, None, start_time=_row_start_time)
-                            logger.debug(f"🚫 [REVERSAL] {symbol} skipped — invalid/missing timestamp")
+                            logger.info(f"🚫 [REVERSAL] {symbol} REJECTED — invalid/missing timestamp")
                             return
 
                         date_checkable += 1
@@ -1860,8 +1882,9 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                             stale_count += 1
                             with _batch_lock:
                                 rejected["stale_data"] += 1
+                                terminal_tracker.record_terminal(symbol, "STALE_DATA", f"Data stale till {staleness['latest_available']}")
                                 telemetry_logger.record_reject(symbol, "DATA", "STALE_DATA", None, None, start_time=_row_start_time)
-                            logger.debug(f"🚫 [REVERSAL] {symbol} skipped — Data stale. Available till {staleness['latest_available']} (Expected at least {staleness['expected_date']})")
+                            logger.info(f"🚫 [REVERSAL] {symbol} REJECTED — Data stale. Available till {staleness['latest_available']} (Expected at least {staleness['expected_date']})")
                             return
 
                         # Check fundamental presence
@@ -1901,8 +1924,11 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
 
                         if not verdict["passed"]:
                             rej_code = verdict.get("reject_code", "failed_pattern")
+                            rej_msg = verdict.get("reject_reason", rej_code)
+                            logger.info(f"🚫 [REVERSAL] {symbol} REJECTED — Gate: {rej_code.upper()} | Reason: {rej_msg}")
                             with _batch_lock:
                                 rejected[rej_code] += 1
+                                terminal_tracker.record_terminal(symbol, rej_code.upper(), rej_msg)
                             try:
                                 ctx_rev = telemetry_logger.get_or_create_context(symbol)
                                 latest_rec = ticker.iloc[-1]
@@ -1970,6 +1996,14 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
 
                         ctx = verdict["context"]
                         target_val = verdict["sl_result"].get("target_1") or verdict["sl_result"].get("target")
+                        logger.info(
+                            f"🌟 [REVERSAL: SELECTED] {symbol} @ ₹{ctx['entry_price']:.2f} | "
+                            f"Score: {verdict['score']} | Signals: {', '.join(ctx['signals'])} | "
+                            f"RSI: {round(ctx['technicals']['rsi'], 1)} | "
+                            f"VolRatio: {ctx['technicals']['volume_ratio']:.2f}x | "
+                            f"SL: ₹{verdict['sl_result'].get('stop_loss', 0)} | "
+                            f"T1: ₹{target_val}"
+                        )
                         with _batch_lock:
                             shortlisted_alerts.append({
                             "symbol": symbol,
@@ -1992,6 +2026,7 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                         logger.error(f"❌ [REVERSAL] Error processing symbol {symbol} in batch {batch_num}: {sym_err}")
                         with _batch_lock:
                             rejected["processing_error"] += 1
+                            terminal_tracker.record_terminal(symbol, "PROCESSING_ERROR", str(sym_err)[:100])
             except Exception as batch_err:
                 logger.error(f"❌ [REVERSAL] Batch {batch_num} execution error: {batch_err}")
                 with _batch_lock:
@@ -2145,6 +2180,7 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                             if len(shortlisted_alerts) > max_alerts:
                                 for s_cand in shortlisted_alerts[max_alerts:]:
                                     logger.info(f"🚫 [REVERSAL] {s_cand['symbol']} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit ({max_alerts}) (Score: {s_cand['score']:.1f})")
+                                    terminal_tracker.record_terminal(s_cand["symbol"], "SUPPRESSED_TOP_N", f"Exceeded MAX_ALERTS limit ({max_alerts})")
                                 shortlisted_alerts = shortlisted_alerts[:max_alerts]
 
                         for alert in shortlisted_alerts:
@@ -2172,6 +2208,9 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                             )
                             if inserted:
                                 total_alerts += 1
+                                terminal_tracker.record_terminal(alert["symbol"], "ALERT_GENERATED", f"Reversal alert triggered with score {alert['score']}")
+                            else:
+                                terminal_tracker.record_terminal(alert["symbol"], "DUPLICATE_ALERT", "Alert already active or deduplicated today")
                         
                         conn.commit()
                         db_success = True
@@ -2207,21 +2246,77 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                     "EMPTY_DATA": 0
                 }
             )
-            pass
+
+            # Stage waterfall progression
+            waterfall.set_stage_count("VALID_DATA", max(0, total_fetched_count - stale_count))
+            waterfall.set_stage_count("TECHNICAL_SETUP", len(shortlisted_alerts))
+            waterfall.set_stage_count("FINAL_ALERTS", total_alerts)
+
+            # Single terminal conservation resolution
+            terminal_tracker.record_untracked_remainder("UNTRACKED_DROP")
+            cons_summary = terminal_tracker.get_summary()
+            dom_bottleneck = waterfall.get_dominant_bottleneck()
+            stage_waterfall = waterfall.compute_attrition()
+
+            exec_mode = "LIVE_ENTRY" if is_market_open else "EOD_SCAN"
+            classification_res = classify_zero_alert_run(
+                scanner_name="REVERSAL",
+                universe_size=total_symbols,
+                valid_data_count=max(0, total_fetched_count - stale_count),
+                initial_setups_count=len(shortlisted_alerts),
+                finalist_candidates_count=len(shortlisted_alerts),
+                alerts_generated=total_alerts,
+                near_miss_count=0,
+                regime=regime_str,
+                execution_mode=exec_mode,
+                stage_waterfall=stage_waterfall
+            )
+
             fired_rev = {k: v for k, v in rejected.items() if v > 0}
             summary_rev_lines = [
                 "======================================================================",
                 "=== [REVERSAL SCANNER PIPELINE SUMMARY] ===",
                 "======================================================================",
+                "📊 DATA QUALITY & PIPELINE SNAPSHOT:",
                 f"  • Total Watchlist Requested : {total_symbols}",
                 f"  • Provider Resolved Symbols : {total_fetched_count}",
                 f"  • Shortlisted Candidates    : {len(shortlisted_alerts)}",
                 f"  • Alerts Generated          : {total_alerts}",
+                f"  • Execution Mode            : {exec_mode}",
                 "",
-                "🎯 CRITERIA & FILTER BREAKDOWN:"
+                "🎯 MUTUALLY-EXCLUSIVE TERMINAL DISPOSITIONS (CONSERVED):"
             ]
-            for k, v in fired_rev.items():
-                summary_rev_lines.append(f"  • {k:<35}: {v}")
+            for term_gate, term_cnt in cons_summary["terminal_counts"].items():
+                summary_rev_lines.append(f"  • {term_gate:<35}: {term_cnt}")
+            summary_rev_lines.append(f"  • Conservation Accounting   : {cons_summary['sum_terminal']}/{cons_summary['total_universe']} symbols accounted for (Delta: {cons_summary['conservation_delta']})")
+
+            summary_rev_lines.extend([
+                "",
+                "🌊 STAGE WATERFALL ATTRITION (RATE-BASED):"
+            ])
+            for stg in stage_waterfall:
+                summary_rev_lines.append(
+                    f"  • {stg['stage']:<20} → {stg['next_stage']:<20}: {stg['entered']:>4} entered, {stg['passed']:>4} passed (loss: {stg['eliminated']} [{stg['attrition_pct']:.1f}%])"
+                )
+
+            if dom_bottleneck:
+                summary_rev_lines.append(
+                    f"  • Dominant Bottleneck Gate  : {dom_bottleneck['stage']} (Highest Attrition: {dom_bottleneck['attrition_pct']:.1f}% [{dom_bottleneck['eliminated']}/{dom_bottleneck['entered']} eliminated])"
+                )
+
+            if total_alerts == 0:
+                diag_block = format_zero_alert_diagnostic_block(
+                    scanner_name="REVERSAL",
+                    execution_mode=exec_mode,
+                    regime=regime_str,
+                    classification_result=classification_res,
+                    dominant_bottleneck=dom_bottleneck,
+                    conservation_summary=cons_summary,
+                    stage_waterfall=stage_waterfall,
+                    near_miss_count=0
+                )
+                summary_rev_lines.extend(diag_block)
+
             summary_rev_lines.append("======================================================================")
             logger.info("\n".join(summary_rev_lines))
             telemetry_logger.print_summary()

@@ -1243,7 +1243,7 @@ def classify_conviction(cqs: float, pas: float, trend: float, composite: float, 
     else:
         return "Invalidated", composite
 
-def entry_confirmed(price_data: StockPriceData) -> bool:
+def entry_confirmed(price_data: StockPriceData) -> tuple:
     """
     Ensures technical stabilization before entry.
     [v5.2.0 UPGRADE]: Enforces proven Volume Expansion Gate:
@@ -1251,12 +1251,18 @@ def entry_confirmed(price_data: StockPriceData) -> bool:
       2. Completed-bar breakout volume >= 2.0x of 20-day average volume (Volume Gate)
       3. Stabilized close (close >= 0.995 * open, or fallback if EOD open unverified)
       4. Near key support level (EMA20, SMA50, or SMA200)
+
+    Returns:
+        (passed: bool, reject_reason: str) — reason is empty string when passed=True.
+    [RULE 67 CHANGE-RATIONALE]: Decomposed from bare bool to (bool, str) tuple so the
+    rejection funnel can attribute exactly which sub-gate killed a candidate, eliminating
+    the "entry_confirmed failed" black box that masked the dominant gate in zero-alert runs.
     """
     if price_data.price < price_data.sma_200 * 0.96:
-        return False
+        return (False, "entry_below_sma200")
 
     if price_data.volume_sma20 <= 0:
-        return False
+        return (False, "entry_zero_vol_sma20")
 
     # [v5.2.0 PROVEN WINNER]: Breakout volume >= 2.0x 20-day average volume
     completed_bar_volume_ok = price_data.latest_volume >= 2.0 * price_data.volume_sma20
@@ -1278,7 +1284,14 @@ def entry_confirmed(price_data: StockPriceData) -> bool:
 
     near_support = (price_data.price >= min_lower_price) and (price_data.price <= max_upper_price)
 
-    return completed_bar_volume_ok and stabilized_close and near_support
+    # [RULE 67] Return the FIRST failing sub-gate for precise rejection attribution
+    if not completed_bar_volume_ok:
+        return (False, "entry_vol_below_2x")
+    if not stabilized_close:
+        return (False, "entry_unstabilized_close")
+    if not near_support:
+        return (False, "entry_not_near_support")
+    return (True, "")
 
 def _is_fundamental_cache_fresh(data: dict) -> bool:
     try:
@@ -2769,13 +2782,39 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     # 2. Phase 1: Batch Download Price & Volume Metrics (using auto_adjust=False)
     _batch_start_t = time.perf_counter()
     symbols = list(set(symbols))
+
+    from zero_alert_diagnostic import (
+        SingleTerminalTracker,
+        StageWaterfallTracker,
+        classify_zero_alert_run,
+        format_zero_alert_diagnostic_block
+    )
+    terminal_tracker = SingleTerminalTracker(symbols)
+    waterfall = StageWaterfallTracker([
+        "1_UNIVERSE",
+        "2_LIQUID_PRICED",
+        "3_FUNDAMENTALS_LOADED",
+        "4_V5_QUALIFIED",
+        "5_CONVICTION_TIER",
+        "6_BUY_ZONE",
+        "7_ENTRY_CONFIRMED",
+        "8_FINAL_ALERTS"
+    ])
+    waterfall.set_stage_count("1_UNIVERSE", len(symbols))
+
     # [VERSION: HEARTBEAT_PHASE1_v1.0] Pass run_ctx so batch_download_market_data pulses
     # a heartbeat per batch — prevents watchdog TIMEOUT_STALE on 10-15 min Phase 1 runs.
     price_data_map = batch_download_market_data(symbols, session=session, run_ctx=run_ctx)
     _fetch_dur = time.perf_counter() - _batch_start_t
     if not price_data_map:
+        for s in symbols:
+            terminal_tracker.record_terminal(s, "DATA_PROVIDER_OUTAGE", "Failed to download market data batch")
         logger.error("❌ Failed to download batch price data. Aborting scan.")
         raise RuntimeError("Failed to download batch price data from YFinance/Fyers. Market data provider down.")
+
+    for s in symbols:
+        if s not in price_data_map or price_data_map[s] is None:
+            terminal_tracker.record_terminal(s, "DATA_UNAVAILABLE", "No price data downloaded")
 
     if run_ctx:
         calc_stale = sum(1 for p in price_data_map.values() if _is_stale_trade_date(getattr(p, 'last_trade_date', '')))
@@ -2826,13 +2865,16 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             continue
 
         if price_data.price < 10.0:
+            terminal_tracker.record_terminal(sym, "PENNY_STOCK", f"Price ₹{price_data.price:.2f} < ₹10.0")
             continue
         if price_data.turnover_20d < 1000000.0: # ₹10 Lakhs
+            terminal_tracker.record_terminal(sym, "ILLIQUID", f"Turnover ₹{price_data.turnover_20d:.0f} < ₹10L")
             continue
         shortlist_candidates.append(price_data)
 
     # Sort by turnover descending (no arbitrary cap — all liquid stocks get evaluated)
     shortlist = sorted(shortlist_candidates, key=lambda x: x.turnover_20d, reverse=True)
+    waterfall.set_stage_count("2_LIQUID_PRICED", len(shortlist))
     stage_tracker.end_stage(f"Shortlisted {len(shortlist)} liquid stocks")
 
     _step1_mode = "FAST-PATH CONCURRENT DISK LOAD (24 Threads)" if not is_market_open(datetime.now(IST)) else "LIVE MARKET DATA BATCH FETCH"
@@ -2998,6 +3040,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     # 4. Phase 3: Peer-aware scoring & buy zone assessment
     stage_tracker.end_stage(f"Loaded {len(fundamentals_list)} fundamentals ({cached_count if 'cached_count' in locals() else 0} from DB cache)")
     stage_tracker.start_stage(3, "V5 Quant & Fundamental Evaluation Pipeline", f"Target: {len(fundamentals_list)} stocks")
+    waterfall.set_stage_count("3_FUNDAMENTALS_LOADED", len([f for f in fundamentals_list if not f.get("failed")]))
     from valuation_utils import compute_peer_medians
 
     symbols_to_val = [f.get("symbol") for f in fundamentals_list]
@@ -3007,10 +3050,13 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     alert_candidates = []
     categorized_stocks = {}
 
+    from collections import defaultdict
+    rejection_funnel = defaultdict(int)
 
-
-    # Init Rejection Log count
     unverified_pledge_count = 0
+    _v5_qualified_count = 0
+    _conviction_passed_count = 0
+    _buy_zone_passed_count = 0
 
     _eval_start_t = time.perf_counter()
     _eval_lock = threading.Lock()
@@ -3029,10 +3075,21 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     def _eval_item(f):
         import time
         t_eval_start = time.perf_counter()
-        nonlocal unverified_pledge_count
+        nonlocal unverified_pledge_count, _v5_qualified_count, _conviction_passed_count, _buy_zone_passed_count
         sym = f.get("symbol")
+        if f.get("failed"):
+            terminal_tracker.record_terminal(sym, "MISSING_FUNDAMENTALS", "Fundamental data missing from DB/TV cache")
+            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: MISSING_FUNDAMENTALS")
+            with _eval_lock:
+                rejection_funnel["missing_fundamentals"] += 1
+            return
+
         price_data = price_data_map.get(sym)
         if not price_data:
+            with _eval_lock:
+                rejection_funnel["no_price_data"] += 1
+            terminal_tracker.record_terminal(sym, "NO_PRICE_DATA", "Missing price data object")
+            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: NO_PRICE_DATA")
             return
 
         # 1. Pass the raw dictionary directly to the V5 Pipeline
@@ -3098,7 +3155,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
 
         # 2. Early Ambiguity & Quality Gates
         if price_data.sma_200 <= 0 or price_data.ema_20 <= 0 or price_data.sma_50 <= 0 or price_data.price <= 0:
-            logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Ambiguous Technicals)")
+            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: AMBIGUOUS_TECHNICALS")
+            terminal_tracker.record_terminal(sym, "AMBIGUOUS_TECHNICALS", "Ambiguous Moving Averages")
+            with _eval_lock:
+                rejection_funnel["ambiguous_technicals"] += 1
             append_rejection(results, sym, "TECHNICAL_UNAVAILABLE", "Ambiguous Technicals", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
             t_eval_end_rej = time.perf_counter()
             with eval_stats_lock:
@@ -3112,7 +3172,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
 
         # [FIX-2] Reject stale entries — if the last trade was >= 3 business days ago
         if _is_stale_trade_date(getattr(price_data, 'last_trade_date', '')):
-            logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Stale price data — last trade: {getattr(price_data, 'last_trade_date', 'unknown')})")
+            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: STALE_DATA | Last trade: {getattr(price_data, 'last_trade_date', 'unknown')}")
+            terminal_tracker.record_terminal(sym, "STALE_DATA", f"Stale trade date: {getattr(price_data, 'last_trade_date', 'unknown')}")
             append_rejection(results, sym, "STALE_DATA", f"Stale trade date: {getattr(price_data, 'last_trade_date', 'unknown')}", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
             t_eval_end_rej = time.perf_counter()
             with eval_stats_lock:
@@ -3125,7 +3186,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             return
 
         if raw_fundamentals.get("data_freshness") == "FALLBACK":
-            logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Fallback Fundamentals)")
+            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: FALLBACK_DATA")
+            terminal_tracker.record_terminal(sym, "FALLBACK_DATA", "Fallback Fundamentals")
             append_rejection(results, sym, "FALLBACK_DATA", "Fallback Fundamentals", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
             t_eval_end_rej = time.perf_counter()
             with eval_stats_lock:
@@ -3140,7 +3202,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         # [FIX-6] Reject before scoring when volume is unavailable. None/0 volume
         # means the V5 pipeline will impute a neutral score, artificially inflating the result.
         if price_data.latest_volume <= 0 or price_data.volume_sma20 <= 0:
-            logger.debug(f"REJECTION: {sym} (Phase: PRE_GATE, Reason: Volume data unavailable)")
+            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: VOLUME_UNAVAILABLE")
+            terminal_tracker.record_terminal(sym, "VOLUME_UNAVAILABLE", "Volume data unavailable")
+            with _eval_lock:
+                rejection_funnel["volume_unavailable"] += 1
             append_rejection(results, sym, "VOLUME_UNAVAILABLE", "Volume data unavailable", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
             t_eval_end_rej = time.perf_counter()
             with eval_stats_lock:
@@ -3160,8 +3225,11 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         ok, reason = passes_multibagger_quality_gate(raw_fundamentals)
         qgate_dur = (time.perf_counter() - t_qgate_0) * 1000
         if not ok:
-            logger.debug(f"REJECTION: {sym} (Phase: QUALITY_GATE, Reason: {reason})")
+            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: QUALITY_GATE_REJECTED | Reason: {reason}")
+            terminal_tracker.record_terminal(sym, "QUALITY_GATE_REJECTED", reason)
             status_code = "UNSUPPORTED_FINANCIAL" if reason.startswith("UNSUPPORTED") else "QUALITY_REJECTED"
+            with _eval_lock:
+                rejection_funnel["quality_gate"] += 1
             append_rejection(results, sym, status_code, reason, price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
             t_eval_end_rej = time.perf_counter()
             with eval_stats_lock:
@@ -3182,6 +3250,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             pipeline_dur = (time.perf_counter() - t_pipeline_0) * 1000
         except Exception:
             logger.exception("%s: V5 pipeline failed", sym)
+            with _eval_lock:
+                rejection_funnel["pipeline_failure"] += 1
             append_rejection(results, sym, "PIPELINE_FAILED", "V5 pipeline execution error", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
             t_eval_end_rej = time.perf_counter()
             with eval_stats_lock:
@@ -3195,7 +3265,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
 
         # Log rejection if invalidated by V5 gates
         if pipeline_result.is_invalidated:
-            logger.debug(f"REJECTION: {sym} (Phase: V5_GATE, Reason: {pipeline_result.invalidation_reason})")
+            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: V5_INVALIDATED | Reason: {pipeline_result.invalidation_reason}")
+            terminal_tracker.record_terminal(sym, "V5_INVALIDATED", pipeline_result.invalidation_reason)
+            with _eval_lock:
+                rejection_funnel["v5_invalidated"] += 1
             append_rejection(results, sym, "QUALITY_REJECTED", f"V5 Gate: {pipeline_result.invalidation_reason}", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
             t_eval_end_rej = time.perf_counter()
             with eval_stats_lock:
@@ -3206,6 +3279,9 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 eval_stats["inst_bonus_ms"].append(0.0)
                 eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
             return
+
+        with _eval_lock:
+            _v5_qualified_count += 1
 
         # Extract scores from the V5 pipeline
         cqs = pipeline_result.quality.score
@@ -3241,65 +3317,89 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             if tier == "💎 High Quality" and cqs < 65.0:
                 tier = "🟡 Watchlist"
                 alert_triggered = False
+                # [RULE 67] Track BEAR regime demotion as a separate funnel gate
+                with _eval_lock:
+                    rejection_funnel["bear_regime_demotion"] += 1
 
         if tier not in ["🚀 Prime Multibagger", "💎 High Quality"]:
             status = "WAITING_BUY_ZONE"
             notes = f"Conviction: {tier} | CQS: {cqs:.1f}"
             alert_triggered = False
-            logger.debug(f"ℹ️ [MULTIBAGGER] {sym} not triggered — Conviction Tier '{tier}' below Prime/High Quality threshold")
+            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: LOW_CONVICTION_TIER | Tier: {tier} | CQS: {cqs:.1f}")
+            terminal_tracker.record_terminal(sym, "LOW_CONVICTION_TIER", f"Conviction tier '{tier}' below Prime/High Quality")
+            with _eval_lock:
+                rejection_funnel["low_conviction_tier"] += 1
+            append_rejection(results, sym, "WAITING_BUY_ZONE", notes, price=price_data.price, cqs=cqs, pas=pas, trend_score=trend, total_score=total, buy_zone_low=buy_low, buy_zone_high=buy_high, bucket=tier, price_data=price_data, raw_fundamentals=raw_fundamentals)
+            return
+
+        with _eval_lock:
+            _conviction_passed_count += 1
+
+        if not pipeline_result.buy_zone.in_buy_zone:
+            status = "WAITING_BUY_ZONE"
+            notes = f"Conviction: {tier} | Waiting for Pullback"
+            alert_triggered = False
+            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED from Alert — Price ₹{price_data.price:.2f} not in Buy Zone [₹{buy_low:.2f} - ₹{buy_high:.2f}]")
+            terminal_tracker.record_terminal(sym, "NOT_IN_BUY_ZONE", f"Price ₹{price_data.price:.2f} not in Buy Zone [₹{buy_low:.2f} - ₹{buy_high:.2f}]")
+            with _eval_lock:
+                rejection_funnel["not_in_buy_zone"] += 1
+            append_rejection(results, sym, "WAITING_BUY_ZONE", notes, price=price_data.price, cqs=cqs, pas=pas, trend_score=trend, total_score=total, buy_zone_low=buy_low, buy_zone_high=buy_high, bucket=tier, price_data=price_data, raw_fundamentals=raw_fundamentals)
+            return
+
+        with _eval_lock:
+            _buy_zone_passed_count += 1
+
+        _ec_ok, _ec_reason = entry_confirmed(price_data)
+        if not _ec_ok:
+            status = "WAITING_BUY_ZONE"
+            notes = f"Conviction: {tier} | In Zone, Awaiting Technical Stabilization"
+            alert_triggered = False
+            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED from Alert — In Buy Zone but entry_confirmed failed: {_ec_reason}")
+            terminal_tracker.record_terminal(sym, f"ENTRY_CONFIRM_FAILED: {_ec_reason.upper()}", _ec_reason)
+            with _eval_lock:
+                rejection_funnel[_ec_reason] += 1
+            append_rejection(results, sym, "WAITING_BUY_ZONE", notes, price=price_data.price, cqs=cqs, pas=pas, trend_score=trend, total_score=total, buy_zone_low=buy_low, buy_zone_high=buy_high, bucket=tier, price_data=price_data, raw_fundamentals=raw_fundamentals)
+            return
+
+        status = "ALERT_TRIGGERED"
+        reclaim_ema = price_data.price > price_data.ema_20
+        if reclaim_ema:
+            notes = f"Conviction: {tier} | 🟢 BUY CONFIRMED (EMA Reclaimed)"
         else:
-            if not pipeline_result.buy_zone.in_buy_zone:
-                status = "WAITING_BUY_ZONE"
-                notes = f"Conviction: {tier} | Waiting for Pullback"
-                alert_triggered = False
-                logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED from Alert — Price ₹{price_data.price:.2f} not in Buy Zone [₹{buy_low:.2f} - ₹{buy_high:.2f}]")
-            elif not entry_confirmed(price_data):
-                status = "WAITING_BUY_ZONE"
-                notes = f"Conviction: {tier} | In Zone, Awaiting Technical Stabilization"
-                alert_triggered = False
-                logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED from Alert — In Buy Zone but entry_confirmed technical stabilization check failed")
-            else:
-                status = "ALERT_TRIGGERED"
-                reclaim_ema = price_data.price > price_data.ema_20
-                if reclaim_ema:
-                    notes = f"Conviction: {tier} | 🟢 BUY CONFIRMED (EMA Reclaimed)"
-                else:
-                    notes = f"Conviction: {tier} | 🟢 BUY CONFIRMED (Deep Value Zone)"
+            notes = f"Conviction: {tier} | 🟢 BUY CONFIRMED (Deep Value Zone)"
 
-                fv = safe_float(getattr(pipeline_result.valuation, 'fair_value', 0.0))
-                mos = safe_float(getattr(pipeline_result.valuation, 'margin_of_safety', 0.0))
-                if fv > 0:
-                    notes += f" | FV: {fv:.0f} (MoS: {mos:.0f}%)"
+        fv = safe_float(getattr(pipeline_result.valuation, 'fair_value', 0.0))
+        mos = safe_float(getattr(pipeline_result.valuation, 'margin_of_safety', 0.0))
+        if fv > 0:
+            notes += f" | FV: {fv:.0f} (MoS: {mos:.0f}%)"
 
-                alert_triggered = True
-
+        alert_triggered = True
         bucket = tier
 
-        if alert_triggered:
-            skip_alert = False
-            if sym in open_symbols:
-                logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED after picking — Reason: ALREADY_OPEN_POSITION in database")
-                skip_alert = True
-                status = "WAITING_BUY_ZONE" # Already held, so don't fire an alert again
+        if sym in open_symbols:
+            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED after picking — Reason: ALREADY_OPEN_POSITION in database")
+            terminal_tracker.record_terminal(sym, "ALREADY_OPEN_POSITION", "Position already held in database")
+            with _eval_lock:
+                rejection_funnel["already_open_position"] += 1
+            return
 
-            if not skip_alert:
-                logger.info(f"📍 PICKED [MULTIBAGGER: IN BETWEEN]: {sym} @ ₹{price_data.price:.2f} (Tier: {tier}, Score: {total:.1f}, CQS: {cqs:.1f})")
-                tier_val = 2 if "Prime" in tier else 1
-                with _eval_lock:
-                    alert_candidates.append({
-                        "symbol": sym,
-                        "price": price_data.price,
-                        "tier": tier,
-                        "tier_val": tier_val,
-                        "total_score": total,
-                        "cqs": cqs,
-                        "trend_score": trend,
-                        "pas": pas,
-                        "notes": notes,
-                        "pipeline_result": pipeline_result,
-                        "raw_fundamentals": raw_fundamentals,
-                        "_price_data": price_data  # [FIX MUL-24] Store for entry_confirmed recheck at live price
-                    })
+        logger.info(f"📍 PICKED [MULTIBAGGER: IN BETWEEN]: {sym} @ ₹{price_data.price:.2f} (Tier: {tier}, Score: {total:.1f}, CQS: {cqs:.1f})")
+        tier_val = 2 if "Prime" in tier else 1
+        with _eval_lock:
+            alert_candidates.append({
+                "symbol": sym,
+                "price": price_data.price,
+                "tier": tier,
+                "tier_val": tier_val,
+                "total_score": total,
+                "cqs": cqs,
+                "trend_score": trend,
+                "pas": pas,
+                "notes": notes,
+                "pipeline_result": pipeline_result,
+                "raw_fundamentals": raw_fundamentals,
+                "_price_data": price_data  # [FIX MUL-24] Store for entry_confirmed recheck at live price
+            })
 
             if status != "INVALIDATED":
                 label = bucket
@@ -3499,14 +3599,18 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
 
         if data_state == "DATA_INCOMPLETE":
             logger.info(f"🚫 {sym} alert SUPPRESSED: DATA_INCOMPLETE (missing critical TV fields)")
+            terminal_tracker.record_terminal(sym, "DATA_INCOMPLETE", "Missing critical baseline TV metrics")
             cand["rejection_status"] = "DATA_INCOMPLETE"
             cand["rejection_reason"] = "Missing critical baseline TV metrics"
+            rejection_funnel["data_incomplete"] += 1
             continue
 
         if len(top_n) >= max_alerts:
             cand["rejection_status"] = "SUPPRESSED_TOP_N"
             cand["rejection_reason"] = f"Exceeded MAX_ALERTS_PER_SCAN limit ({max_alerts})"
             logger.info(f"🚫 {sym} alert SUPPRESSED_TOP_N: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['total_score']:.1f})")
+            terminal_tracker.record_terminal(sym, "SUPPRESSED_TOP_N", f"Exceeded MAX_ALERTS_PER_SCAN limit ({max_alerts})")
+            rejection_funnel["suppressed_top_n"] += 1
             continue
 
         top_n.append(cand)
@@ -3537,6 +3641,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 logger.info(f"🚫 {sym} live price unavailable or invalid ({live_p}) — skipping alert")
                 cand["rejection_status"] = "LIVE_PRICE_UNAVAILABLE"
                 cand["rejection_reason"] = f"Could not verify current market price (got {live_p})"
+                terminal_tracker.record_terminal(sym, "LIVE_PRICE_UNAVAILABLE", f"Could not verify current market price (got {live_p})")
+                rejection_funnel["live_price_unavailable"] += 1
                 continue
 
             price = float(parsed_p)
@@ -3548,9 +3654,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             bz_high = pipeline_res.buy_zone.buy_zone_high if pipeline_res and pipeline_res.buy_zone else 0.0
             if bz_high > 0 and (price < bz_low or price > bz_high):
                 logger.info(f"🚫 {sym} live price ₹{price:.2f} outside buy zone [₹{bz_low:.2f} - ₹{bz_high:.2f}] — skipping alert")
-                # [FIX ISSUE-10] Track distinct rejection reason
                 cand["rejection_status"] = "PRICE_MOVED"
                 cand["rejection_reason"] = f"Live price ₹{price:.2f} outside buy zone [₹{bz_low:.2f} - ₹{bz_high:.2f}]"
+                terminal_tracker.record_terminal(sym, "PRICE_MOVED_OUTSIDE_BUY_ZONE", f"Live price ₹{price:.2f} outside buy zone [₹{bz_low:.2f} - ₹{bz_high:.2f}]")
+                rejection_funnel["price_moved_outside_buy_zone"] += 1
                 continue
 
             # [FIX MUL-24] Recheck entry_confirmed against live price.
@@ -3558,11 +3665,13 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             if live_price_data is not None:
                 from dataclasses import replace
                 live_pd = replace(live_price_data, price=price, today_close=price)
-                if not entry_confirmed(live_pd):
-                    logger.info(f"🚫 {sym} live price ₹{price:.2f} fails entry_confirmed recheck — skipping alert")
-                    # [FIX ISSUE-10] Track distinct rejection reason
+                _live_ec_ok, _live_ec_reason = entry_confirmed(live_pd)
+                if not _live_ec_ok:
+                    logger.info(f"🚫 {sym} live price ₹{price:.2f} fails entry_confirmed recheck ({_live_ec_reason}) — skipping alert")
                     cand["rejection_status"] = "TECHNICAL_UNCONFIRMED"
-                    cand["rejection_reason"] = f"Live entry_confirmed failed at ₹{price:.2f}"
+                    cand["rejection_reason"] = f"Live entry_confirmed failed at ₹{price:.2f}: {_live_ec_reason}"
+                    terminal_tracker.record_terminal(sym, f"LIVE_ENTRY_FAILED: {_live_ec_reason.upper()}", f"Live entry_confirmed failed at ₹{price:.2f}: {_live_ec_reason}")
+                    rejection_funnel[f"live_{_live_ec_reason}"] += 1
                     continue
 
             c_total = cand["total_score"]
@@ -3573,7 +3682,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             raw_fund = cand["raw_fundamentals"]
             c_tier = cand.get("tier") or (pipeline_res.classification if pipeline_res else "💎 High Quality")
 
-            logger.info(f"🌟 Alert Triggered for {sym}! Price={price:.1f}. Reason: In Buy Zone")
+            logger.info(f"🌟 [MULTIBAGGER: SELECTED] {sym} @ ₹{price:.2f} | Tier: {c_tier} | Score: {c_total:.1f} | CQS: {c_cqs:.1f} | PAS: {c_pas:.1f} | Trend: {c_trend:.1f} | Notes: {c_notes}")
 
             scaled_score = int(c_total)
 
@@ -3648,6 +3757,9 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 else:
                     cand["rejection_status"] = "INSERT_FAILED"
                 cand["rejection_reason"] = str(reason)
+                terminal_tracker.record_terminal(sym, cand["rejection_status"], str(reason))
+            else:
+                terminal_tracker.record_terminal(sym, "ALERT_GENERATED", f"Multibagger alert successfully persisted at ₹{price:.2f}")
 
             if inserted:
                 for _r in results:
@@ -3725,6 +3837,78 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         queue_telegram_message(msg)
 
     logger.info("✅ Multibagger Scanner execution finished.")
+
+    # Count actual DB inserts
+    alerts_count = sum(1 for r in results if getattr(r, 'alert_inserted', False))
+
+    waterfall.set_stage_count("4_V5_QUALIFIED", _v5_qualified_count)
+    waterfall.set_stage_count("5_CONVICTION_TIER", _conviction_passed_count)
+    waterfall.set_stage_count("6_BUY_ZONE", _buy_zone_passed_count)
+    waterfall.set_stage_count("7_ENTRY_CONFIRMED", len(alert_candidates))
+    waterfall.set_stage_count("8_FINAL_ALERTS", alerts_count)
+
+    terminal_tracker.record_untracked_remainder("UNTRACKED_DROP")
+    cons_summary = terminal_tracker.get_summary()
+    dominant_bottleneck = waterfall.get_dominant_bottleneck()
+
+    classification = classify_zero_alert_run(
+        scanner_name="MULTIBAGGER",
+        universe_size=len(symbols),
+        valid_data_count=len(price_data_map),
+        initial_setups_count=_buy_zone_passed_count,
+        finalist_candidates_count=len(alert_candidates),
+        alerts_generated=alerts_count,
+        near_miss_count=len(alert_candidates),
+        regime=market_regime,
+        execution_mode="LIVE",
+        stage_waterfall=waterfall.compute_attrition()
+    )
+
+    diag_lines = format_zero_alert_diagnostic_block(
+        scanner_name="MULTIBAGGER",
+        execution_mode="LIVE",
+        regime=market_regime,
+        classification_result=classification,
+        dominant_bottleneck=dominant_bottleneck,
+        conservation_summary=cons_summary,
+        stage_waterfall=waterfall.compute_attrition(),
+        near_miss_count=len(alert_candidates)
+    )
+
+    summary_lines = [
+        "======================================================================",
+        "=== [MULTIBAGGER PIPELINE SUMMARY] ===",
+        "======================================================================",
+        "📊 DATA QUALITY SNAPSHOT:",
+        f"  • Total Constituents Scanned: {cons_summary['total_universe']}",
+        f"  • Price Data Resolved       : {len(price_data_map)}",
+        f"  • Liquid Shortlist          : {len(shortlist)}",
+        f"  • Fundamentals Loaded       : {len(fundamentals_list)}",
+        f"  • Market Regime             : {market_regime}",
+        "",
+        "🎯 MUTUALLY-EXCLUSIVE SINGLE TERMINAL DISPOSITIONS:"
+    ]
+    for k, v in cons_summary["terminal_counts"].items():
+        summary_lines.append(f"  • {k:<32}: {v}")
+
+    summary_lines.extend([
+        "",
+        "⚖️ CONSERVATION OF UNIVERSE:",
+        f"  • Total Constituents Scanned: {cons_summary['total_universe']}",
+        f"  • Sum of Terminal Outcomes  : {cons_summary['sum_terminal']}",
+        f"  • Conservation Delta        : {cons_summary['conservation_delta']} ({'CONSERVED ✅' if cons_summary['is_conserved'] else 'DIVERGENCE ❌'})",
+        "",
+        "🏆 FINAL OUTCOME:",
+        f"  • Alerts Generated          : {alerts_count}",
+        f"  • Total Execution Time      : {round(time.time() - start_time, 1)}s",
+    ])
+
+    if alerts_count == 0:
+        summary_lines.extend(diag_lines)
+
+    summary_lines.append("======================================================================")
+    logger.info("\n".join(summary_lines))
+
     try:
         stage_tracker.end_stage(f"Alerts generated: {alerts_count}")
         stage_tracker.print_summary(alerts_found=alerts_count)

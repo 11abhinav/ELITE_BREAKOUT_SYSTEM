@@ -35,12 +35,15 @@ from multitf.state import (
     find_active_box_for_symbol,
     apply_ttl_and_cooldown,
     handle_box_invalidation,
+    invalidate_record,
     persist_new_watchlist_candidate,
     update_state_in_db,
     get_active_armed_candidates,
+    get_armed_candidate_lifecycle_summary,
     MtfSubstate
 )
 from multitf.candidate import build_watchlist_candidate, build_confirmed_payload
+from zero_alert_diagnostic import classify_zero_alert_run, format_zero_alert_diagnostic_block
 
 from sl_target_helper import compute_sl_and_target
 
@@ -474,6 +477,10 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
         t_process_start = time.monotonic()
         opp_manager = OpportunityManager(policy=regime_ctx.get("policy", {}) if regime_ctx else {})
 
+        # [RULE 67 CHANGE-RATIONALE]: Downstream rejection funnel tracking across all candidate evaluations
+        from collections import defaultdict
+        mtf_funnel = defaultdict(int)
+
         target_evaluation_symbols = actionable_symbols if actionable_symbols else []
         for symbol in target_evaluation_symbols:
             if real_run_ctx:
@@ -499,10 +506,12 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
                     # Pass it in so _process_symbol doesn't re-run detect_15m_consolidation
                     # from scratch — avoids double CPU and prevents armed-only DB-pulled
                     # symbols from failing consolidation detection if box_id shifted.
-                    precomputed_consolidation=consolidation_map.get(symbol)
+                    precomputed_consolidation=consolidation_map.get(symbol),
+                    funnel_counters=mtf_funnel
                 )
             except Exception as loop_exc:
                 logger.error("[MULTI_TF] Failed processing %s: %s", symbol, loop_exc)
+                mtf_funnel["evaluation_exception"] += 1
 
         t_process_dur = round(time.monotonic() - t_process_start, 2)
         logger.info("⚡ [MULTI_TF] Completed symbol evaluations in %ss", t_process_dur)
@@ -519,15 +528,83 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
         stage_tracker.end_stage(f"Dispatched in {t_opp_dur}s")
 
         duration = round(time.monotonic() - start_time, 2)
+
+        # [RULE 67 CHANGE-RATIONALE]: Distinguish scanning+arming (non-market) from scanning+live evaluation.
+        # When run_multitf_v2 executes outside market hours (before 09:15 or after 15:30 IST),
+        # it correctly pre-arms candidates but cannot fire new breakout alerts due to ENTRY_CUTOFF.
+        # Previously this was reported as generic "SUCCESS", creating a misleading health impression.
+        from datetime import time as dtime
+        _market_open_time = dtime(9, 15)
+        _market_close_time = dtime(15, 30)
+        _is_market_hours = _market_open_time <= ist_now.time() <= _market_close_time
+        _exec_mode = "LIVE_ENTRY" if _is_market_hours else "PREARM"
+        _scan_log_suffix = "Live scan completed" if _is_market_hours else "Non-market scan — armed candidates only, new trade initiation suppressed (outside entry window)"
+
+        alerts_generated = mtf_funnel.get("alert_triggered", 0)
+
+        # Health status is strictly operational health (OK / DOWN / DEGRADED);
+        # execution mode (LIVE_ENTRY vs PREARM) is captured in structured outcome.
         upsert_scanner_health(
             scanner_name="MULTI_TF",
             status="OK",
-            outcome="SUCCESS",
+            outcome={"status": "SUCCESS", "mode": _exec_mode, "alerts": alerts_generated},
+            today_alerts=alerts_generated,
             processed_count=len(watchlist),
             total_count=len(watchlist),
             duration_seconds=duration,
             scheduled_for=_MTF_SCHEDULE
         )
+
+        lifecycle = get_armed_candidate_lifecycle_summary()
+
+        fired_mtf = {k: v for k, v in sorted(mtf_funnel.items(), key=lambda x: x[1], reverse=True) if v > 0}
+        summary_mtf_lines = [
+            "======================================================================",
+            "=== [MULTI_TF PIPELINE SUMMARY] ===",
+            "======================================================================",
+            f"  • Total Watchlist Requested : {len(watchlist)}",
+            f"  • Actionable Evaluated      : {len(target_evaluation_symbols)}",
+            f"  • Alerts Generated          : {alerts_generated}",
+            f"  • Execution Mode            : {_exec_mode}",
+            f"  • Market Hours Active       : {'YES' if _is_market_hours else 'NO (PRE-ARM ONLY)'}",
+            "",
+            "📦 ARMED CANDIDATE LIFECYCLE (OVERNIGHT PERSISTENCE):",
+            f"  • Total in Watchlist Table  : {lifecycle['total_in_watchlist']}",
+            f"  • Active Substates          : {lifecycle['active_substates']} (WATCHING / PRESSURE / ATTEMPT)",
+            f"  • In Cooldown / TTL Expired : {lifecycle['in_cooldown']}",
+            f"  • Invalidated Boxes         : {lifecycle['invalidated']}",
+            f"  • Live Monitor Eligible     : {lifecycle['live_monitor_eligible']}",
+            "",
+            "🎯 GATE-BY-GATE REJECTION BREAKDOWN:"
+        ]
+        for k, v in fired_mtf.items():
+            summary_mtf_lines.append(f"  • {k:<30}: {v}")
+
+        if alerts_generated == 0:
+            classification = classify_zero_alert_run(
+                scanner_name="MULTI_TF",
+                universe_size=len(watchlist),
+                valid_data_count=len(watchlist),
+                initial_setups_count=len(target_evaluation_symbols),
+                finalist_candidates_count=mtf_funnel.get("confluence_approved", 0),
+                alerts_generated=alerts_generated,
+                near_miss_count=lifecycle.get("live_monitor_eligible", 0),
+                regime="NEUTRAL",
+                execution_mode=_exec_mode
+            )
+            dominant_mtf = next(iter(fired_mtf.items())) if fired_mtf else ("None", 0)
+            summary_mtf_lines.extend([
+                "",
+                "⚠️ ZERO_ALERT_DIAGNOSTIC (MULTI_TF):",
+                f"  • Classification            : {classification['classification']} [{classification['severity']}]",
+                f"  • Finding                   : {classification['explanation']}",
+                f"  • Execution Mode            : {_exec_mode}",
+                f"  • Dominant Rejection Gate   : {dominant_mtf[0]} ({dominant_mtf[1]} occurrences)",
+                f"  • Recommendation            : {classification['recommendation']}"
+            ])
+
+        summary_mtf_lines.append("======================================================================")
+        logger.info("\n".join(summary_mtf_lines))
 
         if real_run_ctx:
             try:
@@ -538,7 +615,7 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
                 logger.warning(f"⚠️ [MULTI_TF] Failed to complete execution run: {_c_err}")
 
         telemetry.log_scheduler_event("MULTI_TF", "CYCLE_COMPLETE")
-        logger.info("✅ MULTI_TF V2 ENGINE | Execution cycle complete in %ss.", duration)
+        logger.info("✅ MULTI_TF V2 ENGINE | Execution cycle complete in %ss. %s", duration, _scan_log_suffix)
 
         # Telemetry distinguishing SCAN_SUCCESS and CACHE_PERSISTED vs CACHE_PERSIST_PENDING
         try:
@@ -613,12 +690,22 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
         real_run_ctx = None
 
     active_candidates = get_active_armed_candidates()
+    lifecycle_5m = get_armed_candidate_lifecycle_summary()
+    logger.info(
+        f"📦 [MULTI_TF_5M ARMED LIFECYCLE SNAPSHOT] "
+        f"Watchlist Total: {lifecycle_5m['total_in_watchlist']} | "
+        f"Active Substates: {lifecycle_5m['active_substates']} | "
+        f"In Cooldown: {lifecycle_5m['in_cooldown']} | "
+        f"Invalidated: {lifecycle_5m['invalidated']} | "
+        f"Live Monitor Eligible: {lifecycle_5m['live_monitor_eligible']}"
+    )
+
     if not active_candidates:
         logger.debug("[MULTI_TF_5M] No active armed candidates to monitor.")
         upsert_scanner_health(
             scanner_name="MULTI_TF_5M",
             status="OK",
-            outcome="SUCCESS",
+            outcome={"status": "SUCCESS", "mode": "MONITOR", "alerts": 0},
             processed_count=0,
             total_count=0,
             duration_seconds=0.05,
@@ -637,7 +724,7 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
         upsert_scanner_health(
             scanner_name="MULTI_TF_5M",
             status="OK",
-            outcome="SKIPPED",
+            outcome={"status": "SKIPPED", "mode": "MONITOR", "reason": "lock_busy"},
             processed_count=0,
             total_count=len(active_candidates),
             duration_seconds=0.05,
@@ -664,6 +751,9 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
         all_5m  = fetch_watchlist_data(symbols, period="5d",  interval="5m",  requester="MULTI_TF_5M", run_ctx=real_run_ctx)
 
         opp_manager = OpportunityManager(policy=regime_ctx.get("policy", {}) if regime_ctx else {})
+        from collections import defaultdict
+        mtf_5m_funnel = defaultdict(int)
+
         for symbol in symbols:
             try:
                 _process_symbol(
@@ -676,22 +766,67 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
                     all_30m=all_30m,
                     all_15m=all_15m,
                     all_5m=all_5m,
-                    config=MULTI_TF_V2_CONFIG
+                    config=MULTI_TF_V2_CONFIG,
+                    funnel_counters=mtf_5m_funnel
                 )
             except Exception as e:
                 logger.error(f"[MULTI_TF_5M] Error evaluating {symbol}: {e}")
+                mtf_5m_funnel["evaluation_exception"] += 1
 
         opp_manager.process()
         duration = round(time.monotonic() - start_time, 2)
+        alerts_generated = mtf_5m_funnel.get("alert_triggered", 0)
+
         upsert_scanner_health(
             scanner_name="MULTI_TF_5M",
             status="OK",
             outcome="SUCCESS",
+            today_alerts=alerts_generated,
             processed_count=len(symbols),
             total_count=len(symbols),
             duration_seconds=duration,
             scheduled_for=_MTF_5M_SCHEDULE
         )
+
+        fired_5m = {k: v for k, v in sorted(mtf_5m_funnel.items(), key=lambda x: x[1], reverse=True) if v > 0}
+        summary_5m_lines = [
+            "======================================================================",
+            "=== [MULTI_TF 5M MONITOR SUMMARY] ===",
+            "======================================================================",
+            f"  • Armed Candidates Monitored: {len(symbols)}",
+            f"  • Alerts Generated          : {alerts_generated}",
+            f"  • Duration                  : {duration}s",
+            "",
+            "🎯 GATE-BY-GATE BREAKDOWN:"
+        ]
+        for k, v in fired_5m.items():
+            summary_5m_lines.append(f"  • {k:<30}: {v}")
+
+        if alerts_generated == 0:
+            classification_5m = classify_zero_alert_run(
+                scanner_name="MULTI_TF_5M",
+                universe_size=len(symbols),
+                valid_data_count=len(symbols),
+                initial_setups_count=len(symbols),
+                finalist_candidates_count=mtf_5m_funnel.get("5m_confluence_passed", 0),
+                alerts_generated=alerts_generated,
+                near_miss_count=len(symbols),
+                regime="NEUTRAL",
+                execution_mode="MONITOR"
+            )
+            dominant_5m = next(iter(fired_5m.items())) if fired_5m else ("None", 0)
+            summary_5m_lines.extend([
+                "",
+                "⚠️ ZERO_ALERT_DIAGNOSTIC (MULTI_TF_5M):",
+                f"  • Classification            : {classification_5m['classification']} [{classification_5m['severity']}]",
+                f"  • Finding                   : {classification_5m['explanation']}",
+                f"  • Dominant Rejection Gate   : {dominant_5m[0]} ({dominant_5m[1]} occurrences)",
+                f"  • Recommendation            : {classification_5m['recommendation']}"
+            ])
+
+        summary_5m_lines.append("======================================================================")
+        logger.info("\n".join(summary_5m_lines))
+
         if real_run_ctx:
             try:
                 real_run_ctx.set_total_stocks(len(symbols))
@@ -699,7 +834,7 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
                 complete_scanner_execution_run(real_run_ctx, status_override="COMPLETED")
             except Exception:
                 pass
-        logger.info(f"✅ [MULTI_TF_5M] 5m monitor cycle complete in {duration}s for {len(symbols)} candidates.")
+        logger.info(f"✅ [MULTI_TF_5M] 5m monitor cycle complete in {duration}s for {len(symbols)} candidates. Alerts: {alerts_generated}")
     except Exception as exc:
         duration = round(time.monotonic() - start_time, 2)
         logger.error(f"[MULTI_TF_5M] Error during 5m monitor: {exc}")
@@ -731,17 +866,22 @@ def _process_symbol(
     all_15m: Dict,
     all_5m: Dict,
     config: Dict[str, Any],
-    precomputed_consolidation=None
+    precomputed_consolidation=None,
+    funnel_counters: Optional[Dict[str, int]] = None
 ):
     # 1. Load Data
     bundle = load_multitf_data(symbol, ist_now, all_1h, all_30m, all_15m, all_5m, all_1d)
     if not bundle.data_sufficient:
+        if funnel_counters is not None:
+            funnel_counters["data_insufficient"] += 1
         return
 
     # Extract indicators
     atr_15m = _get_atr(bundle.df_15m_closed)
     atr_5m = _get_atr(bundle.df_5m_closed)
     if atr_15m <= 0 or atr_5m <= 0:
+        if funnel_counters is not None:
+            funnel_counters["invalid_atr"] += 1
         return
 
     current_price = float(bundle.df_5m_closed["Close"].iloc[-1])
@@ -755,6 +895,8 @@ def _process_symbol(
     else:
         consolidation = detect_15m_consolidation(bundle.df_15m_closed, atr_15m, ist_now, config)
     if not consolidation.is_valid:
+        if funnel_counters is not None:
+            funnel_counters["invalid_base"] += 1
         return
 
     # 3. State Management & Stable Box Lineage
@@ -812,11 +954,16 @@ def _process_symbol(
 
     # If already fully handled or invalid — still stamp last_evaluated_at so UI shows current time
     if state_record.mtf_substate in (MtfSubstate.INVALIDATED, MtfSubstate.BREAKOUT_CONFIRMED):
+        if funnel_counters is not None:
+            funnel_counters["already_handled_or_invalidated"] += 1
         update_state_in_db(state_record, _live_data_updates())
         return
 
     # Check invalidation logic
     if handle_box_invalidation(state_record, current_price, consolidation.box_low, atr_15m, ist_now):
+        if funnel_counters is not None:
+            funnel_counters["box_breakdown"] += 1
+        logger.info(f"🚫 [MULTI_TF] {symbol} REJECTED — Box breakdown below ₹{consolidation.box_low:.2f}")
         if not update_state_in_db(state_record, _live_data_updates()):
             return
         return
@@ -824,10 +971,15 @@ def _process_symbol(
     # TTL checks
     current_5m_bars_count = len(bundle.df_5m_closed)
     if apply_ttl_and_cooldown(state_record, ist_now, current_5m_bars_count):
+        if funnel_counters is not None:
+            funnel_counters["ttl_or_cooldown_expired"] += 1
+        logger.info(f"🚫 [MULTI_TF] {symbol} REJECTED — TTL expired or cooldown active")
         if not update_state_in_db(state_record, _live_data_updates()):
             return
 
     if state_record.mtf_substate == MtfSubstate.FAILED_ATTEMPT:
+        if funnel_counters is not None:
+            funnel_counters["failed_attempt_cooldown"] += 1
         # Still stamp last_evaluated_at even while cooling down
         update_state_in_db(state_record, _live_data_updates())
         return
@@ -892,8 +1044,10 @@ def _process_symbol(
                 )
 
                 if not is_hard_breakout:
-                    logger.debug("[%s] Candidate rejected by Hard Breakout Gate (close=%.2f, res=%.2f, rvol=%.2f, ext=%s)",
-                                 symbol, c_5m, res_line, pressure.volume_ratio, pressure.is_overextended)
+                    if funnel_counters is not None:
+                        funnel_counters["hard_breakout_failed"] += 1
+                    logger.info("🚫 [MULTI_TF] %s REJECTED — Hard Breakout Gate failed (close=%.2f, res=%.2f, rvol=%.2f, overextended=%s)",
+                                symbol, c_5m, res_line, pressure.volume_ratio, pressure.is_overextended)
                     return
 
                 # 7. R:R Target Generation & Pre-Validation Gate
@@ -907,12 +1061,14 @@ def _process_symbol(
 
                 # Strict Tradeability Pre-Check: Do NOT save to alerts if rejected by R:R!
                 if sl_target.get("is_rejected"):
-                    logger.info("[%s] Breakout rejected by R:R gate (%.2f < %.2f). NOT SAVING TO ALERTS.",
+                    if funnel_counters is not None:
+                        funnel_counters["rr_rejected"] += 1
+                    logger.info("🚫 [MULTI_TF] %s REJECTED — R:R gate failed (%.2f < %.2f). NOT SAVING TO ALERTS.",
                                 symbol, sl_target.get("rr_ratio", 0), config.get("MIN_RR_RATIO", 1.5))
-                    state_record.mtf_substate = MtfSubstate.INVALIDATED
-                    state_record.state = "REJECTED"
+                    invalidate_record(state_record, ist_now, "NOT_TRADEABLE")
                     updates["invalidated_at"] = ist_now
                     updates["invalidation_reason"] = "NOT_TRADEABLE"
+                    update_state_in_db(state_record, {**_live_data_updates(), **updates})
                     try:
                         from near_miss_tracker import log_near_miss
                         log_near_miss(
@@ -952,8 +1108,11 @@ def _process_symbol(
                 )
 
                 if severity == "WEAK":
-                    logger.info("[%s] Breakout confirmed but classified WEAK (base=%d, brk=%d). Logging to near miss only.",
+                    if funnel_counters is not None:
+                        funnel_counters["severity_weak"] += 1
+                    logger.info("🚫 [MULTI_TF] %s REJECTED — Breakout confirmed but classified WEAK (base=%d, brk=%d). Logging to near miss only.",
                                 symbol, consolidation.setup_score, brkout_strength.breakout_score)
+                    update_state_in_db(state_record, _live_data_updates())
                     return
 
                 # 10. Canonical Alert Registration for High-Conviction Tradeable Signals
@@ -1016,6 +1175,8 @@ def _process_symbol(
 
                 # 11. Dispatch to OpportunityManager
                 if inserted:
+                    if funnel_counters is not None:
+                        funnel_counters["alert_triggered"] += 1
                     rich_message = build_multitf_alert_message(
                         symbol=symbol,
                         exchange="NSE",
@@ -1037,6 +1198,13 @@ def _process_symbol(
                     logger.info("[%s] %s Alert (base=%d, brk=%d):\n%s",
                                 symbol, SEVERITY_EMOJI.get(severity, "🟢"),
                                 consolidation.setup_score, brkout_strength.breakout_score, rich_message)
+                    logger.info(
+                        f"🌟 [MULTI_TF: SELECTED] {symbol} @ ₹{float(sl_target.get('entry_price') or 0):.2f} | "
+                        f"Severity: {severity} | Base: {consolidation.setup_score} ({consolidation.base_rating_label}) | "
+                        f"Breakout Score: {brkout_strength.breakout_score} ({brkout_strength.breakout_rating_label}) | "
+                        f"RVOL: {pressure.volume_ratio:.2f}x | SL: ₹{float(sl_target.get('stop_loss') or 0):.2f} | "
+                        f"T1: ₹{float(sl_target.get('target_1') or 0):.2f} | RR: {float(sl_target.get('rr_ratio') or 0):.2f}"
+                    )
 
                     payload = build_confirmed_payload(
                         bundle=bundle,
@@ -1051,15 +1219,26 @@ def _process_symbol(
                     )
                     opp_manager.add(payload)
                 else:
-                    logger.debug("[%s] Alert already processed for box %s, skipping OpportunityManager.", symbol, consolidation.box_id)
+                    if funnel_counters is not None:
+                        funnel_counters["duplicate_alert_box"] += 1
+                    logger.info("🚫 [MULTI_TF] %s REJECTED — Alert already processed for box %s, skipping OpportunityManager.", symbol, consolidation.box_id)
 
                 state_record.mtf_substate = MtfSubstate.BREAKOUT_CONFIRMED
                 state_record.state = "CONFIRMED"
                 updates["last_confirmation_ts"] = ist_now
+            else:
+                if funnel_counters is not None:
+                    funnel_counters["confluence_not_approved"] += 1
+                logger.info("🚫 [MULTI_TF] %s REJECTED — Confluence not approved (Score: %.1f)", symbol, confluence.total_score)
         else:
-            logger.debug(f"⏳ [{symbol}] Entry cutoff ({cutoff_str} IST) reached — skipping new trade initiation.")
+            if funnel_counters is not None:
+                funnel_counters["past_entry_cutoff"] += 1
+            logger.info("⏳ [MULTI_TF] %s REJECTED — Pressure confirmed but past entry cutoff (%s IST). New trade initiation suppressed.", symbol, cutoff_str)
 
     elif pressure.is_attempt and state_record.mtf_substate == MtfSubstate.WATCHING:
+        if funnel_counters is not None:
+            funnel_counters["breakout_attempt_only"] += 1
+        logger.info("👀 [MULTI_TF] %s — Breakout attempt detected, moving to ATTEMPT state.", symbol)
         # Switch to ATTEMPT state (Informational BREAKOUT_APPROACHING on watchlist, not a trade order)
         state_record.mtf_substate = MtfSubstate.ATTEMPT
         state_record.state = "CANDIDATE"
@@ -1068,6 +1247,9 @@ def _process_symbol(
         updates["attempt_started_ts"] = ist_now
         updates["last_attempt_ts"] = ist_now
         updates["attempt_bar_boundary"] = pressure.attempt_bar_boundary
+    else:
+        if funnel_counters is not None:
+            funnel_counters["no_breakout_pressure"] += 1
 
     # 10. Sync all live evaluation data to DB on every cycle
     # [FIX: LIVE_DATA_ALWAYS_REFRESH_v1.0]

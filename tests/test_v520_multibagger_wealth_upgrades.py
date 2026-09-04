@@ -48,7 +48,9 @@ def test_multibagger_volume_gate_boundary():
         today_open=980.0,
         today_close=1000.0
     )
-    assert entry_confirmed(p_fail) is False, "Expected volume < 2.0x SMA20 to fail entry confirmation"
+    ok, reason = entry_confirmed(p_fail)
+    assert ok is False, "Expected volume < 2.0x SMA20 to fail entry confirmation"
+    assert reason == "entry_vol_below_2x", f"Expected entry_vol_below_2x, got {reason}"
 
     # 2. Exactly 2.0x SMA20 -> Must PASS
     p_pass_exact = StockPriceData(
@@ -74,7 +76,9 @@ def test_multibagger_volume_gate_boundary():
         today_open=980.0,
         today_close=1000.0
     )
-    assert entry_confirmed(p_pass_exact) is True, "Expected volume >= 2.0x SMA20 to pass entry confirmation"
+    ok_exact, reason_exact = entry_confirmed(p_pass_exact)
+    assert ok_exact is True, "Expected volume >= 2.0x SMA20 to pass entry confirmation"
+    assert reason_exact == "", f"Expected empty reason for pass, got {reason_exact}"
 
     # 3. Super-surge 3.5x SMA20 -> Must PASS
     p_pass_surge = StockPriceData(
@@ -100,7 +104,9 @@ def test_multibagger_volume_gate_boundary():
         today_open=980.0,
         today_close=1000.0
     )
-    assert entry_confirmed(p_pass_surge) is True, "Expected surge volume to pass entry confirmation"
+    ok_surge, reason_surge = entry_confirmed(p_pass_surge)
+    assert ok_surge is True, "Expected surge volume to pass entry confirmation"
+    assert reason_surge == "", f"Expected empty reason for pass, got {reason_surge}"
 
 
 def test_wealth_engine_20pct_sector_cap():

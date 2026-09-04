@@ -34,6 +34,12 @@ from watchlist_cache import get_watchlist
 from price_cache import fetch_watchlist_data
 from macro_utils import MarketRegimeEngine, get_nifty_20d_return, get_macro_regime
 from lock_utils import ProcessLock
+from zero_alert_diagnostic import (
+    SingleTerminalTracker,
+    StageWaterfallTracker,
+    classify_zero_alert_run,
+    format_zero_alert_diagnostic_block
+)
 
 logger = logging.getLogger("pullback_scanner")
 
@@ -556,6 +562,19 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         upsert_scanner_health("PULLBACK", status="OK", today_alerts=0, total_count=0, processed_count=0)
         return 0
 
+    all_universe_symbols = [str(s) for s in watchlist["Stock"].tolist() if s]
+    terminal_tracker = SingleTerminalTracker(all_universe_symbols)
+    waterfall = StageWaterfallTracker([
+        "UNIVERSE_WATCHLIST",
+        "FETCHED_DATA",
+        "UPTREND_AND_STRUCTURE",
+        "SCORE_THRESHOLD",
+        "RISK_ENGINE",
+        "FINAL_ALERTS"
+    ])
+    waterfall.set_stage_count("UNIVERSE_WATCHLIST", len(watchlist))
+    near_miss_count = 0
+
     # Step 1: Check if today's dataset is already processed/available
     if session is not None:
         dataset_date = run_date
@@ -842,6 +861,11 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                                 
                             if rej_reason:
                                 rejected[rej_reason] = rejected.get(rej_reason, 0) + 1
+                                terminal_tracker.record_terminal(sym, rej_reason.upper(), f"Pre-check gate: {rej_reason}")
+                                logger.info(
+                                    f"🚫 [PULLBACK] {sym} REJECTED — Gate: {rej_reason.upper()} | "
+                                    f"Actual: {act_data} | Required: {req_data}"
+                                )
                                 telemetry_logger.record_reject(
                                     symbol=sym,
                                     last_stage="PRE_CHECK",
@@ -855,6 +879,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                         except Exception as e:
                             logger.error(f"Error in pullback thread processing: {e}")
                             rejected["processing_error"] = rejected.get("processing_error", 0) + 1
+                            terminal_tracker.record_terminal(sym, "PROCESSING_ERROR", f"Thread exception: {str(e)[:100]}")
                             telemetry_logger.record_reject(
                                 symbol=sym,
                                 last_stage="PRE_CHECK",
@@ -1012,8 +1037,11 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     scored_candidates = []
     for c in candidates:
         if c.final_score < required_threshold:
-            logger.debug(f"REJECTION: {c.symbol} (Phase: SCORE_GATE, Reason: Final score {c.final_score:.1f} < required {required_threshold})")
+            logger.info(f"🚫 [PULLBACK] {c.symbol} REJECTED — Gate: SCORE_BELOW_THRESHOLD | Score: {c.final_score:.1f} < Required: {required_threshold}")
             rejected["score_below_threshold"] += 1
+            if (required_threshold - c.final_score) <= 5.0:
+                near_miss_count += 1
+            terminal_tracker.record_terminal(c.symbol, "SCORE_BELOW_THRESHOLD", f"Score {c.final_score:.1f} < {required_threshold}")
             telemetry_logger.record_reject(
                 symbol=c.symbol,
                 last_stage="SCORE_GATE",
@@ -1061,7 +1089,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             c.status = CandidateState.SUPPRESSED
             c.suppressed_by = "EOD"
             rejected["eod_suppressed"] += 1
-            logger.debug(f"REJECTION: {c.symbol} (Phase: EOD_SUPPRESSION, Reason: Primary EOD alert already generated tonight)")
+            terminal_tracker.record_terminal(c.symbol, "EOD_SUPPRESSED", "Primary EOD alert already generated tonight")
+            logger.info(f"🚫 [PULLBACK] {c.symbol} REJECTED — Gate: EOD_SUPPRESSED | Reason: Primary EOD alert already generated tonight")
             telemetry_logger.record_reject(
                 symbol=c.symbol,
                 last_stage="EOD_SUPPRESSION",
@@ -1087,9 +1116,10 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         )
 
         if sl_result.get("is_rejected"):
-            logger.debug(f"REJECTION: {c.symbol} (Phase: SL_TARGET_ENGINE, Reason: {sl_result.get('rejection_reason')})")
+            logger.info(f"🚫 [PULLBACK] {c.symbol} REJECTED — Gate: RISK_REJECTED | Reason: {sl_result.get('rejection_reason')} | RR: {sl_result.get('natural_rr', 0.0):.2f}")
             c.status = CandidateState.REJECTED
             rejected["risk_rejected"] += 1
+            terminal_tracker.record_terminal(c.symbol, "RISK_REJECTED", f"Risk engine: {sl_result.get('rejection_reason')}")
 
             sl_val = float(sl_result.get("stop_loss", 0.0))
             t1_val = float(sl_result.get("target_1", 0.0))
@@ -1150,6 +1180,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         for c in ranked_out:
             c.status = CandidateState.SUPPRESSED
             rejected["ranked_out"] += 1
+            terminal_tracker.record_terminal(c.symbol, "SUPPRESSED_TOP_N", f"Score {c.final_score:.1f} exceeded top {max_alerts}")
             logger.info(f"🚫 {c.symbol} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {c.final_score:.1f})")
             telemetry_logger.record_reject(
                 symbol=c.symbol,
@@ -1169,6 +1200,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     # strictly suppress live alert generation to prevent creating stale previous-session alerts.
     if is_historical_fallback:
         logger.warning("⚠️ [PULLBACK] Historical fallback dataset was used. Suppressing live alert generation to prevent stale past-session alerts.")
+        for c in alertable:
+            terminal_tracker.record_terminal(c.symbol, "SUPPRESSED_FALLBACK_DATA", "Historical fallback dataset used")
         alertable = []
 
     # ---------------- SIGNAL DISPATCH & PERSISTENCE ----------------
@@ -1239,6 +1272,13 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         if saved:
             alert_count += 1
             c.status = CandidateState.ALERTED
+            terminal_tracker.record_terminal(c.symbol, "ALERT_GENERATED", f"Pullback alert saved (Score: {final_score_val})")
+            logger.info(
+                f"🌟 [PULLBACK: SELECTED] {c.symbol} | "
+                f"score={final_score_val} | entry=₹{entry_val:.2f} | "
+                f"depth={c.structure.depth_pct:.1f}% | volume_ratio={c.structure.volume_ratio:.2f}x | "
+                f"SL=₹{sl_result.get('stop_loss', 0):.2f} | T1=₹{sl_result.get('target_1', 0):.2f}"
+            )
             logger.info(
                 f"✅ [PULLBACK] PASSED ALL FILTERS: {c.symbol} | "
                 f"score={final_score_val} | entry=₹{entry_val:.2f} | "
@@ -1275,6 +1315,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         else:
             c.status = CandidateState.SUPPRESSED
             rejected["persistence_failed"] += 1
+            terminal_tracker.record_terminal(c.symbol, "PERSISTENCE_FAILED", reason or "Failed to save to database")
             logger.info(f"REJECTION: {c.symbol} (Phase: PERSISTENCE, Reason: {reason})")
             telemetry_logger.record_reject(
                 symbol=c.symbol,
@@ -1328,6 +1369,33 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     elif (stale_count / max(total_symbols, 1)) > 0.20:
         data_status = "DEGRADED (Stale Data > 20%)"
 
+    # Ensure 100% mathematical conservation
+    terminal_tracker.record_untracked_remainder("UNTRACKED_DROP")
+    cons_summary = terminal_tracker.get_conservation_summary()
+
+    waterfall.set_stage_count("UNIVERSE_WATCHLIST", total_symbols)
+    waterfall.set_stage_count("FETCHED_DATA", fresh_count)
+    waterfall.set_stage_count("UPTREND_AND_STRUCTURE", len(candidates))
+    waterfall.set_stage_count("SCORE_THRESHOLD", len(scored_candidates))
+    waterfall.set_stage_count("RISK_ENGINE", len(valid_risk_candidates))
+    waterfall.set_stage_count("FINAL_ALERTS", alert_count)
+
+    attrition_results = waterfall.compute_attrition()
+    dominant_bottleneck = waterfall.get_dominant_bottleneck()
+
+    classification_res = classify_zero_alert_run(
+        scanner_name="PULLBACK",
+        universe_size=total_symbols,
+        valid_data_count=fresh_count,
+        initial_setups_count=len(candidates),
+        finalist_candidates_count=len(valid_risk_candidates),
+        alerts_generated=alert_count,
+        near_miss_count=near_miss_count,
+        regime=market_regime,
+        execution_mode="LIVE",
+        stage_waterfall=attrition_results
+    )
+
     summary_lines = [
         "======================================================================",
         "=== [PULLBACK SCANNER PIPELINE SUMMARY] ===",
@@ -1347,11 +1415,57 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
 
     summary_lines.extend([
         "",
+        "📐 CONSERVATION ACCOUNTING (Single Terminal Disposition):",
+        f"  • Universe Requested        : {cons_summary['total_universe']}",
+        f"  • Sum of Terminal Outcomes  : {cons_summary['sum_terminal']}",
+        f"  • Discrepancy (Delta)       : {cons_summary['conservation_delta']} (Conservation: {'VALID' if cons_summary['is_conserved'] else 'VIOLATED'})",
+        "",
+        "  Terminal Outcome Counts:"
+    ])
+    for disp, cnt in cons_summary["terminal_counts"].items():
+        summary_lines.append(f"    - {disp:<26}: {cnt}")
+
+    summary_lines.extend([
+        "",
+        "📉 STAGE WATERFALL PROGRESSION & ATTRITION RATES:"
+    ])
+    for stg in attrition_results:
+        summary_lines.append(
+            f"  • {stg['stage']:<22}: {stg['entered']:>4} entered → {stg['passed']:>4} passed (Loss: {stg['eliminated']:>4}, Attrition: {stg['attrition_pct']:>5.1f}%)"
+        )
+    if dominant_bottleneck:
+        b_stg = dominant_bottleneck.get('stage', 'UNKNOWN')
+        b_elim = dominant_bottleneck.get('eliminated', 0)
+        b_ent = dominant_bottleneck.get('entered', 0)
+        b_pct = dominant_bottleneck.get('attrition_pct', 0.0)
+        summary_lines.append(f"  • Dominant Bottleneck Gate  : {b_stg} ({b_elim}/{b_ent} eliminated, Attrition: {b_pct:.1f}%)")
+
+    summary_lines.extend([
+        "",
         "🏆 FINAL OUTCOME:",
         f"  • Alerts Generated          : {alert_count}",
+        f"  • Near Misses (<=5 pts)     : {near_miss_count}",
         f"  • Total Execution Time      : {elapsed_time}s",
-        "======================================================================"
     ])
+
+    if alert_count == 0:
+        diag_block = format_zero_alert_diagnostic_block(
+            scanner_name="PULLBACK",
+            execution_mode="LIVE",
+            regime=market_regime,
+            classification_result=classification_res,
+            dominant_bottleneck=dominant_bottleneck,
+            conservation_summary=cons_summary,
+            stage_waterfall=attrition_results,
+            near_miss_count=near_miss_count,
+            extra_specs=[
+                f"REQUIRED_SCORE_THRESHOLD   : {required_threshold}",
+                f"MARKET_REGIME              : {market_regime}",
+            ]
+        )
+        summary_lines.extend(diag_block)
+
+    summary_lines.append("======================================================================")
     logger.info("\n".join(summary_lines))
     telemetry_logger.print_summary()
     global_telemetry.print_system_summary()

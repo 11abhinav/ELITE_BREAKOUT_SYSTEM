@@ -601,5 +601,42 @@ class TestBreakoutWatchlistDualSource(unittest.TestCase):
         self.assertEqual(res[1]["mtf_substate"], "PRESSURE_BUILDING")
 
 
+class TestMultiTFStateTransitions(unittest.TestCase):
+    """Verifies that MULTI_TF state transitions (including invalidation and cooldown) follow signal_contract."""
+
+    def test_watch_to_rejected_invalidation(self):
+        from multitf.state import MtfStateRecord, MtfSubstate, handle_box_invalidation, invalidate_record
+        from signal_contract import assert_valid_transition
+
+        record = MtfStateRecord(symbol="TEST_REJECT", box_id="BOX_1", state="WATCH", mtf_substate=MtfSubstate.WATCHING)
+        now = datetime(2026, 9, 4, 15, 0, tzinfo=IST)
+
+        # Price breaks box low (100.0) by more than 0.5 * ATR (5.0) -> level < 97.5
+        invalidated = handle_box_invalidation(record, c_price=96.0, box_low=100.0, atr=5.0, ist_now=now)
+        self.assertTrue(invalidated)
+        self.assertEqual(record.mtf_substate, MtfSubstate.INVALIDATED)
+        self.assertEqual(record.state, "REJECTED")
+        self.assertEqual(record.invalidation_reason, "STRUCTURAL_BREAK")
+
+    def test_candidate_to_rejected_and_watch(self):
+        from multitf.state import MtfStateRecord, MtfSubstate, invalidate_record, _set_substate
+        from signal_contract import assert_valid_transition
+
+        now = datetime(2026, 9, 4, 15, 0, tzinfo=IST)
+
+        # CANDIDATE (ATTEMPT) -> REJECTED (R:R fail or break)
+        record = MtfStateRecord(symbol="TEST_ATTEMPT", box_id="BOX_2", state="CANDIDATE", mtf_substate=MtfSubstate.ATTEMPT)
+        invalidate_record(record, now, "NOT_TRADEABLE")
+        self.assertEqual(record.state, "REJECTED")
+        self.assertEqual(record.mtf_substate, MtfSubstate.INVALIDATED)
+
+        # CANDIDATE (ATTEMPT) -> WATCH (FAILED_ATTEMPT)
+        record2 = MtfStateRecord(symbol="TEST_ATTEMPT_FAIL", box_id="BOX_3", state="CANDIDATE", mtf_substate=MtfSubstate.ATTEMPT)
+        _set_substate(record2, MtfSubstate.FAILED_ATTEMPT, now)
+        self.assertEqual(record2.state, "WATCH")
+        self.assertEqual(record2.mtf_substate, MtfSubstate.FAILED_ATTEMPT)
+
+
 if __name__ == "__main__":
     unittest.main()
+

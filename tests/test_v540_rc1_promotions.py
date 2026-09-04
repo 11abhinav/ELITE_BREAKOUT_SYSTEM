@@ -138,7 +138,8 @@ def test_multi_scanner_invariants_preserved():
         ema_20=3460.0, latest_volume=250000.0, volume_sma20=100000.0, close_yesterday=3430.0,
         sma_200_yesterday=3290.0, today_open=3450.0, today_close=3500.0
     )
-    assert entry_confirmed(mb_data) is True # 2.5x >= 2.0x
+    ok, _ = entry_confirmed(mb_data)
+    assert ok is True # 2.5x >= 2.0x
 
     # 3. WEALTH_ENGINE (v5.2.0)
     assert MAX_SECTOR_PCT == 0.20

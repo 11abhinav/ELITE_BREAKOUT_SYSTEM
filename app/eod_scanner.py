@@ -53,6 +53,12 @@ import database
 # profile_timing logs duration + RSS delta for each EOD scanner run.
 # FilterStats exports per-filter rejection CSV to artifacts/profiling/.
 from perf_utils import profile_timing, FilterStats
+from zero_alert_diagnostic import (
+    SingleTerminalTracker,
+    StageWaterfallTracker,
+    classify_zero_alert_run,
+    format_zero_alert_diagnostic_block,
+)
 
 from config import (
     EOD_CONFIG,
@@ -703,6 +709,15 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
         _wl_stocks = sorted(watchlist["Stock"].tolist())
         _wl_hash = hashlib.md5("|".join(_wl_stocks).encode()).hexdigest()[:12]
         scan_id = str(uuid.uuid4())
+
+        all_universe_symbols = [str(s) for s in watchlist["Stock"].tolist() if s]
+        terminal_tracker = SingleTerminalTracker(all_universe_symbols)
+        waterfall = StageWaterfallTracker(["UNIVERSE_WATCHLIST", "FETCHED_DATA", "BREAKOUT_STRUCTURE", "QUALITY_AND_RISK", "FINAL_ALERTS"])
+        waterfall.set_stage_count("UNIVERSE_WATCHLIST", len(watchlist))
+        waterfall_structure_entered = 0
+        waterfall_quality_entered = 0
+        near_misses_count = 0
+
         stage_tracker.end_stage(f"Loaded watchlist ({len(watchlist)} stocks)")
 
         delivery_map: dict[str, float] = {}
@@ -859,23 +874,29 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
             bayesian_version = "v1"
 
         # [BUG-1 FIX v1.5] Compute threshold BEFORE regime check to avoid NameError
-        BASE_SCORE_THRESHOLD = SCORE_THRESHOLDS.get("1d", 82)
+        BASE_SCORE_THRESHOLD = SCORE_THRESHOLDS.get("1d", 75)
         global_min_score = BASE_SCORE_THRESHOLD
+        regime_modifier = 0
 
         # Wire the threshold increase to read dynamically from the config.py regime modifiers
         try:
             from config import REGIME_POLICIES
-            modifier = REGIME_POLICIES.get(market_regime, {}).get("score_modifier", 0)
-            if modifier > 0:
-                logger.info(f"🛑 {market_regime} regime detected — raising score threshold by +{modifier}.")
-                global_min_score += modifier
+            regime_modifier = REGIME_POLICIES.get(market_regime, {}).get("score_modifier", 0)
+            if regime_modifier > 0:
+                logger.info(f"🛑 {market_regime} regime detected — raising score threshold by +{regime_modifier}.")
+                global_min_score += regime_modifier
         except Exception as e:
             logger.warning(f"Failed to fetch REGIME_POLICIES: {e}")
 
         # Cap the regime-adjusted threshold at 82 to prevent over-rejection in neutral/bear regimes
         global_min_score = min(global_min_score, 82)
+        effective_global_min_score = global_min_score
 
-        logger.info(f"📊 Score threshold for {market_regime} regime: {global_min_score}")
+        logger.info(
+            f"📊 Score threshold: BASE_SCORE_THRESHOLD={BASE_SCORE_THRESHOLD} | "
+            f"REGIME_STRICTNESS_PENALTY={regime_modifier:+d} ({market_regime} makes bar higher/stricter) => "
+            f"EFFECTIVE_GLOBAL_MIN_SCORE={effective_global_min_score} (stricter qualification floor, capped <= 82)"
+        )
 
         stage_tracker.end_stage(f"Pledge: {len(pledge_map)}, Delivery: {len(delivery_map)}")
 
@@ -978,6 +999,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 sector   = row.get("Sector", None)
 
                                 if symbol in get_live_blacklist():
+                                    terminal_tracker.record_terminal(symbol, "BLACKLIST_EXCLUDED", "Surveillance live blacklist")
                                     return
 
                                 # Robust symbol resolution across .NS / .BO suffixes
@@ -988,6 +1010,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 if ticker_data is None:
                                     with _batch_lock:
                                         rejection_counts["no_data"] += 1
+                                        terminal_tracker.record_terminal(symbol, "DATA_UNAVAILABLE", "No price data returned by provider")
                                         telemetry_logger.record_reject(symbol, "DATA", "NO_DATA", None, None, start_time=_row_start_time)
                                     with _batch_lock:
                                         provider_stats_counts["EMPTY_DATA"] += 1
@@ -1002,6 +1025,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     if res != ProviderResult.SUCCESS:
                                         with _batch_lock:
                                             rejection_counts["no_data"] += 1
+                                            terminal_tracker.record_terminal(symbol, "DATA_UNAVAILABLE", f"Provider error: {res.name}")
                                             telemetry_logger.record_reject(symbol, "DATA", "NO_DATA", None, None, start_time=_row_start_time)
                                         with _batch_lock:
                                             scan_failures.append(ScanFailure(symbol=symbol, scanner_name="EOD", provider="unknown", failure_reason=f"Provider error: {res.name}", scan_id=scan_id))
@@ -1015,6 +1039,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 if ticker.empty:
                                     with _batch_lock:
                                         rejection_counts["no_data"] += 1
+                                        terminal_tracker.record_terminal(symbol, "DATA_EMPTY", "Empty dataframe returned")
                                         telemetry_logger.record_reject(symbol, "DATA", "NO_DATA", None, None, start_time=_row_start_time)
                                     return
 
@@ -1022,6 +1047,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 if getattr(ticker, 'attrs', {}).get('is_stale'):
                                     with _batch_lock:
                                         rejection_counts["stale_data"] += 1
+                                        terminal_tracker.record_terminal(symbol, "STALE_DATA", "Stale fallback data")
                                         telemetry_logger.record_reject(symbol, "DATA", "STALE_DATA", None, None, start_time=_row_start_time)
                                     return
 
@@ -1044,6 +1070,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 if missing_col:
                                     with _batch_lock:
                                         rejection_counts["missing_col"] += 1
+                                        terminal_tracker.record_terminal(symbol, "MISSING_COL", "Required OHLCV columns missing")
                                         telemetry_logger.record_reject(symbol, "DATA", "MISSING_COL", None, None, start_time=_row_start_time)
                                     return
 
@@ -1052,6 +1079,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 if ticker.empty:
                                     with _batch_lock:
                                         rejection_counts["no_data"] += 1
+                                        terminal_tracker.record_terminal(symbol, "DATA_EMPTY", "Empty dataframe after dropna")
                                         telemetry_logger.record_reject(symbol, "DATA", "NO_DATA", None, None, start_time=_row_start_time)
                                     return
 
@@ -1059,6 +1087,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 if len(ticker) < 50:
                                     with _batch_lock:
                                         rejection_counts["insufficient_bars"] += 1
+                                        terminal_tracker.record_terminal(symbol, "INSUFFICIENT_BARS", f"History bars {len(ticker)} < 50")
                                         telemetry_logger.record_reject(symbol, "LIQUIDITY", "INSUFFICIENT_BARS", len(ticker) if "ticker" in locals() else 0, 50, start_time=_row_start_time)
                                     return
 
@@ -1070,6 +1099,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 if ticker is None or ticker.empty:
                                     with _batch_lock:
                                         rejection_counts["indicator_fail"] += 1
+                                        terminal_tracker.record_terminal(symbol, "INDICATOR_FAIL", "Indicator calculation failed")
                                         telemetry_logger.record_reject(symbol, "DATA", "INDICATOR_FAIL", None, None, start_time=_row_start_time)
                                     return
 
@@ -1096,12 +1126,16 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     prior_20d_high=_safe_float(latest.get("PRIOR_20D_HIGH")),
                                     bb_width_pctile=_safe_float(latest.get("BB_WIDTH_PCTILE"))
                                 )
+                                with _batch_lock:
+                                    waterfall_structure_entered += 1
 
                                 signals = detect_breakouts(ticker, timeframe="1d")
 
                                 if len(signals) < MIN_SIGNALS:
+                                    logger.info(f"🚫 [EOD] {symbol} REJECTED — Insufficient breakout signals ({len(signals)} < {MIN_SIGNALS})")
                                     with _batch_lock:
                                         rejection_counts["weak_signals"] += 1
+                                        terminal_tracker.record_terminal(symbol, "WEAK_SIGNALS", f"Breakout signals {len(signals)} < {MIN_SIGNALS}")
                                         ctx.capture_gate(
                                             gate_name="WEAK_SIGNALS",
                                             passed=False,
@@ -1122,6 +1156,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     logger.debug(f"[EOD] {symbol} rejected: latest RSI is missing or NaN")
                                     with _batch_lock:
                                         rejection_counts["indicator_nan"] += 1
+                                        terminal_tracker.record_terminal(symbol, "INDICATOR_NAN", "Latest RSI is NaN or missing")
                                         telemetry_logger.record_reject(symbol, "DATA", "INDICATOR_NAN", None, None, start_time=_row_start_time)
                                     return
 
@@ -1148,6 +1183,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 if _staleness["is_stale"]:
                                     with _batch_lock:
                                         rejection_counts["stale_data"] += 1
+                                        terminal_tracker.record_terminal(symbol, "STALE_DATA", f"Data stale till {_staleness['latest_available']}")
                                         telemetry_logger.record_reject(symbol, "DATA", "STALE_DATA", None, None, start_time=_row_start_time)
                                     logger.info(f"🚫 [EOD] {symbol} skipped — Data stale. Available till {_staleness['latest_available']} (Expected at least {_staleness['expected_date']})")
                                     return
@@ -1162,6 +1198,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     logger.debug(f"REJECTION: {symbol} (Phase: LIQUIDITY_FILTER, Reason: 20D average volume is zero)")
                                     with _batch_lock:
                                         rejection_counts["zero_avg_volume"] += 1
+                                        terminal_tracker.record_terminal(symbol, "ZERO_AVG_VOLUME", "20D average volume is zero")
                                         telemetry_logger.record_reject(symbol, "LIQUIDITY", "ZERO_AVG_VOLUME", avg_volume if "avg_volume" in locals() else 0, 1, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
                                     return
 
@@ -1178,12 +1215,14 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 if candle_range < 0:
                                     with _batch_lock:
                                         rejection_counts["zero_candle_range"] += 1
+                                        terminal_tracker.record_terminal(symbol, "ZERO_CANDLE_RANGE", "Negative candle range")
                                         telemetry_logger.record_reject(symbol, "STRUCTURE", "ZERO_CANDLE_RANGE", 0, 1, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
                                     return
                                 elif candle_range == 0:
                                     if _safe_float(latest.get("Volume", 0)) <= 0:
                                         with _batch_lock:
                                             rejection_counts["zero_candle_range"] += 1
+                                            terminal_tracker.record_terminal(symbol, "ZERO_CANDLE_RANGE", "Zero candle range and zero volume")
                                             telemetry_logger.record_reject(symbol, "STRUCTURE", "ZERO_CANDLE_RANGE", 0, 1, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
                                         return
 
@@ -1220,36 +1259,41 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     candle_penalty += pen
                                     logger.debug(f"⚠️ {symbol} upper_wick penalty: -{pen} (wick={wick_ratio:.2f} > {MAX_UPPER_WICK_RATIO})")
                                 if volume_ratio < MIN_VOLUME_RATIO:
-                                    logger.debug(f"REJECTION: {symbol} (Phase: VOLUME_RATIO, Reason: Volume ratio {volume_ratio:.2f}x < {MIN_VOLUME_RATIO:.2f}x)")
+                                    logger.info(f"🚫 [EOD] {symbol} REJECTED — Volume ratio {volume_ratio:.2f}x < {MIN_VOLUME_RATIO:.2f}x")
                                     with _batch_lock:
                                         rejection_counts["low_volume"] += 1
+                                        terminal_tracker.record_terminal(symbol, "LOW_VOLUME", f"Volume ratio {volume_ratio:.2f}x < {MIN_VOLUME_RATIO:.2f}x")
                                         telemetry_logger.record_reject(symbol, "VOLUME", "LOW_VOLUME", volume_ratio if "volume_ratio" in locals() else 0, MIN_VOLUME_RATIO if "MIN_VOLUME_RATIO" in locals() else 1.0, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
                                     return
                                 if avg_volume < MIN_AVG_VOLUME_SHARES:
-                                    logger.debug(f"REJECTION: {symbol} (Phase: LIQUIDITY_FILTER, Reason: Avg volume {avg_volume:.0f} < {MIN_AVG_VOLUME_SHARES:.0f} shares)")
+                                    logger.info(f"🚫 [EOD] {symbol} REJECTED — Avg volume {avg_volume:.0f} < {MIN_AVG_VOLUME_SHARES:.0f} shares")
                                     with _batch_lock:
                                         rejection_counts["low_avg_volume"] += 1
+                                        terminal_tracker.record_terminal(symbol, "LOW_AVG_VOLUME", f"Avg volume {avg_volume:.0f} < {MIN_AVG_VOLUME_SHARES:.0f}")
                                         telemetry_logger.record_reject(symbol, "LIQUIDITY", "LOW_AVG_VOLUME", avg_volume if "avg_volume" in locals() else 0, MIN_AVG_VOLUME_SHARES if "MIN_AVG_VOLUME_SHARES" in locals() else 50000, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
                                     return
                                 if candle_close < MIN_STOCK_PRICE:
-                                    logger.debug(f"REJECTION: {symbol} (Phase: PRICE_FLOOR, Reason: Close ₹{candle_close:.2f} < ₹{MIN_STOCK_PRICE:.2f})")
+                                    logger.info(f"🚫 [EOD] {symbol} REJECTED — Close ₹{candle_close:.2f} < ₹{MIN_STOCK_PRICE:.2f}")
                                     with _batch_lock:
                                         rejection_counts["penny_stock"] += 1
+                                        terminal_tracker.record_terminal(symbol, "PENNY_STOCK", f"Close ₹{candle_close:.2f} < ₹{MIN_STOCK_PRICE:.2f}")
                                         telemetry_logger.record_reject(symbol, "PRICE", "PENNY_STOCK", candle_close if "candle_close" in locals() else 0, MIN_STOCK_PRICE if "MIN_STOCK_PRICE" in locals() else 20, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
                                     return
                                 if not (MIN_RSI <= rsi_val <= MAX_RSI):
-                                    logger.debug(f"REJECTION: {symbol} (Phase: RSI_GATE, Reason: RSI {rsi_val:.1f} outside {MIN_RSI}-{MAX_RSI} range)")
+                                    logger.info(f"🚫 [EOD] {symbol} REJECTED — RSI {rsi_val:.1f} outside [{MIN_RSI}, {MAX_RSI}] range")
                                     with _batch_lock:
                                         rejection_counts["rsi_range"] += 1
+                                        terminal_tracker.record_terminal(symbol, "RSI_RANGE", f"RSI {rsi_val:.1f} outside [{MIN_RSI}, {MAX_RSI}]")
                                         telemetry_logger.record_reject(symbol, "RSI", "RSI_RANGE", rsi_val if "rsi_val" in locals() else 0, f"[{MIN_RSI}, {MAX_RSI}]", start_time=_row_start_time, operator="NOT_IN_RANGE", gate_type="THRESHOLD")
                                     return
 
                                 # ── v6: STRUCTURAL BREAKOUT FILTERS ─────────────────────────────
                                 # [VERSION: EOD_PATCH_v1.0] [BUG FIX 2] Added explicit outer else rejection to avoid silent bypass of structural filters
                                 if "PRIOR_20D_HIGH" not in ticker.columns or pd.isna(latest.get("PRIOR_20D_HIGH")):
-                                    logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Missing PRIOR_20D_HIGH indicator)")
+                                    logger.info(f"🚫 [EOD] {symbol} REJECTED — Missing PRIOR_20D_HIGH indicator")
                                     with _batch_lock:
                                         rejection_counts["missing_atr"] += 1
+                                        terminal_tracker.record_terminal(symbol, "MISSING_STRUCTURE_INDICATOR", "Missing PRIOR_20D_HIGH indicator")
                                         telemetry_logger.record_reject(symbol, "STRUCTURE", "MISSING_ATR", None, None, start_time=_row_start_time)
                                     return
 
@@ -1258,6 +1302,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Invalid prior 20D high ₹{prior_high:.2f})")
                                     with _batch_lock:
                                         rejection_counts["no_structural_breakout"] += 1
+                                        terminal_tracker.record_terminal(symbol, "NO_STRUCTURAL_BREAKOUT", f"Invalid prior 20D high ₹{prior_high:.2f}")
                                         telemetry_logger.record_reject(symbol, "STRUCTURE", "NO_BREAKOUT", candle_close if "candle_close" in locals() else 0, prior_high if "prior_high" in locals() else 0, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
                                     return
 
@@ -1265,6 +1310,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     logger.debug(f"REJECTION: {symbol} (Phase: STRUCTURAL_BREAKOUT, Reason: Close ₹{candle_close:.2f} <= Prior 20D High ₹{prior_high:.2f})")
                                     with _batch_lock:
                                         rejection_counts["no_structural_breakout"] += 1
+                                        terminal_tracker.record_terminal(symbol, "NO_STRUCTURAL_BREAKOUT", f"Close ₹{candle_close:.2f} <= Prior High ₹{prior_high:.2f}")
                                         telemetry_logger.record_reject(symbol, "STRUCTURE", "NO_BREAKOUT", candle_close if "candle_close" in locals() else 0, prior_high if "prior_high" in locals() else 0, start_time=_row_start_time, operator="<=", gate_type="THRESHOLD")
                                     return
 
@@ -1272,6 +1318,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 if "ATR20" not in ticker.columns or pd.isna(latest.get("ATR20")):
                                     with _batch_lock:
                                         rejection_counts["missing_atr"] += 1
+                                        terminal_tracker.record_terminal(symbol, "MISSING_ATR", "Missing ATR20 column")
                                         telemetry_logger.record_reject(symbol, "STRUCTURE", "MISSING_ATR", None, None, start_time=_row_start_time)
                                     return
 
@@ -1279,6 +1326,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 if atr20 <= 0:
                                     with _batch_lock:
                                         rejection_counts["missing_atr"] += 1
+                                        terminal_tracker.record_terminal(symbol, "MISSING_ATR", "ATR20 <= 0")
                                         telemetry_logger.record_reject(symbol, "STRUCTURE", "MISSING_ATR", None, None, start_time=_row_start_time)
                                     return
 
@@ -1310,6 +1358,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                         logger.debug(f"REJECTION: {symbol} (Phase: ATR_EXPANSION, Reason: Candle range / ATR20 ({atr_expansion:.2f}) < {min_atr_expansion:.1f})")
                                         with _batch_lock:
                                             rejection_counts["no_atr_expansion"] += 1
+                                            terminal_tracker.record_terminal(symbol, "NO_ATR_EXPANSION", f"Candle range / ATR20 ({atr_expansion:.2f}) < {min_atr_expansion:.1f}")
                                             telemetry_logger.record_reject(symbol, "STRUCTURE", "NO_ATR_EXPANSION", atr_expansion, min_atr_expansion, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
                                         return
 
@@ -1324,6 +1373,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                         logger.debug(f"REJECTION: {symbol} (Phase: EMA20_TREND, Reason: Close ₹{candle_close:.2f} < EMA20 ₹{_safe_float(latest.get('EMA20')):.2f})")
                                         with _batch_lock:
                                             rejection_counts["below_ema20"] += 1
+                                            terminal_tracker.record_terminal(symbol, "BELOW_EMA20", f"Close ₹{candle_close:.2f} < EMA20")
                                             telemetry_logger.record_reject(symbol, "TREND", "BELOW_EMA20", candle_close if "candle_close" in locals() else 0, _safe_float(latest.get("EMA20")) if "latest" in locals() else 0, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
                                         return
 
@@ -1332,6 +1382,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                         logger.debug(f"REJECTION: {symbol} (Phase: SMA50_TREND, Reason: Close ₹{candle_close:.2f} < SMA50 ₹{_safe_float(latest.get('SMA50')):.2f})")
                                         with _batch_lock:
                                             rejection_counts["below_sma50"] += 1
+                                            terminal_tracker.record_terminal(symbol, "BELOW_SMA50", f"Close ₹{candle_close:.2f} < SMA50")
                                             telemetry_logger.record_reject(symbol, "TREND", "BELOW_SMA50", candle_close if "candle_close" in locals() else 0, _safe_float(latest.get("SMA50")) if "latest" in locals() else 0, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
                                         return
 
@@ -1340,6 +1391,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                         logger.debug(f"REJECTION: {symbol} (Phase: ADX_GATE, Reason: ADX {_safe_float(latest.get('ADX')):.1f} < {ADX_MIN_THRESHOLD})")
                                         with _batch_lock:
                                             rejection_counts["weak_adx"] += 1
+                                            terminal_tracker.record_terminal(symbol, "WEAK_ADX", f"ADX {_safe_float(latest.get('ADX')):.1f} < {ADX_MIN_THRESHOLD}")
                                             telemetry_logger.record_reject(symbol, "TREND", "WEAK_ADX", _safe_float(latest.get("ADX")) if "latest" in locals() else 0, ADX_MIN_THRESHOLD if "ADX_MIN_THRESHOLD" in locals() else 20, start_time=_row_start_time, operator="<", gate_type="THRESHOLD")
                                         return
 
@@ -1352,6 +1404,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                         if pct_from_high > MAX_DISTANCE_FROM_52W_HIGH_PCT:
                                             with _batch_lock:
                                                 rejection_counts["far_from_52w_high"] += 1
+                                                terminal_tracker.record_terminal(symbol, "FAR_FROM_52W_HIGH", f"Distance from 52W high {pct_from_high:.1f}% > {MAX_DISTANCE_FROM_52W_HIGH_PCT}%")
                                                 telemetry_logger.record_reject(symbol, "STRUCTURE", "FAR_FROM_52W_HIGH", pct_from_high if "pct_from_high" in locals() else 0, MAX_DISTANCE_FROM_52W_HIGH_PCT if "MAX_DISTANCE_FROM_52W_HIGH_PCT" in locals() else 20, start_time=_row_start_time, operator=">", gate_type="THRESHOLD")
                                             return
 
@@ -1363,6 +1416,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                         if single_move_pct > max_single_day_move_pct:
                                             with _batch_lock:
                                                 rejection_counts["gap_day"] += 1
+                                                terminal_tracker.record_terminal(symbol, "GAP_DAY", f"Move {single_move_pct:.1f}% > {max_single_day_move_pct}%")
                                                 telemetry_logger.record_reject(symbol, "STRUCTURE", "GAP_DAY", single_move_pct if "single_move_pct" in locals() else 0, 15.0, start_time=_row_start_time, operator=">", gate_type="THRESHOLD")
                                             return
 
@@ -1417,6 +1471,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                         logger.debug(f"  ⊘ {symbol} base too wide (BB Pctile {bb_width_pctile:.2f}) — skipping")
                                         with _batch_lock:
                                             rejection_counts["base_too_wide"] += 1
+                                            terminal_tracker.record_terminal(symbol, "BASE_TOO_WIDE", f"BB width pctile {bb_width_pctile:.2f} > 0.80")
                                             telemetry_logger.record_reject(symbol, "STRUCTURE", "BASE_TOO_WIDE", bb_width_pctile if "bb_width_pctile" in locals() else 0, 0.80, start_time=_row_start_time)
                                         return
 
@@ -1437,6 +1492,8 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     else None
                                 )
 
+                                with _batch_lock:
+                                    waterfall_quality_entered += 1
 
                                 score, model_version, applied_bayesian_weights = calculate_score(
                                     category=category,
@@ -1489,7 +1546,8 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 if forensic_tier == "REJECT":
                                     with _batch_lock:
                                         rejection_counts["forensic_reject"] = rejection_counts.get("forensic_reject", 0) + 1
-                                    logger.debug(f"  ⊘ {symbol} rejected by Forensic Risk Engine (Tier: REJECT)")
+                                        terminal_tracker.record_terminal(symbol, "FORENSIC_REJECT", "Forensic Risk Engine tier REJECT")
+                                    logger.info(f"🚫 [EOD] {symbol} REJECTED — Forensic Risk Engine tier REJECT")
                                     return
 
                                 signal_str = ", ".join(signals.keys() if isinstance(signals, dict) else signals)
@@ -1498,6 +1556,9 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 if score < global_min_score:
                                     with _batch_lock:
                                         rejection_counts["low_score"] += 1
+                                        if (global_min_score - score) <= 5.0:
+                                            near_misses_count += 1
+                                        terminal_tracker.record_terminal(symbol, "LOW_SCORE", f"Score {score:.1f} < threshold {global_min_score}")
                                         telemetry_logger.record_reject(
                                             symbol, "SCORE", "LOW_SCORE",
                                             actual=score if "score" in locals() else 0,
@@ -1514,7 +1575,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                                 "vol_ratio": volume_ratio, "atr": atr20, "adx": _safe_float(latest.get("ADX"))
                                             }
                                         )
-                                    logger.debug(f"REJECTION: {symbol} (Phase: SCORE_GATE, Reason: Score {score:.1f} < threshold {global_min_score})")
+                                    logger.info(f"🚫 [EOD] {symbol} REJECTED — Score {score:.1f} < threshold {global_min_score}")
                                     try:
                                         from near_miss_tracker import log_near_miss
                                         entry_px = float(candle_close) if "candle_close" in locals() and candle_close else None
@@ -1546,6 +1607,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     ctx.capture_trace("DUPLICATE_CHECK", "FAIL")
                                     with _batch_lock:
                                         rejection_counts["duplicate"] += 1
+                                        terminal_tracker.record_terminal(symbol, "COOLDOWN_ACTIVE", "Already alerted in cooldown window")
                                         # [RULE 67] Capture actual duplicate evidence for forensic audit.
                                         # User required: "capture actual evidence (e.g., existing_alert_id)
                                         # in addition to DUPLICATE=true". We include the cooldown window
@@ -1596,6 +1658,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     logger.warning(f"🚫 [EOD] {symbol} REJECTED after picking — Reason: SL_RR_ENGINE_REJECT ({sl_result.get('rejection_reason')}, Natural RR={sl_result.get('natural_rr', 0):.2f})")
                                     with _batch_lock:
                                         rejection_counts["low_rr"] += 1
+                                        terminal_tracker.record_terminal(symbol, "RISK_REJECTED", f"SL/RR reject: {sl_result.get('rejection_reason')}")
                                         telemetry_logger.record_reject(symbol, "RISK", "LOW_RR", sl_result.get("natural_rr", 0) if "sl_result" in locals() else 0, 2.0, start_time=_row_start_time)  # Reusing this counter for engine rejects
                                     from database import save_rejected_alert
                                     save_rejected_alert(
@@ -1729,6 +1792,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 logger.exception(f"⚠️ Exception ({error_type}) processing {symbol}: {e}")
                                 with _batch_lock:
                                     rejection_counts["indicator_fail"] = rejection_counts.get("indicator_fail", 0) + 1
+                                    terminal_tracker.record_terminal(symbol, "PROCESSING_ERROR", f"{error_type}: {str(e)[:100]}")
                                 if not is_test_mode:
                                     try:
                                         upsert_fetch_error('yfinance', 'EOD', symbol, '1d', f'processing_error_{error_type}', str(e)[:500])
@@ -1763,6 +1827,8 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
             # strictly suppress live alert generation to prevent creating stale previous-session alerts.
             if used_fallback_data:
                 logger.warning("⚠️ [EOD SCANNER] Historical fallback dataset was used. Suppressing live alert generation to prevent stale past-session alerts.")
+                for cand in approved_candidates:
+                    terminal_tracker.record_terminal(cand["symbol"], "SUPPRESSED_FALLBACK_DATA", "Historical fallback dataset used")
                 approved_candidates = []
 
             if approved_candidates:
@@ -1776,6 +1842,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                     from database import save_rejected_alert
                     for cand in rejected_cands:
                         rejection_counts["max_alerts_exceeded"] = rejection_counts.get("max_alerts_exceeded", 0) + 1
+                        terminal_tracker.record_terminal(cand["symbol"], "SUPPRESSED_TOP_N", f"Score {cand['score']} exceeded top {max_alerts}")
                         logger.info(f"🚫 {cand['symbol']} alert SUPPRESSED: Exceeded MAX_ALERTS_PER_SCAN limit (Score: {cand['score']})")
 
                 for cand in approved_candidates:
@@ -1815,6 +1882,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
 
                     if not saved:
                         rejection_counts["duplicate"] += 1
+                        terminal_tracker.record_terminal(c["symbol"], "DUPLICATE_ALERT", reason or "Already alerted within cooldown window")
                         try:
                             ctx_dup = telemetry_logger.get_or_create_context(c["symbol"])
                             ctx_dup.capture_trace("STRATEGY_SELECTED", "PASS")
@@ -1864,6 +1932,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                         "shares_bought":     shares
                     })
                     total_alerts += 1
+                    terminal_tracker.record_terminal(c["symbol"], "ALERT_GENERATED", f"EOD alert saved (Score: {c['score']})")
 
                     _last_bar_date = "unknown"
                     try:
@@ -1874,7 +1943,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                     except Exception:
                         pass
                     logger.info(
-                        f"✅ [EOD] PASSED ALL FILTERS AND LIMITS: {c['symbol']} | "
+                        f"🌟 [EOD: SELECTED] {c['symbol']} | "
                         f"score={c['score']} | vol_ratio={c['volume_ratio']:.2f} | rsi={c['rsi']:.1f} | "
                         f"entry=₹{c['entry_price']:.2f} | sl=₹{round(float(c['stop_loss'] or 0.0))} | t1=₹{round(float(c['target_price'] or 0.0))} | "
                         f"last_bar={_last_bar_date} | category={c['category']}"
@@ -1906,6 +1975,33 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                 run_ctx.stale_count = stale_count
                 run_ctx.incomplete_count = no_data_count
 
+            # Ensure 100% mathematical conservation
+            terminal_tracker.record_untracked_remainder("UNTRACKED_DROP")
+            cons_summary = terminal_tracker.get_conservation_summary()
+
+            # Record final stage into waterfall
+            waterfall.set_stage_count("UNIVERSE_WATCHLIST", total_symbols)
+            waterfall.set_stage_count("FETCHED_DATA", fresh_count)
+            waterfall.set_stage_count("BREAKOUT_STRUCTURE", waterfall_structure_entered)
+            waterfall.set_stage_count("QUALITY_AND_RISK", waterfall_quality_entered)
+            waterfall.set_stage_count("FINAL_ALERTS", total_alerts)
+
+            attrition_results = waterfall.compute_attrition()
+            dominant_bottleneck = waterfall.get_dominant_bottleneck()
+
+            classification_res = classify_zero_alert_run(
+                scanner_name="EOD",
+                universe_size=total_symbols,
+                valid_data_count=fresh_count,
+                initial_setups_count=waterfall_structure_entered,
+                finalist_candidates_count=len(approved_candidates),
+                alerts_generated=total_alerts,
+                near_miss_count=near_misses_count,
+                regime=market_regime,
+                execution_mode="EOD_SCAN",
+                stage_waterfall=attrition_results
+            )
+
             summary_lines = [
                 "======================================================================",
                 "=== [EOD SCANNER PIPELINE SUMMARY] ===",
@@ -1924,11 +2020,58 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
 
             summary_lines.extend([
                 "",
+                "📐 CONSERVATION ACCOUNTING (Single Terminal Disposition):",
+                f"  • Universe Requested        : {cons_summary['total_universe']}",
+                f"  • Sum of Terminal Outcomes  : {cons_summary['sum_terminal']}",
+                f"  • Discrepancy (Delta)       : {cons_summary['conservation_delta']} (Conservation: {'VALID' if cons_summary['is_conserved'] else 'VIOLATED'})",
+                "",
+                "  Terminal Outcome Counts:"
+            ])
+            for disp, cnt in cons_summary["terminal_counts"].items():
+                summary_lines.append(f"    - {disp:<26}: {cnt}")
+
+            summary_lines.extend([
+                "",
+                "📉 STAGE WATERFALL PROGRESSION & ATTRITION RATES:"
+            ])
+            for stg in attrition_results:
+                summary_lines.append(
+                    f"  • {stg['stage']:<22}: {stg['entered']:>4} entered → {stg['passed']:>4} passed (Loss: {stg['eliminated']:>4}, Attrition: {stg['attrition_pct']:>5.1f}%)"
+                )
+            if dominant_bottleneck:
+                b_stg = dominant_bottleneck.get('stage', 'UNKNOWN')
+                b_elim = dominant_bottleneck.get('eliminated', 0)
+                b_ent = dominant_bottleneck.get('entered', 0)
+                b_pct = dominant_bottleneck.get('attrition_pct', 0.0)
+                summary_lines.append(f"  • Dominant Bottleneck Gate  : {b_stg} ({b_elim}/{b_ent} eliminated, Attrition: {b_pct:.1f}%)")
+
+            summary_lines.extend([
+                "",
                 "🏆 FINAL OUTCOME:",
                 f"  • Alerts Generated          : {total_alerts}",
+                f"  • Near Misses (<=5 pts)     : {near_misses_count}",
                 f"  • Total Execution Time      : {duration_sec}s",
-                "======================================================================"
             ])
+
+            if total_alerts == 0:
+                diag_block = format_zero_alert_diagnostic_block(
+                    scanner_name="EOD",
+                    execution_mode="EOD_SCAN",
+                    regime=market_regime,
+                    classification_result=classification_res,
+                    dominant_bottleneck=dominant_bottleneck,
+                    conservation_summary=cons_summary,
+                    stage_waterfall=attrition_results,
+                    near_miss_count=near_misses_count,
+                    extra_specs=[
+                        f"BASE_SCORE_THRESHOLD       : {BASE_SCORE_THRESHOLD}",
+                        f"REGIME_STRICTNESS_PENALTY  : {regime_modifier:+d} ({market_regime} makes bar higher/stricter)",
+                        f"EFFECTIVE_GLOBAL_MIN_SCORE : {effective_global_min_score} (stricter qualification floor, capped <= 82)",
+                    ]
+                )
+                summary_lines.extend(diag_block)
+
+            summary_lines.append("======================================================================")
             logger.info("\n".join(summary_lines))
             try:
                 stage_tracker.end_stage(f"Alerts generated: {total_alerts}")

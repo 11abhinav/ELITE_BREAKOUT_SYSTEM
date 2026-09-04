@@ -424,12 +424,13 @@ def validate_signal_data(
 
 # Allowed state transitions only. All other transitions are forbidden by specification.
 ALLOWED_TRANSITIONS: Dict[str, set] = {
-    "WATCH":     {"CANDIDATE", "EXPIRED"},
-    "CANDIDATE": {"CONFIRMED", "MISSED", "EXPIRED"},
+    "WATCH":     {"CANDIDATE", "EXPIRED", "REJECTED"},
+    "CANDIDATE": {"CONFIRMED", "MISSED", "EXPIRED", "REJECTED", "WATCH"},
     # Terminal states — no outgoing transitions
     "CONFIRMED": set(),
     "MISSED":    set(),
     "EXPIRED":   set(),
+    "REJECTED":  set(),
 }
 
 
@@ -448,6 +449,7 @@ def assert_valid_transition(current_state: str, new_state: str, setup_id: str = 
         EXPIRED → any active state (terminal)
         MISSED  → any active state (terminal)
         CONFIRMED → any state     (terminal)
+        REJECTED → any active state (terminal)
     """
     allowed = ALLOWED_TRANSITIONS.get(current_state, set())
     if new_state not in allowed:
