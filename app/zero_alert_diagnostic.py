@@ -145,15 +145,16 @@ def classify_zero_alert_run(
     near_miss_count: int = 0,
     regime: str = "NEUTRAL",
     execution_mode: str = "LIVE",
-    stage_waterfall: Optional[List[Dict[str, Any]]] = None
+    stage_waterfall: Optional[List[Dict[str, Any]]] = None,
+    persistence_failures_count: int = 0
 ) -> Dict[str, Any]:
     """
     Classifies a zero-alert run into an institutional anomaly category based on
-    data health, execution mode, and stage-by-stage candidate penetration:
+    data health, persistence integrity, stage-by-stage candidate penetration, and execution mode:
     1. DATA_OR_ENGINE_FAILURE: Provider failure, fetch coverage < 75%, or 0 valid data.
-    2. CRITICAL_ZERO: Finalists reached last risk/persistence gate but 0 alerts emitted.
+    2. CRITICAL_ZERO: Finalists reached last risk/persistence gate, or state persistence failed (even in PREARM).
     3. SUSPICIOUS_ZERO: Candidates penetrated deep into intermediate/downstream stages (or near-misses existed), but 100% eliminated before alert emission.
-    4. LEGITIMATE_ZERO: Clean legitimate zero (0 technical structures formed, or execution mode is PREARM).
+    4. LEGITIMATE_ZERO: Clean legitimate zero (0 technical structures formed, or normal PREARM screening without failures).
     """
     if alerts_generated > 0:
         return {
@@ -164,6 +165,7 @@ def classify_zero_alert_run(
             "last_stage_with_candidates": "ALERT_PERSISTENCE"
         }
 
+    # 1. DATA OR ENGINE FAILURE: Critical data deficit or provider failure
     data_ratio = valid_data_count / max(universe_size, 1)
     if valid_data_count == 0 or data_ratio < 0.75:
         return {
@@ -174,21 +176,15 @@ def classify_zero_alert_run(
             "last_stage_with_candidates": "DATA_ACQUISITION"
         }
 
-    if execution_mode in ("PREARM", "NON_MARKET", "OUTSIDE_WINDOW"):
-        return {
-            "classification": "LEGITIMATE_ZERO",
-            "severity": "INFO",
-            "explanation": f"Execution mode is {execution_mode}. Screening armed setups for next session; new entries intentionally suppressed.",
-            "recommendation": "Monitor armed candidate pool for execution eligibility at 09:15 open.",
-            "last_stage_with_candidates": "PREARM_EVALUATION"
-        }
-
-    if finalist_candidates_count > 0:
+    # 2. PERSISTENCE OR FINALIST FAILURE: Candidates reached final gate but failed to persist
+    # Note: Even in PREARM/MONITOR mode, persistence failures are a critical defect, not a legitimate zero.
+    if finalist_candidates_count > 0 or persistence_failures_count > 0:
+        fail_count = finalist_candidates_count or persistence_failures_count
         return {
             "classification": "CRITICAL_ZERO",
             "severity": "CRITICAL",
-            "explanation": f"{finalist_candidates_count} candidates reached final risk/persistence gate, but 0 alerts were persisted.",
-            "recommendation": "Verify SL/Target engine thresholds, live price recheck buy-zone shift, and database write locks.",
+            "explanation": f"{fail_count} candidates reached final risk/persistence gate or failed during state persistence, but 0 alerts/records were persisted.",
+            "recommendation": "Verify SL/Target engine thresholds, live price recheck buy-zone shift, and database write connectivity.",
             "last_stage_with_candidates": "FINAL_RISK_AND_PERSISTENCE"
         }
 
@@ -197,7 +193,6 @@ def classify_zero_alert_run(
     downstream_candidates_reached = False
 
     if stage_waterfall and len(stage_waterfall) > 1:
-        # Check stages after initial data/structure
         for idx, stg in enumerate(stage_waterfall):
             if stg.get("entered", 0) > 0:
                 deepest_stage = stg.get("stage", "UNKNOWN")
@@ -207,7 +202,17 @@ def classify_zero_alert_run(
             if stg.get("passed", 0) > 0 and idx == len(stage_waterfall) - 1:
                 deepest_stage = stg.get("next_stage", deepest_stage)
 
-    # If 0 technical structures formed and 0 near misses, it is a clean legitimate zero
+    # 3. DEEP FUNNEL COLLAPSE: Setups reached downstream gates or notable near-misses existed
+    if downstream_candidates_reached or near_miss_count > 0:
+        return {
+            "classification": "SUSPICIOUS_ZERO",
+            "severity": "WARNING",
+            "explanation": f"Discovered {initial_setups_count} technical structures with candidates penetrating into stage '{deepest_stage}', but downstream filters eliminated 100% ({near_miss_count} near misses).",
+            "recommendation": "Inspect dominant bottleneck attrition rate to assess if volume, conviction, or score gates are overly restrictive.",
+            "last_stage_with_candidates": deepest_stage
+        }
+
+    # 4. NO VIABLE STRUCTURES: Clean structural legitimate zero under prevailing regime
     if initial_setups_count == 0 and near_miss_count == 0:
         return {
             "classification": "LEGITIMATE_ZERO",
@@ -217,13 +222,13 @@ def classify_zero_alert_run(
             "last_stage_with_candidates": deepest_stage
         }
 
-    # If setups reached downstream evaluation or notable near-misses existed
-    if downstream_candidates_reached or near_miss_count > 0:
+    # 5. PREARM / OUTSIDE WINDOW: Normal scheduled setup screening (with surviving armed pool)
+    if execution_mode in ("PREARM", "NON_MARKET", "OUTSIDE_WINDOW"):
         return {
-            "classification": "SUSPICIOUS_ZERO",
-            "severity": "WARNING",
-            "explanation": f"Discovered {initial_setups_count} technical structures with candidates penetrating into stage '{deepest_stage}', but downstream filters eliminated 100% ({near_miss_count} near misses).",
-            "recommendation": "Inspect dominant bottleneck attrition rate to assess if volume, conviction, or score gates are overly restrictive.",
+            "classification": "LEGITIMATE_ZERO",
+            "severity": "INFO",
+            "explanation": f"Execution mode is {execution_mode}. Successfully screened and preserved {initial_setups_count} armed candidate setups for next session open; new live trade entries intentionally suppressed.",
+            "recommendation": "Monitor armed candidate pool for execution eligibility at 09:15 open.",
             "last_stage_with_candidates": deepest_stage
         }
 
