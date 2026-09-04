@@ -717,5 +717,9 @@ def _process_symbol(
         updates["attempt_bar_boundary"] = pressure.attempt_bar_boundary
 
     # 10. Sync state changes to DB
-    if updates or state_record.mtf_substate != MtfSubstate.WATCHING:
-        update_state_in_db(state_record, updates)
+    # [FIX: ALWAYS_STAMP_EVALUATED_v1.0]
+    # Previously only called when updates were non-empty OR state != WATCHING.
+    # Stocks in WATCHING with no transition never got written → last_evaluated_at/updated_at
+    # stayed at creation time → UI showed "03 Sept 5:01 pm" even after running all day.
+    # Now always write so every 15m cycle stamps current IST time into last_evaluated_at.
+    update_state_in_db(state_record, updates)

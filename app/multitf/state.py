@@ -196,7 +196,13 @@ def update_state_in_db(record: MtfStateRecord, updates: Dict[str, Any]) -> bool:
     updates["cooldown_until"] = record.cooldown_until
     updates["invalidated_at"] = record.invalidated_at
     updates["invalidation_reason"] = record.invalidation_reason
-    updates["updated_at"] = datetime.now(IST)
+    _now_ist = datetime.now(IST)
+    updates["updated_at"] = _now_ist
+    # [FIX: LAST_EVALUATED_AT_ALWAYS_STAMP_v1.0]
+    # last_evaluated_at was only set on first insert (candidate creation), never on re-evaluation.
+    # UI shows COALESCE(last_evaluated_at, updated_at, created_at) as 'last_updated'.
+    # Without this, stocks stuck in WATCHING with no state change kept showing stale creation timestamps.
+    updates["last_evaluated_at"] = _now_ist
     
     try:
         with get_connection() as conn:
