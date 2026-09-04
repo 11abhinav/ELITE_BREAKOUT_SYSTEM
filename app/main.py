@@ -1638,26 +1638,42 @@ def run_system_scheduler():
             from market_utils import is_market_open
             # Market hours strict sequential loop (9:15 AM - 3:30 PM)
             if is_market_open(now):
-                # [RULE 67 CHANGE-RATIONALE: EXIT_MONITORS_NO_GLOBAL_LOCK_v1.0]
-                # Exit monitors MUST NOT hold scanner_execution_lock (= global_scanner_lock).
-                # Previously all 3 ran inside `with scanner_execution_lock:` which is the SAME
-                # lock as _global_lock in multitf/scanner.py. If any exit monitor ran long
-                # (e.g. run_wealth_intraday_update taking 60-90s), MULTI_TF would sit QUEUED
-                # and miss its 15m slot entirely. Each monitor has its own internal is_scanner_stopped
-                # gate and run_standalone_exit_monitor / build_performance_data have their own
-                # dedup guards — no global lock needed here.
+                # [RULE 67 CHANGE-RATIONALE: EXIT_MONITORS_DAEMON_THREADS_v1.0]
+                # Exit monitors run in daemon background threads so the scheduler loop is NEVER
+                # blocked. Previously even after removing global_scanner_lock, the monitors ran
+                # synchronously in the loop — if run_wealth_intraday_update took 60-90s it delayed
+                # the slot check that fires MULTI_TF. Each monitor has its own dedup guards so
+                # parallel threads are safe:
+                #   - _run_multibagger_exit_single: is_scanner_stopped + run_standalone_exit_monitor own guards
+                #   - _run_performance_tracker_single: _perf_rebuild_lock + is_scanner_stopped
+                #   - safe_run_wealth_market_hours: last_wealth_market_run throttle + is_scanner_stopped
+                import threading as _threading
+
                 # 1. Multibagger Exit Monitor (every 15 mins)
                 if not last_mb_exit or (now - last_mb_exit).total_seconds() >= 900:
-                    _run_multibagger_exit_single()
-                    last_mb_exit = datetime.now(IST)
+                    last_mb_exit = datetime.now(IST)  # set before thread start to prevent double-fire
+                    _threading.Thread(
+                        target=_run_multibagger_exit_single,
+                        name=f"MBExitMonitor-{now.strftime('%H%M')}",
+                        daemon=True
+                    ).start()
 
                 # 2. Performance Tracker / Alert Exit Monitor (every 5 mins)
                 if not last_perf or (now - last_perf).total_seconds() >= 300:
-                    _run_performance_tracker_single()
-                    last_perf = datetime.now(IST)
+                    last_perf = datetime.now(IST)  # set before thread start to prevent double-fire
+                    _threading.Thread(
+                        target=_run_performance_tracker_single,
+                        name=f"PerfTracker-{now.strftime('%H%M')}",
+                        daemon=True
+                    ).start()
 
-                # 3. Wealth Engine Market Hours Loop (5-min Exit Monitor runs always; 15-min BUY scan is gated internally)
-                safe_run_wealth_market_hours()
+                # 3. Wealth Engine Market Hours Loop (5-min Exit Monitor — non-blocking)
+                _threading.Thread(
+                    target=safe_run_wealth_market_hours,
+                    name=f"WealthExit-{now.strftime('%H%M')}",
+                    daemon=True
+                ).start()
+
                 
                 # Multi-TF Dual-Cadence Execution Model:
                 # 1. Primary 15m Scan (Intelligence Layer: 09:30, 09:45, 10:00 … 15:15 IST)
