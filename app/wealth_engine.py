@@ -1401,6 +1401,7 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
         except Exception: return None
 
     def _generate_exit_signal(r):
+        r = r.copy()
         import math
         base_hold_score = calculate_hold_score(r)
         sym = r.get("Stock")
