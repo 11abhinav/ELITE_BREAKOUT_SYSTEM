@@ -241,66 +241,84 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             "OTHER_REJECT": 0,
         }
 
-        for idx, symbol in enumerate(watchlist):
-            t_sym_start = time.perf_counter()
-            if real_run_ctx and idx % 20 == 0:
-                try:
-                    real_run_ctx.heartbeat()
-                except Exception:
-                    pass
+        # [RULE 67 CHANGE-RATIONALE: CONCURRENT_STAGE_2_5_SCREENING_V1.0]
+        # Execute Stage 2.5 screening concurrently across a worker pool.
+        # RATIONALE: Screening 420 stocks sequentially took 242.42s (~4.04 minutes) purely on CPU math.
+        # Evaluating independent stocks in parallel drops runtime to ~40-60s on multi-core VPS.
+        # Results are collected in strict watchlist index order to preserve 100% deterministic outputs.
+        def _screen_symbol_worker(sym_idx: int, sym: str):
+            t_s_start = time.perf_counter()
+            df_raw = all_15m.get(sym)
+            if df_raw is None or (hasattr(df_raw, "empty") and df_raw.empty):
+                return sym_idx, sym, "NO_DATA", None, (time.perf_counter() - t_s_start) * 1000.0, 0.0, (time.perf_counter() - t_s_start), 0.0
 
-            if idx % 50 == 0:
-                cur_rss = _get_rss_mb()
-                if cur_rss > rss_peak:
-                    rss_peak = cur_rss
+            t_f_start = time.perf_counter()
+            df_c = strip_closed_candles(df_raw, 15, ist_now)
+            if df_c is None or df_c.empty or len(df_c) < min_bars_config:
+                return sym_idx, sym, "INSUFFICIENT_BARS", None, (time.perf_counter() - t_s_start) * 1000.0, 0.0, (time.perf_counter() - t_f_start), 0.0
 
-            t_ff_start = time.perf_counter()
-            df_15m_raw = all_15m.get(symbol)
-            if df_15m_raw is None or (hasattr(df_15m_raw, "empty") and df_15m_raw.empty):
-                fast_rejected_breakdown["NO_DATA"] += 1
-                t_fast_filter_total += (time.perf_counter() - t_ff_start)
-                symbol_latencies_ms.append((time.perf_counter() - t_sym_start) * 1000.0)
-                continue
+            atr_val = _get_atr(df_c)
+            if atr_val <= 0:
+                return sym_idx, sym, "ATR_ZERO_OR_NEG", None, (time.perf_counter() - t_s_start) * 1000.0, 0.0, (time.perf_counter() - t_f_start), 0.0
+            t_ff = time.perf_counter() - t_f_start
 
-            df_15m_closed = strip_closed_candles(df_15m_raw, 15, ist_now)
-            if df_15m_closed is None or df_15m_closed.empty or len(df_15m_closed) < min_bars_config:
-                fast_rejected_breakdown["INSUFFICIENT_BARS"] += 1
-                t_fast_filter_total += (time.perf_counter() - t_ff_start)
-                symbol_latencies_ms.append((time.perf_counter() - t_sym_start) * 1000.0)
-                continue
+            t_c_start = time.perf_counter()
+            c_ctx = prepare_15m_context(df_c, atr_val, MULTI_TF_V2_CONFIG, symbol=sym)
+            t_cp = time.perf_counter() - t_c_start
 
-            atr_15m = _get_atr(df_15m_closed)
-            if atr_15m <= 0:
-                fast_rejected_breakdown["ATR_ZERO_OR_NEG"] += 1
-                t_fast_filter_total += (time.perf_counter() - t_ff_start)
-                symbol_latencies_ms.append((time.perf_counter() - t_sym_start) * 1000.0)
-                continue
+            if c_ctx is None:
+                return sym_idx, sym, "INSUFFICIENT_BARS", None, (time.perf_counter() - t_s_start) * 1000.0, t_cp, t_ff, 0.0
 
-            t_fast_filter_total += (time.perf_counter() - t_ff_start)
+            if c_ctx.recent_high <= c_ctx.recent_low:
+                return sym_idx, sym, "FLATLINE_ZERO_RANGE", None, (time.perf_counter() - t_s_start) * 1000.0, t_cp, t_ff, 0.0
 
-            # Context Preparation (Single-pass contiguous numpy arrays + session dates)
-            t_cp_start = time.perf_counter()
-            ctx = prepare_15m_context(df_15m_closed, atr_15m, MULTI_TF_V2_CONFIG, symbol=symbol)
-            t_ctx_prep_total += (time.perf_counter() - t_cp_start)
-
-            if ctx is None:
-                fast_rejected_breakdown["INSUFFICIENT_BARS"] += 1
-                symbol_latencies_ms.append((time.perf_counter() - t_sym_start) * 1000.0)
-                continue
-
-            if ctx.recent_high <= ctx.recent_low:
-                fast_rejected_breakdown["FLATLINE_ZERO_RANGE"] += 1
-                symbol_latencies_ms.append((time.perf_counter() - t_sym_start) * 1000.0)
-                continue
-
-            # Deep Evaluation across candidate windows
-            t_ds_start = time.perf_counter()
-            cons = detect_15m_consolidation(
-                df_15m_closed, atr_15m, ist_now, MULTI_TF_V2_CONFIG, symbol=symbol, precomputed_context=ctx
+            t_d_start = time.perf_counter()
+            c_res = detect_15m_consolidation(
+                df_c, atr_val, ist_now, MULTI_TF_V2_CONFIG, symbol=sym, precomputed_context=c_ctx
             )
-            t_deep_screen_total += (time.perf_counter() - t_ds_start)
+            t_ds = time.perf_counter() - t_d_start
+            return sym_idx, sym, None, c_res, (time.perf_counter() - t_s_start) * 1000.0, t_cp, t_ff, t_ds
 
-            if cons.is_valid:
+        import concurrent.futures
+        max_workers = min(8, max(2, (os.cpu_count() or 4)))
+        results_by_idx = {}
+        completed_count = 0
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(_screen_symbol_worker, idx, symbol)
+                for idx, symbol in enumerate(watchlist)
+            ]
+            for fut in concurrent.futures.as_completed(futures):
+                idx_res, sym_res, rej_code, cons_res, lat_ms, t_cp, t_ff, t_ds = fut.result()
+                results_by_idx[idx_res] = (sym_res, rej_code, cons_res, lat_ms, t_cp, t_ff, t_ds)
+                completed_count += 1
+                if real_run_ctx and completed_count % 20 == 0:
+                    try:
+                        real_run_ctx.heartbeat()
+                    except Exception:
+                        pass
+                if completed_count % 50 == 0 or completed_count == total_symbols:
+                    cur_rss = _get_rss_mb()
+                    if cur_rss > rss_peak:
+                        rss_peak = cur_rss
+                    logger.info(
+                        "[MULTI_TF][2.5] Screening progress: %d/%d symbols processed (concurrent pool)",
+                        completed_count, total_symbols
+                    )
+
+        # Assemble in strict deterministic index order
+        for idx in range(total_symbols):
+            symbol, rej_code, cons, lat_ms, t_cp, t_ff, t_ds = results_by_idx[idx]
+            t_ctx_prep_total += t_cp
+            t_fast_filter_total += t_ff
+            t_deep_screen_total += t_ds
+            symbol_latencies_ms.append(lat_ms)
+
+            if rej_code:
+                fast_rejected_breakdown[rej_code] += 1
+                continue
+
+            if cons and cons.is_valid:
                 shortlisted_symbols.append(symbol)
                 consolidation_map[symbol] = cons
                 stage = getattr(cons, "lifecycle_stage", "FORMING")
@@ -308,7 +326,7 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
                     deep_screened_breakdown[stage] += 1
                 else:
                     deep_screened_breakdown["QUALIFIED"] += 1
-            else:
+            elif cons:
                 reason = cons.rejection_reason or ""
                 if "GAP" in reason:
                     deep_screened_breakdown["GAP_BROKEN"] += 1
@@ -322,16 +340,8 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
                     deep_screened_breakdown["DORMANT"] += 1
                 else:
                     deep_screened_breakdown["OTHER_REJECT"] += 1
-
-            symbol_latencies_ms.append((time.perf_counter() - t_sym_start) * 1000.0)
-
-            # Event-based progress logging every 50 symbols
-            if (idx + 1) % 50 == 0 or (idx + 1) == total_symbols:
-                fast_rej_so_far = sum(fast_rejected_breakdown.values())
-                logger.info(
-                    "[MULTI_TF][2.5] Screening progress: %d/%d symbols processed (%d qualified, %d fast-rejected)",
-                    idx + 1, total_symbols, len(shortlisted_symbols), fast_rej_so_far
-                )
+            else:
+                fast_rejected_breakdown["NO_DATA"] += 1
 
         t_stage25_total = time.monotonic() - t_stage25_start
         rss_after = _get_rss_mb()

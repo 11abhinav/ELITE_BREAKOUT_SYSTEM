@@ -137,5 +137,26 @@ class TestInstitutionalArchitectureCoverage(unittest.TestCase):
         self.assertIn("18:35", sched_display_2)
         self.assertNotIn("16:15", sched_display_2)
 
+    def test_symbol_router_and_fyers_miss_handling(self):
+        """Verifies static pre-seeding of LTIM, universal routing fallback, and error taxonomy."""
+        from symbol_router import SymbolRouter, RoutingState, ProviderErrorCode
+
+        router = SymbolRouter()
+        # 1. Verify static pre-seeding
+        self.assertEqual(router.get_route("LTIM", "1d"), RoutingState.UPSTOX_ONLY)
+        self.assertEqual(router.get_route("NSE:LTIM", "1h"), RoutingState.UPSTOX_ONLY)
+        self.assertEqual(router.get_route("LTIM", "15m"), RoutingState.UPSTOX_ONLY)
+
+        # 2. Verify error classification for Fyers symbol misses
+        err_str = "Invalid symbol: All Fyers series candidates failed for LTIM (['NSE:LTIM-EQ', 'BSE:LTIM-EQ'])"
+        code = router.classify_error_code(err_str)
+        self.assertEqual(code, ProviderErrorCode.UNSUPPORTED_SYMBOL)
+
+        # 3. Verify record_result with UNSUPPORTED_SYMBOL sets UPSTOX_ONLY universally
+        router.record_result("TESTSYM", "1d", "fyers", is_success=False, error_msg="invalid symbol provided")
+        self.assertEqual(router.get_route("TESTSYM", "1d"), RoutingState.UPSTOX_ONLY)
+        self.assertEqual(router.get_route("TESTSYM", "15m"), RoutingState.UPSTOX_ONLY)
+        self.assertEqual(router.get_route("TESTSYM", "5m"), RoutingState.UPSTOX_ONLY)
+
 if __name__ == "__main__":
     unittest.main()

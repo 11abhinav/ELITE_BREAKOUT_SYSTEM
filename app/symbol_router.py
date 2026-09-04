@@ -62,6 +62,25 @@ class SymbolRouter:
         self.avoided_failed_requests = 0
         self.routing_fallbacks = 0
 
+        # [RULE 67 CHANGE-RATIONALE: STATIC_PERMANENT_BROKER_ROUTES_V1.0]
+        # Pre-seed known permanent broker ticker mismatches (e.g. LTIM not supported under NSE:LTIM-EQ on Fyers).
+        # RATIONALE: Prevents cold startup probing and avoids any delay or retry on server boot/redeploy,
+        # ensuring LTIM and other known broken symbols route directly to Upstox on the very first 1d call.
+        self._routes[("NSE:LTIM", "*")] = RouteEntry(
+            state=RoutingState.UPSTOX_ONLY,
+            reason=ProviderErrorCode.UNSUPPORTED_SYMBOL,
+            confidence="HIGH",
+            learned_at=0.0,
+            session_date="STATIC"
+        )
+        self._routes[("NSE:LTIM", "1d")] = RouteEntry(
+            state=RoutingState.UPSTOX_ONLY,
+            reason=ProviderErrorCode.UNSUPPORTED_SYMBOL,
+            confidence="HIGH",
+            learned_at=0.0,
+            session_date="STATIC"
+        )
+
     def _normalize_key(self, symbol: str, interval: str) -> Tuple[str, str]:
         """
         [VERSION: SYMBOL_ROUTER_SERIES_v1.0] Canonical Series Normalization for BO, SME (-SM/-ST), and EQ symbols.

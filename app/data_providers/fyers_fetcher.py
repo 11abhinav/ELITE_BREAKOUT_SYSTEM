@@ -659,9 +659,21 @@ class FyersFetcher(DataFetcher):
                         logger.warning(f"⚠️ Attempt {attempt+1}/{retries} failed for {cand_symbol}: {e}")
                         time.sleep((2 ** attempt) * 1.5 + random.uniform(0.5, 1.5))
 
-        # Return None and let AutoSwitchingFetcher handle fallbacks to Upstox and Yahoo
-        logger.debug(f"⚠️ All Fyers series candidates failed for {orig_sym} ({candidates}). Returning None for fallback.")
-        return None
+        # [RULE 67 CHANGE-RATIONALE: PRESERVE_SYMBOL_MISS_ERROR_V1.0]
+        # Return explicit MarketData error string rather than None when all Fyers symbol candidates fail.
+        # RATIONALE: Returning None causes data_provider.py line 739 to fallback to 'No data returned',
+        # which classify_error_code() maps to ProviderErrorCode.UNKNOWN instead of UNSUPPORTED_SYMBOL.
+        # By passing the explicit 'Invalid symbol / symbol miss' error, symbol_router correctly classifies
+        # the failure as UNSUPPORTED_SYMBOL and permanently routes the ticker to UPSTOX_ONLY across all intervals.
+        logger.info(f"⚠️ All Fyers series candidates failed for {orig_sym} ({candidates}). Returning explicit symbol-miss error for Upstox fallback.")
+        return MarketData(
+            dataframe=None,
+            source="Fyers",
+            quality_report=None,
+            is_fallback=False,
+            is_stale=False,
+            error=f"Invalid symbol: All Fyers series candidates failed for {orig_sym} ({candidates})"
+        )
 
     def get_batch_ohlcv(self, symbols: list[str], interval: str, period: str, retries: int = 5, range_from: str = None, range_to: str = None, caller: str = None) -> dict[str, MarketData]:
         """Fetch OHLCV data for multiple symbols concurrently using ThreadPoolExecutor."""

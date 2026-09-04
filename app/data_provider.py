@@ -710,9 +710,14 @@ class AutoSwitchingFetcher(DataFetcher):
                     for s in actual_chunk:
                         res = prov_results.get(s)
                         
-                        # [VERSION: STALENESS_FALLBACK_v1.0] Reject if data is considered stale by market_utils
+                        # [RULE 67 CHANGE-RATIONALE: BYPASS_STALENESS_ON_DELTA_V1.0]
+                        # Do NOT evaluate full dataset staleness during incremental DELTA fetches (range_from is set).
+                        # RATIONALE: A 2-bar delta snippet from Wednesday to Friday night may not yet include Friday's
+                        # sealed daily bar if the broker endpoint updates daily bars at midnight or next morning.
+                        # Evaluating staleness on the raw delta snippet resulted in 'is_stale=True', falsely rejecting
+                        # valid delta bars. Full dataset staleness is checked after merging in price_cache.py.
                         is_stale = False
-                        if res and res.dataframe is not None and interval in ("1d", "daily"):
+                        if not range_from and res and res.dataframe is not None and interval in ("1d", "daily"):
                             try:
                                 from market_utils import evaluate_data_staleness
                                 last_ts = pd.to_datetime(res.dataframe['Date'].iloc[-1]) if 'Date' in res.dataframe.columns else pd.to_datetime(res.dataframe.index[-1])
@@ -781,8 +786,10 @@ class AutoSwitchingFetcher(DataFetcher):
                     for s in current_batch:
                         res = prov_results.get(s)
                         
+                        # [RULE 67 CHANGE-RATIONALE: BYPASS_STALENESS_ON_DELTA_FALLBACK_V1.0]
+                        # Incremental DELTA fetches should never be rejected due to missing today's daily bar.
                         is_stale = False
-                        if res and res.dataframe is not None and interval in ("1d", "daily"):
+                        if not range_from and res and res.dataframe is not None and interval in ("1d", "daily"):
                             try:
                                 from market_utils import evaluate_data_staleness
                                 last_ts = pd.to_datetime(res.dataframe['Date'].iloc[-1]) if 'Date' in res.dataframe.columns else pd.to_datetime(res.dataframe.index[-1])
