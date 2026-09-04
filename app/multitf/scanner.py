@@ -238,7 +238,13 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
                     all_30m=all_30m,
                     all_15m=all_15m,
                     all_5m=all_5m,
-                    config=MULTI_TF_V2_CONFIG
+                    config=MULTI_TF_V2_CONFIG,
+                    # [FIX: CONSOLIDATION_MAP_REUSE_v1.0]
+                    # Pre-screen already computed consolidation for shortlisted symbols.
+                    # Pass it in so _process_symbol doesn't re-run detect_15m_consolidation
+                    # from scratch — avoids double CPU and prevents armed-only DB-pulled
+                    # symbols from failing consolidation detection if box_id shifted.
+                    precomputed_consolidation=consolidation_map.get(symbol)
                 )
             except Exception as loop_exc:
                 logger.error("[MULTI_TF] Failed processing %s: %s", symbol, loop_exc)
@@ -424,7 +430,8 @@ def _process_symbol(
     all_30m: Dict,
     all_15m: Dict,
     all_5m: Dict,
-    config: Dict[str, Any]
+    config: Dict[str, Any],
+    precomputed_consolidation=None
 ):
     # 1. Load Data
     bundle = load_multitf_data(symbol, ist_now, all_1h, all_30m, all_15m, all_5m, all_1d)
@@ -440,7 +447,13 @@ def _process_symbol(
     current_price = float(bundle.df_5m_closed["Close"].iloc[-1])
 
     # 2. Setup Detection (15m strictly closed)
-    consolidation = detect_15m_consolidation(bundle.df_15m_closed, atr_15m, ist_now, config)
+    # [FIX: CONSOLIDATION_MAP_REUSE_v1.0] Use pre-computed result from pre-screen if available.
+    # Armed-only symbols (pulled from DB) may not have a pre-computed consolidation.
+    # For those, re-detect normally. If still invalid, exit — the DB record stays as-is.
+    if precomputed_consolidation is not None and precomputed_consolidation.is_valid:
+        consolidation = precomputed_consolidation
+    else:
+        consolidation = detect_15m_consolidation(bundle.df_15m_closed, atr_15m, ist_now, config)
     if not consolidation.is_valid:
         return
 
@@ -460,24 +473,57 @@ def _process_symbol(
         state_record = load_state(symbol, consolidation.box_id) # Reload to get initialized record
         if not state_record: return
 
-    # If already fully handled or invalid, exit early
+    # [FIX: EARLY_EXIT_STAMP_v1.0]
+    # Helper: builds the live-data dict so every early exit also refreshes box/score columns.
+    def _live_data_updates():
+        prov_1h  = bundle.prov_1h.to_dict()  if bundle.prov_1h  else {}
+        prov_30m = bundle.prov_30m.to_dict() if bundle.prov_30m else {}
+        prov_15m = bundle.prov_15m.to_dict() if bundle.prov_15m else {}
+        prov_5m  = bundle.prov_5m.to_dict()  if bundle.prov_5m  else {}
+        return {
+            "box_high": consolidation.box_high, "box_low": consolidation.box_low,
+            "box_mid": consolidation.box_mid, "box_value_center": consolidation.box_value_center,
+            "hard_high": consolidation.hard_high, "hard_low": consolidation.hard_low,
+            "box_width_pct": consolidation.box_width_pct, "box_width_atr": consolidation.box_width_atr,
+            "box_occupancy": consolidation.box_occupancy,
+            "consolidation_bars": consolidation.bars_count,
+            "consolidation_sessions": consolidation.sessions_count,
+            "consolidation_end_ts": consolidation.end_ts,
+            "resistance_test_count": consolidation.resistance_test_count,
+            "higher_low_score": consolidation.score_hl,
+            "compression_score": consolidation.score_compression,
+            "setup_score": consolidation.setup_score,
+            "last_confirmed_pivot_level": consolidation.last_confirmed_pivot_level,
+            "last_confirmed_pivot_ts": consolidation.last_confirmed_pivot_ts,
+            "live_position_5m": round(current_price, 4) if current_price else None,
+            "distance_to_box_high": round(consolidation.box_high - current_price, 4) if current_price else None,
+            "data_source_1h": prov_1h.get("source", ""), "data_source_30m": prov_30m.get("source", ""),
+            "data_source_15m": prov_15m.get("source", ""), "data_source_5m": prov_5m.get("source", ""),
+            "candle_ts_1h": prov_1h.get("last_candle_ts"), "candle_ts_30m": prov_30m.get("last_candle_ts"),
+            "candle_ts_15m": prov_15m.get("last_candle_ts"), "candle_ts_5m": prov_5m.get("last_candle_ts"),
+        }
+
+    # If already fully handled or invalid — still stamp last_evaluated_at so UI shows current time
     if state_record.mtf_substate in (MtfSubstate.INVALIDATED, MtfSubstate.BREAKOUT_CONFIRMED):
+        update_state_in_db(state_record, _live_data_updates())
         return
 
     # Check invalidation logic
     if handle_box_invalidation(state_record, current_price, consolidation.box_low, atr_15m, ist_now):
-        if not update_state_in_db(state_record, {}):
+        if not update_state_in_db(state_record, _live_data_updates()):
             return
         return
 
     # TTL checks
     current_5m_bars_count = len(bundle.df_5m_closed)
     if apply_ttl_and_cooldown(state_record, ist_now, current_5m_bars_count):
-        if not update_state_in_db(state_record, {}):
+        if not update_state_in_db(state_record, _live_data_updates()):
             return
 
     if state_record.mtf_substate == MtfSubstate.FAILED_ATTEMPT:
-        return # Cooling down
+        # Still stamp last_evaluated_at even while cooling down
+        update_state_in_db(state_record, _live_data_updates())
+        return
 
     # 5. Pressure / Expansion (5m Live + Closed)
     daily_atr_val = _get_atr(bundle.df_1d)
