@@ -94,11 +94,13 @@ class SymbolRouter:
           - Once a working broker is identified for a symbol/interval, it is reused
             permanently across days without spending time re-probing failed brokers.
           - Routes only change if the active working broker fails.
+          - Checks interval-specific route first; if missing, falls back to universal symbol route ('*').
         """
         key = self._normalize_key(symbol, interval)
+        universal_key = (key[0], "*")
 
         with self._lock:
-            entry = self._routes.get(key)
+            entry = self._routes.get(key) or self._routes.get(universal_key)
             if entry is None:
                 return RoutingState.LOAD_BALANCED
 
@@ -170,18 +172,21 @@ class SymbolRouter:
 
             if err_code in sticky_codes:
                 target_state = RoutingState.UPSTOX_ONLY if "fyers" in prov else RoutingState.FYERS_ONLY
+                universal_key = (key[0], "*")
                 
-                # Update route to the alternative working broker
+                # Update route to the alternative working broker (both interval-specific and universal symbol route)
                 if existing is None or existing.state != target_state:
-                    self._routes[key] = RouteEntry(
+                    entry = RouteEntry(
                         state=target_state,
                         reason=err_code,
                         confidence="HIGH",
                         learned_at=now_mono,
                         session_date=today_ist
                     )
+                    self._routes[key] = entry
+                    self._routes[universal_key] = entry
                     logger.warning(
-                        f"📌 [ROUTING_LEARN] Permanent Option B Override Learned | Key=({key[0]}, {key[1]}) | "
+                        f"📌 [ROUTING_LEARN] Permanent Option B Override Learned | Key=({key[0]}, {key[1]}) & ({key[0]}, *) | "
                         f"FailedProvider={prov.upper()} | Error={err_code.value} | TargetState={target_state.value}"
                     )
                     self._persist_routes_async()

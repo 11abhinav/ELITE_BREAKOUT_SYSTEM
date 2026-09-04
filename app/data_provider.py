@@ -803,19 +803,22 @@ class AutoSwitchingFetcher(DataFetcher):
                             from symbol_router import RoutingState, ProviderErrorCode, RouteEntry
                             target_state = RoutingState.FYERS_ONLY if prov_name == "fyers" else RoutingState.UPSTOX_ONLY
                             key = symbol_router._normalize_key(s, interval)
+                            universal_key = (key[0], "*")
                             with symbol_router._lock:
-                                symbol_router._routes[key] = RouteEntry(
+                                entry = RouteEntry(
                                     state=target_state,
                                     reason=ProviderErrorCode.UNSUPPORTED_SYMBOL,
                                     confidence="HIGH",
                                     learned_at=time.monotonic(),
                                     session_date=datetime.now(IST).strftime("%Y-%m-%d")
                                 )
+                                symbol_router._routes[key] = entry
+                                symbol_router._routes[universal_key] = entry
                             symbol_router._persist_routes_async()
                             
                             if prov_name in provider_telemetry:
                                 provider_telemetry[prov_name]["succeeded"] += 1
-                            logger.info(f"✅ [Premium Fallback & Sticky Learner] {prov_name.upper()} successfully recovered data for {s} — Set sticky route to {target_state.value}")
+                            logger.info(f"✅ [Premium Fallback & Sticky Learner] {prov_name.upper()} successfully recovered data for {s} — Set sticky route to {target_state.value} (universal across intervals)")
                         else:
                             qr_valid = getattr(getattr(res, 'quality_report', None), 'is_valid', None)
                             df_len = len(res.dataframe) if (res and res.dataframe is not None) else 0
