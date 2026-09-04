@@ -163,10 +163,10 @@ def get_duration_width_limits(bars_count: int, config: Dict[str, Any]) -> Tuple[
 @dataclass(frozen=True)
 class Prepared15mContext:
     """
-    [RULE 67 CHANGE-RATIONALE: PREPARED_15M_CONTEXT_V1.0]
+    [RULE 67 CHANGE-RATIONALE: PREPARED_15M_CONTEXT_V1.1]
     Immutable, zero-copy, pre-extracted NumPy arrays and session metadata for a stock.
     Eliminates repeated DataFrame slicing, datetime conversions, and pandas allocations
-    across 9 candidate window evaluations.
+    across 9 candidate window evaluations. Precomputes time-of-day baseline volume in O(1).
     """
     symbol: str
     open: np.ndarray
@@ -179,6 +179,7 @@ class Prepared15mContext:
     gap_prefix: np.ndarray
     atr_15m: float
     volume_baseline: float
+    tod_baseline: float
     recent_high: float
     recent_low: float
     timestamps: Any
@@ -192,7 +193,7 @@ def prepare_15m_context(
 ) -> Optional[Prepared15mContext]:
     """
     Builds an immutable Prepared15mContext once per stock.
-    Pre-computes time-of-day minute indices and cumulative overnight gap flags.
+    Fast single-pass C-level DatetimeIndex resolution and pre-extracted contiguous float64 arrays.
     """
     sym = symbol or (df.attrs.get("symbol") if df is not None else None) or "?"
     min_bars = config.get("MIN_CONSOLIDATION_BARS", 6)
@@ -209,33 +210,31 @@ def prepare_15m_context(
         else:
             volume = np.ones(len(df), dtype=np.float64)
 
-        # Pre-extract session dates
-        if "session_date" in df.columns:
-            dates_arr = df["session_date"].values
-        elif "Date" in df.columns:
-            dates_arr = pd.to_datetime(df["Date"]).dt.date.values
-        elif isinstance(df.index, pd.DatetimeIndex):
-            dates_arr = df.index.date
-        else:
-            dt_idx = pd.to_datetime(df.index)
-            dates_arr = dt_idx.date if hasattr(dt_idx, "date") else np.array([d.date() for d in dt_idx])
-
-        # Pre-extract minutes of session for O(1) time-of-day masking
+        # [RULE 67 CHANGE-RATIONALE: FAST_DATETIME_INDEX_V1.0]
+        # Resolve DatetimeIndex ONCE without repeated flexible string regex parsing per symbol.
         if isinstance(df.index, pd.DatetimeIndex):
-            minutes_arr = (df.index.hour * 60 + df.index.minute).values
-            timestamps = df.index
+            dt_idx = df.index
         elif "Datetime" in df.columns:
-            dt_s = pd.to_datetime(df["Datetime"])
-            minutes_arr = (dt_s.dt.hour * 60 + dt_s.dt.minute).values
-            timestamps = dt_s.values
+            col_dt = df["Datetime"]
+            if pd.api.types.is_datetime64_any_dtype(col_dt):
+                dt_idx = pd.DatetimeIndex(col_dt)
+            else:
+                dt_idx = pd.DatetimeIndex(pd.to_datetime(col_dt.values, errors='coerce'))
         elif "Date" in df.columns:
-            dt_s = pd.to_datetime(df["Date"])
-            minutes_arr = (dt_s.dt.hour * 60 + dt_s.dt.minute).values
-            timestamps = dt_s.values
+            col_d = df["Date"]
+            if pd.api.types.is_datetime64_any_dtype(col_d):
+                dt_idx = pd.DatetimeIndex(col_d)
+            else:
+                dt_idx = pd.DatetimeIndex(pd.to_datetime(col_d.values, errors='coerce'))
         else:
-            dt_s = pd.to_datetime(df.index)
-            minutes_arr = (dt_s.dt.hour * 60 + dt_s.dt.minute).values
-            timestamps = dt_s.values
+            if pd.api.types.is_datetime64_any_dtype(df.index):
+                dt_idx = pd.DatetimeIndex(df.index)
+            else:
+                dt_idx = pd.DatetimeIndex(pd.to_datetime(df.index.values, errors='coerce'))
+
+        dates_arr = dt_idx.date
+        minutes_arr = (dt_idx.hour * 60 + dt_idx.minute).values
+        timestamps = dt_idx
 
         # Cumulative overnight gap prefix array for O(1) gap detection
         total_len = len(close)
@@ -253,6 +252,19 @@ def prepare_15m_context(
         gap_prefix = np.cumsum(is_gap)
 
         vol_baseline = float(np.median(volume[-40:])) if len(volume) >= 40 else float(np.median(volume)) if len(volume) > 0 else 1.0
+
+        # [RULE 67 CHANGE-RATIONALE: PRECOMPUTE_TOD_BASELINE_V1.0]
+        # Precompute time-of-day baseline ONCE per stock to avoid 3,600+ repeated median computations in window loops.
+        target_minute = int(minutes_arr[-1]) if len(minutes_arr) > 0 else 0
+        time_mask = (np.abs(minutes_arr - target_minute) <= 30)
+        same_time_vols = volume[time_mask]
+        if len(same_time_vols) >= 5:
+            tod_baseline = float(np.median(same_time_vols))
+        else:
+            tod_baseline = vol_baseline
+        if tod_baseline <= 0:
+            tod_baseline = 1.0
+
         recent_slice_len = min(35, total_len)
         rec_high = float(np.max(high[-recent_slice_len:]))
         rec_low = float(np.min(low[-recent_slice_len:]))
@@ -269,6 +281,7 @@ def prepare_15m_context(
             gap_prefix=gap_prefix,
             atr_15m=atr_15m,
             volume_baseline=vol_baseline,
+            tod_baseline=tod_baseline,
             recent_high=rec_high,
             recent_low=rec_low,
             timestamps=timestamps
@@ -343,7 +356,11 @@ def _evaluate_dormancy_np(
     ctx: Prepared15mContext,
     config: Dict[str, Any]
 ) -> Tuple[bool, float]:
-    """Evaluates dormancy using pre-extracted time-of-day minute baseline."""
+    """
+    [RULE 67 CHANGE-RATIONALE: O1_DORMANCY_EVALUATION_V1.0]
+    Evaluates dormancy in O(1) using precomputed time-of-day baseline from Prepared15mContext.
+    Eliminates 3,600+ repeated boolean mask array allocations and median calculations per scan.
+    """
     if len(volumes) == 0:
         return False, 1.0
     mean_base_vol = float(np.mean(volumes))
@@ -355,18 +372,8 @@ def _evaluate_dormancy_np(
     if mean_turnover >= config.get("LIQUIDITY_MIN_TURNOVER_RS", 50000.0):
         return False, 1.0
 
-    # 2. Time-of-Day Aware Baseline
-    try:
-        target_minute = ctx.minutes_of_session[-1]
-        time_mask = (np.abs(ctx.minutes_of_session - target_minute) <= 30)
-        same_time_vols = ctx.volume[time_mask]
-        if len(same_time_vols) >= 5:
-            baseline_vol = float(np.median(same_time_vols))
-        else:
-            baseline_vol = ctx.volume_baseline
-    except Exception:
-        baseline_vol = ctx.volume_baseline
-
+    # 2. Time-of-Day Aware Baseline (Precomputed in Prepared15mContext)
+    baseline_vol = ctx.tod_baseline
     if baseline_vol <= 0:
         return False, 1.0
 
@@ -633,7 +640,7 @@ def detect_15m_consolidation_from_context(
         w_volume = ctx.volume[window_start_idx:]
         w_dates = ctx.session_dates[window_start_idx:]
 
-        cand_res.sessions_count = int(len(np.unique(w_dates)))
+        cand_res.sessions_count = 1 if w_dates[0] == w_dates[-1] else int(len(np.unique(w_dates)))
         cand_res.start_ts = ctx.timestamps[window_start_idx]
         cand_res.end_ts = ctx.timestamps[-1]
 
