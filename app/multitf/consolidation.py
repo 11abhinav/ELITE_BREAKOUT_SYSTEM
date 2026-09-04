@@ -648,6 +648,15 @@ def detect_15m_consolidation_from_context(
         cand_res.hard_high = float(np.max(w_high))
         cand_res.hard_low = float(np.min(w_low))
 
+        # Fast Necessary-Condition Gate: if the raw extreme range already exceeds sanity cap,
+        # quantile clipping can never shrink it enough to qualify. Skip percentiles and scoring.
+        max_atr_limit, max_pct_limit = get_duration_width_limits(k, config)
+        sanity_atr_cap = min(max_atr_limit * 1.30, 4.50)
+        hard_width_atr = (cand_res.hard_high - cand_res.hard_low) / (ctx.atr_15m if ctx.atr_15m > 0 else 1.0)
+        if hard_width_atr > sanity_atr_cap * 1.50:
+            best_rejection_reason = f"HARD_WIDTH_ATR_EXCEEDED ({hard_width_atr:.2f} > {sanity_atr_cap * 1.50:.2f})"
+            continue
+
         if k >= 6:
             cand_res.box_high = float(np.percentile(w_high, q_high * 100))
             cand_res.box_low = float(np.percentile(w_low, q_low * 100))

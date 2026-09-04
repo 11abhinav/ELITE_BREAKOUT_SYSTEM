@@ -400,36 +400,64 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
 
         # Also include any previously ARMED candidates from DB to ensure active setups continue tracking
         active_armed = get_active_armed_candidates()
+        db_armed_symbols = set()
         for cand in active_armed:
             sym = cand.get("symbol")
-            if sym and sym not in shortlisted_symbols:
-                shortlisted_symbols.append(sym)
+            if sym:
+                db_armed_symbols.add(sym)
+                if sym not in shortlisted_symbols:
+                    shortlisted_symbols.append(sym)
 
+        # [RULE 67 CHANGE-RATIONALE: ACTIONABLE_LAZY_FETCH_TIERING_V1.0]
+        # In a universe of 420 stocks, ~300 qualify as having some 15m base (mostly FORMING bases far from ceiling).
+        # Downloading 45d 1h, 20d 30m, and 5d 5m for all 300+ stocks generates ~900 broker historical requests,
+        # taking 35+ minutes over the network.
+        # Instead, tier the lazy fetch:
+        # Tier 1: Actionable / Near-Term setups (PRESSURE, PRE_BREAKOUT, STRONG, setup_score >= 60, or active DB-armed).
+        # These are immediate trade candidates requiring multi-timeframe 5m/30m/1h analysis (~40-60 symbols).
+        # Tier 2: Developing bases (FORMING with setup_score < 60). Their 15m base structure is already computed
+        # and safely saved to DB/watchlist without wasting 30+ minutes downloading intraday bars.
+        actionable_symbols = []
+        for sym in shortlisted_symbols:
+            if sym in db_armed_symbols:
+                actionable_symbols.append(sym)
+                continue
+            cons = consolidation_map.get(sym)
+            if cons is not None:
+                stage = getattr(cons, "lifecycle_stage", "FORMING")
+                score = getattr(cons, "setup_score", 0)
+                if stage in ("PRESSURE", "PRE_BREAKOUT", "STRONG") or score >= 60:
+                    actionable_symbols.append(sym)
 
-        # Lazy fetch 1h, 30m, 5m ONLY for shortlisted candidates!
+        # Ensure deduplicated list preserving order
+        actionable_symbols = list(dict.fromkeys(actionable_symbols))
+
         all_1h = {}
         all_30m = {}
         all_5m = {}
-        if shortlisted_symbols:
+        if actionable_symbols:
             if real_run_ctx:
                 try:
                     real_run_ctx.heartbeat(force=True)
                 except Exception:
                     pass
-            logger.info(f"⚡ [MULTI_TF] Lazy-fetching (1h, 30m, 5m) for {len(shortlisted_symbols)} shortlisted candidates...")
-            all_1h  = fetch_watchlist_data(shortlisted_symbols, period="45d", interval="1h", requester="MULTI_TF", run_ctx=real_run_ctx)
+            logger.info(
+                f"⚡ [MULTI_TF] Lazy-fetching (1h, 30m, 5m) for {len(actionable_symbols)} actionable candidates "
+                f"(out of {len(shortlisted_symbols)} qualified bases; deferred {len(shortlisted_symbols) - len(actionable_symbols)} forming bases)..."
+            )
+            all_1h  = fetch_watchlist_data(actionable_symbols, period="45d", interval="1h", requester="MULTI_TF", run_ctx=real_run_ctx)
             if real_run_ctx:
                 try:
                     real_run_ctx.heartbeat(force=True)
                 except Exception:
                     pass
-            all_30m = fetch_watchlist_data(shortlisted_symbols, period="20d", interval="30m", requester="MULTI_TF", run_ctx=real_run_ctx)
+            all_30m = fetch_watchlist_data(actionable_symbols, period="20d", interval="30m", requester="MULTI_TF", run_ctx=real_run_ctx)
             if real_run_ctx:
                 try:
                     real_run_ctx.heartbeat(force=True)
                 except Exception:
                     pass
-            all_5m  = fetch_watchlist_data(shortlisted_symbols, period="5d",  interval="5m",  requester="MULTI_TF", run_ctx=real_run_ctx)
+            all_5m  = fetch_watchlist_data(actionable_symbols, period="5d",  interval="5m",  requester="MULTI_TF", run_ctx=real_run_ctx)
             if real_run_ctx:
                 try:
                     real_run_ctx.heartbeat(force=True)
@@ -442,11 +470,11 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
 
         # Stage 3: Process Symbols
         stage_tracker.start_stage(3, "Process Symbols", "Evaluating compression and breakout models per symbol")
-        logger.info("[MULTI_TF] Analyzing breakout signals for shortlisted symbols...")
+        logger.info("[MULTI_TF] Analyzing breakout signals for actionable symbols...")
         t_process_start = time.monotonic()
         opp_manager = OpportunityManager(policy=regime_ctx.get("policy", {}) if regime_ctx else {})
 
-        target_evaluation_symbols = shortlisted_symbols if shortlisted_symbols else []
+        target_evaluation_symbols = actionable_symbols if actionable_symbols else []
         for symbol in target_evaluation_symbols:
             if real_run_ctx:
                 try:
