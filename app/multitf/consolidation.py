@@ -280,20 +280,43 @@ def _generate_candidate_windows(df: pd.DataFrame, atr_15m: float, config: Dict[s
     Evaluates candidate window lengths (e.g. 6, 8, 10, 12, 16, 20, 24, 30, 35 bars).
     Enforces overnight gap policy per window. If an overnight gap broke the base,
     multi-day windows spanning that gap are discarded while intraday windows survive.
+    Optimized: Single-pass vectorized session and overnight gap analysis without repeated DataFrame copying.
     """
     candidate_bars = config.get("CANDIDATE_WINDOW_BARS", [6, 8, 10, 12, 16, 20, 24, 30, 35])
     min_bars = config.get("MIN_CONSOLIDATION_BARS", 6)
     gap_pct_limit = config.get("GAP_PCT_THRESHOLD", 0.020)
     gap_atr_limit = config.get("GAP_ATR_MULT", 2.0) * (atr_15m if atr_15m > 0 else 1.0)
     total_len = len(df)
+    if total_len < min_bars:
+        return []
 
-    df_work = df.copy()
-    if "session_date" not in df_work.columns:
-        if "Date" in df_work.columns:
-            df_work["session_date"] = pd.to_datetime(df_work["Date"]).dt.date
-        else:
-            dt_idx = pd.to_datetime(df_work.index)
-            df_work["session_date"] = dt_idx.date if hasattr(dt_idx, "date") else [d.date() for d in dt_idx]
+    # Pre-extract session dates efficiently
+    if "session_date" in df.columns:
+        dates_arr = df["session_date"].values
+    elif "Date" in df.columns:
+        dates_arr = pd.to_datetime(df["Date"]).dt.date.values
+    elif isinstance(df.index, pd.DatetimeIndex):
+        dates_arr = df.index.date
+    else:
+        dt_idx = pd.to_datetime(df.index)
+        dates_arr = dt_idx.date if hasattr(dt_idx, "date") else np.array([d.date() for d in dt_idx])
+
+    # Find disruptive overnight gap positions across the entire DataFrame
+    # Day changes occur when dates_arr[i] != dates_arr[i-1]
+    # For each day boundary, bar i is open of current day, bar i-1 is close of previous day
+    open_vals = df["Open"].values.astype(float)
+    close_vals = df["Close"].values.astype(float)
+
+    # Any disruptive gap at index `i` invalidates any window spanning across it (window_start_idx < i)
+    most_recent_disruptive_gap_idx = -1
+    for i in range(1, total_len):
+        if dates_arr[i] != dates_arr[i - 1]:
+            open_px = open_vals[i]
+            prev_close_px = close_vals[i - 1]
+            gap_abs = abs(open_px - prev_close_px)
+            gap_pct = gap_abs / prev_close_px if prev_close_px > 0 else 0.0
+            if gap_pct > gap_pct_limit or gap_abs > gap_atr_limit:
+                most_recent_disruptive_gap_idx = i
 
     valid_windows: List[Tuple[pd.DataFrame, int]] = []
     seen_bar_counts = set()
@@ -301,33 +324,21 @@ def _generate_candidate_windows(df: pd.DataFrame, atr_15m: float, config: Dict[s
     for k in sorted(candidate_bars):
         if k > total_len or k < min_bars:
             continue
-        slice_df = df_work.iloc[-k:].copy()
-        dates = list(slice_df["session_date"].unique())
 
-        # Check if an overnight gap broke this specific slice
-        gap_broken = False
-        if len(dates) > 1:
-            for i in range(len(dates) - 1, 0, -1):
-                curr_day = slice_df[slice_df["session_date"] == dates[i]]
-                prev_day = slice_df[slice_df["session_date"] == dates[i - 1]]
-                if curr_day.empty or prev_day.empty:
-                    continue
-                open_px = float(curr_day.iloc[0]["Open"])
-                prev_close_px = float(prev_day.iloc[-1]["Close"])
-                gap_abs = abs(open_px - prev_close_px)
-                gap_pct = gap_abs / prev_close_px if prev_close_px > 0 else 0.0
-                if gap_pct > gap_pct_limit or gap_abs > gap_atr_limit:
-                    gap_broken = True
-                    break
-
-        if gap_broken:
-            # If the window spanned across a disruptive gap, do not allow this multi-day window
+        window_start_idx = total_len - k
+        if most_recent_disruptive_gap_idx != -1 and window_start_idx < most_recent_disruptive_gap_idx:
+            # Spans across a disruptive overnight gap!
             continue
 
-        n_bars = len(slice_df)
-        if n_bars not in seen_bar_counts and n_bars >= min_bars:
-            seen_bar_counts.add(n_bars)
-            valid_windows.append((slice_df, int(slice_df["session_date"].nunique())))
+        slice_df = df.iloc[-k:]
+        n_sessions = len(set(dates_arr[-k:]))
+
+        if k not in seen_bar_counts:
+            seen_bar_counts.add(k)
+            if "session_date" not in slice_df.columns:
+                slice_df = slice_df.copy()
+                slice_df["session_date"] = dates_arr[-k:]
+            valid_windows.append((slice_df, n_sessions))
 
     return valid_windows
 
@@ -338,37 +349,16 @@ def _find_valid_window(df: pd.DataFrame, atr_15m: float, config: Dict[str, Any])
     Scans backward from the most recent bar up to MAX_CONSOLIDATION_BARS.
     """
     max_bars = config.get("MAX_CONSOLIDATION_BARS", 35)
-    gap_pct_limit = config.get("GAP_PCT_THRESHOLD", 0.020)
-    gap_atr_limit = config.get("GAP_ATR_MULT", 2.0) * (atr_15m if atr_15m > 0 else 1.0)
-
-    recent_slice = df.iloc[-max_bars:].copy()
-    if "session_date" not in recent_slice.columns:
-        if "Date" in recent_slice.columns:
-            recent_slice["session_date"] = pd.to_datetime(recent_slice["Date"]).dt.date
-        else:
-            dt_idx = pd.to_datetime(recent_slice.index)
-            recent_slice["session_date"] = dt_idx.date if hasattr(dt_idx, "date") else [d.date() for d in dt_idx]
-
-    window_start_idx = recent_slice.index[0]
-    dates = list(recent_slice["session_date"].unique())
-
-    if len(dates) > 1:
-        for i in range(len(dates) - 1, 0, -1):
-            curr_day = recent_slice[recent_slice["session_date"] == dates[i]]
-            prev_day = recent_slice[recent_slice["session_date"] == dates[i - 1]]
-            if curr_day.empty or prev_day.empty:
-                continue
-            open_px = float(curr_day.iloc[0]["Open"])
-            prev_close_px = float(prev_day.iloc[-1]["Close"])
-            gap_abs = abs(open_px - prev_close_px)
-            gap_pct = gap_abs / prev_close_px if prev_close_px > 0 else 0.0
-            if gap_pct > gap_pct_limit or gap_abs > gap_atr_limit:
-                window_start_idx = curr_day.index[0]
-                break
-
-    window_df = recent_slice.loc[window_start_idx:].copy()
-    sessions_count = int(window_df["session_date"].nunique())
-    return window_df, sessions_count
+    windows = _generate_candidate_windows(df, atr_15m, config)
+    if not windows:
+        min_bars = config.get("MIN_CONSOLIDATION_BARS", 6)
+        slice_df = df.iloc[-min_bars:].copy()
+        return slice_df, 1
+    # Pick longest valid window up to max_bars
+    valid_up_to_max = [w for w in windows if w[0].shape[0] <= max_bars]
+    if valid_up_to_max:
+        return valid_up_to_max[-1]
+    return windows[-1]
 
 
 def _build_geometry(df: pd.DataFrame, atr_15m: float, res: ConsolidationResult, config: Dict[str, Any]):

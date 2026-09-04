@@ -67,6 +67,8 @@ class ScannerRunContext:
         self.start_time = time.time()
         self.last_heartbeat = time.time()
         self._lock = threading.RLock()
+        self._stopped = False
+        self._heartbeat_thread: Optional[threading.Thread] = None
 
     def _detect_git_commit(self) -> str:
         # Check common CI/CD and PaaS environment variables (Coolify, Railway, Render, etc.)
@@ -97,8 +99,42 @@ class ScannerRunContext:
             pass
         return "unknown"
 
+    def start_heartbeat_worker(self):
+        """Starts an autonomous background daemon thread that periodically pulses heartbeats every 25s."""
+        with self._lock:
+            if self._heartbeat_thread is not None and self._heartbeat_thread.is_alive():
+                return
+            self._stopped = False
+            def _loop():
+                while not self._stopped:
+                    # Sleep in small 1-second chunks so we can terminate promptly when stopped
+                    for _ in range(25):
+                        if self._stopped:
+                            return
+                        time.sleep(1.0)
+                    if self._stopped:
+                        return
+                    try:
+                        self.heartbeat(force=True)
+                    except Exception:
+                        pass
+
+            self._heartbeat_thread = threading.Thread(
+                target=_loop,
+                name=f"HeartbeatWorker-{self.scanner_name}-{self.run_id[:6]}",
+                daemon=True
+            )
+            self._heartbeat_thread.start()
+
+    def stop_heartbeat_worker(self):
+        """Stops the autonomous background heartbeat daemon thread."""
+        with self._lock:
+            self._stopped = True
+
     def heartbeat(self, force: bool = False):
         """Pulse heartbeat to database if > 15s elapsed since last update."""
+        if self._stopped:
+            return
         now = time.time()
         if force or (now - self.last_heartbeat >= 15.0):
             self.last_heartbeat = now

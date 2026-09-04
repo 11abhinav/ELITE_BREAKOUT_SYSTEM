@@ -199,7 +199,13 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             "other_reject": 0,
         }
 
-        for symbol in watchlist:
+        for idx, symbol in enumerate(watchlist):
+            if real_run_ctx and idx % 10 == 0:
+                try:
+                    real_run_ctx.heartbeat()
+                except Exception:
+                    pass
+
             df_15m_raw = all_15m.get(symbol)
             if df_15m_raw is None or (hasattr(df_15m_raw, "empty") and df_15m_raw.empty):
                 funnel_stats["no_data"] += 1
@@ -245,6 +251,12 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
                 else:
                     funnel_stats["other_reject"] += 1
 
+        if real_run_ctx:
+            try:
+                real_run_ctx.heartbeat(force=True)
+            except Exception:
+                pass
+
         # Also include any previously ARMED candidates from DB to ensure active setups continue tracking
         active_armed = get_active_armed_candidates()
         for cand in active_armed:
@@ -283,10 +295,30 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
         all_30m = {}
         all_5m = {}
         if shortlisted_symbols:
+            if real_run_ctx:
+                try:
+                    real_run_ctx.heartbeat(force=True)
+                except Exception:
+                    pass
             logger.info(f"⚡ [MULTI_TF] Lazy-fetching (1h, 30m, 5m) for {len(shortlisted_symbols)} shortlisted candidates...")
             all_1h  = fetch_watchlist_data(shortlisted_symbols, period="45d", interval="1h", requester="MULTI_TF", run_ctx=real_run_ctx)
+            if real_run_ctx:
+                try:
+                    real_run_ctx.heartbeat(force=True)
+                except Exception:
+                    pass
             all_30m = fetch_watchlist_data(shortlisted_symbols, period="20d", interval="30m", requester="MULTI_TF", run_ctx=real_run_ctx)
+            if real_run_ctx:
+                try:
+                    real_run_ctx.heartbeat(force=True)
+                except Exception:
+                    pass
             all_5m  = fetch_watchlist_data(shortlisted_symbols, period="5d",  interval="5m",  requester="MULTI_TF", run_ctx=real_run_ctx)
+            if real_run_ctx:
+                try:
+                    real_run_ctx.heartbeat(force=True)
+                except Exception:
+                    pass
 
         t_fetch_dur = round(time.monotonic() - t_fetch_start, 2)
         logger.info("⚡ [MULTI_TF] Completed market data pre-fetch in %ss", t_fetch_dur)

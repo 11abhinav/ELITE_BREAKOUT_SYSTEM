@@ -9308,6 +9308,12 @@ def start_scanner_execution_run(
     except Exception as e:
         logger.warning(f"Failed to insert scanner execution history for {scanner_name}: {e}")
 
+    if hasattr(ctx, "start_heartbeat_worker"):
+        try:
+            ctx.start_heartbeat_worker()
+        except Exception:
+            pass
+
     return ctx
 
 
@@ -9378,6 +9384,12 @@ def complete_scanner_execution_run(ctx, exception: Exception = None, stop_reason
     """Finalizes a scanner execution record with completion stats, quality evaluation, and errors."""
     if not ctx or not getattr(ctx, 'run_id', None):
         return
+
+    if hasattr(ctx, "stop_heartbeat_worker"):
+        try:
+            ctx.stop_heartbeat_worker()
+        except Exception:
+            pass
 
     import traceback
     if status_override is not None:
