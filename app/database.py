@@ -3883,10 +3883,16 @@ def normalize_scanner_name(scanner_name: str) -> str:
         return "ACCUMULATION"
     elif upper in ["WEALTH", "WEALTH_ENGINE"]:
         return "Wealth Engine"
+    elif upper in ["WEALTH_EXIT", "WEALTH_INTRADAY", "WEALTH_5M"]:
+        return "WEALTH_EXIT"
     elif upper in ["MULTIBAGGER"]:
         return "MULTIBAGGER"
+    elif upper in ["MULTIBAGGER_EXIT"]:
+        return "MULTIBAGGER_EXIT"
     elif upper in ["MULTI_TF", "MULTITF"]:
         return "MULTI_TF"
+    elif upper in ["MULTI_TF_5M", "MULTITF_5M", "MULTI_TF_5MIN"]:
+        return "MULTI_TF_5M"
     elif upper in ["PERFORMANCE_TRACKER", "PERF_TRACKER"]:
         return "PERFORMANCE_TRACKER"
     elif upper in ["AI_WORKER"]:
@@ -9557,6 +9563,18 @@ def get_scanner_execution_history(
 
                     sc_list = [s for s in sc_list if s.upper() != "ALL"]
                     if sc_list:
+                        expanded_sc_list = []
+                        for s in sc_list:
+                            norm = normalize_scanner_name(s)
+                            expanded_sc_list.append(norm)
+                            u = s.upper().replace("-", "_").replace(" ", "_")
+                            if u in ["WEALTH", "WEALTH_ENGINE"]:
+                                expanded_sc_list.extend(["Wealth Engine", "WEALTH_ENGINE", "WEALTH_EXIT"])
+                            elif u in ["MULTI_TF", "MULTITF"]:
+                                expanded_sc_list.extend(["MULTI_TF", "MULTI_TF_5M"])
+                            elif u in ["MULTIBAGGER"]:
+                                expanded_sc_list.extend(["MULTIBAGGER", "MULTIBAGGER_EXIT"])
+                        sc_list = list(dict.fromkeys(expanded_sc_list))
                         if len(sc_list) == 1:
                             where_clauses.append("UPPER(scanner_name) = UPPER(%s)")
                             params.append(normalize_scanner_name(sc_list[0]))

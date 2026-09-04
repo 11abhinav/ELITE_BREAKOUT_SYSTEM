@@ -2650,8 +2650,24 @@ function changeAdminPage(type, delta) {
                     <span>Wealth Engine</span>
                   </label>
                   <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
+                    <input type="checkbox" class="seh-scanner-cb" value="WEALTH_EXIT" onchange="onSehScannerChange()" checked />
+                    <span>Wealth Exit Monitor (5M)</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
                     <input type="checkbox" class="seh-scanner-cb" value="MULTI_TF" onchange="onSehScannerChange()" checked />
                     <span>Multi-TF Scanner</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
+                    <input type="checkbox" class="seh-scanner-cb" value="MULTI_TF_5M" onchange="onSehScannerChange()" checked />
+                    <span>Multi-TF 5M Monitor</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
+                    <input type="checkbox" class="seh-scanner-cb" value="MULTIBAGGER_EXIT" onchange="onSehScannerChange()" checked />
+                    <span>Multibagger Exit Monitor</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
+                    <input type="checkbox" class="seh-scanner-cb" value="PERFORMANCE_TRACKER" onchange="onSehScannerChange()" checked />
+                    <span>Alerts Exit Monitor</span>
                   </label>
                   <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
                     <input type="checkbox" class="seh-scanner-cb" value="DAILY_BUILDER" onchange="onSehScannerChange()" checked />
@@ -3698,6 +3714,7 @@ function changeAdminPage(type, delta) {
       'PERFORMANCE_TRACKER': { label: 'Alerts Exit Monitor', desc: 'Exit Signals & Trade Lifecycle · Every 5m (09:15–15:30 IST)' },
       'MULTIBAGGER_EXIT': { label: 'Multibagger Exit Monitor', desc: 'Exit Signals for Multibagger · Every 15m (09:15–15:30 IST)' },
       'WEALTH_EXIT': { label: 'Wealth Exit Monitor', desc: 'Exit Signals & Trailing Stop · Every 5m (09:15–15:30 IST)' },
+      'MULTI_TF_5M': { label: 'Multi-TF 5M Monitor', desc: 'Secondary Breakout Confirmation · Every 5m (09:35–15:25 IST)' },
       'BayesianUpdater': { label: 'Bayesian Updater', desc: 'Machine Learning Feedback Loop · Daily 24h' }
     };
 
@@ -3838,7 +3855,7 @@ function getEarningsBadgeHtml(item) {
       }
 
       // Ensure all known scanners appear even if not in stats
-      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'MULTI_TF', 'TECHNICAL', 'ACCUMULATION', 'EOD', 'REVERSAL', 'PULLBACK', 'Wealth Engine', 'MULTIBAGGER', 'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT', 'Pledge Worker', 'AI Worker', 'Earnings Calendar'];
+      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'MULTI_TF', 'MULTI_TF_5M', 'TECHNICAL', 'ACCUMULATION', 'EOD', 'REVERSAL', 'PULLBACK', 'Wealth Engine', 'MULTIBAGGER', 'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT', 'Pledge Worker', 'AI Worker', 'Earnings Calendar'];
       const allScanners = new Set([...Object.keys(SCANNER_META), ...Object.keys(scanner_stats)].filter(sc => ALLOWED_SCANNERS.includes(sc)));
       el.innerHTML = '';
 

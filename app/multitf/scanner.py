@@ -95,6 +95,13 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
     try:
         if not _scan_lock.acquire(blocking=False):
             logger.warning("[MULTI_TF] Scanner is already running. Skipping cycle.")
+            try:
+                from database import start_scanner_execution_run, complete_scanner_execution_run
+                skip_ctx = start_scanner_execution_run(scanner_name="MULTI_TF", trigger_type="SCHEDULED", scheduler_name="CRON")
+                if skip_ctx:
+                    complete_scanner_execution_run(skip_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner lock held (previous run active)")
+            except Exception:
+                pass
             return
         acquired_scan = True
 
@@ -440,22 +447,15 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
     Only checks currently ARMED candidates from mtf_v2_watchlist.
     Takes < 3 seconds to confirm 5m pressure/expansion and trigger alerts.
     """
-    active_candidates = get_active_armed_candidates()
-    if not active_candidates:
-        logger.debug("[MULTI_TF_5M] No active armed candidates to monitor.")
-        return
-
-    if not _scan_lock.acquire(blocking=False):
-        logger.debug("[MULTI_TF_5M] Scanner lock busy. Skipping 5m monitor cycle.")
-        return
-
     if ist_now is None:
         ist_now = datetime.now(ZoneInfo("Asia/Kolkata") if "ZoneInfo" in globals() else None)
     if regime_ctx is None:
         regime_ctx = {"status": "NORMAL"}
 
     trigger_type = run_ctx if isinstance(run_ctx, str) else "SCHEDULED"
-    from database import start_scanner_execution_run, complete_scanner_execution_run
+    from database import start_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health
+    _MTF_5M_SCHEDULE = "Every 5min Monitor (09:35 - 15:25 IST)"
+
     try:
         real_run_ctx = start_scanner_execution_run(scanner_name="MULTI_TF_5M", trigger_type=trigger_type, scheduler_name="CRON")
     except Exception as exc:
@@ -463,6 +463,46 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
             logger.info("🛑 [MULTI_TF_5M] Scanner is ALREADY actively running. Skipping duplicate execution.")
             return 0
         real_run_ctx = None
+
+    active_candidates = get_active_armed_candidates()
+    if not active_candidates:
+        logger.debug("[MULTI_TF_5M] No active armed candidates to monitor.")
+        upsert_scanner_health(
+            scanner_name="MULTI_TF_5M",
+            status="OK",
+            outcome="SUCCESS",
+            processed_count=0,
+            total_count=0,
+            duration_seconds=0.05,
+            scheduled_for=_MTF_5M_SCHEDULE
+        )
+        if real_run_ctx:
+            try:
+                real_run_ctx.set_total_stocks(0)
+                complete_scanner_execution_run(real_run_ctx, status_override="COMPLETED", stop_reason="No armed candidates to monitor")
+            except Exception:
+                pass
+        return 0
+
+    if not _scan_lock.acquire(blocking=False):
+        logger.debug("[MULTI_TF_5M] Scanner lock busy. Skipping 5m monitor cycle.")
+        upsert_scanner_health(
+            scanner_name="MULTI_TF_5M",
+            status="OK",
+            outcome="SKIPPED",
+            processed_count=0,
+            total_count=len(active_candidates),
+            duration_seconds=0.05,
+            scheduled_for=_MTF_5M_SCHEDULE,
+            error_msg="Scanner lock busy (15m cycle running)"
+        )
+        if real_run_ctx:
+            try:
+                real_run_ctx.set_total_stocks(len(active_candidates))
+                complete_scanner_execution_run(real_run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner lock busy (15m cycle running)")
+            except Exception:
+                pass
+        return 0
 
     start_time = time.monotonic()
     try:
@@ -495,7 +535,6 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
 
         opp_manager.process()
         duration = round(time.monotonic() - start_time, 2)
-        _MTF_5M_SCHEDULE = "Every 5min Monitor (09:35 - 15:25 IST)"
         upsert_scanner_health(
             scanner_name="MULTI_TF_5M",
             status="OK",
@@ -515,7 +554,6 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
         logger.info(f"✅ [MULTI_TF_5M] 5m monitor cycle complete in {duration}s for {len(symbols)} candidates.")
     except Exception as exc:
         duration = round(time.monotonic() - start_time, 2)
-        _MTF_5M_SCHEDULE = "Every 5min Monitor (09:35 - 15:25 IST)"
         logger.error(f"[MULTI_TF_5M] Error during 5m monitor: {exc}")
         upsert_scanner_health(
             scanner_name="MULTI_TF_5M",

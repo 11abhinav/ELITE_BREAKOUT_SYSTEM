@@ -963,6 +963,14 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
             if run_ctx:
                 from database import complete_scanner_execution_run
                 complete_scanner_execution_run(run_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner already actively running")
+            else:
+                try:
+                    from database import start_scanner_execution_run, complete_scanner_execution_run
+                    skip_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type=trigger_type, scheduler_name=scheduler_name)
+                    if skip_ctx:
+                        complete_scanner_execution_run(skip_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="Scanner lock held (previous run active)")
+                except Exception:
+                    pass
             upsert_scanner_health("Wealth Engine", "IDLE", error_msg="Duplicate trigger skipped")
             return None
         acquired_scan = True
@@ -2828,6 +2836,13 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
     """
     if not _wealth_exit_lock.acquire(blocking=False):
         logger.info("🛑 [WEALTH_EXIT] In-memory lock held. Another WEALTH_EXIT run is actively executing. Skipping duplicate.")
+        try:
+            from database import start_scanner_execution_run, complete_scanner_execution_run
+            dup_ctx = start_scanner_execution_run(scanner_name="WEALTH_EXIT", trigger_type="SCHEDULED", scheduler_name="CRON")
+            if dup_ctx:
+                complete_scanner_execution_run(dup_ctx, status_override="SKIPPED_DUPLICATE", stop_reason="In-memory lock held (previous run active)")
+        except Exception:
+            pass
         return None
 
     start_time = time.time()
@@ -2991,6 +3006,13 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
         stage_tracker.print_summary(alerts_found=sell_signal_count)
         duration_sec = round(time.time() - start_time, 1)
         logger.info(f"⚡ [WEALTH ENGINE 5M] Intraday portfolio update completed in {duration_sec}s")
+        if run_ctx:
+            try:
+                from database import complete_scanner_execution_run
+                complete_scanner_execution_run(run_ctx, status_override="COMPLETED")
+                run_ctx = None
+            except Exception:
+                pass
         return wealth_df
 
     except Exception as e:
@@ -3002,10 +3024,17 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
             from database import complete_scanner_execution_run
             if run_ctx:
                 complete_scanner_execution_run(run_ctx, exception=e)
+                run_ctx = None
         except Exception:
             pass
         return run_wealth_scan(is_test_mode=is_test_mode)
     finally:
+        if run_ctx:
+            try:
+                from database import complete_scanner_execution_run
+                complete_scanner_execution_run(run_ctx, status_override="COMPLETED")
+            except Exception:
+                pass
         if _wealth_exit_lock.locked():
             try:
                 _wealth_exit_lock.release()
