@@ -711,7 +711,23 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
         scan_id = str(uuid.uuid4())
 
         all_universe_symbols = [str(s) for s in watchlist["Stock"].tolist() if s]
-        terminal_tracker = SingleTerminalTracker(all_universe_symbols)
+        terminal_tracker = SingleTerminalTracker(all_universe_symbols, scanner_name="EOD")
+        terminal_tracker.map_gates_to_stage("FETCHED_DATA", [
+            "BLACKLIST_EXCLUDED", "DATA_UNAVAILABLE", "DATA_EMPTY", "STALE_DATA",
+            "MISSING_COL", "INSUFFICIENT_BARS", "INDICATOR_FAIL", "INDICATOR_NAN", "PROCESSING_ERROR"
+        ])
+        terminal_tracker.map_gates_to_stage("BREAKOUT_STRUCTURE", [
+            "ZERO_AVG_VOLUME", "ZERO_CANDLE_RANGE", "LOW_VOLUME", "LOW_AVG_VOLUME", "PENNY_STOCK",
+            "RSI_RANGE", "MISSING_STRUCTURE_INDICATOR", "NO_STRUCTURAL_BREAKOUT", "MISSING_ATR",
+            "NO_ATR_EXPANSION", "BELOW_EMA20", "BELOW_SMA50", "WEAK_ADX", "FAR_FROM_52W_HIGH",
+            "GAP_DAY", "BASE_TOO_WIDE", "WEAK_SIGNALS"
+        ])
+        terminal_tracker.map_gates_to_stage("QUALITY_AND_RISK", [
+            "FORENSIC_REJECT", "LOW_SCORE", "COOLDOWN_ACTIVE", "RISK_REJECTED"
+        ])
+        terminal_tracker.map_gates_to_stage("FINAL_ALERTS", [
+            "SUPPRESSED_FALLBACK_DATA", "SUPPRESSED_TOP_N", "DUPLICATE_ALERT", "ALERT_GENERATED"
+        ])
         waterfall = StageWaterfallTracker(["UNIVERSE_WATCHLIST", "FETCHED_DATA", "BREAKOUT_STRUCTURE", "QUALITY_AND_RISK", "FINAL_ALERTS"])
         waterfall.set_stage_count("UNIVERSE_WATCHLIST", len(watchlist))
         waterfall_structure_entered = 0
@@ -2054,6 +2070,9 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
             ])
 
             if total_alerts == 0:
+                b_stg = dominant_bottleneck.get('stage', '') if dominant_bottleneck else ''
+                b_breakdown = terminal_tracker.get_stage_terminal_breakdown(b_stg) if b_stg else None
+
                 diag_block = format_zero_alert_diagnostic_block(
                     scanner_name="EOD",
                     execution_mode="EOD_SCAN",
@@ -2067,7 +2086,8 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                         f"BASE_SCORE_THRESHOLD       : {BASE_SCORE_THRESHOLD}",
                         f"REGIME_STRICTNESS_PENALTY  : {regime_modifier:+d} ({market_regime} makes bar higher/stricter)",
                         f"EFFECTIVE_GLOBAL_MIN_SCORE : {effective_global_min_score} (stricter qualification floor, capped <= 82)",
-                    ]
+                    ],
+                    bottleneck_terminal_breakdown=b_breakdown
                 )
                 summary_lines.extend(diag_block)
 

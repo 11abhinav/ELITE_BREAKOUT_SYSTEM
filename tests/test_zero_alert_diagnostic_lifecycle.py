@@ -207,6 +207,51 @@ class TestZeroAlertDiagnosticLifecycle(unittest.TestCase):
         self.assertEqual(summary["conservation_delta"], 0)
         self.assertEqual(summary["terminal_counts"]["UNTRACKED_DROP"], 40)
 
+    def test_bottleneck_terminal_breakdown(self):
+        """
+        User scenario: Dominant Bottleneck = QUALITY_AND_RISK (56 eliminated)
+        Exposes actual terminal breakdown within that bottleneck:
+        LOW_SCORE: 31, POOR_RR: 14, WIDE_SL: 7, FORENSIC_REJECT: 4
+        """
+        from zero_alert_diagnostic import format_zero_alert_diagnostic_block
+        symbols = [f"SYM_{i}" for i in range(56)]
+        tracker = SingleTerminalTracker(universe=symbols, scanner_name="EOD")
+        tracker.map_gates_to_stage("QUALITY_AND_RISK", [
+            "LOW_SCORE", "FORENSIC_REJECT", "RISK_REJECTED"
+        ])
+
+        for sym in symbols[:31]:
+            tracker.record_terminal(sym, "LOW_SCORE", "Score 72.0 < 80.0")
+        for sym in symbols[31:45]: # 14
+            tracker.record_terminal(sym, "RISK_REJECTED", "NO_VALID_STRUCTURAL_TARGET (Min RR: 2.0x, Actual: 1.4x)")
+        for sym in symbols[45:52]: # 7
+            tracker.record_terminal(sym, "RISK_REJECTED", "SL_OUTSIDE_MAX_PCT: stop loss 9.2% > 8.0%")
+        for sym in symbols[52:56]: # 4
+            tracker.record_terminal(sym, "FORENSIC_REJECT", "Forensic Risk Engine tier REJECT")
+
+        breakdown = tracker.get_stage_terminal_breakdown("QUALITY_AND_RISK")
+        self.assertEqual(breakdown["LOW_SCORE"], 31)
+        self.assertEqual(breakdown["POOR_RR"], 14)
+        self.assertEqual(breakdown["WIDE_SL"], 7)
+        self.assertEqual(breakdown["FORENSIC_REJECT"], 4)
+
+        # Verify diagnostic block formats the tree view
+        lines = format_zero_alert_diagnostic_block(
+            scanner_name="EOD",
+            execution_mode="EOD_SCAN",
+            regime="BEAR",
+            classification_result={"classification": "SUSPICIOUS_ZERO", "severity": "WARNING", "explanation": "Failed"},
+            dominant_bottleneck={"stage": "QUALITY_AND_RISK", "entered": 56, "eliminated": 56, "attrition_pct": 100.0},
+            conservation_summary=tracker.get_summary(),
+            bottleneck_terminal_breakdown=breakdown
+        )
+        block_text = "\n".join(lines)
+        self.assertIn("Terminal Breakdown within QUALITY_AND_RISK (56 eliminated):", block_text)
+        self.assertIn("LOW_SCORE                 :  31 ( 55.4%)", block_text)
+        self.assertIn("POOR_RR                   :  14 ( 25.0%)", block_text)
+        self.assertIn("WIDE_SL                   :   7 ( 12.5%)", block_text)
+        self.assertIn("FORENSIC_REJECT           :   4 (  7.1%)", block_text)
+
 
 if __name__ == "__main__":
     unittest.main()

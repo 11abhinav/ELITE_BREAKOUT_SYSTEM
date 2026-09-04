@@ -2789,7 +2789,38 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         classify_zero_alert_run,
         format_zero_alert_diagnostic_block
     )
-    terminal_tracker = SingleTerminalTracker(symbols)
+    terminal_tracker = SingleTerminalTracker(symbols, scanner_name="MULTIBAGGER")
+    terminal_tracker.map_gates_to_stage("1_UNIVERSE", [
+        "DATA_PROVIDER_OUTAGE", "DATA_UNAVAILABLE", "PENNY_STOCK", "ILLIQUID"
+    ])
+    terminal_tracker.map_gates_to_stage("2_LIQUID_PRICED", [
+        "NO_PRICE_DATA", "MISSING_FUNDAMENTALS"
+    ])
+    terminal_tracker.map_gates_to_stage("3_FUNDAMENTALS_LOADED", [
+        "AMBIGUOUS_TECHNICALS", "STALE_DATA", "FALLBACK_DATA", "VOLUME_UNAVAILABLE",
+        "QUALITY_GATE_REJECTED", "V5_INVALIDATED"
+    ])
+    terminal_tracker.map_gates_to_stage("4_V5_QUALIFIED", [
+        "LOW_CONVICTION_TIER"
+    ])
+    terminal_tracker.map_gates_to_stage("5_CONVICTION_TIER", [
+        "NOT_IN_BUY_ZONE"
+    ])
+    terminal_tracker.map_gates_to_stage("6_BUY_ZONE", [
+        "ENTRY_CONFIRM_FAILED: ENTRY_VOL_BELOW_2X",
+        "ENTRY_CONFIRM_FAILED: ENTRY_BELOW_SMA200",
+        "ENTRY_CONFIRM_FAILED: ENTRY_UNSTABILIZED_CLOSE",
+        "ENTRY_CONFIRM_FAILED: ENTRY_NOT_NEAR_SUPPORT"
+    ])
+    terminal_tracker.map_gates_to_stage("7_ENTRY_CONFIRMED", [
+        "ALREADY_OPEN_POSITION", "DATA_INCOMPLETE", "SUPPRESSED_TOP_N",
+        "LIVE_PRICE_UNAVAILABLE", "PRICE_MOVED_OUTSIDE_BUY_ZONE",
+        "LIVE_ENTRY_FAILED: ENTRY_VOL_BELOW_2X", "LIVE_ENTRY_FAILED: ENTRY_BELOW_SMA200",
+        "LIVE_ENTRY_FAILED: ENTRY_UNSTABILIZED_CLOSE", "LIVE_ENTRY_FAILED: ENTRY_NOT_NEAR_SUPPORT"
+    ])
+    terminal_tracker.map_gates_to_stage("8_FINAL_ALERTS", [
+        "ALERT_GENERATED"
+    ])
     waterfall = StageWaterfallTracker([
         "1_UNIVERSE",
         "2_LIQUID_PRICED",
@@ -3864,6 +3895,9 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         stage_waterfall=waterfall.compute_attrition()
     )
 
+    b_stg = dominant_bottleneck.get('stage', '') if dominant_bottleneck else ''
+    b_breakdown = terminal_tracker.get_stage_terminal_breakdown(b_stg) if b_stg else None
+
     diag_lines = format_zero_alert_diagnostic_block(
         scanner_name="MULTIBAGGER",
         execution_mode="LIVE",
@@ -3872,7 +3906,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         dominant_bottleneck=dominant_bottleneck,
         conservation_summary=cons_summary,
         stage_waterfall=waterfall.compute_attrition(),
-        near_miss_count=len(alert_candidates)
+        near_miss_count=len(alert_candidates),
+        bottleneck_terminal_breakdown=b_breakdown
     )
 
     summary_lines = [

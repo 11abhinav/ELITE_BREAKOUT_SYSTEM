@@ -1540,7 +1540,20 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
         pledge_map = {}
 
     all_universe_symbols = [str(s) for s in watchlist["Stock"].tolist() if s]
-    terminal_tracker = SingleTerminalTracker(all_universe_symbols)
+    terminal_tracker = SingleTerminalTracker(all_universe_symbols, scanner_name="REVERSAL")
+    terminal_tracker.map_gates_to_stage("POLICY_FILTER", [
+        "BLACKLIST_EXCLUDED", "COOLDOWN_ACTIVE"
+    ])
+    terminal_tracker.map_gates_to_stage("VALID_DATA", [
+        "DATA_UNAVAILABLE", "INVALID_TIMESTAMP", "STALE_DATA", "PROCESSING_ERROR"
+    ])
+    terminal_tracker.map_gates_to_stage("TECHNICAL_SETUP", [
+        "NOT_IN_DROP_BAND", "DROP_TOO_SHALLOW", "DROP_TOO_EXTREME", "BELOW_SMA50",
+        "RSI_NOT_OVERSOLD", "NO_SMA50_RECLAIM", "BEAR_VOLUME_HIGH", "POOR_RR", "RISK_REJECTED"
+    ])
+    terminal_tracker.map_gates_to_stage("FINAL_ALERTS", [
+        "SUPPRESSED_TOP_N", "DUPLICATE_ALERT", "ALERT_GENERATED"
+    ])
     waterfall = StageWaterfallTracker(["UNIVERSE_PREP", "POLICY_FILTER", "VALID_DATA", "TECHNICAL_SETUP", "FINAL_ALERTS"])
     waterfall.set_stage_count("UNIVERSE_PREP", len(watchlist))
 
@@ -2305,6 +2318,9 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                 )
 
             if total_alerts == 0:
+                b_stg = dom_bottleneck.get('stage', '') if dom_bottleneck else ''
+                b_breakdown = terminal_tracker.get_stage_terminal_breakdown(b_stg) if b_stg else None
+
                 diag_block = format_zero_alert_diagnostic_block(
                     scanner_name="REVERSAL",
                     execution_mode=exec_mode,
@@ -2313,7 +2329,8 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                     dominant_bottleneck=dom_bottleneck,
                     conservation_summary=cons_summary,
                     stage_waterfall=stage_waterfall,
-                    near_miss_count=0
+                    near_miss_count=0,
+                    bottleneck_terminal_breakdown=b_breakdown
                 )
                 summary_rev_lines.extend(diag_block)
 

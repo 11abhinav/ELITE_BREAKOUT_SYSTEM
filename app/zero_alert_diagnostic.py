@@ -37,10 +37,39 @@ class SingleTerminalTracker:
             self.total_universe = 0
 
         self._lock = threading.Lock()
-        self._dispositions: Dict[str, Tuple[str, str]] = {}  # symbol -> (gate, reason)
-        self._counts: Dict[str, int] = {}                    # gate -> count
+        self._dispositions: Dict[str, Tuple[str, str, Optional[str]]] = {}  # symbol -> (gate, reason, stage)
+        self._counts: Dict[str, int] = {}                                    # gate -> count
+        self._gate_to_stage: Dict[str, str] = {}                             # gate -> stage
+        self._stage_terminals: Dict[str, Dict[str, int]] = {}                # stage -> subgate -> count
 
-    def record_terminal(self, symbol: str, gate: str, reason: str = "") -> bool:
+    def map_gates_to_stage(self, stage: str, gates: List[str]) -> None:
+        """Associates a list of terminal gates/dispositions with a specific pipeline stage."""
+        with self._lock:
+            for g in gates:
+                self._gate_to_stage[g] = stage
+
+    def _resolve_subgate(self, gate: str, reason: str) -> str:
+        """Resolves generic gate codes into descriptive sub-reasons when present."""
+        if gate == "RISK_REJECTED":
+            r_low = reason.lower()
+            if "no_valid_structural_target" in r_low or "min rr" in r_low or "natural_rr" in r_low or "poor rr" in r_low:
+                return "POOR_RR"
+            elif "sl_outside_max" in r_low or "wide" in r_low or "max_stop_loss" in r_low:
+                return "WIDE_SL"
+            elif "sl_inside_min" in r_low or "tight" in r_low or "min_stop_loss" in r_low:
+                return "TIGHT_SL"
+            elif "unordered" in r_low:
+                return "UNORDERED_TARGETS"
+            elif "invalid_atr" in r_low:
+                return "INVALID_ATR"
+            return "RISK_REJECTED"
+        if gate.startswith("ENTRY_CONFIRM_FAILED: "):
+            return gate.split(":", 1)[1].strip()
+        if gate.startswith("LIVE_ENTRY_FAILED: "):
+            return gate.split(":", 1)[1].strip()
+        return gate
+
+    def record_terminal(self, symbol: str, gate: str, reason: str = "", stage: Optional[str] = None) -> bool:
         """
         Records the terminal disposition for a symbol.
         Returns True if this was the first recording for this symbol.
@@ -50,9 +79,35 @@ class SingleTerminalTracker:
             if symbol in self._dispositions:
                 return False  # Already assigned terminal outcome, ignore downstream gates
 
-            self._dispositions[symbol] = (gate, reason)
+            assigned_stage = stage or self._gate_to_stage.get(gate)
+            self._dispositions[symbol] = (gate, reason, assigned_stage)
             self._counts[gate] = self._counts.get(gate, 0) + 1
+
+            if assigned_stage:
+                if assigned_stage not in self._stage_terminals:
+                    self._stage_terminals[assigned_stage] = {}
+                subgate = self._resolve_subgate(gate, reason)
+                self._stage_terminals[assigned_stage][subgate] = (
+                    self._stage_terminals[assigned_stage].get(subgate, 0) + 1
+                )
             return True
+
+    def get_stage_terminal_breakdown(self, stage_name: str) -> Dict[str, int]:
+        """
+        Returns the granular breakdown of terminal outcomes that occurred within a given stage.
+        """
+        with self._lock:
+            if stage_name in self._stage_terminals and self._stage_terminals[stage_name]:
+                return dict(sorted(self._stage_terminals[stage_name].items(), key=lambda x: x[1], reverse=True))
+
+            # Fallback: scan all recorded dispositions where stage matches
+            breakdown: Dict[str, int] = {}
+            for sym, (gate, reason, stg) in self._dispositions.items():
+                target_stg = stg or self._gate_to_stage.get(gate)
+                if target_stg == stage_name:
+                    subgate = self._resolve_subgate(gate, reason)
+                    breakdown[subgate] = breakdown.get(subgate, 0) + 1
+            return dict(sorted(breakdown.items(), key=lambda x: x[1], reverse=True))
 
     def record_untracked_remainder(self, default_gate: str = "UNTRACKED_DROP") -> int:
         """Assigns default_gate to any symbol in universe_symbols that did not receive a disposition."""
@@ -300,7 +355,8 @@ def format_zero_alert_diagnostic_block(
     conservation_summary: Dict[str, Any],
     stage_waterfall: Optional[List[Dict[str, Any]]] = None,
     near_miss_count: int = 0,
-    extra_specs: Optional[List[str]] = None
+    extra_specs: Optional[List[str]] = None,
+    bottleneck_terminal_breakdown: Optional[Dict[str, int]] = None
 ) -> List[str]:
     """Generates a standardized ASCII diagnostic block for scanner logs."""
     cls_name = classification_result.get("classification", "UNKNOWN")
@@ -330,6 +386,12 @@ def format_zero_alert_diagnostic_block(
         b_failed = dominant_bottleneck.get("eliminated", 0)
         b_rate = dominant_bottleneck.get("attrition_pct", 0.0)
         lines.append(f"  • Dominant Bottleneck Gate  : {b_stage} (Attrition: {b_failed}/{b_entered} = {b_rate:.1f}%)")
+        if bottleneck_terminal_breakdown:
+            lines.append(f"      ├── Terminal Breakdown within {b_stage} ({b_failed} eliminated):")
+            b_items = sorted(bottleneck_terminal_breakdown.items(), key=lambda x: x[1], reverse=True)
+            for subgate, count in b_items:
+                pct = (count / max(b_failed, 1)) * 100.0
+                lines.append(f"      │     • {subgate:<26}: {count:>3} ({pct:>5.1f}%)")
 
     if stage_waterfall:
         lines.append("  • Stage Waterfall Funnel    :")

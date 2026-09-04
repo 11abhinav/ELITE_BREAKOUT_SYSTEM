@@ -563,7 +563,23 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         return 0
 
     all_universe_symbols = [str(s) for s in watchlist["Stock"].tolist() if s]
-    terminal_tracker = SingleTerminalTracker(all_universe_symbols)
+    terminal_tracker = SingleTerminalTracker(all_universe_symbols, scanner_name="PULLBACK")
+    terminal_tracker.map_gates_to_stage("FETCHED_DATA", [
+        "COOLDOWN_ACTIVE", "STALE_DATA", "NO_DATA", "PROVIDER_ERROR", "INSUFFICIENT_BARS",
+        "DATA_QUALITY_FAIL", "PROCESSING_ERROR"
+    ])
+    terminal_tracker.map_gates_to_stage("UPTREND_AND_STRUCTURE", [
+        "NO_UPTREND", "NO_PIVOTS", "NO_IMPULSE", "PULLBACK_INVALID", "NO_TRIGGER"
+    ])
+    terminal_tracker.map_gates_to_stage("SCORE_THRESHOLD", [
+        "SCORE_BELOW_THRESHOLD", "EOD_SUPPRESSED"
+    ])
+    terminal_tracker.map_gates_to_stage("RISK_ENGINE", [
+        "RISK_REJECTED"
+    ])
+    terminal_tracker.map_gates_to_stage("FINAL_ALERTS", [
+        "SUPPRESSED_FALLBACK_DATA", "SUPPRESSED_TOP_N", "PERSISTENCE_FAILED", "ALERT_GENERATED"
+    ])
     waterfall = StageWaterfallTracker([
         "UNIVERSE_WATCHLIST",
         "FETCHED_DATA",
@@ -1449,6 +1465,9 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     ])
 
     if alert_count == 0:
+        b_stg = dominant_bottleneck.get('stage', '') if dominant_bottleneck else ''
+        b_breakdown = terminal_tracker.get_stage_terminal_breakdown(b_stg) if b_stg else None
+
         diag_block = format_zero_alert_diagnostic_block(
             scanner_name="PULLBACK",
             execution_mode="LIVE",
@@ -1461,7 +1480,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             extra_specs=[
                 f"REQUIRED_SCORE_THRESHOLD   : {required_threshold}",
                 f"MARKET_REGIME              : {market_regime}",
-            ]
+            ],
+            bottleneck_terminal_breakdown=b_breakdown
         )
         summary_lines.extend(diag_block)
 
