@@ -175,25 +175,33 @@ MULTI_TF_V2_CONFIG = {
     "M30_ROOM_THRESHOLD_PCT":       0.02,
     "M30_ROOM_SCORE":               10,
 
-    # ── BASE GEOMETRY ──
-    # [RULE 67 CHANGE-RATIONALE]: Increased MAX_CONSOLIDATION_BARS from 12 to 35 so high-quality multi-day
-    # consolidation bases (yesterday + today) are captured instead of getting arbitrarily cut off.
-    # Adjusted GAP_PCT_THRESHOLD from 0.0075 (0.75%) to 0.02 (2.0%) to prevent morning opening moves
-    # from prematurely destroying valid consolidations. Set MONITOR_SETUP_SCORE to 50 for WATCHING bases.
-    "MIN_CONSOLIDATION_BARS":       4,       # Adaptive base window (4–35 candles)
-    "MAX_CONSOLIDATION_BARS":       35,      # Multi-day base lookback (up to 1.5 sessions)
+    # ── BASE GEOMETRY (ADAPTIVE V3 REDESIGN) ──
+    # Multi-window candidate evaluation (6–35 candles) avoids monolithic 35-bar over-penalization.
+    # Evaluates tight intraday coils (6-12 bars) up to mature multi-day shelves (24-35 bars).
+    "MIN_CONSOLIDATION_BARS":       6,       # Minimum base window (1.5 hours)
+    "MAX_CONSOLIDATION_BARS":       35,      # Maximum multi-day base lookback (up to 1.5 sessions)
+    "CANDIDATE_WINDOW_BARS":        [6, 8, 10, 12, 16, 20, 24, 30, 35],
     "MIN_BOX_OCCUPANCY":            0.60,
-    "MAX_BOX_WIDTH_PCT":            0.045,
-    "MAX_BOX_WIDTH_ATR":            2.20,    # Range cap: range <= 2.2× 15m ATR
+    "MAX_BOX_WIDTH_PCT":            0.045,   # Fallback width % cap
+    "MAX_BOX_WIDTH_ATR":            3.60,   # Absolute upper ceiling for longest bases
+    # Duration-aware ATR & PCT width limits: (min_bars, max_bars) -> {max_atr, max_pct}
+    "DURATION_ATR_WIDTH_LIMITS": [
+        {"max_bars": 8,  "max_atr": 2.00, "max_pct": 0.035},
+        {"max_bars": 14, "max_atr": 2.50, "max_pct": 0.045},
+        {"max_bars": 22, "max_atr": 3.00, "max_pct": 0.055},
+        {"max_bars": 35, "max_atr": 3.60, "max_pct": 0.065},
+    ],
     "MIN_RESISTANCE_TESTS":         1,       # At least 1 touch required for initial watching base
     "GAP_PCT_THRESHOLD":            0.020,   # 2.0% gap limit to avoid truncating normal multi-day bases
     "GAP_ATR_MULT":                 2.0,
     "BOX_HIGH_QUANTILE":            0.90,
     "BOX_LOW_QUANTILE":             0.10,
-    "RESISTANCE_TEST_TOL_PCT":      0.0020,  # 0.20% of price for touch detection
-    "RESISTANCE_TEST_TOL_ATR":      0.10,
+    "RESISTANCE_TEST_TOL_PCT":      0.0015,  # 0.15% of price for touch detection
+    "RESISTANCE_TEST_TOL_ATR":      0.08,
     "PIVOT_CONFIRM_ATR_MULT":       0.20,
     "PIVOT_CONFIRM_BOX_MULT":       0.15,
+    "DORMANCY_MIN_VOL_RATIO":       0.15,   # Bases with volume < 15% of 20-period median are dormant
+    "DORMANCY_PENALTY":             15,     # Penalty deducted for dormant/frozen price action
 
     # ── V3: BASE QUALITY ENGINE (0-100) — 7 Components ──
     # A. Maturity (15 pts): duration × quality interaction

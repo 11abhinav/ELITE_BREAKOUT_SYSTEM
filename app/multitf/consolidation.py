@@ -1,19 +1,20 @@
 # =====================================================================================
 # app/multitf/consolidation.py
-# MULTI_TF V2 — 15m Consolidation Engine (REDESIGNED)
+# MULTI_TF V3 — Adaptive 15m Consolidation & Structural Discovery Engine
 #
 # Responsibility: Identifies high-quality, mature compressions on the 15m chart.
 #
-# Rules:
+# Upgrades in V3:
+#   - Multi-window candidate evaluation (6, 8, 10, 12, 16, 20, 24, 30, 35 bars).
+#   - Duration-aware dynamic ATR & percentage width limits.
+#   - Best-base selector: selects the highest composite quality base across competing windows.
+#   - Active compression vs dormancy detection (penalizes dead/frozen stocks, rewards coils).
+#   - Rewards proximity to breakout ceiling (time in top 25-30% of base).
 #   - Operates strictly on CLOSED 15m candles.
-#   - Detects intraday consolidation bases (4 to 16 closed 15m bars, ~1 to 4 hours).
-#   - Evaluates structural horizontal resistance with multi-touch confirmation.
-#   - Enforces adaptive range width (box_width <= 1.5x 15m ATR).
-#   - Emits a 0-100 point Consolidation Quality Score.
-#   - Scores >= 70 qualify for 15M_BREAKOUT_WATCH.
 # =====================================================================================
 
 import logging
+import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple, List
@@ -36,6 +37,7 @@ class ConsolidationResult:
     end_ts: Optional[pd.Timestamp] = None
     bars_count: int = 0
     sessions_count: int = 1
+    winning_window_bars: int = 0
 
     # Geometry
     box_high: float = 0.0
@@ -47,6 +49,7 @@ class ConsolidationResult:
     box_width_pct: float = 0.0
     box_width_atr: float = 0.0
     box_occupancy: float = 0.0
+    dynamic_width_limit_atr: float = 2.20
 
     # Structure
     resistance_test_count: int = 0
@@ -72,6 +75,8 @@ class ConsolidationResult:
     time_near_resistance_pct: float = 0.0
     failed_break_count: int = 0
     supply_absorption_label: str = "MODERATE"
+    is_dormant: bool = False
+    rejection_reason: str = ""
 
     # Legacy field aliases (backwards compat with scanner/state code)
     score_resistance_def: int = 0
@@ -94,11 +99,13 @@ class ConsolidationResult:
             "box_id": self.box_id,
             "bars_count": self.bars_count,
             "sessions_count": self.sessions_count,
+            "winning_window_bars": self.winning_window_bars,
             "box_high": round(self.box_high, 2),
             "box_low": round(self.box_low, 2),
             "box_width_pct": round(self.box_width_pct, 4),
             "box_width_atr": round(self.box_width_atr, 2),
             "box_occupancy": round(self.box_occupancy, 2),
+            "dynamic_width_limit_atr": round(self.dynamic_width_limit_atr, 2),
             "resistance_test_count": self.resistance_test_count,
             "setup_score": self.setup_score,
             "base_rating_label": self.base_rating_label,
@@ -108,6 +115,8 @@ class ConsolidationResult:
             "time_near_resistance_pct": round(self.time_near_resistance_pct, 3),
             "failed_break_count": self.failed_break_count,
             "supply_absorption_label": self.supply_absorption_label,
+            "is_dormant": self.is_dormant,
+            "rejection_reason": self.rejection_reason,
             "score_breakdown": {
                 "maturity": self.score_maturity,
                 "tightness": self.score_tightness,
@@ -120,6 +129,27 @@ class ConsolidationResult:
         }
 
 
+def get_duration_width_limits(bars_count: int, config: Dict[str, Any]) -> Tuple[float, float]:
+    """
+    Returns (max_atr, max_pct) allowed for a specific base duration.
+    Scales dynamically so 6-8 bar tight coils are capped strictly (e.g. 2.0x ATR),
+    while mature 25-35 bar multi-day shelves are granted proportional headroom (up to 3.6x ATR).
+    """
+    duration_limits = config.get("DURATION_ATR_WIDTH_LIMITS")
+    if duration_limits:
+        for limit in sorted(duration_limits, key=lambda x: x.get("max_bars", 999)):
+            if bars_count <= limit.get("max_bars", 999):
+                return float(limit.get("max_atr", 3.6)), float(limit.get("max_pct", 0.065))
+    if bars_count <= 8:
+        return 2.00, 0.035
+    elif bars_count <= 14:
+        return 2.50, 0.045
+    elif bars_count <= 22:
+        return 3.00, 0.055
+    else:
+        return 3.60, 0.065
+
+
 def detect_15m_consolidation(
     df_15m_closed: Optional[pd.DataFrame],
     atr_15m: float,
@@ -128,68 +158,171 @@ def detect_15m_consolidation(
     symbol: Optional[str] = None
 ) -> ConsolidationResult:
     """
-    Main entry point for 15m consolidation base detection.
-    [REDESIGN]:
-      1. Requires 4-16 closed 15m bars (adaptive intraday base).
-      2. Validates structural resistance and adaptive tightness (<= 1.5x ATR).
-      3. Computes 0-100 Consolidation Quality Score.
-      4. Qualifies setup as valid when setup_score >= MIN_SETUP_SCORE (default 70).
+    Main entry point for 15m consolidation base detection (Adaptive V3).
+    Evaluates multiple candidate windows (6 to 35 bars), checks duration-aware width caps,
+    scores each candidate across 7 orthogonal dimensions, and selects the BEST structural base.
     """
     sym = symbol or (df_15m_closed.attrs.get("symbol") if df_15m_closed is not None else None) or "?"
-    min_bars = config.get("MIN_CONSOLIDATION_BARS", 4)
-    if df_15m_closed is None or len(df_15m_closed) < min_bars:
-        return ConsolidationResult(symbol=sym, is_valid=False)
-
-    res = ConsolidationResult(symbol=sym, is_valid=False)
+    min_bars = config.get("MIN_CONSOLIDATION_BARS", 6)
+    if df_15m_closed is None or len(df_15m_closed) < min_bars or atr_15m <= 0:
+        return ConsolidationResult(symbol=sym, is_valid=False, rejection_reason="INSUFFICIENT_DATA_OR_ATR_ZERO")
 
     try:
-        # 1. Find Valid Base Window (respects overnight gap policy and max lookback)
-        window_df, sessions_count = _find_valid_window(df_15m_closed, atr_15m, config)
-        if len(window_df) < min_bars:
-            return res
+        candidate_windows = _generate_candidate_windows(df_15m_closed, atr_15m, config)
+        if not candidate_windows:
+            return ConsolidationResult(symbol=sym, is_valid=False, rejection_reason="NO_VALID_WINDOW_GAP_LIMIT")
 
-        # 2. Build Base Geometry
-        _build_geometry(window_df, atr_15m, res, config)
+        evaluated_bases: List[ConsolidationResult] = []
+        best_rejection_reason = "NO_CANDIDATE_QUALIFIED"
 
-        # 3. Defensive Width Cap (allow up to 2.2x ATR; score handles strict grading)
-        if res.box_width_atr > config.get("MAX_BOX_WIDTH_ATR", 2.2):
-            return res
+        for window_df, sessions_count in candidate_windows:
+            cand_res = ConsolidationResult(symbol=sym, is_valid=False)
+            cand_res.bars_count = len(window_df)
+            cand_res.sessions_count = sessions_count
 
-        # 4. Box ID (Deterministic identifier)
-        _generate_box_id(window_df, res)
+            # 1. Build Base Geometry
+            _build_geometry(window_df, atr_15m, cand_res, config)
 
-        # 5. Structure & Resistance Multi-Touch Detection
-        _compute_structure(window_df, atr_15m, res, config)
+            # 2. Duration-Aware Dynamic Range Width Check
+            max_atr_limit, max_pct_limit = get_duration_width_limits(cand_res.bars_count, config)
+            cand_res.dynamic_width_limit_atr = max_atr_limit
 
-        # 6. Composite 0-100 Consolidation Quality Scoring
-        _compute_scores(window_df, df_15m_closed, atr_15m, res, config)
+            if cand_res.box_width_atr > max_atr_limit:
+                best_rejection_reason = f"WIDTH_ATR_EXCEEDED ({cand_res.box_width_atr:.2f} > {max_atr_limit:.2f})"
+                continue
+            if cand_res.box_width_pct > max_pct_limit:
+                best_rejection_reason = f"WIDTH_PCT_EXCEEDED ({cand_res.box_width_pct:.3f} > {max_pct_limit:.3f})"
+                continue
 
-        # 7. Final Validation Gate (>= 60 qualifies for 15M_BREAKOUT_WATCH, alerts enforce >= 70)
-        # [RULE 67 CHANGE-RATIONALE]: Allow developing bases (score >= 60) into watchlist so user can track forming bases
-        min_setup_score = config.get("MONITOR_SETUP_SCORE", 60)
-        if res.setup_score >= min_setup_score and res.resistance_test_count >= 1:
-            res.is_valid = True
+            # 3. Minimum Occupancy
+            min_occupancy = config.get("MIN_BOX_OCCUPANCY", 0.60)
+            if cand_res.box_occupancy < min_occupancy:
+                best_rejection_reason = f"OCCUPANCY_TOO_LOW ({cand_res.box_occupancy:.2f} < {min_occupancy:.2f})"
+                continue
 
-        return res
+            # 4. Box ID
+            _generate_box_id(window_df, cand_res)
+
+            # 5. Structure & Resistance Multi-Touch Detection
+            _compute_structure(window_df, atr_15m, cand_res, config)
+
+            # 6. Active Compression vs Dormancy Detection
+            is_dormant, vol_ratio = _evaluate_dormancy(window_df, df_15m_closed, config)
+            cand_res.is_dormant = is_dormant
+
+            # 7. Composite 0-100 Consolidation Quality Scoring
+            _compute_scores(window_df, df_15m_closed, atr_15m, cand_res, config, max_atr_limit=max_atr_limit)
+
+            # 8. Qualification Check
+            min_setup_score = config.get("MONITOR_SETUP_SCORE", 50)
+            min_tests = config.get("MIN_RESISTANCE_TESTS", 1)
+
+            if cand_res.setup_score >= min_setup_score and cand_res.resistance_test_count >= min_tests:
+                cand_res.is_valid = True
+                cand_res.winning_window_bars = cand_res.bars_count
+                evaluated_bases.append(cand_res)
+            else:
+                if cand_res.setup_score < min_setup_score:
+                    best_rejection_reason = f"SCORE_TOO_LOW ({cand_res.setup_score} < {min_setup_score})"
+                elif cand_res.resistance_test_count < min_tests:
+                    best_rejection_reason = f"TESTS_TOO_LOW ({cand_res.resistance_test_count} < {min_tests})"
+
+        if not evaluated_bases:
+            return ConsolidationResult(symbol=sym, is_valid=False, rejection_reason=best_rejection_reason)
+
+        # Best-Base Selector:
+        # Sort by:
+        # 1. Multi-touch confirmation (bases with >= 2 tests establish proven levels)
+        # 2. setup_score (composite structural quality)
+        # 3. resistance_test_count
+        # 4. bars_count (longer maturity preferred on equal quality)
+        evaluated_bases.sort(
+            key=lambda r: (
+                r.resistance_test_count >= 2,
+                r.setup_score,
+                r.resistance_test_count,
+                1 if r.has_higher_lows else 0,
+                r.bars_count
+            ),
+            reverse=True
+        )
+
+        winning_base = evaluated_bases[0]
+        winning_base.is_valid = True
+        return winning_base
 
     except Exception as exc:
         logger.warning("[%s] detect_15m_consolidation failed: %s", symbol, exc)
-        return ConsolidationResult(symbol=symbol, is_valid=False)
+        return ConsolidationResult(symbol=symbol or "?", is_valid=False, rejection_reason=f"EXCEPTION: {exc}")
+
+
+def _generate_candidate_windows(df: pd.DataFrame, atr_15m: float, config: Dict[str, Any]) -> List[Tuple[pd.DataFrame, int]]:
+    """
+    Evaluates candidate window lengths (e.g. 6, 8, 10, 12, 16, 20, 24, 30, 35 bars).
+    Enforces overnight gap policy per window. If an overnight gap broke the base,
+    multi-day windows spanning that gap are discarded while intraday windows survive.
+    """
+    candidate_bars = config.get("CANDIDATE_WINDOW_BARS", [6, 8, 10, 12, 16, 20, 24, 30, 35])
+    min_bars = config.get("MIN_CONSOLIDATION_BARS", 6)
+    gap_pct_limit = config.get("GAP_PCT_THRESHOLD", 0.020)
+    gap_atr_limit = config.get("GAP_ATR_MULT", 2.0) * (atr_15m if atr_15m > 0 else 1.0)
+    total_len = len(df)
+
+    df_work = df.copy()
+    if "session_date" not in df_work.columns:
+        if "Date" in df_work.columns:
+            df_work["session_date"] = pd.to_datetime(df_work["Date"]).dt.date
+        else:
+            dt_idx = pd.to_datetime(df_work.index)
+            df_work["session_date"] = dt_idx.date if hasattr(dt_idx, "date") else [d.date() for d in dt_idx]
+
+    valid_windows: List[Tuple[pd.DataFrame, int]] = []
+    seen_bar_counts = set()
+
+    for k in sorted(candidate_bars):
+        if k > total_len or k < min_bars:
+            continue
+        slice_df = df_work.iloc[-k:].copy()
+        dates = list(slice_df["session_date"].unique())
+
+        # Check if an overnight gap broke this specific slice
+        gap_broken = False
+        if len(dates) > 1:
+            for i in range(len(dates) - 1, 0, -1):
+                curr_day = slice_df[slice_df["session_date"] == dates[i]]
+                prev_day = slice_df[slice_df["session_date"] == dates[i - 1]]
+                if curr_day.empty or prev_day.empty:
+                    continue
+                open_px = float(curr_day.iloc[0]["Open"])
+                prev_close_px = float(prev_day.iloc[-1]["Close"])
+                gap_abs = abs(open_px - prev_close_px)
+                gap_pct = gap_abs / prev_close_px if prev_close_px > 0 else 0.0
+                if gap_pct > gap_pct_limit or gap_abs > gap_atr_limit:
+                    gap_broken = True
+                    break
+
+        if gap_broken:
+            # If the window spanned across a disruptive gap, do not allow this multi-day window
+            continue
+
+        n_bars = len(slice_df)
+        if n_bars not in seen_bar_counts and n_bars >= min_bars:
+            seen_bar_counts.add(n_bars)
+            valid_windows.append((slice_df, int(slice_df["session_date"].nunique())))
+
+    return valid_windows
 
 
 def _find_valid_window(df: pd.DataFrame, atr_15m: float, config: Dict[str, Any]) -> Tuple[pd.DataFrame, int]:
     """
-    Scans backward from the most recent bar.
-    Takes recent 4 to 16 closed candles. If an overnight gap exceeds GAP_PCT_THRESHOLD,
-    the consolidation window bounds to the current day.
+    Legacy helper maintained for backward compatibility.
+    Scans backward from the most recent bar up to MAX_CONSOLIDATION_BARS.
     """
     max_bars = config.get("MAX_CONSOLIDATION_BARS", 35)
     gap_pct_limit = config.get("GAP_PCT_THRESHOLD", 0.020)
     gap_atr_limit = config.get("GAP_ATR_MULT", 2.0) * (atr_15m if atr_15m > 0 else 1.0)
 
-    # Slice to max lookback bars first
     recent_slice = df.iloc[-max_bars:].copy()
-    
     if "session_date" not in recent_slice.columns:
         if "Date" in recent_slice.columns:
             recent_slice["session_date"] = pd.to_datetime(recent_slice["Date"]).dt.date
@@ -200,29 +333,22 @@ def _find_valid_window(df: pd.DataFrame, atr_15m: float, config: Dict[str, Any])
     window_start_idx = recent_slice.index[0]
     dates = list(recent_slice["session_date"].unique())
 
-    # Check for disruptive overnight gap
     if len(dates) > 1:
         for i in range(len(dates) - 1, 0, -1):
             curr_day = recent_slice[recent_slice["session_date"] == dates[i]]
-            prev_day = recent_slice[recent_slice["session_date"] == dates[i-1]]
-
+            prev_day = recent_slice[recent_slice["session_date"] == dates[i - 1]]
             if curr_day.empty or prev_day.empty:
                 continue
-
             open_px = float(curr_day.iloc[0]["Open"])
             prev_close_px = float(prev_day.iloc[-1]["Close"])
-
             gap_abs = abs(open_px - prev_close_px)
             gap_pct = gap_abs / prev_close_px if prev_close_px > 0 else 0.0
-
             if gap_pct > gap_pct_limit or gap_abs > gap_atr_limit:
-                # Gap broke the base; start strictly from today's open
                 window_start_idx = curr_day.index[0]
                 break
 
     window_df = recent_slice.loc[window_start_idx:].copy()
     sessions_count = int(window_df["session_date"].nunique())
-
     return window_df, sessions_count
 
 
@@ -269,7 +395,6 @@ def _build_geometry(df: pd.DataFrame, atr_15m: float, res: ConsolidationResult, 
 
 def _generate_box_id(df: pd.DataFrame, res: ConsolidationResult):
     """Generates a deterministic hash for this specific consolidation instance."""
-    import hashlib
     date_val = df.iloc[-1].get("session_date", "today")
     date_str = date_val.strftime("%Y%m%d") if hasattr(date_val, "strftime") else str(date_val)
     h_str = f"{res.box_high:.2f}"
@@ -315,7 +440,6 @@ def _compute_structure(df: pd.DataFrame, atr_15m: float, res: ConsolidationResul
                 current_test_idx = i
         else:
             if in_test and current_test_idx is not None:
-                # Track the depth of pullback right after the test
                 pullback_depth = res.box_high - l
                 rejections.append(pullback_depth)
                 in_test = False
@@ -342,7 +466,37 @@ def _compute_structure(df: pd.DataFrame, atr_15m: float, res: ConsolidationResul
         res.supply_absorption_label = "EARLY"
 
 
-def _compute_scores(window_df: pd.DataFrame, full_df: pd.DataFrame, atr_15m: float, res: ConsolidationResult, config: Dict[str, Any]):
+def _evaluate_dormancy(window_df: pd.DataFrame, full_df: pd.DataFrame, config: Dict[str, Any]) -> Tuple[bool, float]:
+    """
+    Checks if the base has genuine market activity vs a frozen/dead volume flatline.
+    Returns (is_dormant, vol_ratio).
+    """
+    if "Volume" not in window_df.columns or "Volume" not in full_df.columns:
+        return False, 1.0
+    vol_base = window_df["Volume"].astype(float).values
+    if len(vol_base) == 0:
+        return False, 1.0
+    mean_base_vol = float(np.mean(vol_base))
+
+    full_vols = full_df["Volume"].astype(float).tail(40)
+    median_vol = float(full_vols.median()) if len(full_vols) > 0 else 1.0
+    if median_vol <= 0:
+        return False, 1.0
+
+    vol_ratio = mean_base_vol / median_vol
+    min_vol_ratio = config.get("DORMANCY_MIN_VOL_RATIO", 0.15)
+    is_dormant = (vol_ratio < min_vol_ratio) or (mean_base_vol == 0)
+    return is_dormant, round(vol_ratio, 3)
+
+
+def _compute_scores(
+    window_df: pd.DataFrame,
+    full_df: pd.DataFrame,
+    atr_15m: float,
+    res: ConsolidationResult,
+    config: Dict[str, Any],
+    max_atr_limit: Optional[float] = None
+):
     """
     [V3] 15M BASE QUALITY ENGINE — 7-Component 0-100 Consolidation Quality Score:
       A. Maturity (15 pts):           Duration × quality interaction
@@ -352,15 +506,19 @@ def _compute_scores(window_df: pd.DataFrame, full_df: pd.DataFrame, atr_15m: flo
       E. Compression/VCP (15 pts):    Late-ATR / Early-ATR (contracting = better)
       F. Higher Lows (10 pts):        Rising lows = buyers getting aggressive
       G. Support Integrity (5 pts):   Low % of bars touching floor = buyers well above support
+      + Dormancy Adjustment (-15 pts if dead volume)
+      + Proximity Bonus (+5 pts if resting in top 25% of base)
     """
     n = len(window_df)
     score = 0
 
     # ── A. MATURITY (15 pts) — Duration × Quality Interaction ────────────────
-    if n >= 12:
+    if n >= 16:
         s_mat = 15
-    elif n >= 10:
+    elif n >= 12:
         s_mat = 14
+    elif n >= 10:
+        s_mat = 13
     elif n >= 8:
         s_mat = 12
     elif n >= 6:
@@ -369,15 +527,16 @@ def _compute_scores(window_df: pd.DataFrame, full_df: pd.DataFrame, atr_15m: flo
         s_mat = 6
     else:
         s_mat = 0
-    # Interaction: if base is wide (tightness score < 8 threshold), cap maturity at 10
-    tightness_cap = config.get("MATURITY_TIGHTNESS_THRESHOLD", 8)
+
+    # Interaction: if base is wide, cap maturity at 10
     if res.box_width_atr > 1.25 and s_mat > 10:
-        s_mat = 10  # Longer sloppy base = no extra bonus
+        s_mat = 10
     res.score_maturity = min(s_mat, config.get("SCORE_MATURITY_MAX", 15))
     score += res.score_maturity
 
     # ── B. TIGHTNESS (20 pts) — Range/ATR ────────────────────────────────────
     w = res.box_width_atr
+    eff_max_atr = max_atr_limit or config.get("MAX_BOX_WIDTH_ATR", 2.20)
     if w <= 0.75:
         s_tight = 20
     elif w <= 1.00:
@@ -386,8 +545,12 @@ def _compute_scores(window_df: pd.DataFrame, full_df: pd.DataFrame, atr_15m: flo
         s_tight = 13
     elif w <= 1.50:
         s_tight = 8
+    elif w <= eff_max_atr * 0.75:
+        s_tight = 5
+    elif w <= eff_max_atr:
+        s_tight = 2
     else:
-        s_tight = 0   # Fails hard gate in detect_15m_consolidation already
+        s_tight = 0
     res.score_tightness = min(s_tight, config.get("SCORE_TIGHTNESS_MAX", 20))
     score += res.score_tightness
 
@@ -425,7 +588,7 @@ def _compute_scores(window_df: pd.DataFrame, full_df: pd.DataFrame, atr_15m: flo
     score += res.score_repeated_tests
 
     # ── E. COMPRESSION / VCP (15 pts) — Volatility Contracting ───────────────
-    s_comp = 8  # Neutral: not enough bars to determine
+    s_comp = 8
     if n >= 4:
         half = n // 2
         early_ranges = (window_df["High"].iloc[:half] - window_df["Low"].iloc[:half]).values.astype(float)
@@ -444,7 +607,7 @@ def _compute_scores(window_df: pd.DataFrame, full_df: pd.DataFrame, atr_15m: flo
             elif comp_ratio <= 1.00:
                 s_comp = 4
             else:
-                s_comp = 0  # Expanding volatility = bad
+                s_comp = 0
     res.score_compression = min(s_comp, config.get("SCORE_COMPRESSION_MAX", 15))
     score += res.score_compression
 
@@ -466,44 +629,52 @@ def _compute_scores(window_df: pd.DataFrame, full_df: pd.DataFrame, atr_15m: flo
             s_hl = 7
             res.has_higher_lows = True
         elif hl_rise >= -(0.10 * atr_15m):
-            s_hl = 4  # Approximately flat
+            s_hl = 4
         else:
-            s_hl = 0  # Lower lows = weakness inside base
+            s_hl = 0
     res.score_higher_lows = min(s_hl, config.get("SCORE_HIGHER_LOWS_MAX", 10))
     score += res.score_higher_lows
 
     # ── G. SUPPORT INTEGRITY (5 pts) — Structural Defense Quality ───────────
-    # Defenses: distance of worst excursion below support, recovery speed, absence of breakdown
-    s_si = 3  # Neutral
+    s_si = 3
     if n >= 4 and atr_15m > 0:
         lows = window_df["Low"].astype(float).values
         closes = window_df["Close"].astype(float).values
         worst_excursion_below = max(float(res.box_low - min(lows)), 0.0)
         worst_excursion_atr = worst_excursion_below / atr_15m
-
-        # Check if any bar closed below the box floor (true structural breakdown)
         closed_below_floor = any(c < res.box_low for c in closes)
 
         if closed_below_floor:
-            s_si = 1   # Candle closed below floor = impaired integrity
+            s_si = 1
         elif worst_excursion_atr <= 0.08:
-            s_si = 5   # Flawless defense: price barely probed below support
+            s_si = 5
         elif worst_excursion_atr <= 0.20:
-            s_si = 4   # Good defense: minor wick sweep with immediate absorption
+            s_si = 4
         else:
-            s_si = 2   # Deep probe below support
+            s_si = 2
     res.score_support_integrity = min(s_si, config.get("SCORE_SUPPORT_INTEGRITY_MAX", 5))
     score += res.score_support_integrity
 
+    # ── H. PROXIMITY & DORMANCY ADJUSTMENTS ──────────────────────────────────
+    if len(window_df) > 0:
+        last_close = float(window_df["Close"].iloc[-1])
+        near_ceiling_level = res.box_low + 0.75 * (res.box_high - res.box_low)
+        if last_close >= near_ceiling_level:
+            score += 5  # Bonus for coiled ready-to-break state
+
+    if getattr(res, "is_dormant", False):
+        dormancy_penalty = config.get("DORMANCY_PENALTY", 15)
+        score -= dormancy_penalty
+
     # ── TOTAL + TIER LABEL ────────────────────────────────────────────────────
-    res.setup_score = min(score, 100)
+    res.setup_score = int(np.clip(score, 0, 100))
 
     # Populate legacy aliases for backward compatibility
-    res.score_resistance_def  = res.score_resistance_quality
-    res.score_tight_range     = res.score_tightness
+    res.score_resistance_def   = res.score_resistance_quality
+    res.score_tight_range      = res.score_tightness
     res.score_resistance_tests = res.score_repeated_tests
-    res.score_compression_vcp = res.score_compression
-    res.score_hl              = res.score_higher_lows
+    res.score_compression_vcp  = res.score_compression
+    res.score_hl               = res.score_higher_lows
 
     if res.setup_score >= 90:
         res.base_rating_label = "EXCEPTIONAL"
@@ -511,9 +682,7 @@ def _compute_scores(window_df: pd.DataFrame, full_df: pd.DataFrame, atr_15m: flo
         res.base_rating_label = "SUPER"
     elif res.setup_score >= 70:
         res.base_rating_label = "GOOD"
-    elif res.setup_score >= 60:
+    elif res.setup_score >= 50:
         res.base_rating_label = "WATCH"
     else:
         res.base_rating_label = "REJECT"
-
-

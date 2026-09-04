@@ -172,23 +172,55 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
         all_1d  = fetch_watchlist_data(watchlist, period="1y", interval="1d", requester="MULTI_TF", run_ctx=real_run_ctx)
         all_15m = fetch_watchlist_data(watchlist, period="15d", interval="15m", requester="MULTI_TF", run_ctx=real_run_ctx)
 
-        # Stage 2.5: Fast 15m Consolidation Screening across universe
+        # Stage 2.5: Fast 15m Consolidation Screening across universe (Adaptive V3)
         shortlisted_symbols = []
         consolidation_map = {}
+        funnel_stats = {
+            "total": len(watchlist),
+            "no_data": 0,
+            "too_few_bars": 0,
+            "atr_zero": 0,
+            "gap_broken": 0,
+            "width_exceeded": 0,
+            "score_too_low": 0,
+            "tests_too_low": 0,
+            "dormant": 0,
+            "other_reject": 0,
+            "qualified": 0,
+        }
+
         for symbol in watchlist:
             df_15m_raw = all_15m.get(symbol)
             if df_15m_raw is None or (hasattr(df_15m_raw, "empty") and df_15m_raw.empty):
+                funnel_stats["no_data"] += 1
                 continue
             df_15m_closed = strip_closed_candles(df_15m_raw, 15, ist_now)
             if df_15m_closed is None or df_15m_closed.empty or len(df_15m_closed) < 14:
+                funnel_stats["too_few_bars"] += 1
                 continue
             atr_15m = _get_atr(df_15m_closed)
             if atr_15m <= 0:
+                funnel_stats["atr_zero"] += 1
                 continue
             cons = detect_15m_consolidation(df_15m_closed, atr_15m, ist_now, MULTI_TF_V2_CONFIG, symbol=symbol)
             if cons.is_valid:
                 shortlisted_symbols.append(symbol)
                 consolidation_map[symbol] = cons
+                funnel_stats["qualified"] += 1
+            else:
+                reason = cons.rejection_reason
+                if "GAP" in reason:
+                    funnel_stats["gap_broken"] += 1
+                elif "WIDTH" in reason or "OCCUPANCY" in reason:
+                    funnel_stats["width_exceeded"] += 1
+                elif "SCORE" in reason:
+                    funnel_stats["score_too_low"] += 1
+                elif "TEST" in reason:
+                    funnel_stats["tests_too_low"] += 1
+                elif cons.is_dormant:
+                    funnel_stats["dormant"] += 1
+                else:
+                    funnel_stats["other_reject"] += 1
 
         # Also include any previously ARMED candidates from DB to ensure active setups continue tracking
         active_armed = get_active_armed_candidates()
@@ -197,7 +229,13 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             if sym and sym not in shortlisted_symbols:
                 shortlisted_symbols.append(sym)
 
-        logger.info(f"🎯 [MULTI_TF] Screened {len(watchlist)} symbols -> Found {len(shortlisted_symbols)} qualified/armed candidates for deep evaluation: {shortlisted_symbols}")
+        logger.info(
+            f"🎯 [MULTI_TF] Screened {len(watchlist)} symbols -> Found {len(shortlisted_symbols)} candidates "
+            f"(New Qualified={funnel_stats['qualified']}, Active DB Armed={len(active_armed)}): {shortlisted_symbols} | "
+            f"Funnel: width_exceeded={funnel_stats['width_exceeded']}, score_too_low={funnel_stats['score_too_low']}, "
+            f"tests_too_low={funnel_stats['tests_too_low']}, dormant={funnel_stats['dormant']}, "
+            f"no_data={funnel_stats['no_data']}, too_few_bars={funnel_stats['too_few_bars']}"
+        )
 
         # Lazy fetch 1h, 30m, 5m ONLY for shortlisted candidates!
         all_1h = {}
