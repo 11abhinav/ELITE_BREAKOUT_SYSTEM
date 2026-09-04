@@ -24,7 +24,8 @@ class SingleTerminalTracker:
     terminal disposition (first decisive failure wins). Enforces mathematical conservation:
     Universe Size == sum(terminal_dispositions) with Delta == 0.
     """
-    def __init__(self, universe: Any):
+    def __init__(self, universe: Any, scanner_name: str = "SCANNER"):
+        self.scanner_name = scanner_name
         if isinstance(universe, (list, set, tuple)):
             self.universe_symbols: Set[str] = set(universe)
             self.total_universe: int = len(self.universe_symbols)
@@ -146,15 +147,24 @@ def classify_zero_alert_run(
     regime: str = "NEUTRAL",
     execution_mode: str = "LIVE",
     stage_waterfall: Optional[List[Dict[str, Any]]] = None,
-    persistence_failures_count: int = 0
+    persistence_failures_count: int = 0,
+    candidates_persisted_count: Optional[int] = None,
+    lifecycle_summary: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Classifies a zero-alert run into an institutional anomaly category based on
     data health, persistence integrity, stage-by-stage candidate penetration, and execution mode:
-    1. DATA_OR_ENGINE_FAILURE: Provider failure, fetch coverage < 75%, or 0 valid data.
-    2. CRITICAL_ZERO: Finalists reached last risk/persistence gate, or state persistence failed (even in PREARM).
-    3. SUSPICIOUS_ZERO: Candidates penetrated deep into intermediate/downstream stages (or near-misses existed), but 100% eliminated before alert emission.
-    4. LEGITIMATE_ZERO: Clean legitimate zero (0 technical structures formed, or normal PREARM screening without failures).
+    
+    EVALUATION HIERARCHY (Strictly prioritized to prevent mode context from masking failures):
+    1. DATA/ENGINE FAILURE? (Provider down, coverage < 75%, or 0 valid data)
+    2. PERSISTENCE / LIFECYCLE FAILURE?
+       - Finalists existed at alert gate but 0 alerts persisted
+       - Direct database write errors / persistence exceptions > 0
+       - Setups armed in PREARM but 0 persisted to watchlist database
+       - Overnight candidates survived & monitor-eligible but 0 loaded into live monitor
+    3. DEEP FUNNEL COLLAPSE? (Candidates penetrated into downstream stages or near-misses existed)
+    4. NO VIABLE STRUCTURES? (0 structural setups formed under prevailing regime)
+    5. PREARM / OUTSIDE_WINDOW? (Execution mode context explaining zero alerts when setups armed and persisted)
     """
     if alerts_generated > 0:
         return {
@@ -166,18 +176,29 @@ def classify_zero_alert_run(
         }
 
     # 1. DATA OR ENGINE FAILURE: Critical data deficit or provider failure
-    data_ratio = valid_data_count / max(universe_size, 1)
-    if valid_data_count == 0 or data_ratio < 0.75:
+    if universe_size > 0:
+        data_ratio = valid_data_count / universe_size
+        if valid_data_count == 0 or data_ratio < 0.75:
+            return {
+                "classification": "DATA_OR_ENGINE_FAILURE",
+                "severity": "CRITICAL",
+                "explanation": f"Data coverage insufficient ({valid_data_count}/{universe_size} = {data_ratio*100:.1f}%). Provider down or blocked.",
+                "recommendation": "Inspect data provider health, API tokens, and market session connectivity.",
+                "last_stage_with_candidates": "DATA_ACQUISITION"
+            }
+    elif execution_mode != "MONITOR":
         return {
             "classification": "DATA_OR_ENGINE_FAILURE",
             "severity": "CRITICAL",
-            "explanation": f"Data coverage insufficient ({valid_data_count}/{universe_size} = {data_ratio*100:.1f}%). Provider down or blocked.",
-            "recommendation": "Inspect data provider health, API tokens, and market session connectivity.",
-            "last_stage_with_candidates": "DATA_ACQUISITION"
+            "explanation": f"Universe size is 0 for {scanner_name}. Database watchlist query returned empty set.",
+            "recommendation": "Inspect watchlist table and database connection.",
+            "last_stage_with_candidates": "UNIVERSE_SELECTION"
         }
 
-    # 2. PERSISTENCE OR FINALIST FAILURE: Candidates reached final gate but failed to persist
+    # 2. PERSISTENCE OR LIFECYCLE FAILURE: Candidates reached final gate or state lifecycle failed
     # Note: Even in PREARM/MONITOR mode, persistence failures are a critical defect, not a legitimate zero.
+
+    # Check 2a: Candidates reached final risk/alert gate or direct persistence exceptions occurred
     if finalist_candidates_count > 0 or persistence_failures_count > 0:
         fail_count = finalist_candidates_count or persistence_failures_count
         return {
@@ -187,6 +208,34 @@ def classify_zero_alert_run(
             "recommendation": "Verify SL/Target engine thresholds, live price recheck buy-zone shift, and database write connectivity.",
             "last_stage_with_candidates": "FINAL_RISK_AND_PERSISTENCE"
         }
+
+    # Check 2b: PREARM candidate arming vs DB persistence discrepancy
+    # E.g. 100 setups armed, but 0 persisted to mtf_v2_watchlist database
+    if execution_mode in ("PREARM", "NON_MARKET", "OUTSIDE_WINDOW") and initial_setups_count > 0:
+        persisted_zero = (candidates_persisted_count == 0) or (
+            lifecycle_summary is not None and lifecycle_summary.get("total_in_watchlist", 0) == 0
+        )
+        if persisted_zero:
+            return {
+                "classification": "CRITICAL_ZERO",
+                "severity": "CRITICAL",
+                "explanation": f"{initial_setups_count} candidates were identified for arming in {execution_mode}, but 0 records persisted to watchlist database.",
+                "recommendation": "Check database table mtf_v2_watchlist write permissions, schema constraints, and persist_new_watchlist_candidate calls.",
+                "last_stage_with_candidates": "ARMED_STATE_PERSISTENCE"
+            }
+
+    # Check 2c: Live MONITOR lifecycle load discrepancy
+    # E.g. 30 candidates survived overnight and are eligible, but 0 were loaded into live monitor
+    if execution_mode == "MONITOR" and universe_size == 0:
+        if lifecycle_summary and lifecycle_summary.get("live_monitor_eligible", 0) > 0:
+            eligible = lifecycle_summary["live_monitor_eligible"]
+            return {
+                "classification": "CRITICAL_ZERO",
+                "severity": "CRITICAL",
+                "explanation": f"{eligible} candidates survived overnight and are live-monitor eligible, but 0 were loaded into {scanner_name}.",
+                "recommendation": "Inspect get_active_armed_candidates() query, active substate filters, and cooldown timestamps.",
+                "last_stage_with_candidates": "MONITOR_LOAD_QUERY"
+            }
 
     # Inspect stage waterfall progression to identify deepest stage reached
     deepest_stage = "UNIVERSE"
@@ -224,10 +273,11 @@ def classify_zero_alert_run(
 
     # 5. PREARM / OUTSIDE WINDOW: Normal scheduled setup screening (with surviving armed pool)
     if execution_mode in ("PREARM", "NON_MARKET", "OUTSIDE_WINDOW"):
+        persisted_info = f" ({candidates_persisted_count} verified in DB)" if candidates_persisted_count is not None else ""
         return {
             "classification": "LEGITIMATE_ZERO",
             "severity": "INFO",
-            "explanation": f"Execution mode is {execution_mode}. Successfully screened and preserved {initial_setups_count} armed candidate setups for next session open; new live trade entries intentionally suppressed.",
+            "explanation": f"Execution mode is {execution_mode}. Successfully screened and preserved {initial_setups_count} armed candidate setups{persisted_info} for next session open; new live trade entries intentionally suppressed.",
             "recommendation": "Monitor armed candidate pool for execution eligibility at 09:15 open.",
             "last_stage_with_candidates": deepest_stage
         }

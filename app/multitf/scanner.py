@@ -590,7 +590,10 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
                 alerts_generated=alerts_generated,
                 near_miss_count=lifecycle.get("live_monitor_eligible", 0),
                 regime="NEUTRAL",
-                execution_mode=_exec_mode
+                execution_mode=_exec_mode,
+                persistence_failures_count=mtf_funnel.get("persistence_failed", 0),
+                candidates_persisted_count=lifecycle.get("total_in_watchlist"),
+                lifecycle_summary=lifecycle
             )
             dominant_mtf = next(iter(fired_mtf.items())) if fired_mtf else ("None", 0)
             summary_mtf_lines.extend([
@@ -701,23 +704,58 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
     )
 
     if not active_candidates:
-        logger.debug("[MULTI_TF_5M] No active armed candidates to monitor.")
-        upsert_scanner_health(
+        classification_0 = classify_zero_alert_run(
             scanner_name="MULTI_TF_5M",
-            status="OK",
-            outcome={"status": "SUCCESS", "mode": "MONITOR", "alerts": 0},
-            processed_count=0,
-            total_count=0,
-            duration_seconds=0.05,
-            scheduled_for=_MTF_5M_SCHEDULE
+            universe_size=0,
+            valid_data_count=0,
+            initial_setups_count=0,
+            finalist_candidates_count=0,
+            alerts_generated=0,
+            near_miss_count=0,
+            regime="NEUTRAL",
+            execution_mode="MONITOR",
+            lifecycle_summary=lifecycle_5m
         )
-        if real_run_ctx:
-            try:
-                real_run_ctx.set_total_stocks(0)
-                complete_scanner_execution_run(real_run_ctx, status_override="COMPLETED", stop_reason="No armed candidates to monitor")
-            except Exception:
-                pass
-        return 0
+        if classification_0["classification"] == "CRITICAL_ZERO":
+            logger.error(
+                f"🚨 [MULTI_TF_5M] LIFECYCLE MISMATCH: {classification_0['explanation']} "
+                f"Recommendation: {classification_0['recommendation']}"
+            )
+            upsert_scanner_health(
+                scanner_name="MULTI_TF_5M",
+                status="DEGRADED",
+                outcome={"status": "FAILURE", "mode": "MONITOR", "reason": "lifecycle_load_mismatch", "error": classification_0["explanation"]},
+                processed_count=0,
+                total_count=lifecycle_5m.get("live_monitor_eligible", 0),
+                duration_seconds=0.05,
+                scheduled_for=_MTF_5M_SCHEDULE,
+                error_msg=classification_0["explanation"]
+            )
+            if real_run_ctx:
+                try:
+                    real_run_ctx.set_total_stocks(lifecycle_5m.get("live_monitor_eligible", 0))
+                    complete_scanner_execution_run(real_run_ctx, status_override="FAILED", stop_reason=classification_0["explanation"])
+                except Exception:
+                    pass
+            return 0
+        else:
+            logger.debug("[MULTI_TF_5M] No active armed candidates to monitor.")
+            upsert_scanner_health(
+                scanner_name="MULTI_TF_5M",
+                status="OK",
+                outcome={"status": "SUCCESS", "mode": "MONITOR", "alerts": 0},
+                processed_count=0,
+                total_count=0,
+                duration_seconds=0.05,
+                scheduled_for=_MTF_5M_SCHEDULE
+            )
+            if real_run_ctx:
+                try:
+                    real_run_ctx.set_total_stocks(0)
+                    complete_scanner_execution_run(real_run_ctx, status_override="COMPLETED", stop_reason="No armed candidates to monitor")
+                except Exception:
+                    pass
+            return 0
 
     if not _scan_lock.acquire(blocking=False):
         logger.debug("[MULTI_TF_5M] Scanner lock busy. Skipping 5m monitor cycle.")
@@ -812,7 +850,10 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
                 alerts_generated=alerts_generated,
                 near_miss_count=len(symbols),
                 regime="NEUTRAL",
-                execution_mode="MONITOR"
+                execution_mode="MONITOR",
+                persistence_failures_count=mtf_5m_funnel.get("persistence_failed", 0),
+                candidates_persisted_count=lifecycle_5m.get("total_in_watchlist"),
+                lifecycle_summary=lifecycle_5m
             )
             dominant_5m = next(iter(fired_5m.items())) if fired_5m else ("None", 0)
             summary_5m_lines.extend([
@@ -918,9 +959,17 @@ def _process_symbol(
     if is_new:
         # First time seeing this box
         cand_dict = build_watchlist_candidate(bundle, consolidation, ctx_1h, ctx_30m, market_ctx, ist_now)
-        persist_new_watchlist_candidate(cand_dict)
+        try:
+            persist_new_watchlist_candidate(cand_dict)
+        except Exception as _p_err:
+            logger.error("[MULTI_TF] Failed persisting candidate for %s: %s", symbol, _p_err)
+            if funnel_counters is not None:
+                funnel_counters["persistence_failed"] += 1
         state_record = load_state(symbol, consolidation.box_id) # Reload to get initialized record
-        if not state_record: return
+        if not state_record:
+            if funnel_counters is not None:
+                funnel_counters["persistence_failed"] += 1
+            return
 
     # [FIX: EARLY_EXIT_STAMP_v1.0]
     # Helper: builds the live-data dict so every early exit also refreshes box/score columns.
