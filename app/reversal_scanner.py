@@ -2429,6 +2429,9 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
                 from database import start_scanner_execution_run
                 run_ctx = start_scanner_execution_run(scanner_name="REVERSAL", trigger_type=trigger_type, scheduler_name=scheduler_name)
             except Exception as exc:
+                if "actively running" in str(exc).lower():
+                    logger.info("🛑 [REVERSAL] Scanner is ALREADY actively running. Skipping duplicate execution.")
+                    return 0
                 logger.warning(f"⚠️ [REVERSAL] Could not create run_ctx: {exc}")
         elif run_ctx:
             from database import update_scanner_run_lifecycle

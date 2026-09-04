@@ -312,6 +312,7 @@ class InstrumentedLock:
 # GLOBAL LOCK to prevent concurrent scanner execution (fixes Fyers/Yahoo rate limits)
 scanner_execution_lock = InstrumentedLock("scanner_execution_lock")
 wealth_execution_lock = InstrumentedLock("wealth_execution_lock")
+_perf_tracker_lock = threading.Lock()
 
 def format_duration(seconds: Optional[float]) -> str:
     if seconds is None:
@@ -329,7 +330,11 @@ def _run_performance_tracker_single():
     if is_scanner_stopped("PERFORMANCE_TRACKER"):
         logger.info("⏭️ PERFORMANCE_TRACKER is PAUSED by Admin. Skipping Alerts Exit Monitor pass.")
         return
+    if not _perf_tracker_lock.acquire(blocking=False):
+        logger.info("🛑 [PERFORMANCE_TRACKER] In-memory lock held. Another pass is actively executing. Skipping.")
+        return
     start_time = time.time()
+    run_ctx = None
     try:
         from database import start_scanner_execution_run, complete_scanner_execution_run
         run_ctx = start_scanner_execution_run(scanner_name="PERFORMANCE_TRACKER", trigger_type="SCHEDULED", scheduler_name="CRON")
@@ -348,17 +353,26 @@ def _run_performance_tracker_single():
         telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_COMPLETE")
         complete_scanner_execution_run(run_ctx)
     except Exception as e:
-        if "actively running" not in str(e).lower():
-            logger.exception("❌ PERFORMANCE TRACKER | Refresh failed")
-            from telemetry_manager import telemetry
-            telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_FAILED", error=str(e))
-            try:
+        if "actively running" in str(e).lower():
+            logger.info("⏳ PERFORMANCE_TRACKER is already actively running. Skipping duplicate pass.")
+            return
+        logger.exception("❌ PERFORMANCE TRACKER | Refresh failed")
+        from telemetry_manager import telemetry
+        telemetry.log_scheduler_event("PERFORMANCE_TRACKER", "CYCLE_FAILED", error=str(e))
+        try:
+            if run_ctx:
                 complete_scanner_execution_run(run_ctx, exception=e)
-                upsert_scanner_health(
-                    "PERFORMANCE_TRACKER", status="DOWN",
-                    error_msg=str(e)[:500],
-                    scheduled_for="Every 5min (market hours)"
-                )
+            upsert_scanner_health(
+                "PERFORMANCE_TRACKER", status="DOWN",
+                error_msg=str(e)[:500],
+                scheduled_for="Every 5min (market hours)"
+            )
+        except Exception:
+            pass
+    finally:
+        if _perf_tracker_lock.locked():
+            try:
+                _perf_tracker_lock.release()
             except Exception:
                 pass
 
@@ -369,6 +383,7 @@ def _run_multibagger_exit_single():
         logger.info("⏭️ MULTIBAGGER_EXIT is PAUSED by Admin. Skipping Multibagger Exit Monitor pass.")
         return
     start_time = time.time()
+    run_ctx = None
     try:
         from database import start_scanner_execution_run, complete_scanner_execution_run
         run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER_EXIT", trigger_type="SCHEDULED", scheduler_name="CRON")
@@ -389,15 +404,18 @@ def _run_multibagger_exit_single():
         telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_COMPLETE")
         complete_scanner_execution_run(run_ctx)
     except Exception as e:
+        if "actively running" in str(e).lower():
+            logger.info("⏳ MULTIBAGGER_EXIT is already actively running. Skipping duplicate pass.")
+            return
         logger.exception(f"❌ SCHEDULER | Multibagger Exit Monitor crashed: {e}")
         from telemetry_manager import telemetry
         telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_FAILED", error=str(e))
-        if "actively running" not in str(e):
-            try:
+        try:
+            if run_ctx:
                 complete_scanner_execution_run(run_ctx, exception=e)
-                upsert_scanner_health("MULTIBAGGER_EXIT", status="DOWN", error_msg=str(e)[:500], scheduled_for="Every 15min (market hours)")
-            except Exception:
-                pass
+            upsert_scanner_health("MULTIBAGGER_EXIT", status="DOWN", error_msg=str(e)[:500], scheduled_for="Every 15min (market hours)")
+        except Exception:
+            pass
 
 def run_multi_tf_scanner():
     wait_for_window("multi_tf")
@@ -1334,16 +1352,17 @@ def run_system_scheduler():
                 _exit_start_t = time.time()
                 with MemoryProfiler("WEALTH_ENGINE_5M", force_gc_cleanup=True):
                     from wealth_engine import run_wealth_intraday_update
-                    run_wealth_intraday_update(write_health=True)
-                duration_sec = round(time.time() - _exit_start_t, 1)
-                logger.info(f"✅ Wealth Engine (market hours) exit update completed in {format_duration(duration_sec)}")
-                upsert_scanner_health(
-                    "WEALTH_EXIT",
-                    status="OK",
-                    last_success=datetime.now(IST).isoformat(),
-                    scheduled_for="Every 5min (09:15 - 15:30 IST)",
-                    duration_seconds=duration_sec
-                )
+                    res = run_wealth_intraday_update(write_health=True)
+                if res is not None:
+                    duration_sec = round(time.time() - _exit_start_t, 1)
+                    logger.info(f"✅ Wealth Engine (market hours) exit update completed in {format_duration(duration_sec)}")
+                    upsert_scanner_health(
+                        "WEALTH_EXIT",
+                        status="OK",
+                        last_success=datetime.now(IST).isoformat(),
+                        scheduled_for="Every 5min (09:15 - 15:30 IST)",
+                        duration_seconds=duration_sec
+                    )
             else:
                 logger.info("⏭️ WEALTH_EXIT is PAUSED by Admin. Skipping 5-min Wealth exit update.")
             
@@ -1351,7 +1370,7 @@ def run_system_scheduler():
             return True
         except Exception as e:
             if "actively running" in str(e).lower():
-                logger.info("⏳ Wealth Engine is actively running.")
+                logger.info("⏳ Wealth Engine Exit is actively running. Skipping duplicate pass.")
                 return False
             logger.exception("❌ SCHEDULER | WEALTH_EXIT (market hours) crashed")
             upsert_scanner_health(
@@ -1668,11 +1687,13 @@ def run_system_scheduler():
                     ).start()
 
                 # 3. Wealth Engine Market Hours Loop (5-min Exit Monitor — non-blocking)
-                _threading.Thread(
-                    target=safe_run_wealth_market_hours,
-                    name=f"WealthExit-{now.strftime('%H%M')}",
-                    daemon=True
-                ).start()
+                if not last_wealth_market_run or (now - last_wealth_market_run).total_seconds() >= 300:
+                    last_wealth_market_run = datetime.now(IST)  # set before thread start to prevent double-fire
+                    _threading.Thread(
+                        target=safe_run_wealth_market_hours,
+                        name=f"WealthExit-{now.strftime('%H%M')}",
+                        daemon=True
+                    ).start()
 
                 
                 # Multi-TF Dual-Cadence Execution Model:
@@ -2279,9 +2300,9 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "Wealth Engine": lambda: __import__('wealth_engine')._scan_lock,
         "MULTIBAGGER":   lambda: __import__('multibagger')._scan_lock,
         "AI Worker":     lambda: __import__('ai_worker')._scan_lock,
-        "PERFORMANCE_TRACKER": lambda: scanner_execution_lock,
-        "MULTIBAGGER_EXIT": lambda: scanner_execution_lock,
-        "WEALTH_EXIT": lambda: scanner_execution_lock,
+        "PERFORMANCE_TRACKER": lambda: _perf_tracker_lock,
+        "MULTIBAGGER_EXIT": lambda: __import__('multibagger')._mb_exit_lock,
+        "WEALTH_EXIT": lambda: __import__('wealth_engine')._wealth_exit_lock,
         "Earnings Calendar": lambda: None,  # removed
         "ACCUMULATION":  lambda: __import__('accumulation_scanner')._accumulation_run_lock,
         "TECHNICAL":     lambda: __import__('technical_scanner')._scan_lock,
@@ -2292,10 +2313,15 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     if lock_fn:
         try:
             lock = lock_fn()
-            if lock.locked():
+            if lock and hasattr(lock, "locked") and lock.locked():
                 return {"status": "error", "message": f"❌ {scanner_key} is already actively running!"}
         except Exception:
             pass
+
+    # Check PostgreSQL execution history for active running/queued execution across all processes/workers
+    from database import is_scanner_actively_running
+    if is_scanner_actively_running(scanner_key):
+        return {"status": "error", "message": f"❌ {scanner_key} is already actively running!"}
 
     # Synchronously write an initial QUEUED state to the database so the UI immediately
     # reacts to the button click while the background thread potentially spends 30s

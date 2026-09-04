@@ -2514,8 +2514,13 @@ def _prewarm_open_positions_cache(symbols: list, cache: dict, run_ctx=None) -> N
         except Exception as e:
             logger.error(f"Failed to save pre-warmed cache: {e}")
 
+_mb_exit_lock = threading.Lock()
+
 def run_standalone_exit_monitor(is_test_mode: bool = False, run_ctx=None):
     """Entry point for the 5-minute scheduler to check exits only."""
+    if not _mb_exit_lock.acquire(blocking=False):
+        logger.info("🛑 [MULTIBAGGER_EXIT] In-memory lock held. Another MULTIBAGGER_EXIT run is actively executing. Skipping.")
+        return
     try:
         from database import get_connection
         from psycopg2.extras import RealDictCursor
@@ -2579,6 +2584,12 @@ def run_standalone_exit_monitor(is_test_mode: bool = False, run_ctx=None):
     except Exception as e:
         logger.exception(f"Failed to run standalone exit monitor")
         raise e
+    finally:
+        if _mb_exit_lock.locked():
+            try:
+                _mb_exit_lock.release()
+            except Exception:
+                pass
 
 from lock_utils import ProcessLock
 _scan_lock = ProcessLock("multibagger")
@@ -2644,6 +2655,9 @@ def start(debug_limit: int = None, is_test_mode: bool = False, session=None, run
                 from database import start_scanner_execution_run
                 run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER", trigger_type=trigger_type, scheduler_name=scheduler_name)
             except Exception as exc:
+                if "actively running" in str(exc).lower():
+                    logger.info("🛑 [MULTIBAGGER] Scanner is ALREADY actively running. Skipping duplicate execution.")
+                    return {"total_count": 0, "processed_count": 0, "today_alerts": 0}
                 logger.warning(f"⚠️ [MULTIBAGGER] Could not create run_ctx: {exc}")
         elif run_ctx:
             update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")

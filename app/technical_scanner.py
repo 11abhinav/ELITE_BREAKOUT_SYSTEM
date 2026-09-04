@@ -1142,6 +1142,9 @@ def run_technical_scan(
                     scheduler_name=scheduler_name,
                 )
             except Exception as exc:
+                if "actively running" in str(exc).lower():
+                    logger.info("🛑 [TECHNICAL] Scanner is ALREADY actively running. Skipping duplicate execution.")
+                    return
                 logger.warning(f"⚠️ [TECHNICAL] Could not create run_ctx: {exc}")
                 real_run_ctx = None
 

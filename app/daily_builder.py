@@ -1763,6 +1763,9 @@ def main(force_rebuild: bool = False, run_ctx=None, trigger_type="SCHEDULED", sc
                 from database import start_scanner_execution_run
                 run_ctx = start_scanner_execution_run(scanner_name="DAILY_BUILDER", trigger_type=trigger_type, scheduler_name=scheduler_name)
             except Exception as exc:
+                if "actively running" in str(exc).lower():
+                    logger.info("🛑 [DAILY_BUILDER] Scanner is ALREADY actively running. Skipping duplicate build.")
+                    return
                 logger.warning(f"⚠️ [DAILY_BUILDER] Could not create run_ctx: {exc}")
         elif run_ctx:
             from database import update_scanner_run_lifecycle

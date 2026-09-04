@@ -973,6 +973,9 @@ def run_wealth_scan(is_test_mode=False, run_ctx=None, session=None, trigger_type
                 from database import start_scanner_execution_run
                 run_ctx = start_scanner_execution_run(scanner_name="Wealth Engine", trigger_type=trigger_type, scheduler_name=scheduler_name)
             except Exception as exc:
+                if "actively running" in str(exc).lower():
+                    logger.info("🛑 [WEALTH_ENGINE] Scanner is ALREADY actively running. Skipping duplicate execution.")
+                    return None
                 logger.warning(f"⚠️ [WEALTH_ENGINE] Could not create run_ctx: {exc}")
         elif run_ctx:
             from database import update_scanner_run_lifecycle
@@ -2813,6 +2816,8 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                 send_push_to_all("❌ Wealth Engine DOWN", f"Crash: {str(e)[:100]}")
             except Exception as _fb_e: logger.exception(f"Fallback reporting failed: {_fb_e}")
 
+_wealth_exit_lock = threading.Lock()
+
 def run_wealth_intraday_update(is_test_mode=False, write_health=True):
     """
     Lightweight, ultra-fast market-hours update (< 3 seconds) for the 5-minute Wealth Engine schedule.
@@ -2820,11 +2825,16 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
     updates DB position metrics, and refreshes the Wealth Engine dashboard parquet.
     Does NOT re-download or re-calculate full 1Y historical technicals for 300+ symbols.
     """
+    if not _wealth_exit_lock.acquire(blocking=False):
+        logger.info("🛑 [WEALTH_EXIT] In-memory lock held. Another WEALTH_EXIT run is actively executing. Skipping duplicate.")
+        return None
+
     start_time = time.time()
     from perf_utils import ScannerStageTracker
     stage_tracker = ScannerStageTracker("WEALTH_INTRADAY_5M")
     logger.info("⚡ [WEALTH ENGINE 5M] Starting lightweight intraday portfolio update...")
 
+    run_ctx = None
     try:
         from database import start_scanner_execution_run, complete_scanner_execution_run
         run_ctx = start_scanner_execution_run(scanner_name="WEALTH_EXIT", trigger_type="SCHEDULED", scheduler_name="CRON")
@@ -2983,13 +2993,23 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
         return wealth_df
 
     except Exception as e:
+        if "actively running" in str(e).lower():
+            logger.info("🛑 [WEALTH_EXIT] Scanner is already actively running in DB. Skipping duplicate execution.")
+            return None
         logger.exception(f"Error in wealth intraday update: {e}")
         try:
             from database import complete_scanner_execution_run
-            complete_scanner_execution_run(run_ctx, exception=e)
+            if run_ctx:
+                complete_scanner_execution_run(run_ctx, exception=e)
         except Exception:
             pass
         return run_wealth_scan(is_test_mode=is_test_mode)
+    finally:
+        if _wealth_exit_lock.locked():
+            try:
+                _wealth_exit_lock.release()
+            except Exception:
+                pass
 
 
 def restore_healthy_wealth_positions():

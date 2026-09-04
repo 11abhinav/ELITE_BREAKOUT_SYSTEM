@@ -353,11 +353,17 @@ class AccumulationScanner:
 
             # [RULE: HISTORY ENTRY AFTER LOCK ACQUIRED] Only create execution history entry once lock is secured
             if run_ctx is None:
-                run_ctx = start_scanner_execution_run(
-                    scanner_name="ACCUMULATION",
-                    trigger_type=trigger_type,
-                    scheduler_name=scheduler_name
-                )
+                try:
+                    run_ctx = start_scanner_execution_run(
+                        scanner_name="ACCUMULATION",
+                        trigger_type=trigger_type,
+                        scheduler_name=scheduler_name
+                    )
+                except Exception as exc:
+                    if "actively running" in str(exc).lower():
+                        logger.info("🛑 [ACCUMULATION] Scanner is ALREADY actively running. Skipping duplicate execution.")
+                        return {"status": "SKIPPED_DUPLICATE", "reason": "Already running"}
+                    raise
             elif run_ctx:
                 from database import update_scanner_run_lifecycle
                 update_scanner_run_lifecycle(run_ctx.run_id, "RUNNING")

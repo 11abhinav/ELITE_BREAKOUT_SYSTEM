@@ -41,7 +41,13 @@ def run_ai_worker_scan_once() -> dict:
         from database import get_recent_concall_analysis, upsert_scanner_health, get_total_cached_concalls, upsert_fetch_error, save_concall_analysis, has_valid_concall_cache, has_error_concall_cache_within_24h, start_scanner_execution_run, complete_scanner_execution_run
         from dashboard_server import fetch_and_analyze_concall
         
-        run_ctx = start_scanner_execution_run(scanner_name="AI Worker", trigger_type="SCHEDULED", scheduler_name="WORKER")
+        try:
+            run_ctx = start_scanner_execution_run(scanner_name="AI Worker", trigger_type="SCHEDULED", scheduler_name="WORKER")
+        except Exception as _ai_err:
+            if "actively running" in str(_ai_err).lower():
+                logger.info("⏳ AI Worker is already actively running. Skipping duplicate pass.")
+                return {"total_count": 0, "processed_count": 0}
+            raise
         
         upsert_scanner_health("AI Worker", "RUNNING", error_msg="AI Worker Scan in progress...")
         now_ist = datetime.now(IST_ZONE)

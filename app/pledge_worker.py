@@ -271,7 +271,14 @@ def worker_loop():
                 
             logger.info(f"📊 [PLEDGE WORKER] Pending symbols to fetch today: {len(stale_symbols)} (out of {total_watch} total universe)")
             from database import start_scanner_execution_run, complete_scanner_execution_run
-            worker_run_ctx = start_scanner_execution_run(scanner_name="Pledge Worker", trigger_type="SCHEDULED", scheduler_name="WORKER", total_stocks=len(stale_symbols))
+            try:
+                worker_run_ctx = start_scanner_execution_run(scanner_name="Pledge Worker", trigger_type="SCHEDULED", scheduler_name="WORKER", total_stocks=len(stale_symbols))
+            except Exception as _p_err:
+                if "actively running" in str(_p_err).lower():
+                    logger.info("⏳ Pledge Worker is already actively running. Sleeping 60s...")
+                    sleep_with_mode_check(60)
+                    continue
+                raise
             upsert_scanner_health("Pledge Worker", "OK", today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg=f"Last: Starting... | Total stale: {len(stale_symbols)}")
             
             def process_symbol(sym, i_total, is_retry=False):
@@ -510,6 +517,10 @@ def worker_loop():
             sleep_with_mode_check(300)
             
         except Exception as e:
+            if "actively running" in str(e).lower():
+                logger.info("⏳ Pledge Worker is already actively running. Sleeping 60s...")
+                sleep_with_mode_check(60)
+                continue
             logger.exception("Pledge worker loop crashed")
             upsert_scanner_health("Pledge Worker", "DOWN", error_msg=str(e), today_alerts=processed_base, processed_count=processed_base, total_count=total_watch)
             try:

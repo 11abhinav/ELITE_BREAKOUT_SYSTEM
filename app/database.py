@@ -9248,9 +9248,19 @@ def start_scanner_execution_run(
     parent_run_id: str = None,
     retry_attempt: int = 0,
     total_stocks: int = 0,
-    initial_status: str = "RUNNING"
+    initial_status: str = "RUNNING",
+    allow_concurrent: bool = False
 ):
-    """Creates a new record in scanner_execution_history and returns a ScannerRunContext."""
+    """Creates a new record in scanner_execution_history and returns a ScannerRunContext.
+    
+    Guarantees concurrency prevention across all scanners and exit monitors:
+    If an instance of scanner_name is already RUNNING or QUEUED, a second run is rejected
+    with a RuntimeError("Scanner '<scanner_name>' is already actively running!").
+    """
+    if not allow_concurrent and is_scanner_actively_running(scanner_name):
+        logger.warning(f"🛑 [CONCURRENCY_PREVENTION] Scanner '{scanner_name}' is ALREADY actively running in DB. Aborting duplicate run.")
+        raise RuntimeError(f"Scanner '{scanner_name}' is already actively running!")
+
     from scanner_run_context import ScannerRunContext
     ctx = ScannerRunContext(
         scanner_name=scanner_name,
@@ -9264,6 +9274,22 @@ def start_scanner_execution_run(
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
+                # Concurrency re-check inside transaction to prevent race conditions
+                if not allow_concurrent:
+                    cur.execute("""
+                        SELECT run_id FROM scanner_execution_history
+                        WHERE LOWER(scanner_name) = LOWER(%s)
+                          AND lifecycle_status IN ('RUNNING', 'QUEUED')
+                        LIMIT 1;
+                    """, (scanner_name,))
+                    existing = cur.fetchone()
+                    if existing:
+                        logger.warning(
+                            f"🛑 [CONCURRENCY_PREVENTION] Scanner '{scanner_name}' is ALREADY actively running "
+                            f"(run_id={existing[0][:8]}). Aborting duplicate run."
+                        )
+                        raise RuntimeError(f"Scanner '{scanner_name}' is already actively running!")
+
                 exec_started_sql = "NOW()" if status_upper == "RUNNING" else "NULL"
                 cur.execute(f"""
                     INSERT INTO scanner_execution_history (
@@ -9277,6 +9303,8 @@ def start_scanner_execution_run(
                 ))
                 conn.commit()
                 logger.info(f"📜 [EXECUTION HISTORY] Started run {ctx.run_id[:8]} for {scanner_name} (Trigger: {trigger_type}, Status: {status_upper})")
+    except RuntimeError:
+        raise
     except Exception as e:
         logger.warning(f"Failed to insert scanner execution history for {scanner_name}: {e}")
 

@@ -132,6 +132,9 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
         try:
             real_run_ctx = start_scanner_execution_run(scanner_name="MULTI_TF", trigger_type=trigger_type, scheduler_name="CRON")
         except Exception as exc:
+            if "actively running" in str(exc).lower():
+                logger.info("🛑 [MULTI_TF] Scanner is ALREADY actively running. Skipping duplicate execution.")
+                return 0
             logger.warning(f"⚠️ [MULTI_TF] Could not create run_ctx: {exc}")
             real_run_ctx = None
 
@@ -423,7 +426,10 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
     from database import start_scanner_execution_run, complete_scanner_execution_run
     try:
         real_run_ctx = start_scanner_execution_run(scanner_name="MULTI_TF_5M", trigger_type=trigger_type, scheduler_name="CRON")
-    except Exception:
+    except Exception as exc:
+        if "actively running" in str(exc).lower():
+            logger.info("🛑 [MULTI_TF_5M] Scanner is ALREADY actively running. Skipping duplicate execution.")
+            return 0
         real_run_ctx = None
 
     start_time = time.monotonic()
