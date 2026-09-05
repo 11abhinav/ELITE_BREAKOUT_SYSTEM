@@ -202,6 +202,8 @@ class TestZeroAlertDiagnosticLifecycle(unittest.TestCase):
         tracker.record_untracked_remainder()
 
         summary = tracker.get_summary()
+        summary_alias = tracker.get_conservation_summary()
+        self.assertEqual(summary, summary_alias)
         self.assertEqual(summary["total_universe"], 100)
         self.assertEqual(summary["sum_terminal"], 100)
         self.assertEqual(summary["conservation_delta"], 0)
