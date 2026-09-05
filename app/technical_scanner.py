@@ -10,19 +10,25 @@
 #   * Tier B: CUP_HANDLE, ASCENDING_TRIANGLE, BULL_PENNANT, HIGHER_LOW_REVERSAL
 # - Pattern-Specific Anti-Fake & Volume Signature validations:
 #   * Bull Flag: Pole directional efficiency (>=0.55), shallow flag retrace (<=45%),
-#     flag volume contraction (avg_flag_vol / avg_pole_vol <= 0.85).
+#     flag volume contraction (avg_flag_vol / avg_pole_vol <= 0.85). Target: Pole projection.
 #   * Shakeout: Selling exhaustion, bullish absorption, volume absorption vs selloff.
-#   * Double Bottom: Meaningful neckline separation (>=3.5% height), twin trough diff (<=2.5%).
+#     Target: Pre-selloff structural resistance or measured expansion continuation (>= 1.5R).
+#   * Double Bottom: Preceding markdown (>=7.0% / 2x ATR), 8-45 bars trough spacing,
+#     twin trough diff <= 2.5%, clean neckline height >= 4.0%, fresh breakout timing.
 #   * Cup & Handle: Rounded base (5-30% depth), handle in upper 35% of cup with drying volume.
 #   * Ascending Triangle: Multi-touch flat resistance + ascending swing lows compression.
-#   * V-Reversal: Sharp drop >=5% + steep multi-bar recovery >=60% on heavy volume (RVOL >= 1.30).
+#   * V-Reversal: Sharp drop >=5% + steep multi-bar recovery >=55% on volume.
+#   * Bull Pennant: Converging coil (3-10 bars) following directional pole (>=6.0% / 2x ATR).
+#   * Higher Low Reversal: Distinct multi-bar higher low + swing high breakout.
 # - Universal Common Hard Gates:
+#   * Candle: Green trigger candle (Close > Open) & Non-zero spread.
+#   * Liquidity: Volume >= 25k, Turnover >= ₹50 Lakhs.
 #   * Volume: RVOL >= 1.20x strictly non-negotiable.
 #   * Price Action: CLV >= 0.65, Upper Wick <= 30%.
-#   * Liquidity: Volume >= 25k, Turnover >= ₹50 Lakhs.
 #   * Risk: Room to Resistance >= 1.5R.
 # - 100-Point Additive Scoring Model (<70 Reject, 70-79 Strong, 80-89 Very Strong, 90-100 Elite).
-# - Tier C Confluence Boosters (Hammer, EMA/SMA reclaims, RSI divergence, OBV accumulation).
+# - Tier-B Scoring Calibrated to 22 baseline points to avoid starvation under 70 threshold.
+# - Full Forensic Telemetry Contract (`TECHNICAL_TRACE`) & Funnel Conservation Logging.
 # =====================================================================================
 
 import logging
@@ -30,7 +36,7 @@ import math
 import os
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -67,6 +73,11 @@ MAX_UPPER_WICK_PCT = 0.30           # Maximum upper wick ratio ((H - max(O, C)) 
 MIN_AVG_TURNOVER_INR = 50_00_000    # Minimum 20-day average turnover: ₹50 Lakhs
 MIN_AVG_VOLUME = 25_000             # Minimum 20-day average volume: 25k shares
 
+# Aliases for backward compatibility in unit tests & external callers
+MIN_RVOL = MIN_RVOL_HARD_GATE
+MIN_CLV = MIN_CLV_HARD_GATE
+MIN_AVG_TURNOVER = MIN_AVG_TURNOVER_INR
+
 # Risk & Target Parameters
 MAX_SL_PCT = 0.06                   # Maximum structural SL distance cap (6.0%)
 MIN_SL_PCT = 0.012                  # Minimum risk buffer (1.2%)
@@ -80,13 +91,7 @@ BULL_FLAG_MAX_VOL_RATIO = 0.85      # Avg Flag Volume / Avg Pole Volume <= 0.85
 
 SHAKEOUT_MIN_DECLINE_PCT = 4.0      # Minimum prior drop % for shakeout setup
 
-# [DOUBLE BOTTOM HARDENING]:
-# True reversal pattern requires:
-# 1. Preceding markdown/downtrend of at least 7.0% or 2.0x ATR into Trough 1.
-# 2. Spacing between Trough 1 and Trough 2 of at least 8 bars (up to 45 bars).
-# 3. Maximum price discrepancy between troughs <= 2.5%.
-# 4. Clean neckline peak between troughs >= 4.0% above troughs.
-# 5. Fresh breakout timing: today is the initial breakout through the neckline.
+# Double Bottom Structural Invariants
 DOUBLE_BOTTOM_MIN_PRIOR_DROP_PCT = 7.0 # Minimum prior downtrend % into Trough 1
 DOUBLE_BOTTOM_MIN_TROUGH_BARS = 8      # Minimum daily bars between Trough 1 and Trough 2
 DOUBLE_BOTTOM_MAX_TROUGH_BARS = 45     # Maximum daily bars between Trough 1 and Trough 2
@@ -107,12 +112,31 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
         return default
 
 
+def _extract_ohlcv(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Case-insensitive OHLCV array extractor supporting both lowercase and titlecase column schemas.
+    """
+    cols = {str(c).lower(): c for c in df.columns}
+    o_col = cols.get("open", "Open")
+    h_col = cols.get("high", "High")
+    l_col = cols.get("low", "Low")
+    c_col = cols.get("close", "Close")
+    v_col = cols.get("volume", "Volume")
+    
+    opens = df[o_col].values.astype(float)
+    highs = df[h_col].values.astype(float)
+    lows = df[l_col].values.astype(float)
+    closes = df[c_col].values.astype(float)
+    volumes = df[v_col].values.astype(float)
+    return opens, highs, lows, closes, volumes
+
+
 def _find_swing_pivots(highs: np.ndarray, lows: np.ndarray, lookback: int = 2) -> Tuple[List[int], List[int]]:
     """
     Identifies robust multi-bar fractal swing highs (peaks) and swing lows (troughs).
     A bar i is a swing low if lows[i] < all other lows in [i - lookback, i + lookback].
     A bar i is a swing high if highs[i] > all other highs in [i - lookback, i + lookback].
-    Strict inequality prevents flat continuous price plateaus from registering as dozens of fake pivots.
+    Strict inequality prevents flat continuous price plateaus from registering as fake pivots.
     """
     n = len(highs)
     peak_indices: List[int] = []
@@ -141,28 +165,31 @@ def _find_swing_pivots(highs: np.ndarray, lows: np.ndarray, lookback: int = 2) -
 # 1. PERMISSIVE PATTERN DISCOVERY SUB-DETECTORS (8 CORE STRUCTURES)
 # =====================================================================================
 
-def _detect_bull_flag(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any]]:
+def _detect_bull_flag(df: pd.DataFrame, atr14: Optional[float] = None) -> Optional[Dict[str, Any]]:
     """
     Tier A Pattern: Bull Flag + Pole
     - Pole: Directional impulse over 3 to 10 bars (gain >= 5% or >= 2x ATR, efficiency >= 0.55).
     - Flag: Controlled consolidation over 3 to 12 bars, retrace <= 45%, volume ratio <= 0.85.
+    
+    [RULE 67 MANDATORY FIX - BULL FLAG TARGET RESOLUTION]:
+    Target is set to the structural Pole Projection (flag_resistance + pole_move) or major
+    structural resistance cluster, completely eliminating the minor-high trap where a 1-bar wick
+    caused false <1.5R rejections.
     """
     n = len(df)
     if n < 20:
         return None
 
-    highs = df["High"].values
-    lows = df["Low"].values
-    closes = df["Close"].values
-    opens = df["Open"].values
-    volumes = df["Volume"].values
-
+    opens, highs, lows, closes, volumes = _extract_ohlcv(df)
     today_idx = n - 1
     c_today = _safe_float(closes[today_idx])
     o_today = _safe_float(opens[today_idx])
 
     if c_today <= o_today:
         return None
+
+    if atr14 is None or atr14 <= 0:
+        atr14 = _safe_float(df.get("ATR_14", pd.Series([c_today * 0.02])).iloc[-1], c_today * 0.02)
 
     best_setup = None
 
@@ -211,7 +238,7 @@ def _detect_bull_flag(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any]
             if retrace_ratio > BULL_FLAG_MAX_RETRACE or retrace_ratio < 0:
                 continue
 
-            # Volume signature
+            # Volume signature: flag volume must contract relative to pole
             pole_vols = volumes[pole_start_idx: pole_end_idx + 1]
             avg_pole_vol = float(np.mean(pole_vols)) if len(pole_vols) > 0 else 1.0
             avg_flag_vol = float(np.mean(flag_vols)) if len(flag_vols) > 0 else 1.0
@@ -220,10 +247,11 @@ def _detect_bull_flag(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any]
             if vol_ratio_flag_to_pole > BULL_FLAG_MAX_VOL_RATIO:
                 continue
 
-            # Resistance above flag
-            overhead_highs = highs[max(0, pole_start_idx - 30): pole_start_idx]
-            higher_levels = [h for h in overhead_highs if h > flag_resistance * 1.01]
-            target_res = float(min(higher_levels)) if higher_levels else (c_today * 1.15)
+            # Robust Pole Projection Target
+            pole_target = flag_resistance + pole_move
+            overhead_highs = highs[max(0, pole_start_idx - 40): pole_start_idx]
+            higher_res = [h for h in overhead_highs if h > flag_resistance * 1.03]
+            target_res = float(max(higher_res)) if higher_res else pole_target
 
             setup = {
                 "pattern": "BULL_FLAG",
@@ -238,7 +266,7 @@ def _detect_bull_flag(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any]
                 "vol_ratio_flag_to_pole": round(vol_ratio_flag_to_pole, 2),
                 "invalidation_level": round(flag_support * 0.995, 2),
                 "target_resistance": round(target_res, 2),
-                "pattern_quality_score": 25 if (pole_pct >= 10.0 and vol_ratio_flag_to_pole <= 0.70) else 22,
+                "pattern_quality_score": 25 if (pole_pct >= 10.0 and vol_ratio_flag_to_pole <= 0.70) else 23,
                 "description": f"Bull Flag (Pole +{pole_pct:.1f}%, Flag {flag_len}b, Retrace {retrace_ratio*100:.0f}%, VolRatio {vol_ratio_flag_to_pole:.2f}x)",
             }
             if best_setup is None or setup["pole_gain_pct"] > best_setup["pole_gain_pct"]:
@@ -247,23 +275,25 @@ def _detect_bull_flag(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any]
     return best_setup
 
 
-def _detect_shakeout_reclaim(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any]]:
+def _detect_shakeout_reclaim(df: pd.DataFrame, atr14: Optional[float] = None) -> Optional[Dict[str, Any]]:
     """
     Tier A Pattern: Shakeout Reclaim (Bottom Absorption)
     - Selloff: Decline >= 4.0% or >= 1.2x ATR over 3 to 15 sessions into support.
     - Absorption: Green candle at support engulfing preceding red candle.
-    - Target Resistance: Drop origin high (resistance of the selloff origin).
+    - Target: Pre-selloff structural resistance or measured expansion continuation (>= 1.5R).
+    
+    [RULE 67 MANDATORY FIX - SHAKEOUT RECLAIM DEADLOCK RESOLUTION]:
+    Pre-refactor logic set target_resistance strictly to drop_origin_high. Since an engulfing
+    reclaim candle already recovers 50-70% of the drop, room_to_resistance was capped at 0.5-0.9R,
+    making valid shakeouts mathematically impossible.
+    Fix: Uses pre-selloff structural resistance or measured expansion continuation target
+    (drop_high + 0.618 * drop_points) guaranteeing natural 1.5R - 3.0R headroom.
     """
     n = len(df)
     if n < 20:
         return None
 
-    highs = df["High"].values
-    lows = df["Low"].values
-    closes = df["Close"].values
-    opens = df["Open"].values
-    volumes = df["Volume"].values
-
+    opens, highs, lows, closes, volumes = _extract_ohlcv(df)
     today_idx = n - 1
     prev_idx = today_idx - 1
 
@@ -277,6 +307,9 @@ def _detect_shakeout_reclaim(df: pd.DataFrame, atr14: float) -> Optional[Dict[st
 
     if c_today <= o_today or c_today <= c_prev:
         return None
+
+    if atr14 is None or atr14 <= 0:
+        atr14 = _safe_float(df.get("ATR_14", pd.Series([c_today * 0.02])).iloc[-1], c_today * 0.02)
 
     prev_body = abs(o_prev - c_prev)
     today_body = c_today - o_today
@@ -309,6 +342,12 @@ def _detect_shakeout_reclaim(df: pd.DataFrame, atr14: float) -> Optional[Dict[st
 
     base_support = min(lows[today_idx], l_prev, trough_low)
 
+    # Resolve pre-selloff structural resistance or measured expansion continuation target
+    lookback_pre = min(45, n - 2)
+    pre_selloff_highs = highs[max(0, today_idx - lookback_pre): today_idx - lookback]
+    higher_res = [h for h in pre_selloff_highs if h > c_today * 1.02]
+    major_target_res = float(max(higher_res)) if higher_res else (drop_high + (drop_points * 0.618))
+
     return {
         "pattern": "SHAKEOUT_RECLAIM",
         "tier": "TIER_A",
@@ -318,38 +357,34 @@ def _detect_shakeout_reclaim(df: pd.DataFrame, atr14: float) -> Optional[Dict[st
         "selloff_depth_pct": round(drop_pct, 2),
         "vol_vs_selloff": round(vol_vs_selloff, 2),
         "invalidation_level": round(base_support * 0.995, 2),
-        "target_resistance": round(drop_high, 2),
-        "pattern_quality_score": 25 if is_full_reclaim else 21,
+        "target_resistance": round(major_target_res, 2),
+        "pattern_quality_score": 25 if is_full_reclaim else 23,
         "description": f"Shakeout Reclaim ({engulf_type.replace('_', ' ')}, Prior Drop -{drop_pct:.1f}%, Vol vs Selloff {vol_vs_selloff:.2f}x)",
     }
 
 
-def _detect_double_bottom(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any]]:
+def _detect_double_bottom(df: pd.DataFrame, atr14: Optional[float] = None) -> Optional[Dict[str, Any]]:
     """
     Tier A Pattern: Double Bottom Breakout (Reversal)
-    
-    [RULE 67 MANDATORY REFACTOR]:
-    A genuine Double Bottom is a classic reversal structure, NOT a random pause.
-    It requires strict mathematical invariants:
-    1. Preceding Downtrend: Prior selloff of >= 7.0% (or >= 2.0x ATR) into Trough 1.
-    2. Multi-Bar Swing Lows: Troughs must be genuine multi-bar fractals (not 1-bar noise).
+    Requires strict mathematical invariants:
+    1. Preceding Downtrend: Prior selloff >= 7.0% (or >= 2.0x ATR) into Trough 1.
+    2. Multi-Bar Swing Lows: Troughs must be genuine multi-bar fractals.
     3. Structural Spacing: Troughs separated by 8 to 45 daily bars.
     4. Price Symmetry: Trough 2 within 2.5% of Trough 1.
     5. Neckline Clearance: High between troughs must be >= 4.0% above troughs.
-    6. Fresh Breakout Timing: Today's candle must be the INITIAL breakout crossing above
-       the neckline (c_today >= neckline * 1.002 and c_yesterday <= neckline * 1.01).
-       Prevents stale breakouts from firing weeks after the event.
+    6. Fresh Breakout Timing: Today's candle must be the INITIAL breakout crossing neckline.
     """
     n = len(df)
     if n < 35:
         return None
 
-    highs = df["High"].values
-    lows = df["Low"].values
-    closes = df["Close"].values
+    opens, highs, lows, closes, volumes = _extract_ohlcv(df)
     today_idx = n - 1
     c_today = _safe_float(closes[today_idx])
     c_yesterday = _safe_float(closes[today_idx - 1])
+
+    if atr14 is None or atr14 <= 0:
+        atr14 = _safe_float(df.get("ATR_14", pd.Series([c_today * 0.02])).iloc[-1], c_today * 0.02)
 
     # Search window up to 70 bars back
     window_start = max(0, today_idx - 70)
@@ -359,7 +394,6 @@ def _detect_double_bottom(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, 
     if len(w_lows) < 20:
         return None
 
-    # Use 2-bar fractal lookback to identify real swing lows
     _, rel_troughs = _find_swing_pivots(w_highs, w_lows, lookback=2)
     local_trough_indices = [window_start + idx for idx in rel_troughs]
 
@@ -376,7 +410,6 @@ def _detect_double_bottom(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, 
             if bars_between < DOUBLE_BOTTOM_MIN_TROUGH_BARS or bars_between > DOUBLE_BOTTOM_MAX_TROUGH_BARS:
                 continue
 
-            # T2 must have finished forming before today (at least 2 bars of recovery)
             if t2 >= today_idx - 1:
                 continue
 
@@ -389,7 +422,6 @@ def _detect_double_bottom(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, 
                 continue
 
             # Invariant 2: Prior Downtrend into Trough 1
-            # Check price drop from high before T1 (lookback 10-30 bars prior to T1)
             pre_t1_start = max(0, t1 - 30)
             if t1 - pre_t1_start < 5:
                 continue
@@ -398,7 +430,7 @@ def _detect_double_bottom(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, 
             prior_drop_points = pre_t1_high - l1_val
 
             if prior_drop_pct < DOUBLE_BOTTOM_MIN_PRIOR_DROP_PCT and prior_drop_points < (2.0 * atr14):
-                continue  # REJECT: No preceding downtrend (not a reversal setup)
+                continue
 
             # Invariant 3: Clean Neckline Peak between Troughs
             neckline_window = highs[t1 + 1: t2]
@@ -409,22 +441,18 @@ def _detect_double_bottom(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, 
             pattern_height_pct = (neckline_val - trough_base) / max(trough_base, 1.0) * 100.0
 
             if pattern_height_pct < DOUBLE_BOTTOM_MIN_HEIGHT_PCT:
-                continue  # REJECT: Neckline too shallow
+                continue
 
-            # Invariant 4: No severe breakdown between or after troughs
-            # Prices between T1 and T2 must not crash significantly below trough floor
+            # Invariant 4: No severe breakdown between troughs
             mid_lows = lows[t1: t2 + 1]
             if np.min(mid_lows) < (trough_base * 0.975):
                 continue
 
             # Invariant 5: Fresh Breakout Timing Gate
-            # Today must cross above neckline (c_today >= neckline * 1.002)
-            # Yesterday must have been below or testing the neckline (c_yesterday <= neckline * 1.015)
-            # This ensures we alert on the BREAKOUT day, not 15 days later!
             if c_today < neckline_val * 1.002:
                 continue
             if c_yesterday > neckline_val * 1.025:
-                continue  # REJECT: Breakout occurred days ago (stale alert)
+                continue
 
             sl_level = round(max(l2_val * 0.995, neckline_val * 0.96), 2)
             pre_pattern_highs = highs[max(0, t1 - 40): t1]
@@ -443,7 +471,7 @@ def _detect_double_bottom(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, 
                 "trough_bars": bars_between,
                 "invalidation_level": sl_level,
                 "target_resistance": round(major_target_res, 2),
-                "pattern_quality_score": 25 if diff_pct <= 1.0 and prior_drop_pct >= 10.0 else 22,
+                "pattern_quality_score": 25 if diff_pct <= 1.0 and prior_drop_pct >= 10.0 else 23,
                 "description": (
                     f"Double Bottom Breakout (Neckline ₹{neckline_val:.2f}, "
                     f"Prior Drop -{prior_drop_pct:.1f}%, Height {pattern_height_pct:.1f}%, {bars_between}b apart)"
@@ -452,27 +480,26 @@ def _detect_double_bottom(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, 
     return None
 
 
-def _detect_v_reversal(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any]]:
+def _detect_v_reversal(df: pd.DataFrame, atr14: Optional[float] = None) -> Optional[Dict[str, Any]]:
     """
     Tier A Pattern: V-Reversal Recovery
     - Sharp decline >= 5% or >= 2.0x ATR followed by strong multi-bar recovery >= 55%.
-    - Fresh recovery momentum (today crosses upper midpoint of the drop).
+    - Fresh recovery momentum.
     """
     n = len(df)
     if n < 15:
         return None
 
-    highs = df["High"].values
-    lows = df["Low"].values
-    closes = df["Close"].values
-    opens = df["Open"].values
-
+    opens, highs, lows, closes, volumes = _extract_ohlcv(df)
     today_idx = n - 1
     c_today = _safe_float(closes[today_idx])
     o_today = _safe_float(opens[today_idx])
 
     if c_today <= o_today:
         return None
+
+    if atr14 is None or atr14 <= 0:
+        atr14 = _safe_float(df.get("ATR_14", pd.Series([c_today * 0.02])).iloc[-1], c_today * 0.02)
 
     lookback = min(15, n - 2)
     recent_highs = highs[today_idx - lookback: today_idx - 2]
@@ -490,11 +517,9 @@ def _detect_v_reversal(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any
         return None
 
     recovery_pct = (c_today - trough_low) / max(drop_points, 0.01) * 100.0
-    # Require at least 55% recovery of the drop (reversal confirmation, not dead cat bounce)
     if recovery_pct < 55.0:
         return None
 
-    # Pre-drop overhead high or measured expansion
     lookback_pre = min(50, n - 2)
     pre_drop_highs = highs[max(0, today_idx - lookback_pre): today_idx - lookback]
     higher_res = [h for h in pre_drop_highs if h > c_today * 1.03]
@@ -509,25 +534,23 @@ def _detect_v_reversal(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any
         "selloff_depth_pct": round(drop_pct, 1),
         "invalidation_level": sl_level,
         "target_resistance": round(major_target_res, 2),
-        "pattern_quality_score": 22,
+        "pattern_quality_score": 23,
         "description": f"V-Reversal Recovery (-{drop_pct:.1f}% Drop, Recovered {recovery_pct:.0f}%)",
     }
 
 
-def _detect_cup_and_handle(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any]]:
+def _detect_cup_and_handle(df: pd.DataFrame, atr14: Optional[float] = None) -> Optional[Dict[str, Any]]:
     """
     Tier B Pattern: Cup & Handle Breakout
     - Rounded U-base over 20-50 bars (depth 5% - 30%).
     - Handle pullback in upper 35% portion of cup (depth <= 35% of cup).
-    - Fresh breakout above rim (today crosses rim, yesterday was below/at rim).
+    - Fresh breakout above rim.
     """
     n = len(df)
     if n < 30:
         return None
 
-    highs = df["High"].values
-    lows = df["Low"].values
-    closes = df["Close"].values
+    opens, highs, lows, closes, volumes = _extract_ohlcv(df)
     today_idx = n - 1
     c_today = _safe_float(closes[today_idx])
     c_yesterday = _safe_float(closes[today_idx - 1])
@@ -570,26 +593,24 @@ def _detect_cup_and_handle(df: pd.DataFrame, atr14: float) -> Optional[Dict[str,
                     "handle_bars": handle_len,
                     "invalidation_level": sl_level,
                     "target_resistance": round(measured_target, 2),
-                    "pattern_quality_score": 19,
+                    "pattern_quality_score": 22,
                     "description": f"Cup & Handle Breakout (Rim ₹{rim_high:.2f}, Cup -{cup_depth_pct:.1f}%, Handle {handle_len}b)",
                 }
     return None
 
 
-def _detect_ascending_triangle(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any]]:
+def _detect_ascending_triangle(df: pd.DataFrame, atr14: Optional[float] = None) -> Optional[Dict[str, Any]]:
     """
     Tier B Pattern: Ascending Triangle Breakout
-    - Flat horizontal resistance line (2+ peaks within 1.2%).
-    - Multi-bar ascending swing lows compressing upward (2+ higher lows).
-    - Fresh breakout today through horizontal ceiling.
+    - Flat horizontal resistance line (2+ peaks within 1.5%).
+    - Multi-bar ascending swing lows compressing upward.
+    - Fresh breakout today through ceiling.
     """
     n = len(df)
     if n < 25:
         return None
 
-    highs = df["High"].values
-    lows = df["Low"].values
-    closes = df["Close"].values
+    opens, highs, lows, closes, volumes = _extract_ohlcv(df)
     today_idx = n - 1
     c_today = _safe_float(closes[today_idx])
     c_yesterday = _safe_float(closes[today_idx - 1])
@@ -614,16 +635,14 @@ def _detect_ascending_triangle(df: pd.DataFrame, atr14: float) -> Optional[Dict[
     if len(near_peaks) < 2:
         return None
 
-    # Verify ascending sequence: later trough must be strictly higher than earlier trough
+    # Verify ascending sequence
     if trough_vals[-1] <= trough_vals[0] * 1.01:
         return None
 
-    # Check for higher lows slope consistency
     is_ascending = all(trough_vals[k] >= trough_vals[k-1] * 0.995 for k in range(1, len(trough_vals)))
     if not is_ascending:
         return None
 
-    # Fresh breakout timing: today crosses resistance, yesterday was at or below
     if c_today >= res_level * 1.002 and c_yesterday <= res_level * 1.02:
         last_low = trough_vals[-1]
         sl_level = round(last_low * 0.995, 2)
@@ -635,28 +654,29 @@ def _detect_ascending_triangle(df: pd.DataFrame, atr14: float) -> Optional[Dict[
             "ascending_lows_count": len(troughs),
             "invalidation_level": sl_level,
             "target_resistance": round(measured_target, 2),
-            "pattern_quality_score": 20,
+            "pattern_quality_score": 22,
             "description": f"Ascending Triangle Breakout (Res ₹{res_level:.2f}, Lows +{len(troughs)})",
         }
     return None
 
 
-def _detect_bull_pennant(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any]]:
+def _detect_bull_pennant(df: pd.DataFrame, atr14: Optional[float] = None) -> Optional[Dict[str, Any]]:
     """
     Tier B Pattern: Bull Pennant
-    - Symmetrical converging coil (3 to 10 bars) following a strong directional pole (>=6.0% or 2.5x ATR).
+    - Symmetrical converging coil (3 to 10 bars) following a strong directional pole (>=6.0% or 2x ATR).
     - Fresh breakout today above pennant upper boundary.
     """
     n = len(df)
     if n < 18:
         return None
 
-    highs = df["High"].values
-    lows = df["Low"].values
-    closes = df["Close"].values
+    opens, highs, lows, closes, volumes = _extract_ohlcv(df)
     today_idx = n - 1
     c_today = _safe_float(closes[today_idx])
     c_yesterday = _safe_float(closes[today_idx - 1])
+
+    if atr14 is None or atr14 <= 0:
+        atr14 = _safe_float(df.get("ATR_14", pd.Series([c_today * 0.02])).iloc[-1], c_today * 0.02)
 
     for pennant_len in range(3, 10):
         pole_end = today_idx - pennant_len
@@ -689,13 +709,13 @@ def _detect_bull_pennant(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, A
                     "pennant_bars": pennant_len,
                     "invalidation_level": sl_level,
                     "target_resistance": round(target_res, 2),
-                    "pattern_quality_score": 18,
+                    "pattern_quality_score": 22,
                     "description": f"Bull Pennant Breakout (Pole +{pole_gain:.1f}%, Pennant {pennant_len}b)",
                 }
     return None
 
 
-def _detect_higher_low_reversal(df: pd.DataFrame, atr14: float) -> Optional[Dict[str, Any]]:
+def _detect_higher_low_reversal(df: pd.DataFrame, atr14: Optional[float] = None) -> Optional[Dict[str, Any]]:
     """
     Tier B Pattern: Higher-Low Structure Break
     - 2-bar swing pivots confirm a distinct higher low followed by a break above the intervening swing high.
@@ -705,9 +725,7 @@ def _detect_higher_low_reversal(df: pd.DataFrame, atr14: float) -> Optional[Dict
     if n < 25:
         return None
 
-    highs = df["High"].values
-    lows = df["Low"].values
-    closes = df["Close"].values
+    opens, highs, lows, closes, volumes = _extract_ohlcv(df)
     today_idx = n - 1
     c_today = _safe_float(closes[today_idx])
     c_yesterday = _safe_float(closes[today_idx - 1])
@@ -727,14 +745,11 @@ def _detect_higher_low_reversal(df: pd.DataFrame, atr14: float) -> Optional[Dict
     l1_idx = troughs[-2]
     l2_idx = troughs[-1]
 
-    # l2 must be higher than l1
     if sub_lows[l2_idx] <= sub_lows[l1_idx] * 1.01:
         return None
 
-    # Find peak between l1 and l2
     valid_peaks = [p for p in peaks if l1_idx < p < l2_idx]
     if not valid_peaks:
-        # Fallback to max high between l1 and l2
         h1_val = float(np.max(sub_highs[l1_idx: l2_idx + 1]))
     else:
         h1_val = float(sub_highs[valid_peaks[-1]])
@@ -750,7 +765,7 @@ def _detect_higher_low_reversal(df: pd.DataFrame, atr14: float) -> Optional[Dict
             "higher_low": round(float(sub_lows[l2_idx]), 2),
             "invalidation_level": sl_level,
             "target_resistance": round(target_res, 2),
-            "pattern_quality_score": 17,
+            "pattern_quality_score": 22,
             "description": f"Higher-Low Structure Break (Swing High ₹{h1_val:.2f}, Low ₹{sub_lows[l2_idx]:.2f})",
         }
     return None
@@ -770,11 +785,12 @@ def _detect_confluence_factors(df: pd.DataFrame) -> Tuple[List[str], int]:
     if n < 15:
         return confluences, bonus_pts
 
-    c_today = _safe_float(df["Close"].iloc[-1])
-    o_today = _safe_float(df["Open"].iloc[-1])
-    h_today = _safe_float(df["High"].iloc[-1])
-    l_today = _safe_float(df["Low"].iloc[-1])
-    c_prev = _safe_float(df["Close"].iloc[-2])
+    opens, highs, lows, closes, volumes = _extract_ohlcv(df)
+    c_today = _safe_float(closes[-1])
+    o_today = _safe_float(opens[-1])
+    h_today = _safe_float(highs[-1])
+    l_today = _safe_float(lows[-1])
+    c_prev = _safe_float(closes[-2])
 
     candle_range = h_today - l_today
     body = abs(c_today - o_today)
@@ -810,13 +826,13 @@ def _detect_confluence_factors(df: pd.DataFrame) -> Tuple[List[str], int]:
     if "RSI_14" in df.columns and n >= 25:
         rsi_today = float(df["RSI_14"].iloc[-1])
         rsi_min_past = float(df["RSI_14"].iloc[-15:-1].min())
-        price_min_past = float(df["Low"].iloc[-15:-1].min())
+        price_min_past = float(lows[-15:-1].min())
         if l_today <= price_min_past * 1.01 and rsi_today > rsi_min_past + 3.0:
             confluences.append("RSI_BULLISH_DIVERGENCE")
             bonus_pts += 2
 
-    vol_sma20 = float(df["Volume_SMA20"].iloc[-1]) if "Volume_SMA20" in df.columns else np.mean(df["Volume"].iloc[-20:])
-    if float(df["Volume"].iloc[-1]) >= 1.75 * max(vol_sma20, 1.0):
+    vol_sma20 = float(df["Volume_SMA20"].iloc[-1]) if "Volume_SMA20" in df.columns else np.mean(volumes[-20:])
+    if float(volumes[-1]) >= 1.75 * max(vol_sma20, 1.0):
         confluences.append("INSTITUTIONAL_VOLUME_SURGE")
         bonus_pts += 1
 
@@ -824,124 +840,252 @@ def _detect_confluence_factors(df: pd.DataFrame) -> Tuple[List[str], int]:
 
 
 # =====================================================================================
-# 3. COMMON QUALITY, RISK, AND ANTI-FAKE VALIDATION ENGINE
+# 3. COMMON QUALITY, RISK, ANTI-FAKE & FORENSIC TELEMETRY ENGINE
 # =====================================================================================
 
-def detect_technical_setup(df: pd.DataFrame, symbol: str) -> Optional[Dict[str, Any]]:
+def detect_technical_setup(
+    df: pd.DataFrame,
+    symbol: str,
+    return_trace: bool = False,
+) -> Union[Optional[Dict[str, Any]], Tuple[Optional[Dict[str, Any]], Dict[str, Any]]]:
     """
-    Unified Technical Pattern & Anti-Fake Engine:
+    Unified Technical Pattern & Anti-Fake Engine with Forensic Telemetry:
     
     1. Common Hard Filters:
+       - Candle Gate: Green trigger candle (Close > Open) & Non-zero spread.
        - Liquidity Filter: 20-day Volume >= 25k & Turnover >= ₹50L.
-       - Hard Volume Gate: RVOL >= 1.20x (Strict Reject if Low Volume).
+       - Hard Volume Gate: RVOL >= 1.20x.
        - Close Strength Gate: CLV >= 0.65.
        - Upper Wick Filter: Upper Wick <= 30% of range.
     2. Permissive Pattern Discovery (8 Core Structures).
     3. Pattern-Specific Validation & Volume Signature Matching.
     4. Risk Engine & Room-to-Resistance Hard Gate (>= 1.5R).
     5. Tier C Confluence Boosters.
-    6. Clean 100-Point Additive Scoring Engine.
+    6. Clean 100-Point Additive Scoring Engine (Calibrated Tier-B).
+    7. Forensic Trace Generation (`TECHNICAL_TRACE`).
     """
-    if df is None or df.empty or len(df) < 30:
-        return None
+    now_ist = datetime.now(IST)
+    trading_date = str(df.index[-1]).split(" ")[0] if (df is not None and not df.empty and hasattr(df.index[-1], "strftime")) else now_ist.strftime("%Y-%m-%d")
+    final_bar_ts = str(df.index[-1]) if (df is not None and not df.empty) else now_ist.strftime("%Y-%m-%d %H:%M:%S")
 
-    required_cols = ["Open", "High", "Low", "Close", "Volume"]
-    if not all(col in df.columns for col in required_cols):
-        return None
+    trace: Dict[str, Any] = {
+        "symbol": symbol,
+        "trading_date": trading_date,
+        "final_bar_timestamp": final_bar_ts,
+        "01_UNIVERSE": {
+            "status": "PASS",
+            "reason": "eligible_watchlist_symbol"
+        },
+        "02_COMMON_GATES": {
+            "status": "PENDING",
+            "rejection_code": None,
+        },
+        "03_PATTERN_DISCOVERY": {
+            "patterns_considered": [
+                "BULL_FLAG", "SHAKEOUT_RECLAIM", "DOUBLE_BOTTOM", "V_REVERSAL",
+                "CUP_HANDLE", "ASCENDING_TRIANGLE", "BULL_PENNANT", "HIGHER_LOW_REVERSAL"
+            ],
+            "detected_patterns": [],
+        },
+        "04_PATTERN_VALIDATION": {},
+        "05_RISK": {
+            "status": "PENDING",
+            "rejection_code": None,
+        },
+        "06_SCORE": {},
+        "FINAL": {
+            "status": "REJECTED",
+            "terminal_stage": "INITIALIZATION",
+            "terminal_reason": "DATA_UNAVAILABLE",
+            "observed": {},
+            "required": {},
+        }
+    }
+
+    def _finish(res_obj: Optional[Dict[str, Any]]):
+        if return_trace:
+            return res_obj, trace
+        return res_obj
+
+    if df is None or df.empty or len(df) < 20:
+        trace["FINAL"]["terminal_reason"] = "INSUFFICIENT_BARS"
+        return _finish(None)
+
+    cols_lower = [str(c).lower() for c in df.columns]
+    required_keys = ["open", "high", "low", "close", "volume"]
+    if not all(k in cols_lower for k in required_keys):
+        trace["FINAL"]["terminal_reason"] = "MISSING_OHLCV_COLUMNS"
+        return _finish(None)
 
     if "EMA20" not in df.columns or "ATR_14" not in df.columns or "Volume_SMA20" not in df.columns:
         df = apply_indicators(df, timeframe="1d")
 
-    close_arr = df["Close"].values
-    open_arr = df["Open"].values
-    high_arr = df["High"].values
-    low_arr = df["Low"].values
-    vol_arr = df["Volume"].values
-
+    opens, highs, lows, closes, volumes = _extract_ohlcv(df)
     n = len(df)
     today_idx = n - 1
-    c_today = _safe_float(close_arr[today_idx])
-    o_today = _safe_float(open_arr[today_idx])
-    h_today = _safe_float(high_arr[today_idx])
-    l_today = _safe_float(low_arr[today_idx])
-    v_today = _safe_float(vol_arr[today_idx])
+    c_today = _safe_float(closes[today_idx])
+    o_today = _safe_float(opens[today_idx])
+    h_today = _safe_float(highs[today_idx])
+    l_today = _safe_float(lows[today_idx])
+    v_today = _safe_float(volumes[today_idx])
 
+    trace["FINAL"]["observed"]["cmp"] = c_today
+    trace["FINAL"]["observed"]["open"] = o_today
+    trace["FINAL"]["observed"]["high"] = h_today
+    trace["FINAL"]["observed"]["low"] = l_today
+    trace["FINAL"]["observed"]["volume"] = v_today
+
+    # ── COMMON HARD FILTER 0: GREEN CANDLE & NON-ZERO SPREAD ───────────────────────
     if c_today <= o_today or c_today <= 0:
-        return None
+        trace["02_COMMON_GATES"]["status"] = "REJECT"
+        trace["02_COMMON_GATES"]["rejection_code"] = "RED_CANDLE"
+        trace["FINAL"]["terminal_stage"] = "02_COMMON_GATES"
+        trace["FINAL"]["terminal_reason"] = "RED_CANDLE"
+        trace["FINAL"]["required"]["close_gt_open"] = True
+        return _finish(None)
 
     candle_range = h_today - l_today
     if candle_range <= 0:
-        return None
+        trace["02_COMMON_GATES"]["status"] = "REJECT"
+        trace["02_COMMON_GATES"]["rejection_code"] = "ZERO_RANGE"
+        trace["FINAL"]["terminal_stage"] = "02_COMMON_GATES"
+        trace["FINAL"]["terminal_reason"] = "ZERO_RANGE"
+        return _finish(None)
 
     # ── COMMON HARD FILTER 1: LIQUIDITY & TURNOVER ─────────────────────────────────
-    vol_sma20 = float(df["Volume_SMA20"].iloc[-1]) if "Volume_SMA20" in df.columns else np.mean(vol_arr[-20:])
+    vol_sma20 = float(df["Volume_SMA20"].iloc[-1]) if "Volume_SMA20" in df.columns else np.mean(volumes[-20:])
     avg_turnover = vol_sma20 * c_today
+    avg_turnover_cr = avg_turnover / 10_000_000.0
+
+    trace["02_COMMON_GATES"]["avg_volume"] = round(vol_sma20, 1)
+    trace["02_COMMON_GATES"]["avg_turnover_cr"] = round(avg_turnover_cr, 2)
+
     if vol_sma20 < MIN_AVG_VOLUME and avg_turnover < MIN_AVG_TURNOVER_INR:
-        return None  # REJECT: Illiquid stock
+        trace["02_COMMON_GATES"]["status"] = "REJECT"
+        trace["02_COMMON_GATES"]["rejection_code"] = "ILLIQUID_STOCK"
+        trace["FINAL"]["terminal_stage"] = "02_COMMON_GATES"
+        trace["FINAL"]["terminal_reason"] = "ILLIQUID_STOCK"
+        trace["FINAL"]["required"]["min_avg_volume"] = MIN_AVG_VOLUME
+        trace["FINAL"]["required"]["min_avg_turnover_inr"] = MIN_AVG_TURNOVER_INR
+        return _finish(None)
 
     # ── COMMON HARD FILTER 2: RVOL EXPANSION (>= 1.20x) ─────────────────────────────
     vol_ratio = v_today / max(vol_sma20, 1.0)
+    trace["02_COMMON_GATES"]["rvol"] = round(vol_ratio, 2)
+
     if vol_ratio < MIN_RVOL_HARD_GATE:
-        return None  # REJECT: Low volume breakout / false bounce trap
+        trace["02_COMMON_GATES"]["status"] = "REJECT"
+        trace["02_COMMON_GATES"]["rejection_code"] = "LOW_RVOL"
+        trace["FINAL"]["terminal_stage"] = "02_COMMON_GATES"
+        trace["FINAL"]["terminal_reason"] = "LOW_RVOL"
+        trace["FINAL"]["required"]["rvol_min"] = MIN_RVOL_HARD_GATE
+        return _finish(None)
 
     # ── COMMON HARD FILTER 3: CLOSE STRENGTH (CLV >= 0.65) ──────────────────────────
     clv = (c_today - l_today) / candle_range
+    trace["02_COMMON_GATES"]["clv"] = round(clv, 2)
+
     if clv < MIN_CLV_HARD_GATE:
-        return None  # REJECT: Weak close / faded near lows
+        trace["02_COMMON_GATES"]["status"] = "REJECT"
+        trace["02_COMMON_GATES"]["rejection_code"] = "LOW_CLV"
+        trace["FINAL"]["terminal_stage"] = "02_COMMON_GATES"
+        trace["FINAL"]["terminal_reason"] = "LOW_CLV"
+        trace["FINAL"]["required"]["clv_min"] = MIN_CLV_HARD_GATE
+        return _finish(None)
 
     # ── COMMON HARD FILTER 4: UPPER WICK FILTER (<= 30%) ────────────────────────────
     upper_wick = h_today - max(c_today, o_today)
     upper_wick_pct = upper_wick / candle_range
+    trace["02_COMMON_GATES"]["upper_wick"] = round(upper_wick_pct, 2)
+
     if upper_wick_pct > MAX_UPPER_WICK_PCT:
-        return None  # REJECT: Large upper wick rejection trap
+        trace["02_COMMON_GATES"]["status"] = "REJECT"
+        trace["02_COMMON_GATES"]["rejection_code"] = "EXCESSIVE_UPPER_WICK"
+        trace["FINAL"]["terminal_stage"] = "02_COMMON_GATES"
+        trace["FINAL"]["terminal_reason"] = "EXCESSIVE_UPPER_WICK"
+        trace["FINAL"]["required"]["max_upper_wick_pct"] = MAX_UPPER_WICK_PCT
+        return _finish(None)
+
+    trace["02_COMMON_GATES"]["status"] = "PASS"
 
     atr14 = float(df["ATR_14"].iloc[-1]) if "ATR_14" in df.columns else (c_today * 0.02)
     if atr14 <= 0:
         atr14 = c_today * 0.02
 
     # ── PERMISSIVE PATTERN DISCOVERY (8 PRIMARY STRUCTURES) ─────────────────────────
-    # [WARM-UP PROTECTED GEOMETRIC WINDOW]
-    # Retain the recent 120-bar lookback window for pattern geometric algorithms
-    # while preserving all warm-up computed indicator columns (EMA200, MACD, ATR14, RSI14).
     df_window = df.tail(120).copy() if len(df) > 120 else df
     candidate_patterns = []
 
-    # Tier A Patterns
+    # 1. Bull Flag
     bf = _detect_bull_flag(df_window, atr14)
     if bf:
         candidate_patterns.append(bf)
+        trace["04_PATTERN_VALIDATION"]["BULL_FLAG"] = {"candidate_found": True, "details": bf, "status": "PASS"}
+    else:
+        trace["04_PATTERN_VALIDATION"]["BULL_FLAG"] = {"candidate_found": False, "status": "REJECT"}
 
+    # 2. Shakeout Reclaim
     sr = _detect_shakeout_reclaim(df_window, atr14)
     if sr:
         candidate_patterns.append(sr)
+        trace["04_PATTERN_VALIDATION"]["SHAKEOUT_RECLAIM"] = {"candidate_found": True, "details": sr, "status": "PASS"}
+    else:
+        trace["04_PATTERN_VALIDATION"]["SHAKEOUT_RECLAIM"] = {"candidate_found": False, "status": "REJECT"}
 
+    # 3. Double Bottom
     db = _detect_double_bottom(df_window, atr14)
     if db:
         candidate_patterns.append(db)
+        trace["04_PATTERN_VALIDATION"]["DOUBLE_BOTTOM"] = {"candidate_found": True, "details": db, "status": "PASS"}
+    else:
+        trace["04_PATTERN_VALIDATION"]["DOUBLE_BOTTOM"] = {"candidate_found": False, "status": "REJECT"}
 
+    # 4. V-Reversal
     vr = _detect_v_reversal(df_window, atr14)
     if vr:
         candidate_patterns.append(vr)
+        trace["04_PATTERN_VALIDATION"]["V_REVERSAL"] = {"candidate_found": True, "details": vr, "status": "PASS"}
+    else:
+        trace["04_PATTERN_VALIDATION"]["V_REVERSAL"] = {"candidate_found": False, "status": "REJECT"}
 
-    # Tier B Patterns
+    # 5. Cup & Handle
     ch = _detect_cup_and_handle(df_window, atr14)
     if ch:
         candidate_patterns.append(ch)
+        trace["04_PATTERN_VALIDATION"]["CUP_HANDLE"] = {"candidate_found": True, "details": ch, "status": "PASS"}
+    else:
+        trace["04_PATTERN_VALIDATION"]["CUP_HANDLE"] = {"candidate_found": False, "status": "REJECT"}
 
+    # 6. Ascending Triangle
     at = _detect_ascending_triangle(df_window, atr14)
     if at:
         candidate_patterns.append(at)
+        trace["04_PATTERN_VALIDATION"]["ASCENDING_TRIANGLE"] = {"candidate_found": True, "details": at, "status": "PASS"}
+    else:
+        trace["04_PATTERN_VALIDATION"]["ASCENDING_TRIANGLE"] = {"candidate_found": False, "status": "REJECT"}
 
+    # 7. Bull Pennant
     bp = _detect_bull_pennant(df_window, atr14)
     if bp:
         candidate_patterns.append(bp)
+        trace["04_PATTERN_VALIDATION"]["BULL_PENNANT"] = {"candidate_found": True, "details": bp, "status": "PASS"}
+    else:
+        trace["04_PATTERN_VALIDATION"]["BULL_PENNANT"] = {"candidate_found": False, "status": "REJECT"}
 
+    # 8. Higher Low Reversal
     hl = _detect_higher_low_reversal(df_window, atr14)
     if hl:
         candidate_patterns.append(hl)
+        trace["04_PATTERN_VALIDATION"]["HIGHER_LOW_REVERSAL"] = {"candidate_found": True, "details": hl, "status": "PASS"}
+    else:
+        trace["04_PATTERN_VALIDATION"]["HIGHER_LOW_REVERSAL"] = {"candidate_found": False, "status": "REJECT"}
+
+    trace["03_PATTERN_DISCOVERY"]["detected_patterns"] = [p["pattern"] for p in candidate_patterns]
 
     if not candidate_patterns:
-        return None
+        trace["FINAL"]["terminal_stage"] = "03_PATTERN_DISCOVERY"
+        trace["FINAL"]["terminal_reason"] = "NO_VALID_PATTERN"
+        return _finish(None)
 
     # Primary pattern ranking hierarchy
     PATTERN_PRIORITY_RANK = {
@@ -971,45 +1115,59 @@ def detect_technical_setup(df: pd.DataFrame, symbol: str) -> Optional[Dict[str, 
     stop_loss = round(c_today - risk_points, 2)
     risk_pct = round((risk_points / c_today) * 100.0, 2)
 
-    # Dynamic R:R Targets
     target_1 = round(c_today + (1.5 * risk_points), 2)
     target_2 = round(c_today + (3.0 * risk_points), 2)
     target_3 = round(c_today + (5.0 * risk_points), 2)
     rr_1 = round((target_1 - c_today) / max(risk_points, 0.01), 2)
 
-    # ── ROOM TO OVERHEAD RESISTANCE HARD GATE (>= 1.5R) ─────────────────────────────
-    # Use pattern-specific target resistance level
     target_res = primary.get("target_resistance", c_today * 1.15)
     room_to_resistance_points = target_res - c_today
     room_to_resistance_r = room_to_resistance_points / max(risk_points, 0.01)
 
-    # If the pattern's overhead resistance is too close (< 1.5R), reject
+    trace["05_RISK"]["sl"] = stop_loss
+    trace["05_RISK"]["target_1"] = target_1
+    trace["05_RISK"]["target_2"] = target_2
+    trace["05_RISK"]["target_3"] = target_3
+    trace["05_RISK"]["risk_pct"] = risk_pct
+    trace["05_RISK"]["natural_rr"] = rr_1
+    trace["05_RISK"]["target_resistance"] = target_res
+    trace["05_RISK"]["room_r"] = round(room_to_resistance_r, 2)
+
+    # Room-to-Resistance Hard Gate (>= 1.5R)
     if room_to_resistance_r < MIN_ROOM_TO_RESISTANCE_R and target_res > c_today:
-        return None  # REJECT: Insufficient room to overhead resistance
+        trace["05_RISK"]["status"] = "REJECT"
+        trace["05_RISK"]["rejection_code"] = f"{primary['pattern']}_ROOM_LT_1_5R"
+        trace["FINAL"]["terminal_stage"] = "05_RISK"
+        trace["FINAL"]["terminal_reason"] = f"{primary['pattern']}_ROOM_LT_1_5R"
+        trace["FINAL"]["required"]["min_room_r"] = MIN_ROOM_TO_RESISTANCE_R
+        trace["FINAL"]["observed"]["room_r"] = round(room_to_resistance_r, 2)
+        return _finish(None)
+
+    trace["05_RISK"]["status"] = "PASS"
 
     # ── TIER C CONFLUENCE BOOSTERS ──────────────────────────────────────────────────
     confluences, confluence_pts = _detect_confluence_factors(df)
 
     # ── CLEAN 100-POINT ADDITIVE SCORING SYSTEM ────────────────────────────────────
     # 1. Pattern Quality (0 to 25 pts)
-    score_pattern = float(primary.get("pattern_quality_score", 20))
+    score_pattern = float(primary.get("pattern_quality_score", 22))
 
     # 2. Volume Confirmation & Signature (0 to 25 pts)
-    score_volume = 15.0  # Base for passing RVOL >= 1.20x
+    score_volume = 16.0  # Base for passing RVOL >= 1.20x
     if vol_ratio >= 2.0:
-        score_volume += 10.0
+        score_volume += 9.0
     elif vol_ratio >= 1.5:
         score_volume += 6.0
-    elif vol_ratio >= 1.3:
+    elif vol_ratio >= 1.35:
         score_volume += 3.0
 
     # 3. Price Action & Close Quality (0 to 20 pts)
     if clv >= 0.85 and upper_wick_pct <= 0.15:
         score_price_action = 20.0
-    elif clv >= 0.70 and upper_wick_pct <= 0.25:
-        score_price_action = 16.0
+    elif clv >= 0.75 and upper_wick_pct <= 0.25:
+        score_price_action = 17.0
     else:
-        score_price_action = 12.0
+        score_price_action = 14.0
 
     # 4. Structure & Cleanliness (0 to 15 pts)
     score_structure = 12.0
@@ -1030,9 +1188,33 @@ def detect_technical_setup(df: pd.DataFrame, symbol: str) -> Optional[Dict[str, 
     total_score = int(score_pattern + score_volume + score_price_action + score_structure + score_risk + score_confluence)
     total_score = min(100, max(0, total_score))
 
-    # Minimum threshold to qualify for an alert
+    # Unified Score Breakdown Schema (Canonical dual-schema)
+    score_breakdown = {
+        "pattern": int(score_pattern),
+        "volume": int(score_volume),
+        "price_action": int(score_price_action),
+        "structure": int(score_structure),
+        "risk": int(score_risk),
+        "confluence": int(score_confluence),
+        "total": total_score,
+        "pattern_score": int(score_pattern),
+        "volume_score": int(score_volume),
+        "price_action_score": int(score_price_action),
+        "structure_score": int(score_structure),
+        "risk_score": int(score_risk),
+        "confluence_score": int(score_confluence),
+        "total_score": total_score,
+    }
+
+    trace["06_SCORE"] = score_breakdown
+    trace["06_SCORE"]["status"] = "PASS" if total_score >= 70 else "REJECT"
+
     if total_score < 70:
-        return None  # REJECT: Sub-threshold quality
+        trace["FINAL"]["terminal_stage"] = "06_SCORE"
+        trace["FINAL"]["terminal_reason"] = "SCORE_BELOW_70"
+        trace["FINAL"]["required"]["min_score"] = 70
+        trace["FINAL"]["observed"]["score"] = total_score
+        return _finish(None)
 
     # Classification Hierarchy
     if total_score >= 90:
@@ -1042,7 +1224,12 @@ def detect_technical_setup(df: pd.DataFrame, symbol: str) -> Optional[Dict[str, 
     else:
         classification = "⚡ STRONG"
 
-    return {
+    trace["FINAL"]["status"] = "SELECTED"
+    trace["FINAL"]["terminal_stage"] = "FINAL"
+    trace["FINAL"]["terminal_reason"] = f"ALL_HARD_GATES_PASS_SCORE_{total_score}"
+    trace["FINAL"]["selected_pattern"] = primary["pattern"]
+
+    res_payload = {
         "symbol": symbol,
         "cmp": c_today,
         "entry_price": c_today,
@@ -1061,23 +1248,19 @@ def detect_technical_setup(df: pd.DataFrame, symbol: str) -> Optional[Dict[str, 
         "room_to_resistance_r": round(room_to_resistance_r, 1),
         "score": total_score,
         "classification": classification,
-        "score_breakdown": {
-            "pattern": int(score_pattern),
-            "volume": int(score_volume),
-            "price_action": int(score_price_action),
-            "structure": int(score_structure),
-            "risk": int(score_risk),
-            "confluence": int(score_confluence),
-        },
+        "score_breakdown": score_breakdown,
         "clv": round(clv, 2),
         "upper_wick_pct": round(upper_wick_pct, 2),
         "rvol": round(vol_ratio, 2),
-        "alert_time": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
+        "alert_time": now_ist.strftime("%Y-%m-%d %H:%M:%S"),
+        "technical_trace": trace,
     }
+
+    return _finish(res_payload)
 
 
 # =====================================================================================
-# 4. SCANNER EXECUTION RUNNER
+# 4. SCANNER EXECUTION RUNNER WITH FUNNEL CONSERVATION
 # =====================================================================================
 
 def run_technical_scan(
@@ -1155,7 +1338,7 @@ def run_technical_scan(
             except Exception as exc:
                 if "actively running" in str(exc).lower():
                     logger.info("🛑 [TECHNICAL] Scanner is ALREADY actively running. Skipping duplicate execution.")
-                    return
+                    return 0
                 logger.warning(f"⚠️ [TECHNICAL] Could not create run_ctx: {exc}")
                 real_run_ctx = None
 
@@ -1167,7 +1350,7 @@ def run_technical_scan(
             scheduled_for="Daily 18:15 IST (Post-Close Technical Scan)",
         )
 
-        # 1. Fetch Universe Watchlist (From Daily Builder master universe)
+        # 1. Fetch Universe Watchlist
         wl_df = get_watchlist("TECHNICAL")
         if isinstance(wl_df, pd.DataFrame) and "Stock" in wl_df.columns:
             watchlist = wl_df["Stock"].dropna().tolist()
@@ -1201,7 +1384,7 @@ def run_technical_scan(
 
         logger.info(f"📋 [TECHNICAL] Screening {len(watchlist)} universe stocks on Daily timeframe...")
 
-        # 2. Fetch 1d OHLCV Data for Watchlist (with delta caching and heartbeat tracking)
+        # 2. Fetch 1d OHLCV Data for Watchlist
         all_1d = fetch_watchlist_data(
             watchlist,
             period="1y",
@@ -1211,23 +1394,51 @@ def run_technical_scan(
         )
 
         qualified_candidates: List[Dict[str, Any]] = []
-        alerts_saved = 0
+        rejection_counts: Dict[str, int] = {}
+        funnel_stats = {
+            "universe": len(watchlist),
+            "data_fetched": 0,
+            "common_gates_pass": 0,
+            "pattern_candidates": 0,
+            "risk_pass": 0,
+            "score_pass": 0,
+            "final_alerts": 0,
+        }
 
         for symbol in watchlist:
             df = all_1d.get(symbol)
             if df is None or df.empty:
+                rejection_counts["NO_DATA"] = rejection_counts.get("NO_DATA", 0) + 1
                 continue
 
+            funnel_stats["data_fetched"] += 1
+
             try:
-                res = detect_technical_setup(df, symbol)
+                res, tr = detect_technical_setup(df, symbol, return_trace=True)
+                
+                # Funnel accounting based on structured trace
+                if tr["02_COMMON_GATES"]["status"] == "PASS":
+                    funnel_stats["common_gates_pass"] += 1
+                    
+                if len(tr["03_PATTERN_DISCOVERY"]["detected_patterns"]) > 0:
+                    funnel_stats["pattern_candidates"] += 1
+                    
+                if tr["05_RISK"]["status"] == "PASS":
+                    funnel_stats["risk_pass"] += 1
+                    
+                if tr["06_SCORE"].get("status") == "PASS":
+                    funnel_stats["score_pass"] += 1
+
                 if res and res.get("score", 0) >= 70:
                     qualified_candidates.append(res)
+                else:
+                    term_reason = tr["FINAL"].get("terminal_reason", "UNKNOWN_REJECTION")
+                    rejection_counts[term_reason] = rejection_counts.get(term_reason, 0) + 1
             except Exception as e:
                 logger.debug(f"Error evaluating {symbol} in technical scanner: {e}")
+                rejection_counts["EXCEPTION"] = rejection_counts.get("EXCEPTION", 0) + 1
 
-        logger.info(
-            f"🎯 [TECHNICAL] Screened {len(watchlist)} symbols -> Found {len(qualified_candidates)} qualified Technical setups!"
-        )
+        alerts_saved = 0
 
         # 3. Sort by Score and Register Breakout Alerts
         qualified_candidates.sort(key=lambda x: x["score"], reverse=True)
@@ -1316,6 +1527,29 @@ def run_technical_scan(
                         queue_telegram_message(tg_msg, symbol=sym)
                     except Exception as _tg_err:
                         logger.debug(f"Telegram notification dispatch error: {_tg_err}")
+                else:
+                    rejection_counts[f"PERSISTENCE_{reason}"] = rejection_counts.get(f"PERSISTENCE_{reason}", 0) + 1
+            else:
+                alerts_saved += 1
+
+        funnel_stats["final_alerts"] = alerts_saved
+
+        # 4. Print Forensic Funnel Summary & Rejection Accounting
+        logger.info("=" * 70)
+        logger.info("📊 [TECHNICAL SCANNER FUNNEL SUMMARY]")
+        logger.info("=" * 70)
+        logger.info(f"  Universe Evaluated:             {funnel_stats['universe']}")
+        logger.info(f"  Data Fetched:                   {funnel_stats['data_fetched']}")
+        logger.info(f"  Common Gates Passed:            {funnel_stats['common_gates_pass']}")
+        logger.info(f"  Pattern Candidates Discovered:  {funnel_stats['pattern_candidates']}")
+        logger.info(f"  Risk / Room to Res Passed:      {funnel_stats['risk_pass']}")
+        logger.info(f"  Score Passed (Score >= 70):     {funnel_stats['score_pass']}")
+        logger.info(f"  Final Alerts Saved:             {funnel_stats['final_alerts']}")
+        logger.info("-" * 70)
+        logger.info("  TERMINAL REJECTIONS BREAKDOWN:")
+        for r_code, r_cnt in sorted(rejection_counts.items(), key=lambda x: -x[1]):
+            logger.info(f"    * {r_code:<32}: {r_cnt}")
+        logger.info("=" * 70)
 
         duration = round(time.monotonic() - start_time, 2)
         logger.info(
@@ -1377,4 +1611,3 @@ def run_technical_scan(
                 _scan_lock.release()
             except Exception as _se:
                 logger.debug(f"Error releasing scan lock: {_se}")
-
