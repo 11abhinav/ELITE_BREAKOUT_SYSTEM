@@ -424,6 +424,15 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
                         age = cadence + 1
 
                     if age < cadence:
+                        if interval == "1d":
+                            df_d = sym_entry["data"]
+                            t_col = 'Date' if 'Date' in df_d.columns else ('Datetime' if 'Datetime' in df_d.columns else None)
+                            last_bar_ts = df_d[t_col].iloc[-1] if t_col else (df_d.index[-1] if not df_d.index.empty else None)
+                            if last_bar_ts is not None:
+                                from market_utils import get_expected_latest_closed_daily_bar
+                                if pd.to_datetime(last_bar_ts).date() < get_expected_latest_closed_daily_bar():
+                                    still_missing.append(s)
+                                    continue
                         cached_result[s] = sym_entry["data"]
                         continue
                 still_missing.append(s)
@@ -482,9 +491,10 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
         for symbol, df in result.items():
             if df is not None and isinstance(df, pd.DataFrame) and not df.empty:
                 provider_name = getattr(df, 'attrs', {}).get('provider', 'unknown')
+                is_stale = getattr(df, 'attrs', {}).get('is_stale', False)
                 _cache[cache_key][symbol] = {
                     "data": df,
-                    "ts": now_mono,
+                    "ts": 0 if is_stale else now_mono,
                     "timestamp": time.time(),
                     "data_as_of": data_as_of,
                     "provider": provider_name,
@@ -492,7 +502,7 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
                     "fetch_interval": interval,
                     "fetch_period": period
                 }
-                # [RULE 67 CHANGE-RATIONALE]: Ensure newly fetched DataFrames are populated into cached_result so final_res returns them to caller
+                # Ensure newly fetched DataFrames are populated into cached_result so final_res returns them to caller
                 cached_result[symbol] = df
             else:
                 cached_result[symbol] = None
@@ -1870,15 +1880,26 @@ def get_cached_df(symbol: str, interval: str = "1d", period: str = "1y") -> pd.D
                 if df is not None and not df.empty:
                     from trading_calendar import enforce_trading_day_candles
                     df = enforce_trading_day_candles(df, symbol)
-                    # [RULE 67 CHANGE-RATIONALE]: Cache disk-read dataframe in RAM to eliminate redundant disk scans
-                    with _lock:
-                        if key not in _cache or not isinstance(_cache[key], dict):
-                            _cache[key] = {}
-                        _cache[key][symbol] = {
-                            "data": df,
-                            "ts": time.monotonic(),
-                            "timestamp": time.time()
-                        }
+                    
+                    # Only populate RAM cache if data is fresh (meets expected latest closed daily bar)
+                    is_fresh = True
+                    if interval == "1d":
+                        t_col = 'Date' if 'Date' in df.columns else ('Datetime' if 'Datetime' in df.columns else None)
+                        last_bar_ts = df[t_col].iloc[-1] if t_col else (df.index[-1] if not df.index.empty else None)
+                        if last_bar_ts is not None:
+                            from market_utils import get_expected_latest_closed_daily_bar
+                            if pd.to_datetime(last_bar_ts).date() < get_expected_latest_closed_daily_bar():
+                                is_fresh = False
+
+                    if is_fresh:
+                        with _lock:
+                            if key not in _cache or not isinstance(_cache[key], dict):
+                                _cache[key] = {}
+                            _cache[key][symbol] = {
+                                "data": df,
+                                "ts": time.monotonic(),
+                                "timestamp": time.time()
+                            }
                     return df
             except Exception:
                 pass

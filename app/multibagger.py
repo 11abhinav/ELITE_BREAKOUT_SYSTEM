@@ -1,4 +1,15 @@
-from scanner_telemetry import ScannerDecisionLogger, global_telemetry
+import sys
+import os
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_ROOT_DIR = os.path.abspath(os.path.join(_APP_DIR, ".."))
+for _p in (_APP_DIR, _ROOT_DIR):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+try:
+    from app.scanner_telemetry import ScannerDecisionLogger, global_telemetry
+except ImportError:
+    from scanner_telemetry import ScannerDecisionLogger, global_telemetry
 import time as _time
 # =====================================================================================
 # app/multibagger.py
@@ -683,8 +694,9 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
         return any(os.path.exists(os.path.join(history_dir, f"{v}.parquet")) for v in variants)
 
     ist_now = datetime.now(IST)
-    # 🚀 OFF-MARKET INSTANT PARQUET LOAD: If local disk cache has >= 90% of universe and market is closed,
-    # load directly from disk and fetch only the missing tickers (<0.5s total)
+    # 🚀 OFF-MARKET INSTANT PARQUET LOAD & FRESHNESS REFRESH
+    # 1. Load cached parquets and verify last_trade_date against expected completed trading session.
+    # 2. For any symbol missing or stale (< expected trading date), fetch delta, merge, and persist.
     if not is_market_open(ist_now):
         from price_cache import get_cached_df, fetch_unified_historical
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -695,7 +707,7 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
             df_sym = get_cached_df(s, interval="1d", period="1y")
             if df_sym is not None and not df_sym.empty:
                 parsed_spd = _parse_single_symbol_price_data(s, df_sym, ist_now, strip_forming=False)
-                if parsed_spd is not None:
+                if parsed_spd is not None and not _is_stale_trade_date(getattr(parsed_spd, 'last_trade_date', '')):
                     return s, parsed_spd
             return s, None
 
@@ -708,42 +720,39 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
                 else:
                     missing_syms.append(s)
 
-        # If < 90% of symbols exist on disk, attempt to restore history bundle from DB and retry loading
-        if len(disk_results) < int(len(symbols) * 0.90):
+        if missing_syms and len(disk_results) < int(len(symbols) * 0.85):
+            logger.info(f"⚡ [MULTIBAGGER DATA ACQUISITION] {len(disk_results)}/{len(symbols)} fresh stocks loaded from cache. Fetching missing delta for {len(missing_syms)} ticker(s)...")
             try:
-                from database import restore_history_bundle_from_db
-                restore_history_bundle_from_db("1d")
-            except Exception as _res_err:
-                logger.debug(f"History bundle DB restore check: {_res_err}")
+                missing_dict = fetch_unified_historical(missing_syms, interval="1d", period="1y", requester="multibagger")
+                if missing_dict:
+                    for ms, m_df in missing_dict.items():
+                        if m_df is not None and not m_df.empty:
+                            m_spd = _parse_single_symbol_price_data(ms, m_df, ist_now, strip_forming=False)
+                            if m_spd is not None and not _is_stale_trade_date(getattr(m_spd, 'last_trade_date', '')):
+                                disk_results[ms] = m_spd
+            except Exception as _m_err:
+                logger.warning(f"Failed to batch fetch missing symbols in multibagger: {_m_err}")
+        elif missing_syms:
+            logger.info(f"⚡ [MULTIBAGGER DATA ACQUISITION] {len(disk_results)}/{len(symbols)} (>= 85%) fresh stocks verified in cache. Skipping missing {len(missing_syms)} unresolvable/delisted ticker(s).")
 
-            # Retry loading missing symbols
-            still_missing = []
-            with ThreadPoolExecutor(max_workers=24) as retry_executor:
-                retry_futures = [retry_executor.submit(_load_single, s) for s in missing_syms]
-                missing_syms = []
-                for future in as_completed(retry_futures):
-                    s, parsed_spd = future.result()
-                    if parsed_spd is not None:
-                        disk_results[s] = parsed_spd
-                    else:
-                        missing_syms.append(s)
+        from market_utils import get_expected_latest_closed_daily_bar
+        expected_closed_date = str(get_expected_latest_closed_daily_bar())
+        stale_remaining = len(symbols) - len(disk_results)
+        logger.info(
+            f"\n================================================================================\n"
+            f"📊 [MARKET DATA ACQUISITION & FRESHNESS AUDIT]\n"
+            f"================================================================================\n"
+            f"  • EXPECTED CLOSED DATE          : {expected_closed_date}\n"
+            f"  • TOTAL UNIVERSE CONSTITUENTS   : {len(symbols)}\n"
+            f"  • SYMBOLS REQUIRING REFRESH     : {len(missing_syms)}\n"
+            f"  • FRESH AFTER MERGE             : {len(disk_results)}\n"
+            f"  • STALE AFTER ALL FALLBACKS     : {stale_remaining}\n"
+            f"  • SYNTHETIC ACCEPTED            : 0\n"
+            f"================================================================================\n"
+        )
 
-        # If >= 90% of symbols exist on disk, fast-path load them and fetch only the missing ones
-        if len(disk_results) >= int(len(symbols) * 0.90):
-            if missing_syms:
-                logger.info(f"⚡ [MULTIBAGGER DISK ACCELERATION] {len(disk_results)}/{len(symbols)} loaded from disk cache. Batch fetching {len(missing_syms)} missing ticker(s)...")
-                try:
-                    missing_dict = fetch_unified_historical(missing_syms, interval="1d", period="1y", requester="multibagger")
-                    if missing_dict:
-                        for ms, m_df in missing_dict.items():
-                            if m_df is not None and not m_df.empty:
-                                m_spd = _parse_single_symbol_price_data(ms, m_df, ist_now, strip_forming=False)
-                                if m_spd is not None:
-                                    disk_results[ms] = m_spd
-                except Exception as _m_err:
-                    logger.warning(f"Failed to batch fetch missing symbols in multibagger: {_m_err}")
-
-            logger.info(f"⚡ [MULTIBAGGER DISK ACCELERATION] Fast-path loaded {len(disk_results)}/{len(symbols)} StockPriceData objects (Market Closed).")
+        if len(disk_results) >= int(len(symbols) * 0.85):
+            logger.info(f"⚡ [MULTIBAGGER DATA ACQUISITION] Successfully acquired {len(disk_results)}/{len(symbols)} verified fresh StockPriceData objects (Market Closed).")
             return disk_results
 
     BATCH_SIZE = int(os.environ.get("MULTIBAGGER_FETCH_BATCH_SIZE", "200"))
@@ -1243,6 +1252,58 @@ def classify_conviction(cqs: float, pas: float, trend: float, composite: float, 
     else:
         return "Invalidated", composite
 
+def decompose_conviction_failure(
+    cqs: float,
+    pas: float,
+    trend: float,
+    regime_adjusted_score: float,
+    f_score: Optional[int],
+    pledge_ratio: Optional[float],
+    market_regime: str,
+    tier: str
+) -> tuple[str, list[str]]:
+    """
+    Forensically decomposes why a candidate failed to reach Prime Multibagger or High Quality tier.
+    Returns (primary_fail_reason, list_of_all_fail_reasons).
+    """
+    fails = []
+    clean_pledge = pledge_ratio is not None and pledge_ratio <= 0.15
+
+    if regime_adjusted_score < 65.0:
+        fails.append("SCORE_LT_65")
+    if cqs < 60.0:
+        fails.append("CQS_LT_60")
+    elif market_regime == "BEAR" and cqs < 65.0 and regime_adjusted_score >= 65.0 and trend >= 10.0 and clean_pledge:
+        fails.append("BEAR_DEMOTION_CQS_LT_65")
+    if trend < 10.0:
+        fails.append("TREND_LT_10")
+    if pledge_ratio is None:
+        fails.append("PLEDGE_UNKNOWN")
+    elif pledge_ratio > 0.15:
+        fails.append("PLEDGE_GT_15")
+
+    # Prime-specific requirements (informational)
+    if pas < 50.0:
+        fails.append("PAS_LT_50")
+    if f_score is None:
+        fails.append("PIOTROSKI_MISSING")
+    elif f_score < 7:
+        fails.append("PIOTROSKI_LT_7")
+
+    # Core gates for High Quality:
+    core_fails = [f for f in fails if not (f.startswith("PIOTROSKI") or f.startswith("PAS"))]
+    if len(core_fails) > 1:
+        primary = "MULTIPLE_FAIL"
+    elif len(core_fails) == 1:
+        primary = core_fails[0]
+    elif len(fails) > 0:
+        primary = fails[0]
+    else:
+        primary = "BELOW_TIER_CUTOFF"
+
+    return primary, fails
+
+
 def entry_confirmed(price_data: StockPriceData) -> tuple:
     """
     Ensures technical stabilization before entry.
@@ -1545,15 +1606,14 @@ def _is_stale_trade_date(last_trade_date, max_business_days=3):
     if not last_trade_date:
         return True  # No date => treat as stale
     try:
-        import numpy as np
+        from market_utils import get_expected_latest_closed_daily_bar
         clean_date_str = str(last_trade_date)[:10]
-        start = np.datetime64(clean_date_str)
-        end = np.datetime64(datetime.now(IST).date())
-        # [FIX ISSUE-4] >= max_business_days: trade exactly 3 business days old is stale
-        return int(np.busday_count(start, end)) >= max_business_days
+        trade_dt = datetime.strptime(clean_date_str, "%Y-%m-%d").date()
+        expected_closed_date = get_expected_latest_closed_daily_bar()
+        return trade_dt < expected_closed_date
     except Exception as exc:
         logger.warning(f"Unable to validate trade date {last_trade_date}: {exc}")
-        return True  # [FIX ISSUE-3] Fail closed on error => treat as stale
+        return True  # Fail closed on error => treat as stale
 
 def normalize_ratio(value):
     if value is None or (isinstance(value, float) and pd.isna(value)):
@@ -3076,7 +3136,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
 
     # 4. Phase 3: Peer-aware scoring & buy zone assessment
     stage_tracker.end_stage(f"Loaded {len(fundamentals_list)} fundamentals ({cached_count if 'cached_count' in locals() else 0} from DB cache)")
-    stage_tracker.start_stage(3, "V5 Quant & Fundamental Evaluation Pipeline", f"Target: {len(fundamentals_list)} stocks")
+    stage_tracker.start_stage(3, "Pre-Score Quality & V5 Quant Evaluation Pipeline", f"Target: {len(fundamentals_list)} stocks")
     waterfall.set_stage_count("3_FUNDAMENTALS_LOADED", len([f for f in fundamentals_list if not f.get("failed")]))
     from valuation_utils import compute_peer_medians
 
@@ -3111,6 +3171,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         "total_ms": []
     }
     eval_stats_lock = threading.Lock()
+    _conviction_decomp_items = []
+    _conviction_decomp_lock = threading.Lock()
 
     def _eval_item(f):
         import time
@@ -3132,7 +3194,68 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: NO_PRICE_DATA")
             return
 
-        # 1. Pass the raw dictionary directly to the V5 Pipeline
+        # 1. Early Prerequisite Data Integrity & Technical Sanity Gates
+        if _is_stale_trade_date(getattr(price_data, 'last_trade_date', '')):
+            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: STALE_DATA | Last trade: {getattr(price_data, 'last_trade_date', 'unknown')}")
+            terminal_tracker.record_terminal(sym, "STALE_DATA", f"Stale trade date: {getattr(price_data, 'last_trade_date', 'unknown')}")
+            append_rejection(results, sym, "STALE_DATA", f"Stale trade date: {getattr(price_data, 'last_trade_date', 'unknown')}", price=price_data.price, price_data=price_data, raw_fundamentals=f)
+            t_eval_end_rej = time.perf_counter()
+            with eval_stats_lock:
+                eval_stats["count"] += 1
+                eval_stats["pledge_ms"].append(0.0)
+                eval_stats["quality_gate_ms"].append(0.0)
+                eval_stats["pipeline_ms"].append(0.0)
+                eval_stats["inst_bonus_ms"].append(0.0)
+                eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
+            return
+
+        if price_data.sma_200 <= 0 or price_data.ema_20 <= 0 or price_data.sma_50 <= 0 or price_data.price <= 0:
+            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: AMBIGUOUS_TECHNICALS")
+            terminal_tracker.record_terminal(sym, "AMBIGUOUS_TECHNICALS", "Ambiguous Moving Averages")
+            with _eval_lock:
+                rejection_funnel["ambiguous_technicals"] += 1
+            append_rejection(results, sym, "TECHNICAL_UNAVAILABLE", "Ambiguous Technicals", price=price_data.price, price_data=price_data, raw_fundamentals=f)
+            t_eval_end_rej = time.perf_counter()
+            with eval_stats_lock:
+                eval_stats["count"] += 1
+                eval_stats["pledge_ms"].append(0.0)
+                eval_stats["quality_gate_ms"].append(0.0)
+                eval_stats["pipeline_ms"].append(0.0)
+                eval_stats["inst_bonus_ms"].append(0.0)
+                eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
+            return
+
+        if f.get("data_freshness") == "FALLBACK":
+            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: FALLBACK_DATA")
+            terminal_tracker.record_terminal(sym, "FALLBACK_DATA", "Fallback Fundamentals")
+            append_rejection(results, sym, "FALLBACK_DATA", "Fallback Fundamentals", price=price_data.price, price_data=price_data, raw_fundamentals=f)
+            t_eval_end_rej = time.perf_counter()
+            with eval_stats_lock:
+                eval_stats["count"] += 1
+                eval_stats["pledge_ms"].append(0.0)
+                eval_stats["quality_gate_ms"].append(0.0)
+                eval_stats["pipeline_ms"].append(0.0)
+                eval_stats["inst_bonus_ms"].append(0.0)
+                eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
+            return
+
+        if price_data.latest_volume <= 0 or price_data.volume_sma20 <= 0:
+            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: VOLUME_UNAVAILABLE")
+            terminal_tracker.record_terminal(sym, "VOLUME_UNAVAILABLE", "Volume data unavailable")
+            with _eval_lock:
+                rejection_funnel["volume_unavailable"] += 1
+            append_rejection(results, sym, "VOLUME_UNAVAILABLE", "Volume data unavailable", price=price_data.price, price_data=price_data, raw_fundamentals=f)
+            t_eval_end_rej = time.perf_counter()
+            with eval_stats_lock:
+                eval_stats["count"] += 1
+                eval_stats["pledge_ms"].append(0.0)
+                eval_stats["quality_gate_ms"].append(0.0)
+                eval_stats["pipeline_ms"].append(0.0)
+                eval_stats["inst_bonus_ms"].append(0.0)
+                eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
+            return
+
+        # 2. Build fundamentals payload for V5 Pipeline
         raw_fundamentals = f.copy()
 
         # Inject computed technical data for V5 Market Structure Engine (Momentum)
@@ -3144,8 +3267,6 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         if getattr(price_data, 'volume_sma20', 0) > 0:
             raw_fundamentals["relative_volume_10d"] = price_data.latest_volume / price_data.volume_sma20
         else:
-            # [FIX ISSUE-6] Unknown volume set to None, not favorable 1.0.
-            # 1.0 pretends normal volume and inflates the candidate's score.
             raw_fundamentals["relative_volume_10d"] = None
 
         # Calculate proxy RS Rating from 6-month momentum
@@ -3160,13 +3281,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         else: rs = 25.0
         raw_fundamentals["rs_rating"] = rs
 
-        # [FIX] Issue #2: Use actual forensic_flags instead of hardcoded False
-        # forensic_flags >= 2 means auditor/accounting red flags detected
         forensic_count = raw_fundamentals.get("forensic_flags", 0)
         raw_fundamentals["auditor_flags"] = (forensic_count >= 2)
 
-        # [VERSION: PLEDGE_EXTRACT_FIX_v1.0] Populate promoter_pledge_pct from pledge cache DB
-        # Set to None/null if missing or unverified instead of defaulting to 0.0
+        # Populate promoter_pledge_pct from pledge cache DB
         t_pledge_0 = time.perf_counter()
         pledge_dur = 0.0
         if "promoter_pledge_pct" not in raw_fundamentals or raw_fundamentals.get("promoter_pledge_pct") in (None, 0.0):
@@ -3174,7 +3292,6 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
                 from pledge_scraper import fetch_promoter_pledge
                 pledge_val = fetch_promoter_pledge(sym)
                 if pledge_val is not None:
-                    # Gate engine expects a ratio (0.0-1.0), not a percentage
                     raw_fundamentals["promoter_pledge_pct"] = pledge_val / 100.0
                 else:
                     unverified_pledge_count += 1
@@ -3192,70 +3309,6 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             "ema_20": price_data.ema_20,
             "atr": price_data.atr_14,
         }
-
-        # 2. Early Ambiguity & Quality Gates
-        if price_data.sma_200 <= 0 or price_data.ema_20 <= 0 or price_data.sma_50 <= 0 or price_data.price <= 0:
-            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: AMBIGUOUS_TECHNICALS")
-            terminal_tracker.record_terminal(sym, "AMBIGUOUS_TECHNICALS", "Ambiguous Moving Averages")
-            with _eval_lock:
-                rejection_funnel["ambiguous_technicals"] += 1
-            append_rejection(results, sym, "TECHNICAL_UNAVAILABLE", "Ambiguous Technicals", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
-            t_eval_end_rej = time.perf_counter()
-            with eval_stats_lock:
-                eval_stats["count"] += 1
-                eval_stats["pledge_ms"].append(pledge_dur)
-                eval_stats["quality_gate_ms"].append(0.0)
-                eval_stats["pipeline_ms"].append(0.0)
-                eval_stats["inst_bonus_ms"].append(0.0)
-                eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
-            return
-
-        # [FIX-2] Reject stale entries — if the last trade was >= 3 business days ago
-        if _is_stale_trade_date(getattr(price_data, 'last_trade_date', '')):
-            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: STALE_DATA | Last trade: {getattr(price_data, 'last_trade_date', 'unknown')}")
-            terminal_tracker.record_terminal(sym, "STALE_DATA", f"Stale trade date: {getattr(price_data, 'last_trade_date', 'unknown')}")
-            append_rejection(results, sym, "STALE_DATA", f"Stale trade date: {getattr(price_data, 'last_trade_date', 'unknown')}", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
-            t_eval_end_rej = time.perf_counter()
-            with eval_stats_lock:
-                eval_stats["count"] += 1
-                eval_stats["pledge_ms"].append(pledge_dur)
-                eval_stats["quality_gate_ms"].append(0.0)
-                eval_stats["pipeline_ms"].append(0.0)
-                eval_stats["inst_bonus_ms"].append(0.0)
-                eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
-            return
-
-        if raw_fundamentals.get("data_freshness") == "FALLBACK":
-            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: FALLBACK_DATA")
-            terminal_tracker.record_terminal(sym, "FALLBACK_DATA", "Fallback Fundamentals")
-            append_rejection(results, sym, "FALLBACK_DATA", "Fallback Fundamentals", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
-            t_eval_end_rej = time.perf_counter()
-            with eval_stats_lock:
-                eval_stats["count"] += 1
-                eval_stats["pledge_ms"].append(pledge_dur)
-                eval_stats["quality_gate_ms"].append(0.0)
-                eval_stats["pipeline_ms"].append(0.0)
-                eval_stats["inst_bonus_ms"].append(0.0)
-                eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
-            return
-
-        # [FIX-6] Reject before scoring when volume is unavailable. None/0 volume
-        # means the V5 pipeline will impute a neutral score, artificially inflating the result.
-        if price_data.latest_volume <= 0 or price_data.volume_sma20 <= 0:
-            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: VOLUME_UNAVAILABLE")
-            terminal_tracker.record_terminal(sym, "VOLUME_UNAVAILABLE", "Volume data unavailable")
-            with _eval_lock:
-                rejection_funnel["volume_unavailable"] += 1
-            append_rejection(results, sym, "VOLUME_UNAVAILABLE", "Volume data unavailable", price=price_data.price, price_data=price_data, raw_fundamentals=raw_fundamentals)
-            t_eval_end_rej = time.perf_counter()
-            with eval_stats_lock:
-                eval_stats["count"] += 1
-                eval_stats["pledge_ms"].append(pledge_dur)
-                eval_stats["quality_gate_ms"].append(0.0)
-                eval_stats["pipeline_ms"].append(0.0)
-                eval_stats["inst_bonus_ms"].append(0.0)
-                eval_stats["total_ms"].append((t_eval_end_rej - t_eval_start) * 1000)
-            return
 
         # [VERSION: ENTRY_SCANNER_DEEP_HYDRATION_v1.0]
         if sym in open_symbols and not is_deep_v5_cache(raw_fundamentals):
@@ -3365,8 +3418,38 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             status = "WAITING_BUY_ZONE"
             notes = f"Conviction: {tier} | CQS: {cqs:.1f}"
             alert_triggered = False
-            logger.info(f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: LOW_CONVICTION_TIER | Tier: {tier} | CQS: {cqs:.1f}")
-            terminal_tracker.record_terminal(sym, "LOW_CONVICTION_TIER", f"Conviction tier '{tier}' below Prime/High Quality")
+
+            p_ratio_val = _pledge_ratio(raw_fundamentals.get("promoter_pledge_pct"))
+            primary_fail, all_fails = decompose_conviction_failure(
+                cqs, pas, trend, regime_adjusted_score, f_score_val, p_ratio_val, market_regime, tier
+            )
+            pledge_str = f"{p_ratio_val*100.0:.0f}%" if p_ratio_val is not None else "None"
+            f_score_str = f"{f_score_val}/9" if f_score_val is not None else "None"
+
+            logger.info(
+                f"🚫 [MULTIBAGGER] {sym} REJECTED — Gate: LOW_CONVICTION_TIER | Tier: {tier} | "
+                f"Score: {regime_adjusted_score:.1f} | CQS: {cqs:.1f} | PAS: {pas:.1f} | "
+                f"Trend: {trend:.1f} | Piotroski: {f_score_str} | Pledge: {pledge_str} | "
+                f"Fail: {primary_fail}"
+            )
+            with _conviction_decomp_lock:
+                _conviction_decomp_items.append({
+                    "symbol": sym,
+                    "score": regime_adjusted_score,
+                    "cqs": cqs,
+                    "pas": pas,
+                    "trend": trend,
+                    "piotroski": f_score_str,
+                    "pledge": pledge_str,
+                    "tier": tier,
+                    "primary_fail": primary_fail,
+                    "all_fails": all_fails
+                })
+            terminal_tracker.record_terminal(
+                sym, 
+                "LOW_CONVICTION_TIER", 
+                f"Fail: {primary_fail} (Score={regime_adjusted_score:.1f}, CQS={cqs:.1f}, Pledge={pledge_str})"
+            )
             with _eval_lock:
                 rejection_funnel["low_conviction_tier"] += 1
             append_rejection(results, sym, "WAITING_BUY_ZONE", notes, price=price_data.price, cqs=cqs, pas=pas, trend_score=trend, total_score=total, buy_zone_low=buy_low, buy_zone_high=buy_high, bucket=tier, price_data=price_data, raw_fundamentals=raw_fundamentals)
@@ -3954,6 +4037,43 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     if alerts_count == 0:
         summary_lines.extend(diag_lines)
 
+    if _conviction_decomp_items:
+        df_conv = pd.DataFrame(_conviction_decomp_items)
+        agg_counts = df_conv['primary_fail'].value_counts()
+        all_individual_fails = [f for sub in df_conv['all_fails'] for f in sub]
+        indiv_counts = pd.Series(all_individual_fails).value_counts()
+
+        summary_lines.extend([
+            "",
+            f"🔬 LOW_CONVICTION_TIER FORENSIC DECOMPOSITION ({len(df_conv)} Candidates):",
+            "----------------------------------------------------------------------",
+            "  • PLEDGE DATA STATUS (Universe Telemetry):",
+            f"      ├── UNKNOWN (pledge is None) : {sum(df_conv['pledge'] == 'None'):>3} ({sum(df_conv['pledge'] == 'None')/len(df_conv)*100:.1f}%)",
+            f"      ├── KNOWN (verified value)   : {sum(df_conv['pledge'] != 'None'):>3} ({sum(df_conv['pledge'] != 'None')/len(df_conv)*100:.1f}%)",
+            "",
+            "  • TERMINAL CONVICTION REASON (Dominant Gate):"
+        ])
+        for rk, rv in agg_counts.items():
+            summary_lines.append(f"      ├── {rk:<28}: {rv:>3} ({rv/len(df_conv)*100:.1f}%)")
+
+        summary_lines.extend([
+            "",
+            "  • INDIVIDUAL COMPONENT FAILURE RATES (Multi-label):"
+        ])
+        for ik, iv in indiv_counts.items():
+            summary_lines.append(f"      ├── {ik:<28}: {iv:>3} ({iv/len(df_conv)*100:.1f}%)")
+
+        top_cands = df_conv.sort_values("score", ascending=False).head(15)
+        summary_lines.extend([
+            "",
+            "  • TOP 15 CANDIDATES BY SCORE:",
+            f"    {'SYMBOL':<12} {'SCORE':<7} {'CQS':<6} {'PAS':<6} {'TREND':<7} {'PIOTROSKI':<10} {'PLEDGE':<8} {'FAIL REASON'}"
+        ])
+        for _, row in top_cands.iterrows():
+            summary_lines.append(
+                f"    {row['symbol']:<12} {row['score']:<7.1f} {row['cqs']:<6.1f} {row['pas']:<6.1f} {row['trend']:<7.1f} {row['piotroski']:<10} {row['pledge']:<8} {row['primary_fail']}"
+            )
+
     summary_lines.append("======================================================================")
     logger.info("\n".join(summary_lines))
 
@@ -4128,3 +4248,9 @@ def restore_healthy_multibagger_positions():
     except Exception as e:
         logger.error(f"Failed to re-evaluate multibagger positions: {e}")
         return 0
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    start()
+

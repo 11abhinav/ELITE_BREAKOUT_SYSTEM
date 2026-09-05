@@ -517,16 +517,22 @@ class AutoSwitchingFetcher(DataFetcher):
             resolved = selector.get_providers(interval, fetch_type=fetch_type)
             mapped = []
             for p in resolved:
-                name = "upstox" if p in ("upstox",) else ("fyers" if p == "fyers" else p)
-                if name in ("fyers", "upstox") and name not in mapped:
+                name = "upstox" if p in ("upstox",) else ("fyers" if p == "fyers" else ("yfinance" if p in ("yfinance", "yahoo") else p))
+                if name not in mapped:
                     mapped.append(name)
-            return mapped if mapped else ["fyers", "upstox"]
+            if "yfinance" not in mapped:
+                mapped.append("yfinance")
+            return mapped if mapped else ["fyers", "upstox", "yfinance"]
         except Exception as e:
             logger.warning(f"Error resolving ProviderSelector route: {e}")
-            return ["fyers", "upstox"]
+            return ["fyers", "upstox", "yfinance"]
 
     def _get_fetcher_by_name(self, name: str) -> DataFetcher:
         if name == "upstox":
+            import os
+            from config import UPSTOX_ACCESS_TOKEN
+            if not UPSTOX_ACCESS_TOKEN and not os.getenv("UPSTOX_ACCESS_TOKEN"):
+                return None
             if not hasattr(self, "upstox_fetcher") or self.upstox_fetcher is None:
                 try:
                     from market_data.providers.upstox_provider import UpstoxProvider
@@ -838,23 +844,26 @@ class AutoSwitchingFetcher(DataFetcher):
                         logger.info(f"🔄 [Premium Fallback] {prov_name} recovered {succeeded_count} missing symbols in total!")
                 except Exception as e:
                     logger.warning(f"⚠️ {prov_name} premium fallback batch fetch exception: {e}.")
-        # Final Safety Net: Try resolving missing symbols from Postgres DB before emitting notifications
-        if missing_symbols:
+
+        # 2.8 YFinance / BSE Universal Fallback: Process remaining missing symbols through YFinance
+        if missing_symbols and self.yfinance_fetcher:
             try:
-                from database import get_connection
-                with get_connection() as conn:
-                    with conn.cursor() as cur:
-                        for s in list(missing_symbols):
-                            clean_s = s.replace(".NS", "").replace(".BO", "").strip()
-                            cur.execute("SELECT symbol FROM stock_analysis_master WHERE symbol = %s OR symbol = %s LIMIT 1", (s, clean_s))
-                            row = cur.fetchone()
-                            if row:
-                                df_syn = _generate_synthetic_df(clean_s, candles=450 if interval == "1d" else 50)
-                                results[s] = MarketData(df_syn, "POSTGRES_DB_RECOVERY", None, True, True, "Recovered from DB")
-                                missing_symbols.remove(s)
-                                logger.info(f"✅ [POSTGRES DB RECOVERY] Recovered OHLCV for {s} from DB state.")
-            except Exception as db_rec_err:
-                logger.warning(f"Postgres DB recovery attempt failed: {db_rec_err}")
+                logger.info(f"🌐 [YFINANCE UNIVERSAL FALLBACK] Dispatching {len(missing_symbols)} missing symbol(s) to YFinance batch fetcher...")
+                yf_results = self.yfinance_fetcher.get_batch_ohlcv(
+                    list(missing_symbols), interval=interval, period=period, retries=retries, range_from=range_from, range_to=range_to, caller=caller
+                )
+                if yf_results:
+                    yf_recovered = 0
+                    for s in list(missing_symbols):
+                        res = yf_results.get(s)
+                        if res and res.dataframe is not None and not res.dataframe.empty:
+                            results[s] = res
+                            missing_symbols.remove(s)
+                            yf_recovered += 1
+                    if yf_recovered > 0:
+                        logger.info(f"✅ [YFINANCE UNIVERSAL FALLBACK] Successfully recovered {yf_recovered} symbols using YFinance!")
+            except Exception as yf_err:
+                logger.warning(f"⚠️ YFinance universal fallback batch fetch exception: {yf_err}")
 
         for s in symbols:
             if s not in results:
