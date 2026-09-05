@@ -28,8 +28,75 @@ Return the result as a strict JSON object with EXACTLY these keys:
     "key_risks": (array of strings, listing top 1-3 risks/headwinds mentioned)
 }"""
 
+# [VERSION: AI_ANALYZER_V2.0]
+# RULE 67 Technical Rationale:
+# 1. Added 'x-goog-api-key' request header to _try_gemini_model and _discover_supported_models.
+#    Google's 2025/2026 Authorization (Auth) Keys (prefix 'AQ.', e.g. AQ.A...IGcg) require this HTTP header.
+#    Passing keys only as query param '?key=' caused Google to reject requests with 404/NOT_FOUND.
+# 2. Implemented dynamic model discovery (_discover_supported_models) querying Google's /v1beta/models
+#    to auto-detect active generateContent models for the provided key.
+# 3. Updated default model cascade to prioritize active models (gemini-2.0-flash, gemini-2.0-flash-lite, etc.).
+# 4. Logged explicit err_str on 404/NOT_FOUND to prevent silent error suppression.
+# 5. Implemented secondary fallback to OpenAI (_try_openai_model) using gpt-4o-mini when OPENAI_API_KEY is present.
+
+_discovered_models_cache = {}
+
+def _discover_supported_models(gemini_key: str) -> list:
+    """
+    [RULE 67: DYNAMIC GEMINI MODEL DISCOVERY]
+    Queries Google Generative Language API directly to retrieve all models enabled
+    for this specific API key. This avoids hardcoded model guessing and immediately
+    adapts when new model versions (e.g. 2.0, 2.5, 3.x) are enabled on the account.
+    """
+    if not gemini_key:
+        return []
+    if gemini_key in _discovered_models_cache:
+        return _discovered_models_cache[gemini_key]
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={gemini_key}"
+        headers = {
+            "x-goog-api-key": gemini_key,
+            "Content-Type": "application/json"
+        }
+        res = requests.get(url, headers=headers, timeout=12)
+        if res.status_code == 200:
+            data = res.json()
+            models = []
+            for m in data.get("models", []):
+                methods = m.get("supportedGenerationMethods", [])
+                if "generateContent" in methods:
+                    name = m.get("name", "")
+                    clean_name = name.replace("models/", "").strip()
+                    if clean_name:
+                        models.append(clean_name)
+            if models:
+                # Rank priority: fast/flash frontier models first, followed by pro models
+                def _priority(m_name: str) -> int:
+                    m = m_name.lower()
+                    if "2.5-flash" in m: return 1
+                    if "2.0-flash" in m and "lite" not in m: return 2
+                    if "2.0-flash-lite" in m: return 3
+                    if "1.5-flash" in m and "8b" not in m: return 4
+                    if "1.5-pro" in m: return 5
+                    if "flash" in m: return 6
+                    if "pro" in m: return 7
+                    return 20
+                models.sort(key=_priority)
+                _discovered_models_cache[gemini_key] = models
+                logger.info(f"✨ [GEMINI DISCOVERY] Discovered {len(models)} valid models on key. Active top chain: {models[:4]}")
+                return models
+        else:
+            logger.debug(f"Gemini model discovery returned HTTP {res.status_code}: {res.text[:120]}")
+    except Exception as disc_err:
+        logger.debug(f"Gemini model discovery failed: {disc_err}")
+    return []
+
 def _try_gemini_model(model_name: str, gemini_key: str, text: str) -> dict:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": gemini_key
+    }
     payload = {
         "contents": [
             {"role": "user", "parts": [{"text": SYSTEM_PROMPT + "\n\nTRANSCRIPT TEXT:\n" + text}]}
@@ -38,7 +105,7 @@ def _try_gemini_model(model_name: str, gemini_key: str, text: str) -> dict:
             "responseMimeType": "application/json"
         }
     }
-    res = requests.post(url, json=payload, timeout=90)
+    res = requests.post(url, headers=headers, json=payload, timeout=90)
     if res.status_code == 200:
         data = res.json()
         try:
@@ -59,11 +126,43 @@ def _try_gemini_model(model_name: str, gemini_key: str, text: str) -> dict:
         raise Exception(f"API Error ({res.status_code}): {res.text}")
 
 
+def _try_openai_model(openai_key: str, text: str) -> dict:
+    """
+    [RULE 67: OPENAI FALLBACK HANDLER]
+    Executes concall text analysis via OpenAI's gpt-4o-mini when all Gemini keys/models
+    are exhausted, blacklisted, or unavailable. Enforces strict JSON return contract.
+    """
+    url = "https://api.openai.com/v1/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {openai_key.strip()}"
+    }
+    payload = {
+        "model": "gpt-4o-mini",
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": "TRANSCRIPT TEXT:\n" + text}
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.2
+    }
+    res = requests.post(url, headers=headers, json=payload, timeout=90)
+    if res.status_code == 200:
+        data = res.json()
+        content_str = data["choices"][0]["message"]["content"].strip()
+        result = json.loads(content_str)
+        result["model_used"] = "gpt-4o-mini"
+        result["key_used"] = f"{openai_key[:4]}...{openai_key[-4:]}" if len(openai_key) > 8 else "OPENAI_KEY"
+        return result
+    else:
+        raise Exception(f"OpenAI API Error ({res.status_code}): {res.text}")
+
 
 def analyze_concall_text(text: str) -> dict:
     """
     Feeds the extracted transcript text to an LLM to generate the structured JSON.
-    Implements a robust fallback chain starting with the best Pro models.
+    Implements a robust fallback chain starting with the best Gemini models,
+    falling back to OpenAI if configured.
     """
     if not text or len(text) < 100:
         return {"error": "Text too short or empty."}
@@ -80,11 +179,15 @@ def analyze_concall_text(text: str) -> dict:
     # Fallback Chain 1: Gemini Models with Sticky Active Key Selection
     gemini_key = get_active_gemini_key()
     if gemini_key:
-        gemini_models = [
-            "gemini-2.5-flash",
-            "gemini-2.5-flash-lite",
+        # [RULE 67: DYNAMIC MODEL DISCOVERY WITH RESILIENT FALLBACK]
+        discovered = _discover_supported_models(gemini_key)
+        gemini_models = discovered if discovered else [
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
             "gemini-1.5-flash",
-            "gemini-1.5-pro"
+            "gemini-1.5-pro",
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite"
         ]
         
         for model in gemini_models:
@@ -131,7 +234,10 @@ def analyze_concall_text(text: str) -> dict:
                         logger.warning("🚨 All Gemini keys exhausted. Proceeding to fallback chain...")
                         break
                 elif "404" in err_str or "NOT_FOUND" in err_str:
-                    logger.warning(f"Skipping {model} as it is not found on key [{masked_key}].")
+                    # [RULE 67: EXPLICIT ERROR OBSERVABILITY]
+                    # Log the exact error string returned by Google rather than swallowing it,
+                    # so diagnostic logs reveal the exact reason for model rejection.
+                    logger.warning(f"Skipping {model} on key [{masked_key}] due to 404/NOT_FOUND: {err_str}")
                     continue
                 else:
                     logger.warning(f"{model} failed: {err_str}")
@@ -139,6 +245,22 @@ def analyze_concall_text(text: str) -> dict:
                     from data_fetch_status import mark_failure
                     mark_failure('gemini', f"{model}: {err_str}")
                     continue
+
+    # Fallback Chain 2: OpenAI Models (gpt-4o-mini)
+    # [RULE 67: MULTI-PROVIDER RESILIENCE]
+    # If all Gemini models/keys fail or no Gemini key is provided, gracefully failover to OpenAI.
+    if openai_key:
+        masked_openai = f"{openai_key[:4]}...{openai_key[-4:]}" if len(openai_key) > 8 else "OPENAI_KEY"
+        try:
+            logger.info(f"🔄 [AI FALLBACK] Gemini chain failed. Attempting OpenAI gpt-4o-mini (Key: [{masked_openai}])...")
+            openai_result = _try_openai_model(openai_key, text)
+            from data_fetch_status import mark_success
+            mark_success('gemini')  # AI worker health marked OK
+            return openai_result
+        except Exception as oai_err:
+            oai_err_str = str(oai_err).replace(openai_key, "[REDACTED_KEY]")
+            logger.warning(f"❌ [OPENAI FALLBACK FAILED] {oai_err_str}")
+            errors.append(f"OpenAI: {oai_err_str}")
 
     from data_fetch_status import mark_failure
     final_error = errors[-1] if errors else "All AI models failed or all Gemini keys are 7-day blacklisted."

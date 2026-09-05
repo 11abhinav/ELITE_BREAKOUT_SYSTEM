@@ -115,3 +115,22 @@ Every cached dataset records its **Data Provenance**:
 - `fetch_time`: Timestamp of fetch (IST)
 - `latency_ms`: HTTP response latency
 - `validation_score`: Quality score (0-100)
+
+---
+
+## 6. AI Concall Analysis & LLM Integrations (`app/ai_analyzer.py`)
+
+Earnings concalls and investor presentations fetched via NSE/BSE corporate announcements are analyzed to extract structured qualitative and quantitative guidance.
+
+### Primary Provider: Google Gemini API
+- **Endpoint:** `https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent`
+- **Authentication:** Supports both legacy Standard (`AIza...`) API keys and 2025/2026 Authorization Auth (`AQ...`) keys via the mandatory `x-goog-api-key` HTTP request header and URL query param.
+- **Dynamic Model Discovery:** Queries `GET /v1beta/models` to discover active models supporting `generateContent` for the specific key, prioritizing frontier flash models (`gemini-2.0-flash`, `gemini-2.0-flash-lite`, etc.).
+- **Fallback Models:** `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-1.5-flash`, `gemini-1.5-pro`.
+- **Blacklisting & Quota Management:** 7-day persistent blacklist in PostgreSQL (`gemini_key_manager.py`) upon receiving HTTP 429 / `RESOURCE_EXHAUSTED`.
+
+### Secondary Fallback: OpenAI (`gpt-4o-mini`)
+- **Endpoint:** `https://api.openai.com/v1/chat/completions`
+- **Trigger:** Activates automatically if all Gemini keys/models are exhausted, 404, or blacklisted.
+- **Contract:** Strict `json_object` output containing `management_confidence` (1-10), forward guidance deltas, margin trajectory, capex plans, working capital, and key risks.
+
