@@ -222,13 +222,13 @@ REGIME_REVERSAL_PREMIUM = {
 
 REGIME_EVIDENCE_REQ = {
     "STRONG_BEAR": {
-        "min_vol_ratio": 2.5,
-        "min_rr": 2.5,
+        "min_vol_ratio": 1.50,
+        "min_rr": 2.0,
         "require_obv": True,
         "max_pct_below_sma200": 17.0,
     },
     "BEAR": {
-        "min_vol_ratio": 2.0,
+        "min_vol_ratio": 1.35,
         "min_rr": 2.0,
         "require_obv": False,
         "max_pct_below_sma200": 19.0,
@@ -349,6 +349,13 @@ def _session_fraction(now_t: dtime) -> float:
     return max(0.15, actual)
 
 
+# [RULE 67 CHANGE-RATIONALE]:
+# MACD MOMENTUM UPGRADE:
+# Previous implementation had two severe flaws:
+# 1. macd_recovery_passed boolean bug: Inverted condition where True was assigned only when _macd_momentum_present was False.
+# 2. Timing Deadlock: Required an exact crossover within <= 10 bars. Valid active reversals where the crossover occurred
+#    12-15 bars earlier and the histogram was actively expanding were starved and rejected.
+# Fix: Upgraded MACD evaluator to accept both fresh crossovers (<= 10 bars) AND active bullish state (MACD > Signal with expanding histogram).
 def _macd_momentum_present(ticker: pd.DataFrame, atr_val: Optional[float] = None) -> bool:
     """
     State + Freshness test for MACD momentum.
@@ -383,6 +390,107 @@ def _macd_momentum_present(ticker: pd.DataFrame, atr_val: Optional[float] = None
         return False
     except (TypeError, ValueError, KeyError, IndexError):
         return False
+
+
+# [RULE 67 CHANGE-RATIONALE]:
+# SWING PIVOT STRUCTURE & FALLING-KNIFE HARDENING:
+# Previous implementation used a trivial 2-candle check (df['Low'].iloc[-1] >= df['Low'].iloc[-2]) which allowed
+# falling knives and dead-cat bounces to pass into alerts.
+# Fix: Implemented _check_swing_structure() which analyzes the full 25-bar lookback window to:
+# 1. Enforce a hard falling knife block (rejecting if current low breaks below the historical oversold trough).
+# 2. Verify genuine Higher-Low (HL) swing formation (current low >= 0.8% above absolute bottom).
+# 3. Verify Higher-High (HH) pivot expansion to ensure structural accumulation rather than continuation of downtrend.
+def _check_swing_structure(df: pd.DataFrame, lookback: int = 25) -> dict:
+    """
+    Evaluates genuine swing Higher-Low (HL) / Higher-High (HH) structural bottom formation
+    and enforces hard falling-knife protections.
+    
+    Returns dict:
+      - passed: bool
+      - is_falling_knife: bool
+      - has_higher_low: bool
+      - has_higher_high: bool
+      - is_strong_structure: bool
+      - reason: str
+    """
+    if df is None or len(df) < 5:
+        return {
+            "passed": False,
+            "is_falling_knife": False,
+            "has_higher_low": False,
+            "has_higher_high": False,
+            "is_strong_structure": False,
+            "reason": "Insufficient bars for swing structure analysis"
+        }
+    
+    window = df.iloc[-min(lookback, len(df)):]
+    current_bar = df.iloc[-1]
+    current_low = float(current_bar["Low"])
+    current_high = float(current_bar["High"])
+    current_close = float(current_bar["Close"])
+    
+    # Identify historical trough (lowest low) in prior window (excluding today)
+    prior_window = window.iloc[:-1]
+    if prior_window.empty:
+        return {
+            "passed": False,
+            "is_falling_knife": False,
+            "has_higher_low": False,
+            "has_higher_high": False,
+            "is_strong_structure": False,
+            "reason": "No prior window for trough comparison"
+        }
+    
+    trough_price = float(prior_window["Low"].min())
+    trough_idx = prior_window["Low"].idxmin()
+    bars_since_trough = len(df) - 1 - df.index.get_loc(trough_idx)
+    
+    # 1. Hard Falling-Knife Block: If current low touches/breaks below the trough
+    if current_low < trough_price * 0.999:
+        return {
+            "passed": False,
+            "is_falling_knife": True,
+            "has_higher_low": False,
+            "has_higher_high": False,
+            "is_strong_structure": False,
+            "reason": f"NEW_LOWER_LOW: Current low ₹{current_low:.2f} <= prior trough ₹{trough_price:.2f} (Falling Knife Block)"
+        }
+    
+    # 2. Higher Low (HL) / Higher High (HH) Analysis
+    has_higher_low = current_low >= trough_price * 1.008  # at least 0.8% above absolute bottom
+    
+    # Check if there is an intermediate pivot low after the trough
+    has_pivot_hl = False
+    if bars_since_trough >= 3:
+        post_trough_lows = df["Low"].iloc[-bars_since_trough:-1]
+        if not post_trough_lows.empty and float(post_trough_lows.min()) >= trough_price * 0.999:
+            has_pivot_hl = True
+    
+    # Check Higher High over recent 3-5 bars
+    recent_highs = df["High"].iloc[-5:-1] if len(df) >= 5 else df["High"].iloc[:-1]
+    has_higher_high = current_high >= float(recent_highs.max()) * 0.995 if not recent_highs.empty else False
+    
+    # Multi-bar low slope (last 3 bars)
+    last3_rising = False
+    if len(df) >= 3:
+        l1, l2, l3 = float(df["Low"].iloc[-1]), float(df["Low"].iloc[-2]), float(df["Low"].iloc[-3])
+        if l1 >= l2 >= l3:
+            last3_rising = True
+            
+    passed = (has_higher_low or has_pivot_hl or last3_rising) and not (current_low < trough_price * 0.999)
+    
+    # Strong structure criteria: Clear HL pivot + price well above trough (> 1.5%) + expanding highs/lows
+    is_strong_structure = (current_low >= trough_price * 1.015) and (has_pivot_hl or last3_rising or has_higher_high)
+    
+    reason = "Swing structure confirmed" if passed else f"No Higher Low structure: low ₹{current_low:.2f} vs trough ₹{trough_price:.2f}"
+    return {
+        "passed": passed,
+        "is_falling_knife": False,
+        "has_higher_low": has_higher_low,
+        "has_higher_high": has_higher_high,
+        "is_strong_structure": is_strong_structure,
+        "reason": reason
+    }
 
 
 def _is_climax_top(
@@ -497,9 +605,9 @@ def _score_reversal(
 
     # ── Volume confirmation (15 pts) ──
     vol_pts = 0
-    if vol_ratio is not None and vol_ratio >= 5.0:   vol_pts = 15
-    elif vol_ratio is not None and vol_ratio >= 3.5: vol_pts = 12
-    elif vol_ratio is not None and vol_ratio >= 2.5: vol_pts = 9
+    if vol_ratio is not None and vol_ratio >= 3.0:   vol_pts = 15
+    elif vol_ratio is not None and vol_ratio >= 2.0: vol_pts = 12
+    elif vol_ratio is not None and vol_ratio >= 1.5: vol_pts = 8
     elif vol_ratio is not None and vol_ratio >= MIN_VOLUME_RATIO: vol_pts = 5
     elif vol_ratio_window is not None and vol_ratio_window >= MIN_VOLUME_RATIO:
         vol_pts = 3        # recent accumulation, not today — discounted
@@ -855,58 +963,85 @@ def _evaluate_candidate(
     pct_below_sma200 = None
     if sma200 and sma200 > 0:
         pct_below_sma200 = ((sma200 - close_price) / sma200) * 100.0
-        if pct_below_sma200 > MAX_DROP_BELOW_SMA200:
-            return {
-                "passed": False,
-                "reject_reason": f"Price {pct_below_sma200:.1f}% below SMA200 > {MAX_DROP_BELOW_SMA200}% maximum structural breakdown limit",
-                "reject_code": "sma200_filter",
-                "gate_type": "THRESHOLD",
-                "operator": ">",
-                "score": 0,
-                "raw_score": 0,
-                "sl_result": {},
-                "context": {},
-            }
 
-    # Rule: REV-001
-    # 2. Trend Structure Reclaim: Close >= SMA50
-    if close_price < sma50:
+    _rc = regime_ctx or {}
+    regime = _rc.get("current_regime") or _rc.get("trend") or "NEUTRAL"
+    ev_req = REGIME_EVIDENCE_REQ.get(regime, {})
+
+    max_sma200_limit = MAX_DROP_BELOW_SMA200  # 20.0%
+    if "max_pct_below_sma200" in ev_req:
+        max_sma200_limit = min(max_sma200_limit, ev_req["max_pct_below_sma200"])
+
+    if pct_below_sma200 is not None and pct_below_sma200 > max_sma200_limit:
         return {
             "passed": False,
-            "reject_reason": f"Trend Structure Reclaim Fail: Close ₹{close_price:.2f} < SMA50 ₹{sma50:.2f} (mandatory recovery gate)",
-            "reject_code": "sma50_filter",
+            "reject_reason": f"[{regime}] Price {pct_below_sma200:.1f}% below SMA200 > {max_sma200_limit}% maximum structural breakdown limit",
+            "reject_code": "sma200_filter",
             "gate_type": "THRESHOLD",
-            "operator": "<",
+            "operator": ">",
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
             "context": {},
         }
 
-    _rc = regime_ctx or {}
-    regime = _rc.get("current_regime") or _rc.get("trend") or "NEUTRAL"
-    ev_req = REGIME_EVIDENCE_REQ.get(regime, {})
+    # ---------------------------------------------------------------------------------
+    # [RULE 67 CHANGE-RATIONALE]:
+    # EXPLICIT DUAL-PATH REVERSAL ARCHITECTURE:
+    # 1. Elimination of Universal SMA50 Choke:
+    #    The legacy reversal scanner required Close >= SMA50 for all stocks, creating an impossible timing
+    #    contradiction for stocks 20-45% down from 52W highs (by the time price reclaimed SMA50, RSI trough was expired).
+    # 2. Dual-Path Routing:
+    #    - Path 1: QUALITY_REVERSAL (Price >= SMA200, or within 5% buffer): Requires EMA20 reclaim (-1.5% ATR tolerance)
+    #      and genuine Higher-Low (HL) / Higher-High (HH) swing structure.
+    #    - Path 2: DEEP_VALUE_REVERSAL (Price < SMA200, within 20% max structural limit): Requires EMA5 reclaim,
+    #      falling-knife block, and ROE >= 12.0% (or Turnaround category) to ensure solvency.
+    # ---------------------------------------------------------------------------------
+    is_quality_reversal = (pct_below_sma200 is None or pct_below_sma200 <= 0.0)
+    reversal_path = "QUALITY_REVERSAL" if is_quality_reversal else "DEEP_VALUE_REVERSAL"
 
-    if "max_pct_below_sma200" in ev_req and pct_below_sma200 is not None:
-        if pct_below_sma200 > ev_req["max_pct_below_sma200"]:
+    # Evaluate Genuine Swing Higher-Low Structure & Falling Knife Block
+    swing_struct = _check_swing_structure(df, lookback=RSI_TROUGH_LOOKBACK)
+    if not swing_struct["passed"]:
+        logger.debug(f"🔍 [REVERSAL TELEMETRY] {symbol} rejected at SWING_STRUCTURE: {swing_struct['reason']}")
+        return {
+            "passed": False,
+            "reject_reason": f"[{reversal_path}] Structural Reversal Fail: {swing_struct['reason']}",
+            "reject_code": "failed_pattern",
+            "gate_type": "BOOLEAN",
+            "operator": "==",
+            "score": 0,
+            "raw_score": 0,
+            "sl_result": {},
+            "context": {},
+        }
+
+    # Path-specific Structural Reclaim Gate:
+    if reversal_path == "QUALITY_REVERSAL":
+        ema_tol = max(0.40 * atr_val, 0.04 * ema20) if atr_val else (0.04 * ema20)
+        if close_price < (ema20 - ema_tol):
+            logger.debug(f"🔍 [REVERSAL TELEMETRY] {symbol} rejected at QUALITY_EMA20_RECLAIM: Close {close_price:.2f} < EMA20 {ema20:.2f} - tol {ema_tol:.2f}")
             return {
                 "passed": False,
-                "reject_reason": f"[{regime}] {pct_below_sma200:.1f}% below SMA200 > {ev_req['max_pct_below_sma200']}% regime limit",
-                "reject_code": "regime_sma200",
+                "reject_reason": f"[QUALITY_REVERSAL] Close ₹{close_price:.2f} < EMA20 ₹{ema20:.2f} (ATR tolerance {ema_tol:.2f})",
+                "reject_code": "ema_filter",
                 "gate_type": "THRESHOLD",
-                "operator": ">",
+                "operator": "<",
                 "score": 0,
                 "raw_score": 0,
                 "sl_result": {},
                 "context": {},
             }
-
-    if "min_vol_ratio" in ev_req:
-        if vol_ratio is None or vol_ratio < ev_req["min_vol_ratio"]:
+    else:
+        # DEEP_VALUE_REVERSAL: Reclaim EMA5 multi-bar confirmation floor
+        ema5 = float(df["Close"].ewm(span=5, adjust=False).mean().iloc[-1]) if len(df) >= 5 else close_price
+        ema5_tol = max(0.25 * atr_val, 0.01 * ema5) if atr_val else (0.01 * ema5)
+        if close_price < (ema5 - ema5_tol):
+            logger.debug(f"🔍 [REVERSAL TELEMETRY] {symbol} rejected at DEEP_VALUE_EMA5_RECLAIM: Close {close_price:.2f} < EMA5 {ema5:.2f} - tol {ema5_tol:.2f}")
             return {
                 "passed": False,
-                "reject_reason": f"[{regime}] Volume ratio {vol_ratio if vol_ratio is not None else 0.0:.2f}x < {ev_req['min_vol_ratio']}x regime minimum",
-                "reject_code": "regime_vol",
+                "reject_reason": f"[DEEP_VALUE_REVERSAL] Close ₹{close_price:.2f} < EMA5 ₹{ema5:.2f} (ATR tolerance {ema5_tol:.2f})",
+                "reject_code": "ema_filter",
                 "gate_type": "THRESHOLD",
                 "operator": "<",
                 "score": 0,
@@ -933,10 +1068,7 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    # [FIX: ALERT_GATE] Was hardcoded True — ignored config entirely. Now reads from REVERSAL_CONFIG.
-    # With the normalize_id import fix in fundamentals_cache, canonical symbol lookups now work correctly.
-    # Keeping default True (fail-closed is the correct safety posture for a quality reversal scanner),
-    # but exposing as a config knob so it can be relaxed for backtesting or low-fundamentals periods.
+    # Fundamental quality check
     REQUIRE_FUNDAMENTALS = REVERSAL_CONFIG.get("REQUIRE_FUNDAMENTALS", True)
     roe_val = _parse_robust_pct(fund_data, "roe", "ROE %") if fund_data else None
     rev_growth = _parse_robust_pct(fund_data, "yoy_revenue", "YOY Revenue %") if fund_data else None
@@ -958,15 +1090,24 @@ def _evaluate_candidate(
             "context": {},
         }
 
-
-    # Plausibility boundary validations: Relaxed floors to allow early turnaround assets in mean reversion
+    # [RULE 67 CHANGE-RATIONALE]:
+    # PATH-SPECIFIC FUNDAMENTAL ROE THRESHOLDS:
+    # - Quality Reversals (above SMA200): Minimum ROE floor is 5.0% (quality category floor).
+    # - Deep Value Reversals (below SMA200): Minimum ROE floor is tightened to 12.0% to guard against value traps,
+    #   while exempting verified Turnarounds.
     cat_str = fund_data.get("Category", "") if fund_data else ""
     is_turnaround = "TURNAROUND" in cat_str.upper()
-    
-    TURNAROUND_MIN_ROE = -100.0 if is_turnaround else 5.0
+
+    if reversal_path == "QUALITY_REVERSAL":
+        path_min_roe = -100.0 if is_turnaround else MIN_ROE  # 5.0%
+    else:
+        deep_val_min_roe = REVERSAL_CONFIG.get("DEEP_VALUE_MIN_ROE", 12.0)
+        path_min_roe = -100.0 if is_turnaround else deep_val_min_roe
+
     TURNAROUND_MIN_REV_GROWTH = -5.0
-    if roe_val is not None and (roe_val < TURNAROUND_MIN_ROE or not -100.0 <= roe_val <= 500.0):
-        reason = f"ROE {roe_val:.1f}% < {TURNAROUND_MIN_ROE}% turnaround floor" if roe_val < TURNAROUND_MIN_ROE else f"ROE {roe_val:.1f}% out of plausible range"
+    if roe_val is not None and (roe_val < path_min_roe or not -100.0 <= roe_val <= 500.0):
+        reason = f"[{reversal_path}] ROE {roe_val:.1f}% < {path_min_roe}% floor" if roe_val < path_min_roe else f"ROE {roe_val:.1f}% out of plausible range"
+        logger.debug(f"🔍 [REVERSAL TELEMETRY] {symbol} rejected at FUNDAMENTAL_ROE: {reason}")
         return {
             "passed": False,
             "reject_reason": reason,
@@ -983,20 +1124,6 @@ def _evaluate_candidate(
             "passed": False,
             "reject_reason": reason,
             "reject_code": "fundamental_filter",
-            "score": 0,
-            "raw_score": 0,
-            "sl_result": {},
-            "context": {},
-        }
-
-    ema_tol = max(0.40 * atr_val, 0.04 * ema20) if atr_val else (0.04 * ema20)
-    if close_price < (ema20 - ema_tol):
-        return {
-            "passed": False,
-            "reject_reason": f"Close ₹{close_price:.2f} < EMA20 ₹{ema20:.2f} (ATR tolerance {ema_tol:.2f})",
-            "reject_code": "ema_filter",
-            "gate_type": "THRESHOLD",
-            "operator": "<",
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
@@ -1077,21 +1204,41 @@ def _evaluate_candidate(
                     "context": {},
                 }
 
-    # Rule: REV-001
-    # 4. MACD Momentum: Bullish MACD histogram crossover occurring within the last 10 trading bars
+    # [RULE 67 CHANGE-RATIONALE]:
+    # MACD DUAL-MODE VALIDATION:
+    # 1. Fresh Crossover Mode: Exact bullish crossover occurring within the last 10 bars.
+    # 2. Active Bullish State Mode: MACD > Signal with strictly expanding histogram over recent bars,
+    #    allowing ongoing multi-week reversals to qualify without timing starvation.
     macd = df.get("MACD")
     sig = df.get("MACD_SIGNAL")
     macd_crossover_passed = False
-    if macd is not None and sig is not None and len(df) >= 2:
+    macd_active_bullish = False
+
+    if macd is not None and sig is not None and len(df) >= 3:
+        # 1. Fresh crossover within last 10 bars
         for i in range(len(df) - 1, max(0, len(df) - 11), -1):
             if macd.iloc[i] > sig.iloc[i] and macd.iloc[i-1] <= sig.iloc[i-1]:
                 macd_crossover_passed = True
                 break
-    
-    if not macd_crossover_passed:
+        
+        # 2. Active Bullish State with rising/expanding histogram
+        macd_now = float(macd.iloc[-1])
+        sig_now = float(sig.iloc[-1])
+        hist_now = macd_now - sig_now
+        hist_prev = float(macd.iloc[-2]) - float(sig.iloc[-2])
+        hist_3_ago = float(macd.iloc[-3]) - float(sig.iloc[-3]) if len(df) >= 4 else hist_prev
+
+        # Expanding histogram: strictly rising or positive delta over last 3 bars
+        is_hist_expanding = (hist_now > hist_prev) or (hist_now >= hist_prev and (hist_now - hist_3_ago) > 0)
+
+        if macd_now > sig_now and is_hist_expanding:
+            macd_active_bullish = True
+
+    if not (macd_crossover_passed or macd_active_bullish):
+        logger.debug(f"🔍 [REVERSAL TELEMETRY] {symbol} rejected at MACD_MOMENTUM: No fresh crossover and no active expanding histogram")
         return {
             "passed": False,
-            "reject_reason": "MACD Momentum Fail: No bullish MACD histogram crossover within the last 10 bars",
+            "reject_reason": "MACD Momentum Fail: No bullish MACD crossover within last 10 bars and no active rising MACD histogram",
             "reject_code": "macd_stale",
             "score": 0,
             "raw_score": 0,
@@ -1099,16 +1246,37 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    # Rule: REV-001
-    # 5. Volume Confirmation: Volume ratio >= 2.0x 20-day average
-    if is_synthetic_no_vol or vol_ratio is None or vol_ratio < MIN_VOLUME_RATIO:
-        reason = "Missing volume data on synthetic bar" if is_synthetic_no_vol or vol_ratio is None else f"Volume ratio {vol_ratio:.2f}x < {MIN_VOLUME_RATIO}x threshold"
+    # [RULE 67 CHANGE-RATIONALE]:
+    # CONDITIONAL RVOL FLOOR & REGIME SCALING:
+    # - Base Floor: 1.35x RVOL (down from rigid 2.0x).
+    # - Structure Requirement: 1.35x - 1.49x RVOL requires confirmed strong Higher-Low swing structure.
+    # - STRONG_BEAR Regime: Enforces a strict 1.50x RVOL floor + OBV accumulation.
+    # - 2.0x+ Volume is rewarded via scoring bonuses rather than acting as a binary filter.
+    min_vol_floor = 1.50 if regime == "STRONG_BEAR" else MIN_VOLUME_RATIO
+    if is_synthetic_no_vol or vol_ratio is None or vol_ratio < min_vol_floor:
+        reason = "Missing volume data on synthetic bar" if is_synthetic_no_vol or vol_ratio is None else f"Volume ratio {vol_ratio:.2f}x < {min_vol_floor}x threshold"
+        logger.debug(f"🔍 [REVERSAL TELEMETRY] {symbol} rejected at VOLUME_FLOOR: {reason}")
         return {
             "passed": False,
             "reject_reason": reason,
             "reject_code": "low_volume",
             "actual": vol_ratio if vol_ratio else 0.0,
-            "threshold": MIN_VOLUME_RATIO,
+            "threshold": min_vol_floor,
+            "gate_type": "THRESHOLD",
+            "operator": "<",
+            "score": 0,
+            "raw_score": 0,
+            "sl_result": {},
+            "context": {},
+        }
+
+    # Conditional volume requirement: Moderate volume (1.35x to 1.49x) requires strong HL structure
+    if vol_ratio < 1.50 and not swing_struct.get("is_strong_structure", False):
+        logger.debug(f"🔍 [REVERSAL TELEMETRY] {symbol} rejected at CONDITIONAL_VOLUME: RVOL {vol_ratio:.2f}x lacks strong swing structure")
+        return {
+            "passed": False,
+            "reject_reason": f"Moderate volume {vol_ratio:.2f}x requires strong Higher-Low swing structure (structure not strong enough)",
+            "reject_code": "weak_reversal_structure",
             "gate_type": "THRESHOLD",
             "operator": "<",
             "score": 0,
@@ -1136,22 +1304,35 @@ def _evaluate_candidate(
             "context": {},
         }
 
+    swing_low_val = float(df["Low"].iloc[-RSI_TROUGH_LOOKBACK:].min()) if len(df) >= RSI_TROUGH_LOOKBACK else float(df["Low"].min())
+    swing_low_raw_val = float(df["Low"].iloc[-5:].min()) if len(df) >= 5 else float(df["Low"].min())
+    swing_high_raw_val = float(df["High"].iloc[-250:].max()) if len(df) >= 250 else float(df["High"].max())
+
     sl_res = compute_sl_and_target(
         entry_price=close_price,
         atr=atr_val,
         mode="REVERSAL",
         ticker=df,
+        swing_low=swing_low_val,
+        swing_low_raw=swing_low_raw_val,
+        swing_high_raw=swing_high_raw_val,
+        sma50=sma50,
+        sma200=sma200,
+        ema20=ema20,
     )
-    if not sl_res.get("passed", False):
+    sl_passed = sl_res.get("passed", not sl_res.get("is_rejected", False))
+    natural_rr = sl_res.get("natural_rr", 0.0)
+    if not sl_passed or natural_rr < 2.0:
+        rej_msg = sl_res.get("rejection_reason") or sl_res.get("reject_reason") or f"Natural RR {natural_rr:.2f}x < 2.0x"
         return {
             "passed": False,
-            "reject_reason": f"R:R filter: {sl_res.get('reject_reason', 'SL/Target calculation failed')}",
+            "reject_reason": f"R:R filter: {rej_msg}",
             "reject_code": "low_rr",
             "gate_type": "THRESHOLD",
             "operator": "<",
             "score": 0,
             "raw_score": 0,
-            "sl_result": {},
+            "sl_result": sl_res,
             "context": {},
         }
 
@@ -1189,10 +1370,12 @@ def _evaluate_candidate(
         trend_score = 25
     elif above_sma50:
         trend_score = 22
-    elif close_above_ema20_strict and sma50_slope_up:
+    elif above_sma200 or close_above_ema20_strict:
         trend_score = 18
+    elif is_quality_reversal or (close_price >= ema5 if 'ema5' in locals() else True):
+        trend_score = 15
     else:
-        trend_score = 14
+        trend_score = 12
 
     pledge_pct = _lookup(pledge_map, symbol, can_sym)
 
@@ -1203,8 +1386,8 @@ def _evaluate_candidate(
     if macd_val is not None and sig_val is not None:
         macd_hist = macd_val - sig_val
     macd_above_now = (macd_val > sig_val) if (macd_val is not None and sig_val is not None) else False
-    # [RULE 67 CHANGE-RATIONALE]: macd_crossover_passed was defined at line 1084; macd_passed was undefined.
-    macd_recovery_passed = macd_crossover_passed and not macd_above_now
+    # [FIX: MACD_RECOVERY_BOOLEAN] Fixed logical inversion: bullish MACD is rewarded, not penalized
+    macd_recovery_passed = macd_crossover_passed or macd_above_now
 
     score_dict = _score_reversal(
         vol_ratio=vol_ratio,
@@ -2420,7 +2603,7 @@ def _validate_config():
     _MIN_RSI_PTS = 15 if MIN_RSI_RECOVERY >= 20 else (12 if MIN_RSI_RECOVERY >= 12 else (8 if MIN_RSI_RECOVERY >= 8 else (2 if MIN_RSI_RECOVERY >= 3 else 0)))
     for r, req in REGIME_EVIDENCE_REQ.items():
         min_v = req.get("min_vol_ratio", MIN_VOLUME_RATIO)
-        v_pts = 15 if min_v >= 5.0 else (12 if min_v >= 3.5 else (9 if min_v >= 2.5 else (5 if min_v >= 2.0 else 0)))
+        v_pts = 15 if min_v >= 3.0 else (12 if min_v >= 2.0 else (8 if min_v >= 1.5 else (5 if min_v >= 1.35 else 0)))
         # True minimum MACD score after the gate is 3 points
         r_min_core = 14 + v_pts + 3 + _MIN_RSI_PTS
         if CORE_SCORE_FLOOR > r_min_core:

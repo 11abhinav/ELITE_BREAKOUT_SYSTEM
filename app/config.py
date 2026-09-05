@@ -381,19 +381,27 @@ EOD_ADVANCED_CONFIG = {
     "RECOVERY_BREAKOUT_SCORE_PENALTY":    5,       # flat score penalty applied to Mode B candidates
 }
 
+# [RULE 67 CHANGE-RATIONALE]:
+# REVERSAL_CONFIG refactored to eliminate zero-alert starvation bottlenecks:
+# 1. MIN_VOLUME_RATIO: Lowered from rigid 2.0x to 1.35x base floor (1.50x in STRONG_BEAR). 2.0x+ is rewarded via score bonus rather than serving as a binary kill-switch.
+# 2. DEEP_VALUE_MIN_ROE: Set to 12.0% for Deep Value reversals (stocks below SMA200) to ensure fundamental solvency while allowing Quality reversals (above SMA200) at 5.0%.
+# 3. REVERSAL_RSI_LOOKBACK & REVERSAL_MAX_TROUGH_AGE: Calibrated from 15 to 25 trading bars to allow legitimate consolidation bases to mature without premature trough expiry.
 REVERSAL_CONFIG = {
     "MIN_DROP_FROM_52W_HIGH": 20.0,
     "MAX_DROP_FROM_52W_HIGH": 45.0,
-    "RSI_CURL_MIN": 50,
-    "RSI_OVERSOLD_THRESHOLD": 38,
-    "MIN_VOLUME_RATIO": 2.0,
-    "MIN_AVG_DAILY_VOLUME": 300_000,
+    "RSI_CURL_MIN": 38.0,
+    "RSI_OVERSOLD_THRESHOLD": 35.0,
+    "MIN_RSI_RECOVERY": 8.0,
+    "MIN_VOLUME_RATIO": 1.35,
+    "STRONG_BEAR_MIN_VOLUME_RATIO": 1.50,
+    "MIN_AVG_DAILY_VOLUME": 50_000,
+    "MIN_STOCK_PRICE": 100.0,
     "MIN_ROE": 5.0,
-    "MIN_YOY_REVENUE_GROWTH": -15.0,
+    "DEEP_VALUE_MIN_ROE": 12.0,
+    "MIN_YOY_REVENUE_GROWTH_FLOOR": -15.0,
     "MAX_DROP_BELOW_SMA200": 20.0,
     "REVERSAL_COOLDOWN_TRADING_DAYS": 40,
-    "QUALITY_CAT_MIN_DROP": 1.0,
-    "MIN_RSI_RECOVERY": 3.0,
+    "QUALITY_CAT_MIN_DROP": 15.0,
 }
 
 ALERT_COOLDOWN_MINUTES = {
@@ -418,8 +426,8 @@ SCANNER_MAX_ALERTS = {
 # SCANNER LOOKBACK & THRESHOLD CONSTANTS
 # =====================================================================================
 
-REVERSAL_RSI_LOOKBACK = 15
-REVERSAL_MAX_TROUGH_AGE = 15
+REVERSAL_RSI_LOOKBACK = 25
+REVERSAL_MAX_TROUGH_AGE = 25
 
 BB_WIDTH_PCTILE_LOOKBACK = 60
 
