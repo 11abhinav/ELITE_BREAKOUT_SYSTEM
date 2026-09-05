@@ -343,7 +343,7 @@ EOD_CONFIG = {
     "MIN_VOLUME_RATIO":   1.5,   # [v5.3.0 UPGRADE]: Breakout Volume >= 1.5x SMA20
     "MIN_VOLUME_AVG":     50_000,
     "MIN_RSI":            50,
-    "MAX_RSI":            88,
+    "MAX_RSI":            92,    # [FIX: RSI_CEILING_TO_PENALTY] Raised from 88→92. RSI 88-92 is now a graduated scoring penalty (-2.5 pts/unit), not a hard reject. Genuine breakout stocks routinely hit RSI 88-95 on the ignition day.
 }
 
 EOD_ADVANCED_CONFIG = {
@@ -366,7 +366,19 @@ EOD_ADVANCED_CONFIG = {
     "TIGHT_BASE_BB_WIDTH_PCTILE": 0.50,
 
     # ── [FIX] Structural Breakout Constraint Relaxation ──
-    "MAX_BB_WIDTH_PCTILE": 0.80
+    "MAX_BB_WIDTH_PCTILE": 0.80,
+
+    # ── [FIX: TWO_MODE_52W] Mode B — Recovery Breakout path ──────────────
+    # Stocks 5-15% below 52W high can qualify if they demonstrate stronger conviction:
+    # higher volume, tighter base, and strong relative strength.
+    "RECOVERY_BREAKOUT_MAX_DISTANCE_PCT": 15.0,    # outer limit for Mode B (5%-15%)
+    "RECOVERY_BREAKOUT_MIN_VOL_RATIO":    2.5,     # must match MIN_BREAKOUT_VOLUME_RATIO
+    "RECOVERY_BREAKOUT_MAX_BB_WIDTH":     0.50,    # tighter base required vs Mode A's 0.80
+    "RECOVERY_BREAKOUT_MIN_RS_PCT":       60.0,    # RS percentile floor for recovery setups
+    # Note: Mode B has no separate RSI ceiling. RSI is evaluated through the normal
+    # penalty model (88-92 graduated, >92 hard reject). Adding a tighter Mode B RSI
+    # ceiling would recreate the same contradictory logic removed from Mode A.
+    "RECOVERY_BREAKOUT_SCORE_PENALTY":    5,       # flat score penalty applied to Mode B candidates
 }
 
 REVERSAL_CONFIG = {

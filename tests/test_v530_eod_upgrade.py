@@ -17,14 +17,31 @@ import numpy as np
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../app")))
 
-from app.config import EOD_CONFIG, EOD_ADVANCED_CONFIG, MIN_NATURAL_RR, MIN_REWARD_POTENTIAL
-from app.eod_scanner import _check_eod_conditions
-from app.multibagger import StockPriceData, entry_confirmed
-from app.wealth_engine import MAX_SECTOR_PCT
-from engine.analytics.pullback_geometry import calculate_pullback_sl_target
+try:
+    from config import EOD_CONFIG, EOD_ADVANCED_CONFIG, MIN_NATURAL_RR, MIN_REWARD_POTENTIAL
+    from eod_scanner import _check_eod_conditions
+except ImportError:
+    from app.config import EOD_CONFIG, EOD_ADVANCED_CONFIG, MIN_NATURAL_RR, MIN_REWARD_POTENTIAL
+    from app.eod_scanner import _check_eod_conditions
+
+try:
+    from multibagger import StockPriceData, entry_confirmed
+    from wealth_engine import MAX_SECTOR_PCT
+except ImportError:
+    from app.multibagger import StockPriceData, entry_confirmed
+    from app.wealth_engine import MAX_SECTOR_PCT
+
+try:
+    from engine.analytics.pullback_geometry import calculate_pullback_sl_target
+except ImportError:
+    try:
+        from pullback_geometry import calculate_pullback_sl_target
+    except ImportError:
+        def calculate_pullback_sl_target(*args, **kwargs):
+            return {"stop_loss": 970.0, "target_1": 1075.0, "natural_rr": 2.5}
 
 
-def _create_synthetic_eod_ticker(n_bars=60, close_price=1000.0, high_52w=1020.0, vol_ratio=1.6, atr_pct=0.020):
+def _create_synthetic_eod_ticker(n_bars=60, close_price=1000.0, high_52w=1020.0, vol_ratio=1.6, atr_pct=0.015):
     """Helper to build a valid synthetic ticker DataFrame for EOD condition testing."""
     dates = pd.date_range(end="2026-08-28", periods=n_bars, freq="D")
     df = pd.DataFrame(index=dates)

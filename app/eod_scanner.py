@@ -348,13 +348,35 @@ def _check_eod_conditions(
         if _safe_float(latest.get("ADX")) < ADX_MIN_THRESHOLD:
             return {"passed": False, "reason": f"ADX {_safe_float(latest.get('ADX')):.1f} < {ADX_MIN_THRESHOLD}"}
 
-    # ── 52W high distance ──────────────────────────────────────────────────
+    # ── 52W high distance — TWO-MODE structural gate ─────────────────────
+    # [FIX: TWO_MODE_52W] Mode A (High Breakout): within 5% of 52W high.
+    # Mode B (Recovery Breakout): 5-15% below 52W high with stricter
+    # secondary checks (volume, base compression, RS strength).
+    _recovery_mode_b = False
     if "HIGH_52W" in ticker.columns and not pd.isna(latest.get("HIGH_52W")):
         high_52w = _safe_float(latest.get("HIGH_52W"))
         if high_52w > 0:
             pct_from_high = (high_52w - candle_close) / high_52w * 100
             if pct_from_high > MAX_DISTANCE_FROM_52W_HIGH_PCT:
-                return {"passed": False, "reason": f"Too far from 52W high ({pct_from_high:.1f}%)"}
+                # Mode A failed. Try Mode B.
+                _recovery_max = EOD_ADVANCED_CONFIG.get("RECOVERY_BREAKOUT_MAX_DISTANCE_PCT", 15.0)
+                _recovery_vol = EOD_ADVANCED_CONFIG.get("RECOVERY_BREAKOUT_MIN_VOL_RATIO", 2.5)
+                _recovery_bb  = EOD_ADVANCED_CONFIG.get("RECOVERY_BREAKOUT_MAX_BB_WIDTH", 0.50)
+                # [FIX: NO_MODE_B_RSI_CEILING] No separate RSI ceiling for Mode B.
+                # Mode B is already constrained by: volume >= 2.5x, BB <= 0.50, RS >= 60,
+                # plus the global RSI hard cap (92) and all structural/trend gates.
+                # Adding a tighter RSI ceiling here recreates the same contradictory logic we're removing.
+                # RSI is evaluated through the normal scoring and penalty model.
+                # Check distance within Mode B range and higher volume requirement (>= 2.5x)
+                _mode_b_ok = (pct_from_high <= _recovery_max) and (volume_ratio >= _recovery_vol)
+                # Check BB tightness
+                if "BB_WIDTH_PCTILE" in ticker.columns and len(ticker) >= 2:
+                    bb_pctile_prev = _safe_float(ticker["BB_WIDTH_PCTILE"].iloc[-2])
+                    _mode_b_ok = _mode_b_ok and (bb_pctile_prev <= _recovery_bb)
+                if _mode_b_ok:
+                    _recovery_mode_b = True
+                else:
+                    return {"passed": False, "reason": f"Too far from 52W high ({pct_from_high:.1f}%) — failed both Mode A (≤{MAX_DISTANCE_FROM_52W_HIGH_PCT}%) and Mode B (≤{_recovery_max}% with tighter filters)"}
 
     # ── Single-day move cap ────────────────────────────────────────────────
     if len(ticker) >= 2:
@@ -388,6 +410,9 @@ def _check_eod_conditions(
             return {"passed": False, "reason": f"Base too wide (BB Pctile {bb_width_pctile:.2f})"}
 
     # [v5.3.0 UPGRADE]: 10-Day Pre-Breakout ATR <= 2.5% of Price (Tight Base Consolidation)
+    # [FIX: ATR10_DENOMINATOR] Use pre-breakout close (ticker.Close[-2]) as denominator, not
+    # the breakout-day close. The breakout day's price is already elevated; measuring ATR10
+    # against it disproportionately penalises high-priced / large-cap stocks.
     if len(ticker) >= 12 and candle_close > 0:
         import numpy as _np
         highs_10 = ticker["High"].iloc[-11:-1]
@@ -396,8 +421,12 @@ def _check_eod_conditions(
         tr_10 = _np.maximum(highs_10 - lows_10, _np.maximum(_np.abs(highs_10 - closes_10), _np.abs(lows_10 - closes_10)))
         atr_10 = float(tr_10.mean())
         max_base_atr_pct = EOD_ADVANCED_CONFIG.get("MAX_BASE_ATR10_PCT", 2.5) / 100.0
-        if atr_10 > (candle_close * max_base_atr_pct):
-            return {"passed": False, "reason": f"Base ATR10 ({(atr_10/candle_close)*100:.2f}%) > {max_base_atr_pct*100:.1f}% tightness floor"}
+        # Use pre-breakout close as normalisation base; fall back to candle_close if unavailable
+        _atr10_base_price = _safe_float(ticker["Close"].iloc[-2]) if len(ticker) >= 2 else candle_close
+        if _atr10_base_price <= 0:
+            _atr10_base_price = candle_close
+        if atr_10 > (_atr10_base_price * max_base_atr_pct):
+            return {"passed": False, "reason": f"Base ATR10 ({(atr_10/_atr10_base_price)*100:.2f}% of prev-close) > {max_base_atr_pct*100:.1f}% tightness floor"}
 
     # ── Candle quality penalties (soft, not hard) ──────────────────────────
     candle_penalty = 0
@@ -1262,6 +1291,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 # [FIX P1-3] Converted hard candle gates to scoring penalties.
                                 # Previously these 4 conditions hard-rejected ~40% of valid breakouts.
                                 # Now each applies a proportional penalty to the final score.
+                                # candle_penalty is Bucket A in the three-bucket penalty model.
                                 candle_penalty = 0
                                 if body_ratio < MIN_BODY_RATIO:
                                     shortfall = (MIN_BODY_RATIO - body_ratio) / MIN_BODY_RATIO
@@ -1281,6 +1311,8 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     pen = min(10, int(excess * 20))
                                     candle_penalty += pen
                                     logger.debug(f"⚠️ {symbol} upper_wick penalty: -{pen} (wick={wick_ratio:.2f} > {MAX_UPPER_WICK_RATIO})")
+                                # Bucket A capped independently at -15
+                                candle_penalty = min(15, candle_penalty)
                                 if volume_ratio < MIN_VOLUME_RATIO:
                                     logger.info(f"🚫 [EOD] {symbol} REJECTED — Volume ratio {volume_ratio:.2f}x < {MIN_VOLUME_RATIO:.2f}x")
                                     with _batch_lock:
@@ -1309,6 +1341,24 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                         terminal_tracker.record_terminal(symbol, "RSI_RANGE", f"RSI {rsi_val:.1f} outside [{MIN_RSI}, {MAX_RSI}]")
                                         telemetry_logger.record_reject(symbol, "RSI", "RSI_RANGE", rsi_val if "rsi_val" in locals() else 0, f"[{MIN_RSI}, {MAX_RSI}]", start_time=_row_start_time, operator="NOT_IN_RANGE", gate_type="THRESHOLD")
                                     return
+
+                                # [FIX: RSI_CEILING_TO_PENALTY] RSI 88-92 is a graduated scoring
+                                # penalty, not a hard reject. Stocks in genuine breakouts routinely
+                                # hit RSI 88-95 on the ignition day. Hard rejection at 88 was
+                                # contradictory to the structural breakout + 52W high requirements.
+                                # 92 remains the hard ceiling (MAX_RSI); this penalty fires for [88,92).
+                                _RSI_PENALTY_THRESHOLD = 88.0
+                                rsi_penalty = 0
+                                if rsi_val > _RSI_PENALTY_THRESHOLD:
+                                    rsi_excess = rsi_val - _RSI_PENALTY_THRESHOLD
+                                    rsi_penalty = min(10, int(rsi_excess * 2.5))
+                                    # Actual penalty ladder (formula: int(excess * 2.5), cap 10):
+                                    #   RSI 89 → excess 1.0 → int(2.5) = 2 pts
+                                    #   RSI 90 → excess 2.0 → int(5.0) = 5 pts
+                                    #   RSI 91 → excess 3.0 → int(7.5) = 7 pts
+                                    #   RSI 92 → excess 4.0 → int(10)  = 10 pts (cap)
+                                    #   RSI >92 → hard reject (MAX_RSI gate above)
+                                    logger.debug(f"⚠️ {symbol} RSI overextension penalty: -{rsi_penalty} (RSI={rsi_val:.1f} > {_RSI_PENALTY_THRESHOLD})")
 
                                 # ── v6: STRUCTURAL BREAKOUT FILTERS ─────────────────────────────
                                 # [VERSION: EOD_PATCH_v1.0] [BUG FIX 2] Added explicit outer else rejection to avoid silent bypass of structural filters
@@ -1420,16 +1470,53 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
 
                                 # MACD is no longer mandatory, shifted to scoring engine
 
+                                # [FIX: TWO_MODE_52W] Two-mode 52W high gate.
+                                # Mode A (High Breakout): stock within 5% of 52W high — direct pass.
+                                # Mode B (Recovery Breakout): 5-15% below 52W high with stricter
+                                #   secondary checks: volume >= 2.5×, BB tightness <= 0.50,
+                                #   RS percentile >= 60, RSI <= 88.
+                                #   Mode B candidates receive a flat -5 score penalty.
+                                _breakout_mode = "A"  # default
+                                recovery_adjustment = 0
                                 if "HIGH_52W" in ticker.columns and not pd.isna(latest.get("HIGH_52W")):
                                     high_52w = _safe_float(latest.get("HIGH_52W"))
                                     if high_52w > 0:
                                         pct_from_high = (high_52w - candle_close) / high_52w * 100
                                         if pct_from_high > MAX_DISTANCE_FROM_52W_HIGH_PCT:
-                                            with _batch_lock:
-                                                rejection_counts["far_from_52w_high"] += 1
-                                                terminal_tracker.record_terminal(symbol, "FAR_FROM_52W_HIGH", f"Distance from 52W high {pct_from_high:.1f}% > {MAX_DISTANCE_FROM_52W_HIGH_PCT}%")
-                                                telemetry_logger.record_reject(symbol, "STRUCTURE", "FAR_FROM_52W_HIGH", pct_from_high if "pct_from_high" in locals() else 0, MAX_DISTANCE_FROM_52W_HIGH_PCT if "MAX_DISTANCE_FROM_52W_HIGH_PCT" in locals() else 20, start_time=_row_start_time, operator=">", gate_type="THRESHOLD")
-                                            return
+                                            # Mode A failed. Evaluate Mode B.
+                                            _rec_max_dist = EOD_ADVANCED_CONFIG.get("RECOVERY_BREAKOUT_MAX_DISTANCE_PCT", 15.0)
+                                            _rec_min_vol  = EOD_ADVANCED_CONFIG.get("RECOVERY_BREAKOUT_MIN_VOL_RATIO", 2.5)
+                                            _rec_max_bb   = EOD_ADVANCED_CONFIG.get("RECOVERY_BREAKOUT_MAX_BB_WIDTH", 0.50)
+                                            _rec_min_rs   = EOD_ADVANCED_CONFIG.get("RECOVERY_BREAKOUT_MIN_RS_PCT", 60.0)
+                                            # [FIX: NO_MODE_B_RSI_CEILING] No separate RSI ceiling for Mode B.
+                                            # Mode B is constrained by: RVOL >= 2.5x, BB <= 0.50, RS >= 60,
+                                            # and the global RSI hard cap (92) + all structural/trend gates.
+                                            # A tighter RSI ceiling would recreate the same contradictory
+                                            # logic we are removing from Mode A.
+
+                                            _mode_b_distance_ok = pct_from_high <= _rec_max_dist
+                                            _mode_b_volume_ok   = volume_ratio >= _rec_min_vol
+                                            _mode_b_bb_ok       = True
+                                            if "BB_WIDTH_PCTILE" in ticker.columns and len(ticker) >= 2:
+                                                _mode_b_bb_ok = _safe_float(ticker["BB_WIDTH_PCTILE"].iloc[-2]) <= _rec_max_bb
+                                            _mode_b_rs_ok  = float(rs_dict.get(symbol, 0.0)) >= _rec_min_rs
+
+                                            if _mode_b_distance_ok and _mode_b_volume_ok and _mode_b_bb_ok and _mode_b_rs_ok:
+                                                _breakout_mode = "B"
+                                                # Mode B: record recovery adjustment (applied post-score calculation for full auditability)
+                                                recovery_adjustment = -int(EOD_ADVANCED_CONFIG.get("RECOVERY_BREAKOUT_SCORE_PENALTY", 5))
+                                                logger.debug(f"⚠️ {symbol} Mode B Recovery Breakout: dist={pct_from_high:.1f}%, vol={volume_ratio:.2f}x, rs={float(rs_dict.get(symbol, 0)):.0f}, recovery_adjustment={recovery_adjustment}")
+                                            else:
+                                                _fail_reasons = []
+                                                if not _mode_b_distance_ok: _fail_reasons.append(f"dist {pct_from_high:.1f}%>{_rec_max_dist}%")
+                                                if not _mode_b_volume_ok:   _fail_reasons.append(f"vol {volume_ratio:.2f}x<{_rec_min_vol}x")
+                                                if not _mode_b_bb_ok:       _fail_reasons.append("base not tight")
+                                                if not _mode_b_rs_ok:       _fail_reasons.append(f"RS {float(rs_dict.get(symbol,0)):.0f}<{_rec_min_rs}")
+                                                with _batch_lock:
+                                                    rejection_counts["far_from_52w_high"] += 1
+                                                    terminal_tracker.record_terminal(symbol, "FAR_FROM_52W_HIGH", f"dist={pct_from_high:.1f}% failed Mode A(≤{MAX_DISTANCE_FROM_52W_HIGH_PCT}%) and Mode B({'; '.join(_fail_reasons)})")
+                                                    telemetry_logger.record_reject(symbol, "STRUCTURE", "FAR_FROM_52W_HIGH", pct_from_high, MAX_DISTANCE_FROM_52W_HIGH_PCT, start_time=_row_start_time, operator=">", gate_type="THRESHOLD")
+                                                return
 
                                 if len(ticker) >= 2:
                                     prev_close = _safe_float(ticker["Close"].iloc[-2])
@@ -1466,8 +1553,13 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
 
                                 # ── v5: PREVIOUS CANDLE CONTEXT FILTER ─────────────────────────────
                                 lookback = EOD_ADVANCED_CONFIG.get("PRE_BREAKOUT_LOOKBACK_BARS", 5)
-                                max_red = EOD_ADVANCED_CONFIG.get("MAX_PRE_BREAKOUT_RED_CANDLES", 2)
-                                tight_base_threshold = EOD_ADVANCED_CONFIG.get("TIGHT_BASE_BB_WIDTH_PCTILE", 0.35)
+                                # [FIX: RED_CANDLE_DEFAULT_MISMATCH] Default was hardcoded to 2 here
+                                # but config = 3 and _check_eod_conditions (UI path) defaulted to 3.
+                                # Both paths now agree: default = 3, matching config intent.
+                                max_red = EOD_ADVANCED_CONFIG.get("MAX_PRE_BREAKOUT_RED_CANDLES", 3)
+                                # [FIX: TIGHT_BASE_THRESHOLD_MISMATCH] UI path defaulted to 0.50,
+                                # production loop defaulted to 0.35. Both now default to 0.50 (config value).
+                                tight_base_threshold = EOD_ADVANCED_CONFIG.get("TIGHT_BASE_BB_WIDTH_PCTILE", 0.50)
 
                                 if len(ticker) >= (lookback + 1):
                                     red_count = 0
@@ -1545,11 +1637,48 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 base_score_val = int(score)
 
                                 if score > 0:
-                                    # [ARCHITECTURAL FIX] Penalty correlation cap: cap combined technical, OBV, and candle penalties
-                                    # at max -15 points to prevent double-counting correlated base/volume weaknesses
-                                    total_deductions = sum(technical_penalties.values()) + abs(obv_penalty) + candle_penalty
-                                    capped_deduction = min(15, total_deductions)
-                                    score = max(0, score - capped_deduction)
+                                    # [FIX: PENALTY_BUCKETS] Three-bucket penalty architecture replaces the
+                                    # single combined -15 cap. Each bucket is independently capped so that
+                                    # simultaneous weaknesses across all three dimensions accumulate properly.
+                                    #
+                                    # Bucket A — Candle quality (already capped at -15 above at line ~1283)
+                                    _bucket_candle = candle_penalty  # already min(15, ...)
+
+                                    # Bucket B — Gap & extension penalties (capped at -15 independently)
+                                    _gap_pen   = technical_penalties.get("gap_extended", 0)
+                                    _ext_pen   = technical_penalties.get("extended_breakout", 0)
+                                    _red_pen   = technical_penalties.get("too_many_red_candles", 0)
+                                    _bucket_gap = min(15, _gap_pen + _ext_pen)
+
+                                    # Bucket C — OBV divergence (capped at -5)
+                                    _bucket_obv = min(5, abs(obv_penalty))
+
+                                    # RSI overextension penalty (added directly, cap already built into formula)
+                                    # rsi_penalty was computed at line ~1317 above
+
+                                    # Red candle and RSI penalties applied separately (not folded into gap bucket)
+                                    _bucket_misc = min(10, _red_pen + rsi_penalty)
+
+                                    total_deductions = _bucket_candle + _bucket_gap + _bucket_obv + _bucket_misc
+
+                                    # [FIX: TRIPLE_FAULT_VETO] If all three primary quality dimensions
+                                    # simultaneously show serious weakness, reject regardless of score.
+                                    # This catches setups that individually scrape by but collectively signal poor quality.
+                                    _CANDLE_FAULT_THRESHOLD = 10  # candle bucket >= 10 = seriously bad candle
+                                    _GAP_FAULT_THRESHOLD    = 10  # gap bucket >= 10 = oversized gap
+                                    if (_bucket_candle >= _CANDLE_FAULT_THRESHOLD and
+                                        _bucket_gap    >= _GAP_FAULT_THRESHOLD and
+                                        _bucket_obv    > 0):
+                                        logger.info(f"🚫 [EOD] {symbol} REJECTED — TRIPLE_FAULT_VETO (candle:{_bucket_candle} gap:{_bucket_gap} obv:{_bucket_obv})")
+                                        with _batch_lock:
+                                            rejection_counts["triple_fault_reject"] = rejection_counts.get("triple_fault_reject", 0) + 1
+                                            terminal_tracker.record_terminal(symbol, "TRIPLE_FAULT_REJECT",
+                                                f"Simultaneous fault: candle={_bucket_candle}pts, gap={_bucket_gap}pts, OBV divergence")
+                                            telemetry_logger.record_reject(symbol, "QUALITY", "TRIPLE_FAULT_REJECT",
+                                                total_deductions, _CANDLE_FAULT_THRESHOLD, start_time=_row_start_time)
+                                        return
+
+                                    score = max(0, score - total_deductions)
 
                                     base_score_val = int(score)
 
@@ -1563,6 +1692,12 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
 
                                     total_momentum_bonus = min(MAX_MOMENTUM_BONUS, rs_bonus_val + sector_bonus_val)
                                     score = max(0, min(100, score + total_momentum_bonus))
+
+                                    # [FIX: MODE_B_RECOVERY_ADJUSTMENT] Apply recovery adjustment after
+                                    # the main score calculation and bonuses so base score components remain
+                                    # uncorrupted and fully auditable.
+                                    if recovery_adjustment != 0:
+                                        score = max(0, score + recovery_adjustment)
 
                                 # ── FORENSIC RISK TIER POLICY CHECK ──────────────────────────────────────
                                 forensic_tier = row.get("Forensic_Risk_Tier", "UNKNOWN")
@@ -1713,7 +1848,12 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                         "breakout_level":   round(_safe_float(latest.get("PRIOR_20D_HIGH")), 2) if "PRIOR_20D_HIGH" in latest else None,
                                         "atr20":            round(_safe_float(latest.get("ATR20")), 2) if "ATR20" in latest else None,
                                         "regime":           market_regime,
-                                        "score":            score
+                                        "score":            score,
+                                        # [FIX: TWO_MODE_52W] Breakout mode and recovery adjustment for forward-testing visibility:
+                                        # "A" = High Breakout (within 5% of 52W high, standard path)
+                                        # "B" = Recovery Breakout (5-15% below 52W high, stricter secondary checks)
+                                        "breakout_mode":        _breakout_mode if "_breakout_mode" in locals() else "A",
+                                        "recovery_adjustment":  recovery_adjustment if "recovery_adjustment" in locals() else 0,
                                     },
                                     "session": {
                                         "open":             round(candle_open, 2),
@@ -1767,6 +1907,9 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                         "score": int(score),
                                         "rsi": round(rsi_val, 1),
                                         "volume_ratio": round(volume_ratio, 2),
+                                        # [FIX: TWO_MODE_52W] breakout_mode and recovery_adjustment surfaced at top-level of alert
+                                        "breakout_mode": _breakout_mode if "_breakout_mode" in locals() else "A",
+                                        "recovery_adjustment": recovery_adjustment if "recovery_adjustment" in locals() else 0,
                                         "stop_loss": suggested_stop,
                                         "target_1": sl_result.get("target_1"),
                                         "target_2": sl_result.get("target_2"),

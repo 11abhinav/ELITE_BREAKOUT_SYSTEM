@@ -679,7 +679,7 @@ def _classify_nonfin(row: pd.Series, symbol: str) -> dict:
         symbol=symbol, cats=cats, path="Non-Financial", row=row, close_price=close_price,
         market_cap=market_cap, roe=roe, opm=opm, debt_equity=debt_equity, debt_missing=debt_missing,
         qoq_rev=qoq_sales, yoy_rev=yoy_sales, qoq_profit=qoq_profit, yoy_profit=yoy_profit, score=score, peg=peg, roce=roce, fcf_margin=fcf_margin,
-        rev_5y=rev_5y, eps_5y=eps_5y, pe=pe, pb=pb
+        rev_5y=rev_5y, eps_5y=eps_5y, pe=pe, pb=pb, cfo_pat_ratio=cfo_pat_ratio, forensic_flags=forensic_flags, insider_hold=insider_hold
     )
 
 # =====================================================================================
@@ -885,7 +885,7 @@ def _classify_fin(row: pd.Series, symbol: str) -> dict:
         symbol=symbol, cats=cats, path="Financial", row=row, close_price=close_price,
         market_cap=market_cap, roe=roe, opm=None, debt_equity=debt_equity, debt_missing=debt_missing,
         qoq_rev=qoq_rev, yoy_rev=yoy_rev, qoq_profit=qoq_profit, yoy_profit=yoy_profit, score=score, roa=roa, peg=peg, roce=roce, fcf_margin=fcf_margin,
-        rev_5y=rev_5y, eps_5y=eps_5y, pe=pe, pb=pb
+        rev_5y=rev_5y, eps_5y=eps_5y, pe=pe, pb=pb, cfo_pat_ratio=None, forensic_flags=forensic_flags, insider_hold=insider_hold
     )
 
 # =====================================================================================
@@ -1017,7 +1017,7 @@ def _score_fin(yoy_rev, yoy_profit, qoq_rev, qoq_profit, roe, roa,
 # ROW BUILDER (shared)
 # =====================================================================================
 
-def _build_row(*, symbol, cats, path, row, close_price, market_cap, roe, opm, debt_equity, debt_missing, qoq_rev, yoy_rev, qoq_profit, yoy_profit, score, roa=None, peg=None, roce=None, fcf_margin=None, rev_5y=None, eps_5y=None, pe=None, pb=None) -> dict:
+def _build_row(*, symbol, cats, path, row, close_price, market_cap, roe, opm, debt_equity, debt_missing, qoq_rev, yoy_rev, qoq_profit, yoy_profit, score, roa=None, peg=None, roce=None, fcf_margin=None, rev_5y=None, eps_5y=None, pe=None, pb=None, cfo_pat_ratio=None, forensic_flags=0, insider_hold=None) -> dict:
     desc_list = [CAT_DESCRIPTIONS.get(c, "") for c in cats]
     cat_desc = " | ".join(filter(None, desc_list))
 
@@ -1026,14 +1026,21 @@ def _build_row(*, symbol, cats, path, row, close_price, market_cap, roe, opm, de
         from forensic_engine import ForensicEngine
         import json
         fund_dict = {
+            "symbol": symbol,
+            "path": path,
+            "sector": str(row.get("sector", "Unknown")),
+            "categories": cats,
             "roce": roce,
             "roe": roe,
+            "roa": roa,
             "opm": opm,
             "debt_to_equity": debt_equity,
-            "cfo_pat": 0.90 if roe and roe >= 15 else 0.50,
-            "capex_sales_ratio": 0.18 if (roe and roe >= 18) else 0.08,
-            "revenue_cagr_3y": (yoy_rev / 100.0) if yoy_rev else 0.10,
-            "fcf_history": [10.0, -5.0, -10.0] if (roe and roe >= 15) else [10.0, 15.0, 20.0]
+            "cfo_pat": cfo_pat_ratio,
+            "cfo_pat_3y": cfo_pat_ratio,
+            "revenue_cagr_3y": (yoy_rev / 100.0) if yoy_rev is not None else None,
+            "fcf_margin": fcf_margin,
+            "forensic_flags": forensic_flags,
+            "insider_hold": insider_hold
         }
         traj = compute_trajectory_score(fund_dict)
         forensic_res = ForensicEngine.evaluate_symbol(fund_dict)
