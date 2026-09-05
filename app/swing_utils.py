@@ -288,29 +288,37 @@ def measure_pullback(historical_view: pd.DataFrame, impulse: ImpulseLeg, config:
     is_reset = max_pb_close > impulse.end.price
     gates.append(gate("PHASE_B", is_reset, RejectionReason.REJ_STRUCTURE_RESET.name, not is_reset, max_pb_close, impulse.end.price, "<="))
     
+    # Pullback structure configuration thresholds (aligned strictly to PULLBACK_CONFIG)
+    min_depth = float(config.get("MIN_DEPTH_PCT", 10.0))
+    max_depth = float(config.get("MAX_DEPTH_PCT", 78.6))
+    min_duration = int(config.get("MIN_DURATION", 3))
+    max_duration = int(config.get("MAX_DURATION", 20))
+    max_swings = int(config.get("MAX_INTERNAL_SWINGS", 3))
+    max_vol_ratio = float(config.get("MAX_PB_VOLUME_RATIO", 1.25))
+
     # Depth
-    gates.append(gate("PHASE_B", ps.depth_pct < config.get("MIN_DEPTH_PCT", 23.6), RejectionReason.REJ_DEPTH_TOO_SHALLOW.name, 
-                      ps.depth_pct >= config.get("MIN_DEPTH_PCT", 23.6), ps.depth_pct, config.get("MIN_DEPTH_PCT", 23.6), ">="))
-    gates.append(gate("PHASE_B", ps.depth_pct > config.get("MAX_DEPTH_PCT", 61.8), RejectionReason.REJ_DEPTH_TOO_DEEP.name,
-                      ps.depth_pct <= config.get("MAX_DEPTH_PCT", 61.8), ps.depth_pct, config.get("MAX_DEPTH_PCT", 61.8), "<="))
+    gates.append(gate("PHASE_B", ps.depth_pct < min_depth, RejectionReason.REJ_DEPTH_TOO_SHALLOW.name, 
+                      ps.depth_pct >= min_depth, ps.depth_pct, min_depth, ">="))
+    gates.append(gate("PHASE_B", ps.depth_pct > max_depth, RejectionReason.REJ_DEPTH_TOO_DEEP.name,
+                      ps.depth_pct <= max_depth, ps.depth_pct, max_depth, "<="))
                       
     # Absolute Floor
     gates.append(gate("PHASE_B", abs_depth_pct < 2.0, RejectionReason.REJ_DEPTH_TOO_SHALLOW.name,
                       abs_depth_pct >= 2.0, abs_depth_pct, 2.0, ">="))
                       
     # Duration
-    gates.append(gate("PHASE_B", ps.duration_bars < config.get("MIN_DURATION", 3), RejectionReason.REJ_DURATION_SHORT.name,
-                      ps.duration_bars >= config.get("MIN_DURATION", 3), ps.duration_bars, config.get("MIN_DURATION", 3), ">="))
-    gates.append(gate("PHASE_B", ps.duration_bars > config.get("MAX_DURATION", 20), RejectionReason.REJ_DURATION_LONG.name,
-                      ps.duration_bars <= config.get("MAX_DURATION", 20), ps.duration_bars, config.get("MAX_DURATION", 20), "<="))
+    gates.append(gate("PHASE_B", ps.duration_bars < min_duration, RejectionReason.REJ_DURATION_SHORT.name,
+                      ps.duration_bars >= min_duration, ps.duration_bars, min_duration, ">="))
+    gates.append(gate("PHASE_B", ps.duration_bars > max_duration, RejectionReason.REJ_DURATION_LONG.name,
+                      ps.duration_bars <= max_duration, ps.duration_bars, max_duration, "<="))
                       
     # Orderly
-    gates.append(gate("PHASE_B", ps.internal_swing_count > config.get("MAX_INTERNAL_SWINGS", 2), RejectionReason.REJ_DISORDERLY_PULLBACK.name,
-                      ps.internal_swing_count <= config.get("MAX_INTERNAL_SWINGS", 2), ps.internal_swing_count, config.get("MAX_INTERNAL_SWINGS", 2), "<="))
+    gates.append(gate("PHASE_B", ps.internal_swing_count > max_swings, RejectionReason.REJ_DISORDERLY_PULLBACK.name,
+                      ps.internal_swing_count <= max_swings, ps.internal_swing_count, max_swings, "<="))
                       
     # Volume
-    gates.append(gate("PHASE_B", ps.volume_ratio > config.get("MAX_PB_VOLUME_RATIO", 0.75), RejectionReason.REJ_VOLUME_NOT_CONTRACTING.name,
-                      ps.volume_ratio <= config.get("MAX_PB_VOLUME_RATIO", 0.75), ps.volume_ratio, config.get("MAX_PB_VOLUME_RATIO", 0.75), "<="))
+    gates.append(gate("PHASE_B", ps.volume_ratio > max_vol_ratio, RejectionReason.REJ_VOLUME_NOT_CONTRACTING.name,
+                      ps.volume_ratio <= max_vol_ratio, ps.volume_ratio, max_vol_ratio, "<="))
                       
     # SMA50
     gates.append(gate("PHASE_B", ps.closed_below_sma50, RejectionReason.REJ_CLOSED_BELOW_SMA50.name, not ps.closed_below_sma50, 1 if ps.closed_below_sma50 else 0, 0, "=="))

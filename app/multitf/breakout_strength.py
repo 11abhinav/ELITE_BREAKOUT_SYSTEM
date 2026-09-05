@@ -405,38 +405,107 @@ def classify_alert_severity(
     hl    = consolidation_result.has_higher_lows
     tests = consolidation_result.resistance_test_count
 
-    # Soft market regime shield: require stronger evidence in bear/crash
-    mkt_upper = market_status.upper()
-    is_severe_bear = mkt_upper in ("BEAR", "STRONG_BEAR", "CRASH", "WATERFALL")
-    bear_min = config.get("BEAR_MIN_TOTAL_SCORE", 80)
-    bear_rvol = config.get("BEAR_MIN_RVOL", 1.50)
-    if is_severe_bear and (base < bear_min or vr < bear_rvol):
-        return "WEAK"
-
     # A+ SETUP: max quality on both engines
     if (base >= config.get("SEVERITY_APLUS_BASE", 90)
-            and brk >= config.get("SEVERITY_APLUS_BREAKOUT", 90)
+            and brk >= config.get("SEVERITY_APLUS_BREAKOUT", 85)
             and vr >= config.get("SEVERITY_APLUS_RVOL", 2.0)
             and hl and tests >= 3):
         return "A_PLUS"
 
     # EXPLOSIVE BREAKOUT
     if (base >= config.get("SEVERITY_EXPLOSIVE_BASE", 85)
-            and brk >= config.get("SEVERITY_EXPLOSIVE_BREAKOUT", 88)
-            and vr >= config.get("SEVERITY_EXPLOSIVE_RVOL", 2.0)):
+            and brk >= config.get("SEVERITY_EXPLOSIVE_BREAKOUT", 80)
+            and vr >= config.get("SEVERITY_EXPLOSIVE_RVOL", 1.75)):
         return "EXPLOSIVE"
 
     # SUPER BREAKOUT
     if (base >= config.get("SEVERITY_SUPER_BASE", 80)
-            and brk >= config.get("SEVERITY_SUPER_BREAKOUT", 80)):
+            and brk >= config.get("SEVERITY_SUPER_BREAKOUT", 75)
+            and vr >= config.get("SEVERITY_SUPER_RVOL", 1.40)):
         return "SUPER"
 
     # GOOD BREAKOUT
     if (base >= config.get("SEVERITY_GOOD_BASE", 70)
-            and brk >= config.get("SEVERITY_GOOD_BREAKOUT", 70)):
+            and brk >= config.get("SEVERITY_GOOD_BREAKOUT", 65)
+            and vr >= config.get("SEVERITY_GOOD_RVOL", 1.25)):
         return "GOOD"
 
     return "WEAK"
+
+
+def evaluate_trade_eligibility(
+    base_score: int,
+    breakout_score: int,
+    volume_ratio: float,
+    confluence_score: int,
+    rr_ratio: float,
+    market_status: str,
+    config: Dict[str, Any],
+    is_late_session: bool = False
+) -> tuple[bool, str]:
+    """
+    Evaluates final institutional quality contract independent of descriptive severity tier.
+    Returns (is_eligible, failure_reason_code).
+    """
+    mkt_upper = (market_status or "NORMAL").upper()
+    is_severe_bear = mkt_upper in ("BEAR", "STRONG_BEAR", "CRASH", "WATERFALL")
+
+    # Hard R:R Requirement across all regimes
+    if rr_ratio < config.get("MIN_RR_RATIO", 1.5):
+        return False, "RR_T1_FAIL"
+
+    # 1. Late Session (14:15 - 15:00 IST) Quality Floor
+    if is_late_session:
+        late_base = config.get("LATE_SESSION_MIN_BASE", 75)
+        late_brk = config.get("LATE_SESSION_MIN_BREAKOUT", 75)
+        late_rvol = config.get("LATE_SESSION_MIN_RVOL", 1.50)
+        late_conf = config.get("LATE_SESSION_MIN_CONFLUENCE", 82)
+        if base_score < late_base:
+            return False, "LATE_SESSION_BASE_FAIL"
+        if breakout_score < late_brk:
+            return False, "LATE_SESSION_BREAKOUT_FAIL"
+        if volume_ratio < late_rvol:
+            return False, "LATE_SESSION_RVOL_FAIL"
+        if confluence_score < late_conf:
+            return False, "LATE_SESSION_CONFLUENCE_FAIL"
+        return True, "ELIGIBLE"
+
+    # 2. BEAR Market Quality Floor
+    if is_severe_bear:
+        bear_base = config.get("BEAR_MIN_BASE_SCORE", 75)
+        bear_brk = config.get("BEAR_MIN_BREAKOUT_SCORE", 68)
+        bear_rvol = config.get("BEAR_MIN_RVOL", 1.30)
+        bear_conf = config.get("BEAR_MIN_TOTAL_SCORE", 80)
+        bear_min_core = config.get("BEAR_MIN_CORE_TECHNICAL_SCORE", 70)
+
+        if base_score < bear_base:
+            return False, "BEAR_QUALITY_BASE_FAIL"
+        if breakout_score < bear_brk:
+            return False, "BEAR_QUALITY_BREAKOUT_FAIL"
+        if volume_ratio < bear_rvol:
+            return False, "BEAR_QUALITY_RVOL_FAIL"
+        # Quality-aware composition:
+        # Passes if Confluence >= 80, OR if strong core technicals (Base >= 75, Brk >= 68, RVOL >= 1.30, RR >= 1.5)
+        # achieve Confluence / Core Score >= 70
+        if confluence_score < bear_conf and confluence_score < bear_min_core:
+            return False, "BEAR_QUALITY_CONFLUENCE_FAIL"
+        return True, "ELIGIBLE"
+
+    # 3. Normal Session Quality Floor
+    norm_base = config.get("SEVERITY_GOOD_BASE", 70)
+    norm_brk = config.get("SEVERITY_GOOD_BREAKOUT", 65)
+    norm_rvol = config.get("SEVERITY_GOOD_RVOL", 1.25)
+    norm_conf = config.get("MIN_TOTAL_CONFLUENCE", 65)
+    if base_score < norm_base:
+        return False, "NORMAL_QUALITY_BASE_FAIL"
+    if breakout_score < norm_brk:
+        return False, "NORMAL_QUALITY_BREAKOUT_FAIL"
+    if volume_ratio < norm_rvol:
+        return False, "NORMAL_QUALITY_RVOL_FAIL"
+    if confluence_score < norm_conf:
+        return False, "NORMAL_QUALITY_CONFLUENCE_FAIL"
+
+    return True, "ELIGIBLE"
 
 
 SEVERITY_EMOJI = {

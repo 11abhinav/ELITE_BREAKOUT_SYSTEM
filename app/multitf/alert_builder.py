@@ -170,17 +170,28 @@ def build_multitf_alert_message(
         "",
     ]
 
-    # ── SUMMARY Section ───────────────────────────────────────────────────────
     ext_daily = sl_levels.get("extension_daily_atr", 0.0)
     rr = sl_levels.get("rr_ratio", 0.0)
     entry = sl_levels.get("entry", 0)
     stop  = sl_levels.get("stop", 0)
+    t0    = sl_levels.get("t0", 0)
     t1    = sl_levels.get("t1", 0)
     t2    = sl_levels.get("t2", 0)
     t3    = sl_levels.get("t3", 0)
+    t1_source = sl_levels.get("t1_source", "STRUCTURAL")
 
     ext_ok = ext_daily <= 0.50
     rr_ok  = rr >= 1.5
+
+    target_lines = []
+    if t0 and t0 < t1:
+        target_lines.append(f"T0 (Obstacle):     ₹{t0:.1f} (scale-out / first ceiling)")
+        target_lines.append(f"T1 (Trade Target): ₹{t1:.1f} [{t1_source}]")
+    else:
+        target_lines.append(f"T1 (Trade Target): ₹{t1:.1f} [{t1_source}]")
+
+    if t2 or t3:
+        target_lines.append(f"T2 / T3:           ₹{t2:.1f} / ₹{t3:.1f}")
 
     lines += [
         f"━━━━━━━━━━━━━━━━━━━━",
@@ -195,9 +206,7 @@ def build_multitf_alert_message(
         "",
         f"Entry:             ₹{entry:.2f}",
         f"Stop:              ₹{stop:.2f}",
-        f"T1 / T2 / T3:      ₹{t1:.1f} / ₹{t2:.1f} / ₹{t3:.1f}",
-        "",
-    ]
+    ] + target_lines + [""]
 
     # ── TIMING Section ────────────────────────────────────────────────────────
     base_formed = c.start_ts.strftime("%H:%M IST") if c.start_ts else "—"

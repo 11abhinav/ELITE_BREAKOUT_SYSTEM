@@ -806,8 +806,27 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                     
                         if not ps.valid:
                             v_ratio = round(float(ps.volume_ratio), 2) if hasattr(ps, 'volume_ratio') and ps.volume_ratio is not None else None
-                            act_pb = {"Retracement %": round(float(ps.depth_pct), 1), "Volume Ratio": v_ratio, "Duration Bars": getattr(ps, 'duration_bars', None)}
-                            req_pb = {"Max Retracement %": 50.0, "Min Retracement %": 15.0, "Valid Structure": True}
+                            rej_obj = getattr(ps, "rejection_reason", None)
+                            if hasattr(rej_obj, "name"):
+                                failed_reason = rej_obj.name
+                            elif rej_obj is not None:
+                                failed_reason = str(rej_obj)
+                            else:
+                                failed_reason = "UNKNOWN"
+
+                            act_pb = {
+                                "retracement_pct": round(float(ps.depth_pct), 1) if ps.depth_pct is not None else None,
+                                "volume_ratio": v_ratio,
+                                "duration_bars": getattr(ps, 'duration_bars', None),
+                                "failed_gate": failed_reason
+                            }
+                            req_pb = {
+                                "min_depth_pct": float(effective_config.get("MIN_DEPTH_PCT", 10.0)),
+                                "max_depth_pct": float(effective_config.get("MAX_DEPTH_PCT", 78.6)),
+                                "max_volume_ratio": float(effective_config.get("MAX_PB_VOLUME_RATIO", 1.25)),
+                                "min_duration_bars": int(effective_config.get("MIN_DURATION", 3)),
+                                "max_duration_bars": int(effective_config.get("MAX_DURATION", 20))
+                            }
                             return (None, "pullback_invalid", "SUCCESS", fresh_val, sym, act_pb, req_pb)
 
                         trig = swing_utils.detect_resumption_trigger(historical_view, ps, effective_config)
@@ -1213,14 +1232,11 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                 pass
     alertable = valid_risk_candidates[:max_alerts]
 
-    # [VERSION: FALLBACK_ALERT_SUPPRESSION_v1.0]
-    # If historical fallback dataset was used (e.g. Bhavcopy pending or past date),
-    # strictly suppress live alert generation to prevent creating stale previous-session alerts.
-    if is_historical_fallback:
-        logger.warning("⚠️ [PULLBACK] Historical fallback dataset was used. Suppressing live alert generation to prevent stale past-session alerts.")
-        for c in alertable:
-            terminal_tracker.record_terminal(c.symbol, "SUPPRESSED_FALLBACK_DATA", "Historical fallback dataset used")
-        alertable = []
+    # [ADJUSTED TRADING SESSION NORMALIZATION]
+    # Normalize source_trading_date so weekend runs (Saturday/Sunday) inherit the
+    # Friday trading session, enabling clean deduplication across Friday -> Sat -> Sun.
+    from market_utils import get_expected_latest_trading_date
+    source_trading_date = get_expected_latest_trading_date(ist_now)
 
     # ---------------- SIGNAL DISPATCH & PERSISTENCE ----------------
     alert_count = 0
@@ -1263,6 +1279,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             score=final_score_val,
             context={
                 "config_version": c.config_version,
+                "source_trading_date": str(source_trading_date),
                 "structure": {
                     "depth_pct": c.structure.depth_pct,
                     "duration_bars": c.structure.duration_bars,
@@ -1284,7 +1301,8 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             rs_percentile=rs_pct_val,
             sector_name=sector_name_val,
             regime_score=float(MarketRegimeEngine.get_regime_context().get("market_score", 80.0)),
-            entry_mode="LIMIT_PULLBACK"
+            entry_mode="LIMIT_PULLBACK",
+            source_trading_date=source_trading_date
         )
 
         if saved:
@@ -1333,12 +1351,13 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         else:
             c.status = CandidateState.SUPPRESSED
             rejected["persistence_failed"] += 1
-            terminal_tracker.record_terminal(c.symbol, "PERSISTENCE_FAILED", reason or "Failed to save to database")
+            term_reason = "DUPLICATE_ALERT" if "Duplicate" in str(reason) else "PERSISTENCE_FAILED"
+            terminal_tracker.record_terminal(c.symbol, term_reason, reason or "Failed to save to database")
             logger.info(f"REJECTION: {c.symbol} (Phase: PERSISTENCE, Reason: {reason})")
             telemetry_logger.record_reject(
                 symbol=c.symbol,
                 last_stage="PERSISTENCE",
-                gate="PERSISTENCE_FAILED",
+                gate=term_reason,
                 actual=None,
                 required=None
             )

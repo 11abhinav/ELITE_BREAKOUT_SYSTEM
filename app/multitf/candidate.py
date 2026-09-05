@@ -113,6 +113,9 @@ def build_confirmed_payload(
     conviction = consolidation.setup_score if consolidation.setup_score > 0 else (confluence.total_score if confluence else 0)
     components = confluence.to_dict()["components"] if confluence else {}
 
+    from market_utils import get_expected_latest_trading_date
+    source_trading_date = get_expected_latest_trading_date(ist_now)
+
     payload = {
         "symbol": bundle.symbol,
         "scanner_name": "MULTI_TF",
@@ -121,8 +124,10 @@ def build_confirmed_payload(
         "tf_primary": "15m",
         "tf_trigger": "5m",
         "timestamp": ist_now.isoformat(),
+        "source_trading_date": str(source_trading_date),
 
         # Core execution pricing
+        "entry_price": float(c_bar["Close"]),
         "close_price": float(c_bar["Close"]),
         "trigger_price": float(c_bar["Close"]),
         "volume": int(c_bar["Volume"]),

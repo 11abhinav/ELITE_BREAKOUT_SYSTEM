@@ -984,36 +984,61 @@ def _rsi_zone(rsi: Optional[float]) -> str:
 def _compute_multi_tf_v2(entry: float, eff_atr: float, ticker: pd.DataFrame = None, **kwargs) -> dict:
     """
     MULTI_TF_V2 Target Engine.
-    T1 = nearest meaningful structural resistance above entry (30m/1H pivots, R1/R2, 52W High).
+    T0 = nearest structural resistance / first obstacle / scale-out zone.
+    T1 = next structural resistance offering >= 1.5R, or measured move / fib extension.
     Risk = entry - box_low (from kwargs).
-    R:R Gate = >= 1.5R.
+    R:R Gate = T1 >= 1.5R.
     T2/T3 = Fib extensions of the T1 target leg.
+    Target Provenance: STRUCTURAL, MEASURED_MOVE, FIB_EXTENSION.
     """
     # 1. Base Stop Loss (box_low passed via kwargs, fallback to 1 ATR)
     box_low = kwargs.get("box_low", entry - eff_atr)
-    risk_points = entry - box_low
-    if risk_points <= 0:
-        risk_points = eff_atr
+    risk_points = max(entry - box_low, eff_atr)
 
     sl = box_low - (0.10 * eff_atr)  # Buffer below structure
     sl = round(sl, 2)
+    effective_risk = max(0.01, entry - sl)
     risk_pct = (entry - sl) / entry * 100
 
-    # 2. Structural T1 Search
+    # 2. Structural Levels Search
     levels = []
     if ticker is not None and not ticker.empty:
         last = ticker.iloc[-1]
         for col in ["LOOKBACK_SWING_HIGH", "R1", "R2", "HIGH_252D"]:
-            if col in last and not pd.isna(last[col]) and last[col] > entry:
-                levels.append(last[col])
+            if col in last and not pd.isna(last[col]):
+                try:
+                    val = float(last[col])
+                    if val > entry:
+                        levels.append(val)
+                except (ValueError, TypeError):
+                    pass
 
-    if levels:
-        t1 = round(min(levels), 2)
-        target_basis = "Structural_Resistance"
+    sorted_levels = sorted(list(set(levels))) if levels else []
+
+    # T0 is the nearest overhead resistance (first obstacle / minor scale-out)
+    if sorted_levels:
+        t0 = round(sorted_levels[0], 2)
+        t0_rr = round((t0 - entry) / effective_risk, 2)
     else:
-        # Fallback if no structure found: 2.0R measured move
-        t1 = round(entry + (risk_points * 2.0), 2)
+        t0 = round(entry + (effective_risk * 1.0), 2)
+        t0_rr = 1.0
+
+    # T1 is the true tradeability target providing >= 1.5R
+    # Search for first structural level that delivers >= 1.5R
+    t1_structural_candidates = [lvl for lvl in sorted_levels if (lvl - entry) / effective_risk >= 1.5]
+
+    if t1_structural_candidates:
+        t1 = round(min(t1_structural_candidates), 2)
+        target_basis = "Structural_Target_Post_T0"
+        t1_source = "STRUCTURAL"
+    else:
+        # If no structural level satisfies >= 1.5R (e.g. blue sky or tight ceiling),
+        # use a 2.0R measured move of the base structure
+        t1 = round(entry + (effective_risk * 2.0), 2)
         target_basis = "2R_Measured_Move"
+        t1_source = "MEASURED_MOVE"
+
+    rr = (t1 - entry) / effective_risk
 
     # 3. Validation Gate via TradeStructureValidator
     validation = TradeStructureValidator.validate(
@@ -1023,12 +1048,7 @@ def _compute_multi_tf_v2(entry: float, eff_atr: float, ticker: pd.DataFrame = No
         min_rr=1.5
     )
 
-    if not validation["is_valid"]:
-        is_rejected = True
-        rr = 0.0
-    else:
-        is_rejected = False
-        rr = (t1 - entry) / (entry - sl)
+    is_rejected = not validation.get("is_valid", False)
 
     # 4. Fib Extensions for T2/T3 based on the T1 structure
     t1_dist = max(t1 - entry, 0.01)
@@ -1036,15 +1056,20 @@ def _compute_multi_tf_v2(entry: float, eff_atr: float, ticker: pd.DataFrame = No
     t3 = round(entry + (t1_dist * 2.618), 2)
 
     return {
+        "entry": entry,
+        "entry_price": entry,
         "stop_loss": sl,
+        "target_0": t0,
         "target_1": t1,
         "target_2": t2,
         "target_3": t3,
         "target": t1,  # Primary target is T1
+        "t0_rr_ratio": t0_rr,
         "rr_ratio": round(rr, 2),
         "risk_pct": round(risk_pct, 2),
         "sl_basis": "Box_Low_Structure",
         "target_basis": target_basis,
+        "t1_source": t1_source,
         "is_rejected": is_rejected,
         "rejection_code": validation.get("rejection_code", "") if is_rejected else ""
     }
@@ -1460,6 +1485,7 @@ def _legacy_compute_sl_and_target(
         "EOD": "EOD", "1d": "EOD",
         "REVERSAL": "REVERSAL",
         "MULTI_TF": "MULTI_TF",
+        "MULTI_TF_V2": "MULTI_TF_V2",
         "PULLBACK": "PULLBACK",
         "MULTIBAGGER": "MULTIBAGGER",
         "WEALTH": "MULTIBAGGER",

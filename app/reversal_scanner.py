@@ -2199,6 +2199,9 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                                     terminal_tracker.record_terminal(s_cand["symbol"], "SUPPRESSED_TOP_N", f"Exceeded MAX_ALERTS limit ({max_alerts})")
                                 shortlisted_alerts = shortlisted_alerts[:max_alerts]
 
+                        from market_utils import get_expected_latest_trading_date
+                        source_trading_date = get_expected_latest_trading_date(ist_now)
+
                         for alert in shortlisted_alerts:
                             # Ensure post-market entry price matches today's live CMP
                             ep_val = alert["entry_price"]
@@ -2220,7 +2223,8 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                                 bayesian_regime=regime_ctx.get("trend", "NEUTRAL"), bayesian_weights=bayesian_weights,
                                 structural_failure_stop=alert.get("structural_failure_stop"),
                                 target_quality_score=alert.get("target_quality_score"),
-                                conn=conn
+                                conn=conn,
+                                source_trading_date=source_trading_date
                             )
                             if inserted:
                                 total_alerts += 1

@@ -237,6 +237,7 @@ class OpportunityManager:
                             "allocation": c.get("allocation"),
                         },
                         entry_mode=c.get("entry_mode", "MARKET"),
+                        source_trading_date=c.get("source_trading_date"),
                     )
                     
                     if not inserted:

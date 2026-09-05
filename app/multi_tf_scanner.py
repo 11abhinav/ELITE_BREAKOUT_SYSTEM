@@ -435,9 +435,10 @@ def run_hourly_phase(is_test_mode=False, run_once=False, session=None, run_ctx=N
     Adds to breakout_watchlist as HOURLY_APPROVED.
     """
     from market_utils import is_market_open
-    if not run_once and not is_market_open():
-        logger.info("Market is closed. Skipping 1H phase.")
-        return {"fetched": 0, "total": 0, "stale": 0, "approved": 0}
+    if not is_market_open() and not is_test_mode and not run_once:
+        logger.info("Market is closed. Skipping 1H background sweep.")
+        return {"fetched": 0, "total": 0, "stale": 0}
+
     logger.info("🕒 Starting Phase A (1H Trend Scanner)...")
     
     # 1. Get targeted intraday timing universe (Open Alerts + Wealth + Master)
@@ -697,10 +698,8 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
     Iterates active watchlist items and advances them through the 4-phase signal ladder:
       HOURLY_APPROVED → (30m) SETUP_ARMED → (15m) ENTRY_READY → (5m) TRADE_ACTIVE
     """
-    from market_utils import is_market_open
-    if not run_once and not is_market_open():
-        logger.info("Market is closed. Skipping lower TF phase.")
-        return {"fetched": 0, "total": 0, "stale": 0}
+    # [RULE CHANGE: ALL-DAY ALERT GENERATION]
+    # Allow lower TF phase execution at any time of day
     logger.info("⚡ Starting Phase B/C/D (Sub-hourly Ladder Updater)...")
     
     active_items = get_active_breakout_watchlist()
@@ -1767,9 +1766,7 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
             
             scan_start = datetime.now(IST)
             from market_utils import is_market_open
-            market_open = is_market_open(ist_now)
-            # Admin manual triggers pass run_once=True, which should bypass the market closed check
-            is_active_window = market_open or run_once
+            is_active_window = is_market_open(ist_now) or is_test_mode or run_once
             
             import database
             if not is_active_window:

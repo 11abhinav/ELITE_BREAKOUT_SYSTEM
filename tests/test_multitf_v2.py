@@ -468,10 +468,18 @@ class TestAlertSeverityClassification(unittest.TestCase):
         self.assertEqual(severity, "WEAK", "Breakout 65 < MIN_BREAKOUT_SCORE(70) = WEAK")
 
     def test_bear_market_suppresses_marginal(self):
-        from multitf.breakout_strength import classify_alert_severity
+        from multitf.breakout_strength import classify_alert_severity, evaluate_trade_eligibility
+        # Descriptive severity remains GOOD (Base 74, Breakout 74, RVOL 1.3x)
         severity = classify_alert_severity(self._make_cons(74, False, 2), self._make_brkout(74, 1.3, "CONFIRMED"),
                                            self.config, market_status="BEAR")
-        self.assertEqual(severity, "WEAK", "In BEAR: base 74, RVOL 1.3× (< 1.5×) must be suppressed")
+        self.assertEqual(severity, "GOOD", "Descriptive classification classifies as GOOD")
+        # Final trade eligibility gate suppresses marginal base < 75 in BEAR market
+        is_eligible, reason = evaluate_trade_eligibility(
+            base_score=74, breakout_score=74, volume_ratio=1.3,
+            confluence_score=82, rr_ratio=1.6, market_status="BEAR", config=self.config
+        )
+        self.assertFalse(is_eligible, "In BEAR: base 74 (< 75) must be suppressed from trade eligibility")
+        self.assertEqual(reason, "BEAR_QUALITY_BASE_FAIL")
 
     def test_bear_market_allows_rs_leader(self):
         from multitf.breakout_strength import classify_alert_severity

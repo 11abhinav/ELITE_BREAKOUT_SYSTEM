@@ -257,21 +257,23 @@ MULTI_TF_V2_CONFIG = {
     "MARKET_RS_STRONG_LEAD":        0.005,  # stock > NIFTY + 0.5% → full points
 
     # Breakout quality tier thresholds (Breakout Score)
-    "MIN_BREAKOUT_SCORE":           70,      # < 70 → WEAK, DB-only (no push)
+    "MIN_BREAKOUT_SCORE":           65,      # < 65 → WEAK, DB-only (no push)
     "STRONG_BREAKOUT_SCORE":        80,      # SUPER tier
     "EXPLOSIVE_BREAKOUT_SCORE":     90,      # EXPLOSIVE tier
 
     # ── V3: ALERT SEVERITY CLASSIFICATION ──
     "SEVERITY_APLUS_BASE":          90,      # A+ SETUP: base >= 90
-    "SEVERITY_APLUS_BREAKOUT":      90,      # AND breakout >= 90
+    "SEVERITY_APLUS_BREAKOUT":      85,      # AND breakout >= 85
     "SEVERITY_APLUS_RVOL":          2.0,     # AND RVOL >= 2×
     "SEVERITY_EXPLOSIVE_BASE":      85,      # EXPLOSIVE: base >= 85
-    "SEVERITY_EXPLOSIVE_BREAKOUT":  88,      # AND breakout >= 88
-    "SEVERITY_EXPLOSIVE_RVOL":      2.0,     # AND RVOL >= 2×
+    "SEVERITY_EXPLOSIVE_BREAKOUT":  80,      # AND breakout >= 80
+    "SEVERITY_EXPLOSIVE_RVOL":      1.75,    # AND RVOL >= 1.75×
     "SEVERITY_SUPER_BASE":          80,      # SUPER: base >= 80
-    "SEVERITY_SUPER_BREAKOUT":      80,      # AND breakout >= 80
+    "SEVERITY_SUPER_BREAKOUT":      75,      # AND breakout >= 75
+    "SEVERITY_SUPER_RVOL":          1.40,    # AND RVOL >= 1.40×
     "SEVERITY_GOOD_BASE":           70,      # GOOD: base >= 70
-    "SEVERITY_GOOD_BREAKOUT":       70,      # AND breakout >= 70
+    "SEVERITY_GOOD_BREAKOUT":       65,      # AND breakout >= 65
+    "SEVERITY_GOOD_RVOL":           1.25,    # AND RVOL >= 1.25×
 
     # ── 5M LIVE TRIGGER GATES ──
     "MIN_RANGE_EXPANSION":          1.15,
@@ -279,10 +281,24 @@ MULTI_TF_V2_CONFIG = {
     "MIN_VOLUME_EXPANSION_CONFIRM": 1.25,
     "MIN_LIVE_POSITION_ATTEMPT":    0.60,
     "MIN_CLOSE_POSITION_CONFIRMED": 0.60,
-    "MAX_EXTENSION_15M_ATR":        0.80,    # Local cap: (Close−Res)/15m ATR <= 0.80
-    "MAX_EXTENSION_DAILY_ATR":      0.50,    # Daily cap: (Close−Res)/Daily ATR <= 0.50
+    "HEALTHY_PENETRATION_MAX_ATR":  1.20,    # Up to 1.20 ATR penetration is healthy expansion
+    "EXHAUSTION_RVOL_MIN":          1.75,    # Penetration > 1.20 ATR requires RVOL >= 1.75 to prove thrust
+    "EXHAUSTION_CLOSE_POS_MIN":     0.75,    # Penetration > 1.20 ATR requires close in top 25%
+    "VELOCITY_THRUST_ENVELOPE_MAX": 0.25,    # Velocity cap preventing parabolic blow-off wick
+    "MAX_EXTENSION_15M_ATR":        1.20,    # Local cap: (Close−Res)/15m ATR <= 1.20
+    "MAX_EXTENSION_DAILY_ATR":      0.75,    # Daily cap: (Close−Res)/Daily ATR <= 0.75
     "PULLBACK_RETEST_TOL_ATR":      0.15,
-    "ENTRY_CUTOFF_TIME":            "14:15",
+    "ENTRY_CUTOFF_TIME":            "14:15", # Normal session entry cutoff
+    "LATE_ENTRY_CUTOFF_TIME":       "15:00", # Strict late-session hard stop
+    "LATE_SESSION_MIN_BASE":        75,      # Stricter base in 14:15-15:00
+    "LATE_SESSION_MIN_BREAKOUT":    75,      # Stricter breakout in 14:15-15:00
+    "LATE_SESSION_MIN_RVOL":        1.50,    # Stricter volume in 14:15-15:00
+    "LATE_SESSION_MIN_CONFLUENCE":  82,      # Stricter confluence in 14:15-15:00
+
+    # ── PRE-BREAKOUT / IGNITION CONFIG ──
+    "PRE_BREAKOUT_MAX_DISTANCE_ATR": 0.40,   # Within 0.40 ATR of resistance
+    "PRE_BREAKOUT_MIN_BASE_SCORE":   75,     # High-quality base required for pre-breakout
+    "PRE_BREAKOUT_MIN_IGNITION_SCORE": 75,   # Minimum ignition score (0-100)
 
     # ── VOLUME BASELINE ──
     "MIN_VOLUME_PROJECTION_FRAC":   0.25,
@@ -298,8 +314,11 @@ MULTI_TF_V2_CONFIG = {
     "FAILED_BREAKOUT_COOLDOWN_MIN": 30,
 
     # ── SOFT MARKET REGIME SHIELD ──
-    "BEAR_MIN_TOTAL_SCORE":         80,      # In BEAR/CRASH: total base+breakout must be >= 80
-    "BEAR_MIN_RVOL":                1.50,    # AND RVOL >= 1.5×
+    "BEAR_MIN_TOTAL_SCORE":         80,      # In BEAR/CRASH: confluence score must be >= 80 (or core technical >= 70)
+    "BEAR_MIN_BASE_SCORE":          75,      # In BEAR/CRASH: base score must be >= 75
+    "BEAR_MIN_BREAKOUT_SCORE":      68,      # In BEAR/CRASH: breakout score must be >= 68
+    "BEAR_MIN_RVOL":                1.30,    # In BEAR/CRASH: RVOL must be >= 1.30×
+    "BEAR_MIN_CORE_TECHNICAL_SCORE": 70,     # Structure + Momentum + Volume quality floor (when 1H >= 0)
 
     # ── TRADE QUALITY ──
     "MIN_RR_RATIO":                 1.5,
@@ -416,6 +435,16 @@ PULLBACK_CONFIG = {
     "OUTAGE_THRESHOLD_BUMP": 3,
     "MIN_HISTORY": 180,
     "MODE": "LIVE", "DEBUG_SWINGS": False,
+}
+
+# Configurable Entry Deduplication Tolerance (% delta) for Canonical Alert Fingerprinting
+SCANNER_DEDUP_ENTRY_TOLERANCE_PCT = {
+    "PULLBACK": 0.5,       # 0.5% tolerance on swing pullback entries
+    "EOD": 0.5,            # 0.5% tolerance on daily breakout entries
+    "REVERSAL": 0.75,      # 0.75% tolerance on mean-reversion bounces
+    "MULTI_TF": 0.3,       # 0.3% tighter tolerance on 5m intraday entries
+    "MULTIBAGGER": 1.0,    # 1.0% wider tolerance on fundamental buy zones
+    "DEFAULT": 0.5
 }
 
 # ── Data Quality Framework (V8.0) ──

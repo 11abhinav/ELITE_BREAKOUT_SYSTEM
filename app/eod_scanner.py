@@ -1845,14 +1845,11 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
             else:
                 logger.info("📊 EOD Candidates Discovered: 0")
 
-            # [VERSION: FALLBACK_ALERT_SUPPRESSION_v1.0]
-            # If historical fallback dataset was used (Bhavcopy missing / past date),
-            # strictly suppress live alert generation to prevent creating stale previous-session alerts.
-            if used_fallback_data:
-                logger.warning("⚠️ [EOD SCANNER] Historical fallback dataset was used. Suppressing live alert generation to prevent stale past-session alerts.")
-                for cand in approved_candidates:
-                    terminal_tracker.record_terminal(cand["symbol"], "SUPPRESSED_FALLBACK_DATA", "Historical fallback dataset used")
-                approved_candidates = []
+            # [ADJUSTED TRADING SESSION NORMALIZATION]
+            # Normalize source_trading_date so weekend runs (Saturday/Sunday) inherit the
+            # Friday trading session, enabling clean deduplication across Friday -> Sat -> Sun.
+            from market_utils import get_expected_latest_trading_date
+            source_trading_date = get_expected_latest_trading_date(ist_now)
 
             if approved_candidates:
                 from config import SCANNER_MAX_ALERTS
@@ -1898,6 +1895,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                     _roe = c.pop("_roe")
                     _ticker = c.pop("_ticker")
 
+                    c["source_trading_date"] = source_trading_date
                     if not is_test_mode:
                         saved, reason, cap_alloc, shares = save_alert_if_new(**c)
                     else:

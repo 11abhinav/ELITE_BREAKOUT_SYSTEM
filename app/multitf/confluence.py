@@ -32,12 +32,14 @@ class ConfluenceResult:
     score_momentum: int = 0
     score_volume: int = 0
     score_context: int = 0
+    core_technical_score: int = 0
     total_score: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "is_approved": self.is_approved,
             "total_score": self.total_score,
+            "core_technical_score": self.core_technical_score,
             "components": {
                 "structure": self.score_structure,
                 "momentum": self.score_momentum,
@@ -117,6 +119,10 @@ def evaluate_breakout_confluence(
     # Final Confluence Score
     res.total_score = min(score, 100)
 
+    # Core technical confluence (Structure + Momentum + Volume, Max 80)
+    core_technical_score = res.score_structure + res.score_momentum + res.score_volume
+    res.core_technical_score = core_technical_score
+
     # Multi-component approval gates
     min_struct = config.get("MIN_STRUCTURE_CONFLUENCE", 25)
     min_mom    = config.get("MIN_MOMENTUM_CONFLUENCE", 15)
@@ -132,10 +138,25 @@ def evaluate_breakout_confluence(
     mkt_status = str(market_ctx.get("status", "NORMAL")).upper()
     is_severe_bear = mkt_status in ("BEAR", "STRONG_BEAR", "CRASH", "WATERFALL")
     if is_severe_bear:
-        # Require strong relative-strength leader (score >= 80 and RVOL >= 1.5×)
         bear_min_score = config.get("BEAR_MIN_TOTAL_SCORE", 80)
-        bear_min_rvol  = config.get("BEAR_MIN_RVOL", 1.50)
-        if res.total_score < bear_min_score or pressure.volume_ratio < bear_min_rvol:
+        bear_min_rvol  = config.get("BEAR_MIN_RVOL", 1.30)
+        bear_min_core  = config.get("BEAR_MIN_CORE_TECHNICAL_SCORE", 70)
+
+        c_1h = ctx_1h.get("score", 0) if ctx_1h else 0
+
+        # Unified Obstacle vs Invalid Setup:
+        # A nearby 30M resistance is mapped as a T0 obstacle (managed by SL/Target helper),
+        # not a setup killer, provided core technical quality (Structure + Momentum + Volume) >= 70,
+        # 1H context is non-hostile (c_1h >= 0), and RVOL >= 1.30x.
+        has_bear_quality_exception = (
+            core_technical_score >= bear_min_core
+            and c_1h >= 0
+            and pressure.volume_ratio >= bear_min_rvol
+        )
+
+        if not (res.total_score >= bear_min_score or has_bear_quality_exception):
+            total_pass = False
+        if pressure.volume_ratio < bear_min_rvol:
             total_pass = False
 
     if struct_pass and mom_pass and ctx_pass and total_pass:

@@ -111,17 +111,43 @@ def _evaluate_confirmed(
     slot_vol_avg = _calc_slot_volume_baseline(bar_ts, df_5m_closed, config)
     vol_ratio = v / slot_vol_avg if slot_vol_avg > 0 else 1.0
 
-    # [ANTI-FAKE-BREAKOUT GUARD]: Dual-Scale Over-extension Protection
-    # 1. Local 15m Extension Cap: (Close - Res) / 15m ATR <= 0.80 (prevents chasing local expansion)
-    ref_15m_atr = atr_15m if atr_15m > 0 else (atr_5m * 2.0 if atr_5m > 0 else 1.0)
-    max_ext_local = config.get("MAX_EXTENSION_15M_ATR", 0.80)
-    if c > box_high + (max_ext_local * ref_15m_atr):
-        res.is_overextended = True
-        return
+    # Populate baseline observational metrics on res unconditionally
+    res.live_position = close_pos
+    res.volume_ratio = vol_ratio
+    res.range_ratio = range_ratio
+    res.distance_to_box_high = c - box_high
+    res.current_5m_volume = v
+    res.expected_volume = slot_vol_avg
 
-    # 2. Daily Extension Cap: (Close - Res) / Daily ATR <= 0.50 (checks daily range exhaustion)
+    # [ANTI-FAKE-BREAKOUT GUARD]: Dual-Scale Over-extension Protection
+    # 1. Local 15m Extension Cap: Penetration up to 1.20 ATR is healthy expansion.
+    # If penetration > 1.20 ATR, validate whether it is an Institutional Thrust vs Exhaustion Blow-off
+    ref_15m_atr = atr_15m if atr_15m > 0 else (atr_5m * 2.0 if atr_5m > 0 else 1.0)
+    penetration_atr = (c - box_high) / ref_15m_atr if ref_15m_atr > 0 else 0.0
+    healthy_ext = config.get("HEALTHY_PENETRATION_MAX_ATR", 1.20)
+
+    if penetration_atr > healthy_ext:
+        # Check if candle qualifies as an Institutional Momentum Thrust:
+        # Requires strong volume (RVOL >= 1.75), strong close near highs (close_pos >= 0.75),
+        # and velocity within acceptable thrust envelope
+        req_thrust_rvol = config.get("EXHAUSTION_RVOL_MIN", 1.75)
+        req_thrust_pos = config.get("EXHAUSTION_CLOSE_POS_MIN", 0.75)
+        bar_velocity = (candle_range / (atr_5m if atr_5m > 0 else 1.0)) / 5.0
+        max_velocity_envelope = config.get("VELOCITY_THRUST_ENVELOPE_MAX", 0.25)
+
+        is_institutional_thrust = (
+            vol_ratio >= req_thrust_rvol
+            and close_pos >= req_thrust_pos
+            and bar_velocity <= max_velocity_envelope
+            and penetration_atr <= 1.60
+        )
+        if not is_institutional_thrust:
+            res.is_overextended = True
+            return
+
+    # 2. Daily Extension Cap: (Close - Res) / Daily ATR <= 0.75 (checks daily range exhaustion)
     ref_daily_atr = daily_atr if daily_atr > 0 else (ref_15m_atr * 8.0 if ref_15m_atr > 0 else c * 0.02)
-    max_ext_daily = config.get("MAX_EXTENSION_DAILY_ATR", 0.50)
+    max_ext_daily = config.get("MAX_EXTENSION_DAILY_ATR", 0.75)
     if c > box_high + (max_ext_daily * ref_daily_atr):
         res.is_overextended = True
         return
@@ -195,11 +221,6 @@ def _evaluate_attempt(
     l = float(live["Low"])
     v = float(live["Volume"])
 
-    # Distance requirement: must be near or above box high
-    approach_limit = box_high - (config.get("APPROACH_ATR_MULT", 0.10) * (atr_5m if atr_5m > 0 else 1.0))
-    if c < approach_limit:
-        return
-
     candle_range = h - l
     if candle_range <= 0:
         return
@@ -211,16 +232,24 @@ def _evaluate_attempt(
     live_ts = live.name if isinstance(live.name, pd.Timestamp) else pd.to_datetime(live.get("Date", ist_now))
     proj_vol, vol_ratio = _project_live_volume(v, live_ts, ist_now, df_5m_closed, config)
 
+    # UNCONDITIONALLY record live observation so pre-breakout building pressure has actual live data
+    res.live_position = live_pos
+    res.volume_ratio = vol_ratio
+    res.range_ratio = range_ratio
+    res.distance_to_box_high = c - box_high
+    res.current_5m_volume = v
+
+    # Distance requirement: must be near or above box high (within pre-breakout proximity corridor)
+    approach_limit = box_high - (config.get("APPROACH_ATR_MULT", 0.40) * (atr_5m if atr_5m > 0 else 1.0))
+    if c < approach_limit:
+        return
+
     req_range = config.get("MIN_RANGE_EXPANSION", 1.15)
     req_vol = config.get("MIN_VOLUME_EXPANSION_ATTEMPT", 1.20)
     req_pos = config.get("MIN_LIVE_POSITION_ATTEMPT", 0.60)
 
     if range_ratio >= req_range and vol_ratio >= req_vol and live_pos >= req_pos:
         res.is_attempt = True
-        res.volume_ratio = vol_ratio
-        res.range_ratio = range_ratio
-        res.live_position = live_pos
-        res.distance_to_box_high = c - box_high
         res.attempt_bar_boundary = len(df_5m_closed)
         res.momentum_score = min(20, int((range_ratio + vol_ratio) * 6.0))
 
@@ -283,3 +312,108 @@ def _project_live_volume(
     except Exception as exc:
         logger.debug("[project_vol] exception: %s", exc)
         return live_vol, (live_vol / slot_avg)
+
+
+def compute_ignition_score(
+    consolidation: Any,
+    pressure: PressureResult,
+    distance_to_box_high_atr: float,
+    ctx_1h: Dict[str, Any],
+    config: Dict[str, Any]
+) -> dict:
+    """
+    Computes 6-component Ignition Score (0-100) assessing pre-breakout ignition readiness:
+    - Compression (25 pts): Range narrowing / coil
+    - Resistance Tests (20 pts): Repeated ceiling challenge
+    - Distance (15 pts): Proximity to resistance (<= 0.40 ATR)
+    - Pressure (20 pts): Price migration into ceiling
+    - Volume Trend (10 pts): Improving volume into resistance
+    - 1H Context (10 pts): Higher-timeframe tailwind
+    """
+    # 1. Compression (25 pts)
+    comp_ratio = getattr(consolidation, "compression_ratio", 1.0)
+    if comp_ratio <= 0.75:
+        s_comp = 25
+    elif comp_ratio <= 0.85:
+        s_comp = 20
+    elif comp_ratio <= 0.95:
+        s_comp = 15
+    elif getattr(consolidation, "has_higher_lows", False):
+        s_comp = 15
+    else:
+        s_comp = 8
+
+    # 2. Resistance Tests (20 pts)
+    tests = getattr(consolidation, "resistance_test_count", 0)
+    if tests >= 3:
+        s_tests = 20
+    elif tests == 2:
+        s_tests = 15
+    elif tests == 1:
+        s_tests = 8
+    else:
+        s_tests = 0
+
+    # 3. Distance (15 pts)
+    if distance_to_box_high_atr <= 0.15:
+        s_dist = 15
+    elif distance_to_box_high_atr <= 0.30:
+        s_dist = 12
+    elif distance_to_box_high_atr <= 0.40:
+        s_dist = 8
+    else:
+        s_dist = 0
+
+    # 4. Pressure (20 pts)
+    if getattr(pressure, "is_attempt", False):
+        s_press = 20
+    elif getattr(pressure, "live_position", 0.0) >= 0.70:
+        s_press = 16
+    elif getattr(pressure, "live_position", 0.0) >= 0.50:
+        s_press = 10
+    else:
+        s_press = 5
+
+    # 5. Volume Trend (10 pts)
+    vr = getattr(pressure, "volume_ratio", 1.0)
+    if vr >= 1.25:
+        s_vol = 10
+    elif vr >= 1.10:
+        s_vol = 7
+    elif vr >= 0.95:
+        s_vol = 5
+    else:
+        s_vol = 2
+
+    # 6. 1H Context (10 pts)
+    c_1h = ctx_1h.get("score", 0) if ctx_1h else 0
+    if c_1h >= 5:
+        s_ctx = 10
+    elif c_1h >= 0:
+        s_ctx = 7
+    else:
+        s_ctx = 0
+
+    total_score = s_comp + s_tests + s_dist + s_press + s_vol + s_ctx
+    min_ignition = config.get("PRE_BREAKOUT_MIN_IGNITION_SCORE", 75)
+    max_dist = config.get("PRE_BREAKOUT_MAX_DISTANCE_ATR", 0.40)
+    
+    is_ready = (
+        total_score >= min_ignition
+        and distance_to_box_high_atr <= max_dist
+        and tests >= 2
+        and c_1h >= 0
+    )
+
+    return {
+        "ignition_score": total_score,
+        "is_ignition_ready": is_ready,
+        "score_breakdown": {
+            "compression": s_comp,
+            "resistance_tests": s_tests,
+            "distance": s_dist,
+            "pressure": s_press,
+            "volume_trend": s_vol,
+            "context_1h": s_ctx
+        }
+    }

@@ -27,6 +27,7 @@ IST = ZoneInfo("Asia/Kolkata")
 class MtfSubstate:
     WATCHING = "WATCHING"                     # Good 15m box found, no 5m pressure yet
     PRESSURE_BUILDING = "PRESSURE_BUILDING"   # 5m price near box ceiling, but lacks momentum
+    ARMED_PRE_BREAKOUT = "ARMED_PRE_BREAKOUT" # High-quality base coiling at resistance, ready for ignition
     ATTEMPT = "ATTEMPT"                       # 5m live expansion triggering
     FAILED_ATTEMPT = "FAILED_ATTEMPT"         # ATTEMPT failed to close strong
     BREAKOUT_CONFIRMED = "BREAKOUT_CONFIRMED" # Closed 5m bar confirmed breakout
@@ -38,6 +39,7 @@ def to_canonical(substate: str) -> str:
     _map = {
         MtfSubstate.WATCHING:           "WATCH",
         MtfSubstate.PRESSURE_BUILDING:  "WATCH",
+        MtfSubstate.ARMED_PRE_BREAKOUT: "CANDIDATE",
         MtfSubstate.ATTEMPT:            "CANDIDATE",
         MtfSubstate.FAILED_ATTEMPT:     "WATCH",
         MtfSubstate.BREAKOUT_CONFIRMED: "CONFIRMED",
@@ -299,7 +301,7 @@ def get_active_armed_candidates() -> List[Dict[str, Any]]:
                 cur.execute("""
                     SELECT *
                     FROM mtf_v2_watchlist
-                    WHERE mtf_substate IN ('WATCHING', 'PRESSURE_BUILDING', 'ATTEMPT')
+                    WHERE mtf_substate IN ('WATCHING', 'PRESSURE_BUILDING', 'ARMED_PRE_BREAKOUT', 'ATTEMPT')
                       AND (cooldown_until IS NULL OR cooldown_until <= NOW())
                       AND invalidated_at IS NULL
                     ORDER BY updated_at DESC;
@@ -316,7 +318,7 @@ def get_armed_candidate_lifecycle_summary() -> Dict[str, Any]:
     Returns an institutional lifecycle breakdown of all candidates in mtf_v2_watchlist.
     Validates overnight survival and tracking:
     - total_in_watchlist
-    - active_substates (WATCHING, PRESSURE_BUILDING, ATTEMPT)
+    - active_substates (WATCHING, PRESSURE_BUILDING, ARMED_PRE_BREAKOUT, ATTEMPT)
     - in_cooldown
     - invalidated
     - live_monitor_eligible
@@ -327,10 +329,10 @@ def get_armed_candidate_lifecycle_summary() -> Dict[str, Any]:
                 cur.execute("""
                     SELECT 
                         COUNT(*) as total_count,
-                        COUNT(*) FILTER (WHERE mtf_substate IN ('WATCHING', 'PRESSURE_BUILDING', 'ATTEMPT') AND invalidated_at IS NULL) as active_substates,
+                        COUNT(*) FILTER (WHERE mtf_substate IN ('WATCHING', 'PRESSURE_BUILDING', 'ARMED_PRE_BREAKOUT', 'ATTEMPT') AND invalidated_at IS NULL) as active_substates,
                         COUNT(*) FILTER (WHERE cooldown_until IS NOT NULL AND cooldown_until > NOW() AND invalidated_at IS NULL) as in_cooldown,
                         COUNT(*) FILTER (WHERE invalidated_at IS NOT NULL) as invalidated,
-                        COUNT(*) FILTER (WHERE mtf_substate IN ('WATCHING', 'PRESSURE_BUILDING', 'ATTEMPT')
+                        COUNT(*) FILTER (WHERE mtf_substate IN ('WATCHING', 'PRESSURE_BUILDING', 'ARMED_PRE_BREAKOUT', 'ATTEMPT')
                                            AND (cooldown_until IS NULL OR cooldown_until <= NOW())
                                            AND invalidated_at IS NULL) as live_eligible
                     FROM mtf_v2_watchlist;

@@ -573,7 +573,10 @@ def init_db():
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS execution_status TEXT DEFAULT 'EXECUTABLE'")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS execution_block_reason TEXT DEFAULT ''")
                 cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS rvol_diurnal REAL")
-                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS rvol_rolling REAL")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS source_trading_date DATE")
+                cur.execute("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS alert_fingerprint VARCHAR(128)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_source_trading_date ON alerts(symbol, scanner, source_trading_date)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_fingerprint ON alerts(alert_fingerprint)")
 
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_symbol ON alerts(symbol)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_date ON alerts(alert_date)")
@@ -2299,6 +2302,58 @@ def _sanitize_for_json(obj: Any) -> Any:
     return str(obj)
 
 
+def canonicalize_scanner_name(scanner: str, breakout_type: str = "") -> str:
+    """
+    Normalizes scanner and breakout_type strings to prevent cross-scanner aliasing
+    (e.g., TECHNICAL -> PULLBACK, BREAKOUT -> EOD).
+    """
+    s = str(scanner or "").strip().upper()
+    b = str(breakout_type or "").strip().upper()
+    if s in ("PULLBACK", "TECHNICAL"):
+        return "PULLBACK"
+    if s in ("EOD", "BREAKOUT", "EOD_SCANNER"):
+        return "EOD"
+    if s in ("REVERSAL", "REVERSAL_SCANNER"):
+        return "REVERSAL"
+    if s in ("MULTI_TF", "MULTITF", "MULTI-TF"):
+        return "MULTI_TF"
+    if s in ("MULTIBAGGER", "WEALTH", "WEALTH_ENGINE"):
+        return s
+    if b in ("PULLBACK", "EOD", "REVERSAL", "MULTI_TF", "MULTIBAGGER"):
+        return b
+    return s or b or "UNKNOWN"
+
+
+def generate_canonical_alert_fingerprint(
+    symbol: str,
+    canonical_scanner: str,
+    source_trading_date: Any,
+    direction: str = "LONG",
+    setup_type: str = "BREAKOUT",
+    entry_price: float = 0.0,
+    tolerance_pct: float = 0.5
+) -> str:
+    """
+    Generates a deterministic 32-character canonical setup fingerprint:
+    SHA256(symbol | scanner | direction | source_trading_date | setup_type | price_bucket)
+    Ensures identical setups evaluated on weekends produce the exact same fingerprint.
+    """
+    import hashlib
+    eff_sym = str(symbol or "").strip().upper()
+    eff_sc = str(canonical_scanner or "").strip().upper()
+    eff_dir = str(direction or "LONG").strip().upper()
+    eff_st = str(setup_type or "BREAKOUT").strip().upper()
+    date_str = source_trading_date.isoformat() if hasattr(source_trading_date, 'isoformat') else str(source_trading_date or "")
+    
+    tol = max(0.05, float(tolerance_pct or 0.5))
+    price = float(entry_price or 0.0)
+    price_unit = max(0.01, price * (tol / 100.0)) if price > 0 else 1.0
+    price_bucket = round(price / price_unit) * price_unit if price > 0 else 0.0
+    
+    raw_str = f"{eff_sym}|{eff_sc}|{eff_dir}|{date_str}|{eff_st}|{price_bucket:.2f}"
+    return hashlib.sha256(raw_str.encode("utf-8")).hexdigest()[:32]
+
+
 def save_alert_if_new(
 
     symbol: str,
@@ -2362,6 +2417,28 @@ def save_alert_if_new(
     if scanner_run_id:
         context['scanner_run_id'] = scanner_run_id
 
+    # Derive source_trading_date (Saturday/Sunday always inherit latest valid Friday trading session)
+    source_trading_date = kwargs.get('source_trading_date')
+    if source_trading_date is None and context:
+        source_trading_date = context.get('source_trading_date')
+    if source_trading_date is None:
+        try:
+            from market_utils import get_expected_latest_trading_date
+            source_trading_date = get_expected_latest_trading_date()
+        except Exception:
+            from datetime import datetime as dt
+            source_trading_date = dt.now(IST).date()
+    if isinstance(source_trading_date, str):
+        try:
+            from datetime import date as dt_date
+            source_trading_date = dt_date.fromisoformat(source_trading_date.split("T")[0])
+        except Exception:
+            pass
+
+    if context is None:
+        context = {}
+    context['source_trading_date'] = str(source_trading_date)
+
     sanitized_context = _sanitize_for_json(context) if context is not None else None
     context_str = json.dumps(sanitized_context, default=str) if sanitized_context is not None else None
     sanitized_weights = _sanitize_for_json(bayesian_weights) if bayesian_weights is not None else None
@@ -2393,6 +2470,73 @@ def save_alert_if_new(
 
     def _execute(cur, commit_cb):
         nonlocal success
+
+        # ─────────────────────────────────────────────────────────────────
+        # 🛡️ CANONICAL SETUP FINGERPRINT DEDUPLICATION GATE
+        # ─────────────────────────────────────────────────────────────────
+        canonical_scanner = canonicalize_scanner_name(scanner, breakout_type)
+        eff_entry = float(entry_price or 0.0)
+        direction = "LONG"
+        setup_type = str(signals or breakout_type or "BREAKOUT").strip().upper()
+
+        try:
+            from config import SCANNER_DEDUP_ENTRY_TOLERANCE_PCT
+            tol_pct = float(SCANNER_DEDUP_ENTRY_TOLERANCE_PCT.get(canonical_scanner, SCANNER_DEDUP_ENTRY_TOLERANCE_PCT.get("DEFAULT", 0.5)))
+        except Exception:
+            tol_pct = 0.5
+
+        alert_fingerprint = generate_canonical_alert_fingerprint(
+            symbol=symbol,
+            canonical_scanner=canonical_scanner,
+            source_trading_date=source_trading_date,
+            direction=direction,
+            setup_type=setup_type,
+            entry_price=eff_entry,
+            tolerance_pct=tol_pct
+        )
+
+        cur.execute("""
+            SELECT id, alert_date, alert_time, entry_price, status, scanner, breakout_type,
+                   COALESCE(source_trading_date, alert_date) as src_date
+            FROM alerts
+            WHERE symbol = %s 
+              AND (UPPER(scanner) = %s OR UPPER(breakout_type) = %s)
+              AND is_rejected = FALSE
+              AND (
+                  alert_fingerprint = %s
+                  OR (
+                      COALESCE(source_trading_date, alert_date) = %s
+                      AND abs(entry_price - %s) / GREATEST(0.01, %s) <= %s
+                  )
+              )
+            ORDER BY id DESC LIMIT 1
+        """, (
+            symbol, canonical_scanner, canonical_scanner,
+            alert_fingerprint,
+            source_trading_date,
+            eff_entry, eff_entry, (tol_pct / 100.0)
+        ))
+        prior_adjusted_alert = cur.fetchone()
+
+        if prior_adjusted_alert:
+            prior_id, prior_adate, prior_atime, prior_entry, prior_status, prior_sc, prior_bt, prior_src = prior_adjusted_alert
+            logger.info(
+                f"🔁 [ADJUSTED_DEDUP] {symbol} ({canonical_scanner}) alert RAISED @ ₹{eff_entry:.2f}, "
+                f"but DB persistence suppressed — identical adjusted setup already saved in prior history "
+                f"(Alert ID: {prior_id}, Source Trading Date: {prior_src}, Entry: ₹{prior_entry:.2f}, "
+                f"Tolerance: {tol_pct}%, Fingerprint: {alert_fingerprint})"
+            )
+            # Emit structured lifecycle telemetry contract
+            try:
+                from telemetry_manager import telemetry
+                telemetry.log_scheduler_event(canonical_scanner, "ALERT_DEDUPLICATED", {
+                    "symbol": symbol, "scanner": canonical_scanner, "source_trading_date": str(source_trading_date),
+                    "entry_price": eff_entry, "alert_raised": True, "duplicate": True, "persisted": False, "notification_sent": False
+                })
+            except Exception:
+                pass
+            return False, f"Duplicate: Adjusted alert already persisted (ID {prior_id})", 0.0, 0
+
         # Check if symbol already has an active OPEN position in the system
         cur.execute("""
             SELECT id, symbol, entry_price, stop_loss, target_1, target_2, target_3, signals, score, alert_date, alert_time, context,
@@ -2414,7 +2558,7 @@ def save_alert_if_new(
             current_rvol = float(volume_ratio or 1.0)
             current_pattern = str(signals or breakout_type or "BREAKOUT").strip()
             cand_ctx = context or {}
-            today_date = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+            today_date = datetime.now(IST).date()
             today_str = today_date.strftime('%Y-%m-%d')
 
             # Query last recorded event for this alert in alert_events
@@ -2641,10 +2785,10 @@ def save_alert_if_new(
         rvol_rolling_val = float(cand_ctx.get("rvol_rolling") or volume_ratio or 1.0)
 
         eff_actual_entry_price = actual_entry_price if actual_entry_price is not None else entry_price
-        today_date = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+        today_date = datetime.now(IST).date()
         cur.execute("""
             INSERT INTO alerts
-                (symbol, breakout_type, alert_time, alert_date, scanner, category,
+                (symbol, breakout_type, alert_time, alert_date, source_trading_date, alert_fingerprint, scanner, category,
                 entry_price, stop_loss, initial_stop_loss, target_price, target_1, target_2, target_3, target_4,
                 signals, score, rsi, volume_ratio, status, context, capital_allocated, shares_bought, remaining_shares,
                 model_version, bayesian_regime, bayesian_weights, data_partition, cash_in_hand, current_price,
@@ -2652,9 +2796,9 @@ def save_alert_if_new(
                 evaluation_id, scanner_run_id, trade_evolution_state, evidence_count, distinct_patterns_count,
                 confirmation_quality, last_event_type, last_event_date, execution_status, execution_block_reason,
                 rvol_diurnal, rvol_rolling)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING_ENTRY', %s, %s, 'INITIAL', 1, 1, 'INITIAL', 'NEW_ENTRY', %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING_ENTRY', %s, %s, 'INITIAL', 1, 1, 'INITIAL', 'NEW_ENTRY', %s, %s, %s, %s, %s)
             RETURNING id;
-        """, (symbol, breakout_type, alert_time, today_date.strftime('%Y-%m-%d'), scanner, category,
+        """, (symbol, breakout_type, alert_time, today_date.strftime('%Y-%m-%d'), source_trading_date, alert_fingerprint, scanner, category,
             entry_price, stop_loss, stop_loss, target_price, target_1, target_2, target_3, target_4,
             signals, score, rsi, volume_ratio, context_str, capital_allocated, shares_bought, shares_bought,
             model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0, entry_price,
@@ -2666,7 +2810,7 @@ def save_alert_if_new(
         commit_cb()
         success = True
         if inserted:
-            logger.info(f"✅ [DB_SAVE] Alert for {symbol} ({scanner or 'EOD'}) SUCCESSFULLY SAVED to DB | Entry: ₹{entry_price:.2f} | Score: {score}")
+            logger.info(f"✅ [DB_SAVE] Alert for {symbol} ({canonical_scanner}) SUCCESSFULLY SAVED to DB | Entry: ₹{entry_price:.2f} | Score: {score} | Fingerprint: {alert_fingerprint}")
         else:
             logger.info(f"🚫 [DB_SAVE] Alert for {symbol} ({scanner or 'EOD'}) SKIPPED — Reason: SAME_DAY_DUPLICATE (Already alerted today)")
         if inserted:

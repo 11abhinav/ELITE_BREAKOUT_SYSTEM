@@ -27,9 +27,15 @@ from price_cache import fetch_watchlist_data
 from multitf.data import load_multitf_data, strip_closed_candles
 from multitf.context import evaluate_1h_context, evaluate_30m_context, evaluate_market_context
 from multitf.consolidation import detect_15m_consolidation, prepare_15m_context, Prepared15mContext
-from multitf.pressure import evaluate_5m_pressure
+from multitf.pressure import evaluate_5m_pressure, compute_ignition_score
 from multitf.confluence import evaluate_breakout_confluence
-from multitf.breakout_strength import compute_breakout_strength, classify_alert_severity, SEVERITY_EMOJI, SEVERITY_LABEL
+from multitf.breakout_strength import (
+    compute_breakout_strength,
+    classify_alert_severity,
+    evaluate_trade_eligibility,
+    SEVERITY_EMOJI,
+    SEVERITY_LABEL
+)
 from multitf.alert_builder import build_multitf_alert_message
 from multitf.state import (
     load_state,
@@ -540,16 +546,14 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
 
         duration = round(time.monotonic() - start_time, 2)
 
-        # [RULE 67 CHANGE-RATIONALE]: Distinguish scanning+arming (non-market) from scanning+live evaluation.
-        # When run_multitf_v2 executes outside market hours (before 09:15 or after 15:30 IST),
-        # it correctly pre-arms candidates but cannot fire new breakout alerts due to ENTRY_CUTOFF.
-        # Previously this was reported as generic "SUCCESS", creating a misleading health impression.
-        from datetime import time as dtime
-        _market_open_time = dtime(9, 15)
-        _market_close_time = dtime(15, 30)
-        _is_market_hours = _market_open_time <= ist_now.time() <= _market_close_time
-        _exec_mode = "LIVE_ENTRY" if _is_market_hours else "PREARM"
-        _scan_log_suffix = "Live scan completed" if _is_market_hours else "Non-market scan — armed candidates only, new trade initiation suppressed (outside entry window)"
+        from market_utils import is_market_open
+        _is_market = is_market_open(ist_now)
+        _exec_mode = "LIVE_ENTRY" if _is_market else "PREARM"
+        _scan_log_suffix = (
+            "Full execution cycle complete — live entry active"
+            if _is_market
+            else "Non-market / weekend scan — armed candidates & adjusted evaluation active"
+        )
 
         alerts_generated = mtf_funnel.get("alert_triggered", 0)
 
@@ -577,7 +581,7 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
             f"  • Actionable Evaluated      : {len(target_evaluation_symbols)}",
             f"  • Alerts Generated          : {alerts_generated}",
             f"  • Execution Mode            : {_exec_mode}",
-            f"  • Market Hours Active       : {'YES' if _is_market_hours else 'NO (PRE-ARM ONLY)'}",
+            f"  • Alert Generation Active   : YES (All-Day Enabled)",
             "",
             "📦 ARMED CANDIDATE LIFECYCLE (OVERNIGHT PERSISTENCE):",
             f"  • Total in Watchlist Table  : {lifecycle['total_in_watchlist']}",
@@ -925,7 +929,7 @@ def _process_symbol(
     bundle = load_multitf_data(symbol, ist_now, all_1h, all_30m, all_15m, all_5m, all_1d)
     if not bundle.data_sufficient:
         if funnel_counters is not None:
-            funnel_counters["data_insufficient"] += 1
+            funnel_counters["DATA_INSUFFICIENT"] += 1
         return
 
     # Extract indicators
@@ -933,7 +937,7 @@ def _process_symbol(
     atr_5m = _get_atr(bundle.df_5m_closed)
     if atr_15m <= 0 or atr_5m <= 0:
         if funnel_counters is not None:
-            funnel_counters["invalid_atr"] += 1
+            funnel_counters["INVALID_ATR"] += 1
         return
 
     current_price = float(bundle.df_5m_closed["Close"].iloc[-1])
@@ -948,7 +952,10 @@ def _process_symbol(
         consolidation = detect_15m_consolidation(bundle.df_15m_closed, atr_15m, ist_now, config)
     if not consolidation.is_valid:
         if funnel_counters is not None:
-            funnel_counters["invalid_base"] += 1
+            if "TESTS_TOO_LOW" in getattr(consolidation, "rejection_reason", ""):
+                funnel_counters["15M_REJECT_RESISTANCE"] += 1
+            else:
+                funnel_counters["15M_REJECT_BASE"] += 1
         return
 
     # 3. State Management & Stable Box Lineage
@@ -1015,14 +1022,14 @@ def _process_symbol(
     # If already fully handled or invalid — still stamp last_evaluated_at so UI shows current time
     if state_record.mtf_substate in (MtfSubstate.INVALIDATED, MtfSubstate.BREAKOUT_CONFIRMED):
         if funnel_counters is not None:
-            funnel_counters["already_handled_or_invalidated"] += 1
+            funnel_counters["ALREADY_HANDLED_OR_INVALIDATED"] += 1
         update_state_in_db(state_record, _live_data_updates())
         return
 
     # Check invalidation logic
     if handle_box_invalidation(state_record, current_price, consolidation.box_low, atr_15m, ist_now):
         if funnel_counters is not None:
-            funnel_counters["box_breakdown"] += 1
+            funnel_counters["BOX_BREAKDOWN"] += 1
         logger.info(f"🚫 [MULTI_TF] {symbol} REJECTED — Box breakdown below ₹{consolidation.box_low:.2f}")
         if not update_state_in_db(state_record, _live_data_updates()):
             return
@@ -1032,14 +1039,14 @@ def _process_symbol(
     current_5m_bars_count = len(bundle.df_5m_closed)
     if apply_ttl_and_cooldown(state_record, ist_now, current_5m_bars_count):
         if funnel_counters is not None:
-            funnel_counters["ttl_or_cooldown_expired"] += 1
+            funnel_counters["TTL_OR_COOLDOWN_EXPIRED"] += 1
         logger.info(f"🚫 [MULTI_TF] {symbol} REJECTED — TTL expired or cooldown active")
         if not update_state_in_db(state_record, _live_data_updates()):
             return
 
     if state_record.mtf_substate == MtfSubstate.FAILED_ATTEMPT:
         if funnel_counters is not None:
-            funnel_counters["failed_attempt_cooldown"] += 1
+            funnel_counters["FAILED_ATTEMPT_COOLDOWN"] += 1
         # Still stamp last_evaluated_at even while cooling down
         update_state_in_db(state_record, _live_data_updates())
         return
@@ -1053,26 +1060,47 @@ def _process_symbol(
         atr_5m=atr_5m,
         ist_now=ist_now,
         config=config,
-        daily_atr=daily_atr_val
+        daily_atr=daily_atr_val,
+        atr_15m=atr_15m
     )
 
     updates = {}
 
-    # Check 14:15 IST trigger generation cutoff
-    cutoff_str = config.get("ENTRY_CUTOFF_TIME", "14:15")
-    try:
-        cutoff_time = datetime.strptime(cutoff_str, "%H:%M").time()
-        is_past_cutoff = (ist_now.time() >= cutoff_time)
-    except Exception:
-        is_past_cutoff = False
+    # Session Timing & Cutoff Checks (IST)
+    # Normal Cutoff: 14:15 IST
+    # Late Session: 14:15 - 15:00 IST (applies stricter quality floor: Base >= 75, Breakout >= 75, RVOL >= 1.50, Confluence >= 82)
+    # Hard Blackout: >= 15:00 IST (strictly blocks new trade initiation across all regimes)
+    from datetime import time as dtime
+    from market_utils import is_market_open
+    _market_active = is_market_open(ist_now)
+    is_late_session = False
+    is_past_hard_cutoff = False
+    if _market_active:
+        now_time = ist_now.time()
+        if now_time >= dtime(15, 0):
+            is_past_hard_cutoff = True
+        elif now_time >= dtime(14, 15):
+            is_late_session = True
 
     if pressure.is_confirmed:
+        # ── BREAKOUT PATH (EARLY_BREAKOUT Execution Alert) ──
         if state_record.mtf_substate == MtfSubstate.BREAKOUT_CONFIRMED:
             # [RULE: MODEL B IS TRADE EVOLUTION, NOT A DUPLICATE TRADE]
             if pressure.trigger_model == "MODEL_B_RETEST":
                 logger.info(f"🛡️ [{symbol}] Breakout Retest Defended @ ₹{current_price:.2f} — Trade Evolution recorded.")
                 updates["last_retest_ts"] = ist_now
-        elif not is_past_cutoff:
+            else:
+                if funnel_counters is not None:
+                    funnel_counters["DUPLICATE_SETUP"] += 1
+            update_state_in_db(state_record, {**_live_data_updates(), **updates})
+            return
+        elif is_past_hard_cutoff:
+            if funnel_counters is not None:
+                funnel_counters["LATE_SESSION_HARD_CUTOFF"] += 1
+            logger.info("⏳ [MULTI_TF] %s REJECTED — Pressure confirmed but past hard entry cutoff (15:00 IST). New trade initiation suppressed.", symbol)
+            update_state_in_db(state_record, _live_data_updates())
+            return
+        else:
             # 6. Confluence Evaluation
             confluence = evaluate_breakout_confluence(
                 consolidation=consolidation,
@@ -1083,233 +1111,322 @@ def _process_symbol(
                 config=config
             )
 
-            if confluence.is_approved:
-                # ── HARD BREAKOUT VALIDITY GATE (Mandatory before strength & trade execution) ──
-                # Gate checks:
-                # 1. 15m base is armed and valid (setup_score >= 70, box_width_atr <= 1.50)
-                # 2. 5m candle is strictly closed
-                # 3. 5m Close >= box_high + buffer
-                # 4. Volume confirmation: RVOL >= 1.25x (or Model B retest)
-                # 5. Anti-overextension dual cap passed
-                c_5m = float(bundle.df_5m_closed["Close"].iloc[-1])
-                buffer_atr = config.get("BREAKOUT_BUFFER_ATR_MULT", 0.10) * (atr_5m if atr_5m > 0 else 1.0)
-                res_line = consolidation.box_high
+            # ── 5M EARLY BREAKOUT CONTRACT ──
+            c_5m = float(bundle.df_5m_closed["Close"].iloc[-1])
+            buffer_atr = config.get("BREAKOUT_BUFFER_ATR_MULT", 0.10) * (atr_5m if atr_5m > 0 else 1.0)
+            res_line = consolidation.box_high
 
-                is_hard_breakout = (
-                    consolidation.is_valid
-                    and consolidation.setup_score >= config.get("MIN_SETUP_SCORE", 70)
-                    and c_5m >= (res_line + buffer_atr)
-                    and not pressure.is_overextended
-                    and (pressure.volume_ratio >= config.get("MIN_VOLUME_EXPANSION_CONFIRM", 1.25) or pressure.trigger_model == "MODEL_B_RETEST")
-                )
+            # Gate 1: 5M Close above resistance + buffer
+            if c_5m < (res_line + buffer_atr):
+                if funnel_counters is not None:
+                    funnel_counters["BREAKOUT_CLOSE_FAIL"] += 1
+                logger.info("🚫 [MULTI_TF] %s REJECTED — 5M Close (%.2f) failed to clear resistance buffer (%.2f)", symbol, c_5m, res_line + buffer_atr)
+                update_state_in_db(state_record, _live_data_updates())
+                return
 
-                if not is_hard_breakout:
-                    if funnel_counters is not None:
-                        funnel_counters["hard_breakout_failed"] += 1
-                    logger.info("🚫 [MULTI_TF] %s REJECTED — Hard Breakout Gate failed (close=%.2f, res=%.2f, rvol=%.2f, overextended=%s)",
-                                symbol, c_5m, res_line, pressure.volume_ratio, pressure.is_overextended)
-                    return
+            # Gate 2: Volume confirmation
+            min_rvol = config.get("MIN_VOLUME_EXPANSION_CONFIRM", 1.25)
+            if pressure.volume_ratio < min_rvol and pressure.trigger_model != "MODEL_B_RETEST":
+                if funnel_counters is not None:
+                    funnel_counters["BREAKOUT_RVOL_FAIL"] += 1
+                logger.info("🚫 [MULTI_TF] %s REJECTED — 5M Volume ratio (%.2fx) below confirmation threshold (%.2fx)", symbol, pressure.volume_ratio, min_rvol)
+                update_state_in_db(state_record, _live_data_updates())
+                return
 
-                # 7. R:R Target Generation & Pre-Validation Gate
-                sl_target = compute_sl_and_target(
-                    entry_price=c_5m,
-                    atr=atr_5m,
-                    ticker=bundle.df_1h,  # Pass 1H for structural targets
-                    mode="MULTI_TF_V2",
-                    box_low=consolidation.box_low
-                )
+            # Gate 3: Overextension / Velocity Exhaustion
+            if pressure.is_overextended:
+                if funnel_counters is not None:
+                    funnel_counters["BREAKOUT_EXHAUSTION"] += 1
+                logger.info("🚫 [MULTI_TF] %s REJECTED — Breakout candle overextended or abnormal velocity blow-off", symbol)
+                update_state_in_db(state_record, _live_data_updates())
+                return
 
-                # Strict Tradeability Pre-Check: Do NOT save to alerts if rejected by R:R!
-                if sl_target.get("is_rejected"):
-                    if funnel_counters is not None:
-                        funnel_counters["rr_rejected"] += 1
-                    logger.info("🚫 [MULTI_TF] %s REJECTED — R:R gate failed (%.2f < %.2f). NOT SAVING TO ALERTS.",
-                                symbol, sl_target.get("rr_ratio", 0), config.get("MIN_RR_RATIO", 1.5))
-                    invalidate_record(state_record, ist_now, "NOT_TRADEABLE")
-                    updates["invalidated_at"] = ist_now
-                    updates["invalidation_reason"] = "NOT_TRADEABLE"
-                    update_state_in_db(state_record, {**_live_data_updates(), **updates})
-                    try:
-                        from near_miss_tracker import log_near_miss
-                        log_near_miss(
-                            symbol=symbol,
-                            scanner="MULTI_TF",
-                            breakout_type="MULTI_TF",
-                            gate_name="rr_ratio_gate",
-                            observed_value=float(sl_target.get("rr_ratio", 0.0)),
-                            threshold_value=float(config.get("MIN_RR_RATIO", 1.5)),
-                            score=int(confluence.total_score),
-                            entry_price=float(sl_target.get("entry_price") or 0.0),
-                            stop_loss=float(sl_target.get("stop_loss") or 0.0),
-                            target_1=float(sl_target.get("target_1") or 0.0),
-                        )
-                    except Exception:
-                        pass
-                    return
+            # Gate 4: Confluence approval
+            if not confluence.is_approved:
+                if funnel_counters is not None:
+                    funnel_counters["LOW_CONFLUENCE"] += 1
+                logger.info("🚫 [MULTI_TF] %s REJECTED — Confluence not approved (Score: %.1f)", symbol, confluence.total_score)
+                update_state_in_db(state_record, _live_data_updates())
+                return
 
-                # 8. [V3] Breakout Strength Engine (evaluated only for verified breakouts passing Hard Gate)
-                nifty_5m = bundle.__dict__.get("df_nifty_5m", None)
-                brkout_strength = compute_breakout_strength(
-                    pressure_result=pressure,
-                    consolidation_result=consolidation,
-                    df_5m_closed=bundle.df_5m_closed,
-                    nifty_5m=nifty_5m,
-                    ist_now=ist_now,
-                    config=config
-                )
+            if funnel_counters is not None:
+                funnel_counters["confluence_approved"] += 1
 
-                # 9. Alert Severity Classification (Base Quality × Breakout Strength Matrix)
-                market_status = str(market_ctx.get("status", "NORMAL"))
-                severity = classify_alert_severity(
-                    consolidation_result=consolidation,
-                    breakout_result=brkout_strength,
-                    config=config,
-                    market_status=market_status
-                )
+            # 7. R:R Target Generation & Pre-Validation Gate (T0 obstacle + T1 tradeability)
+            sl_target = compute_sl_and_target(
+                entry_price=c_5m,
+                atr=atr_5m,
+                ticker=bundle.df_1h,  # Pass 1H for structural targets
+                mode="MULTI_TF_V2",
+                box_low=consolidation.box_low
+            )
 
-                if severity == "WEAK":
-                    if funnel_counters is not None:
-                        funnel_counters["severity_weak"] += 1
-                    logger.info("🚫 [MULTI_TF] %s REJECTED — Breakout confirmed but classified WEAK (base=%d, brk=%d). Logging to near miss only.",
-                                symbol, consolidation.setup_score, brkout_strength.breakout_score)
-                    update_state_in_db(state_record, _live_data_updates())
-                    return
-
-                # 10. Canonical Alert Registration for High-Conviction Tradeable Signals
-                idempotency_signals = f"BOX_ID={consolidation.box_id}"
-
-                inserted, _, _, _ = save_alert_if_new(
-                    symbol=symbol,
-                    breakout_type="MULTI_TF",
-                    alert_time=ist_now.strftime("%Y-%m-%d %H:%M:%S"),
-                    scanner="MULTI_TF",
-                    category="INTRADAY",
-                    entry_price=sl_target.get("entry_price"),
-                    stop_loss=sl_target.get("stop_loss"),
-                    target_1=sl_target.get("target_1"),
-                    target_2=sl_target.get("target_2"),
-                    target_3=sl_target.get("target_3"),
-                    signals=idempotency_signals,
-                    score=int(consolidation.setup_score),
-                    volume_ratio=pressure.volume_ratio,
-                    context={
-                        "box_id": consolidation.box_id,
-                        "signal_status": "CONFIRMED",
-                        "trigger_model": pressure.trigger_model,
-                        "tradeability_status": "TRADEABLE",
-                        "tradeability_reason": "",
-                        "rr_ratio": sl_target.get("rr_ratio"),
-                        # [V3] Base Quality
-                        "base_score": consolidation.setup_score,
-                        "base_rating": consolidation.base_rating_label,
-                        "has_higher_lows": consolidation.has_higher_lows,
-                        "compression_ratio": consolidation.compression_ratio,
-                        "resistance_tests": consolidation.resistance_test_count,
-                        "supply_absorption": consolidation.supply_absorption_label,
-                        "base_score_breakdown": {
-                            "maturity": consolidation.score_maturity,
-                            "tightness": consolidation.score_tightness,
-                            "resistance_quality": consolidation.score_resistance_quality,
-                            "repeated_tests": consolidation.score_repeated_tests,
-                            "compression": consolidation.score_compression,
-                            "higher_lows": consolidation.score_higher_lows,
-                            "support_integrity": consolidation.score_support_integrity,
-                        },
-                        # [V3] Breakout Strength
-                        "breakout_score": brkout_strength.breakout_score,
-                        "breakout_rating": brkout_strength.breakout_rating_label,
-                        "breakout_energy": brkout_strength.breakout_energy,
-                        "breakout_energy_label": brkout_strength.breakout_energy_label,
-                        "severity": severity,
-                        "severity_label": SEVERITY_LABEL.get(severity, severity),
-                        "rvol": round(pressure.volume_ratio, 2),
-                        "rvol_label": brkout_strength.rvol_label,
-                        "volume_acceleration": brkout_strength.volume_acceleration,
-                        "base_relative_volume": brkout_strength.base_relative_volume,
-                        "velocity_label": brkout_strength.velocity_label,
-                        "penetration_atr": brkout_strength.penetration_atr,
-                        "close_position": brkout_strength.close_position,
-                        "breakout_score_breakdown": brkout_strength.to_dict().get("score_breakdown"),
-                    }
-                )
-
-                # 11. Dispatch to OpportunityManager
-                if inserted:
-                    if funnel_counters is not None:
-                        funnel_counters["alert_triggered"] += 1
-                    rich_message = build_multitf_alert_message(
+            rr_actual = float(sl_target.get("rr_ratio", 0.0))
+            if sl_target.get("is_rejected") or rr_actual < config.get("MIN_RR_RATIO", 1.5):
+                if funnel_counters is not None:
+                    funnel_counters["RR_T1_FAIL"] += 1
+                logger.info("🚫 [MULTI_TF] %s REJECTED — R:R gate failed (%.2f < %.2f). NOT SAVING TO ALERTS.",
+                            symbol, rr_actual, config.get("MIN_RR_RATIO", 1.5))
+                invalidate_record(state_record, ist_now, "NOT_TRADEABLE")
+                updates["invalidated_at"] = ist_now
+                updates["invalidation_reason"] = "NOT_TRADEABLE"
+                update_state_in_db(state_record, {**_live_data_updates(), **updates})
+                try:
+                    from near_miss_tracker import log_near_miss
+                    log_near_miss(
                         symbol=symbol,
-                        exchange="NSE",
-                        consolidation=consolidation,
-                        pressure=pressure,
-                        breakout_strength=brkout_strength,
-                        severity=severity,
-                        sl_levels={
-                            "entry": float(sl_target.get("entry_price") or 0),
-                            "stop":  float(sl_target.get("stop_loss") or 0),
-                            "t1":    float(sl_target.get("target_1") or 0),
-                            "t2":    float(sl_target.get("target_2") or 0),
-                            "t3":    float(sl_target.get("target_3") or 0),
-                            "rr_ratio": float(sl_target.get("rr_ratio") or 0),
-                            "extension_daily_atr": float(sl_target.get("extension_daily_atr") or 0),
-                        },
-                        ist_now=ist_now
+                        scanner="MULTI_TF",
+                        breakout_type="MULTI_TF",
+                        gate_name="rr_ratio_gate",
+                        observed_value=rr_actual,
+                        threshold_value=float(config.get("MIN_RR_RATIO", 1.5)),
+                        score=int(confluence.total_score),
+                        entry_price=float(sl_target.get("entry_price") or 0.0),
+                        stop_loss=float(sl_target.get("stop_loss") or 0.0),
+                        target_1=float(sl_target.get("target_1") or 0.0),
                     )
-                    logger.info("[%s] %s Alert (base=%d, brk=%d):\n%s",
-                                symbol, SEVERITY_EMOJI.get(severity, "🟢"),
-                                consolidation.setup_score, brkout_strength.breakout_score, rich_message)
-                    logger.info(
-                        f"🌟 [MULTI_TF: SELECTED] {symbol} @ ₹{float(sl_target.get('entry_price') or 0):.2f} | "
-                        f"Severity: {severity} | Base: {consolidation.setup_score} ({consolidation.base_rating_label}) | "
-                        f"Breakout Score: {brkout_strength.breakout_score} ({brkout_strength.breakout_rating_label}) | "
-                        f"RVOL: {pressure.volume_ratio:.2f}x | SL: ₹{float(sl_target.get('stop_loss') or 0):.2f} | "
-                        f"T1: ₹{float(sl_target.get('target_1') or 0):.2f} | RR: {float(sl_target.get('rr_ratio') or 0):.2f}"
-                    )
+                except Exception:
+                    pass
+                return
 
-                    payload = build_confirmed_payload(
-                        bundle=bundle,
-                        consolidation=consolidation,
-                        pressure=pressure,
-                        confluence=None,
-                        sl_target=sl_target,
-                        ist_now=ist_now,
-                        alert_message=rich_message,
-                        severity=severity,
-                        breakout_strength=brkout_strength
-                    )
-                    opp_manager.add(payload)
-                else:
-                    if funnel_counters is not None:
-                        funnel_counters["duplicate_alert_box"] += 1
-                    logger.info("🚫 [MULTI_TF] %s REJECTED — Alert already processed for box %s, skipping OpportunityManager.", symbol, consolidation.box_id)
+            # 8. Breakout Strength Engine
+            nifty_5m = bundle.__dict__.get("df_nifty_5m", None)
+            brkout_strength = compute_breakout_strength(
+                pressure_result=pressure,
+                consolidation_result=consolidation,
+                df_5m_closed=bundle.df_5m_closed,
+                nifty_5m=nifty_5m,
+                ist_now=ist_now,
+                config=config
+            )
 
-                state_record.mtf_substate = MtfSubstate.BREAKOUT_CONFIRMED
-                state_record.state = "CONFIRMED"
-                updates["last_confirmation_ts"] = ist_now
+            # 9. Alert Severity Classification (Descriptive)
+            market_status = str(market_ctx.get("status", "NORMAL"))
+            severity = classify_alert_severity(
+                consolidation_result=consolidation,
+                breakout_result=brkout_strength,
+                config=config,
+                market_status=market_status
+            )
+
+            # 10. Institutional Trade Eligibility Contract (Decoupled from Severity)
+            is_eligible, reject_reason = evaluate_trade_eligibility(
+                base_score=consolidation.setup_score,
+                breakout_score=brkout_strength.breakout_score,
+                volume_ratio=pressure.volume_ratio,
+                confluence_score=int(confluence.total_score),
+                rr_ratio=rr_actual,
+                market_status=market_status,
+                config=config,
+                is_late_session=is_late_session
+            )
+
+            if not is_eligible:
+                if funnel_counters is not None:
+                    funnel_counters[reject_reason] += 1
+                logger.info(
+                    "🚫 [MULTI_TF] %s REJECTED — Failed trade eligibility contract: %s "
+                    "(Base: %d, Brk: %d, RVOL: %.2f, Conf: %d, RR: %.2f, Mkt: %s, Late: %s)",
+                    symbol, reject_reason, consolidation.setup_score, brkout_strength.breakout_score,
+                    pressure.volume_ratio, int(confluence.total_score), rr_actual, market_status, is_late_session
+                )
+                update_state_in_db(state_record, _live_data_updates())
+                return
+
+            # 11. Canonical Alert Registration for High-Conviction EARLY_BREAKOUT
+            idempotency_signals = f"BOX_ID={consolidation.box_id}"
+
+            inserted, _, _, _ = save_alert_if_new(
+                symbol=symbol,
+                breakout_type="MULTI_TF",
+                alert_time=ist_now.strftime("%Y-%m-%d %H:%M:%S"),
+                scanner="MULTI_TF",
+                category="INTRADAY",
+                entry_price=sl_target.get("entry_price"),
+                stop_loss=sl_target.get("stop_loss"),
+                target_1=sl_target.get("target_1"),
+                target_2=sl_target.get("target_2"),
+                target_3=sl_target.get("target_3"),
+                signals=idempotency_signals,
+                score=int(consolidation.setup_score),
+                volume_ratio=pressure.volume_ratio,
+                context={
+                    "box_id": consolidation.box_id,
+                    "signal_status": "CONFIRMED",
+                    "breakout_stage": "EARLY_BREAKOUT",
+                    "trigger_model": pressure.trigger_model,
+                    "tradeability_status": "TRADEABLE",
+                    "tradeability_reason": "",
+                    "rr_ratio": rr_actual,
+                    "t0_obstacle": sl_target.get("target_0"),
+                    "t0_rr_ratio": sl_target.get("t0_rr_ratio"),
+                    "t1_target": sl_target.get("target_1"),
+                    "t1_source": sl_target.get("t1_source", "STRUCTURAL"),
+                    # Base Quality
+                    "base_score": consolidation.setup_score,
+                    "base_rating": consolidation.base_rating_label,
+                    "has_higher_lows": consolidation.has_higher_lows,
+                    "compression_ratio": consolidation.compression_ratio,
+                    "resistance_tests": consolidation.resistance_test_count,
+                    "supply_absorption": consolidation.supply_absorption_label,
+                    "base_score_breakdown": {
+                        "maturity": consolidation.score_maturity,
+                        "tightness": consolidation.score_tightness,
+                        "resistance_quality": consolidation.score_resistance_quality,
+                        "repeated_tests": consolidation.score_repeated_tests,
+                        "compression": consolidation.score_compression,
+                        "higher_lows": consolidation.score_higher_lows,
+                        "support_integrity": consolidation.score_support_integrity,
+                    },
+                    # Breakout Strength
+                    "breakout_score": brkout_strength.breakout_score,
+                    "breakout_rating": brkout_strength.breakout_rating_label,
+                    "breakout_energy": brkout_strength.breakout_energy,
+                    "breakout_energy_label": brkout_strength.breakout_energy_label,
+                    "severity": severity,
+                    "severity_label": SEVERITY_LABEL.get(severity, severity),
+                    "rvol": round(pressure.volume_ratio, 2),
+                    "rvol_label": brkout_strength.rvol_label,
+                    "volume_acceleration": brkout_strength.volume_acceleration,
+                    "base_relative_volume": brkout_strength.base_relative_volume,
+                    "velocity_label": brkout_strength.velocity_label,
+                    "penetration_atr": brkout_strength.penetration_atr,
+                    "close_position": brkout_strength.close_position,
+                    "breakout_score_breakdown": brkout_strength.to_dict().get("score_breakdown"),
+                    "market_regime": market_status,
+                    "is_late_session": is_late_session,
+                }
+            )
+
+            # 12. Dispatch to OpportunityManager
+            if inserted:
+                if funnel_counters is not None:
+                    funnel_counters["alert_triggered"] += 1
+                rich_message = build_multitf_alert_message(
+                    symbol=symbol,
+                    exchange="NSE",
+                    consolidation=consolidation,
+                    pressure=pressure,
+                    breakout_strength=brkout_strength,
+                    severity=severity,
+                    sl_levels={
+                        "entry": float(sl_target.get("entry_price") or 0),
+                        "stop":  float(sl_target.get("stop_loss") or 0),
+                        "t0":    float(sl_target.get("target_0") or 0),
+                        "t1":    float(sl_target.get("target_1") or 0),
+                        "t2":    float(sl_target.get("target_2") or 0),
+                        "t3":    float(sl_target.get("target_3") or 0),
+                        "t1_source": sl_target.get("t1_source", "STRUCTURAL"),
+                        "rr_ratio": rr_actual,
+                        "extension_daily_atr": float(sl_target.get("extension_daily_atr") or 0),
+                    },
+                    ist_now=ist_now
+                )
+                logger.info("[%s] %s Early Breakout Alert (base=%d, brk=%d):\n%s",
+                            symbol, SEVERITY_EMOJI.get(severity, "🟢"),
+                            consolidation.setup_score, brkout_strength.breakout_score, rich_message)
+                logger.info(
+                    f"🌟 [MULTI_TF: SELECTED] {symbol} @ ₹{float(sl_target.get('entry_price') or 0):.2f} | "
+                    f"Severity: {severity} | Base: {consolidation.setup_score} ({consolidation.base_rating_label}) | "
+                    f"Breakout Score: {brkout_strength.breakout_score} ({brkout_strength.breakout_rating_label}) | "
+                    f"RVOL: {pressure.volume_ratio:.2f}x | SL: ₹{float(sl_target.get('stop_loss') or 0):.2f} | "
+                    f"T0: ₹{float(sl_target.get('target_0') or 0):.2f} | "
+                    f"T1: ₹{float(sl_target.get('target_1') or 0):.2f} [{sl_target.get('t1_source')}] | RR: {rr_actual:.2f}"
+                )
+
+                payload = build_confirmed_payload(
+                    bundle=bundle,
+                    consolidation=consolidation,
+                    pressure=pressure,
+                    confluence=None,
+                    sl_target=sl_target,
+                    ist_now=ist_now,
+                    alert_message=rich_message,
+                    severity=severity,
+                    breakout_strength=brkout_strength
+                )
+                opp_manager.add(payload)
             else:
                 if funnel_counters is not None:
-                    funnel_counters["confluence_not_approved"] += 1
-                logger.info("🚫 [MULTI_TF] %s REJECTED — Confluence not approved (Score: %.1f)", symbol, confluence.total_score)
-        else:
-            if funnel_counters is not None:
-                funnel_counters["past_entry_cutoff"] += 1
-            logger.info("⏳ [MULTI_TF] %s REJECTED — Pressure confirmed but past entry cutoff (%s IST). New trade initiation suppressed.", symbol, cutoff_str)
+                    funnel_counters["DUPLICATE_SETUP"] += 1
+                logger.info("🚫 [MULTI_TF] %s REJECTED — Alert already processed for box %s, skipping OpportunityManager.", symbol, consolidation.box_id)
 
-    elif pressure.is_attempt and state_record.mtf_substate == MtfSubstate.WATCHING:
-        if funnel_counters is not None:
-            funnel_counters["breakout_attempt_only"] += 1
-        logger.info("👀 [MULTI_TF] %s — Breakout attempt detected, moving to ATTEMPT state.", symbol)
-        # Switch to ATTEMPT state (Informational BREAKOUT_APPROACHING on watchlist, not a trade order)
-        state_record.mtf_substate = MtfSubstate.ATTEMPT
-        state_record.state = "CANDIDATE"
-        state_record.attempt_count += 1
+            state_record.mtf_substate = MtfSubstate.BREAKOUT_CONFIRMED
+            state_record.state = "CONFIRMED"
+            updates["last_confirmation_ts"] = ist_now
 
-        updates["attempt_started_ts"] = ist_now
-        updates["last_attempt_ts"] = ist_now
-        updates["attempt_bar_boundary"] = pressure.attempt_bar_boundary
     else:
-        if funnel_counters is not None:
-            funnel_counters["no_breakout_pressure"] += 1
+        # ── PRE-BREAKOUT PATH (Coiling / Ignition Readiness Evaluation) ──
+        # Evaluates high-quality bases near resistance before breakout confirmation.
+        # Updates setup state to ARMED_PRE_BREAKOUT (Candidate in mtf_v2_watchlist) rather than emitting trade alert.
+        dist_to_high = consolidation.box_high - current_price
+        dist_atr = dist_to_high / atr_15m if atr_15m > 0 else 999.0
+        min_prebreak_base = config.get("PRE_BREAKOUT_MIN_BASE_SCORE", 75)
+
+        ign_res = compute_ignition_score(
+            consolidation=consolidation,
+            pressure=pressure,
+            distance_to_box_high_atr=dist_atr,
+            ctx_1h=ctx_1h,
+            config=config
+        )
+
+        if (consolidation.setup_score >= min_prebreak_base
+                and ign_res.get("is_ignition_ready")
+                and state_record.mtf_substate in (MtfSubstate.WATCHING, MtfSubstate.PRESSURE_BUILDING, MtfSubstate.ARMED_PRE_BREAKOUT, MtfSubstate.ATTEMPT)):
+
+            # Pre-Breakout Contract: Projected Tradeability Check
+            planned_entry = consolidation.box_high + (0.05 * atr_5m)
+            proj_sl_target = compute_sl_and_target(
+                entry_price=planned_entry,
+                atr=atr_5m,
+                ticker=bundle.df_1h,
+                mode="MULTI_TF_V2",
+                box_low=consolidation.box_low
+            )
+            proj_rr = float(proj_sl_target.get("rr_ratio", 0.0))
+
+            if proj_rr >= config.get("MIN_RR_RATIO", 1.5) and not proj_sl_target.get("is_rejected"):
+                state_record.mtf_substate = MtfSubstate.ARMED_PRE_BREAKOUT
+                state_record.state = "CANDIDATE"
+                updates["pressure_state"] = "ARMED_PRE_BREAKOUT"
+                if funnel_counters is not None:
+                    funnel_counters["ARMED_PRE_BREAKOUT_ACTIVE"] += 1
+                logger.info(
+                    "🎯 [MULTI_TF: ARMED] %s ARMED_PRE_BREAKOUT | Base: %d | Ignition: %d | "
+                    "Dist: %.2f ATR | Proj Entry: ₹%.2f | Proj SL: ₹%.2f | Proj T1: ₹%.2f (%s) | Proj RR: %.2f",
+                    symbol, consolidation.setup_score, ign_res["ignition_score"], dist_atr,
+                    planned_entry, float(proj_sl_target.get("stop_loss", 0)),
+                    float(proj_sl_target.get("target_1", 0)), proj_sl_target.get("t1_source"), proj_rr
+                )
+            else:
+                if funnel_counters is not None:
+                    funnel_counters["PREBREAK_RR_FAIL"] += 1
+                logger.info("🚫 [MULTI_TF] %s — Pre-breakout ignition ready but projected R:R (%.2f) < 1.5R", symbol, proj_rr)
+
+        elif pressure.is_attempt and state_record.mtf_substate == MtfSubstate.WATCHING:
+            if funnel_counters is not None:
+                funnel_counters["ATTEMPT_REGISTERED"] += 1
+            logger.info("👀 [MULTI_TF] %s — Breakout attempt detected, moving to ATTEMPT state.", symbol)
+            state_record.mtf_substate = MtfSubstate.ATTEMPT
+            state_record.state = "CANDIDATE"
+            state_record.attempt_count += 1
+            updates["attempt_started_ts"] = ist_now
+            updates["last_attempt_ts"] = ist_now
+            updates["attempt_bar_boundary"] = pressure.attempt_bar_boundary
+        else:
+            if dist_atr > config.get("PRE_BREAKOUT_MAX_DISTANCE_ATR", 0.40):
+                if funnel_counters is not None:
+                    funnel_counters["PREBREAK_DISTANCE_FAIL"] += 1
+            elif consolidation.setup_score < min_prebreak_base:
+                if funnel_counters is not None:
+                    funnel_counters["PREBREAK_BASE_FAIL"] += 1
+            elif not ign_res.get("is_ignition_ready"):
+                if funnel_counters is not None:
+                    funnel_counters["PREBREAK_IGNITION_FAIL"] += 1
+            else:
+                if funnel_counters is not None:
+                    funnel_counters["NO_BREAKOUT_PRESSURE"] += 1
 
     # 10. Sync all live evaluation data to DB on every cycle
     # [FIX: LIVE_DATA_ALWAYS_REFRESH_v1.0]
