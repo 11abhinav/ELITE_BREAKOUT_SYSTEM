@@ -2104,6 +2104,16 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
             except Exception:
                 pass
 
+            # ── EOD Alert Report ─────────────────────────────────────────────────
+            # [RULE 26 / ARCH §26] Print rich per-alert cards once per scan cycle
+            # so every run has a clear, diagnostic human-readable record of what
+            # fired and why.
+            try:
+                from eod_alert_builder import build_eod_scan_report
+                _eod_report = build_eod_scan_report(alerts_by_category, market_regime, ist_now)
+                logger.info(_eod_report)
+            except Exception as _rpt_err:
+                logger.warning(f"⚠️ EOD alert report generation failed (non-fatal): {_rpt_err}")
 
             # ✅ CRITICAL: Verify alerts were actually saved to database (2026-06-17)
             if total_alerts > 0 and not is_test_mode:
