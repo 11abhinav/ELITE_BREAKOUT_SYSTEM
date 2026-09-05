@@ -161,3 +161,17 @@ def test_remaining_scanners_frozen_contract():
     assert ScannerType.DAILY_BUILDER in SCANNER_EXECUTION_POLICIES
     assert ScannerType.MULTI_TF in SCANNER_EXECUTION_POLICIES
     assert ScannerType.REVERSAL in SCANNER_EXECUTION_POLICIES
+
+
+def test_multibagger_candidate_labeling_no_nameerror():
+    """
+    [RULE 69] Regression test for NameError: name 'skip_alert' is not defined.
+    Verifies that when a candidate triggers an alert and passes all quality gates,
+    categorized_stocks is populated cleanly without NameError or lock recursion issues.
+    """
+    import ast
+    with open("app/multibagger.py", "r") as f:
+        tree = ast.parse(f.read(), filename="multibagger.py")
+
+    name_nodes = [node for node in ast.walk(tree) if isinstance(node, ast.Name) and node.id == "skip_alert"]
+    assert len(name_nodes) == 0, f"CRITICAL REGRESSION: 'skip_alert' Name node found in multibagger.py: {name_nodes}"

@@ -3090,7 +3090,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     _buy_zone_passed_count = 0
 
     _eval_start_t = time.perf_counter()
-    _eval_lock = threading.Lock()
+    # [RULE 67: RE-ENTRANT EVALUATION LOCK]
+    # Use threading.RLock() instead of threading.Lock() to guarantee that nested evaluation blocks
+    # by the same thread never suffer from self-deadlock.
+    _eval_lock = threading.RLock()
 
     import threading
     eval_stats = {
@@ -3434,20 +3437,24 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
 
             if status != "INVALIDATED":
                 label = bucket
-                if skip_alert:
+                # [RULE 67 CHANGE-RATIONALE: FIX MUL-NAMEERROR-SKIP-ALERT]
+                # 'skip_alert' was an undefined variable left over from earlier refactoring, causing
+                # NameError: name 'skip_alert' is not defined when any stock triggered an alert.
+                # Also, the outer 'with _eval_lock:' was already acquired on line 3419, making the
+                # nested lock redundant. We check open_symbols directly and safely append to categorized_stocks.
+                if sym.upper() in open_symbols:
                     label = f"🛡️ {label} (Currently Held)"
 
-                with _eval_lock:
-                    if label not in categorized_stocks:
-                        categorized_stocks[label] = []
-                    categorized_stocks[label].append({
-                        'symbol': sym,
-                        'price': price_data.price,
-                        'cqs': cqs,
-                        'pas': pas,
-                        'total': total,
-                        'status': status
-                    })
+                if label not in categorized_stocks:
+                    categorized_stocks[label] = []
+                categorized_stocks[label].append({
+                    'symbol': sym,
+                    'price': price_data.price,
+                    'cqs': cqs,
+                    'pas': pas,
+                    'total': total,
+                    'status': status
+                })
 
         # Assemble the display record
         bz_low = pipeline_result.buy_zone.buy_zone_low if pipeline_result.buy_zone else 0.0
