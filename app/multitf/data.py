@@ -162,7 +162,8 @@ def load_multitf_data(
         raw = data_dict.get(symbol)
         if raw is None or (hasattr(raw, "empty") and raw.empty):
             return None
-        return raw.copy()
+        from trading_calendar import enforce_trading_day_candles
+        return enforce_trading_day_candles(raw.copy(), symbol)
 
     raw_1h  = _get(all_1h_data,  "1h")
     raw_30m = _get(all_30m_data, "30m")
@@ -430,8 +431,11 @@ def _extract_live_candle(
 
 
 def _is_market_open(ist_now: datetime) -> bool:
-    """Returns True during NSE regular session (09:15–15:30 Mon–Fri)."""
+    """Returns True during NSE regular session (09:15–15:30 Mon–Fri, non-holidays)."""
     if ist_now.weekday() >= 5:  # Saturday=5, Sunday=6
+        return False
+    from trading_calendar import default_trading_calendar
+    if not default_trading_calendar.is_trading_day(ist_now):
         return False
     h, m = ist_now.hour, ist_now.minute
     after_open  = (h, m) >= (_NSE_OPEN_H,  _NSE_OPEN_M)

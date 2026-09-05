@@ -598,6 +598,11 @@ class FyersFetcher(DataFetcher):
                     else:
                         df["Datetime"] = timestamps
                         df = df.drop(columns=["Timestamp"], errors="ignore")
+
+                    # [RULE 67 CHANGE-RATIONALE: SYSTEM-WIDE WEEKEND CANDLE BAN]
+                    # Purge any weekend mock or synthetic candles immediately at raw broker API parsing layer
+                    from trading_calendar import enforce_trading_day_candles
+                    df = enforce_trading_day_candles(df, cand_symbol)
                     
                     # ── Save confirmed mapping after a successful fetch ──────────────
                     if not cand_symbol.endswith("-INDEX"):

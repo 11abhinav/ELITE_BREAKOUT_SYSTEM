@@ -847,6 +847,8 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
         if os.path.exists(file_path):
             try:
                 cached_df = pd.read_parquet(file_path)
+                from trading_calendar import enforce_trading_day_candles
+                cached_df = enforce_trading_day_candles(cached_df, sym)
                 meta_path = file_path.replace('.parquet', '.meta.json')
                 is_invalid = False
                 if os.path.exists(meta_path):
@@ -1404,6 +1406,9 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             elif not isinstance(all_data[sym].index, pd.RangeIndex):
                                 all_data[sym].index = all_data[sym].index.astype(str)
 
+                            from trading_calendar import enforce_trading_day_candles
+                            all_data[sym] = enforce_trading_day_candles(all_data[sym], sym)
+
                             import uuid
                             tmp_file_path = f"{file_path}.tmp.{os.getpid()}.{uuid.uuid4().hex[:8]}"
                             all_data[sym].to_parquet(tmp_file_path, compression='snappy')
@@ -1863,6 +1868,8 @@ def get_cached_df(symbol: str, interval: str = "1d", period: str = "1y") -> pd.D
             try:
                 df = pd.read_parquet(file_path)
                 if df is not None and not df.empty:
+                    from trading_calendar import enforce_trading_day_candles
+                    df = enforce_trading_day_candles(df, symbol)
                     # [RULE 67 CHANGE-RATIONALE]: Cache disk-read dataframe in RAM to eliminate redundant disk scans
                     with _lock:
                         if key not in _cache or not isinstance(_cache[key], dict):

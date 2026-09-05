@@ -50,7 +50,8 @@ class UnifiedFetcher:
                                 "fallback_used": bool(is_fallback),
                                 "fetch_timestamp": datetime.now().isoformat()
                             }
-                        return md.df
+                        from trading_calendar import enforce_trading_day_candles
+                        return enforce_trading_day_candles(md.df, symbol)
                 except Exception as e:
                     logger.warning(f"⚠️ [Fyers] Failed to fetch historical {symbol}: {e}")
             
@@ -73,7 +74,8 @@ class UnifiedFetcher:
                                 "fallback_used": bool(is_fallback),
                                 "fetch_timestamp": datetime.now().isoformat()
                             }
-                        return md.dataframe
+                        from trading_calendar import enforce_trading_day_candles
+                        return enforce_trading_day_candles(md.dataframe, symbol)
                 except Exception as e:
                     logger.warning(f"⚠️ [Upstox] Failed to fetch historical {symbol}: {e}")
 

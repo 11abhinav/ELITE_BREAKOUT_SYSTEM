@@ -65,9 +65,10 @@ def fetch_previous_day_delivery() -> dict[str, float]:
             # Remove _date key before returning
             return {k: v for k, v in cached.items() if k != "_date"}
 
+        from trading_calendar import default_trading_calendar
         for days_back in range(1, 5):
             candidate = today - timedelta(days=days_back)
-            while candidate.weekday() >= 5:
+            while not default_trading_calendar.is_trading_day(candidate):
                 candidate -= timedelta(days=1)
                 
             logger.info(f"🔄 Attempting to fetch Bhavcopy delivery data for date: {candidate}")
@@ -91,9 +92,10 @@ def fetch_latest_available_delivery_data(today_ist_date: date) -> tuple[dict[str
     Attempts to fetch delivery data starting from today_ist_date down through previous trading days.
     Returns (delivery_map, resolved_date).
     """
+    from trading_calendar import default_trading_calendar
     for days_back in range(0, 5):
         candidate = today_ist_date - timedelta(days=days_back)
-        while candidate.weekday() >= 5:
+        while not default_trading_calendar.is_trading_day(candidate):
             candidate -= timedelta(days=1)
         res = fetch_delivery_data(candidate, skip_db_save=(days_back > 0))
         if res:
@@ -102,6 +104,15 @@ def fetch_latest_available_delivery_data(today_ist_date: date) -> tuple[dict[str
 
 
 def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[str, float]:
+    # [RULE 67 CHANGE-RATIONALE: HARD GLOBAL INVARIANT - WEEKEND / NON-TRADING DAY BAN]
+    if trading_date.weekday() >= 5:
+        logger.info(f"🚫 [WEEKEND BAN] Skipped Bhavcopy fetch for weekend date: {trading_date}")
+        return {}
+    from trading_calendar import default_trading_calendar
+    if not default_trading_calendar.is_trading_day(trading_date):
+        logger.info(f"🚫 [MARKET HOLIDAY] Skipped Bhavcopy fetch for exchange holiday: {trading_date}")
+        return {}
+
     from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
     from database import get_bhavcopy_cache, save_bhavcopy_cache, get_latest_bhavcopy_cache
     from datetime import datetime as _dt, time as dt_time

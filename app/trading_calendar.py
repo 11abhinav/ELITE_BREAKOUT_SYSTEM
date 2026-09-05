@@ -114,6 +114,21 @@ def is_weekend_date(val: Union[datetime, date, str]) -> bool:
     return d.weekday() >= 5
 
 
+def is_market_candle_eligible(val: Union[datetime, date, str]) -> bool:
+    """
+    CRITICAL INVARIANT: A candle is eligible ONLY if its timestamp belongs to an actual
+    official NSE/BSE trading session.
+    Saturday and Sunday are CATEGORICALLY INVALID.
+    Exchange holidays are non-trading days.
+    """
+    d = TradingCalendar._parse_date(val)
+    if d is None:
+        return False
+    if d.weekday() >= 5:
+        return False
+    return default_trading_calendar.is_trading_day(d)
+
+
 def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
     """
     CRITICAL HARD GLOBAL INVARIANT: WEEKEND CANDLE BAN — SYSTEM-WIDE.

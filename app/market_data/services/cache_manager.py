@@ -36,6 +36,11 @@ class CacheManager:
             df = pd.read_parquet(file_path)
             if df.empty:
                 return None
+
+            from trading_calendar import enforce_trading_day_candles
+            df = enforce_trading_day_candles(df, symbol)
+            if df.empty:
+                return None
                 
             # Verify if the cache covers the requested range
             # Note: For strict implementation, we would compare min/max dates
@@ -82,6 +87,9 @@ class CacheManager:
                     df_combined = df_new
             else:
                 df_combined = df_new
+
+            from trading_calendar import enforce_trading_day_candles
+            df_combined = enforce_trading_day_candles(df_combined, data.symbol)
                 
             # Save provenance as metadata
             df_combined.attrs["provenance"] = {

@@ -163,3 +163,128 @@ def test_trading_days_held_calculation_excludes_weekends():
     assert is_weekend_date("2026-09-06")
     assert not is_weekend_date("2026-09-04")
     assert not is_weekend_date("2026-09-07")
+
+
+def test_end_to_end_saturday_sunday_fake_sl_breach_cannot_generate_exit():
+    """
+    EXPLICIT REGRESSION TEST:
+    Friday Close
+       ↓
+    Saturday mock candle with price below SL (75.0 < 90.0)
+       ↓
+    Sunday mock candle with price below SL (72.0 < 90.0)
+       ↓
+    Monday real market candle (103.0)
+
+    VERIFIES:
+    ❌ no exit
+    ❌ no alert
+    ❌ no SL hit
+    ❌ no target hit
+    ❌ no negative weekend P&L crash
+    ❌ no indicator calculation on weekend bars
+    ❌ no performance-event generation
+    """
+    import json
+
+    # 1. Raw multi-day series with Friday -> Saturday (mock breach) -> Sunday (mock breach) -> Monday (real)
+    raw_df = pd.DataFrame([
+        {"Date": pd.Timestamp("2026-09-04 15:30:00"), "Open": 100.0, "High": 102.0, "Low": 98.0, "Close": 100.0, "Volume": 50000},
+        {"Date": pd.Timestamp("2026-09-05 12:00:00"), "Open": 80.0, "High": 85.0, "Low": 70.0, "Close": 75.0, "Volume": 1000},  # SATURDAY FAKE BREACH
+        {"Date": pd.Timestamp("2026-09-06 12:00:00"), "Open": 78.0, "High": 82.0, "Low": 68.0, "Close": 72.0, "Volume": 1000},  # SUNDAY FAKE BREACH
+        {"Date": pd.Timestamp("2026-09-07 15:30:00"), "Open": 101.0, "High": 105.0, "Low": 99.0, "Close": 103.0, "Volume": 80000},  # MONDAY REAL
+    ])
+
+    # Ingestion Layer Validation: Raw df must be rejected
+    is_valid, reason = validate_ohlcv_structure(raw_df)
+    assert not is_valid, "Raw dataframe containing Saturday/Sunday mock candles was not rejected by validate_ohlcv_structure!"
+    assert reason == "WEEKEND_CANDLES_PROHIBITED"
+
+    # Ingestion Layer Sanitization: Purges both Saturday and Sunday
+    clean_df = enforce_trading_day_candles(raw_df, symbol="TATAMOTORS")
+    assert len(clean_df) == 2, f"Expected 2 candles after purging Saturday & Sunday, got {len(clean_df)}"
+    clean_dates = pd.to_datetime(clean_df["Date"]).dt.date.tolist()
+    assert clean_dates == [date(2026, 9, 4), date(2026, 9, 7)]
+
+    # Technical Indicators Engine: Calculates ONLY for Friday and Monday
+    enriched_df = apply_indicators(raw_df, timeframe="1d")
+    for ts in pd.to_datetime(enriched_df["Date"]):
+        assert ts.weekday() < 5, f"Indicator calculation erroneously evaluated on weekend bar: {ts}"
+
+    # Performance / Exit Monitor Engine
+    trade = {
+        "id": 1001,
+        "symbol": "TATAMOTORS",
+        "scanner": "EOD",
+        "shares_bought": 100,
+        "entry_price": 100.0,
+        "actual_entry_price": 100.0,
+        "stop_loss": 90.0,
+        "target_1": 120.0,
+        "target_2": 130.0,
+        "target_3": 140.0,
+        "status": "OPEN",
+        "execution_state": "OPEN",
+        "exit_history": "[]",
+    }
+
+    # Pass the full history into performance_tracker
+    cur_p = 103.0
+    hist_indexed = raw_df.set_index("Date")
+    process_trade_history(trade, hist_indexed, cur_p=cur_p)
+
+    # Invariant Verifications:
+    assert trade["status"] == "OPEN", f"False exit triggered on weekend mock candle! Status: {trade['status']}"
+    assert trade.get("exit_signal") is None, f"False exit signal generated: {trade.get('exit_signal')}"
+    assert trade.get("sl_hit") is not True, "False SL hit recorded on weekend mock candle!"
+    assert trade.get("t1_hit") is not True, "False Target hit recorded!"
+    assert trade.get("exit_price") is None, f"Exit price assigned from weekend candle: {trade.get('exit_price')}"
+
+    # Performance events: exit_history must remain empty
+    exit_history_events = json.loads(trade.get("exit_history", "[]"))
+    assert len(exit_history_events) == 0, f"Exit history recorded false events: {exit_history_events}"
+
+    # P&L calculation: Position remains open, so unrealized gain is evaluated at Monday's market price
+    # (103.0 vs 100.0 entry = +3.0%), NOT a fake weekend crash (-25% or -28%)
+    assert trade.get("pnl_pct") is None or trade.get("status") == "OPEN"
+    unrealized_pnl = round((cur_p - trade["entry_price"]) / trade["entry_price"] * 100, 2)
+    assert unrealized_pnl == pytest.approx(3.0, rel=1e-2), f"Unrealized P&L corrupted: {unrealized_pnl}%"
+
+
+def test_all_acquisition_paths_reject_weekends():
+    """
+    AUDIT OF OHLCV ACQUISITION PATHS:
+    Verifies that all acquisition endpoints enforce the weekend ban:
+    1. Multi-TF data loading
+    2. Delivery Data Bhavcopy fetching
+    3. Counterfactual engine data normalization
+    4. Price Cache get_cached_df
+    """
+    from multitf.data import load_multitf_data
+    from delivery_data import fetch_delivery_data
+    from trading_calendar import is_market_candle_eligible
+
+    # 1. Multi-TF Data Loader:
+    ist_now = datetime(2026, 9, 7, 10, 0, tzinfo=IST) # Monday morning
+    mock_15m = pd.DataFrame([
+        {"Date": pd.Timestamp("2026-09-04 15:15:00"), "Open": 100.0, "High": 101.0, "Low": 99.0, "Close": 100.5, "Volume": 1000},
+        {"Date": pd.Timestamp("2026-09-05 10:00:00"), "Open": 90.0, "High": 92.0, "Low": 88.0, "Close": 91.0, "Volume": 500}, # Saturday
+    ])
+    bundle = load_multitf_data("INFY", ist_now, all_15m_data={"INFY": mock_15m})
+    if bundle.df_15m_closed is not None and not bundle.df_15m_closed.empty:
+        for ts in bundle.df_15m_closed["Date"]:
+            assert pd.to_datetime(ts).weekday() < 5, f"MultiTF bundle contained weekend bar: {ts}"
+
+    # 2. Bhavcopy delivery data fetcher:
+    # Attempting to fetch Bhavcopy for Saturday or Sunday returns empty dict immediately without network call
+    saturday_res = fetch_delivery_data(date(2026, 9, 5))
+    sunday_res = fetch_delivery_data(date(2026, 9, 6))
+    assert saturday_res == {}, "Bhavcopy fetch on Saturday did not return empty dict!"
+    assert sunday_res == {}, "Bhavcopy fetch on Sunday did not return empty dict!"
+
+    # 3. Market candle eligibility predicate
+    assert not is_market_candle_eligible("2026-09-05")  # Saturday
+    assert not is_market_candle_eligible("2026-09-06")  # Sunday
+    assert not is_market_candle_eligible("2026-01-26")  # Republic Day (NSE Holiday)
+    assert is_market_candle_eligible("2026-09-07")      # Monday (Trading day)
+

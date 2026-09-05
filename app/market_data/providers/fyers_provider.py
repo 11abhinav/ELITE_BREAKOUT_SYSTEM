@@ -159,7 +159,11 @@ class FyersProvider(ProviderInterface):
             
             df["Datetime"] = pd.to_datetime(df["Timestamp"], unit="s", utc=True).dt.tz_convert(IST)
             df = df.set_index("Datetime").drop(columns=["Timestamp"]).sort_index()
-            
+
+            # [RULE 67 CHANGE-RATIONALE: SYSTEM-WIDE WEEKEND CANDLE BAN]
+            from trading_calendar import enforce_trading_day_candles
+            df = enforce_trading_day_candles(df, symbol)
+
             prov = DataProvenance(self.provider_name, start_time, latency, 100.0)
             return NormalizedMarketData(symbol, timeframe, df, prov, is_complete_candle=True)
             

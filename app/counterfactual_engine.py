@@ -107,7 +107,11 @@ def run_counterfactual_simulation() -> int:
                         ticker = yf.Ticker(symbol) # Fallback to global symbol
                         hist = ticker.history(start=start_date, end=end_date, interval="1d")
                     
-                if hist.empty:
+                if hist is not None and not hist.empty:
+                    from trading_calendar import enforce_trading_day_candles
+                    hist = enforce_trading_day_candles(hist, symbol)
+
+                if hist is None or hist.empty:
                     with conn.cursor() as cur:
                         cur.execute("""
                             UPDATE scanner_evaluation_log

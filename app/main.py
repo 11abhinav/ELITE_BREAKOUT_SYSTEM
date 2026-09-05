@@ -120,6 +120,11 @@ def wait_for_window(name: str):
             logger.info(f"[{name}] 📅 Weekend — sleeping 1 hour...")
             time.sleep(3600)
             continue
+        from trading_calendar import default_trading_calendar
+        if not default_trading_calendar.is_trading_day(now):
+            logger.info(f"[{name}] 📅 Market Holiday — sleeping 1 hour...")
+            time.sleep(3600)
+            continue
         if now.time() > end_time:
             logger.info(f"[{name}] 🕒 Past window end ({end_time}) — waiting for tomorrow...")
             time.sleep(1800)  # Sleep 30 minutes before checking again
@@ -143,6 +148,9 @@ def wait_for_bhavcopy_or_fallback(name: str) -> bool:
         now = datetime.now(IST)
         if now.weekday() >= 5:
             return True  # Weekend, no bhavcopy published
+        from trading_calendar import default_trading_calendar
+        if not default_trading_calendar.is_trading_day(now):
+            return True  # Market holiday, no bhavcopy published
             
         try:
             # fetch_delivery_data handles caching and retries internally
