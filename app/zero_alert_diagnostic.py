@@ -136,6 +136,9 @@ class SingleTerminalTracker:
                 "recorded_symbols_count": len(self._dispositions)
             }
 
+    # Alias for backward compatibility with callers expecting get_conservation_summary()
+    get_conservation_summary = get_summary
+
 
 class StageWaterfallTracker:
     """

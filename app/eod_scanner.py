@@ -730,9 +730,16 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
         ])
         waterfall = StageWaterfallTracker(["UNIVERSE_WATCHLIST", "FETCHED_DATA", "BREAKOUT_STRUCTURE", "QUALITY_AND_RISK", "FINAL_ALERTS"])
         waterfall.set_stage_count("UNIVERSE_WATCHLIST", len(watchlist))
-        waterfall_structure_entered = 0
-        waterfall_quality_entered = 0
-        near_misses_count = 0
+        # [RULE 67 CHANGE-RATIONALE: THREAD_SAFE_WATERFALL_COUNTS_V1.0]
+        # Use mutable dictionary for waterfall counters rather than outer scalar integers.
+        # RATIONALE: _process_row executes inside ThreadPoolExecutor. In Python, doing += 1 on outer
+        # scalar integers raises UnboundLocalError. Mutating dictionary keys inside _batch_lock is
+        # completely immune to UnboundLocalError and 100% thread-safe.
+        waterfall_counts = {
+            "structure_entered": 0,
+            "quality_entered": 0,
+            "near_misses": 0
+        }
 
         stage_tracker.end_stage(f"Loaded watchlist ({len(watchlist)} stocks)")
 
@@ -1143,7 +1150,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     bb_width_pctile=_safe_float(latest.get("BB_WIDTH_PCTILE"))
                                 )
                                 with _batch_lock:
-                                    waterfall_structure_entered += 1
+                                    waterfall_counts["structure_entered"] += 1
 
                                 signals = detect_breakouts(ticker, timeframe="1d")
 
@@ -1509,7 +1516,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 )
 
                                 with _batch_lock:
-                                    waterfall_quality_entered += 1
+                                    waterfall_counts["quality_entered"] += 1
 
                                 score, model_version, applied_bayesian_weights = calculate_score(
                                     category=category,
@@ -1573,7 +1580,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     with _batch_lock:
                                         rejection_counts["low_score"] += 1
                                         if (global_min_score - score) <= 5.0:
-                                            near_misses_count += 1
+                                            waterfall_counts["near_misses"] += 1
                                         terminal_tracker.record_terminal(symbol, "LOW_SCORE", f"Score {score:.1f} < threshold {global_min_score}")
                                         telemetry_logger.record_reject(
                                             symbol, "SCORE", "LOW_SCORE",
@@ -1993,13 +2000,13 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
 
             # Ensure 100% mathematical conservation
             terminal_tracker.record_untracked_remainder("UNTRACKED_DROP")
-            cons_summary = terminal_tracker.get_conservation_summary()
+            cons_summary = terminal_tracker.get_summary()
 
             # Record final stage into waterfall
             waterfall.set_stage_count("UNIVERSE_WATCHLIST", total_symbols)
             waterfall.set_stage_count("FETCHED_DATA", fresh_count)
-            waterfall.set_stage_count("BREAKOUT_STRUCTURE", waterfall_structure_entered)
-            waterfall.set_stage_count("QUALITY_AND_RISK", waterfall_quality_entered)
+            waterfall.set_stage_count("BREAKOUT_STRUCTURE", waterfall_counts["structure_entered"])
+            waterfall.set_stage_count("QUALITY_AND_RISK", waterfall_counts["quality_entered"])
             waterfall.set_stage_count("FINAL_ALERTS", total_alerts)
 
             attrition_results = waterfall.compute_attrition()
@@ -2009,10 +2016,10 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                 scanner_name="EOD",
                 universe_size=total_symbols,
                 valid_data_count=fresh_count,
-                initial_setups_count=waterfall_structure_entered,
+                initial_setups_count=waterfall_counts["structure_entered"],
                 finalist_candidates_count=len(approved_candidates),
                 alerts_generated=total_alerts,
-                near_miss_count=near_misses_count,
+                near_miss_count=waterfall_counts["near_misses"],
                 regime=market_regime,
                 execution_mode="EOD_SCAN",
                 stage_waterfall=attrition_results
@@ -2065,7 +2072,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                 "",
                 "🏆 FINAL OUTCOME:",
                 f"  • Alerts Generated          : {total_alerts}",
-                f"  • Near Misses (<=5 pts)     : {near_misses_count}",
+                f"  • Near Misses (<=5 pts)     : {waterfall_counts['near_misses']}",
                 f"  • Total Execution Time      : {duration_sec}s",
             ])
 
@@ -2081,7 +2088,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                     dominant_bottleneck=dominant_bottleneck,
                     conservation_summary=cons_summary,
                     stage_waterfall=attrition_results,
-                    near_miss_count=near_misses_count,
+                    near_miss_count=waterfall_counts["near_misses"],
                     extra_specs=[
                         f"BASE_SCORE_THRESHOLD       : {BASE_SCORE_THRESHOLD}",
                         f"REGIME_STRICTNESS_PENALTY  : {regime_modifier:+d} ({market_regime} makes bar higher/stricter)",

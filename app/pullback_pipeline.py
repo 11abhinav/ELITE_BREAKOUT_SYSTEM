@@ -1387,7 +1387,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
 
     # Ensure 100% mathematical conservation
     terminal_tracker.record_untracked_remainder("UNTRACKED_DROP")
-    cons_summary = terminal_tracker.get_conservation_summary()
+    cons_summary = terminal_tracker.get_summary()
 
     waterfall.set_stage_count("UNIVERSE_WATCHLIST", total_symbols)
     waterfall.set_stage_count("FETCHED_DATA", fresh_count)
