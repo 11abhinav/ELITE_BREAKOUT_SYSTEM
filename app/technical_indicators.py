@@ -96,8 +96,9 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
     if daily_ohlc is not None:
         daily_ohlc = enforce_trading_day_candles(daily_ohlc)
 
-    # [VERSION: LOG_ERROR_FIXES_v1.1] Guard short DataFrames (<14 rows) to prevent index out-of-bounds errors on 14-period indicator calculations
-    if df is None or df.empty or len(df) < 14:
+    # [RULE 67 - FIX RATIONALE]: Guard short DataFrames (< 20 rows) to prevent index out-of-bounds errors
+    # on 20-period indicator calculations (e.g., EMA20, ATR20, BollingerBands with window=20).
+    if df is None or df.empty or len(df) < 20:
         return df
     # De-fragment the DataFrame to prevent pandas internal block manager crashes 
     # (e.g. np.bincount array too big) when assigning many columns sequentially.
