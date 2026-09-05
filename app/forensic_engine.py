@@ -45,17 +45,47 @@ class ForensicEngine:
         """Determines if the stock is a Financial Institution (Bank, NBFC, Insurance, AMC)."""
         if not fundamental_data:
             return False
-        path = str(fundamental_data.get("Path") or fundamental_data.get("path") or "").strip().lower()
-        if path == "financial":
+
+        KNOWN_FIN_PATHS = {"financial", "bank", "nbfc_hfc", "insurance", "amc"}
+        KNOWN_NONFIN_PATHS = {"non-financial", "non_financial", "industrial"}
+        KNOWN_FIN_SECTORS = {"finance", "financial services", "financials", "banking", "banks", "insurance", "nbfc", "nbfc_hfc", "amc"}
+
+        raw_path = str(fundamental_data.get("Path") or fundamental_data.get("path") or fundamental_data.get("financial_sub_path") or "").strip().lower()
+        raw_sector = str(fundamental_data.get("Sector") or fundamental_data.get("sector") or "").strip().lower()
+
+        is_fin_path = raw_path in KNOWN_FIN_PATHS
+        is_nonfin_path = raw_path in KNOWN_NONFIN_PATHS
+        is_fin_sector = raw_sector in KNOWN_FIN_SECTORS
+        is_nonfin_sector = raw_sector != "" and raw_sector not in KNOWN_FIN_SECTORS
+
+        # Disagreement detection: Path and Sector conflict
+        if is_fin_path and is_nonfin_sector:
+            logger.warning(
+                f"[FORENSICS] Sector/Path conflict: path='{raw_path}' vs sector='{raw_sector}'. "
+                f"Resolving as KNOWN_FINANCIAL by explicit path."
+            )
             return True
-        sector = str(fundamental_data.get("Sector") or fundamental_data.get("sector") or "").strip().lower()
-        if sector in ["finance", "financial services", "financials", "banking", "banks", "insurance", "nbfc", "nbfc_hfc", "amc"]:
+
+        if is_nonfin_path and is_fin_sector:
+            logger.warning(
+                f"[FORENSICS] Sector/Path conflict: path='{raw_path}' vs sector='{raw_sector}'. "
+                f"Resolving as NON_FINANCIAL by explicit path."
+            )
+            return False
+
+        if is_fin_path or is_fin_sector:
             return True
+
+        industry = str(fundamental_data.get("Industry") or fundamental_data.get("industry") or "").strip().lower()
+        if any(w in industry for w in ["bank", "insurance", "consumer finance", "housing finance", "asset management"]):
+            return True
+
         cats = fundamental_data.get("categories") or fundamental_data.get("Category") or fundamental_data.get("category") or []
         if isinstance(cats, str):
             cats = [cats]
         if any("financial" in str(c).lower() or "bank" in str(c).lower() for c in cats):
             return True
+
         return False
 
     @classmethod

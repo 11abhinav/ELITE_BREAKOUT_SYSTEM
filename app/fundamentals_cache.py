@@ -364,9 +364,21 @@ def fetch_single_piotroski(symbol: str) -> dict:
         except Exception:
             net_income = None
             
-    # Calculate CFO/PAT ratio
+    # Sector classification via canonical ForensicEngine
+    is_financial = False
+    try:
+        from forensic_engine import ForensicEngine
+        is_financial = ForensicEngine.is_financial_institution({
+            "sector": info.get("sector"),
+            "industry": info.get("industry"),
+            "symbol": symbol
+        })
+    except Exception:
+        pass
+
+    cfo_pat_applicable = not is_financial
     cfo_pat_ratio = None
-    if ocf is not None and net_income is not None and net_income > 0:
+    if cfo_pat_applicable and ocf is not None and net_income is not None and net_income > 0:
         cfo_pat_ratio = ocf / net_income
         
     # Dividends / Retention
@@ -420,6 +432,7 @@ def fetch_single_piotroski(symbol: str) -> dict:
         "score": score, 
         "date": str(datetime.now(IST).date()),
         "cfo_pat_ratio": cfo_pat_ratio,
+        "cfo_pat_applicable": cfo_pat_applicable,
         "retention_ratio": retention_ratio,
         "insider_hold": insider_hold,
         "forensic_flags": forensic_flags,

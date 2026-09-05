@@ -463,13 +463,18 @@ def build_universe_checklist(symbol: str, metrics: dict, path: str) -> UniverseC
     elif path in ("NBFC_HFC",):
         _add_nbfc_junk_gates(cl, metrics, roa)
     else:
-        _add_nonfin_junk_gates(cl, metrics, roe)
+        _add_nonfin_junk_gates(cl, metrics, roe, path=path)
 
     return cl
 
 
-def _add_nonfin_junk_gates(cl: UniverseChecklist, metrics: dict, roe) -> None:
+def _add_nonfin_junk_gates(cl: UniverseChecklist, metrics: dict, roe, path: str = "") -> None:
     """Adds non-financial junk gates to the checklist."""
+    if path in {"BANK", "NBFC_HFC", "INSURANCE", "AMC"}:
+        raise RuntimeError(
+            f"_add_nonfin_junk_gates() received financial path={path}; "
+            "sector routing violation"
+        )
 
     # OPM gate
     opm = _pct(_safe(metrics, "operating_margin_ttm") or _safe(metrics, "opm"))

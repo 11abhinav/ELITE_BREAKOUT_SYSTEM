@@ -1702,10 +1702,19 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                 # ── FORENSIC RISK TIER POLICY CHECK ──────────────────────────────────────
                                 forensic_tier = row.get("Forensic_Risk_Tier", "UNKNOWN")
                                 if forensic_tier == "REJECT":
+                                    f_reason = "Forensic Risk Engine tier REJECT"
+                                    f_details_raw = row.get("Forensic_Details")
+                                    if f_details_raw:
+                                        try:
+                                            f_details = json.loads(f_details_raw) if isinstance(f_details_raw, str) else f_details_raw
+                                            if isinstance(f_details, dict) and f_details.get("reason"):
+                                                f_reason = f"Forensic tier REJECT ({f_details['reason']})"
+                                        except Exception:
+                                            pass
                                     with _batch_lock:
                                         rejection_counts["forensic_reject"] = rejection_counts.get("forensic_reject", 0) + 1
-                                        terminal_tracker.record_terminal(symbol, "FORENSIC_REJECT", "Forensic Risk Engine tier REJECT")
-                                    logger.info(f"🚫 [EOD] {symbol} REJECTED — Forensic Risk Engine tier REJECT")
+                                        terminal_tracker.record_terminal(symbol, "FORENSIC_REJECT", f_reason)
+                                    logger.info(f"🚫 [EOD] {symbol} REJECTED — {f_reason}")
                                     return
 
                                 signal_str = ", ".join(signals.keys() if isinstance(signals, dict) else signals)
