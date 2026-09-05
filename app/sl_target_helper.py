@@ -52,7 +52,7 @@ import sys
 import os
 import pandas as pd
 from memory_profiler import profile_function
-from typing import Optional
+from typing import Optional, Any
 import math
 
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))

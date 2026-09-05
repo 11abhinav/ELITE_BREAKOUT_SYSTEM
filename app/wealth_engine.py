@@ -1718,6 +1718,12 @@ def _resolve_previous_completed_close(hist_df) -> "float | None":
 
 def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
     start_time = time.time()
+    # [RULE 67 CHANGE-RATIONALE]: Explicitly initialize timing and metric accumulators at function entry
+    # to avoid UnboundLocalError/NameError during fallback branches and stage performance reporting.
+    _t_hist_total = time.perf_counter()
+    _t_indicator_total_ms = 0.0
+    _stage_ms_live = 0.0
+    _stage_ms_concall = 0.0
 
     try:
         # central telemetry setup
@@ -2764,11 +2770,11 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
         logger.info(f"✅ [STOP] WEALTH ENGINE COMPLETED | {datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')}")
         # [VERSION: PERF_PHASE0_v1.0] Human-readable stage summary for log-based verification
         try:
-            _hist_total_ms   = (time.perf_counter() - _t_hist_total) * 1000 if '_t_hist_total' in dir() else 0
-            _live_ms         = _stage_ms_live if '_stage_ms_live' in dir() else 0
-            _concall_ms      = _stage_ms_concall if '_stage_ms_concall' in dir() else 0
-            _indicator_ms    = _t_indicator_total_ms if '_t_indicator_total_ms' in dir() else 0
-            _sym_count       = len(all_symbols_to_fetch) if 'all_symbols_to_fetch' in dir() else 0
+            _hist_total_ms   = (time.perf_counter() - _t_hist_total) * 1000
+            _live_ms         = _stage_ms_live
+            _concall_ms      = _stage_ms_concall
+            _indicator_ms    = _t_indicator_total_ms
+            _sym_count       = len(all_symbols_to_fetch) if 'all_symbols_to_fetch' in locals() else 0
             _total_s         = time.time() - start_time
             _total_ms        = _total_s * 1000
             logger.info(
@@ -2830,8 +2836,14 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
     Lightweight, ultra-fast market-hours update (< 3 seconds) for the 5-minute Wealth Engine schedule.
     Fetches real-time prices for active portfolio holdings, evaluates open position exit rules,
     updates DB position metrics, and refreshes the Wealth Engine dashboard parquet.
-    Does NOT re-download or re-calculate full 1Y historical technicals for 300+ symbols.
     """
+    # [RULE 67 CHANGE-RATIONALE: CRITICAL WEEKEND CANDLE BAN]
+    # Exit updates must NEVER run on weekends.
+    now_ist = datetime.now(IST)
+    if now_ist.weekday() >= 5:
+        logger.info(f"🚫 [WEALTH_EXIT] Today is {now_ist.strftime('%A')} (Weekend). Market-hours exit evaluation is strictly prohibited on weekends.")
+        return None
+
     if not _wealth_exit_lock.acquire(blocking=False):
         logger.info("🛑 [WEALTH_EXIT] In-memory lock held. Another WEALTH_EXIT run is actively executing. Skipping duplicate.")
         try:

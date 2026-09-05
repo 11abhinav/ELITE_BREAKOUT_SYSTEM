@@ -18,6 +18,8 @@ import pandas as pd
 import ta
 import numpy as np
 import warnings
+import logging
+logger = logging.getLogger(__name__)
 
 # Suppress annoying numpy nanmean warnings for empty slices in rolling windows
 warnings.filterwarnings("ignore", message="Mean of empty slice", category=RuntimeWarning)
@@ -87,6 +89,13 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
     HIGH_20D, HIGH_50D, HIGH_100D, HIGH_252D, HIGH_52W
     """
 
+    # [RULE 67 CHANGE-RATIONALE: CRITICAL WEEKEND CANDLE BAN]
+    # Enforce trading day candles defensively: Saturday/Sunday data must never be used to calculate indicators.
+    from trading_calendar import enforce_trading_day_candles
+    df = enforce_trading_day_candles(df)
+    if daily_ohlc is not None:
+        daily_ohlc = enforce_trading_day_candles(daily_ohlc)
+
     # [VERSION: LOG_ERROR_FIXES_v1.1] Guard short DataFrames (<14 rows) to prevent index out-of-bounds errors on 14-period indicator calculations
     if df is None or df.empty or len(df) < 14:
         return df
@@ -123,14 +132,22 @@ def apply_indicators(df: pd.DataFrame, timeframe: str = "1d", daily_ohlc: pd.Dat
     new_cols["BB_WIDTH_PCTILE"] = new_cols["BB_WIDTH"].rolling(window=100, min_periods=50).rank(pct=True)
 
     # ── TREND DIRECTION — ADX ─────────────────────────────────────────────────
-    adx_ind   = ta.trend.ADXIndicator(high, low, close, window=14)
-    new_cols["ADX"] = adx_ind.adx()
+    try:
+        adx_ind   = ta.trend.ADXIndicator(high, low, close, window=14)
+        new_cols["ADX"] = adx_ind.adx()
+    except Exception:
+        new_cols["ADX"] = pd.Series(np.nan, index=df.index)
 
     # ── MOMENTUM CONFIRMATION — MACD ──────────────────────────────────────────
-    macd_ind          = ta.trend.MACD(close, window_slow=26, window_fast=12, window_sign=9)
-    new_cols["MACD"]        = macd_ind.macd()
-    new_cols["MACD_SIGNAL"] = macd_ind.macd_signal()
-    new_cols["MACD_HIST"]   = macd_ind.macd_diff()
+    try:
+        macd_ind          = ta.trend.MACD(close, window_slow=26, window_fast=12, window_sign=9)
+        new_cols["MACD"]        = macd_ind.macd()
+        new_cols["MACD_SIGNAL"] = macd_ind.macd_signal()
+        new_cols["MACD_HIST"]   = macd_ind.macd_diff()
+    except Exception:
+        new_cols["MACD"]        = pd.Series(np.nan, index=df.index)
+        new_cols["MACD_SIGNAL"] = pd.Series(np.nan, index=df.index)
+        new_cols["MACD_HIST"]   = pd.Series(np.nan, index=df.index)
 
     # ── SUPPORT / RESISTANCE — TRUE Pivot Swing Points ────────────────────────
     # n = how many bars on each side a bar must be the extreme to qualify

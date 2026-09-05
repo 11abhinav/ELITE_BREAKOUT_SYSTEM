@@ -2137,6 +2137,8 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
 
             duration_sec = (datetime.now(IST) - start_time).total_seconds()
 
+            # [RULE 67 CHANGE-RATIONALE]: Retain price data reference for Phase 2B EOD V2 pipeline before deleting all_ticker_data.
+            price_data_map = all_ticker_data if 'all_ticker_data' in locals() and all_ticker_data else {}
             del all_ticker_data
             locals().pop('ticker', None)
 
@@ -2233,7 +2235,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
             v2_res = process_eod_v2_pipeline(
                 elite_df=v2_elite_df,
                 nq_df=v2_nq_df,
-                price_data_map=all_ticker_data if 'all_ticker_data' in locals() else {}
+                price_data_map=price_data_map
             )
             logger.info(
                 f"✅ [EOD_V2_PIPELINE] Complete | WATCH={len(v2_res.get('watch', []))} "

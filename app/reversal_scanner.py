@@ -1203,7 +1203,8 @@ def _evaluate_candidate(
     if macd_val is not None and sig_val is not None:
         macd_hist = macd_val - sig_val
     macd_above_now = (macd_val > sig_val) if (macd_val is not None and sig_val is not None) else False
-    macd_recovery_passed = macd_passed and not macd_above_now
+    # [RULE 67 CHANGE-RATIONALE]: macd_crossover_passed was defined at line 1084; macd_passed was undefined.
+    macd_recovery_passed = macd_crossover_passed and not macd_above_now
 
     score_dict = _score_reversal(
         vol_ratio=vol_ratio,
@@ -1560,7 +1561,9 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
     total_alerts = 0
     shortlisted_alerts = []
     rejected = defaultdict(int)
-    telemetry_logger = ScannerDecisionLogger("REVERSAL", scan_id if "scan_id" in locals() else "run_1", regime_str)
+    # [RULE 67 CHANGE-RATIONALE]: Explicitly extract scan_id from run_ctx to avoid UnboundLocalError / NameError.
+    scan_id = getattr(run_ctx, "run_id", "run_1") if run_ctx else "run_1"
+    telemetry_logger = ScannerDecisionLogger("REVERSAL", scan_id, regime_str)
 
     today_str = ist_now.strftime("%Y-%m-%d")
 

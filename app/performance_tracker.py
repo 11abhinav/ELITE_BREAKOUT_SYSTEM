@@ -258,16 +258,26 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     # Build sequence of all historical ticks (from alert creation) + live price
     ticks = []
     if hist is not None and not hist.empty:
+        # [RULE 67 CHANGE-RATIONALE: CRITICAL WEEKEND CANDLE BAN]
+        # Saturday and Sunday candles must NEVER be accepted, evaluated, or used for performance/P&L.
+        from trading_calendar import enforce_trading_day_candles
+        hist = enforce_trading_day_candles(hist, symbol)
         # Prevent Fyers API glitches from causing time-travel by ensuring chronological order and no duplicates
         hist = hist[~hist.index.duplicated(keep='first')].sort_index()
         for ts, row in hist.iterrows():
+            ts_dt = pd.to_datetime(ts)
+            if ts_dt.weekday() >= 5:
+                continue
             ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
             vol = float(row.get("Volume", 0.0))
             close_p = float(row.get("Close", float(row["High"])))
             ticks.append((ts_str, float(row["Open"]), float(row["Low"]), float(row["High"]), close_p, vol))
     if cur_p:
-        now_str = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
-        ticks.append((now_str, cur_p, cur_p, cur_p, cur_p, 0.0))
+        now_dt = datetime.now(IST)
+        # Strictly prohibit weekend candles from current price injection
+        if now_dt.weekday() < 5:
+            now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+            ticks.append((now_str, cur_p, cur_p, cur_p, cur_p, 0.0))
     # ── State Validation & Fallback ──
     if execution_state == "OPEN" and actual_entry_price is None:
         if t.get("entry_price") is not None:
@@ -289,6 +299,12 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
         return
 
     for ts_str, open_p, low, high, close_p, vol in ticks:
+        # [RULE 67 CHANGE-RATIONALE: CRITICAL WEEKEND CANDLE BAN]
+        # Never evaluate entry, exit, or calculate P&L from a Saturday or Sunday candle.
+        t_tick = pd.to_datetime(ts_str)
+        if t_tick.weekday() >= 5:
+            continue
+
         if t["status"] in ("WIN", "LOSS", "CLOSED", "REJECTED"):
             break
 
@@ -734,7 +750,10 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             logger.error(f"❌ Failed to persist alert quality metrics: {db_err}")
 def _days_held(alert_date_str: str) -> int:
     try:
-        return (datetime.now(IST).date() - date.fromisoformat(alert_date_str)).days
+        # [RULE 67 CHANGE-RATIONALE: CRITICAL WEEKEND CANDLE BAN]
+        # Use official NSE trading calendar to compute trading days held, completely excluding weekends and holidays.
+        from trading_calendar import default_trading_calendar
+        return max(0, default_trading_calendar.days_between(date.fromisoformat(alert_date_str), datetime.now(IST).date()))
     except Exception:
         return 0
 

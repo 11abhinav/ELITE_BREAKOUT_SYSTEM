@@ -59,13 +59,22 @@ def validate_ohlcv_structure(df: pd.DataFrame) -> tuple[bool, str]:
         return False, "EMPTY_DATAFRAME"
         
     try:
-        # 1. Monotonicity
+        # [RULE 67 CHANGE-RATIONALE: CRITICAL WEEKEND CANDLE BAN]
+        # Saturday and Sunday candles must NEVER be fetched, accepted, evaluated, or stored as valid market candles.
         time_col = 'Date' if 'Date' in df.columns else ('Datetime' if 'Datetime' in df.columns else None)
         if time_col:
-            ts_series = pd.to_datetime(df[time_col])
+            ts_series = pd.to_datetime(df[time_col], errors='coerce')
+        elif isinstance(df.index, pd.DatetimeIndex):
+            ts_series = df.index
         else:
-            ts_series = pd.to_datetime(df.index)
-            
+            ts_series = pd.to_datetime(df.index, errors='coerce')
+
+        if ts_series is not None and len(ts_series) > 0:
+            is_weekend = (ts_series.dt.weekday >= 5) if hasattr(ts_series, 'dt') else (ts_series.weekday >= 5)
+            if is_weekend.any():
+                return False, "WEEKEND_CANDLES_PROHIBITED"
+
+        # 1. Monotonicity
         if not ts_series.is_monotonic_increasing:
             return False, "NON_MONOTONIC_TIMESTAMPS"
             
@@ -1062,6 +1071,9 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         continue
                         
                     new_df = md.dataframe
+                    if new_df is not None:
+                        from trading_calendar import enforce_trading_day_candles
+                        new_df = enforce_trading_day_candles(new_df, sym)
                     new_report = md.quality_report
                     remote_source = md.source
                     
@@ -1294,9 +1306,11 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                                     if all_data[sym].attrs.get('is_stale', False):
                                         from datetime import time as dt_time
                                         from zoneinfo import ZoneInfo
+                                        from trading_calendar import default_trading_calendar
                                         now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
                                         expected_date = now_ist.date()
-                                        if now_ist.time() >= dt_time(17, 30):
+                                        # Strictly prohibit synthesizing or stitching candles on weekends or NSE exchange holidays
+                                        if default_trading_calendar.is_trading_day(now_ist) and now_ist.time() >= dt_time(17, 30):
                                             from data_registry import registry
                                             full_bhavcopy_key = f"bhavcopy_full_{expected_date.isoformat()}"
                                             bhavcopy_df = registry.get(full_bhavcopy_key)
@@ -1823,11 +1837,13 @@ def get_cached_df(symbol: str, interval: str = "1d", period: str = "1y") -> pd.D
         if key in _cache and isinstance(_cache[key], dict):
             entry = _cache[key].get(symbol)
             if entry and isinstance(entry, dict) and isinstance(entry.get("data"), pd.DataFrame):
-                return entry["data"]
+                from trading_calendar import enforce_trading_day_candles
+                return enforce_trading_day_candles(entry["data"], symbol)
             elif isinstance(_cache[key].get("data"), dict):
                 df = _cache[key]["data"].get(symbol)
                 if isinstance(df, pd.DataFrame) and not df.empty:
-                    return df
+                    from trading_calendar import enforce_trading_day_candles
+                    return enforce_trading_day_candles(df, symbol)
 
     # Disk fallback (variant-aware)
     clean_s = str(symbol).split(":")[-1].strip()

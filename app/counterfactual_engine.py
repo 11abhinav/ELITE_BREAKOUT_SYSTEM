@@ -13,6 +13,7 @@ from psycopg2.extras import RealDictCursor
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import yfinance as yf
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")

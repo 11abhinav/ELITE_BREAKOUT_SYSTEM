@@ -60,3 +60,12 @@ class NormalizedMarketData:
     @property
     def is_valid(self) -> bool:
         return self.error is None and not self.dataframe.empty
+
+    def __post_init__(self):
+        # [RULE 67 CHANGE-RATIONALE: CRITICAL WEEKEND CANDLE BAN]
+        # Invariant enforced at lowest common data-contract layer so every provider payload
+        # has Saturday and Sunday candles purged instantly upon model instantiation.
+        if self.dataframe is not None and not self.dataframe.empty:
+            from trading_calendar import enforce_trading_day_candles
+            self.dataframe = enforce_trading_day_candles(self.dataframe, self.symbol)
+

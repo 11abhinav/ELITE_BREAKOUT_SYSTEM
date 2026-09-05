@@ -13,7 +13,7 @@ import time as _time
 import os
 import logging
 import math
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 import time
 import pandas as pd

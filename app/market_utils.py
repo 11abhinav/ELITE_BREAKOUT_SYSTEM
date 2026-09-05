@@ -5,7 +5,7 @@ IST = ZoneInfo("Asia/Kolkata")
 
 def is_market_open(now_dt: datetime = None) -> bool:
     """
-    Returns True ONLY if the current time is between 09:15 and 15:30 on a weekday (Mon-Fri).
+    Returns True ONLY if the current time is between 09:15 and 15:30 on an official trading day (Mon-Fri, non-holiday).
     """
     if now_dt is None:
         now_dt = datetime.now(IST)
@@ -13,13 +13,19 @@ def is_market_open(now_dt: datetime = None) -> bool:
     if now_dt.weekday() >= 5:  # 5 is Saturday, 6 is Sunday
         return False
         
+    try:
+        from trading_calendar import default_trading_calendar
+        if not default_trading_calendar.is_trading_day(now_dt):
+            return False
+    except Exception:
+        pass
+
     current_time = now_dt.time()
     return dt_time(9, 15) <= current_time <= dt_time(15, 30)
 
 def is_within_custom_hours(start_time: dt_time, end_time: dt_time, now_dt: datetime = None) -> bool:
     """
-    Returns True if the current time is between start_time and end_time on a weekday.
-    Useful for scanners like intraday or live that have custom start/end boundaries.
+    Returns True if the current time is between start_time and end_time on an official trading day.
     """
     if now_dt is None:
         now_dt = datetime.now(IST)
@@ -27,6 +33,13 @@ def is_within_custom_hours(start_time: dt_time, end_time: dt_time, now_dt: datet
     if now_dt.weekday() >= 5:
         return False
         
+    try:
+        from trading_calendar import default_trading_calendar
+        if not default_trading_calendar.is_trading_day(now_dt):
+            return False
+    except Exception:
+        pass
+
     current_time = now_dt.time()
     return start_time <= current_time <= end_time
 
@@ -34,20 +47,21 @@ def is_within_custom_hours(start_time: dt_time, end_time: dt_time, now_dt: datet
 def get_expected_latest_trading_date(now_dt: datetime = None) -> date:
     """
     Returns the expected date of the latest completed daily bar.
-    - If now_dt is during or after market hours (Mon-Fri after 09:15 AM IST): returns today's date.
-    - If now_dt is PRE-MARKET (Mon-Fri before 09:15 AM IST) or weekend/holiday: returns the date of the last completed trading day.
+    - If now_dt is during or after market hours (Mon-Fri after 09:15 AM IST on trading days): returns today's date.
+    - If now_dt is PRE-MARKET or weekend/holiday: returns the date of the last completed trading day.
     """
     if now_dt is None:
         now_dt = datetime.now(IST)
     
+    from trading_calendar import default_trading_calendar
     current_time = now_dt.time()
-    # If weekday and time >= 09:15 AM IST, expected bar is TODAY
-    if now_dt.weekday() < 5 and current_time >= dt_time(9, 15):
+    # If official trading day and time >= 09:15 AM IST, expected bar is TODAY
+    if default_trading_calendar.is_trading_day(now_dt) and current_time >= dt_time(9, 15):
         return now_dt.date()
     
-    # Otherwise (Pre-market morning before 9:15 AM IST or Weekend), expected bar is from PREVIOUS trading day
+    # Otherwise (Pre-market morning before 9:15 AM IST or Weekend/Holiday), expected bar is from PREVIOUS trading day
     candidate = now_dt.date() - timedelta(days=1)
-    while candidate.weekday() >= 5:  # 5=Sat, 6=Sun
+    while not default_trading_calendar.is_trading_day(candidate):
         candidate -= timedelta(days=1)
     return candidate
 
@@ -57,22 +71,22 @@ def get_expected_latest_closed_daily_bar(now_dt: datetime = None) -> date:
     Institutional trading-calendar helper returning the date of the latest COMPLETED daily session bar.
     - During active market hours (09:15–15:30 IST) or pre-market (<09:15 IST): today's daily session is NOT closed yet.
       The latest completed closed daily bar is from the PREVIOUS completed trading session (e.g. Friday for Monday).
-    - After market close (>=15:30 IST) on a weekday: today's daily bar IS closed, so returns today's date.
+    - After market close (>=15:30 IST) on an official trading day: today's daily bar IS closed, so returns today's date.
     - On weekends/holidays: returns the date of the last completed trading day (e.g. Friday).
     """
     if now_dt is None:
         now_dt = datetime.now(IST)
     
+    from trading_calendar import default_trading_calendar
     current_time = now_dt.time()
     
-    # If after 15:30 IST on a weekday, today's session is CLOSED
-    if now_dt.weekday() < 5 and current_time >= dt_time(15, 30):
+    # If after 15:30 IST on an official trading day, today's session is CLOSED
+    if default_trading_calendar.is_trading_day(now_dt) and current_time >= dt_time(15, 30):
         return now_dt.date()
     
-    # Otherwise (During market hours 09:15-15:30, Pre-market morning < 9:15, or Weekend), 
-    # the latest completed closed daily bar is from the PREVIOUS trading session
+    # Otherwise, the latest completed closed daily bar is from the PREVIOUS trading session
     candidate = now_dt.date() - timedelta(days=1)
-    while candidate.weekday() >= 5:  # 5=Sat, 6=Sun
+    while not default_trading_calendar.is_trading_day(candidate):
         candidate -= timedelta(days=1)
     return candidate
 

@@ -675,6 +675,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             with BatchMemoryTracker("PULLBACK", batch_num, total_batches, len(chunk_df), collect_gc=True) as tracker:
                 _batch_start_t = time.perf_counter()
                 # [VERSION: MARKET_DATA_SESSION_v1.0] Serve from session when available.
+                all_ticker_data: dict = {}
                 if session is not None:
                     all_ticker_data = {
                         row["Stock"]: (
@@ -711,17 +712,18 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                 # Convert chunk_df to records to avoid iterrows overhead
                 chunk_records = chunk_df.to_dict('records')
                 
-                def _evaluate_row(row_dict):
+                # [RULE 67 CHANGE-RATIONALE]: Pass ticker_data_map explicitly to avoid closure capture issues
+                # with del all_ticker_data and clarify worker data contract.
+                def _evaluate_row(row_dict, ticker_data_map):
                     sym = row_dict.get("Stock", "UNKNOWN")
                     try:
                         category = row_dict.get("Category", "MIDCAP")
                         sector = row_dict.get("Sector", None)
 
-
-                        ticker_data = all_ticker_data.get(sym)
-                        if ticker_data is None: ticker_data = all_ticker_data.get(f"{sym}.NS")
-                        if ticker_data is None: ticker_data = all_ticker_data.get(f"{sym}.BO")
-                        if ticker_data is None: ticker_data = all_ticker_data.get(sym.split('.')[0])
+                        ticker_data = ticker_data_map.get(sym)
+                        if ticker_data is None: ticker_data = ticker_data_map.get(f"{sym}.NS")
+                        if ticker_data is None: ticker_data = ticker_data_map.get(f"{sym}.BO")
+                        if ticker_data is None: ticker_data = ticker_data_map.get(sym.split('.')[0])
 
                         if ticker_data is None:
                             return (None, "no_data", "EMPTY_DATA", None, sym)
@@ -848,7 +850,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                 
                 with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="PullbackWorker") as executor:
                     future_to_sym = {
-                        executor.submit(_evaluate_row, rec): rec.get("Stock", "UNKNOWN")
+                        executor.submit(_evaluate_row, rec, all_ticker_data): rec.get("Stock", "UNKNOWN")
                         for rec in chunk_records
                     }
                     for future in as_completed(future_to_sym):

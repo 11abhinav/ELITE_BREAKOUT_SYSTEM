@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, date, timedelta
 from typing import Union, Set, Optional
 import pytz
+import pandas as pd
 
 logger = logging.getLogger("trading_calendar")
 IST = pytz.timezone("Asia/Kolkata")
@@ -101,3 +102,67 @@ class TradingCalendar:
 
 # Global Singleton Instance
 default_trading_calendar = TradingCalendar()
+
+
+def is_weekend_date(val: Union[datetime, date, str]) -> bool:
+    """
+    Returns True if the given date/timestamp lands on a Saturday (5) or Sunday (6).
+    """
+    d = TradingCalendar._parse_date(val)
+    if d is None:
+        return False
+    return d.weekday() >= 5
+
+
+def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
+    """
+    CRITICAL HARD GLOBAL INVARIANT: WEEKEND CANDLE BAN — SYSTEM-WIDE.
+    Saturday (weekday 5) and Sunday (weekday 6) candles must NEVER be fetched,
+    accepted, evaluated, stored as valid market candles, or used for any trading decision
+    anywhere in the system.
+
+    Purges any row whose timestamp lands on Saturday or Sunday.
+    Logs a warning if any weekend candles are purged.
+    Returns cleaned DataFrame containing ONLY official trading session data.
+    """
+    if df is None or not hasattr(df, "empty") or df.empty:
+        return df
+
+    import pandas as pd
+    time_col = None
+    for candidate in ("Date", "Datetime", "timestamp", "time"):
+        if candidate in df.columns:
+            time_col = candidate
+            break
+
+    try:
+        if time_col is not None:
+            ts_series = pd.to_datetime(df[time_col], errors="coerce")
+        elif isinstance(df.index, pd.DatetimeIndex):
+            ts_series = df.index
+        else:
+            ts_series = pd.to_datetime(df.index, errors="coerce")
+
+        if ts_series is None or len(ts_series) == 0:
+            return df
+
+        # Saturday = 5, Sunday = 6
+        is_weekend = (ts_series.dt.weekday >= 5) if hasattr(ts_series, "dt") else (ts_series.weekday >= 5)
+        if is_weekend.any():
+            dropped_count = int(is_weekend.sum())
+            sym_tag = f" for {symbol}" if symbol else ""
+            logger.warning(
+                f"🚫 [WEEKEND CANDLE BAN] Purged {dropped_count} Saturday/Sunday candles{sym_tag}. "
+                "Weekend market data is strictly prohibited across all scanners, monitors, and engines."
+            )
+            df_clean = df[~is_weekend].copy()
+            if not isinstance(df_clean.index, pd.DatetimeIndex):
+                df_clean = df_clean.reset_index(drop=True)
+            if hasattr(df, "attrs"):
+                df_clean.attrs = dict(df.attrs)
+            return df_clean
+    except Exception as err:
+        logger.error(f"❌ [WEEKEND CANDLE BAN] Error enforcing weekend ban on candles: {err}")
+
+    return df
+
