@@ -263,6 +263,7 @@ def analyze_concall_text(text: str) -> dict:
             errors.append(f"OpenAI: {oai_err_str}")
 
     from data_fetch_status import mark_failure
-    final_error = errors[-1] if errors else "All AI models failed or all Gemini keys are 7-day blacklisted."
+    # [RULE 67 - FIX RATIONALE]: Updated message to reflect 1-day (24-hour) Gemini blacklist policy.
+    final_error = errors[-1] if errors else "All AI models failed or all Gemini keys are 1-day blacklisted."
     mark_failure('gemini', final_error)
     return {"error": "All AI models in the fallback chain failed.", "details": errors}

@@ -132,12 +132,14 @@ def is_market_candle_eligible(val: Union[datetime, date, str]) -> bool:
 def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
     """
     CRITICAL HARD GLOBAL INVARIANT: WEEKEND CANDLE BAN — SYSTEM-WIDE.
-    Saturday (weekday 5) and Sunday (weekday 6) candles must NEVER be fetched,
-    accepted, evaluated, stored as valid market candles, or used for any trading decision
-    anywhere in the system.
+    - Weekend timestamps are forbidden as market-candle data, but weekend execution is permitted.
+    - All scanners, exit monitors, performance engines, and other consumers operate normally
+      using the latest valid NSE/BSE trading-session candle (e.g. Friday 15:30).
+    - Saturday (weekday 5) and Sunday (weekday 6) candles must NEVER be fetched, accepted,
+      evaluated, stored as valid market candles, or used for any trading decision anywhere in the system.
 
     Purges any row whose timestamp lands on Saturday or Sunday.
-    Logs a warning if any weekend candles are purged.
+    Logs warning with latest valid trading candle and confirms execution continues.
     Returns cleaned DataFrame containing ONLY official trading session data.
     """
     if df is None or not hasattr(df, "empty") or df.empty:
@@ -166,11 +168,20 @@ def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
         if is_weekend.any():
             dropped_count = int(is_weekend.sum())
             sym_tag = f" for {symbol}" if symbol else ""
-            logger.warning(
-                f"🚫 [WEEKEND CANDLE BAN] Purged {dropped_count} Saturday/Sunday candles{sym_tag}. "
-                "Weekend market data is strictly prohibited across all scanners, monitors, and engines."
-            )
             df_clean = df[~is_weekend].copy()
+            latest_valid_str = "None"
+            if not df_clean.empty:
+                if time_col and time_col in df_clean.columns:
+                    latest_valid_str = str(df_clean[time_col].iloc[-1])[:16]
+                elif isinstance(df_clean.index, pd.DatetimeIndex):
+                    latest_valid_str = str(df_clean.index[-1])[:16]
+                else:
+                    latest_valid_str = str(df_clean.index[-1])[:16]
+
+            logger.warning(
+                f"🚫 [WEEKEND CANDLE BAN] Purged {dropped_count} invalid weekend candle(s){sym_tag}. "
+                f"Latest valid trading candle: {latest_valid_str}. Continuing using latest valid trading-day data."
+            )
             if not isinstance(df_clean.index, pd.DatetimeIndex):
                 df_clean = df_clean.reset_index(drop=True)
             if hasattr(df, "attrs"):

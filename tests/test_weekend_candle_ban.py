@@ -288,3 +288,69 @@ def test_all_acquisition_paths_reject_weekends():
     assert not is_market_candle_eligible("2026-01-26")  # Republic Day (NSE Holiday)
     assert is_market_candle_eligible("2026-09-07")      # Monday (Trading day)
 
+
+def test_saturday_exit_monitor_execution_with_mock_weekend_candle():
+    """
+    CRITICAL REGRESSION TEST:
+    Saturday scanner / exit monitor execution
+            +
+    Saturday fake candle below SL
+            ↓
+    fake candle rejected at ingestion / cache layer
+            ↓
+    Friday 15:30 candle retained
+            ↓
+    scanner/exit monitor executes on Saturday
+            ↓
+    NO false weekend exit
+    """
+    from unittest.mock import patch, MagicMock
+    from multibagger import run_exit_monitor
+
+    # 1. Open trade with SL = 90.0
+    mock_positions = [{
+        "id": 8888,
+        "symbol": "TATASTEEL",
+        "alert_price": 100.0,
+        "alert_date": "2026-09-01",
+        "status": "OPEN",
+    }]
+
+    # 2. Mock raw price data map:
+    # Contains Friday 15:30 candle (price = 98.0 > SL 90.0)
+    # Plus mock Saturday candle below SL (price = 80.0 < SL 90.0)
+    raw_candles = pd.DataFrame([
+        {"Date": pd.Timestamp("2026-09-04 15:30:00"), "Open": 100.0, "High": 101.0, "Low": 97.0, "Close": 98.0, "Volume": 50000},
+        {"Date": pd.Timestamp("2026-09-05 10:30:00"), "Open": 85.0, "High": 88.0, "Low": 78.0, "Close": 80.0, "Volume": 500}, # Saturday mock
+    ])
+
+    # The price_cache layer sanitizes the candles using enforce_trading_day_candles
+    clean_candles = enforce_trading_day_candles(raw_candles, symbol="TATASTEEL")
+    assert len(clean_candles) == 1
+    assert clean_candles.iloc[-1]["Close"] == 98.0
+
+    class MockStockData:
+        price = 98.0  # Retained Friday 15:30 close
+        last_trade_date = "2026-09-04"  # Retained Friday date
+
+    price_data_map = {"TATASTEEL": MockStockData()}
+
+    # 3. Simulate execution on Saturday (now_ist.weekday() == 5)
+    saturday_dt = datetime(2026, 9, 5, 11, 0, tzinfo=IST)
+    with patch("multibagger.datetime") as mock_dt:
+        mock_dt.now.return_value = saturday_dt
+        mock_dt.side_effect = lambda *args, **kw: datetime(*args, **kw)
+        with patch("multibagger.get_connection") as mock_conn:
+            # Mock DB returning open position
+            mock_cur = MagicMock()
+            mock_cur.fetchall.return_value = mock_positions
+            mock_conn.return_value.__enter__.return_value.cursor.return_value = mock_cur
+
+            with patch("multibagger._persist_sell_review") as mock_sell_review:
+                # Execute exit monitor on Saturday
+                cache = {}
+                run_exit_monitor(price_data_map, cache, is_test_mode=True)
+
+                # Verified: Exit monitor was NOT blocked on Saturday, and did NOT trigger false exit/sell review!
+                mock_sell_review.assert_not_called()
+

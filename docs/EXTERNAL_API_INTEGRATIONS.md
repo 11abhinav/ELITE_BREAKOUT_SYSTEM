@@ -127,7 +127,7 @@ Earnings concalls and investor presentations fetched via NSE/BSE corporate annou
 - **Authentication:** Supports both legacy Standard (`AIza...`) API keys and 2025/2026 Authorization Auth (`AQ...`) keys via the mandatory `x-goog-api-key` HTTP request header and URL query param.
 - **Dynamic Model Discovery:** Queries `GET /v1beta/models` to discover active models supporting `generateContent` for the specific key, prioritizing frontier flash models (`gemini-2.0-flash`, `gemini-2.0-flash-lite`, etc.).
 - **Fallback Models:** `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-1.5-flash`, `gemini-1.5-pro`.
-- **Blacklisting & Quota Management:** 7-day persistent blacklist in PostgreSQL (`gemini_key_manager.py`) upon receiving HTTP 429 / `RESOURCE_EXHAUSTED`.
+- **Blacklisting & Quota Management:** 1-day (24h) persistent blacklist in PostgreSQL (`gemini_key_manager.py`) upon receiving HTTP 429 / `RESOURCE_EXHAUSTED` (aligned with Google's daily quota reset cycle).
 
 ### Secondary Fallback: OpenAI (`gpt-4o-mini`)
 - **Endpoint:** `https://api.openai.com/v1/chat/completions`

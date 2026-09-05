@@ -17,7 +17,7 @@ def _get_exhausted_gemini_keys_file():
     return os.path.join(DATA_DIR, "exhausted_gemini_keys.json")
 
 def _init_gemini_key_state():
-    """Initializes and restores Gemini 7-day blacklisted keys and sticky active key from DB & disk."""
+    """Initializes and restores Gemini 1-day blacklisted keys and sticky active key from DB & disk."""
     global _blacklisted_gemini_keys_ram, _active_gemini_key_ram, _gemini_keys_initialized
     with _cache_lock:
         if _gemini_keys_initialized:
@@ -51,39 +51,94 @@ def _init_gemini_key_state():
         except Exception as db_err:
             logger.debug(f"Failed loading Gemini proxy state from PostgreSQL DB: {db_err}")
 
-        # Filter out expired keys (> 7 days old)
+        # [RULE 67 - FIX RATIONALE]: Gemini API quotas reset daily (every 24 hours / midnight UTC).
+        # We enforce a strict 1-day (24h) blacklist instead of the previous 7-day lockout.
+        # Any keys blacklisted >= 24h ago are automatically expired and unblocked immediately.
+        # Any existing keys with a legacy 7-day expiration are capped to 24h from exhausted_at.
         now_dt = datetime.now(ZoneInfo('Asia/Kolkata'))
         now_iso = now_dt.isoformat()
         valid_data = {}
+        cleaned_up = False
         for k, v in restored_data.items():
             if isinstance(v, dict):
+                exhausted_at = v.get("exhausted_at", "")
+                is_expired = False
+                if exhausted_at:
+                    try:
+                        ex_dt = datetime.fromisoformat(exhausted_at)
+                        if (now_dt - ex_dt) >= timedelta(days=1):
+                            is_expired = True
+                    except Exception:
+                        pass
+                
                 exp = v.get("expires_at", "")
+                if is_expired or (exp and exp <= now_iso):
+                    cleaned_up = True
+                    continue
+
+                # Cap legacy 7-day expiration to 24 hours from exhausted_at
+                if exhausted_at:
+                    try:
+                        ex_dt = datetime.fromisoformat(exhausted_at)
+                        capped_exp = (ex_dt + timedelta(days=1)).isoformat()
+                        if capped_exp < exp:
+                            v["expires_at"] = capped_exp
+                            exp = capped_exp
+                            cleaned_up = True
+                    except Exception:
+                        pass
+
                 if exp and exp > now_iso:
                     valid_data[k] = v
+                else:
+                    cleaned_up = True
             elif isinstance(v, str):
-                valid_data[k] = {
-                    "exhausted_at": now_iso,
-                    "expires_at": (now_dt + timedelta(days=7)).isoformat(),
-                    "legacy_date": v
-                }
+                cleaned_up = True
 
         _blacklisted_gemini_keys_ram = valid_data
         _gemini_keys_initialized = True
         if valid_data:
-            logger.info(f"🛡️ [GEMINI STATE RESTORED] Restored {len(valid_data)} 7-day blacklisted Gemini key(s) from PostgreSQL DB system_state!")
+            logger.info(f"🛡️ [GEMINI STATE RESTORED] Restored {len(valid_data)} 1-day blacklisted Gemini key(s) from PostgreSQL DB system_state!")
+
+        # Sync cleaned state back to disk & DB if any expired keys were pruned
+        if cleaned_up or len(valid_data) != len(restored_data):
+            try:
+                fpath = _get_exhausted_gemini_keys_file()
+                with open(fpath, 'w') as f:
+                    json.dump(valid_data, f, indent=2)
+            except Exception:
+                pass
+            try:
+                from database import save_system_state
+                save_system_state("exhausted_gemini_keys_v1", json.dumps(valid_data, indent=2))
+                logger.info("⚡ [GEMINI STATE SYNC] Synced updated 1-day blacklist state to PostgreSQL DB system_state.")
+            except Exception:
+                pass
 
 def _is_gemini_key_exhausted(key: str) -> bool:
-    """Checks if a Gemini API key is currently blacklisted (7-day TTL)."""
+    """Checks if a Gemini API key is currently blacklisted (1-day / 24h TTL)."""
     if not key:
         return True
     try:
         _init_gemini_key_state()
-        now_iso = datetime.now(ZoneInfo('Asia/Kolkata')).isoformat()
+        now_dt = datetime.now(ZoneInfo('Asia/Kolkata'))
+        now_iso = now_dt.isoformat()
         with _cache_lock:
             entry = _blacklisted_gemini_keys_ram.get(key)
             if not entry:
                 return False
             if isinstance(entry, dict):
+                # [RULE 67 - FIX RATIONALE]: Enforce strict 1-day (24h) TTL check from exhausted_at.
+                exhausted_at = entry.get("exhausted_at", "")
+                if exhausted_at:
+                    try:
+                        ex_dt = datetime.fromisoformat(exhausted_at)
+                        if (now_dt - ex_dt) >= timedelta(days=1):
+                            _blacklisted_gemini_keys_ram.pop(key, None)
+                            return False
+                    except Exception:
+                        pass
+
                 expires_at = entry.get("expires_at", "")
                 if expires_at and now_iso < expires_at:
                     return True
@@ -94,15 +149,17 @@ def _is_gemini_key_exhausted(key: str) -> bool:
     except Exception:
         return False
 
-def mark_gemini_key_exhausted(key: str, reason: str = "Exhausted / Quota Limit Exceeded (7-day blacklist)"):
-    """Blacklists a Gemini API key for 7 DAYS persistently in PostgreSQL DB & local disk."""
+def mark_gemini_key_exhausted(key: str, reason: str = "Exhausted / Quota Limit Exceeded (1-day blacklist)"):
+    """Blacklists a Gemini API key for 1 DAY (24h) persistently in PostgreSQL DB & local disk."""
     if not key:
         return
     try:
         global _active_gemini_key_ram
         _init_gemini_key_state()
+        # [RULE 67 - FIX RATIONALE]: Set blacklist duration to 1 day (24 hours) since Google Gemini
+        # free tier and quota pools reset on a daily cycle.
         now_dt = datetime.now(ZoneInfo('Asia/Kolkata'))
-        expires_dt = now_dt + timedelta(days=7)
+        expires_dt = now_dt + timedelta(days=1)
         now_iso = now_dt.isoformat()
         expires_iso = expires_dt.isoformat()
 
@@ -114,7 +171,7 @@ def mark_gemini_key_exhausted(key: str, reason: str = "Exhausted / Quota Limit E
         }
 
         masked_key = f"{key[:4]}...{key[-4:]}" if len(key) > 8 else key
-        logger.warning(f"🚫 [7-DAY GEMINI BLACKLIST] Key [{masked_key}] marked EXHAUSTED & BLACKLISTED for 7 days (until {expires_dt.strftime('%Y-%m-%d %H:%M IST')}) persistently in PostgreSQL DB & disk.")
+        logger.warning(f"🚫 [1-DAY GEMINI BLACKLIST] Key [{masked_key}] marked EXHAUSTED & BLACKLISTED for 1 day (until {expires_dt.strftime('%Y-%m-%d %H:%M IST')}) persistently in PostgreSQL DB & disk.")
 
         with _cache_lock:
             _blacklisted_gemini_keys_ram[key] = entry
@@ -136,9 +193,9 @@ def mark_gemini_key_exhausted(key: str, reason: str = "Exhausted / Quota Limit E
             save_system_state("exhausted_gemini_keys_v1", json.dumps(ram_copy, indent=2))
             if _active_gemini_key_ram is None:
                 save_system_state("active_gemini_key_v1", "")
-            logger.info(f"⚡ [POSTGRES DB BACKUP] 7-Day Gemini blacklist saved to PostgreSQL system_state for key [{masked_key}].")
+            logger.info(f"⚡ [POSTGRES DB BACKUP] 1-Day Gemini blacklist saved to PostgreSQL system_state for key [{masked_key}].")
         except Exception as db_err:
-            logger.warning(f"⚠️ Failed to save 7-day Gemini blacklist to PostgreSQL DB: {db_err}")
+            logger.warning(f"⚠️ Failed to save 1-day Gemini blacklist to PostgreSQL DB: {db_err}")
 
     except Exception as e:
         logger.error(f"Failed to mark Gemini key exhausted for {key}: {e}")

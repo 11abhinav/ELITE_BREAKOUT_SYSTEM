@@ -2568,10 +2568,17 @@ def api_system_logs():
                         log['first_seen'] = log['first_seen'].strftime('%Y-%m-%d %I:%M:%S %p')
                     if log['last_seen']:
                         log['last_seen'] = log['last_seen'].strftime('%Y-%m-%d %I:%M:%S %p')
-        return jsonify(logs)
+        # [RULE 67 - FIX RATIONALE]: Return explicit no-cache HTTP headers so browser never serves stale disk/304 caches on refresh.
+        resp = jsonify(logs)
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
     except Exception as e:
         logger.debug(f"Failed to fetch system logs: {e}")
-        return jsonify([])
+        resp = jsonify([])
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        return resp
 
 @app.route("/api/system_logs/acknowledge", methods=["POST"])
 @login_required
@@ -3075,8 +3082,13 @@ _DATA_FETCH_HEALTH_CACHE = {"ts": 0, "payload": []}
 def api_data_fetch_health():
     """Return the health status of external data providers (5s TTL cache to protect DB connection pool)."""
     now_ts = time.time()
-    if (now_ts - _DATA_FETCH_HEALTH_CACHE["ts"]) < 5.0 and _DATA_FETCH_HEALTH_CACHE["payload"]:
-        return jsonify(_DATA_FETCH_HEALTH_CACHE["payload"])
+    # [RULE 67 - FIX RATIONALE]: If client supplies cache buster _t (e.g. on acknowledge or refresh),
+    # bypass the 5s in-memory cache to guarantee immediate reflection in UI.
+    has_cache_buster = bool(request.args.get("_t"))
+    if not has_cache_buster and (now_ts - _DATA_FETCH_HEALTH_CACHE["ts"]) < 5.0 and _DATA_FETCH_HEALTH_CACHE["payload"]:
+        resp = jsonify(_DATA_FETCH_HEALTH_CACHE["payload"])
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        return resp
     try:
         from database import get_all_data_fetch_health
         rows = get_all_data_fetch_health() or []
@@ -3105,10 +3117,17 @@ def api_data_fetch_health():
         res = serialize_datetimes(rows)
         _DATA_FETCH_HEALTH_CACHE["ts"] = now_ts
         _DATA_FETCH_HEALTH_CACHE["payload"] = res
-        return jsonify(res)
+        # [RULE 67 - FIX RATIONALE]: Return explicit no-cache headers so client never sees stale failure rows.
+        resp = jsonify(res)
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
     except Exception as e:
         logger.warning(f"❌ /api/data_fetch_health warning: {e}")
-        return jsonify(_DATA_FETCH_HEALTH_CACHE.get("payload") or [])
+        resp = jsonify(_DATA_FETCH_HEALTH_CACHE.get("payload") or [])
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        return resp
 
 
 # [RULE 67 CHANGE-RATIONALE]:

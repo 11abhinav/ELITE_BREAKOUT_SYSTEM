@@ -115,12 +115,13 @@ def run_ai_worker_scan_once() -> dict:
         # Check Gemini API Key availability before scanning
         from gemini_key_manager import get_active_gemini_key
         if not get_active_gemini_key():
-            logger.warning("🚨 [AI WORKER] All Gemini API keys are blacklisted/exhausted for the next 7 days. Pausing AI Worker for 1 hour.")
-            upsert_scanner_health("AI Worker", "EXHAUSTED", error_msg="All Gemini API keys exhausted (7-day blacklist) — Paused 1h")
+            # [RULE 67 - FIX RATIONALE]: Updated warning and health message to 1-day blacklist.
+            logger.warning("🚨 [AI WORKER] All Gemini API keys are blacklisted/exhausted for the next 1 day (24h). Pausing AI Worker for 1 hour.")
+            upsert_scanner_health("AI Worker", "EXHAUSTED", error_msg="All Gemini API keys exhausted (1-day blacklist) — Paused 1h")
             try:
                 from database import insert_notification
                 from push_service import send_push_to_all
-                insert_notification("admin", "🚨 AI WORKER PAUSED", "All Gemini API keys are marked exhausted for the next 7 days. AI Worker paused for 1 hour to prevent per-stock errors.")
+                insert_notification("admin", "🚨 AI WORKER PAUSED", "All Gemini API keys are marked exhausted for the next 1 day. AI Worker paused for 1 hour to prevent per-stock errors.")
                 send_push_to_all("🚨 AI WORKER PAUSED", "All Gemini API keys exhausted. AI Worker paused for 1 hour.")
             except Exception as notif_err:
                 logger.warning(f"Failed to send AI key exhaustion notifications: {notif_err}")
@@ -312,12 +313,13 @@ def run_worker_loop():
 
         from gemini_key_manager import get_active_gemini_key
         if not get_active_gemini_key():
-            logger.warning("🚨 [AI WORKER DOWN] All Gemini API keys are blacklisted/exhausted for the next 7 days. Marking AI Worker DOWN and sleeping 1h.")
-            upsert_scanner_health("AI Worker", "DOWN", today_alerts=processed_count, processed_count=processed_count, total_count=total_watch, error_msg="DOWN: All Gemini API keys exhausted (7-day blacklist)")
+            # [RULE 67 - FIX RATIONALE]: Updated warning and health message to 1-day blacklist.
+            logger.warning("🚨 [AI WORKER DOWN] All Gemini API keys are blacklisted/exhausted for the next 1 day (24h). Marking AI Worker DOWN and sleeping 1h.")
+            upsert_scanner_health("AI Worker", "DOWN", today_alerts=processed_count, processed_count=processed_count, total_count=total_watch, error_msg="DOWN: All Gemini API keys exhausted (1-day blacklist)")
             try:
                 from database import insert_notification
                 from push_service import send_push_to_all
-                insert_notification("admin", "❌ AI WORKER DOWN", "All Gemini API keys are marked exhausted for the next 7 days. AI Worker marked DOWN.")
+                insert_notification("admin", "❌ AI WORKER DOWN", "All Gemini API keys are marked exhausted for the next 1 day. AI Worker marked DOWN.")
                 send_push_to_all("❌ AI WORKER DOWN", "All Gemini API keys exhausted. AI Worker marked DOWN.")
             except Exception as notif_err:
                 logger.warning(f"Failed to send AI key exhaustion notifications: {notif_err}")

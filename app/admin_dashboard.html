@@ -2748,7 +2748,7 @@ function changeAdminPage(type, delta) {
           <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
             <span>System Logs (Unhandled Python Errors)</span>
             <div id="systemLogsHeaderBtns">
-              <button class="btn btn-sm" onclick="fetchSystemLogs()" style="font-size:12px;">🔄 Refresh</button>
+              <button class="btn btn-sm" onclick="fetchSystemLogs(this)" style="font-size:12px;">🔄 Refresh</button>
             </div>
           </div>
           <div id="systemLogsContainer" style="margin-bottom:28px;">
@@ -3379,15 +3379,8 @@ function changeAdminPage(type, delta) {
         try { fetchSystemLogs(); } catch (e) { console.error('Failed to load system logs', e); }
       })();
 
-      const p5 = fetch('/api/data_fetch_health')
-        .then(r => r.ok ? r.json() : Promise.reject('Not OK'))
-        .then(apiHealth => renderApiHealth(apiHealth))
-        .catch(e => console.error('Failed to load API health', e));
-
-      const p6 = fetch('/api/validation_health')
-        .then(r => r.ok ? r.json() : Promise.reject('Not OK'))
-        .then(valHealth => renderValidationHealth(valHealth.data))
-        .catch(e => console.error('Failed to load validation health', e));
+      const p5 = loadApiHealth();
+      const p6 = loadValidationHealth();
 
       loadPledgeWorkerMode();
 
@@ -5349,6 +5342,57 @@ function getEarningsBadgeHtml(item) {
       } catch (e) { console.error('Failed to fetch fetch_errors', e); return []; }
     }
 
+    // ── API HEALTH & VALIDATION HEALTH FETCHERS (ADMIN)
+    // [RULE 67 - FIX RATIONALE]: Explicitly define loadApiHealth and loadValidationHealth to prevent
+    // ReferenceError exceptions during doRefresh(), and add single-click optimistic acknowledgment.
+    async function loadApiHealth() {
+      try {
+        const r = await fetch('/api/data_fetch_health?_t=' + Date.now(), { cache: 'no-store' });
+        if (!r.ok) return [];
+        const data = await r.json();
+        renderApiHealth(data);
+        return data;
+      } catch (e) {
+        console.error('Failed to load API health', e);
+        return [];
+      }
+    }
+
+    async function loadValidationHealth() {
+      try {
+        const r = await fetch('/api/validation_health?_t=' + Date.now(), { cache: 'no-store' });
+        if (!r.ok) return null;
+        const res = await r.json();
+        const records = res && res.data ? res.data : [];
+        renderValidationHealth(records);
+        return records;
+      } catch (e) {
+        console.error('Failed to load validation health', e);
+        return null;
+      }
+    }
+
+    function renderValidationHealth(records) {
+      const el = document.getElementById('validationHealthContainer');
+      if (!el) return;
+      if (!records || records.length === 0) {
+        el.innerHTML = `<div class="card"><div class="card-title">🛡️ Data Validation Health</div><div style="padding:12px;color:var(--muted)">All dataset validation checks operational.</div></div>`;
+        return;
+      }
+      const rows = records.map(r => `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 12px; border-bottom:1px solid var(--border);">
+          <div>
+            <span style="font-weight:700; font-family:var(--font-mono);">${escapeHTML(r.dataset_name)}</span>
+            <span class="badge" style="margin-left:8px; font-size:10px; background:${r.status === 'HEALTHY' || r.status === 'OK' ? 'var(--accent)' : 'var(--warn)'};">${escapeHTML(r.status || 'OK')}</span>
+          </div>
+          <div style="font-size:12px; color:var(--muted);">
+            Score: <strong>${r.score != null ? r.score : 100}%</strong> | Processed: ${r.symbols_processed || 0} symbols
+          </div>
+        </div>
+      `).join('');
+      el.innerHTML = `<div class="card"><div class="card-title">🛡️ Data Validation Health</div><div>${rows}</div></div>`;
+    }
+
     // ── API HEALTH (data_fetch_health)
     function renderApiHealth(healthData) {
       const el = document.getElementById('apiHealthContainer');
@@ -5362,15 +5406,15 @@ function getEarningsBadgeHtml(item) {
       }
 
       const rows = active.map(h => `
-    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; border-bottom:1px solid var(--border);">
+    <div class="api-health-row" style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; border-bottom:1px solid var(--border); transition: opacity 0.25s ease;">
       <div style="min-width:160px;">
-        <div style="font-family:var(--font-mono); font-weight:700; font-size:14px;">${h.source_name}</div>
+        <div style="font-family:var(--font-mono); font-weight:700; font-size:14px;">${escapeHTML(h.source_name)}</div>
         <div style="font-size:12px; color:var(--muted); margin-top:2px;">Consecutive Failures: <span style="color:#e74c3c;font-weight:600;">${h.consecutive_failures}</span></div>
       </div>
-      <div style="flex:1; font-size:12px; color:var(--muted); font-family:var(--font-mono);">${h.error_msg || ''}</div>
+      <div style="flex:1; font-size:12px; color:var(--muted); font-family:var(--font-mono);">${escapeHTML(h.error_msg || '')}</div>
       <div style="text-align:right; min-width:100px;">
         <div style="font-size:11px; color:var(--muted);">Last Fail: ${h.last_failure ? new Date(h.last_failure).toLocaleTimeString() : '-'}</div>
-        <button onclick="ackApiHealth('${encodeURIComponent(h.source_name)}')" style="margin-top:6px;background:rgba(0,0,0,0.04);border:1px solid var(--border);padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;">✓ Acknowledge</button>
+        <button onclick="ackApiHealth('${encodeURIComponent(h.source_name)}', this)" style="margin-top:6px;background:rgba(0,0,0,0.04);border:1px solid var(--border);padding:6px 10px;border-radius:6px;cursor:pointer;font-size:12px;">✓ Acknowledge</button>
       </div>
     </div>
   `).join('');
@@ -5378,13 +5422,37 @@ function getEarningsBadgeHtml(item) {
       el.innerHTML = `<div class="card"><div class="card-title" style="color:var(--warn);">⚠️ External API Errors (${active.length})</div><div style="max-height:280px; overflow:auto;">${rows}</div></div>`;
     }
 
-    async function ackApiHealth(sourceName) {
+    async function ackApiHealth(sourceName, btnElement) {
+      const decoded = decodeURIComponent(sourceName);
+      if (btnElement) {
+        btnElement.disabled = true;
+        btnElement.textContent = '⏳ Acknowledging...';
+        const row = btnElement.closest('.api-health-row');
+        if (row) {
+          row.style.opacity = '0.25';
+          row.style.pointerEvents = 'none';
+        }
+      }
       try {
-        const decoded = decodeURIComponent(sourceName);
         if (typeof showCustomToast === 'function') showCustomToast(`Acknowledged ${decoded}`, 'success');
-        await fetch('/api/data_fetch_health/acknowledge/' + sourceName, { method: 'POST' });
-        await doRefresh();
-      } catch (e) { console.error('Failed to ack API health', e); }
+        await fetch('/api/data_fetch_health/acknowledge/' + encodeURIComponent(decoded), { 
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        // Immediately reload API health directly with cache-busting
+        await loadApiHealth();
+      } catch (e) {
+        console.error('Failed to ack API health', e);
+        if (btnElement) {
+          btnElement.disabled = false;
+          btnElement.textContent = '✓ Acknowledge';
+          const row = btnElement.closest('.api-health-row');
+          if (row) {
+            row.style.opacity = '1';
+            row.style.pointerEvents = 'auto';
+          }
+        }
+      }
     }
 
     async function ackFetchErrorGroup(ids) {
@@ -5910,15 +5978,31 @@ function showSehErrorModal(runId) {
 }
 
 // ── NON-CRITICAL ERRORS TRACKING
-async function fetchSystemLogs() {
+// [RULE 67 - FIX RATIONALE]: Pass cache-buster timestamp and no-store cache directive to guarantee
+// instant refresh of unhandled system logs, and give visual spinner/button state feedback.
+async function fetchSystemLogs(btnElement) {
+  let origText = '';
+  if (btnElement) {
+    origText = btnElement.innerHTML;
+    btnElement.innerHTML = '⏳ Refreshing...';
+    btnElement.disabled = true;
+  }
   try {
-    const res = await fetch('/api/system_logs');
+    const res = await fetch('/api/system_logs?_t=' + Date.now(), { cache: 'no-store' });
     if(res.ok) {
       const logs = await res.json();
       renderSystemLogs(logs);
+      if (btnElement && typeof showCustomToast === 'function') {
+        showCustomToast('System logs refreshed', 'info');
+      }
     }
   } catch(e) {
     console.error("Failed to fetch system logs", e);
+  } finally {
+    if (btnElement) {
+      btnElement.innerHTML = origText || '🔄 Refresh';
+      btnElement.disabled = false;
+    }
   }
 }
 
@@ -5940,14 +6024,14 @@ function renderSystemLogs(logs) {
   const headerBtnArea = document.getElementById('systemLogsHeaderBtns');
   if(!logs || logs.length === 0) {
     container.innerHTML = '<div class="card" style="padding:16px; text-align:center; color:var(--muted);">No unhandled system errors recorded.</div>';
-    if(headerBtnArea) headerBtnArea.innerHTML = '<button class="btn btn-sm" onclick="fetchSystemLogs()" style="font-size:12px;">🔄 Refresh</button>';
+    if(headerBtnArea) headerBtnArea.innerHTML = '<button class="btn btn-sm" onclick="fetchSystemLogs(this)" style="font-size:12px;">🔄 Refresh</button>';
     return;
   }
   
   if(headerBtnArea) {
       headerBtnArea.innerHTML = `
         <button class="btn btn-sm" onclick = "clearAllSystemLogs()" style = "font-size:12px; background:var(--warn); color:#000; border:none; margin-right:8px;" >🗑️ Clear All</button >
-          <button class="btn btn-sm" onclick="fetchSystemLogs()" style="font-size:12px;">🔄 Refresh</button>
+          <button class="btn btn-sm" onclick="fetchSystemLogs(this)" style="font-size:12px;">🔄 Refresh</button>
       `;
   }
   
@@ -5972,7 +6056,7 @@ function renderSystemLogs(logs) {
             <div style="background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:4px; font-size:11px; font-weight:700; color:var(--text);">
               ${log.occurrences}x
             </div>
-            <button class="btn btn-sm" style="font-size:11px;" onclick="ackSystemLog(${index})">Acknowledge</button>
+            <button class="btn btn-sm" style="font-size:11px;" onclick="ackSystemLog(${index}, this)">Acknowledge</button>
           </div>
         </div>
         <div style="font-size:13px; color:var(--text); margin-bottom:8px; white-space:pre-wrap;">${safeMessage}</div>
@@ -5984,17 +6068,38 @@ function renderSystemLogs(logs) {
   container.innerHTML = html;
 }
 
-async function ackSystemLog(index) {
+async function ackSystemLog(index, btnElement) {
+  if (btnElement) {
+    btnElement.disabled = true;
+    btnElement.textContent = 'Acknowledging...';
+    const card = btnElement.closest('.card');
+    if (card) {
+      card.style.transition = 'opacity 0.25s ease';
+      card.style.opacity = '0.25';
+      card.style.pointerEvents = 'none';
+    }
+  }
   try {
     const log = SYSTEM_LOGS_CACHE[index];
-    await fetch('/api/system_logs/acknowledge', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({message: log.message, module: log.module})
-    });
-    fetchSystemLogs();
+    if (log) {
+      await fetch('/api/system_logs/acknowledge', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({message: log.message, module: log.module})
+      });
+    }
+    await fetchSystemLogs();
   } catch(e) {
     console.error("Failed to ack system log", e);
+    if (btnElement) {
+      btnElement.disabled = false;
+      btnElement.textContent = 'Acknowledge';
+      const card = btnElement.closest('.card');
+      if (card) {
+        card.style.opacity = '1';
+        card.style.pointerEvents = 'auto';
+      }
+    }
   }
 }
 

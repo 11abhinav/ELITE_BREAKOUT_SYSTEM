@@ -2837,12 +2837,9 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
     Fetches real-time prices for active portfolio holdings, evaluates open position exit rules,
     updates DB position metrics, and refreshes the Wealth Engine dashboard parquet.
     """
-    # [RULE 67 CHANGE-RATIONALE: CRITICAL WEEKEND CANDLE BAN]
-    # Exit updates must NEVER run on weekends.
-    now_ist = datetime.now(IST)
-    if now_ist.weekday() >= 5:
-        logger.info(f"🚫 [WEALTH_EXIT] Today is {now_ist.strftime('%A')} (Weekend). Market-hours exit evaluation is strictly prohibited on weekends.")
-        return None
+    # [RULE 67 CHANGE-RATIONALE: WEEKEND EXECUTION PERMITTED — WEEKEND CANDLES PROHIBITED]
+    # Weekend execution is permitted (e.g. manual/admin trigger, non-market boot).
+    # Position metrics and exits evaluate normally using the latest valid trading-day data (e.g. Friday 15:30).
 
     if not _wealth_exit_lock.acquire(blocking=False):
         logger.info("🛑 [WEALTH_EXIT] In-memory lock held. Another WEALTH_EXIT run is actively executing. Skipping duplicate.")
