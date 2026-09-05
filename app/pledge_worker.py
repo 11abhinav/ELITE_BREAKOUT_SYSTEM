@@ -1,49 +1,71 @@
+"""
+app/pledge_worker.py
+====================
+[RULE 67 CHANGE-RATIONALE: NSE_OFFICIAL_PLEDGE_WORKER_v2.0]
+Official Exchange Ingestion Worker for Promoter Pledge & Encumbrance Data.
+Replaces legacy 750-stock ScraperAPI/Trendlyne scraping with official bulk NSE ingestion.
+
+Execution Schedule:
+  - Day: Saturday Only
+  - Window: 02:00 AM to 10:00 AM IST
+  - Behavior: Downloads official bulk CSV snapshot from NSE via nse_pledge_fetcher,
+    UPSERTs all 1,500+ records into PostgreSQL promoter_pledge_cache in under 5 seconds,
+    records execution in pledge_snapshots, and finishes early.
+  - Failure/Retry: If NSE returns an error (e.g. weekend maintenance), retries every 15 minutes
+    until 10:00 AM IST hard stop.
+"""
+
 import os
 import time
 import logging
-import requests
-import re
-from bs4 import BeautifulSoup
-from functools import lru_cache
-import pandas as pd
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 import json
-from database import get_connection, upsert_scanner_health, init_db
-from data_fetch_status import mark_success, mark_failure
-from config import WATCHLIST_PATH, DATA_DIR
-from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from typing import Optional, Dict, Any
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+from config import DATA_DIR
+from database import (
+    init_db,
+    get_connection,
+    upsert_scanner_health,
+    has_today_pledge_snapshot,
+    upsert_bulk_pledge_records,
+    start_scanner_execution_run,
+    complete_scanner_execution_run,
+    is_scanner_stopped
+)
+from nse_pledge_fetcher import fetch_and_parse_nse_pledged_data
+
 logger = logging.getLogger(__name__)
-
 IST_ZONE = ZoneInfo("Asia/Kolkata")
 
 CONFIG_PATH = os.path.join(DATA_DIR, "pledge_config.json")
+
 
 def get_worker_mode() -> str:
     """Returns 'auto', 'manual_start', or 'manual_stop'."""
     if not os.path.exists(CONFIG_PATH):
         return 'auto'
     try:
-        with open(CONFIG_PATH, "r") as f:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             data = json.load(f)
             return data.get("mode", "auto")
     except Exception:
         return 'auto'
 
+
 def set_worker_mode(mode: str):
     """Sets the worker mode."""
     if mode not in ['auto', 'manual_start', 'manual_stop']:
         return
-    
+
     os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
     try:
-        with open(CONFIG_PATH, "w") as f:
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
             json.dump({"mode": mode}, f)
     except Exception as e:
         logger.error(f"Failed to set worker mode: {e}")
+
 
 def sleep_with_mode_check(seconds: int):
     """Sleep for X seconds, but wake up immediately if mode changes to manual_start."""
@@ -53,489 +75,193 @@ def sleep_with_mode_check(seconds: int):
             return
         time.sleep(5)
 
-def discover_trendlyne_url(symbol: str) -> str:
-    """Try to find the correct Trendlyne URL dynamically."""
-    clean_symbol = symbol.replace('.NS', '')
-    
-    # Hardcoded fallback list
-    fallbacks = {
-        'HINDCOPPER': 'https://trendlyne.com/equity/551/HINDCOPPER/hindustan-copper-ltd/',
-    }
-    if clean_symbol in fallbacks:
-        return fallbacks[clean_symbol]
-        
-    fast_url = f"https://trendlyne.com/stock/{clean_symbol}/"
-    
-    from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
-    scraper_key = get_scraper_api_key()
-    
-    if not scraper_key:
-        return fast_url
 
-    # 1. Attempt fast HEAD/GET request via ScraperAPI
-    res = None
-    if scraper_key:
-        payload = {'api_key': scraper_key, 'url': fast_url, 'render': 'false'}
-        try:
-            res = requests.get('https://api.scraperapi.com/', params=payload, timeout=10)
-            if res is not None and res.status_code == 200:
-                return fast_url
-        except Exception:
-            pass
-
-    # 2. If direct URL 404s/fails, search Google via ScraperAPI
-    logger.info(f"🔍 Direct URL failed for {clean_symbol}. Searching Google...")
-    search_url = f"https://www.google.com/search?q=site:trendlyne.com/equity/+{clean_symbol}"
-    
-    search_res = None
-    if scraper_key:
-        payload = {'api_key': scraper_key, 'url': search_url, 'render': 'false'}
-        try:
-            search_res = requests.get('https://api.scraperapi.com/', params=payload, timeout=30)
-        except Exception as e:
-            logger.warning(f"Google search fallback failed for {clean_symbol}: {e}")
-
-    if search_res is not None and search_res.status_code == 200:
-        soup = BeautifulSoup(search_res.text, 'html.parser')
-        for a in soup.find_all('a', href=True):
-            href = a['href']
-            if "trendlyne.com/equity/" in href and clean_symbol.upper() in href.upper():
-                actual_url = href.split("q=")[-1].split("&")[0] if "/url?q=" in href else href
-                if actual_url.startswith("https://trendlyne.com"):
-                    import re
-                    m = re.search(r'(https://trendlyne\.com/equity/)(?:[a-z\-]+/)?(\d+/[^/]+/[^/]+/?)', actual_url)
-                    if m:
-                        actual_url = m.group(1) + m.group(2)
-                        
-                    logger.info(f"✅ Discovered Google URL for {clean_symbol}: {actual_url}")
-                    return actual_url
-
-    # Ultimate fallback: Return direct stock URL so discover_trendlyne_url NEVER returns None
-    return fast_url
-
-def save_pledge_cache(symbol: str, pledge_val: float, is_not_found: bool = False):
-    """Save or update promoter pledge cache with single connection checkout."""
-    try:
-        updated_expr = "NOW()" if not is_not_found else "NOW() - INTERVAL '21 days'"
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(f"""
-                    INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at, last_attempted_at)
-                    VALUES (%s, %s, {updated_expr}, NOW())
-                    ON CONFLICT (symbol) DO UPDATE 
-                    SET pledge_pct = EXCLUDED.pledge_pct, updated_at = {updated_expr}, last_attempted_at = NOW()
-                """, (symbol, pledge_val))
-                conn.commit()
-    except Exception as e:
-        logger.error(f"Failed to save pledge cache for {symbol}: {e}")
-
-def is_pledge_active_window(now: datetime = None) -> bool:
-    """Check if current time is within active worker window: Whole Saturday & Sunday only."""
+def is_pledge_active_window(now: Optional[datetime] = None) -> bool:
+    """
+    Check if current time is within active worker window:
+    Saturday 02:00 AM to 10:00 AM IST.
+    """
     if now is None:
         now = datetime.now(IST_ZONE)
-    return now.weekday() >= 5  # 5=Saturday, 6=Sunday
+    # weekday() 5 = Saturday; 2 <= hour < 10 covers 02:00 to 10:00 AM IST
+    return now.weekday() == 5 and (2 <= now.hour < 10)
 
-def get_pledge_window_desc(now: datetime = None) -> str:
-    return "00:00 - 23:59 IST (Sat-Sun Only)"
+
+def get_pledge_window_desc(now: Optional[datetime] = None) -> str:
+    return "02:00 - 10:00 IST (Saturday Only)"
+
+
+def run_pledge_worker_sync(force: bool = False) -> Dict[str, Any]:
+    """
+    Executes a single bulk ingestion pass of official NSE promoter pledge data:
+    1. Checks if today's snapshot is already present in DB (unless force=True).
+    2. Downloads and parses the official NSE CSV.
+    3. Bulk UPSERTs all records into PostgreSQL promoter_pledge_cache.
+    4. Records execution status in scanner_health and scanner_execution_history.
+    """
+    init_db()
+    now_ist = datetime.now(IST_ZONE)
+    start_time = time.time()
+
+    # Step 1: Check if already completed today
+    if not force and has_today_pledge_snapshot():
+        logger.info("✅ [PLEDGE WORKER] Official NSE pledge snapshot already completed for today. Skipping duplicate pass.")
+        return {
+            "status": "ALREADY_COMPLETED",
+            "message": "Snapshot already ingested for today",
+            "matched_count": 0
+        }
+
+    # Step 2: Register scanner execution run
+    worker_run_ctx = None
+    try:
+        worker_run_ctx = start_scanner_execution_run(
+            scanner_name="Pledge Worker",
+            trigger_type="MANUAL" if force else "SCHEDULED",
+            scheduler_name="WORKER",
+            total_stocks=0
+        )
+    except Exception as run_err:
+        if "actively running" in str(run_err).lower():
+            logger.info("⏳ Pledge Worker execution run is already actively running.")
+            return {"status": "ALREADY_RUNNING", "message": "Already running"}
+        logger.warning(f"Failed to register execution run: {run_err}")
+
+    upsert_scanner_health("Pledge Worker", "RUNNING", error_msg="Downloading official NSE pledge snapshot...")
+
+    try:
+        # Step 3: Fetch and parse official bulk NSE CSV
+        result, err = fetch_and_parse_nse_pledged_data()
+        if err or not result:
+            err_msg = err or "Empty result from NSE fetcher"
+            logger.error(f"❌ [PLEDGE WORKER] NSE bulk fetch failed: {err_msg}")
+            upsert_scanner_health(
+                "Pledge Worker", "DEGRADED",
+                last_success=now_ist.isoformat(),
+                error_msg=f"NSE_FETCH_FAILED: {err_msg[:100]}"
+            )
+            if worker_run_ctx:
+                complete_scanner_execution_run(worker_run_ctx, status_override="FAILED", stop_reason=err_msg)
+            return {"status": "FAILED", "error": err_msg}
+
+        records = result.get("records", [])
+        total_rows = result.get("total_rows", len(records))
+        matched_count = result.get("matched_count", len(records))
+        snapshot_id = result.get("snapshot_id", "unknown")
+
+        # Step 4: Bulk UPSERT into database
+        upserted_count = upsert_bulk_pledge_records(records, result)
+
+        elapsed = round(time.time() - start_time, 2)
+        logger.info(
+            f"🏆 [PLEDGE WORKER COMPLETE] Ingested {upserted_count} official NSE pledge records into PostgreSQL "
+            f"in {elapsed}s (Snapshot: {snapshot_id})"
+        )
+
+        upsert_scanner_health(
+            "Pledge Worker", "OK",
+            last_success=now_ist.isoformat(),
+            today_alerts=upserted_count,
+            processed_count=upserted_count,
+            total_count=total_rows,
+            error_msg=f"Official NSE Snapshot Complete ({upserted_count} fresh)"
+        )
+
+        if worker_run_ctx:
+            if hasattr(worker_run_ctx, "record_progress"):
+                try:
+                    worker_run_ctx.record_progress(processed=upserted_count, total=total_rows, success=upserted_count)
+                except Exception:
+                    pass
+            complete_scanner_execution_run(
+                worker_run_ctx,
+                status_override="COMPLETED"
+            )
+
+        return {
+            "status": "SUCCESS",
+            "snapshot_id": snapshot_id,
+            "total_rows": total_rows,
+            "matched_count": matched_count,
+            "elapsed_seconds": elapsed
+        }
+
+    except Exception as exc:
+        logger.exception(f"❌ [PLEDGE WORKER ERROR] Unexpected failure during ingestion: {exc}")
+        upsert_scanner_health("Pledge Worker", "DEGRADED", error_msg=f"Exception: {str(exc)[:100]}")
+        if worker_run_ctx:
+            complete_scanner_execution_run(worker_run_ctx, exception=exc)
+        return {"status": "ERROR", "error": str(exc)}
+
 
 def worker_loop():
-    import time
-    logger.info("🚀 Starting Pledge Worker Daemon")
+    """
+    Main daemon loop running continuously in background:
+    Executes on Saturdays between 02:00 AM and 10:00 AM IST.
+    """
+    logger.info("🚀 Starting Official NSE Bulk Pledge Worker Daemon")
     init_db()
     iteration = 0
-    
-
 
     while True:
         iteration += 1
-        loop_start = time.time()
         mode = get_worker_mode()
         now = datetime.now(IST_ZONE)
-        logger.debug(f"\n{'='*70}")
-        logger.debug(f"🔄 [PLEDGE WORKER] Iteration #{iteration} | Mode={mode} | Time={now.strftime('%H:%M:%S IST')}")
-        logger.debug(f"{'='*70}")
-        
-        # [VERSION: PLEDGE_WORKER_PROGRESS_v1.6] Load universe and check DB on every loop iteration
-        # to ensure dashboard stats show correct cumulative counts (old + todays) instantly on boot.
-        symbols_set = set()
-        watchlist_count = 0
-        if os.path.exists(WATCHLIST_PATH):
-            try:
-                df = pd.read_parquet(WATCHLIST_PATH)
-                if "Stock" in df.columns:
-                    watch_symbols = df["Stock"].unique().tolist()
-                    symbols_set.update(watch_symbols)
-                    watchlist_count = len(watch_symbols)
-            except Exception as e:
-                logger.warning(f"Could not read watchlist parquet: {e}")
-                
-        excluded_count = 0
-        excluded_paths = [
-            os.path.join(os.path.dirname(WATCHLIST_PATH), 'elite_fundamental_watchlist_excluded.csv'),
-            os.path.join(os.path.dirname(WATCHLIST_PATH), 'elite_fundamental_watchlist-excluded.csv'),
-            WATCHLIST_PATH.replace(".parquet", "_excluded.csv"),
-        ]
-        for excluded_path in excluded_paths:
-            if os.path.exists(excluded_path):
-                try:
-                    ex_df = pd.read_csv(excluded_path)
-                    if "Stock" in ex_df.columns:
-                        ex_symbols = ex_df["Stock"].dropna().unique().tolist()
-                        symbols_set.update(ex_symbols)
-                        excluded_count = len(ex_symbols)
-                        break
-                except Exception as e:
-                    logger.warning(f"Could not read excluded csv {excluded_path}: {e}")
-                    
-        from constituent_service import fetch_constituents
-        idx_symbols = fetch_constituents()
-        constituents_count = len(idx_symbols) if idx_symbols else 0
-        if idx_symbols:
-            symbols_set.update(idx_symbols)
-            
-        if not symbols_set:
-            logger.warning("No symbols found in watchlist, excluded list, or constituents. Sleeping 60s...")
-            time.sleep(60)
-            continue
-            
-        symbols = sorted(list(symbols_set))
-        total_watch = len(symbols)
-        
-        # Check DB for stale pledges and calculate processed_base
-        processed_base = 0
-        stale_symbols = []
-        try:
-            with get_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        SELECT symbol 
-                        FROM promoter_pledge_cache 
-                        WHERE symbol = ANY(%s)
-                          AND (updated_at >= NOW() - INTERVAL '28 days' OR COALESCE(last_attempted_at, updated_at) >= CURRENT_DATE)
-                    """, (symbols,))
-                    rows = cur.fetchall()
-                    fresh_symbols = {row[0] for row in rows}
-            
-            for sym in symbols:
-                if sym in fresh_symbols:
-                    processed_base += 1
-                else:
-                    stale_symbols.append(sym)
-        except Exception as e:
-            logger.exception("Failed to check database for stale symbols")
-            
-        from database import is_scanner_stopped
+
+        # 1. Admin manual stop check
         if mode == 'manual_stop' or is_scanner_stopped("Pledge Worker"):
-            upsert_scanner_health("Pledge Worker", "STOPPED", last_success=now.isoformat(), today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg="Stopped by Admin")
+            upsert_scanner_health(
+                "Pledge Worker", "STOPPED",
+                last_success=now.isoformat(),
+                today_alerts=0,
+                error_msg="Stopped by Admin"
+            )
             sleep_with_mode_check(60)
             continue
-            
+
+        # 2. Check if outside window (when in auto mode)
         if mode == 'auto':
             if not is_pledge_active_window(now):
                 win_desc = get_pledge_window_desc(now)
-                upsert_scanner_health("Pledge Worker", "IDLE", last_success=now.isoformat(), today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg=f"Outside active window ({win_desc})")
-                sleep_with_mode_check(300)
+                upsert_scanner_health(
+                    "Pledge Worker", "IDLE",
+                    last_success=now.isoformat(),
+                    error_msg=f"Outside active window ({win_desc})"
+                )
+                sleep_with_mode_check(300)  # Check every 5 minutes
                 continue
 
-        try:
-            if not get_scraper_api_key():
-                logger.warning("🚨 [PLEDGE WORKER DOWN] All ScraperAPI keys are exhausted/missing for the next 7 days. Marking Pledge Worker DOWN and sleeping 1h.")
-                upsert_scanner_health("Pledge Worker", "DOWN", today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg="DOWN: All ScraperAPI keys exhausted (7-day blacklist)")
-                try:
-                    from database import insert_notification
-                    from push_service import send_push_to_all
-                    insert_notification("admin", "❌ PLEDGE WORKER DOWN", "All ScraperAPI keys are marked exhausted for the next 7 days. Pledge Worker marked DOWN and paused for 1 hour to prevent per-stock errors.")
-                    send_push_to_all("❌ PLEDGE WORKER DOWN", "All ScraperAPI keys exhausted. Pledge Worker marked DOWN.")
-                except Exception as notif_err:
-                    logger.warning(f"Failed to send pledge key exhaustion notifications: {notif_err}")
-                sleep_with_mode_check(3600)
+            # Within window: check if already completed today
+            if has_today_pledge_snapshot():
+                logger.debug("✅ [PLEDGE WORKER] Today's snapshot already completed. Sleeping until next check...")
+                upsert_scanner_health(
+                    "Pledge Worker", "IDLE",
+                    last_success=now.isoformat(),
+                    error_msg="Saturday snapshot completed"
+                )
+                sleep_with_mode_check(3600)  # Check hourly
                 continue
-                
-            logger.debug(f"📋 [PLEDGE WORKER] Universe loaded in {time.time()-loop_start:.1f}s | Watchlist={watchlist_count} | Excluded={excluded_count} | Constituents={constituents_count} | Total={len(symbols_set)} unique symbols")
-            logger.debug(f"💾 [PLEDGE WORKER] Checking DB for stale pledge data (threshold: 28 days)...")
-            logger.debug(f"🔍 [PLEDGE WORKER] DB Check complete: {len(stale_symbols)} stale symbols need refresh, {total_watch - len(stale_symbols)} already fresh in DB")
-            upsert_scanner_health("Pledge Worker", "OK", today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg=f"Last: Starting... | Total stale: {len(stale_symbols)}")
 
-            if not stale_symbols:
-                if get_worker_mode() == 'manual_start':
-                    logger.info("Manual start completed. Reverting to auto mode.")
-                    set_worker_mode('auto')
-                    
-                sleep_secs = 3600 # Check every hour
-                # [VERSION: PLEDGE_WORKER_PROGRESS_v1.4] Update start loops to show processed_base / total_watch
-                logger.debug(f"✅ [PLEDGE WORKER] All promoter pledges are processed for today. Sleeping {sleep_secs}s...")
-                upsert_scanner_health("Pledge Worker", "IDLE", last_success=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(), today_alerts=total_watch, processed_count=total_watch, total_count=total_watch, error_msg=f"All processed | Total: {total_watch}")
-                sleep_with_mode_check(sleep_secs)
-                logger.debug("⏰ Woke up from daily sleep! Starting fresh scan...")
-                continue
-                
-            logger.info(f"📊 [PLEDGE WORKER] Pending symbols to fetch today: {len(stale_symbols)} (out of {total_watch} total universe)")
-            from database import start_scanner_execution_run, complete_scanner_execution_run
-            try:
-                worker_run_ctx = start_scanner_execution_run(scanner_name="Pledge Worker", trigger_type="SCHEDULED", scheduler_name="WORKER", total_stocks=len(stale_symbols))
-            except Exception as _p_err:
-                if "actively running" in str(_p_err).lower():
-                    logger.info("⏳ Pledge Worker is already actively running. Sleeping 60s...")
-                    sleep_with_mode_check(60)
-                    continue
-                raise
-            upsert_scanner_health("Pledge Worker", "OK", today_alerts=processed_base, processed_count=processed_base, total_count=total_watch, error_msg=f"Last: Starting... | Total stale: {len(stale_symbols)}")
-            
-            def process_symbol(sym, i_total, is_retry=False):
-                """Returns 'FOUND', 'MISSING', '404', or 'ERROR'."""
-                from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
-                scraper_key = get_scraper_api_key()
-                
-                if not scraper_key:
-                    return "QUOTA_EXHAUSTED"
-                    
-                target_url = discover_trendlyne_url(sym) or f"https://trendlyne.com/stock/{sym.replace('.NS', '')}/"
-                prefix = "[RETRY]" if is_retry else f"[{i_total}/{len(stale_symbols)}]"
-                logger.info(f"{prefix} Scraping pledge for {sym} at {target_url}")
-                
-                res = None
-                
-                # Try ScraperAPI
-                if scraper_key:
-                    payload = {'api_key': scraper_key, 'url': target_url, 'render': 'false'}
-                    masked_skey = f"{scraper_key[:4]}...{scraper_key[-4:]}" if len(scraper_key) > 8 else "SCRAPERAPI"
-                    try:
-                        logger.info(f"🌐 [SCRAPERAPI] Scraping pledge for {sym} (Key: [{masked_skey}]): {target_url}")
-                        res = requests.get('https://api.scraperapi.com/', params=payload, timeout=45)
-                        if res is not None and res.status_code in (401, 403, 429):
-                            reason = res.text.strip()[:200]
-                            try:
-                                err_dict = res.json()
-                                if isinstance(err_dict, dict) and "error" in err_dict:
-                                    reason = err_dict["error"]
-                            except Exception:
-                                pass
-                            logger.warning(f"❌ [SCRAPERAPI EXHAUSTED] HTTP {res.status_code} for key [{masked_skey}] URL={target_url}. Reason: {reason}")
-                            mark_failure('scraperapi', f"HTTP {res.status_code} ({reason}): URL={target_url}")
-                            mark_key_exhausted_today(scraper_key)
-                            return "ERROR"
-                        elif res is not None and res.status_code == 200:
-                            logger.info(f"✅ [SCRAPERAPI SUCCESS] HTTP 200 for {sym} ({len(res.content)} bytes)")
-                        else:
-                            status_str = res.status_code if res else "No Response"
-                            logger.warning(f"⚠️ [SCRAPERAPI FAIL] HTTP {status_str} for {sym}: {res.text[:150] if res else ''}")
-                    except Exception as e:
-                        logger.warning(f"❌ [SCRAPERAPI ERROR] Exception for {sym}: {e}")
-                            
-                if res is None:
-                    logger.error(f"❌ No valid response received for {sym} from ScraperAPI")
-                    return "ERROR"
-                
-                try:
-                    if res.status_code == 200:
-                        pledge_val = None
-                        import html
-                        decoded_html = html.unescape(res.text)
-                        
-                        # Strategy 1: Extract from structured JSON blob `data-companyinsights`
-                        json_match = re.search(r"\'parameter\'\:\s*\'Promoter Pledges?\'[^\}]+?\'value\'\:\s*Decimal\(\'(\d+\.?\d*)\'\)", decoded_html)
-                        if json_match:
-                            pledge_val = float(json_match.group(1))
-                        
-                        # Strategy 2: Fallback to loose regex on raw HTML
-                        if pledge_val is None:
-                            match = re.search(r'pledge[^\d]{1,30}?(\d+\.?\d*)\s*%', res.text, re.IGNORECASE)
-                            if match:
-                                pledge_val = float(match.group(1))
-                            else:
-                                soup = BeautifulSoup(res.text, 'html.parser')
-                                for div in soup.find_all(['div', 'span', 'td', 'p']):
-                                    if 'pledge' in div.text.lower() and '%' in div.text:
-                                        m = re.search(r'(\d+\.?\d*)\s*%', div.text)
-                                        if m:
-                                            pledge_val = float(m.group(1))
-                                            break
-                        # [VERSION: PLEDGE_WORKER_STAT_v1.0] Update cache inserts to populate last_attempted_at column
-                        # Streamlined single connection checkout per symbol save
-                        save_pledge_cache(sym, pledge_val if pledge_val is not None else -1.0, is_not_found=(pledge_val is None))
-                        if pledge_val is not None:
-                            logger.info(f"✅ Saved pledge for {sym}: {pledge_val}%")
-                        else:
-                            logger.warning(f"⚠️ Could not find pledge text on page for {sym}. Saving -1.0 (Not Found) - retrying in 7 days")
-                        mark_success('scraperapi')
-                        return "FOUND" if pledge_val is not None else "MISSING"
-                    elif res.status_code == 404:
-                        logger.warning(f"❌ 404 Not Found for {sym} at {target_url}")
-                        mark_failure('scraperapi', f"404 Not Found: {target_url}")
-                        save_pledge_cache(sym, -1.0, is_not_found=True)
-                        return "404"
-                    else:
-                        logger.warning(f"❌ HTTP {res.status_code} for {sym}")
-                        mark_failure('scraperapi', f"HTTP {res.status_code} URL={target_url}")
-                        return "ERROR"
-                except Exception as e:
-                    logger.exception(f"Exception scraping {sym}: {e}")
-                    mark_failure('scraperapi', str(e))
-                    return "ERROR"
+        # 3. Trigger bulk ingestion
+        is_manual = (mode == 'manual_start')
+        logger.info(f"🔄 [PLEDGE WORKER] Starting NSE ingestion pass (Mode: {mode}, Time: {now.strftime('%H:%M:%S IST')})")
 
-            failed_queue = []
-            successful_in_first_pass = 0
-            
-            found_count = 0
-            missing_count = 0
-            fail_404_count = 0
-            error_count = 0
-            total_stale = len(stale_symbols)
-            quota_exhausted = False
-            
-            try:
-                public_ip = requests.get("https://api.ipify.org", timeout=10).text
-                logger.info(f"🌐 Railway Server Public IP Address: {public_ip} (Whitelist this in Bright Data!)")
-            except Exception as e:
-                pass
-            
-            scrape_start = time.time()
-            import concurrent.futures
-            
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                futures = {executor.submit(process_symbol, sym, i+1): sym for i, sym in enumerate(stale_symbols)}
-                for future in concurrent.futures.as_completed(futures):
-                    sym = futures[future]
-                    sym_start = time.time()
-                    try:
-                        status_res = future.result()
-                    except Exception as e:
-                        logger.error(f"Error processing {sym}: {e}")
-                        status_res = "ERROR"
-                        
-                    if status_res == "QUOTA_EXHAUSTED":
-                        if not quota_exhausted:
-                            logger.warning("🚨 All API keys are exhausted. Stopping scrape loop for now.")
-                            quota_exhausted = True
-                        continue
-                        
-                    if status_res == "FOUND": found_count += 1
-                    elif status_res == "MISSING": missing_count += 1
-                    elif status_res == "404": fail_404_count += 1
-                    else: error_count += 1
-                    
-                    if status_res != "ERROR":
-                        successful_in_first_pass += 1
-                    else:
-                        failed_queue.append(sym)
-                        
-                    sym_elapsed = round(time.time() - sym_start, 2)
-                    processed = found_count + missing_count + fail_404_count + error_count
-                    pending = total_stale - processed
-                    logger.info(f"🛡️ [PLEDGE WORKER] [{processed}/{total_stale}] Scraping pledge for {sym} [{status_res}] | Elapsed={sym_elapsed}s | Pending={pending} | Found={found_count} | Errors={error_count}")
-                        
-                    # [VERSION: PLEDGE_WORKER_PROGRESS_v1.5] Update upserts to write processed_base + successful_in_first_pass
-                    now_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
-                    upsert_scanner_health("Pledge Worker", "OK", last_success=now_str, today_alerts=processed_base + successful_in_first_pass, processed_count=processed_base + successful_in_first_pass, total_count=total_watch, error_msg=f"Last: {sym} | Total stale: {total_stale}")
+        res = run_pledge_worker_sync(force=is_manual)
 
-            final_error_count = 0
-            
-            if failed_queue:
-                logger.info(f"Retrying {len(failed_queue)} failed symbols...")
-                time.sleep(10) # Brief pause before retries
-                
-                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                    retry_futures = {executor.submit(process_symbol, sym, 0, is_retry=True): sym for sym in failed_queue}
-                    for future in concurrent.futures.as_completed(retry_futures):
-                        sym = retry_futures[future]
-                        try:
-                            status_res = future.result()
-                        except Exception as e:
-                            logger.error(f"Error processing {sym} on retry: {e}")
-                            status_res = "ERROR"
-                            
-                        if status_res == "QUOTA_EXHAUSTED":
-                            if not quota_exhausted:
-                                logger.warning("🚨 All API keys are exhausted during retry. Stopping scrape loop for now.")
-                                quota_exhausted = True
-                            continue
-                        
-                        if status_res != "ERROR":
-                            successful_in_first_pass += 1
-                        else:
-                            final_error_count += 1
-                            # Save negative cache so it's not retried again today, but tomorrow
-                            try:
-                                with get_connection() as conn:
-                                    with conn.cursor() as cur:
-                                        # [VERSION: PLEDGE_WORKER_STAT_v1.1] Update retry failure cache insert to populate last_attempted_at
-                                        cur.execute("""
-                                            INSERT INTO promoter_pledge_cache (symbol, pledge_pct, updated_at, last_attempted_at)
-                                            VALUES (%s, 0.0, NOW() - INTERVAL '27 days', NOW())
-                                            ON CONFLICT (symbol) DO UPDATE 
-                                            SET updated_at = NOW() - INTERVAL '27 days', last_attempted_at = NOW()
-                                        """, (sym,))
-                                        conn.commit()
-                                logger.info(f"⚠️ Saved temporary failure negative cache for {sym}")
-                            except Exception as cache_err:
-                                logger.error(f"Failed to save failure cache for {sym}: {cache_err}")
-                        time.sleep(1) # Reduced to 1s since threads spread out load
-                        
-                        now_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
-                        upsert_scanner_health("Pledge Worker", "OK", last_success=now_str, today_alerts=processed_base + successful_in_first_pass, processed_count=processed_base + successful_in_first_pass, total_count=total_watch, error_msg=f"Last: {sym} (Retry) | Total stale: {total_stale}")
+        if is_manual:
+            logger.info("Manual start completed. Reverting to auto mode.")
+            set_worker_mode('auto')
+            sleep_with_mode_check(60)
+            continue
 
-            # Loop done
-            status = "IDLE" if final_error_count == 0 else "DOWN"
-            last_sym = stale_symbols[-1] if stale_symbols else "None"
-            
-            now_str = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
-            
-            if final_error_count > 0:
-                err_msg = f"Last: {last_sym} | Total stale: {total_stale} | Failed: {final_error_count}"
-                logger.warning(f"⚠️ Pledge Worker completed with {final_error_count} failures")
+        if res.get("status") == "SUCCESS":
+            logger.info("✅ Finished Saturday NSE pledge snapshot successfully. Entering weekly standby...")
+            sleep_with_mode_check(3600)
+        else:
+            # If failed within window, retry after 15 minutes if still before 10:00 AM
+            if now.hour < 10:
+                logger.warning("⚠️ NSE ingestion failed. Retrying in 15 minutes (within 02:00-10:00 AM window)...")
+                sleep_with_mode_check(900)
             else:
-                err_msg = f"Last: {last_sym} | Total stale: {total_stale}"
-                logger.info(f"✅ Pledge Worker completed successfully for all {total_stale} stale symbols")
-            
-            upsert_scanner_health("Pledge Worker", status, last_success=now_str, today_alerts=processed_base + successful_in_first_pass, processed_count=processed_base + successful_in_first_pass, total_count=total_watch, error_msg=err_msg)
-            
-            loop_elapsed = round(time.time() - loop_start, 1)
-            logger.info(f"✅ [PLEDGE WORKER] Iteration #{iteration} complete in {loop_elapsed}s | Found={found_count} | Missing={missing_count} | 404={fail_404_count} | Errors={final_error_count} | Total Processed={processed_base + successful_in_first_pass}/{total_watch}")
-            
-            if 'worker_run_ctx' in locals() and worker_run_ctx:
-                worker_run_ctx.set_total_stocks(total_stale)
-                worker_run_ctx.fresh_count = found_count
-                worker_run_ctx.stale_count = missing_count + fail_404_count
-                worker_run_ctx.incomplete_count = final_error_count
-                complete_scanner_execution_run(worker_run_ctx)
-            
-            if quota_exhausted:
-                logger.info("⏳ Quota exhausted or proxy blocked. Marking Pledge Worker DOWN and sleeping 1 hour...")
-                upsert_scanner_health("Pledge Worker", "DOWN", last_success=datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(), today_alerts=processed_base + successful_in_first_pass, processed_count=processed_base + successful_in_first_pass, total_count=total_watch, error_msg="DOWN: All ScraperAPI keys exhausted (7-day blacklist)")
-                try:
-                    from database import insert_notification
-                    from push_service import send_push_to_all
-                    insert_notification("admin", "❌ PLEDGE WORKER DOWN", "All ScraperAPI keys are marked exhausted for the next 7 days. Pledge Worker marked DOWN.")
-                    send_push_to_all("❌ PLEDGE WORKER DOWN", "All ScraperAPI keys exhausted. Worker marked DOWN.")
-                except Exception as notif_err:
-                    logger.warning(f"Failed to send quota exhaustion notifications: {notif_err}")
+                logger.error("🛑 10:00 AM window elapsed. Halting retries until next Saturday.")
                 sleep_with_mode_check(3600)
-                logger.info("⏰ Woke up from 1-hour sleep! Retrying scraper loop now...")
-                continue
-                
-            # Sleep for 5 minutes before rechecking (allows watchlist updates)
-            sleep_with_mode_check(300)
-            
-        except Exception as e:
-            if "actively running" in str(e).lower():
-                logger.info("⏳ Pledge Worker is already actively running. Sleeping 60s...")
-                sleep_with_mode_check(60)
-                continue
-            logger.exception("Pledge worker loop crashed")
-            upsert_scanner_health("Pledge Worker", "DOWN", error_msg=str(e), today_alerts=processed_base, processed_count=processed_base, total_count=total_watch)
-            try:
-                from database import insert_notification
-                from push_service import send_push_to_all
-                insert_notification("admin", f"❌ PLEDGE WORKER CRASHED (DOWN)", f"Error: {str(e)[:200]}")
-                send_push_to_all("❌ PLEDGE WORKER DOWN", f"Crash: {str(e)[:100]}")
-            except Exception:
-                pass
-            sleep_with_mode_check(300)
-
-if __name__ == "__main__":
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except ImportError:
-        pass
-    worker_loop()

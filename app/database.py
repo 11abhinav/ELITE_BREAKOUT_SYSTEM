@@ -1172,6 +1172,32 @@ def init_db():
                         last_attempted_at TIMESTAMPTZ
                     )
                 """)
+                # [RULE 67 CHANGE-RATIONALE: NSE_OFFICIAL_PLEDGE_SCHEMA_v1.0]
+                # Schema extensions for official NSE depository pledge & provenance tracking
+                cur.execute("""
+                    ALTER TABLE promoter_pledge_cache
+                        ADD COLUMN IF NOT EXISTS pledged_shares BIGINT,
+                        ADD COLUMN IF NOT EXISTS promoter_shares BIGINT,
+                        ADD COLUMN IF NOT EXISTS total_shares BIGINT,
+                        ADD COLUMN IF NOT EXISTS depository_pledged_shares BIGINT,
+                        ADD COLUMN IF NOT EXISTS promoter_holding_pct REAL,
+                        ADD COLUMN IF NOT EXISTS depository_pledge_demat_pct REAL,
+                        ADD COLUMN IF NOT EXISTS source VARCHAR(32) DEFAULT 'NSE',
+                        ADD COLUMN IF NOT EXISTS as_of_date DATE,
+                        ADD COLUMN IF NOT EXISTS snapshot_id VARCHAR(64);
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS pledge_snapshots (
+                        snapshot_id VARCHAR(64) PRIMARY KEY,
+                        snapshot_date DATE NOT NULL,
+                        source VARCHAR(32) NOT NULL DEFAULT 'NSE',
+                        total_rows_downloaded INT NOT NULL,
+                        matched_symbols_count INT NOT NULL,
+                        status VARCHAR(32) NOT NULL,
+                        fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    );
+                """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_pledge_snapshots_date ON pledge_snapshots(snapshot_date);")
 
                 # 17. bhavcopy_cache
                 cur.execute("""
@@ -4394,6 +4420,111 @@ def get_pledge_map(symbols: list[str] = None) -> dict[str, float]:
     if symbols:
         return {k: v for k, v in pledge_map.items() if k in symbols}
     return pledge_map
+
+
+# [RULE 67 CHANGE-RATIONALE: NSE_OFFICIAL_PLEDGE_BULK_UPSERT_v1.0]
+# Ingest official NSE bulk pledge snapshot into promoter_pledge_cache and track snapshot metadata.
+def has_today_pledge_snapshot() -> bool:
+    """Returns True if a successful NSE pledge snapshot has already been ingested today."""
+    init_db()
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT 1 FROM pledge_snapshots 
+                    WHERE snapshot_date = CURRENT_DATE AND status = 'COMPLETED' 
+                    LIMIT 1
+                """)
+                return cur.fetchone() is not None
+    except Exception as e:
+        logger.warning(f"Failed to check today pledge snapshot: {e}")
+        return False
+
+
+def upsert_bulk_pledge_records(records: list, snapshot_meta: dict) -> int:
+    """
+    Bulk UPSERTs parsed NSE pledged records into promoter_pledge_cache and records the snapshot in pledge_snapshots.
+    Atomic transaction guarantees consistency.
+    """
+    if not records:
+        return 0
+    init_db()
+    inserted_count = 0
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            try:
+                insert_sql = """
+                    INSERT INTO promoter_pledge_cache (
+                        symbol, pledge_pct, updated_at, last_attempted_at,
+                        pledged_shares, promoter_shares, total_shares,
+                        depository_pledged_shares, promoter_holding_pct,
+                        depository_pledge_demat_pct, source, as_of_date, snapshot_id
+                    ) VALUES (
+                        %s, %s, NOW(), NOW(),
+                        %s, %s, %s,
+                        %s, %s,
+                        %s, %s, %s, %s
+                    )
+                    ON CONFLICT (symbol) DO UPDATE SET
+                        pledge_pct = EXCLUDED.pledge_pct,
+                        updated_at = NOW(),
+                        last_attempted_at = NOW(),
+                        pledged_shares = EXCLUDED.pledged_shares,
+                        promoter_shares = EXCLUDED.promoter_shares,
+                        total_shares = EXCLUDED.total_shares,
+                        depository_pledged_shares = EXCLUDED.depository_pledged_shares,
+                        promoter_holding_pct = EXCLUDED.promoter_holding_pct,
+                        depository_pledge_demat_pct = EXCLUDED.depository_pledge_demat_pct,
+                        source = EXCLUDED.source,
+                        as_of_date = EXCLUDED.as_of_date,
+                        snapshot_id = EXCLUDED.snapshot_id;
+                """
+                payload = [
+                    (
+                        r["symbol"], r["pledge_pct"],
+                        r.get("pledged_shares"), r.get("promoter_shares"), r.get("total_shares"),
+                        r.get("depository_pledged_shares"), r.get("promoter_holding_pct"),
+                        r.get("depository_pledge_demat_pct"), r.get("source", "NSE"),
+                        r.get("as_of_date"), r.get("snapshot_id")
+                    )
+                    for r in records
+                ]
+                cur.executemany(insert_sql, payload)
+                inserted_count = len(payload)
+
+                # Record snapshot
+                snap_id = snapshot_meta.get("snapshot_id")
+                snap_date = snapshot_meta.get("snapshot_date")
+                total_rows = snapshot_meta.get("total_rows", inserted_count)
+                matched_cnt = snapshot_meta.get("matched_count", inserted_count)
+
+                cur.execute("""
+                    INSERT INTO pledge_snapshots (
+                        snapshot_id, snapshot_date, source, total_rows_downloaded,
+                        matched_symbols_count, status, fetched_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (snapshot_id) DO UPDATE SET
+                        status = EXCLUDED.status,
+                        matched_symbols_count = EXCLUDED.matched_symbols_count;
+                """, (snap_id, snap_date, "NSE", total_rows, matched_cnt, "COMPLETED"))
+
+                conn.commit()
+
+                # Invalidate dataset registry cache if available
+                try:
+                    from data_registry import registry
+                    registry.evict("promoter_pledge")
+                except Exception:
+                    pass
+                logger.info(f"✅ [PLEDGE_BULK_UPSERT] Successfully upserted {inserted_count} official NSE pledge records (Snapshot: {snap_id})")
+
+            except Exception as e:
+                conn.rollback()
+                logger.exception(f"❌ Failed to bulk upsert pledge records: {e}")
+                raise
+
+    return inserted_count
+
 
 def has_valid_concall_cache(symbol: str) -> bool:
     """
