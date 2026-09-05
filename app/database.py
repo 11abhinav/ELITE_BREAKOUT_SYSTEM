@@ -217,13 +217,24 @@ def get_connection(timeout: int = 20):
         for attempt in range(5):
             try:
                 conn = p.getconn()
-                if conn is not None and getattr(conn, 'closed', 0) != 0:
+                if conn is not None:
+                    if getattr(conn, 'closed', 0) != 0:
+                        try:
+                            p.putconn(conn, close=True)
+                        except Exception:
+                            pass
+                        conn = None
+                        continue
+                    # Ensure checked out connection is clean and not in an aborted transaction state
                     try:
-                        p.putconn(conn, close=True)
+                        conn.rollback()
                     except Exception:
-                        pass
-                    conn = None
-                    continue
+                        try:
+                            p.putconn(conn, close=True)
+                        except Exception:
+                            pass
+                        conn = None
+                        continue
                 break
             except (OperationalError, ps_pool.PoolError) as oe:
                 if conn:
@@ -267,7 +278,10 @@ def get_connection(timeout: int = 20):
                     conn.rollback()
                 p.putconn(conn)
             except Exception:
-                pass
+                try:
+                    p.putconn(conn, close=True)
+                except Exception:
+                    pass
         # Release semaphore if we acquired it
         if _conn_semaphore is not None and acquired:
             try:
@@ -2820,6 +2834,7 @@ def save_alert_if_new(
             # Record initial NEW_ENTRY event into alert_events
             try:
                 cand_ctx = context or {}
+                cur.execute("SAVEPOINT sp_alert_events")
                 cur.execute("""
                     INSERT INTO alert_events
                         (alert_id, symbol, scanner, pattern, event_type, event_date, event_time,
@@ -2839,24 +2854,30 @@ def save_alert_if_new(
                       target_1 or (entry_price * 1.08 if entry_price else 0.0), 8.0,
                       2.0, stop_loss or (entry_price * 0.95 if entry_price else 0.0),
                       f"Initial {scanner or 'TECHNICAL'} entry on {today_date}."))
+                cur.execute("RELEASE SAVEPOINT sp_alert_events")
                 commit_cb()
             except Exception as _init_ev_err:
+                try:
+                    cur.execute("ROLLBACK TO SAVEPOINT sp_alert_events")
+                except Exception:
+                    pass
                 logger.debug(f"Initial alert_events record error: {_init_ev_err}")
 
             rs_bonus_val = kwargs.get('rs_bonus', 0)
             sector_bonus_val = kwargs.get('sector_bonus', 0)
-            rs_pct_val = kwargs.get('rs_percentile', 0.0)
+            rs_pct_val = min(999.0, max(0.0, float(kwargs.get('rs_percentile', 0.0) or 0.0)))
             sector_name_val = kwargs.get('sector_name', '')
-            regime_score_val = kwargs.get('regime_score', 80.0)
+            regime_score_val = min(999.0, max(0.0, float(kwargs.get('regime_score', 80.0) or 0.0)))
 
             risk_dist = max(0.01, float(entry_price or 0.0) - float(stop_loss or 0.0))
-            rr_val = round((float(target_1 or 0.0) - float(entry_price or 0.0)) / risk_dist, 2) if entry_price and target_1 else 1.5
-            atr_pct_val = round((risk_dist / float(entry_price or 1.0)) * 100.0, 2) if entry_price else 2.0
+            rr_val = round(min(999.0, max(-999.0, (float(target_1 or 0.0) - float(entry_price or 0.0)) / risk_dist)), 2) if entry_price and target_1 else 1.5
+            atr_pct_val = round(min(999.0, max(0.0, (risk_dist / float(entry_price or 1.0)) * 100.0)), 2) if entry_price else 2.0
 
             # Earnings Calendar removed — earnings fields set to defaults
             ed_info = {"earnings_flag": False, "days_to_earnings": 999, "earnings_date": None, "earnings_severity": "NONE", "date_status": "UNKNOWN", "warning_msg": ""}
 
             try:
+                cur.execute("SAVEPOINT sp_alert_outcomes")
                 cur.execute("""
                     INSERT INTO alert_outcomes
                         (alert_id, leg, symbol, scanner, regime, regime_score, base_score, rs_bonus, sector_bonus,
@@ -2870,8 +2891,13 @@ def save_alert_if_new(
                       rr_val, atr_pct_val, entry_price or 0.0, stop_loss or 0.0, target_1 or 0.0, target_2, target_3, target_4,
                       ed_info["earnings_flag"], ed_info["days_to_earnings"], ed_info["earnings_date"],
                       ed_info["earnings_severity"], ed_info["date_status"]))
+                cur.execute("RELEASE SAVEPOINT sp_alert_outcomes")
                 commit_cb()
             except Exception as oe:
+                try:
+                    cur.execute("ROLLBACK TO SAVEPOINT sp_alert_outcomes")
+                except Exception:
+                    pass
                 logger.error(f"Failed to snapshot alert_outcome for alert {alert_id}: {oe}")
 
             msg = f'{symbol} | {category} | Buy: ₹{entry_price} | SL: ₹{stop_loss} | T1: ₹{target_1}'
@@ -6563,7 +6589,7 @@ def save_wealth_buy_alert(symbol: str, alert_price: float, breakout_type: str = 
                             logger.info(f"⏭️  BUY alert already saved today: {symbol} {breakout_type}")
                             return False  # Duplicate, skip
 
-                        elif cur.rowcount == 1 and cur.statusmessage == 'INSERT 0 1':
+                        elif cur.rowcount == 1 and getattr(cur, 'statusmessage', 'INSERT 0 1') == 'INSERT 0 1':
                             pass # Normal insert
                         else:
                             pass # Was an update
