@@ -4648,6 +4648,25 @@ def get_multibagger_watchlist():
             rows = decorate_events(rows)
         except Exception as _ce_err:
             pass
+
+        # [RULE 67 CHANGE-RATIONALE]: Ensure latest_price is populated for every multibagger watchlist stock
+        missing_mb_syms = [
+            r.get("symbol") for r in rows
+            if r.get("symbol") and (r.get("latest_price") is None or float(r.get("latest_price") or 0) <= 0)
+        ]
+        if missing_mb_syms:
+            try:
+                from master_orchestrator import orchestrator_v2
+                mb_cmps = orchestrator_v2._batch_resolve_cmps(missing_mb_syms)
+                for r in rows:
+                    sym = r.get("symbol")
+                    clean_s = sym.split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "") if sym else ""
+                    if r.get("latest_price") is None or float(r.get("latest_price") or 0) <= 0:
+                        p = mb_cmps.get(sym) or mb_cmps.get(clean_s)
+                        if p:
+                            r["latest_price"] = p
+            except Exception as _mb_cmp_err:
+                logger.debug(f"Failed to batch resolve latest_price in multibagger watchlist: {_mb_cmp_err}")
     except Exception as e:
         msg = str(e).lower()
         if "watchlist" in msg or "undefinedtable" in msg or "does not exist" in msg:

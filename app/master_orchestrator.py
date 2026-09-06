@@ -197,16 +197,16 @@ class MasterOrchestratorV2:
         Uses RAM-only live quote check and DB-recorded fallback prices. Eliminates synchronous
         Parquet file disk reads which caused 37+ second stalls when evaluating 150 alerts.
         """
-        # 1. Non-blocking RAM live prices cache check (< 1µs)
+        # 1. Non-blocking price_cache details check (checks RAM live ticks & memoized daily close)
         try:
-            from live_prices import get_cached_live_price
-            price = get_cached_live_price(symbol)
+            from price_cache import get_cached_price_details
+            price, source, is_live, timestamp = get_cached_price_details(symbol)
             if price is not None and float(price) > 0:
                 return {
                     "cmp": round(float(price), 2),
-                    "cmp_source": "LIVE_RAM_TICK",
-                    "cmp_is_live": True,
-                    "cmp_timestamp": datetime.now().isoformat()
+                    "cmp_source": source,
+                    "cmp_is_live": is_live,
+                    "cmp_timestamp": timestamp
                 }
         except Exception:
             pass
@@ -241,12 +241,201 @@ class MasterOrchestratorV2:
         except Exception:
             pass
 
+        # 4. Fast DB lookup in stock_analysis_master (single symbol fallback)
+        try:
+            clean_s = str(symbol).split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "")
+            rows = self._run_query(
+                "SELECT cmp FROM stock_analysis_master WHERE (symbol = %s OR symbol = %s) AND cmp IS NOT NULL AND cmp > 0 LIMIT 1",
+                (symbol, clean_s)
+            )
+            if rows and rows[0].get("cmp") and float(rows[0]["cmp"]) > 0:
+                p = round(float(rows[0]["cmp"]), 2)
+                from price_cache import _FAST_CMP_MEMO
+                _FAST_CMP_MEMO[clean_s] = (p, "STOCK_ANALYSIS_MASTER", False, datetime.now().isoformat(), time.monotonic())
+                return {
+                    "cmp": p,
+                    "cmp_source": "STOCK_ANALYSIS_MASTER",
+                    "cmp_is_live": False,
+                    "cmp_timestamp": datetime.now().isoformat()
+                }
+        except Exception:
+            pass
+
         return {
             "cmp": None,
             "cmp_source": "UNAVAILABLE",
             "cmp_is_live": False,
             "cmp_timestamp": None
         }
+
+    def _batch_resolve_cmps(self, symbols: List[str]) -> Dict[str, float]:
+        """
+        [RULE 67 CHANGE-RATIONALE]: Multi-tier batch CMP resolver.
+        Guarantees that every stock shown on any dashboard screen gets a valid numeric CMP.
+        Tier 1: Real-time RAM cache (live_prices.get_cached_live_price & price_cache._FAST_CMP_MEMO).
+        Tier 2: PostgreSQL stock_analysis_master table (primary central store for active CMPs).
+        Tier 3: PostgreSQL daily_watchlist_v2 & daily_excluded_watchlist_v2 (fallback EOD prices).
+        Tier 4: Parquet/disk price cache (price_cache.get_cached_price).
+        Tier 5: Bulk live price fetcher (live_prices.get_live_prices) for any remaining unresolved symbols.
+        """
+        if not symbols:
+            return {}
+
+        results: Dict[str, float] = {}
+        unresolved: List[str] = []
+
+        # Clean symbol map: original -> clean_upper
+        sym_map = {}
+        for s in symbols:
+            if not s:
+                continue
+            clean = str(s).split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "")
+            sym_map[s] = clean
+
+        # Tier 1: Fast RAM cache
+        try:
+            from live_prices import get_cached_live_price
+            from price_cache import _FAST_CMP_MEMO
+        except Exception:
+            get_cached_live_price = None
+            _FAST_CMP_MEMO = {}
+
+        for orig_sym, clean_sym in sym_map.items():
+            price = None
+            if get_cached_live_price:
+                try:
+                    price = get_cached_live_price(orig_sym) or get_cached_live_price(clean_sym)
+                except Exception:
+                    price = None
+            if (price is None or float(price) <= 0) and clean_sym in _FAST_CMP_MEMO:
+                memo = _FAST_CMP_MEMO[clean_sym]
+                if memo and memo[0] is not None and float(memo[0]) > 0:
+                    price = float(memo[0])
+
+            if price is not None and float(price) > 0:
+                val = round(float(price), 2)
+                results[orig_sym] = val
+                results[clean_sym] = val
+            else:
+                unresolved.append(orig_sym)
+
+        if not unresolved:
+            return results
+
+        # Tier 2: PostgreSQL stock_analysis_master batch lookup
+        try:
+            clean_unresolved = list({sym_map[s] for s in unresolved if s in sym_map})
+            all_lookup_syms = list(set(unresolved + clean_unresolved))
+            if all_lookup_syms:
+                placeholders = ", ".join(["%s"] * len(all_lookup_syms))
+                rows = self._run_query(
+                    f"SELECT symbol, cmp FROM stock_analysis_master WHERE symbol IN ({placeholders}) AND cmp IS NOT NULL AND cmp > 0",
+                    params=tuple(all_lookup_syms)
+                )
+                for r in rows:
+                    sym_db = r.get("symbol")
+                    cmp_db = r.get("cmp")
+                    if sym_db and cmp_db and float(cmp_db) > 0:
+                        val = round(float(cmp_db), 2)
+                        clean_k = sym_db.split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "")
+                        results[sym_db] = val
+                        results[clean_k] = val
+                        try:
+                            from price_cache import _FAST_CMP_MEMO
+                            _FAST_CMP_MEMO[clean_k] = (val, "STOCK_ANALYSIS_MASTER", False, datetime.now().isoformat(), time.monotonic())
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.debug(f"Tier 2 stock_analysis_master batch lookup error: {e}")
+
+        unresolved = [s for s in unresolved if s not in results and sym_map.get(s) not in results]
+        if not unresolved:
+            return results
+
+        # Tier 3: PostgreSQL daily_watchlist_v2 & daily_excluded_watchlist_v2
+        try:
+            clean_unresolved = list({sym_map[s] for s in unresolved if s in sym_map})
+            all_lookup_syms = list(set(unresolved + clean_unresolved))
+            if all_lookup_syms:
+                placeholders = ", ".join(["%s"] * len(all_lookup_syms))
+                query_tier3 = f"""
+                    SELECT symbol, price as cmp FROM daily_watchlist_v2 
+                    WHERE symbol IN ({placeholders}) AND price IS NOT NULL AND price > 0
+                    UNION ALL
+                    SELECT symbol, price as cmp FROM daily_excluded_watchlist_v2 
+                    WHERE symbol IN ({placeholders}) AND price IS NOT NULL AND price > 0
+                """
+                rows = self._run_query(query_tier3, params=tuple(all_lookup_syms + all_lookup_syms))
+                for r in rows:
+                    sym_db = r.get("symbol")
+                    cmp_db = r.get("cmp")
+                    if sym_db and cmp_db and float(cmp_db) > 0:
+                        val = round(float(cmp_db), 2)
+                        clean_k = sym_db.split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "")
+                        results[sym_db] = val
+                        results[clean_k] = val
+                        try:
+                            from price_cache import _FAST_CMP_MEMO
+                            _FAST_CMP_MEMO[clean_k] = (val, "DAILY_WATCHLIST_FALLBACK", False, datetime.now().isoformat(), time.monotonic())
+                        except Exception:
+                            pass
+        except Exception as e:
+            logger.debug(f"Tier 3 daily_watchlist batch lookup error: {e}")
+
+        unresolved = [s for s in unresolved if s not in results and sym_map.get(s) not in results]
+        if not unresolved:
+            return results
+
+        # Tier 4: Parquet / disk price cache
+        try:
+            from price_cache import get_cached_price
+            for s in list(unresolved):
+                clean_k = sym_map.get(s, s)
+                p = get_cached_price(s) or get_cached_price(clean_k)
+                if p and float(p) > 0:
+                    val = round(float(p), 2)
+                    results[s] = val
+                    results[clean_k] = val
+                    try:
+                        from price_cache import _FAST_CMP_MEMO
+                        _FAST_CMP_MEMO[clean_k] = (val, "PARQUET_DISK_CACHE", False, datetime.now().isoformat(), time.monotonic())
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.debug(f"Tier 4 price_cache lookup error: {e}")
+
+        unresolved = [s for s in unresolved if s not in results and sym_map.get(s) not in results]
+        if not unresolved:
+            return results
+
+        # Tier 5: Bulk live price fetcher for remaining symbols
+        try:
+            from live_prices import get_live_prices
+            still_missing = list({sym_map.get(s, s) for s in unresolved})
+            if still_missing:
+                live_fetched = get_live_prices(still_missing, purpose="BULK_DASHBOARD_RESOLVE")
+                if live_fetched and isinstance(live_fetched, dict):
+                    for k, v in live_fetched.items():
+                        if v and float(v) > 0:
+                            val = round(float(v), 2)
+                            clean_k = k.split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "")
+                            results[k] = val
+                            results[clean_k] = val
+                            try:
+                                from price_cache import _FAST_CMP_MEMO
+                                _FAST_CMP_MEMO[clean_k] = (val, "LIVE_FETCH_RESOLVER", True, datetime.now().isoformat(), time.monotonic())
+                            except Exception:
+                                pass
+                    # Persist newly fetched live prices to stock_analysis_master in background
+                    try:
+                        from database import bulk_update_cmp
+                        bulk_update_cmp(live_fetched)
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.debug(f"Tier 5 get_live_prices lookup error: {e}")
+
+        return results
 
     def get_trusted_cmp(self, symbol: str, fallback_price: Optional[float] = None) -> Optional[float]:
         details = self.get_trusted_cmp_details(symbol, fallback_price)
@@ -314,6 +503,21 @@ class MasterOrchestratorV2:
             ORDER BY alert_time DESC LIMIT 150
         """
         raw_signals = self._run_query(query)
+
+        # [RULE 67 CHANGE-RATIONALE]: Batch resolve CMPs for any signals missing CMP
+        missing_sig_syms = [
+            sig.get("symbol") for sig in raw_signals 
+            if sig.get("symbol") and (sig.get("cmp") is None or float(sig.get("cmp") or 0) <= 0)
+        ]
+        if missing_sig_syms:
+            sig_cmps = self._batch_resolve_cmps(missing_sig_syms)
+            for sig in raw_signals:
+                sym = sig.get("symbol")
+                clean_s = sym.split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "") if sym else ""
+                if sig.get("cmp") is None or float(sig.get("cmp") or 0) <= 0:
+                    resolved = sig_cmps.get(sym) or sig_cmps.get(clean_s)
+                    if resolved:
+                        sig["cmp"] = round(float(resolved), 2)
 
         seen_symbols = set()
         signals = []
@@ -431,26 +635,33 @@ class MasterOrchestratorV2:
             watchlist = self._run_query("SELECT symbol, category as stage, current_state as status FROM breakout_watchlist LIMIT 100")
             source = "legacy_fallback"
 
+        # [RULE 67 CHANGE-RATIONALE]: Batch resolve CMPs across all tiers for any missing symbols
+        missing_cmp_syms = [
+            item.get("symbol") for item in watchlist 
+            if item.get("symbol") and (item.get("cmp") is None or float(item.get("cmp") or 0) <= 0)
+        ]
+        batch_cmps = self._batch_resolve_cmps(missing_cmp_syms) if missing_cmp_syms else {}
+
         for item in watchlist:
             sym = item.get("symbol")
             sc_name = str(item.get("scanner") or "ACCUMULATION").upper()
             stage_raw = str(item.get("stage") or "WATCH").upper()
 
-            # Dynamic CMP resolution via non-blocking RAM live prices cache
+            # Dynamic CMP resolution via multi-tier batch resolver & RAM cache
+            clean_s = sym.split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "") if sym else ""
             cmp_val = item.get("cmp")
-            try:
-                from live_prices import get_cached_live_price
-                cp = get_cached_live_price(sym)
-                if cp and float(cp) > 0:
-                    cmp_val = float(cp)
-                    item["cmp"] = round(cmp_val, 2)
-            except Exception:
-                pass
+            if cmp_val is None or float(cmp_val or 0) <= 0:
+                cmp_val = batch_cmps.get(sym) or batch_cmps.get(clean_s)
+
+            if cmp_val and float(cmp_val) > 0:
+                item["cmp"] = round(float(cmp_val), 2)
+            else:
+                item["cmp"] = None
 
             trig = item.get("trigger_level")
             dist = item.get("distance_pct")
-            if trig and cmp_val and float(cmp_val) > 0:
-                dist = round(((float(trig) - float(cmp_val)) / float(cmp_val)) * 100.0, 2)
+            if trig and item.get("cmp") and float(item["cmp"]) > 0:
+                dist = round(((float(trig) - float(item["cmp"])) / float(item["cmp"])) * 100.0, 2)
                 item["distance_pct"] = dist
 
             # Human-readable Stage Progress
@@ -589,6 +800,10 @@ class MasterOrchestratorV2:
         except Exception:
             all_funds = {}
 
+        # [RULE 67 CHANGE-RATIONALE]: Batch resolve CMPs across all tiers for all investment watch symbols
+        all_inv_symbols = [item.get("symbol") for item in inv_list if item.get("symbol")]
+        resolved_cmp_map = self._batch_resolve_cmps(all_inv_symbols) if all_inv_symbols else {}
+
         for item in inv_list:
             metadata_dict = {}
             raw_meta = item.get("metadata")
@@ -623,16 +838,17 @@ class MasterOrchestratorV2:
             raw_mc = fund_data.get("moat_cash_quality") if fund_data else metadata_dict.get("moat_cash_quality")
             raw_vg = fund_data.get("valuation_grade") if fund_data else metadata_dict.get("valuation_grade")
 
-            cmp_val = fund_data.get("cmp") if fund_data else (item.get("cmp") or f.get("price") or f.get("cmp"))
-            if not cmp_val or float(cmp_val) <= 0:
-                try:
-                    from live_prices import get_cached_live_price
-                    cp = get_cached_live_price(sym) or get_cached_live_price(canon)
-                    if cp and float(cp) > 0:
-                        cmp_val = float(cp)
-                except Exception:
-                    pass
-            item["cmp"] = round(float(cmp_val), 2) if cmp_val else None
+            clean_sym = sym.split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "") if sym else ""
+            cmp_val = (
+                (fund_data.get("cmp") if fund_data and fund_data.get("cmp") and float(fund_data.get("cmp") or 0) > 0 else None)
+                or resolved_cmp_map.get(sym)
+                or resolved_cmp_map.get(canon)
+                or resolved_cmp_map.get(clean_sym)
+                or item.get("cmp")
+                or f.get("price")
+                or f.get("cmp")
+            )
+            item["cmp"] = round(float(cmp_val), 2) if cmp_val and float(cmp_val) > 0 else None
 
             # 1. BUSINESS QUALITY (User-friendly labels instead of raw score numbers)
             if roce > 0 or roe > 0:
@@ -766,6 +982,21 @@ class MasterOrchestratorV2:
             """
             actions = self._run_query(query_fb)
 
+        # [RULE 67 CHANGE-RATIONALE]: Batch resolve CMPs for any actions missing CMP
+        missing_act_syms = [
+            act.get("symbol") for act in actions 
+            if act.get("symbol") and (act.get("cmp") is None or float(act.get("cmp") or 0) <= 0)
+        ]
+        if missing_act_syms:
+            act_cmps = self._batch_resolve_cmps(missing_act_syms)
+            for act in actions:
+                sym = act.get("symbol")
+                clean_s = sym.split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "") if sym else ""
+                if act.get("cmp") is None or float(act.get("cmp") or 0) <= 0:
+                    resolved = act_cmps.get(sym) or act_cmps.get(clean_s)
+                    if resolved:
+                        act["cmp"] = round(float(resolved), 2)
+
         for act in actions:
             act["is_fallback"] = is_fallback
             if is_fallback:
@@ -862,6 +1093,20 @@ class MasterOrchestratorV2:
             symbol_map[sym]["participating_scanners"].add(sc)
             if r.get("state") == "CONFIRMED":
                 symbol_map[sym]["highest_state"] = "CONFIRMED"
+
+        # [RULE 67 CHANGE-RATIONALE]: Batch resolve CMPs for any confluence symbols missing CMP
+        missing_conf_syms = [
+            sym for sym, data in symbol_map.items()
+            if data.get("cmp") is None or float(data.get("cmp") or 0) <= 0
+        ]
+        if missing_conf_syms:
+            conf_cmps = self._batch_resolve_cmps(missing_conf_syms)
+            for sym, data in symbol_map.items():
+                clean_s = sym.split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "") if sym else ""
+                if data.get("cmp") is None or float(data.get("cmp") or 0) <= 0:
+                    resolved = conf_cmps.get(sym) or conf_cmps.get(clean_s)
+                    if resolved:
+                        data["cmp"] = round(float(resolved), 2)
 
         results = []
         for sym, data in symbol_map.items():
