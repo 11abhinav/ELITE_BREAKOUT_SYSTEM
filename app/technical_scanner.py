@@ -112,6 +112,53 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
         return default
 
 
+def _coalesce_indicator_with_source(
+    df: pd.DataFrame,
+    aliases: List[str],
+    validator: Optional[Any] = None,
+    default: float = 0.0,
+    default_source: str = "DEFAULT_2PCT"
+) -> Tuple[float, str]:
+    """
+    Extracts latest non-NaN, finite value matching validator from the first valid alias.
+    Returns (value, source_name).
+    """
+    if df is not None and not df.empty:
+        for alias in aliases:
+            if alias in df.columns:
+                s = df[alias]
+                if hasattr(s, "iloc") and len(s) > 0:
+                    val = s.iloc[-1]
+                    val_f = _safe_float(val, float("nan"))
+                    if not math.isnan(val_f) and not math.isinf(val_f):
+                        if validator is None or validator(val_f):
+                            return val_f, alias
+    return default, default_source
+
+
+def _coalesce_indicator_val(
+    df: pd.DataFrame,
+    aliases: List[str],
+    default: float = 0.0,
+    validator: Optional[Any] = None,
+) -> float:
+    """Extracts latest non-NaN, finite value from the first matching valid column alias."""
+    val, _ = _coalesce_indicator_with_source(df, aliases, validator=validator, default=default)
+    return val
+
+
+def _coalesce_indicator_series(df: pd.DataFrame, aliases: List[str]) -> Optional[pd.Series]:
+    """Returns the first non-empty Series from the alias list that contains valid non-NaN values."""
+    if df is None or df.empty:
+        return None
+    for alias in aliases:
+        if alias in df.columns:
+            s = df[alias]
+            if hasattr(s, "dropna") and not s.dropna().empty:
+                return s
+    return None
+
+
 def _extract_ohlcv(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Case-insensitive OHLCV array extractor supporting both lowercase and titlecase column schemas.
@@ -184,12 +231,13 @@ def _detect_bull_flag(df: pd.DataFrame, atr14: Optional[float] = None) -> Option
     today_idx = n - 1
     c_today = _safe_float(closes[today_idx])
     o_today = _safe_float(opens[today_idx])
+    c_yesterday = _safe_float(closes[today_idx - 1])
 
     if c_today <= o_today:
         return None
 
     if atr14 is None or atr14 <= 0:
-        atr14 = _safe_float(df.get("ATR_14", pd.Series([c_today * 0.02])).iloc[-1], c_today * 0.02)
+        atr14 = _coalesce_indicator_val(df, ["ATR", "ATR_14", "ATR20", "atr", "atr_14", "atr20"], default=c_today * 0.02)
 
     best_setup = None
 
@@ -205,7 +253,10 @@ def _detect_bull_flag(df: pd.DataFrame, atr14: Optional[float] = None) -> Option
         flag_resistance = float(np.max(flag_highs))
         flag_support = float(np.min(flag_lows))
 
+        # Fresh Breakout Timing: Must break above flag resistance today without having closed far above it yesterday
         if c_today < flag_resistance * 1.001:
+            continue
+        if c_yesterday > flag_resistance * 1.005:
             continue
 
         for pole_len in range(3, 11):
@@ -287,7 +338,7 @@ def _detect_shakeout_reclaim(df: pd.DataFrame, atr14: Optional[float] = None) ->
     reclaim candle already recovers 50-70% of the drop, room_to_resistance was capped at 0.5-0.9R,
     making valid shakeouts mathematically impossible.
     Fix: Uses pre-selloff structural resistance or measured expansion continuation target
-    (drop_high + 0.618 * drop_points) guaranteeing natural 1.5R - 3.0R headroom.
+    (drop_high + 0.618 * drop_points) providing clean 1.5R - 3.0R headroom calculation.
     """
     n = len(df)
     if n < 20:
@@ -309,7 +360,7 @@ def _detect_shakeout_reclaim(df: pd.DataFrame, atr14: Optional[float] = None) ->
         return None
 
     if atr14 is None or atr14 <= 0:
-        atr14 = _safe_float(df.get("ATR_14", pd.Series([c_today * 0.02])).iloc[-1], c_today * 0.02)
+        atr14 = _coalesce_indicator_val(df, ["ATR", "ATR_14", "ATR20", "atr", "atr_14", "atr20"], default=c_today * 0.02)
 
     prev_body = abs(o_prev - c_prev)
     today_body = c_today - o_today
@@ -384,7 +435,7 @@ def _detect_double_bottom(df: pd.DataFrame, atr14: Optional[float] = None) -> Op
     c_yesterday = _safe_float(closes[today_idx - 1])
 
     if atr14 is None or atr14 <= 0:
-        atr14 = _safe_float(df.get("ATR_14", pd.Series([c_today * 0.02])).iloc[-1], c_today * 0.02)
+        atr14 = _coalesce_indicator_val(df, ["ATR", "ATR_14", "ATR20", "atr", "atr_14", "atr20"], default=c_today * 0.02)
 
     # Search window up to 70 bars back
     window_start = max(0, today_idx - 70)
@@ -448,10 +499,10 @@ def _detect_double_bottom(df: pd.DataFrame, atr14: Optional[float] = None) -> Op
             if np.min(mid_lows) < (trough_base * 0.975):
                 continue
 
-            # Invariant 5: Fresh Breakout Timing Gate
+            # Invariant 5: Fresh Breakout Timing Gate (Today is first breakout day)
             if c_today < neckline_val * 1.002:
                 continue
-            if c_yesterday > neckline_val * 1.025:
+            if c_yesterday > neckline_val * 1.005:
                 continue
 
             sl_level = round(max(l2_val * 0.995, neckline_val * 0.96), 2)
@@ -499,7 +550,7 @@ def _detect_v_reversal(df: pd.DataFrame, atr14: Optional[float] = None) -> Optio
         return None
 
     if atr14 is None or atr14 <= 0:
-        atr14 = _safe_float(df.get("ATR_14", pd.Series([c_today * 0.02])).iloc[-1], c_today * 0.02)
+        atr14 = _coalesce_indicator_val(df, ["ATR", "ATR_14", "ATR20", "atr", "atr_14", "atr20"], default=c_today * 0.02)
 
     lookback = min(15, n - 2)
     recent_highs = highs[today_idx - lookback: today_idx - 2]
@@ -581,8 +632,8 @@ def _detect_cup_and_handle(df: pd.DataFrame, atr14: Optional[float] = None) -> O
             if handle_depth > (cup_depth * CUP_HANDLE_MAX_HANDLE_RETRACE):
                 continue
 
-            # Fresh Breakout timing
-            if c_today >= rim_high * 1.002 and c_yesterday <= rim_high * 1.02:
+            # Fresh Breakout timing (first breakout day above rim)
+            if c_today >= rim_high * 1.002 and c_yesterday <= rim_high * 1.005:
                 sl_level = round(handle_low * 0.995, 2)
                 measured_target = rim_high + cup_depth
                 return {
@@ -643,7 +694,7 @@ def _detect_ascending_triangle(df: pd.DataFrame, atr14: Optional[float] = None) 
     if not is_ascending:
         return None
 
-    if c_today >= res_level * 1.002 and c_yesterday <= res_level * 1.02:
+    if c_today >= res_level * 1.002 and c_yesterday <= res_level * 1.005:
         last_low = trough_vals[-1]
         sl_level = round(last_low * 0.995, 2)
         measured_target = res_level + (res_level - trough_vals[0])
@@ -676,7 +727,7 @@ def _detect_bull_pennant(df: pd.DataFrame, atr14: Optional[float] = None) -> Opt
     c_yesterday = _safe_float(closes[today_idx - 1])
 
     if atr14 is None or atr14 <= 0:
-        atr14 = _safe_float(df.get("ATR_14", pd.Series([c_today * 0.02])).iloc[-1], c_today * 0.02)
+        atr14 = _coalesce_indicator_val(df, ["ATR", "ATR_14", "ATR20", "atr", "atr_14", "atr20"], default=c_today * 0.02)
 
     for pennant_len in range(3, 10):
         pole_end = today_idx - pennant_len
@@ -696,7 +747,7 @@ def _detect_bull_pennant(df: pd.DataFrame, atr14: Optional[float] = None) -> Opt
 
         if len(p_highs) >= 3 and p_highs[-1] <= p_highs[0] and p_lows[-1] >= p_lows[0]:
             pennant_top = float(np.max(p_highs))
-            if c_today >= pennant_top * 1.002 and c_yesterday <= pennant_top * 1.02:
+            if c_today >= pennant_top * 1.002 and c_yesterday <= pennant_top * 1.005:
                 sl_level = round(float(np.min(p_lows)) * 0.995, 2)
                 pole_move = pole_high - pole_low
                 pre_highs = highs[max(0, pole_start - 30): pole_start]
@@ -754,7 +805,7 @@ def _detect_higher_low_reversal(df: pd.DataFrame, atr14: Optional[float] = None)
     else:
         h1_val = float(sub_highs[valid_peaks[-1]])
 
-    if c_today >= h1_val * 1.002 and c_yesterday <= h1_val * 1.02:
+    if c_today >= h1_val * 1.002 and c_yesterday <= h1_val * 1.005:
         sl_level = round(float(sub_lows[l2_idx]) * 0.995, 2)
         overhead_high = float(np.max(sub_highs))
         target_res = overhead_high if overhead_high > c_today * 1.02 else (c_today * 1.15)
@@ -802,36 +853,40 @@ def _detect_confluence_factors(df: pd.DataFrame) -> Tuple[List[str], int]:
             confluences.append("HAMMER_AT_SUPPORT")
             bonus_pts += 2
 
-    if "EMA20" in df.columns:
-        ema20 = float(df["EMA20"].iloc[-1])
-        ema20_prev = float(df["EMA20"].iloc[-2])
+    ema20_series = _coalesce_indicator_series(df, ["EMA20", "EMA_20", "ema20", "ema_20"])
+    if ema20_series is not None and len(ema20_series) >= 2:
+        ema20 = float(ema20_series.iloc[-1])
+        ema20_prev = float(ema20_series.iloc[-2])
         if c_prev <= ema20_prev and c_today > ema20:
             confluences.append("EMA20_RECLAIM")
             bonus_pts += 1
         elif c_today > ema20:
             confluences.append("ABOVE_EMA20")
 
-    if "SMA50" in df.columns:
-        sma50 = float(df["SMA50"].iloc[-1])
-        if c_today > sma50:
+    sma50_series = _coalesce_indicator_series(df, ["SMA50", "SMA_50", "sma50", "sma_50"])
+    if sma50_series is not None and len(sma50_series) >= 1:
+        sma50 = float(sma50_series.iloc[-1])
+        if not math.isnan(sma50) and c_today > sma50:
             confluences.append("ABOVE_SMA50")
             bonus_pts += 1
 
-    if "SMA200" in df.columns:
-        sma200 = float(df["SMA200"].iloc[-1])
-        if c_today > sma200:
+    sma200_series = _coalesce_indicator_series(df, ["SMA200", "SMA_200", "sma200", "sma_200"])
+    if sma200_series is not None and len(sma200_series) >= 1:
+        sma200 = float(sma200_series.iloc[-1])
+        if not math.isnan(sma200) and c_today > sma200:
             confluences.append("ABOVE_SMA200_UPTREND")
             bonus_pts += 1
 
-    if "RSI_14" in df.columns and n >= 25:
-        rsi_today = float(df["RSI_14"].iloc[-1])
-        rsi_min_past = float(df["RSI_14"].iloc[-15:-1].min())
+    rsi_series = _coalesce_indicator_series(df, ["RSI", "RSI_14", "rsi", "rsi_14"])
+    if rsi_series is not None and len(rsi_series) >= 25:
+        rsi_today = float(rsi_series.iloc[-1])
+        rsi_min_past = float(rsi_series.iloc[-15:-1].min())
         price_min_past = float(lows[-15:-1].min())
         if l_today <= price_min_past * 1.01 and rsi_today > rsi_min_past + 3.0:
             confluences.append("RSI_BULLISH_DIVERGENCE")
             bonus_pts += 2
 
-    vol_sma20 = float(df["Volume_SMA20"].iloc[-1]) if "Volume_SMA20" in df.columns else np.mean(volumes[-20:])
+    vol_sma20 = _coalesce_indicator_val(df, ["Volume_SMA20", "VOL_SMA20", "volume_sma20", "vol_sma20", "SMA20_Volume"], default=float(np.mean(volumes[-20:])))
     if float(volumes[-1]) >= 1.75 * max(vol_sma20, 1.0):
         confluences.append("INSTITUTIONAL_VOLUME_SURGE")
         bonus_pts += 1
@@ -911,13 +966,41 @@ def detect_technical_setup(
         trace["FINAL"]["terminal_reason"] = "INSUFFICIENT_BARS"
         return _finish(None)
 
+    n_bars = len(df)
+    engine_min_history = 20
+    if n_bars >= 200:
+        history_class = "MATURE"
+        history_confidence = "HIGH"
+        trend_validation_mode = "SMA200"
+    elif n_bars >= 50:
+        history_class = "RECENT_LISTING"
+        history_confidence = "STANDARD"
+        trend_validation_mode = "SMA50_EMA20"
+    elif n_bars >= 20:
+        history_class = "FRESH_IPO"
+        history_confidence = "STANDARD"
+        trend_validation_mode = "EMA20"
+    else:
+        history_class = "FRESH_IPO"
+        history_confidence = "LOW"
+        trend_validation_mode = "EMA20"
+
+    trace["01_DATA_VALIDATION"]["history_class"] = history_class
+    trace["01_DATA_VALIDATION"]["history_confidence"] = history_confidence
+    trace["01_DATA_VALIDATION"]["engine_min_history"] = engine_min_history
+    trace["01_DATA_VALIDATION"]["trend_validation_mode"] = trend_validation_mode
+
     cols_lower = [str(c).lower() for c in df.columns]
     required_keys = ["open", "high", "low", "close", "volume"]
     if not all(k in cols_lower for k in required_keys):
         trace["FINAL"]["terminal_reason"] = "MISSING_OHLCV_COLUMNS"
         return _finish(None)
 
-    if "EMA20" not in df.columns or "ATR_14" not in df.columns or "Volume_SMA20" not in df.columns:
+    has_ema20 = _coalesce_indicator_series(df, ["EMA20", "EMA_20", "ema20"]) is not None
+    has_atr = _coalesce_indicator_val(df, ["ATR", "ATR_14", "ATR20", "atr"], default=0.0) > 0
+    has_vol_sma = _coalesce_indicator_val(df, ["Volume_SMA20", "VOL_SMA20", "volume_sma20", "vol_sma20"], default=0.0) > 0
+
+    if not (has_ema20 and has_atr and has_vol_sma):
         df = apply_indicators(df, timeframe="1d")
 
     opens, highs, lows, closes, volumes = _extract_ohlcv(df)
@@ -953,7 +1036,7 @@ def detect_technical_setup(
         return _finish(None)
 
     # ── COMMON HARD FILTER 1: LIQUIDITY & TURNOVER ─────────────────────────────────
-    vol_sma20 = float(df["Volume_SMA20"].iloc[-1]) if "Volume_SMA20" in df.columns else np.mean(volumes[-20:])
+    vol_sma20 = _coalesce_indicator_val(df, ["Volume_SMA20", "VOL_SMA20", "volume_sma20", "vol_sma20", "SMA20_Volume"], default=float(np.mean(volumes[-20:])))
     avg_turnover = vol_sma20 * c_today
     avg_turnover_cr = avg_turnover / 10_000_000.0
 
@@ -1008,9 +1091,19 @@ def detect_technical_setup(
 
     trace["02_COMMON_GATES"]["status"] = "PASS"
 
-    atr14 = float(df["ATR_14"].iloc[-1]) if "ATR_14" in df.columns else (c_today * 0.02)
+    atr14, atr_source = _coalesce_indicator_with_source(
+        df,
+        ["ATR", "ATR_14", "ATR20", "atr", "atr_14", "atr20"],
+        validator=lambda v: v > 0,
+        default=c_today * 0.02,
+        default_source="DEFAULT_2PCT"
+    )
     if atr14 <= 0:
         atr14 = c_today * 0.02
+        atr_source = "DEFAULT_2PCT"
+
+    trace["02_COMMON_GATES"]["atr_source"] = atr_source
+    trace["02_COMMON_GATES"]["is_degraded_atr"] = (atr_source == "DEFAULT_2PCT")
 
     # ── PERMISSIVE PATTERN DISCOVERY (8 PRIMARY STRUCTURES) ─────────────────────────
     df_window = df.tail(120).copy() if len(df) > 120 else df
@@ -1133,8 +1226,8 @@ def detect_technical_setup(
     trace["05_RISK"]["target_resistance"] = target_res
     trace["05_RISK"]["room_r"] = round(room_to_resistance_r, 2)
 
-    # Room-to-Resistance Hard Gate (>= 1.5R)
-    if room_to_resistance_r < MIN_ROOM_TO_RESISTANCE_R and target_res > c_today:
+    # Room-to-Resistance Hard Gate (>= 1.5R with epsilon tolerance)
+    if room_to_resistance_r < (MIN_ROOM_TO_RESISTANCE_R - 1e-6) and target_res > c_today:
         trace["05_RISK"]["status"] = "REJECT"
         trace["05_RISK"]["rejection_code"] = f"{primary['pattern']}_ROOM_LT_1_5R"
         trace["FINAL"]["terminal_stage"] = "05_RISK"
@@ -1252,6 +1345,12 @@ def detect_technical_setup(
         "clv": round(clv, 2),
         "upper_wick_pct": round(upper_wick_pct, 2),
         "rvol": round(vol_ratio, 2),
+        "atr_source": atr_source,
+        "is_degraded_atr": (atr_source == "DEFAULT_2PCT"),
+        "history_class": history_class,
+        "history_confidence": history_confidence,
+        "engine_min_history": engine_min_history,
+        "trend_validation_mode": trend_validation_mode,
         "alert_time": now_ist.strftime("%Y-%m-%d %H:%M:%S"),
         "technical_trace": trace,
     }

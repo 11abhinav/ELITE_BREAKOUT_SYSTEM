@@ -192,16 +192,43 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
 
     last_bar = historical_view.iloc[-1]
     close_price = float(last_bar['Close'])
+    n_bars = len(historical_view)
+
+    # Adaptive History Classification & Trend Validation Mode
+    if n_bars >= 200:
+        history_class = "MATURE"
+        trend_validation_mode = "SMA200"
+    elif n_bars >= 50:
+        history_class = "RECENT_LISTING"
+        trend_validation_mode = "SMA50_EMA20"
+    else:
+        history_class = "FRESH_IPO"
+        trend_validation_mode = "EMA20"
+
     sma50_val = float(bundle.sma_50.iloc[-1]) if hasattr(bundle, 'sma_50') and bundle.sma_50 is not None and not bundle.sma_50.empty and not pd.isna(bundle.sma_50.iloc[-1]) else None
     sma200_val = float(bundle.sma_200.iloc[-1]) if hasattr(bundle, 'sma_200') and bundle.sma_200 is not None and not bundle.sma_200.empty and not pd.isna(bundle.sma_200.iloc[-1]) else None
+    ema20_val = float(bundle.ema_20.iloc[-1]) if hasattr(bundle, 'ema_20') and bundle.ema_20 is not None and not bundle.ema_20.empty and not pd.isna(bundle.ema_20.iloc[-1]) else None
 
-    if not (sma50_val and sma200_val and sma50_val > sma200_val and close_price >= (sma50_val * 0.95)):
+    # History-Tiered Uptrend Validation
+    if history_class == "MATURE":
+        uptrend_ok = bool(sma50_val and sma200_val and sma50_val > sma200_val and close_price >= (sma50_val * 0.95))
+        trend_fail_reason = f"Trend Failure (MATURE): Close ₹{close_price:.2f} is not aligned above SMA50 ₹{sma50_val if sma50_val else 0:.2f} > SMA200 ₹{sma200_val if sma200_val else 0:.2f}"
+    elif history_class == "RECENT_LISTING":
+        uptrend_ok = bool(sma50_val and close_price >= (sma50_val * 0.95) and (ema20_val >= (sma50_val * 0.98) if ema20_val else True))
+        trend_fail_reason = f"Trend Failure (RECENT_LISTING): Close ₹{close_price:.2f} is not aligned with SMA50 ₹{sma50_val if sma50_val else 0:.2f} / EMA20 ₹{ema20_val if ema20_val else 0:.2f}"
+    else:  # FRESH_IPO
+        uptrend_ok = bool(ema20_val and close_price >= (ema20_val * 0.95))
+        trend_fail_reason = f"Trend Failure (FRESH_IPO): Close ₹{close_price:.2f} is not aligned above EMA20 ₹{ema20_val if ema20_val else 0:.2f}"
+
+    if not uptrend_ok:
         return {
             "status": "NO",
-            "reasons": [f"Trend Failure: Close ₹{close_price:.2f} is not aligned above SMA50 ₹{sma50_val if sma50_val else 0:.2f} > SMA200 ₹{sma200_val if sma200_val else 0:.2f}"],
+            "reasons": [trend_fail_reason],
             "score": 0.0,
             "qualified": False,
-            "entry_price": close_price
+            "entry_price": close_price,
+            "history_class": history_class,
+            "trend_validation_mode": trend_validation_mode,
         }
 
     pivots = swing_utils.detect_confirmed_pivots(historical_view, PULLBACK_CONFIG["LOOKBACK"], PULLBACK_CONFIG["CONFIRM"])
@@ -334,7 +361,10 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
             "Impulse Gain %": ps.impulse.gain_pct if ps.impulse else 0.0,
             "SMA50": sma50_val,
             "SMA200": sma200_val,
-            "Close": close_price
+            "EMA20": ema20_val,
+            "Close": close_price,
+            "History Class": history_class,
+            "Trend Validation Mode": trend_validation_mode
         }
         for k, v in consumed_fields.items():
             if v is not None:
@@ -353,6 +383,8 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
         "score": final_score,
         "qualified": is_qualified,
         "entry_price": entry_val,
+        "history_class": history_class,
+        "trend_validation_mode": trend_validation_mode,
         "stop_loss": sl_result.get("stop_loss"),
         "target_1": sl_result.get("target_1"),
         "target_2": sl_result.get("target_2"),
@@ -785,12 +817,29 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
                         ctx = telemetry_logger.get_or_create_context(sym)
                         ctx.capture_dataframe_row(last_bar, is_fallback=used_fallback_data)
                         
-                        sma50_val = bundle.sma_50.iloc[-1] if bundle.sma_50 is not None and not bundle.sma_50.empty else None
-                        sma200_val = bundle.sma_200.iloc[-1] if bundle.sma_200 is not None and not bundle.sma_200.empty else None
-
-                        if not (sma50_val and sma200_val and sma50_val > sma200_val and last_bar['Close'] >= (sma50_val * 0.95)):
-                            act_u = {"Close": round(float(last_bar['Close']), 2), "SMA50": round(float(sma50_val), 2) if sma50_val else None, "SMA200": round(float(sma200_val), 2) if sma200_val else None}
+                        n_bars = len(historical_view)
+                        if n_bars >= 200:
+                            history_class = "MATURE"
+                            trend_validation_mode = "SMA200"
+                            uptrend_ok = bool(sma50_val and sma200_val and sma50_val > sma200_val and last_bar['Close'] >= (sma50_val * 0.95))
+                            act_u = {"Close": round(float(last_bar['Close']), 2), "SMA50": round(float(sma50_val), 2) if sma50_val else None, "SMA200": round(float(sma200_val), 2) if sma200_val else None, "Tier": history_class}
                             req_u = {"Close >= 0.95*SMA50": round(float(sma50_val * 0.95), 2) if sma50_val else None, "SMA50 > SMA200": True}
+                        elif n_bars >= 50:
+                            history_class = "RECENT_LISTING"
+                            trend_validation_mode = "SMA50_EMA20"
+                            ema20_val = bundle.ema_20.iloc[-1] if bundle.ema_20 is not None and not bundle.ema_20.empty else None
+                            uptrend_ok = bool(sma50_val and last_bar['Close'] >= (sma50_val * 0.95) and (ema20_val >= (sma50_val * 0.98) if ema20_val else True))
+                            act_u = {"Close": round(float(last_bar['Close']), 2), "SMA50": round(float(sma50_val), 2) if sma50_val else None, "EMA20": round(float(ema20_val), 2) if ema20_val else None, "Tier": history_class}
+                            req_u = {"Close >= 0.95*SMA50": round(float(sma50_val * 0.95), 2) if sma50_val else None, "EMA20 >= 0.98*SMA50": True}
+                        else:  # FRESH_IPO
+                            history_class = "FRESH_IPO"
+                            trend_validation_mode = "EMA20"
+                            ema20_val = bundle.ema_20.iloc[-1] if bundle.ema_20 is not None and not bundle.ema_20.empty else None
+                            uptrend_ok = bool(ema20_val and last_bar['Close'] >= (ema20_val * 0.95))
+                            act_u = {"Close": round(float(last_bar['Close']), 2), "EMA20": round(float(ema20_val), 2) if ema20_val else None, "Tier": history_class}
+                            req_u = {"Close >= 0.95*EMA20": round(float(ema20_val * 0.95), 2) if ema20_val else None}
+
+                        if not uptrend_ok:
                             return (None, "no_uptrend", "SUCCESS", fresh_val, sym, act_u, req_u)
 
                         pivots = swing_utils.detect_confirmed_pivots(historical_view, effective_config["LOOKBACK"], effective_config["CONFIRM"])

@@ -623,16 +623,25 @@ def _parse_single_symbol_price_data(sym: str, md: Any, ist_now: datetime, strip_
         from indicator_manager import manager
         bundle = manager.compute_base_indicators(ticker_df, sym)
 
-        sma_20 = float(bundle.sma_20.iloc[-1]) if bundle.sma_20 is not None and not bundle.sma_20.empty else close_price
-        sma_50 = float(bundle.sma_50.iloc[-1]) if bundle.sma_50 is not None and not bundle.sma_50.empty else close_price
-        sma_200 = float(bundle.sma_200.iloc[-1]) if bundle.sma_200 is not None and not bundle.sma_200.empty else close_price
-        sma_200_yesterday = float(bundle.sma_200.iloc[-2]) if bundle.sma_200 is not None and len(bundle.sma_200) >= 2 else sma_200
+        def _safe_float_val(series, fallback=0.0):
+            if series is not None and not series.empty:
+                val = series.iloc[-1]
+                if pd.notna(val) and not np.isneginf(val) and not np.isposinf(val):
+                    f = float(val)
+                    if not np.isnan(f):
+                        return f
+            return fallback
 
-        atr_14 = float(bundle.atr_14.iloc[-1]) if bundle.atr_14 is not None and not bundle.atr_14.empty else (close_price * 0.05)
-        ema_20 = float(bundle.ema_20.iloc[-1]) if bundle.ema_20 is not None and not bundle.ema_20.empty else close_price
+        sma_20 = _safe_float_val(bundle.sma_20, close_price)
+        sma_50 = _safe_float_val(bundle.sma_50, 0.0)
+        sma_200 = _safe_float_val(bundle.sma_200, 0.0)
+        sma_200_yesterday = _safe_float_val(bundle.sma_200.iloc[:-1] if bundle.sma_200 is not None and len(bundle.sma_200) >= 2 else None, sma_200)
+
+        atr_14 = _safe_float_val(bundle.atr_14, close_price * 0.05)
+        ema_20 = _safe_float_val(bundle.ema_20, close_price)
 
         closes_below_sma200_count = 0
-        if len(close_series) >= 5 and bundle.sma_200 is not None and len(bundle.sma_200.dropna()) >= 5:
+        if sma_200 > 0 and len(close_series) >= 5 and bundle.sma_200 is not None and len(bundle.sma_200.dropna()) >= 5:
             last_5_closes = close_series.iloc[-5:]
             last_5_smas = bundle.sma_200.iloc[-5:]
             closes_below_sma200_count = sum(1 for c, s in zip(last_5_closes, last_5_smas) if c < s)
@@ -959,15 +968,24 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
                     else:
                         ema_20_series = ticker_df['Close'].ewm(span=20, adjust=False).mean()
 
-                    sma_20 = float(sma_20_series.iloc[-1]) if len(sma_20_series) > 0 else close_price
-                    sma_50 = float(sma_50_series.iloc[-1]) if len(sma_50_series) > 0 else close_price
-                    sma_200 = float(sma_200_series.iloc[-1]) if len(sma_200_series) > 0 else close_price
-                    sma_200_yesterday = float(sma_200_series.iloc[-2]) if len(sma_200_series) >= 2 else sma_200
-                    atr_14 = float(atr_14_series.iloc[-1]) if len(atr_14_series) > 0 else (close_price * 0.05)
-                    ema_20 = float(ema_20_series.iloc[-1]) if len(ema_20_series) > 0 else close_price
+                    def _safe_float_val_batch(series, fallback=0.0):
+                        if series is not None and not series.empty:
+                            val = series.iloc[-1]
+                            if pd.notna(val) and not np.isneginf(val) and not np.isposinf(val):
+                                f = float(val)
+                                if not np.isnan(f):
+                                    return f
+                        return fallback
+
+                    sma_20 = _safe_float_val_batch(sma_20_series, close_price)
+                    sma_50 = _safe_float_val_batch(sma_50_series, 0.0)
+                    sma_200 = _safe_float_val_batch(sma_200_series, 0.0)
+                    sma_200_yesterday = _safe_float_val_batch(sma_200_series.iloc[:-1] if sma_200_series is not None and len(sma_200_series) >= 2 else None, sma_200)
+                    atr_14 = _safe_float_val_batch(atr_14_series, close_price * 0.05)
+                    ema_20 = _safe_float_val_batch(ema_20_series, close_price)
 
                     closes_below_sma200_count = 0
-                    if len(close_series) >= 5 and sma_200_series is not None and len(sma_200_series.dropna()) >= 5:
+                    if sma_200 > 0 and len(close_series) >= 5 and sma_200_series is not None and len(sma_200_series.dropna()) >= 5:
                         last_5_closes = close_series.iloc[-5:]
                         last_5_smas = sma_200_series.iloc[-5:]
                         closes_below_sma200_count = sum(1 for c, s in zip(last_5_closes, last_5_smas) if c < s)
@@ -1319,8 +1337,19 @@ def entry_confirmed(price_data: StockPriceData) -> tuple:
     rejection funnel can attribute exactly which sub-gate killed a candidate, eliminating
     the "entry_confirmed failed" black box that masked the dominant gate in zero-alert runs.
     """
-    if price_data.price < price_data.sma_200 * 0.96:
-        return (False, "entry_below_sma200")
+    has_valid_sma200 = price_data.sma_200 is not None and not np.isnan(price_data.sma_200) and price_data.sma_200 > 0
+    has_valid_sma50 = price_data.sma_50 is not None and not np.isnan(price_data.sma_50) and price_data.sma_50 > 0
+    has_valid_ema20 = price_data.ema_20 is not None and not np.isnan(price_data.ema_20) and price_data.ema_20 > 0
+
+    if has_valid_sma200:
+        if price_data.price < price_data.sma_200 * 0.96:
+            return (False, "entry_below_sma200")
+    elif has_valid_sma50:
+        if price_data.price < price_data.sma_50 * 0.94:
+            return (False, "entry_below_sma50")
+    elif has_valid_ema20:
+        if price_data.price < price_data.ema_20 * 0.92:
+            return (False, "entry_below_ema20")
 
     if price_data.volume_sma20 <= 0:
         return (False, "entry_zero_vol_sma20")
@@ -1335,13 +1364,18 @@ def entry_confirmed(price_data: StockPriceData) -> tuple:
         stabilized_close = True  # EOD bar fallback when open is unverified
 
     # Support proximity: price is near EMA20, SMA50, or SMA200
-    ema20 = price_data.ema_20 if price_data.ema_20 > 0 else price_data.price
-    sma50 = price_data.sma_50 if price_data.sma_50 > 0 else price_data.price
-    sma200 = price_data.sma_200 if price_data.sma_200 > 0 else price_data.price
+    valid_supports = []
+    if has_valid_ema20:
+        valid_supports.append(price_data.ema_20 * 0.92)
+    if has_valid_sma50:
+        valid_supports.append(price_data.sma_50 * 0.96)
+    if has_valid_sma200:
+        valid_supports.append(price_data.sma_200 * 0.96)
 
-    atr_allowance = (1.2 * price_data.atr_14) if price_data.atr_14 > 0 else (price_data.price * 0.04)
-    max_upper_price = max(ema20 * 1.06, ema20 + atr_allowance)
-    min_lower_price = min(ema20 * 0.92, sma50 * 0.96, sma200 * 0.96)
+    min_lower_price = min(valid_supports) if valid_supports else (price_data.price * 0.90)
+    ema20_ref = price_data.ema_20 if has_valid_ema20 else price_data.price
+    atr_allowance = (1.2 * price_data.atr_14) if (price_data.atr_14 and price_data.atr_14 > 0 and not np.isnan(price_data.atr_14)) else (price_data.price * 0.04)
+    max_upper_price = max(ema20_ref * 1.06, ema20_ref + atr_allowance)
 
     near_support = (price_data.price >= min_lower_price) and (price_data.price <= max_upper_price)
 

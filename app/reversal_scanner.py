@@ -126,7 +126,7 @@ CLIMAX_MIN_RUNUP_PCT   = 0.10
 FUNDAMENTAL_REJECT_ALARM_PCT = 0.60
 REVERSAL_COOLDOWN_TRADING_DAYS = REVERSAL_CONFIG["REVERSAL_COOLDOWN_TRADING_DAYS"]
 
-REVERSAL_MIN_BARS = 180
+REVERSAL_MIN_BARS = 35  # Adaptive floor supporting FRESH_IPO (35-49 bars), RECENT_LISTING (50-199 bars), and MATURE (200+ bars)
 DEFAULT_PLEDGE_PENALTY = 15.0
 STALE_DEGRADED_RATIO = 0.15
 MIN_FETCH_RATIO = 0.85
@@ -582,6 +582,8 @@ def _score_reversal(
         vol_ratio_window: Optional[float] = None,
         available_max: int = COMPONENT_MAX,
         macd_recovery_passed: bool = False,
+        pct_below_sma50: Optional[float] = None,
+        pct_below_ema20: Optional[float] = None,
 ) -> dict:
     """Score a reversal setup from 0-100 based on quality dimensions, returning score dict."""
     score = 0
@@ -590,7 +592,7 @@ def _score_reversal(
     score += trend_score
     trend_pts = trend_score
 
-    # ── SMA200 proximity (12 pts max) — Monotonic structural scoring ──
+    # ── Structure proximity (12 pts max) — Monotonic structural scoring ──
     prox_pts = 0
     if pct_below_sma200 is not None:
         if pct_below_sma200 <= 0.0:
@@ -601,7 +603,25 @@ def _score_reversal(
             prox_pts = 9
         elif pct_below_sma200 <= 20.0:
             prox_pts = 5
-        score += prox_pts
+    elif pct_below_sma50 is not None:
+        # Adaptive structural scoring for RECENT_LISTING (50-199 bars)
+        if pct_below_sma50 <= 0.0:
+            prox_pts = 12   # Above SMA50
+        elif pct_below_sma50 <= 5.0:
+            prox_pts = 10
+        elif pct_below_sma50 <= 10.0:
+            prox_pts = 8
+        elif pct_below_sma50 <= 20.0:
+            prox_pts = 5
+    elif pct_below_ema20 is not None:
+        # Adaptive structural scoring for FRESH_IPO (35-49 bars)
+        if pct_below_ema20 <= 0.0:
+            prox_pts = 10   # Above EMA20
+        elif pct_below_ema20 <= 5.0:
+            prox_pts = 7
+        elif pct_below_ema20 <= 10.0:
+            prox_pts = 5
+    score += prox_pts
 
     # ── Volume confirmation (15 pts) ──
     vol_pts = 0
@@ -751,16 +771,28 @@ def _evaluate_candidate(
     session_fraction: float = 1.0,
 ) -> dict:
     """Core evaluator logic executing quality gates and returning structured verdict."""
-    if df is None or df.empty or len(df) < REVERSAL_MIN_BARS:
+    n_bars = len(df) if df is not None else 0
+    if df is None or df.empty or n_bars < REVERSAL_MIN_BARS:
         return {
             "passed": False,
-            "reject_reason": f"Insufficient historical bars ({len(df) if df is not None else 0} < {REVERSAL_MIN_BARS} minimum)",
+            "reject_reason": f"Insufficient historical bars ({n_bars} < {REVERSAL_MIN_BARS} minimum)",
             "reject_code": "no_data",
             "score": 0,
             "raw_score": 0,
             "sl_result": {},
             "context": {},
         }
+
+    # Explicit History Classification & Trend Validation Mode
+    if n_bars >= 200:
+        history_class = "MATURE"
+        trend_validation_mode = "SMA200"
+    elif n_bars >= 50:
+        history_class = "RECENT_LISTING"
+        trend_validation_mode = "SMA50_EMA20"
+    else:
+        history_class = "FRESH_IPO"
+        trend_validation_mode = "EMA20"
 
     latest = df.iloc[-1]
     close_price = _req_float(latest, "Close")
@@ -941,14 +973,32 @@ def _evaluate_candidate(
     is_quality_cat = any(kw in cat_str.lower() for kw in ("wealth", "blue chip", "debt-free"))
     effective_min_drop = QUALITY_CAT_MIN_DROP if is_quality_cat else MIN_DROP_FROM_52W_HIGH
 
-    # [FIX CONDITIONAL_52W_DROP] Allow drawdowns up to 55% only for structurally sound stocks near SMA200 (<= 10% below SMA200)
-    pct_below_sma200_approx = ((sma200 - close_price) / sma200) * 100.0 if sma200 and sma200 > 0 else 0.0
-    max_allowed_drop = 55.0 if (pct_below_sma200_approx <= 10.0) else MAX_DROP_FROM_52W_HIGH
+    pct_below_sma200 = None
+    if sma200 and sma200 > 0:
+        pct_below_sma200 = ((sma200 - close_price) / sma200) * 100.0
+
+    pct_below_sma50 = None
+    if sma50 and sma50 > 0:
+        pct_below_sma50 = ((sma50 - close_price) / sma50) * 100.0
+
+    pct_below_ema20 = None
+    if ema20 and ema20 > 0:
+        pct_below_ema20 = ((ema20 - close_price) / ema20) * 100.0
+
+    # [FIX CONDITIONAL_52W_DROP] Allow drawdowns up to 55% only for structurally sound stocks near trend baseline
+    if history_class == "MATURE":
+        structurally_sound = (pct_below_sma200 is not None and pct_below_sma200 <= 10.0)
+    elif history_class == "RECENT_LISTING":
+        structurally_sound = (pct_below_sma50 is not None and pct_below_sma50 <= 10.0)
+    else:  # FRESH_IPO
+        structurally_sound = (pct_below_ema20 is not None and pct_below_ema20 <= 10.0)
+
+    max_allowed_drop = 55.0 if structurally_sound else MAX_DROP_FROM_52W_HIGH
 
     if drop_pct < effective_min_drop or drop_pct > max_allowed_drop:
         return {
             "passed": False,
-            "reject_reason": f"Drop from 52W High {drop_pct:.1f}% outside allowed band [{effective_min_drop:.1f}%, {max_allowed_drop:.1f}%]",
+            "reject_reason": f"Drop from 52W High {drop_pct:.1f}% outside allowed band [{effective_min_drop:.1f}%, {max_allowed_drop:.1f}%] for {history_class}",
             "reject_code": "drop_band",
             "actual": drop_pct,
             "threshold": f"[{effective_min_drop:.1f}, {max_allowed_drop:.1f}]",
@@ -960,10 +1010,6 @@ def _evaluate_candidate(
             "context": {},
         }
 
-    pct_below_sma200 = None
-    if sma200 and sma200 > 0:
-        pct_below_sma200 = ((sma200 - close_price) / sma200) * 100.0
-
     _rc = regime_ctx or {}
     regime = _rc.get("current_regime") or _rc.get("trend") or "NEUTRAL"
     ev_req = REGIME_EVIDENCE_REQ.get(regime, {})
@@ -972,11 +1018,36 @@ def _evaluate_candidate(
     if "max_pct_below_sma200" in ev_req:
         max_sma200_limit = min(max_sma200_limit, ev_req["max_pct_below_sma200"])
 
-    if pct_below_sma200 is not None and pct_below_sma200 > max_sma200_limit:
+    # Structural Limit Filter: Enforced per History Class
+    if history_class == "MATURE" and pct_below_sma200 is not None and pct_below_sma200 > max_sma200_limit:
         return {
             "passed": False,
             "reject_reason": f"[{regime}] Price {pct_below_sma200:.1f}% below SMA200 > {max_sma200_limit}% maximum structural breakdown limit",
             "reject_code": "sma200_filter",
+            "gate_type": "THRESHOLD",
+            "operator": ">",
+            "score": 0,
+            "raw_score": 0,
+            "sl_result": {},
+            "context": {},
+        }
+    elif history_class == "RECENT_LISTING" and pct_below_sma50 is not None and pct_below_sma50 > 20.0:
+        return {
+            "passed": False,
+            "reject_reason": f"[{regime}] Price {pct_below_sma50:.1f}% below SMA50 > 20.0% maximum structural breakdown limit for RECENT_LISTING",
+            "reject_code": "sma50_filter",
+            "gate_type": "THRESHOLD",
+            "operator": ">",
+            "score": 0,
+            "raw_score": 0,
+            "sl_result": {},
+            "context": {},
+        }
+    elif history_class == "FRESH_IPO" and pct_below_ema20 is not None and pct_below_ema20 > 15.0:
+        return {
+            "passed": False,
+            "reject_reason": f"[{regime}] Price {pct_below_ema20:.1f}% below EMA20 > 15.0% maximum structural breakdown limit for FRESH_IPO",
+            "reject_code": "ema20_filter",
             "gate_type": "THRESHOLD",
             "operator": ">",
             "score": 0,
@@ -1411,6 +1482,8 @@ def _evaluate_candidate(
         vol_ratio_window=vol_ratio_max,
         available_max=available_max,
         macd_recovery_passed=macd_recovery_passed,
+        pct_below_sma50=pct_below_sma50,
+        pct_below_ema20=pct_below_ema20,
     )
     score = score_dict["score"]
     raw_score = score_dict["raw_score"]
@@ -1453,6 +1526,7 @@ def _evaluate_candidate(
         }
 
     signals = []
+    signals.append(f"🏷️ History Tier: {history_class} ({trend_validation_mode})")
     if close_price >= ema20:
         if above_sma50:
             signals.append("🎯 Reclaimed 20 EMA & SMA50")
@@ -1470,6 +1544,8 @@ def _evaluate_candidate(
         signals.append(f"📊 Vol Ratio {vol_ratio:.1f}x (20D Avg)")
     if pct_below_sma200 is not None:
         signals.append(f"📍 {pct_below_sma200:.1f}% below SMA200")
+    elif pct_below_sma50 is not None:
+        signals.append(f"📍 {pct_below_sma50:.1f}% below SMA50")
     if obv_trend == 1:
         signals.append("🟢 OBV Accumulation")
 
@@ -1487,6 +1563,8 @@ def _evaluate_candidate(
         "target_1": target_val,
         "risk_reward": sl_res.get("natural_rr"),
         "regime": regime,
+        "history_class": history_class,
+        "trend_validation_mode": trend_validation_mode,
         "effective_min_score": effective_min_score,
         "available_max": available_max,
         "score_breakdown": score_dict["score_breakdown"],
@@ -1500,6 +1578,9 @@ def _evaluate_candidate(
             "volume_ratio_session_adjusted": is_intraday,
             "drop_from_52w_high": round(drop_pct, 1),
             "pct_below_sma200": round(pct_below_sma200, 1) if pct_below_sma200 is not None else None,
+            "pct_below_sma50": round(pct_below_sma50, 1) if pct_below_sma50 is not None else None,
+            "history_class": history_class,
+            "trend_validation_mode": trend_validation_mode,
         }
     }
 
