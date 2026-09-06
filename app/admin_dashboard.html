@@ -2442,7 +2442,7 @@ function changeAdminPage(type, delta) {
                     <th style="padding:10px 14px; text-align:center;">Logged Date</th>
                   </tr>
                 </thead>
-                <tbody id="near-misses-tbody">
+                <tbody id="near-misses-tbody-lower">
                   <tr><td colspan="9" style="text-align:center; padding:24px; color:var(--muted);">Loading near-miss diagnostics...</td></tr>
                 </tbody>
               </table>
@@ -9406,49 +9406,112 @@ function filterMissedOpps(query) {
 
 function renderNearMissesRows(data) {
   const tbody = document.getElementById('near-misses-tbody');
-  if (!tbody) return;
-  if (!Array.isArray(data) || data.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:24px; color:var(--muted);">No near-miss alerts recorded in the selected window.</td></tr>`;
-    return;
-  }
-  tbody.innerHTML = data.map(item => {
-    const deltaColor = item.delta_pct <= 3.0 ? '#ef4444' : (item.delta_pct <= 6.0 ? '#f59e0b' : '#3b82f6');
-    const statusBadge = item.is_fallback || item.status === 'FORENSIC_EXCLUSION_FALLBACK'
-      ? `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🔍 FORENSIC EXCLUSION</span>`
-      : (item.status === 'TARGET_HIT' 
-        ? `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🎯 TARGET HIT</span>`
-        : (item.status === 'STOP_HIT'
-          ? `<span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🛑 STOP HIT</span>`
-          : `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">⏳ TRACKING</span>`));
+  const lowerTbody = document.getElementById('near-misses-tbody-lower');
 
-    return `
-      <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
-        <td style="padding:10px 14px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}${getEarningsBadgeHtml(item)}</td>
-        <td style="padding:10px 14px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
-        <td style="padding:10px 14px; font-weight:700; color:var(--text);">${formatPrice(item.cmp || item.entry_price)}</td>
-        <td style="padding:10px 14px; color:var(--muted); font-size:11px; font-weight:600;">${formatText(item.scanner)}</td>
-        <td style="padding:10px 14px; font-family:var(--font-mono); font-size:11px;">
-          <span style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); padding:3px 8px; border-radius:6px; font-weight:700; display:inline-block; box-shadow: 0 0 8px rgba(245,158,11,0.2);">${formatText(item.gate_name)}</span>
-        </td>
-        <td style="padding:10px 14px; text-align:center; font-family:var(--font-mono); font-size:11px;">
-          <span style="color:#10b981; font-weight:700;">${formatText(item.observed_value)}</span> / <span style="color:var(--muted);">${formatText(item.threshold_value)}</span>
-        </td>
-        <td style="padding:10px 14px; text-align:center; font-weight:700; font-size:11px; color:${deltaColor};">
-          ${formatPct(item.delta_pct)}
-        </td>
-        <td style="padding:10px 14px; text-align:right; font-family:var(--font-mono); font-size:11px;">
-          <span style="font-weight:700; color:var(--text);">${formatPrice(item.entry_price)}</span> | <span style="color:var(--muted);">SL: ${formatPrice(item.stop_loss)}</span> | <span style="color:var(--muted);">T1: ${formatPrice(item.target_1)}</span>
-        </td>
-        <td style="padding:10px 14px; text-align:center;">${statusBadge}</td>
-        <td style="padding:10px 14px; text-align:center; font-weight:700; font-family:var(--font-mono); color:${item.max_mfe_r > 0 ? '#10b981' : 'var(--muted)'};">
-          ${item.max_mfe_r ? '+' + item.max_mfe_r + 'R' : '-'}
-        </td>
-        <td style="padding:10px 14px; text-align:center; color:var(--muted); font-size:11px;">
-          ${formatISTDate(item.logged_at || item.logged_date)}
-        </td>
-      </tr>
-    `;
-  }).join('');
+  if (tbody) {
+    if (!Array.isArray(data) || data.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:24px; color:var(--muted);">No near-miss alerts recorded in the selected window.</td></tr>`;
+    } else {
+      tbody.innerHTML = data.map(item => {
+        const scoreVal = item.score !== undefined && item.score !== null ? item.score : (item.observed_value || '—');
+        const gradeText = item.quality_grade || (typeof scoreVal === 'number' ? (scoreVal >= 75 ? 'A' : scoreVal >= 60 ? 'B' : scoreVal >= 45 ? 'C' : 'D') : '—');
+        const cmpVal = item.cmp || item.entry_price;
+        const curReturn = (item.entry_price > 0 && cmpVal) ? ((cmpVal - item.entry_price) / item.entry_price * 100) : null;
+        
+        const fwd1 = item.forward_1d ?? item.return_1d ?? (curReturn !== null ? curReturn : null);
+        const fwd5 = item.forward_5d ?? item.return_5d ?? null;
+        const fwd20 = item.forward_20d ?? item.return_20d ?? null;
+
+        let statusBadge = '';
+        if (item.rejection_audit) {
+          const isGood = String(item.rejection_audit).toUpperCase().includes('GOOD');
+          statusBadge = `<span style="background:${isGood ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'}; color:${isGood ? '#10b981' : '#ef4444'}; border:1px solid ${isGood ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">${item.rejection_audit}</span>`;
+        } else if (item.status === 'STOP_HIT') {
+          statusBadge = `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🛡️ SAVED LOSS</span>`;
+        } else if (item.status === 'TARGET_HIT') {
+          statusBadge = `<span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">⚠️ MISSED WINNER</span>`;
+        } else if (item.is_fallback || item.status === 'FORENSIC_EXCLUSION_FALLBACK') {
+          statusBadge = `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🔍 EXCLUDED</span>`;
+        } else {
+          statusBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">⏳ AUDITING</span>`;
+        }
+
+        const formatReturn = (val) => {
+          if (val === null || val === undefined) return '<span style="color:var(--muted);">—</span>';
+          const num = parseFloat(val);
+          if (isNaN(num)) return '<span style="color:var(--muted);">—</span>';
+          const color = num > 0 ? '#10b981' : (num < 0 ? '#ef4444' : 'var(--muted)');
+          return `<span style="color:${color}; font-weight:700; font-family:var(--font-mono);">${num > 0 ? '+' : ''}${num.toFixed(1)}%</span>`;
+        };
+
+        return `
+          <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
+            <td style="padding:10px 14px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}${getEarningsBadgeHtml(item)}</td>
+            <td style="padding:10px 14px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+            <td style="padding:10px 14px; font-weight:700; color:var(--text); font-family:var(--font-mono);">${formatPrice(cmpVal)}</td>
+            <td style="padding:10px 14px; color:var(--muted); font-size:11px; font-weight:600;">${formatText(item.scanner)}</td>
+            <td style="padding:10px 14px; font-family:var(--font-mono); font-size:11px; color:var(--muted);">${formatISTDate(item.logged_at || item.logged_date)}</td>
+            <td style="padding:10px 14px; font-family:var(--font-mono); font-size:11px;">
+              <span style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); padding:3px 8px; border-radius:6px; font-weight:700; display:inline-block;">${formatText(item.gate_name || 'GATE_FAIL')}</span>
+            </td>
+            <td style="padding:10px 14px; text-align:center; font-family:var(--font-mono); font-size:11px; font-weight:700;">
+              <span style="color:${gradeText === 'A' ? '#10b981' : gradeText === 'B' ? '#3b82f6' : '#fbbf24'};">${gradeText}</span> <span style="color:var(--muted); font-size:10px;">(${scoreVal})</span>
+            </td>
+            <td style="padding:10px 14px; text-align:center;">${formatReturn(fwd1)}</td>
+            <td style="padding:10px 14px; text-align:center;">${formatReturn(fwd5)}</td>
+            <td style="padding:10px 14px; text-align:center;">${formatReturn(fwd20)}</td>
+            <td style="padding:10px 14px; text-align:center; font-weight:700; font-family:var(--font-mono); color:${item.max_mfe_r > 0 ? '#10b981' : 'var(--muted)'};">
+              ${item.max_mfe_r ? '+' + parseFloat(item.max_mfe_r).toFixed(2) + 'R' : '—'}
+            </td>
+            <td style="padding:10px 14px; text-align:center;">${statusBadge}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  if (lowerTbody) {
+    if (!Array.isArray(data) || data.length === 0) {
+      lowerTbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--muted);">No near-miss diagnostics available.</td></tr>`;
+    } else {
+      lowerTbody.innerHTML = data.map(item => {
+        const deltaColor = item.delta_pct <= 3.0 ? '#ef4444' : (item.delta_pct <= 6.0 ? '#f59e0b' : '#3b82f6');
+        const statusBadge = item.is_fallback || item.status === 'FORENSIC_EXCLUSION_FALLBACK'
+          ? `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🔍 FORENSIC EXCLUSION</span>`
+          : (item.status === 'TARGET_HIT'
+            ? `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🎯 TARGET HIT</span>`
+            : (item.status === 'STOP_HIT'
+              ? `<span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🛑 STOP HIT</span>`
+              : `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">⏳ TRACKING</span>`));
+
+        return `
+          <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
+            <td style="padding:10px 14px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}${getEarningsBadgeHtml(item)}</td>
+            <td style="padding:10px 14px; color:var(--muted); font-size:11px; font-weight:600;">${formatText(item.scanner)}</td>
+            <td style="padding:10px 14px; font-family:var(--font-mono); font-size:11px;">
+              <span style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); padding:3px 8px; border-radius:6px; font-weight:700; display:inline-block;">${formatText(item.gate_name)}</span>
+            </td>
+            <td style="padding:10px 14px; text-align:center; font-family:var(--font-mono); font-size:11px;">
+              <span style="color:#10b981; font-weight:700;">${formatText(item.observed_value)}</span> / <span style="color:var(--muted);">${formatText(item.threshold_value)}</span>
+            </td>
+            <td style="padding:10px 14px; text-align:center; font-weight:700; font-size:11px; color:${deltaColor};">
+              ${formatPct(item.delta_pct)}
+            </td>
+            <td style="padding:10px 14px; text-align:right; font-family:var(--font-mono); font-size:11px;">
+              <span style="font-weight:700; color:var(--text);">${formatPrice(item.entry_price)}</span> | <span style="color:var(--muted);">SL: ${formatPrice(item.stop_loss)}</span> | <span style="color:var(--muted);">T1: ${formatPrice(item.target_1)}</span>
+            </td>
+            <td style="padding:10px 14px; text-align:center;">${statusBadge}</td>
+            <td style="padding:10px 14px; text-align:center; font-weight:700; font-family:var(--font-mono); color:${item.max_mfe_r > 0 ? '#10b981' : 'var(--muted)'};">
+              ${item.max_mfe_r ? '+' + item.max_mfe_r + 'R' : '-'}
+            </td>
+            <td style="padding:10px 14px; text-align:center; color:var(--muted); font-size:11px;">
+              ${formatISTDate(item.logged_at || item.logged_date)}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
 }
 
 let _lastNearMissesFetchTs = 0;

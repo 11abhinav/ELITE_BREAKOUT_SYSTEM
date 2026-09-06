@@ -1082,6 +1082,10 @@ def api_get_near_misses():
     fetch_limit = per_page if per_page else limit
     offset_val = ((page - 1) * per_page) if (page and per_page and page > 1) else 0
 
+    from datetime import datetime, timezone, timedelta
+    IST = timezone(timedelta(hours=5, minutes=30))
+    cutoff_date = (datetime.now(IST) - timedelta(days=days)).date()
+
     # [RULE 67 CHANGE-RATIONALE]:
     # Activate 10-second TTL in-memory micro-cache for /api/near_misses with thread-safe lock.
     # Eliminates repetitive DB queries, row-by-row price cache lookups, and corporate event decorations
@@ -1100,6 +1104,7 @@ def api_get_near_misses():
 
     try:
         from database import get_connection
+        from psycopg2.extras import RealDictCursor
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 if sc_list:
@@ -1145,6 +1150,21 @@ def api_get_near_misses():
                     """, (cutoff_date, fetch_limit, offset_val))
                 rows = [dict(r) for r in cur.fetchall()]
 
+                # If no rows within date range, fall back to latest near_misses entries
+                if not rows and offset_val == 0:
+                    cur.execute("""
+                        SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
+                               nm.threshold_value, nm.delta_pct, nm.score,
+                               nm.entry_price,
+                               COALESCE(nm.stop_loss, ROUND(nm.entry_price * 0.95, 2)) AS stop_loss,
+                               COALESCE(nm.target_1, ROUND(nm.entry_price * 1.08, 2)) AS target_1,
+                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
+                        FROM near_misses nm
+                        ORDER BY nm.logged_at DESC
+                        LIMIT %s
+                    """, (fetch_limit,))
+                    rows = [dict(r) for r in cur.fetchall()]
+
                 if not rows and offset_val == 0:
                     cur.execute("""
                         SELECT id, symbol, 'EOD' as scanner, 'EXCLUDED' as breakout_type, primary_exclusion_code as gate_name,
@@ -1168,6 +1188,7 @@ def api_get_near_misses():
             ep = r.get("entry_price")
             if ep is None or float(ep or 0) <= 0:
                 try:
+                    from price_cache import get_cached_price
                     cp = get_cached_price(sym)
                     if cp and float(cp) > 0:
                         ep = float(cp)
@@ -1182,8 +1203,9 @@ def api_get_near_misses():
                     r["target_1"] = round(float(ep) + 2.0 * (float(ep) - sl), 2)
 
         try:
+            from corporate_events import decorate_events
             rows = decorate_events(rows)
-        except Exception as _ce_err:
+        except Exception:
             pass
 
         payload = json.dumps(serialize_datetimes(rows), default=str)
