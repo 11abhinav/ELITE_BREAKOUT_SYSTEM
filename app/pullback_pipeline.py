@@ -233,15 +233,15 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
 
     pivots = swing_utils.detect_confirmed_pivots(historical_view, PULLBACK_CONFIG["LOOKBACK"], PULLBACK_CONFIG["CONFIRM"])
     if not pivots:
-        return {"status": "NO", "reasons": ["No confirmed swing high/low pivots found for pullback calculation"], "score": 0.0, "qualified": False, "entry_price": close_price}
+        return {"status": "NO", "reasons": ["No confirmed swing high/low pivots found for pullback calculation"], "score": 0.0, "qualified": False, "entry_price": close_price, "history_class": history_class, "trend_validation_mode": trend_validation_mode}
 
     impulse = swing_utils.select_pullback_origin(pivots, historical_view, PULLBACK_CONFIG)
     if not impulse:
-        return {"status": "NO", "reasons": [f"No valid impulse origin leg identified (requires impulse gain ≥{PULLBACK_CONFIG['MIN_IMPULSE_GAIN_PCT']:.1f}%)"], "score": 0.0, "qualified": False, "entry_price": close_price}
+        return {"status": "NO", "reasons": [f"No valid impulse origin leg identified (requires impulse gain ≥{PULLBACK_CONFIG['MIN_IMPULSE_GAIN_PCT']:.1f}%)"], "score": 0.0, "qualified": False, "entry_price": close_price, "history_class": history_class, "trend_validation_mode": trend_validation_mode}
 
     ps = swing_utils.measure_pullback(historical_view, impulse, PULLBACK_CONFIG)
     if not ps.valid:
-        return {"status": "NO", "reasons": [f"Invalid pullback structure (Retracement {ps.depth_pct:.1f}%, Vol Ratio {ps.volume_ratio:.2f}x outside {PULLBACK_CONFIG['MIN_DEPTH_PCT']}%–{PULLBACK_CONFIG['MAX_DEPTH_PCT']}% bounds)"], "score": 0.0, "qualified": False, "entry_price": close_price}
+        return {"status": "NO", "reasons": [f"Invalid pullback structure (Retracement {ps.depth_pct:.1f}%, Vol Ratio {ps.volume_ratio:.2f}x outside {PULLBACK_CONFIG['MIN_DEPTH_PCT']}%–{PULLBACK_CONFIG['MAX_DEPTH_PCT']}% bounds)"], "score": 0.0, "qualified": False, "entry_price": close_price, "history_class": history_class, "trend_validation_mode": trend_validation_mode}
 
     trig = swing_utils.detect_resumption_trigger(historical_view, ps, PULLBACK_CONFIG)
     if not trig.valid:
@@ -250,7 +250,9 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
             "reasons": [f"Valid Pullback Structure (Depth {ps.depth_pct:.1f}%) — Awaiting Bullish Resumption Trigger Candle"],
             "score": 65.0,
             "qualified": False,
-            "entry_price": close_price
+            "entry_price": close_price,
+            "history_class": history_class,
+            "trend_validation_mode": trend_validation_mode
         }
 
     entry_val = float(trig.entry_price)
@@ -392,6 +394,8 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
         "target_4": sl_result.get("target_4"),
         "atr_14": float(bundle.atr_14.iloc[-1]) if hasattr(bundle, 'atr_14') and bundle.atr_14 is not None and not bundle.atr_14.empty and not pd.isna(bundle.atr_14.iloc[-1]) else float(entry_val * 0.025)
     }
+
+detect_pullback_setup = evaluate_pullback_symbol
 
 def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON", used_fallback_data: bool = False):
     """

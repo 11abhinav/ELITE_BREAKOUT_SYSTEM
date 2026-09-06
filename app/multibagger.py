@@ -710,58 +710,68 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
         from price_cache import get_cached_df, fetch_unified_historical
         from concurrent.futures import ThreadPoolExecutor, as_completed
         disk_results = {}
-        missing_syms = []
+        missing_or_stale_syms = []
+        cached_fallback_map = {}
 
         def _load_single(s):
             df_sym = get_cached_df(s, interval="1d", period="1y")
             if df_sym is not None and not df_sym.empty:
                 parsed_spd = _parse_single_symbol_price_data(s, df_sym, ist_now, strip_forming=False)
-                if parsed_spd is not None and not _is_stale_trade_date(getattr(parsed_spd, 'last_trade_date', '')):
-                    return s, parsed_spd
-            return s, None
+                if parsed_spd is not None:
+                    is_stale = _is_stale_trade_date(getattr(parsed_spd, 'last_trade_date', ''))
+                    return s, parsed_spd, is_stale
+            return s, None, True
 
         with ThreadPoolExecutor(max_workers=24) as executor:
             futures = [executor.submit(_load_single, s) for s in symbols]
             for future in as_completed(futures):
-                s, parsed_spd = future.result()
+                s, parsed_spd, is_stale = future.result()
                 if parsed_spd is not None:
-                    disk_results[s] = parsed_spd
+                    cached_fallback_map[s] = parsed_spd
+                    if not is_stale:
+                        disk_results[s] = parsed_spd
+                    else:
+                        missing_or_stale_syms.append(s)
                 else:
-                    missing_syms.append(s)
+                    missing_or_stale_syms.append(s)
 
-        if missing_syms and len(disk_results) < int(len(symbols) * 0.85):
-            logger.info(f"⚡ [MULTIBAGGER DATA ACQUISITION] {len(disk_results)}/{len(symbols)} fresh stocks loaded from cache. Fetching missing delta for {len(missing_syms)} ticker(s)...")
+        if missing_or_stale_syms:
+            logger.info(f"⚡ [MULTIBAGGER DATA ACQUISITION] {len(disk_results)}/{len(symbols)} fresh stocks loaded from cache. Fetching missing/stale delta for {len(missing_or_stale_syms)} ticker(s)...")
             try:
-                missing_dict = fetch_unified_historical(missing_syms, interval="1d", period="1y", requester="multibagger")
+                missing_dict = fetch_unified_historical(missing_or_stale_syms, interval="1d", period="1y", requester="multibagger")
                 if missing_dict:
                     for ms, m_df in missing_dict.items():
                         if m_df is not None and not m_df.empty:
                             m_spd = _parse_single_symbol_price_data(ms, m_df, ist_now, strip_forming=False)
-                            if m_spd is not None and not _is_stale_trade_date(getattr(m_spd, 'last_trade_date', '')):
+                            if m_spd is not None:
                                 disk_results[ms] = m_spd
             except Exception as _m_err:
                 logger.warning(f"Failed to batch fetch missing symbols in multibagger: {_m_err}")
-        elif missing_syms:
-            logger.info(f"⚡ [MULTIBAGGER DATA ACQUISITION] {len(disk_results)}/{len(symbols)} (>= 85%) fresh stocks verified in cache. Skipping missing {len(missing_syms)} unresolvable/delisted ticker(s).")
+
+        # For any symbols that could not be updated with live delta, preserve cached fallback data
+        for s in symbols:
+            if s not in disk_results and s in cached_fallback_map:
+                disk_results[s] = cached_fallback_map[s]
 
         from market_utils import get_expected_latest_closed_daily_bar
         expected_closed_date = str(get_expected_latest_closed_daily_bar())
-        stale_remaining = len(symbols) - len(disk_results)
+        fresh_count = sum(1 for spd in disk_results.values() if not _is_stale_trade_date(getattr(spd, 'last_trade_date', '')))
+        stale_remaining = len(symbols) - fresh_count
         logger.info(
             f"\n================================================================================\n"
             f"📊 [MARKET DATA ACQUISITION & FRESHNESS AUDIT]\n"
             f"================================================================================\n"
             f"  • EXPECTED CLOSED DATE          : {expected_closed_date}\n"
             f"  • TOTAL UNIVERSE CONSTITUENTS   : {len(symbols)}\n"
-            f"  • SYMBOLS REQUIRING REFRESH     : {len(missing_syms)}\n"
-            f"  • FRESH AFTER MERGE             : {len(disk_results)}\n"
+            f"  • SYMBOLS REQUIRING REFRESH     : {len(missing_or_stale_syms)}\n"
+            f"  • FRESH AFTER MERGE             : {fresh_count}\n"
             f"  • STALE AFTER ALL FALLBACKS     : {stale_remaining}\n"
             f"  • SYNTHETIC ACCEPTED            : 0\n"
             f"================================================================================\n"
         )
 
-        if len(disk_results) >= int(len(symbols) * 0.85):
-            logger.info(f"⚡ [MULTIBAGGER DATA ACQUISITION] Successfully acquired {len(disk_results)}/{len(symbols)} verified fresh StockPriceData objects (Market Closed).")
+        if len(disk_results) > 0:
+            logger.info(f"⚡ [MULTIBAGGER DATA ACQUISITION] Successfully acquired {len(disk_results)}/{len(symbols)} StockPriceData objects ({fresh_count} fresh, {stale_remaining} cached/stale).")
             return disk_results
 
     BATCH_SIZE = int(os.environ.get("MULTIBAGGER_FETCH_BATCH_SIZE", "200"))
@@ -4134,7 +4144,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         contract = ScannerExecutionContract("MULTIBAGGER", total_symbols=len(symbols))
         # Identify symbols requested but not successfully resolved into price_data_map
         missing_syms = [s for s in symbols if s not in price_data_map or price_data_map[s] is None]
-        contract.complete(missing_symbols=missing_syms, processed_count=len(results))
+        contract.complete(missing_symbols=missing_syms, processed_count=len(price_data_map))
     except Exception as contract_err:
         logger.warning(f"ScannerExecutionContract completion warning: {contract_err}")
         missing_syms = [s for s in symbols if s not in price_data_map or price_data_map[s] is None]

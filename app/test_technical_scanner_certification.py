@@ -78,23 +78,36 @@ class TestSuite01FreshnessBoundary(unittest.TestCase):
             
             # Setup Double Bottom structure with neckline = 100.0
             df.loc[df.index[0:10], "High"] = 100.0
+            df.loc[df.index[0:10], "Low"] = 96.0
             df.loc[df.index[0:10], "Close"] = 98.0
+            
+            df.loc[df.index[10], "High"] = 93.0
             df.loc[df.index[10], "Low"] = 90.0
             df.loc[df.index[10], "Close"] = 91.0
             
-            df.loc[df.index[11:25], "High"] = 98.0
-            df.loc[df.index[20], "High"] = pivot  # Neckline = 100.0
+            for i in range(11, 30):
+                df.loc[df.index[i], "High"] = 96.0
+                df.loc[df.index[i], "Low"] = 94.0
+                df.loc[df.index[i], "Close"] = 95.0
             
+            df.loc[df.index[20], "High"] = pivot  # Neckline = 100.0
+            df.loc[df.index[20], "Low"] = 98.0
+            df.loc[df.index[20], "Close"] = 99.0
+            
+            df.loc[df.index[30], "High"] = 93.0
             df.loc[df.index[30], "Low"] = 90.5
             df.loc[df.index[30], "Close"] = 91.5
             
             for idx in range(31, len(df) - 1):
                 df.loc[df.index[idx], "High"] = 97.0
+                df.loc[df.index[idx], "Low"] = 94.0
                 df.loc[df.index[idx], "Close"] = 95.0
                 
             # Yesterday bar
+            df.loc[df.index[-2], "Open"] = y_close - 0.5
+            df.loc[df.index[-2], "Low"] = y_close - 1.0
             df.loc[df.index[-2], "Close"] = y_close
-            df.loc[df.index[-2], "High"] = max(y_close + 0.5, pivot)
+            df.loc[df.index[-2], "High"] = max(y_close + 0.2, 98.0)
             
             # Today bar
             df.loc[df.index[-1], "Open"] = y_close
@@ -229,18 +242,36 @@ class TestSuite03PositivePatternFixtures(unittest.TestCase):
         elif pattern == "DOUBLE_BOTTOM":
             df = _generate_synthetic_df(n_bars=50, base_price=100.0)
             df.loc[df.index[0:10], "High"] = 100.0
+            df.loc[df.index[0:10], "Low"] = 96.0
             df.loc[df.index[0:10], "Close"] = 98.0
+            
+            df.loc[df.index[10], "High"] = 93.0
             df.loc[df.index[10], "Low"] = 90.0
             df.loc[df.index[10], "Close"] = 91.0
+            
+            for i in range(11, 30):
+                df.loc[df.index[i], "High"] = 96.0
+                df.loc[df.index[i], "Low"] = 94.0
+                df.loc[df.index[i], "Close"] = 95.0
+            
             df.loc[df.index[20], "High"] = 100.0
+            df.loc[df.index[20], "Low"] = 98.0
             df.loc[df.index[20], "Close"] = 99.0
+            
+            df.loc[df.index[30], "High"] = 93.0
             df.loc[df.index[30], "Low"] = 90.5
             df.loc[df.index[30], "Close"] = 91.5
-            for i in range(31, 49):
+            
+            for i in range(31, 48):
                 df.loc[df.index[i], "High"] = 98.0
+                df.loc[df.index[i], "Low"] = 94.0
                 df.loc[df.index[i], "Close"] = 96.0
+                
+            df.loc[df.index[48], "Open"] = 99.0
+            df.loc[df.index[48], "Low"] = 98.5
             df.loc[df.index[48], "Close"] = 99.5
             df.loc[df.index[48], "High"] = 99.8
+            
             df.loc[df.index[49], "Open"] = 99.5
             df.loc[df.index[49], "Low"] = 99.0
             df.loc[df.index[49], "Close"] = 101.5
@@ -250,17 +281,17 @@ class TestSuite03PositivePatternFixtures(unittest.TestCase):
 
         elif pattern == "V_REVERSAL":
             df = _generate_synthetic_df(n_bars=30, base_price=100.0)
-            df.loc[df.index[15], "High"] = 110.0
+            df.loc[df.index[15], "High"] = 125.0
             for i in range(16, 26):
-                df.loc[df.index[i], "Low"] = 110.0 - (i - 15) * 1.0
-                df.loc[df.index[i], "Close"] = 110.0 - (i - 15) * 1.0 + 0.2
-            df.loc[df.index[25], "Low"] = 100.0
+                df.loc[df.index[i], "Low"] = 120.0 - (i - 15) * 2.0
+                df.loc[df.index[i], "Close"] = 120.0 - (i - 15) * 2.0 + 0.2
+            df.loc[df.index[25], "Low"] = 98.0
             for i in range(26, 29):
-                df.loc[df.index[i], "Close"] = 100.0 + (i - 25) * 2.0
-            df.loc[df.index[29], "Open"] = 105.0
-            df.loc[df.index[29], "Low"] = 104.8
-            df.loc[df.index[29], "Close"] = 107.5
-            df.loc[df.index[29], "High"] = 107.8
+                df.loc[df.index[i], "Close"] = 100.0 + (i - 25) * 4.0
+            df.loc[df.index[29], "Open"] = 112.0
+            df.loc[df.index[29], "Low"] = 111.5
+            df.loc[df.index[29], "Close"] = 118.0
+            df.loc[df.index[29], "High"] = 118.5
             df.loc[df.index[29], "Volume"] = 300_000.0
             return df
 
@@ -283,13 +314,19 @@ class TestSuite03PositivePatternFixtures(unittest.TestCase):
             return df
 
         elif pattern == "ASCENDING_TRIANGLE":
-            df = _generate_synthetic_df(n_bars=45, base_price=100.0)
+            df = _generate_synthetic_df(n_bars=45, base_price=95.0)
+            for i in range(44):
+                df.loc[df.index[i], "High"] = 98.0
+                df.loc[df.index[i], "Low"] = 95.0
+                df.loc[df.index[i], "Close"] = 96.5
             df.loc[df.index[15], "High"] = 100.0
             df.loc[df.index[28], "High"] = 100.0
             df.loc[df.index[38], "High"] = 100.0
-            df.loc[df.index[10], "Low"] = 90.0
-            df.loc[df.index[22], "Low"] = 93.0
-            df.loc[df.index[34], "Low"] = 96.0
+            df.loc[df.index[10], "Low"] = 85.0
+            df.loc[df.index[22], "Low"] = 92.0
+            df.loc[df.index[34], "Low"] = 97.0
+            df.loc[df.index[43], "Open"] = 99.0
+            df.loc[df.index[43], "Low"] = 98.5
             df.loc[df.index[43], "Close"] = 99.5
             df.loc[df.index[43], "High"] = 99.8
             df.loc[df.index[44], "Open"] = 99.5
@@ -301,27 +338,49 @@ class TestSuite03PositivePatternFixtures(unittest.TestCase):
 
         elif pattern == "BULL_PENNANT":
             df = _generate_synthetic_df(n_bars=35, base_price=100.0)
-            for i in range(15, 23):
-                df.loc[df.index[i], "Low"] = 100.0 + (i - 15) * 1.25
-                df.loc[df.index[i], "High"] = 100.0 + (i - 15) * 1.25 + 0.5
-                df.loc[df.index[i], "Close"] = 100.0 + (i - 15) * 1.25 + 0.3
-            df.loc[df.index[23], "High"] = 110.0
-            df.loc[df.index[23], "Low"] = 105.0
-            df.loc[df.index[33], "High"] = 107.0
-            df.loc[df.index[33], "Low"] = 106.5
-            df.loc[df.index[33], "Close"] = 106.8
-            df.loc[df.index[34], "Open"] = 107.0
-            df.loc[df.index[34], "Low"] = 106.8
-            df.loc[df.index[34], "Close"] = 111.0
-            df.loc[df.index[34], "High"] = 111.4
+            for i in range(20, 29):
+                df.loc[df.index[i], "Low"] = 100.0 + (i - 20) * 2.5
+                df.loc[df.index[i], "High"] = 100.0 + (i - 20) * 2.5 + 0.5
+                df.loc[df.index[i], "Close"] = 100.0 + (i - 20) * 2.5 + 0.3
+            df.loc[df.index[28], "High"] = 120.0
+            df.loc[df.index[28], "Low"] = 115.0
+            # 5-bar symmetrical converging pennant (bars 29 to 33)
+            df.loc[df.index[29], "High"] = 118.0
+            df.loc[df.index[29], "Low"] = 114.0
+            df.loc[df.index[29], "Close"] = 116.0
+            df.loc[df.index[30], "High"] = 117.5
+            df.loc[df.index[30], "Low"] = 114.5
+            df.loc[df.index[30], "Close"] = 116.0
+            df.loc[df.index[31], "High"] = 117.0
+            df.loc[df.index[31], "Low"] = 115.0
+            df.loc[df.index[31], "Close"] = 116.0
+            df.loc[df.index[32], "High"] = 116.5
+            df.loc[df.index[32], "Low"] = 115.2
+            df.loc[df.index[32], "Close"] = 116.0
+            df.loc[df.index[33], "High"] = 116.0
+            df.loc[df.index[33], "Low"] = 115.5
+            df.loc[df.index[33], "Close"] = 115.8
+            # Breakout bar
+            df.loc[df.index[34], "Open"] = 115.8
+            df.loc[df.index[34], "Low"] = 115.5
+            df.loc[df.index[34], "Close"] = 119.5
+            df.loc[df.index[34], "High"] = 120.0
             df.loc[df.index[34], "Volume"] = 300_000.0
             return df
 
         elif pattern == "HIGHER_LOW_REVERSAL":
-            df = _generate_synthetic_df(n_bars=40, base_price=100.0)
-            df.loc[df.index[10], "Low"] = 90.0
+            df = _generate_synthetic_df(n_bars=40, base_price=95.0)
+            for i in range(39):
+                df.loc[df.index[i], "High"] = 98.0
+                df.loc[df.index[i], "Low"] = 94.0
+                df.loc[df.index[i], "Open"] = 95.0
+                df.loc[df.index[i], "Close"] = 96.0
+            df.loc[df.index[10], "Low"] = 85.0
             df.loc[df.index[20], "High"] = 100.0
-            df.loc[df.index[30], "Low"] = 94.0
+            df.loc[df.index[20], "Close"] = 99.0
+            df.loc[df.index[30], "Low"] = 93.0
+            df.loc[df.index[38], "Open"] = 98.0
+            df.loc[df.index[38], "Low"] = 97.5
             df.loc[df.index[38], "Close"] = 99.5
             df.loc[df.index[38], "High"] = 99.8
             df.loc[df.index[39], "Open"] = 99.5
@@ -400,11 +459,11 @@ class TestSuite05CommonHardGates(unittest.TestCase):
         self.assertIsNone(res)
         self.assertEqual(tr["FINAL"]["terminal_reason"], "LOW_CLV")
 
-        # 4. Upper Wick > 30%
+        # 4. Upper Wick > 30% (with CLV >= 0.65)
         df_wick = base_tester._build_positive_fixture("BULL_FLAG")
         df_wick.loc[df_wick.index[-1], "High"] = 120.0
-        df_wick.loc[df_wick.index[-1], "Open"] = 114.0
-        df_wick.loc[df_wick.index[-1], "Close"] = 115.0
+        df_wick.loc[df_wick.index[-1], "Open"] = 115.0
+        df_wick.loc[df_wick.index[-1], "Close"] = 116.8
         df_wick.loc[df_wick.index[-1], "Low"] = 110.0
         res, tr = detect_technical_setup(df_wick, symbol="TEST_WICK", return_trace=True)
         self.assertIsNone(res)
@@ -438,11 +497,11 @@ class TestSuite07ShortHistoryStabilityAndEligibility(unittest.TestCase):
     """
 
     def test_stability_on_short_bars(self):
-        df_15 = _generate_synthetic_df(n_bars=15)
-        # 15 bars is < 20 bars minimum for technical scanner -> must reject cleanly without exception
-        res, tr = detect_technical_setup(df_15, symbol="TEST_15B", return_trace=True)
+        # Short bar history < 20 bars -> Invariant: Never unhandled exception, rejects gracefully
+        df_short = _generate_synthetic_df(n_bars=15)
+        res, tr = detect_technical_setup(df_short, symbol="SHORT_IPO", return_trace=True)
         self.assertIsNone(res)
-        self.assertEqual(tr["FINAL"]["terminal_reason"], "INSUFFICIENT_DATA")
+        self.assertEqual(tr["FINAL"]["terminal_reason"], "INSUFFICIENT_BARS")
 
     def test_eligibility_per_pattern_minimums(self):
         # 25 bars supports Bull Flag

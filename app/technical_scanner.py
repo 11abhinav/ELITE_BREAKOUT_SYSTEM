@@ -256,7 +256,7 @@ def _detect_bull_flag(df: pd.DataFrame, atr14: Optional[float] = None) -> Option
         # Fresh Breakout Timing: Must break above flag resistance today without having closed far above it yesterday
         if c_today < flag_resistance * 1.001:
             continue
-        if c_yesterday > flag_resistance * 1.005:
+        if c_yesterday > (flag_resistance * 1.005 + 1e-4):
             continue
 
         for pole_len in range(3, 11):
@@ -356,7 +356,7 @@ def _detect_shakeout_reclaim(df: pd.DataFrame, atr14: Optional[float] = None) ->
     l_prev = _safe_float(lows[prev_idx])
     v_today = _safe_float(volumes[today_idx])
 
-    if c_today <= o_today or c_today <= c_prev:
+    if c_today <= o_today or c_today <= c_prev or c_prev > o_prev:
         return None
 
     if atr14 is None or atr14 <= 0:
@@ -500,9 +500,9 @@ def _detect_double_bottom(df: pd.DataFrame, atr14: Optional[float] = None) -> Op
                 continue
 
             # Invariant 5: Fresh Breakout Timing Gate (Today is first breakout day)
-            if c_today < neckline_val * 1.002:
+            if c_today < (neckline_val * 1.002 - 1e-4):
                 continue
-            if c_yesterday > neckline_val * 1.005:
+            if c_yesterday > (neckline_val * 1.005 + 1e-4):
                 continue
 
             sl_level = round(max(l2_val * 0.995, neckline_val * 0.96), 2)
@@ -614,10 +614,16 @@ def _detect_cup_and_handle(df: pd.DataFrame, atr14: Optional[float] = None) -> O
         handle_low = float(np.min(lows[rim_idx: today_idx]))
         rim_high = float(highs[rim_idx])
 
-        for cup_len in range(15, min(50, rim_idx)):
+        for cup_len in range(20, min(50, rim_idx)):
             left_rim_idx = rim_idx - cup_len
             left_rim_high = float(np.max(highs[left_rim_idx: left_rim_idx + 4]))
-            cup_bottom = float(np.min(lows[left_rim_idx: rim_idx]))
+
+            cup_low_slice = lows[left_rim_idx: rim_idx]
+            cup_bottom_rel_idx = int(np.argmin(cup_low_slice))
+            if cup_bottom_rel_idx < 2 or cup_bottom_rel_idx > len(cup_low_slice) - 3:
+                continue
+
+            cup_bottom = float(np.min(cup_low_slice))
 
             rim_diff = abs(left_rim_high - rim_high) / min(left_rim_high, rim_high) * 100.0
             if rim_diff > 3.5:
@@ -633,7 +639,7 @@ def _detect_cup_and_handle(df: pd.DataFrame, atr14: Optional[float] = None) -> O
                 continue
 
             # Fresh Breakout timing (first breakout day above rim)
-            if c_today >= rim_high * 1.002 and c_yesterday <= rim_high * 1.005:
+            if c_today >= (rim_high * 1.002 - 1e-4) and c_yesterday <= (rim_high * 1.005 + 1e-4):
                 sl_level = round(handle_low * 0.995, 2)
                 measured_target = rim_high + cup_depth
                 return {
@@ -694,7 +700,7 @@ def _detect_ascending_triangle(df: pd.DataFrame, atr14: Optional[float] = None) 
     if not is_ascending:
         return None
 
-    if c_today >= res_level * 1.002 and c_yesterday <= res_level * 1.005:
+    if c_today >= (res_level * 1.002 - 1e-4) and c_yesterday <= (res_level * 1.005 + 1e-4):
         last_low = trough_vals[-1]
         sl_level = round(last_low * 0.995, 2)
         measured_target = res_level + (res_level - trough_vals[0])
@@ -745,9 +751,9 @@ def _detect_bull_pennant(df: pd.DataFrame, atr14: Optional[float] = None) -> Opt
         p_highs = highs[pole_end: today_idx]
         p_lows = lows[pole_end: today_idx]
 
-        if len(p_highs) >= 3 and p_highs[-1] <= p_highs[0] and p_lows[-1] >= p_lows[0]:
+        if len(p_highs) >= 3 and p_highs[-1] < (p_highs[0] * 0.995) and p_lows[-1] > (p_lows[0] * 1.005):
             pennant_top = float(np.max(p_highs))
-            if c_today >= pennant_top * 1.002 and c_yesterday <= pennant_top * 1.005:
+            if c_today >= (pennant_top * 1.002 - 1e-4) and c_yesterday <= (pennant_top * 1.005 + 1e-4):
                 sl_level = round(float(np.min(p_lows)) * 0.995, 2)
                 pole_move = pole_high - pole_low
                 pre_highs = highs[max(0, pole_start - 30): pole_start]
@@ -805,7 +811,7 @@ def _detect_higher_low_reversal(df: pd.DataFrame, atr14: Optional[float] = None)
     else:
         h1_val = float(sub_highs[valid_peaks[-1]])
 
-    if c_today >= h1_val * 1.002 and c_yesterday <= h1_val * 1.005:
+    if c_today >= (h1_val * 1.002 - 1e-4) and c_yesterday <= (h1_val * 1.005 + 1e-4):
         sl_level = round(float(sub_lows[l2_idx]) * 0.995, 2)
         overhead_high = float(np.max(sub_highs))
         target_res = overhead_high if overhead_high > c_today * 1.02 else (c_today * 1.15)
@@ -931,6 +937,7 @@ def detect_technical_setup(
             "status": "PASS",
             "reason": "eligible_watchlist_symbol"
         },
+        "01_DATA_VALIDATION": {},
         "02_COMMON_GATES": {
             "status": "PENDING",
             "rejection_code": None,
@@ -1184,12 +1191,12 @@ def detect_technical_setup(
     PATTERN_PRIORITY_RANK = {
         "BULL_FLAG": 1,
         "DOUBLE_BOTTOM": 2,
-        "CUP_HANDLE": 3,
-        "ASCENDING_TRIANGLE": 4,
-        "BULL_PENNANT": 5,
-        "SHAKEOUT_RECLAIM": 6,
-        "V_REVERSAL": 7,
-        "HIGHER_LOW_REVERSAL": 8,
+        "ASCENDING_TRIANGLE": 3,
+        "BULL_PENNANT": 4,
+        "CUP_HANDLE": 5,
+        "HIGHER_LOW_REVERSAL": 6,
+        "SHAKEOUT_RECLAIM": 7,
+        "V_REVERSAL": 8,
     }
 
     candidate_patterns.sort(key=lambda p: (
