@@ -557,13 +557,18 @@ class MasterOrchestratorV2:
                 for sym in symbol_to_canonical:
                     lookup_status[sym] = "LOOKUP_FAILED"
 
-        # [RULE 67 CHANGE-RATIONALE]: Preload full fundamentals cache in memory once before the loop.
-        # Calling get_fundamentals(sym) individually inside a 100-item loop was causing 100+ redundant
-        # disk/DB calls and took 11.2 seconds. This bulk preload reduces runtime to < 200ms.
+        # [RULE 67 CHANGE-RATIONALE]: Non-blocking in-memory fundamentals resolution.
+        # Avoids calling load_cache() which downloaded multi-megabyte binary blobs from Postgres during HTTP requests.
         all_funds = {}
         try:
-            from fundamentals_cache import load_cache as load_fund_cache
-            all_funds = load_fund_cache() or {}
+            from fundamentals_cache import _IN_MEMORY_FUNDAMENTALS_CACHE
+            if _IN_MEMORY_FUNDAMENTALS_CACHE and isinstance(_IN_MEMORY_FUNDAMENTALS_CACHE, dict):
+                all_funds = _IN_MEMORY_FUNDAMENTALS_CACHE
+            else:
+                from data_registry import registry
+                reg_funds = registry.get("fundamentals_cache")
+                if isinstance(reg_funds, dict):
+                    all_funds = reg_funds
         except Exception:
             all_funds = {}
 
