@@ -192,25 +192,26 @@ class MasterOrchestratorV2:
 
     def get_trusted_cmp_details(self, symbol: str, fallback_price: Optional[float] = None) -> Dict[str, Any]:
         """
-        [VERSION: CMP_CENTRAL_RESOLVER_DETAILS_v1.1] [RULE 67 CHANGE-RATIONALE]
-        Central CMP resolver for security price semantics across all screens.
-        Queries price_cache.get_cached_price_details for live ticks or daily cache.
-        Uses fallback_price (DB entry/last_seen) if price_cache returns None.
+        [VERSION: CMP_CENTRAL_RESOLVER_DETAILS_v1.2] [RULE 67 CHANGE-RATIONALE]
+        Central non-blocking CMP resolver for security price semantics across all dashboard screens.
+        Uses RAM-only live quote check and DB-recorded fallback prices. Eliminates synchronous
+        Parquet file disk reads which caused 37+ second stalls when evaluating 150 alerts.
         """
+        # 1. Non-blocking RAM live prices cache check (< 1µs)
         try:
-            from price_cache import get_cached_price_details
-            price, source, is_live, timestamp = get_cached_price_details(symbol)
-            if price is not None and price > 0:
+            from live_prices import get_cached_live_price
+            price = get_cached_live_price(symbol)
+            if price is not None and float(price) > 0:
                 return {
-                    "cmp": round(price, 2),
-                    "cmp_source": source,
-                    "cmp_is_live": is_live,
-                    "cmp_timestamp": timestamp
+                    "cmp": round(float(price), 2),
+                    "cmp_source": "LIVE_RAM_TICK",
+                    "cmp_is_live": True,
+                    "cmp_timestamp": datetime.now().isoformat()
                 }
-        except Exception as e:
-            logger.debug(f"CMP lookup error via price_cache for {symbol}: {e}")
+        except Exception:
+            pass
 
-        # Utilize provided fallback_price if price_cache returns None
+        # 2. Utilize provided fallback_price (from DB row alerts/candidates)
         if fallback_price is not None:
             try:
                 fb = float(fallback_price)
@@ -223,6 +224,22 @@ class MasterOrchestratorV2:
                     }
             except (ValueError, TypeError):
                 pass
+
+        # 3. Check fast RAM CMP memo without triggering disk I/O
+        try:
+            from price_cache import _FAST_CMP_MEMO
+            clean_s = str(symbol).split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "")
+            if clean_s in _FAST_CMP_MEMO:
+                m = _FAST_CMP_MEMO[clean_s]
+                if m[0] is not None and float(m[0]) > 0:
+                    return {
+                        "cmp": round(float(m[0]), 2),
+                        "cmp_source": m[1],
+                        "cmp_is_live": m[2],
+                        "cmp_timestamp": m[3]
+                    }
+        except Exception:
+            pass
 
         return {
             "cmp": None,
