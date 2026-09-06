@@ -711,22 +711,22 @@ DATA_PROVIDER = os.getenv("DATA_PROVIDER", "fyers")  # fyers, yfinance, or kite
 ROUTING_POLICY_VERSION = 2
 
 PROVIDER_ROUTING_POLICY = {
-    "price_1d":  ["fyers", "upstox"],
-    "price_1wk": ["fyers", "upstox"],
-    "price_1mo": ["fyers", "upstox"],
+    "price_1d":  ["fyers", "upstox", "yfinance"],
+    "price_1wk": ["fyers", "upstox", "yfinance"],
+    "price_1mo": ["fyers", "upstox", "yfinance"],
 
-    "price_1h":  ["fyers", "upstox"],
-    "price_30m": ["fyers", "upstox"],
-    "price_15m": ["fyers", "upstox"],
-    "price_5m":  ["fyers", "upstox"],
-    "price_1m":  ["fyers", "upstox"],
+    "price_1h":  ["fyers", "upstox", "yfinance"],
+    "price_30m": ["fyers", "upstox", "yfinance"],
+    "price_15m": ["fyers", "upstox", "yfinance"],
+    "price_5m":  ["fyers", "upstox", "yfinance"],
+    "price_1m":  ["fyers", "upstox", "yfinance"],
 
     # Fyers & Upstox for live quotes
     "live_quotes": ["fyers", "upstox"],
 
     "bhavcopy_delivery": ["nse_bhavcopy", "bse_bhavcopy"],
     "promoter_pledge":   ["bse_corporate", "nse_corporate"],
-    "default": ["fyers", "upstox"]
+    "default": ["fyers", "upstox", "yfinance"]
 }
 
 PROVIDER_CAPABILITIES = {

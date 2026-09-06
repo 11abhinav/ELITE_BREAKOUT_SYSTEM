@@ -4132,9 +4132,10 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
     # by save_alert_if_new (e.g., duplicate alert within lookback window).
     alerts_count = sum(1 for r in results if getattr(r, 'alert_inserted', False))
     duration_sec = round(time.time() - start_time, 1)
+    resolved_price_count = len(price_data_map) if 'price_data_map' in locals() else len(results)
 
     if run_ctx:
-        run_ctx.processed_count = len(results)
+        run_ctx.processed_count = resolved_price_count
         run_ctx.alerts_generated = alerts_count
 
     # [VERSION: SCANNER_CONTRACT_v1.0] Enforce explicit ScannerExecutionContract
@@ -4144,26 +4145,26 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         contract = ScannerExecutionContract("MULTIBAGGER", total_symbols=len(symbols))
         # Identify symbols requested but not successfully resolved into price_data_map
         missing_syms = [s for s in symbols if s not in price_data_map or price_data_map[s] is None]
-        contract.complete(missing_symbols=missing_syms, processed_count=len(price_data_map))
+        contract.complete(missing_symbols=missing_syms, processed_count=resolved_price_count)
     except Exception as contract_err:
         logger.warning(f"ScannerExecutionContract completion warning: {contract_err}")
         missing_syms = [s for s in symbols if s not in price_data_map or price_data_map[s] is None]
-        stale_count = sum(1 for r in results if r.status == "STALE_DATA")
-        is_healthy = (len(results) / len(symbols) >= 0.85) if len(symbols) > 0 else True
+        stale_count = sum(1 for r in results if getattr(r, 'status', None) == "STALE_DATA")
+        is_healthy = (resolved_price_count / len(symbols) >= 0.85) if len(symbols) > 0 else True
         upsert_scanner_health(
             scanner_name="MULTIBAGGER",
             status="OK" if is_healthy else "DOWN",
             last_success=datetime.now(IST).isoformat() if is_healthy else None,
             today_alerts=alerts_count,
             error_msg=None if is_healthy else f"Required data missing for {len(missing_syms)} symbols: {missing_syms[:5]}",
-            processed_count=len(results),
+            processed_count=resolved_price_count,
             total_count=len(symbols),
             outcome="SUCCESS" if is_healthy else "FAILED",
             scheduled_for="Daily 17:30 IST (Daily Fundamental)",
             duration_seconds=duration_sec,
             provider_stats={
-                "SUCCESS": len(price_data_map) if 'price_data_map' in locals() else 0,
-                "NOT_FOUND": (len(symbols) - len(price_data_map)) if 'price_data_map' in locals() else 0,
+                "SUCCESS": resolved_price_count,
+                "NOT_FOUND": (len(symbols) - resolved_price_count),
                 "STALE": stale_count
             }
         )
@@ -4173,7 +4174,7 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
 
     # Store counts before deleting variables
     total_count = len(symbols) if 'symbols' in locals() else 0
-    processed_count = len(results) if 'results' in locals() else 0
+    processed_count = resolved_price_count
 
     try:
         import os, psutil, gc
