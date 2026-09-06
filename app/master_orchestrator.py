@@ -419,11 +419,11 @@ class MasterOrchestratorV2:
             sc_name = str(item.get("scanner") or "ACCUMULATION").upper()
             stage_raw = str(item.get("stage") or "WATCH").upper()
 
-            # Dynamic CMP resolution via price cache
+            # Dynamic CMP resolution via non-blocking RAM live prices cache
             cmp_val = item.get("cmp")
             try:
-                from price_cache import get_cached_price
-                cp = get_cached_price(sym)
+                from live_prices import get_cached_live_price
+                cp = get_cached_live_price(sym)
                 if cp and float(cp) > 0:
                     cmp_val = float(cp)
                     item["cmp"] = round(cmp_val, 2)
@@ -604,8 +604,8 @@ class MasterOrchestratorV2:
             cmp_val = fund_data.get("cmp") if fund_data else (item.get("cmp") or f.get("price") or f.get("cmp"))
             if not cmp_val or float(cmp_val) <= 0:
                 try:
-                    from price_cache import get_cached_price
-                    cp = get_cached_price(sym)
+                    from live_prices import get_cached_live_price
+                    cp = get_cached_live_price(sym) or get_cached_live_price(canon)
                     if cp and float(cp) > 0:
                         cmp_val = float(cp)
                 except Exception:
