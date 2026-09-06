@@ -725,6 +725,7 @@ function playDing() {
                 <tr>
                   <th style="width:36px; text-align:center;"><input type="checkbox" id="user-wl-select-all" onclick="toggleSelectAllUserWatchlist(this)" title="Select All / Deselect All" style="cursor:pointer; width:16px; height:16px;"></th>
                   <th>Symbol</th>
+                  <th style="text-align:right;">CMP</th>
                   <th style="text-align:center;">FM Score</th>
                   <th style="text-align:center;">Status</th>
                   <th style="text-align:center;">Added</th>
@@ -733,7 +734,7 @@ function playDing() {
                 </tr>
               </thead>
               <tbody id="user-watchlist-tbody">
-                <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">Loading watchlist...</td></tr>
+                <tr><td colspan="8" style="text-align:center;color:var(--muted);padding:18px;">Loading watchlist...</td></tr>
               </tbody>
             </table>
           </div>
@@ -4382,13 +4383,18 @@ function loadUserWatchlist(force = false) {
     .catch(err => console.warn('Failed to load user watchlist:', err));
 }
 
+function openInTradingView(symbol) {
+  const clean = (symbol || '').replace('.NS', '').replace('.BO', '');
+  window.open('https://in.tradingview.com/chart/?symbol=NSE:' + encodeURIComponent(clean), '_blank');
+}
+
 function _renderUserWatchlistTable() {
   const tbody = document.getElementById('user-watchlist-tbody');
   if (!tbody) return;
 
   const items = _userWlData || [];
   if (items.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--muted); padding:20px;">No stocks saved in your watchlist yet. Search any ticker above and click "Add to Watchlist".</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--muted); padding:20px;">No stocks saved in your watchlist yet. Search any ticker above and click "Add to Watchlist".</td></tr>`;
     return;
   }
 
@@ -4406,16 +4412,46 @@ function _renderUserWatchlistTable() {
     } else if (st.includes('PROCESSED')) {
       statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${item.symbol}')" title="Analysis Processed cleanly. Click to view breakdown.">✓ PROCESSED</span>`;
     } else if (st.includes('CORE MET')) {
-      statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px;">🔍 MONITORING</span>`;
+      statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.45); display:inline-flex; align-items:center; gap:4px;">⚡ CORE MET</span>`;
+    } else if (st.includes('QUALIFIED')) {
+      statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); display:inline-flex; align-items:center; gap:4px;">✓ ${item.last_status}</span>`;
+    } else if (st.includes('ALERT')) {
+      statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(217,119,6,0.2); color:#d97706; border:1px solid rgba(217,119,6,0.4); display:inline-flex; align-items:center; gap:4px;">🚨 ${item.last_status}</span>`;
+    } else {
+      statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px;">🔍 ${item.last_status || 'MONITORING'}</span>`;
     }
 
+    const cmp = item.cmp;
+    const cmpText = (cmp != null && !isNaN(cmp) && Number(cmp) > 0)
+      ? `<span style="font-family:var(--font-mono); font-weight:700; color:var(--accent); font-size:13px;">₹${Number(cmp).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2})}</span>`
+      : `<span style="color:var(--muted); font-size:12px;">—</span>`;
+
+    const scoreVal = item.last_health_score ?? item.health_score ?? item.fm_score;
+    const scoreText = (scoreVal !== null && scoreVal !== undefined && !isNaN(scoreVal) && Number(scoreVal) > 0)
+      ? Number(scoreVal).toFixed(1)
+      : '—';
+
+    const lastScanVal = item.last_deep_analysis_at || item.last_scanned_at || item.last_scanned;
+
     return `<tr>
-      <td>${item.symbol}${typeof renderEventBadges === 'function' ? renderEventBadges(item.event_badges) : ''}</td>
-      <td style="text-align:center;">${item.health_score || '—'}</td>
+      <td style="text-align:center;">
+        <input type="checkbox" class="user-wl-checkbox" value="${item.symbol}" onchange="updateUserWatchlistBatchBar()" style="cursor:pointer; width:16px; height:16px;">
+      </td>
+      <td class="font-bold">
+        <a href="#" onclick="openInTradingView('${item.symbol}'); return false;"
+           style="color:var(--accent); font-family:var(--font-mono); font-weight:800; font-size:13px; text-decoration:none;"
+           title="Open on TradingView">${item.symbol} 📈</a>${typeof renderEventBadges === 'function' ? renderEventBadges(item.event_badges) : ''}
+        <div style="font-size:10px; color:var(--muted);">${item.company_name || item.symbol}</div>
+      </td>
+      <td style="text-align:right; white-space:nowrap;">${cmpText}</td>
+      <td class="mono font-bold" style="color:var(--text); text-align:center;">${scoreText}</td>
       <td style="text-align:center;">${statusBadge}</td>
-      <td style="text-align:center;">${formatISTDate(item.added_at)}</td>
-      <td style="text-align:center;">${formatISTDate(item.last_scanned)}</td>
-      <td style="text-align:center;"><button class="refresh-btn" onclick="triggerStockDiagnosticBySymbol('${item.symbol}')">🔍 Diagnose</button></td>
+      <td style="font-size:11px; color:var(--muted); text-align:center;">${formatISTDate(item.added_at)}</td>
+      <td style="font-size:11px; color:var(--muted); font-family:var(--font-mono); text-align:center;">${formatISTDate(lastScanVal)}</td>
+      <td style="text-align:center; white-space:nowrap;">
+        <button class="refresh-btn" onclick="triggerStockDiagnosticBySymbol('${item.symbol}')" style="font-size:11px; padding:4px 8px; cursor:pointer;" title="Run 7-Stage Diagnostic">🔍 Diagnose</button>
+        <button onclick="removeFromWatchlist('${item.symbol}')" style="padding:4px 8px; background:rgba(220,38,38,0.1); color:var(--warn, #ef4444); border:1px solid rgba(220,38,38,0.2); border-radius:4px; font-weight:700; font-size:11px; cursor:pointer; margin-left:4px;" title="Remove from Watchlist">🗑️</button>
+      </td>
     </tr>`;
   }).join('');
 

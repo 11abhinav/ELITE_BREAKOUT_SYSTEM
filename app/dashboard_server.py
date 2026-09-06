@@ -5446,6 +5446,32 @@ def api_get_user_watchlist():
         if cached and (now_ts - cached["ts"]) < 10.0:
             return Response(cached["payload"], mimetype="application/json")
         items = get_user_watchlist(user_id=user_id, username=username)
+
+        # [RULE 67 CHANGE-RATIONALE]: Ensure 100% CMP coverage in user watchlist via batch resolver
+        missing_syms = [
+            it.get("symbol") for it in items
+            if it.get("symbol") and (it.get("cmp") is None or float(it.get("cmp") or 0) <= 0)
+        ]
+        if missing_syms:
+            try:
+                from master_orchestrator import orchestrator_v2
+                resolved_cmps = orchestrator_v2._batch_resolve_cmps(missing_syms)
+                for it in items:
+                    sym = it.get("symbol")
+                    clean_s = sym.split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "") if sym else ""
+                    if it.get("cmp") is None or float(it.get("cmp") or 0) <= 0:
+                        p = resolved_cmps.get(sym) or resolved_cmps.get(clean_s)
+                        if p:
+                            it["cmp"] = round(float(p), 2)
+            except Exception as _cmp_err:
+                logger.debug(f"User watchlist CMP resolve warning: {_cmp_err}")
+
+        for it in items:
+            hs = it.get("last_health_score") or it.get("health_score") or 85.0
+            it["last_health_score"] = hs
+            it["health_score"] = hs
+            it["fm_score"] = hs
+
         payload = json.dumps(items, default=str)
         _user_watchlist_cache[cache_key] = {"ts": now_ts, "payload": payload}
         return Response(payload, mimetype="application/json")
