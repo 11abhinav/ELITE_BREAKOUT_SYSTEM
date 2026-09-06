@@ -300,14 +300,13 @@ class UpstoxProvider(ProviderInterface):
         import urllib.parse
         from datetime import timedelta
         
-        try:
-            from surveillance import get_live_blacklist
-            if symbol and str(symbol).strip().upper() in get_live_blacklist():
-                start_time = datetime.now()
-                prov = DataProvenance(self.provider_name, start_time, 0.0, 0)
-                return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error="Blacklisted non-equity trust")
-        except Exception:
-            pass
+        # [VERSION: NON_EQUITY_BLOCKLIST_v2.0] Filter only known InvITs/REITs (never ASM/GSM equities)
+        _NON_EQUITY_TRUSTS = {"VERTIS", "HIGHWAYS", "POWERINVIT", "IRBINVIT", "INDIGRID", "EMBASSY", "MINDSPACE", "BROOKFIELD", "NEXUS"}
+        if symbol and str(symbol).strip().upper() in _NON_EQUITY_TRUSTS:
+            start_time = datetime.now()
+            prov = DataProvenance(self.provider_name, start_time, 0.0, 0)
+            return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error="Blacklisted non-equity trust")
+
 
         token = getattr(config, "UPSTOX_ACCESS_TOKEN", None)
         raw_key = self._get_instrument_key(symbol)

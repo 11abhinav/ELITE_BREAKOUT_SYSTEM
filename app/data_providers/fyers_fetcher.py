@@ -459,10 +459,12 @@ class FyersFetcher(DataFetcher):
             orig_sym = _ampersand_map[orig_sym]
         else:
             orig_sym = orig_sym.replace("_", "-")
+        # [VERSION: NON_EQUITY_BLOCKLIST_v2.0] Filter only known InvITs/REITs (never ASM/GSM equities)
+        _NON_EQUITY_TRUSTS = {"VERTIS", "HIGHWAYS", "POWERINVIT", "IRBINVIT", "INDIGRID", "EMBASSY", "MINDSPACE", "BROOKFIELD", "NEXUS"}
+        if orig_sym and orig_sym.upper() in _NON_EQUITY_TRUSTS:
+            return None
         try:
-            from surveillance import get_live_blacklist
-            if orig_sym and orig_sym.upper() in get_live_blacklist():
-                return None
+
             from data_providers.fyers_mapping_utils import is_fyers_invalid
             # Skip the invalid check if this symbol has a known static scrip override
             _scrip_overrides_check = {"NSDL"}  # keep in sync with _normalize_symbol overrides

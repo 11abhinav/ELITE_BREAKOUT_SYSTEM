@@ -79,17 +79,6 @@ class UnifiedFetcher:
                 except Exception as e:
                     logger.warning(f"⚠️ [Upstox] Failed to fetch historical {symbol}: {e}")
 
-            elif provider in ("yahoo", "yfinance", "bse"):
-                try:
-                    from data_provider import YFinanceFetcher
-                    yf_fetcher = YFinanceFetcher()
-                    md = yf_fetcher.get_ohlcv(symbol, interval=interval, period=period)
-                    if md is not None and getattr(md, 'dataframe', None) is not None and not md.dataframe.empty:
-                        logger.info(f"✅ [Yahoo/YFinance] Successfully fetched historical {symbol}")
-                        from trading_calendar import enforce_trading_day_candles
-                        return enforce_trading_day_candles(md.dataframe, symbol)
-                except Exception as e:
-                    logger.warning(f"⚠️ [Yahoo/YFinance] Failed to fetch historical {symbol}: {e}")
 
         logger.error(f"❌ Exhausted all providers for historical {symbol}")
         return pd.DataFrame()

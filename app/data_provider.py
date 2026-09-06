@@ -518,14 +518,13 @@ class AutoSwitchingFetcher(DataFetcher):
             mapped = []
             for p in resolved:
                 name = "upstox" if p in ("upstox",) else ("fyers" if p == "fyers" else ("yfinance" if p in ("yfinance", "yahoo") else p))
-                if name not in mapped:
+                if name not in ("yfinance", "yahoo", "bse") and name not in mapped:
                     mapped.append(name)
-            if "yfinance" not in mapped:
-                mapped.append("yfinance")
-            return mapped if mapped else ["fyers", "upstox", "yfinance"]
+            return mapped if mapped else ["fyers", "upstox"]
         except Exception as e:
             logger.warning(f"Error resolving ProviderSelector route: {e}")
-            return ["fyers", "upstox", "yfinance"]
+            return ["fyers", "upstox"]
+
 
     def _get_fetcher_by_name(self, name: str) -> DataFetcher:
         if name == "upstox":
@@ -829,25 +828,8 @@ class AutoSwitchingFetcher(DataFetcher):
                 except Exception as e:
                     logger.warning(f"⚠️ {prov_name} premium fallback batch fetch exception: {e}.")
 
-        # 2.8 YFinance / BSE Universal Fallback: Process remaining missing symbols through YFinance
-        if missing_symbols and self.yfinance_fetcher:
-            try:
-                logger.info(f"🌐 [YFINANCE UNIVERSAL FALLBACK] Dispatching {len(missing_symbols)} missing symbol(s) to YFinance batch fetcher...")
-                yf_results = self.yfinance_fetcher.get_batch_ohlcv(
-                    list(missing_symbols), interval=interval, period=period, retries=retries, range_from=range_from, range_to=range_to, caller=caller
-                )
-                if yf_results:
-                    yf_recovered = 0
-                    for s in list(missing_symbols):
-                        res = yf_results.get(s)
-                        if res and res.dataframe is not None and not res.dataframe.empty:
-                            results[s] = res
-                            missing_symbols.remove(s)
-                            yf_recovered += 1
-                    if yf_recovered > 0:
-                        logger.info(f"✅ [YFINANCE UNIVERSAL FALLBACK] Successfully recovered {yf_recovered} symbols using YFinance!")
-            except Exception as yf_err:
-                logger.warning(f"⚠️ YFinance universal fallback batch fetch exception: {yf_err}")
+        # 2.8 Universal Fallback: YFinance is strictly disabled for price candle fetching
+        # to prevent rate-limiting freezes and ensure broker-grade data integrity.
 
         for s in symbols:
             if s not in results:
