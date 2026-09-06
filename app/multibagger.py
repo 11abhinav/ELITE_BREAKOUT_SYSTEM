@@ -4105,15 +4105,16 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         logger.warning(f"ScannerExecutionContract completion warning: {contract_err}")
         missing_syms = [s for s in symbols if s not in price_data_map or price_data_map[s] is None]
         stale_count = sum(1 for r in results if r.status == "STALE_DATA")
+        is_healthy = (len(results) / len(symbols) >= 0.85) if len(symbols) > 0 else True
         upsert_scanner_health(
             scanner_name="MULTIBAGGER",
-            status="DOWN" if missing_syms else "OK",
-            last_success=datetime.now(IST).isoformat() if not missing_syms else None,
+            status="OK" if is_healthy else "DOWN",
+            last_success=datetime.now(IST).isoformat() if is_healthy else None,
             today_alerts=alerts_count,
-            error_msg=f"Required data missing for {len(missing_syms)} symbols: {missing_syms[:5]}" if missing_syms else None,
+            error_msg=None if is_healthy else f"Required data missing for {len(missing_syms)} symbols: {missing_syms[:5]}",
             processed_count=len(results),
             total_count=len(symbols),
-            outcome="SUCCESS" if not missing_syms else "FAILED",
+            outcome="SUCCESS" if is_healthy else "FAILED",
             scheduled_for="Daily 17:30 IST (Daily Fundamental)",
             duration_seconds=duration_sec,
             provider_stats={

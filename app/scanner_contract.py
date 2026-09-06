@@ -78,24 +78,26 @@ class ScannerExecutionContract:
         from database import upsert_scanner_health, get_connection
         duration = round(time.monotonic() - self.start_time, 2)
         missing = missing_symbols or []
-        
+        proc_cnt = processed_count if processed_count is not None else (self.total_symbols - len(missing))
+        coverage_pct = (proc_cnt / self.total_symbols * 100.0) if self.total_symbols > 0 else 100.0
+
         if error:
             success = False
             status = "DOWN"
             err_text = f"Unhandled Exception: {str(error)[:400]}"
-        elif missing:
+        elif coverage_pct < 85.0:
             success = False
             status = "DOWN"
             sym_list_str = ", ".join(missing[:10])
             if len(missing) > 10:
                 sym_list_str += f" (+{len(missing)-10} more)"
-            err_text = f"Required market data contract unfulfilled — {len(missing)} missing symbols: [{sym_list_str}]"
+            err_text = f"Required market data contract unfulfilled — {len(missing)}/{self.total_symbols} missing ({coverage_pct:.1f}% coverage): [{sym_list_str}]"
         else:
             success = True
             status = "OK"
             err_text = None
-
-        proc_cnt = processed_count if processed_count is not None else (self.total_symbols - len(missing))
+            if missing:
+                logger.info(f"ℹ️ [{self.scanner_name}] Scanner contract satisfied with {proc_cnt}/{self.total_symbols} symbols ({coverage_pct:.1f}% coverage, {len(missing)} missing/delisted ignored)")
 
         res = ScannerResult(
             scanner_name=self.scanner_name,
