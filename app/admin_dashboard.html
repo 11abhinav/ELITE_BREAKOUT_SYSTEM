@@ -8263,6 +8263,11 @@ function closeDiagnosticModal() {
     container.style.display = 'none';
     container.innerHTML = '';
   }
+  const modal = document.getElementById('stock-diagnostic-modal');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.innerHTML = '';
+  }
   document.body.style.overflow = '';
 }
 
