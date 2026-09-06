@@ -749,9 +749,6 @@ function playDing() {
         </div>
       </div>
 
-      <!-- FIXED OVERLAY STOCK DIAGNOSTIC MODAL CONTAINER -->
-      <div id="stock-diagnostic-main-container" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); backdrop-filter:blur(8px); z-index:100000; justify-content:center; align-items:center; padding:20px; box-sizing:border-box;"></div>
-
     </div>
     <!-- END TAB 2: ADD WATCHLIST & MANUAL LIST -->
 
@@ -891,6 +888,9 @@ function playDing() {
       </div>
       <div class="drill-body" id="drill-body"></div>
     </div>
+
+    <!-- FIXED OVERLAY STOCK DIAGNOSTIC MODAL CONTAINER (GLOBAL ROOT LEVEL) -->
+    <div id="stock-diagnostic-main-container" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); backdrop-filter:blur(8px); z-index:100000; justify-content:center; align-items:center; padding:20px; box-sizing:border-box;"></div>
 
   </div>
 </div>
@@ -1328,7 +1328,10 @@ window.renderSignalLadder = function() {
           <td style="font-family:var(--font-mono); font-size:11px; font-weight:600; padding:8px 0; border-bottom:1px solid var(--border);">${cmpStr}</td>
           <td style="padding:8px 0; border-bottom:1px solid var(--border);">${severityHtml}</td>
           <td style="color:var(--muted); font-size:11px; padding:8px 0; border-bottom:1px solid var(--border);">${lastUpd}</td>
-          <td style="text-align:right; padding:8px 0; border-bottom:1px solid var(--border);"><button onclick="openChart('${d.symbol}', ${d.cmp || 0});" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:4px; font-size:11px; cursor:pointer;">📈 Chart</button></td>
+          <td style="text-align:right; padding:8px 0; border-bottom:1px solid var(--border); white-space:nowrap;">
+            <button onclick="triggerStockDiagnosticBySymbol('${d.symbol}')" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; padding:4px 8px; border-radius:4px; font-size:11px; font-weight:700; cursor:pointer; margin-right:4px;" title="Run 7-Stage Diagnostic">🔍</button>
+            <button onclick="openChart('${d.symbol}', ${d.cmp || 0});" style="background:var(--card2); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:4px; font-size:11px; cursor:pointer;">📈 Chart</button>
+          </td>
       </tr>`;
   }).join('');
   
@@ -1478,6 +1481,7 @@ function buildTradeRows(trades, maxAbs, prefix) {
             <div class="detail-label">Actions</div>
             <div class="detail-val" style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
               <button onclick="event.stopPropagation(); window.open('https://in.tradingview.com/chart/?symbol=NSE:${t.symbol}', '_blank')" style="background:var(--accent); color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content;">📊 TradingView Chart ↗</button>
+              <button onclick="event.stopPropagation(); triggerStockDiagnosticBySymbol('${t.symbol}');" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; max-width:max-content;">🔍 7-Stage Diagnostic</button>
             </div>
           </div>
           ${(t.exit_signal || t.exit_reason) ? `
@@ -1793,7 +1797,7 @@ function renderTradeTable() {
   renderCategoryStats();
   const body = document.getElementById('tradeBody');
   if (!filtered.length) {
-    body.innerHTML = `<tr><td colspan="14" style="text-align:center;padding:32px;color:var(--muted)">No trades match this filter.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="15" style="text-align:center;padding:32px;color:var(--muted)">No trades match this filter.</td></tr>`;
     const pi = document.getElementById('trade-page-info');
     if (pi) pi.textContent = 'Showing 0 trades';
     return;
@@ -3527,7 +3531,7 @@ function renderMultibaggerWatchlist() {
         <td style="text-align: center;">
           <div style="display:flex; gap:6px; justify-content:center;">
             <a href="https://www.tradingview.com/chart/?symbol=NSE:${sym}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-weight: 700; font-size:11px; background:var(--card2); border:1px solid var(--border); padding:3px 8px; border-radius:4px;" title="Open on TradingView">📊 TV</a>
-            <button onclick="openStockDiagnosticModal('${sym}')" style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); border-radius:4px; font-size:10px; padding:3px 6px; cursor:pointer; font-weight:700;" title="Deep Diagnostic">🔍</button>
+            <button onclick="triggerStockDiagnosticBySymbol('${sym}')" style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); border-radius:4px; font-size:10px; padding:3px 6px; cursor:pointer; font-weight:700;" title="Deep Diagnostic">🔍</button>
           </div>
         </td>
       </tr>
@@ -3751,6 +3755,8 @@ function triggerStockDiagnosticBySymbol(sym) {
   if (!sym) return;
   triggerStockDiagnostic(sym, true);
 }
+window.triggerStockDiagnosticBySymbol = triggerStockDiagnosticBySymbol;
+window.openStockDiagnosticModal = triggerStockDiagnosticBySymbol;
 
 function triggerStockDiagnostic(overrideSym, isDeep = false) {
   const input = document.getElementById('stock-search-input');
@@ -3928,25 +3934,40 @@ document.addEventListener('click', function(e) {
   if (confirmModal && confirmModal.style.display !== 'none' && e.target === confirmModal) {
     closeCustomConfirmModal();
   }
+  const deepSummaryModal = document.getElementById('watchlist-deep-summary-modal');
+  if (deepSummaryModal && deepSummaryModal.style.display !== 'none' && e.target === deepSummaryModal) {
+    closeWatchlistDeepSummaryModal();
+  }
 });
 
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
     closeDiagnosticModal();
     closeCustomConfirmModal();
+    closeWatchlistDeepSummaryModal();
   }
 });
 
 function renderStockDiagnosticModal(data) {
   let container = document.getElementById('stock-diagnostic-main-container');
   if (!container) return;
+
+  // Cleanly dismiss the loading modal if it was open
+  const loadingModal = document.getElementById('stock-diagnostic-modal');
+  if (loadingModal) {
+    loadingModal.style.display = 'none';
+    loadingModal.innerHTML = '';
+  }
+
+  document.body.style.overflow = 'hidden';
   container.style.display = 'flex';
   container.onclick = function(e) {
     if (e.target === container) closeDiagnosticModal();
   };
 
   const realSym = (data.symbol || '').trim().toUpperCase();
-  const isActuallyInWatchlist = WATCHLIST_ITEMS_CACHE.some(x => x && x.symbol && x.symbol.toUpperCase() === realSym);
+  const wlCache = (typeof USER_WATCHLIST_ITEMS_CACHE !== 'undefined' && Array.isArray(USER_WATCHLIST_ITEMS_CACHE)) ? USER_WATCHLIST_ITEMS_CACHE : (window._userWlData || []);
+  const isActuallyInWatchlist = wlCache.some(x => x && x.symbol && x.symbol.toUpperCase() === realSym);
   data.is_in_watchlist = isActuallyInWatchlist;
 
   const score = (data.overall_health_score != null && !isNaN(data.overall_health_score)) ? Number(data.overall_health_score) : 0;
@@ -4184,56 +4205,6 @@ function createManualAlert(sym, scanner) {
   .catch(err => showCustomToast(`Failed to create manual alert: ${err.message}`, 'error'));
 }
 
-function saveToUserWatchlist(sym, company, score) {
-  const btnContainer = document.getElementById(`watchlist-btn-container-${sym}`);
-  const btn = document.getElementById(`add-to-watchlist-btn-${sym}`);
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = `<span>⏳</span> Saving...`;
-  }
-
-  fetch('/api/v1/user_watchlist/add', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ symbol: sym, company_name: company, health_score: score, status: 'MONITORING' })
-  })
-  .then(res => res.json())
-  .then(res => {
-    if (res.success) {
-      const searchInput = document.getElementById('stock-search-input');
-      if (searchInput) searchInput.value = '';
-      closeDiagnosticModal();
-      showCustomToast(`⭐ #${sym} saved! Deep analysis running. <a href="#" onclick="openSavedWatchlistAnalysis('${sym}'); return false;" style="color:#3b82f6; font-weight:800; text-decoration:underline; margin-left:6px;">View Analysis ➔</a>`, 'success');
-      if (btnContainer) {
-        btnContainer.innerHTML = `
-          <button disabled style="padding:9px 14px; background:rgba(5,150,105,0.15); color:var(--win); border:1px solid rgba(5,150,105,0.3); border-radius:8px; font-weight:700; font-size:12px; cursor:not-allowed; opacity:0.85; display:flex; align-items:center; gap:6px;">
-            <span>✓</span> Added to Watchlist
-          </button>
-        `;
-      }
-      if (currentDiagnosticData && currentDiagnosticData.symbol === sym) {
-        currentDiagnosticData.is_in_watchlist = true;
-      }
-      _watchlistFetchCacheUser = null; // Invalidate on write
-      _watchlistFetchCacheUser_ts = 0;
-      loadUserWatchlist();
-      if (typeof fetchNotifications === 'function') fetchNotifications();
-    } else {
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = `<span>⭐</span> Add to Watchlist`;
-      }
-      showCustomToast(`Failed to add #${sym} to watchlist: ${res.error}`, 'error');
-    }
-  })
-  .catch(err => {
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = `<span>⭐</span> Add to Watchlist`;
-    }
-    showCustomToast(`Failed to add to watchlist: ${err.message}`, 'error');
-  });
-}
 
 function removeFromWatchlist(sym) {
   showCustomConfirmModal({
@@ -4395,6 +4366,7 @@ function loadUserWatchlist(force = false) {
         el.textContent = watchlistItems.length;
       });
       _userWlData = watchlistItems;
+      USER_WATCHLIST_ITEMS_CACHE = watchlistItems;
       _renderUserWatchlistTable();
     })
     .catch(err => console.warn('Failed to load user watchlist:', err));
@@ -4595,6 +4567,18 @@ function runWatchlistDeepAnalysis() {
     });
 }
 
+function closeWatchlistDeepSummaryModal() {
+  const modal = document.getElementById('watchlist-deep-summary-modal');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+  const diagModal = document.getElementById('stock-diagnostic-modal');
+  const diagMain = document.getElementById('stock-diagnostic-main-container');
+  if ((!diagModal || diagModal.style.display === 'none') && (!diagMain || diagMain.style.display === 'none')) {
+    document.body.style.overflow = '';
+  }
+}
+
 function showWatchlistDeepAnalysisSummaryModal(items) {
   let modal = document.getElementById('watchlist-deep-summary-modal');
   if (!modal) {
@@ -4603,6 +4587,10 @@ function showWatchlistDeepAnalysisSummaryModal(items) {
     modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); backdrop-filter:blur(8px); z-index:100000; display:flex; align-items:center; justify-content:center; padding:20px;';
     document.body.appendChild(modal);
   }
+
+  modal.onclick = function(e) {
+    if (e.target === modal) closeWatchlistDeepSummaryModal();
+  };
 
   const rowsHtml = (items || []).map(it => {
     let badge = '';
@@ -4624,7 +4612,7 @@ function showWatchlistDeepAnalysisSummaryModal(items) {
         <td style="padding:10px 12px; text-align:center;">${badge}</td>
         <td style="padding:10px 12px; font-size:11px; color:var(--muted);">${deficitText}</td>
         <td style="padding:10px 12px; text-align:center;">
-          <button onclick="document.getElementById('watchlist-deep-summary-modal').style.display='none'; triggerStockDiagnostic('${it.symbol}');" style="padding:4px 10px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:6px; font-weight:700; font-size:10px; cursor:pointer;">
+          <button onclick="closeWatchlistDeepSummaryModal(); triggerStockDiagnosticBySymbol('${it.symbol}');" style="padding:4px 10px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:6px; font-weight:700; font-size:10px; cursor:pointer;">
             🔍 Full Diagnostic
           </button>
         </td>
@@ -4634,7 +4622,7 @@ function showWatchlistDeepAnalysisSummaryModal(items) {
 
   modal.innerHTML = `
     <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; max-width:850px; max-height:85vh; overflow-y:auto; padding:24px; box-shadow:0 20px 50px rgba(0,0,0,0.7); position:relative;">
-      <button onclick="document.getElementById('watchlist-deep-summary-modal').style.display='none'" style="position:absolute; top:20px; right:20px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:32px; height:32px; border-radius:50%; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
+      <button onclick="closeWatchlistDeepSummaryModal()" style="position:absolute; top:20px; right:20px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:32px; height:32px; border-radius:50%; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
       
       <div style="margin-bottom:20px;">
         <h3 style="font-size:20px; font-weight:800; color:var(--text); margin:0 0 6px 0; display:flex; align-items:center; gap:10px;">
@@ -4661,13 +4649,14 @@ function showWatchlistDeepAnalysisSummaryModal(items) {
       </div>
 
       <div style="text-align:right; margin-top:20px;">
-        <button onclick="document.getElementById('watchlist-deep-summary-modal').style.display='none'" style="padding:8px 20px; background:var(--card3); border:1px solid var(--border); color:var(--text); border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
+        <button onclick="closeWatchlistDeepSummaryModal()" style="padding:8px 20px; background:var(--card3); border:1px solid var(--border); color:var(--text); border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
           Close Summary
         </button>
       </div>
     </div>
   `;
 
+  document.body.style.overflow = 'hidden';
   modal.style.display = 'flex';
 }
 
