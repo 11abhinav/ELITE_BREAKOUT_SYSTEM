@@ -339,6 +339,7 @@ var USER_PAGE_SIZE = 10;
       if (typeof loadCapitalInfo === 'function') loadCapitalInfo();
     } else if (tabId === 'watchlist-analyzer') {
       if (typeof loadUserWatchlist === 'function') loadUserWatchlist(false);
+      if (typeof preloadMasterSymbolsList === 'function') preloadMasterSymbolsList();
     }
   }
 
@@ -808,13 +809,23 @@ function playDing() {
         <div id="mb-watchlist-card-body" style="display: none; padding: 20px; background: var(--bg);">
     
     <div style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
-      <div style="flex: 1; min-width: 200px;">
+      <div style="flex: 1; min-width: 180px;">
         <label style="display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600;">Status Filter</label>
-        <select id="filter-mb-status" style="width: 100%; background:var(--bg); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:6px; outline:none;" onchange="renderMultibaggerWatchlist()">
+        <select id="filter-mb-status" style="width: 100%; background:var(--bg); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:6px; outline:none;" onchange="filterUserMbStatus(this.value)">
           <option value="">All Candidates</option>
           <option value="WAITING_BUY_ZONE">⏳ Waiting Buy Zone</option>
-          <option value="ALERT_TRIGGERED">🟢 Alert Triggered</option>
+          <option value="ALERT_TRIGGERED">🟢 Alert Triggered (Buy Signal)</option>
           <option value="INVALIDATED">🔴 Invalidated</option>
+        </select>
+      </div>
+      <div style="flex: 1; min-width: 180px;">
+        <label style="display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600;">Bucket Filter</label>
+        <select id="filter-mb-bucket" style="width: 100%; background:var(--bg); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:6px; outline:none;" onchange="renderMultibaggerWatchlist()">
+          <option value="">All Buckets</option>
+          <option value="Prime Multibagger">🚀 Prime Multibagger</option>
+          <option value="High Quality">💎 High Quality</option>
+          <option value="Good Business">🏆 Good Business</option>
+          <option value="Watchlist">🟡 Watchlist</option>
         </select>
       </div>
       <div>
@@ -827,20 +838,20 @@ function playDing() {
       <div><strong>Bucket Meanings:</strong> <strong>🚀 Prime Multibagger: Exceptional fundamentals + accelerating momentum | 💎 High Quality: Established compounders with steady growth | 🏆 Good Business: Fundamentally solid but waiting for acceleration | 🟡 Watchlist: Passed basic gates but waiting for technical confirmation</div>
     </div>
 
-    <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-      <div class="kpi-card" style="flex:1;">
+    <div style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;">
+      <div class="kpi-card user-mb-card" id="user-mb-card-total" onclick="filterUserMbStatus('')" style="flex:1; min-width: 130px; cursor: pointer; transition: all 0.2s; border: 1px solid transparent;" title="Click to view all candidates">
         <div class="kpi-value" id="mb-total-count" style="color:var(--text);">-</div>
         <div class="kpi-label">Total Candidates</div>
       </div>
-      <div class="kpi-card" style="flex:1;">
+      <div class="kpi-card user-mb-card" id="user-mb-card-waiting" onclick="filterUserMbStatus('WAITING_BUY_ZONE')" style="flex:1; min-width: 130px; cursor: pointer; transition: all 0.2s; border: 1px solid transparent;" title="Click to filter Waiting Buy Zone">
         <div class="kpi-value" id="mb-waiting-count" style="color:var(--amber);">-</div>
         <div class="kpi-label">Waiting Buy Zone</div>
       </div>
-      <div class="kpi-card" style="flex:1;">
+      <div class="kpi-card user-mb-card" id="user-mb-card-triggered" onclick="filterUserMbStatus('ALERT_TRIGGERED')" style="flex:1; min-width: 130px; cursor: pointer; transition: all 0.2s; border: 1px solid rgba(16,185,129,0.4); background: rgba(16,185,129,0.06);" title="Click to load Buy on Signal">
         <div class="kpi-value" id="mb-triggered-count" style="color:var(--green);">-</div>
-        <div class="kpi-label">Alert Triggered</div>
+        <div class="kpi-label">🎯 Alert Triggered (Buy)</div>
       </div>
-      <div class="kpi-card" style="flex:1;">
+      <div class="kpi-card user-mb-card" id="user-mb-card-invalid" onclick="filterUserMbStatus('INVALIDATED')" style="flex:1; min-width: 130px; cursor: pointer; transition: all 0.2s; border: 1px solid transparent;" title="Click to filter Invalidated">
         <div class="kpi-value" id="mb-invalid-count" style="color:var(--red);">-</div>
         <div class="kpi-label">Invalidated</div>
       </div>
@@ -1029,9 +1040,9 @@ function openChart(symbol, cmp) {
   }
 
 async function loadData(forceRebuild = false) {
-  const t = new Date().getTime();
   try {
-    const r = await fetch('/data/performance_data.json?t=' + t + (forceRebuild ? '&rebuild=true' : ''), {cache: 'no-store'});
+    const url = forceRebuild ? `/data/performance_data.json?rebuild=true&t=${Date.now()}` : '/data/performance_data.json';
+    const r = await fetch(url, {cache: forceRebuild ? 'no-store' : 'default'});
     if (r.ok) return await r.json();
   } catch (e) {
     console.warn('Failed to load performance data from /data/performance_data.json', e);
@@ -2211,8 +2222,10 @@ async function doRefresh(isAuto = false) {
 
   ALL_TRADES = data.trades || [];
   populateFilters(ALL_TRADES);
-  fetchSignalLadder();
-  loadMultibaggerWatchlist();
+  if (typeof activeUserTab !== 'undefined' && activeUserTab === 'live-signals') {
+    if (typeof fetchSignalLadder === 'function') fetchSignalLadder();
+    if (typeof loadMultibaggerWatchlist === 'function') loadMultibaggerWatchlist();
+  }
   renderTradeTable();
   renderCategoryStats();
   updateSim();
@@ -2267,9 +2280,7 @@ async function initDashboard() {
     ALL_TRADES = (data && data.trades) || [];
     populateFilters(ALL_TRADES);
     renderKPIs(s);
-    // Fire secondary data loads in parallel (non-blocking)
-    fetchSignalLadder();
-    loadMultibaggerWatchlist();
+    // Render current active tab components; secondary tab data loads on demand when tab clicked
     renderTradeTable();
     renderCategoryStats();
     updateSim();
@@ -2643,6 +2654,15 @@ function toggleChat() {
     document.getElementById('chat-input').focus();
     markMessagesAsRead();
     scrollToBottom();
+    fetchChatMessages();
+    if (!chatPollInterval) {
+      chatPollInterval = setInterval(fetchChatMessages, 4000);
+    }
+  } else {
+    if (chatPollInterval) {
+      clearInterval(chatPollInterval);
+      chatPollInterval = null;
+    }
   }
 }
 
@@ -2758,10 +2778,12 @@ async function sendChatMessage() {
   }
 }
 
-// Poll for messages every 3 seconds
-chatPollInterval = setInterval(fetchChatMessages, 3000);
-// Initial fetch
-setTimeout(fetchChatMessages, 1000);
+// Check unread badge once after page load; active polling starts when chat drawer opens
+setTimeout(fetchChatMessages, 3000);
+// Light background check for unread badge every 60 seconds when closed
+setInterval(() => {
+  if (!isChatOpen) fetchChatMessages();
+}, 60000);
 </script>
 
 <script>
@@ -3023,20 +3045,23 @@ window.addEventListener('DOMContentLoaded', () => {
   }, true);
 </script>
 <script src="/static/push.js"></script>
-
 <script>
-document.addEventListener('DOMContentLoaded', () => {
-    // Fetch all NSE tickers for autocomplete
+let _tickersLoaded = false;
+function loadAllTickersAutocomplete() {
+    if (_tickersLoaded) return;
+    _tickersLoaded = true;
     fetch('/api/all_tickers')
         .then(res => res.json())
         .then(symbols => {
             const datalist = document.createElement('datalist');
             datalist.id = 'tickerList';
+            const frag = document.createDocumentFragment();
             symbols.forEach(sym => {
                 const option = document.createElement('option');
                 option.value = sym;
-                datalist.appendChild(option);
+                frag.appendChild(option);
             });
+            datalist.appendChild(frag);
             document.body.appendChild(datalist);
             
             const searchBox = document.getElementById('searchBox');
@@ -3044,7 +3069,6 @@ document.addEventListener('DOMContentLoaded', () => {
             
             const aiInput = document.getElementById('aiModalTicker');
             if(aiInput) {
-                // Custom absolute-positioned dropdown to fix browser bug in modals
                 const wrapper = document.createElement('div');
                 wrapper.style.position = 'relative';
                 wrapper.style.flex = '1';
@@ -3082,6 +3106,19 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         })
         .catch(err => console.error("Failed to load ticker list", err));
+}
+
+// Defer ticker loading until search input focus or idle
+document.addEventListener('DOMContentLoaded', () => {
+    const searchBox = document.getElementById('searchBox');
+    if (searchBox) searchBox.addEventListener('focus', loadAllTickersAutocomplete, { once: true });
+    const aiInput = document.getElementById('aiModalTicker');
+    if (aiInput) aiInput.addEventListener('focus', loadAllTickersAutocomplete, { once: true });
+    if (window.requestIdleCallback) {
+        window.requestIdleCallback(() => setTimeout(loadAllTickersAutocomplete, 5000));
+    } else {
+        setTimeout(loadAllTickersAutocomplete, 5000);
+    }
 });
 </script>
 
@@ -3359,6 +3396,17 @@ function bucketTag(b) {
     return `<span style="background:var(--border); padding:2px 4px; border-radius:3px; font-size:9px;">${b}</span>`;
 }
 
+function filterUserMbStatus(status) {
+  const statusFilterEl = document.getElementById('filter-mb-status');
+  if (statusFilterEl) statusFilterEl.value = status;
+  window._userMbWlPage = 1;
+  renderMultibaggerWatchlist();
+  const tbl = document.getElementById('tbl-mb-watchlist');
+  if (tbl && typeof tbl.scrollIntoView === 'function') {
+    tbl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
 function renderMultibaggerWatchlist() {
   const tbody = document.getElementById('mb-watchlist-body');
   const empty = document.getElementById('mb-watchlist-empty');
@@ -3385,7 +3433,38 @@ function renderMultibaggerWatchlist() {
 
   const statusFilterEl = document.getElementById('filter-mb-status');
   const statusFilter = statusFilterEl ? statusFilterEl.value : '';
-  const itemsToRender = statusFilter ? allMbWatchlistItems.filter(i => i.status === statusFilter) : allMbWatchlistItems;
+  const bucketFilterEl = document.getElementById('filter-mb-bucket');
+  const bucketFilter = bucketFilterEl ? bucketFilterEl.value : '';
+
+  // Synchronize KPI cards active style
+  const cardMap = {
+    '': 'user-mb-card-total',
+    'WAITING_BUY_ZONE': 'user-mb-card-waiting',
+    'ALERT_TRIGGERED': 'user-mb-card-triggered',
+    'INVALIDATED': 'user-mb-card-invalid'
+  };
+  document.querySelectorAll('.user-mb-card').forEach(c => {
+    c.style.borderColor = 'transparent';
+    c.style.boxShadow = 'none';
+    c.style.transform = 'none';
+  });
+  const activeCardId = cardMap[statusFilter];
+  if (activeCardId) {
+    const activeCard = document.getElementById(activeCardId);
+    if (activeCard) {
+      activeCard.style.borderColor = (statusFilter === 'ALERT_TRIGGERED') ? '#10b981' : (statusFilter === 'WAITING_BUY_ZONE' ? '#f59e0b' : (statusFilter === 'INVALIDATED' ? '#ef4444' : 'var(--accent)'));
+      activeCard.style.boxShadow = '0 0 12px rgba(245, 158, 11, 0.25)';
+      activeCard.style.transform = 'translateY(-2px)';
+    }
+  }
+
+  let itemsToRender = allMbWatchlistItems;
+  if (statusFilter) {
+    itemsToRender = itemsToRender.filter(i => i.status === statusFilter);
+  }
+  if (bucketFilter) {
+    itemsToRender = itemsToRender.filter(i => String(i.bucket || '').toLowerCase().includes(bucketFilter.toLowerCase()));
+  }
 
   const totalPages = Math.ceil(itemsToRender.length / USER_PAGE_SIZE);
   if (window._userMbWlPage === undefined) window._userMbWlPage = 1;
@@ -3456,6 +3535,7 @@ let currentDiagnosticData = null;
 let MASTER_SYMBOLS_CLIENT_ARRAY = [];
 
 function preloadMasterSymbolsList() {
+  if (MASTER_SYMBOLS_CLIENT_ARRAY.length > 0) return;
   fetch('/api/v1/symbols/master_list')
     .then(res => res.json())
     .then(items => {
@@ -3465,7 +3545,6 @@ function preloadMasterSymbolsList() {
     })
     .catch(err => console.warn('Master symbols preload failed:', err));
 }
-document.addEventListener('DOMContentLoaded', preloadMasterSymbolsList);
 
 function handleStockSearchInput(val) {
   const dropdown = document.getElementById('stock-autocomplete-dropdown');
@@ -4533,8 +4612,12 @@ function closeMyWatchlistModal() {
   }
 }
 
-// Initial watchlist count load
-document.addEventListener('DOMContentLoaded', loadUserWatchlist);
+// Deferred watchlist load if starting on watchlist tab
+if (window.requestIdleCallback) {
+  window.requestIdleCallback(() => {
+    if (typeof activeUserTab !== 'undefined' && activeUserTab === 'watchlist-analyzer') loadUserWatchlist();
+  });
+}
 
 </script>
 <script src="/static/shared_ui.js"></script>

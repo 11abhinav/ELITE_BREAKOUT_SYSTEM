@@ -4668,24 +4668,39 @@ def get_multibagger_watchlist():
         return jsonify([])
 
 # ── Wealth Buy Alerts API ──────────────────────────────────────────────────────────────
+_wealth_alerts_cache: dict = {}
+_wealth_alerts_lock = threading.Lock()
 
 @app.route("/api/wealth/alerts", methods=["GET"])
 @login_required
 def get_wealth_alerts():
-    """Retrieve wealth buy alerts (all or filtered by symbol)."""
+    """Retrieve wealth buy alerts (all or filtered by symbol) with 5s micro-cache."""
+    global _wealth_alerts_cache
     from database import get_wealth_buy_alerts, get_today_wealth_alerts
     try:
-        symbol = request.args.get("symbol")
+        symbol = request.args.get("symbol", "")
         today_only = request.args.get("today", "").lower() == "true"
-        
+        cache_key = f"{symbol}:{today_only}"
+        now_ts = time.time()
+
+        with _wealth_alerts_lock:
+            cached = _wealth_alerts_cache.get(cache_key)
+            if cached and (now_ts - cached["ts"]) < 5.0:
+                return Response(cached["payload"], mimetype="application/json")
+
         if today_only:
             alerts = get_today_wealth_alerts()
         elif symbol:
             alerts = get_wealth_buy_alerts(symbol=symbol)
         else:
             alerts = get_wealth_buy_alerts()
-        
-        return jsonify(alerts)
+
+        import json
+        payload = json.dumps(alerts, default=str)
+        with _wealth_alerts_lock:
+            _wealth_alerts_cache[cache_key] = {"ts": now_ts, "payload": payload}
+
+        return Response(payload, mimetype="application/json")
     except Exception as e:
         logger.exception(f"❌ Error fetching wealth alerts")
         return jsonify({"error": str(e)}), 500
@@ -4695,6 +4710,7 @@ def get_wealth_alerts():
 @admin_required
 def save_wealth_alert():
     """Save a new wealth buy alert."""
+    global _wealth_alerts_cache
     from database import save_wealth_buy_alert
     try:
         data = request.get_json() or {}
@@ -4719,6 +4735,8 @@ def save_wealth_alert():
         
         success = save_wealth_buy_alert(symbol, alert_price, breakout_type.strip(), fm_score, notes)
         if success:
+            with _wealth_alerts_lock:
+                _wealth_alerts_cache.clear()
             return jsonify({"success": True, "message": f"Alert saved for {symbol} @ ₹{alert_price}"})
         else:
             return jsonify({"error": "Failed to save alert"}), 500

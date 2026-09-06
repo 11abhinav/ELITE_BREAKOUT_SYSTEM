@@ -2160,32 +2160,37 @@ function changeAdminPage(type, delta) {
           </a>
         </div>
 
-        <!-- WEALTH KPI METRICS BAR (4 CATEGORY BUCKETS) -->
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap:14px; margin-bottom:20px;">
-          <div class="card" style="padding:14px;">
+        <!-- WEALTH KPI METRICS BAR (4 CATEGORY BUCKETS + BUY SIGNALS) -->
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:14px; margin-bottom:20px;">
+          <div class="card wealth-kpi-card" id="wealth-card-all" onclick="filterWealthCategory('ALL')" style="padding:14px; cursor:pointer; transition:all 0.2s; border:1px solid transparent;" title="Click to view all candidates">
             <div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Total Candidates</div>
             <div id="wealth-active-count" style="font-size:22px; font-weight:800; color:var(--text); margin-top:4px;">-</div>
             <div style="font-size:11px; color:var(--muted); margin-top:2px;">Active Watchlist Universe</div>
           </div>
-          <div class="card" style="padding:14px;">
+          <div class="card wealth-kpi-card" id="wealth-card-core" onclick="filterWealthCategory('Core')" style="padding:14px; cursor:pointer; transition:all 0.2s; border:1px solid transparent;" title="Click to filter Core Bucket">
             <div style="font-size:11px; color:#10b981; font-weight:700; text-transform:uppercase;">💎 Core Bucket</div>
             <div id="wealth-core-count" style="font-size:22px; font-weight:800; color:#10b981; margin-top:4px;">-</div>
             <div style="font-size:11px; color:var(--muted); margin-top:2px;">Max 15 Stocks (High ROCE)</div>
           </div>
-          <div class="card" style="padding:14px;">
+          <div class="card wealth-kpi-card" id="wealth-card-growth" onclick="filterWealthCategory('Growth')" style="padding:14px; cursor:pointer; transition:all 0.2s; border:1px solid transparent;" title="Click to filter Growth Bucket">
             <div style="font-size:11px; color:#3b82f6; font-weight:700; text-transform:uppercase;">🚀 Growth Bucket</div>
             <div id="wealth-growth-count" style="font-size:22px; font-weight:800; color:#3b82f6; margin-top:4px;">-</div>
             <div style="font-size:11px; color:var(--muted); margin-top:2px;">Max 10 Stocks (High YoY)</div>
           </div>
-          <div class="card" style="padding:14px;">
+          <div class="card wealth-kpi-card" id="wealth-card-sale" onclick="filterWealthCategory('Quality-On-Sale')" style="padding:14px; cursor:pointer; transition:all 0.2s; border:1px solid transparent;" title="Click to filter Quality On Sale">
             <div style="font-size:11px; color:#f59e0b; font-weight:700; text-transform:uppercase;">🏷️ Quality On Sale</div>
             <div id="wealth-sale-count" style="font-size:22px; font-weight:800; color:#f59e0b; margin-top:4px;">-</div>
             <div style="font-size:11px; color:var(--muted); margin-top:2px;">Max 5 Stocks (PEG & Value)</div>
           </div>
-          <div class="card" style="padding:14px;">
+          <div class="card wealth-kpi-card" id="wealth-card-opp" onclick="filterWealthCategory('Opportunistic')" style="padding:14px; cursor:pointer; transition:all 0.2s; border:1px solid transparent;" title="Click to filter Opportunistic Bucket">
             <div style="font-size:11px; color:#a855f7; font-weight:700; text-transform:uppercase;">⚡ Opportunistic</div>
             <div id="wealth-opp-count" style="font-size:22px; font-weight:800; color:#a855f7; margin-top:4px;">-</div>
             <div style="font-size:11px; color:var(--muted); margin-top:2px;">Max 10 Stocks (Turnaround)</div>
+          </div>
+          <div class="card wealth-kpi-card" id="wealth-card-buy" onclick="filterWealthCategory('BUY')" style="padding:14px; cursor:pointer; transition:all 0.2s; border:1px solid rgba(16,185,129,0.4); background:rgba(16,185,129,0.06);" title="Click to load Buy on Signal">
+            <div style="font-size:11px; color:#10b981; font-weight:700; text-transform:uppercase;">🎯 Buy On Signal</div>
+            <div id="wealth-buy-count" style="font-size:22px; font-weight:800; color:#10b981; margin-top:4px;">-</div>
+            <div style="font-size:11px; color:var(--muted); margin-top:2px;">Active Buy Setups</div>
           </div>
         </div>
 
@@ -9756,25 +9761,8 @@ function loadWealthEngineTab(forceRefresh = false) {
   fetch('/api/wealth/alerts?today=false')
     .then(r => r.json())
     .then(alerts => {
-      const tbody = document.getElementById('wealth-alerts-tbody');
-      if (!tbody) return;
-      if (!Array.isArray(alerts) || alerts.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">No active Wealth buy alerts recorded.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = alerts.map(a => `
-        <tr>
-          <td style="font-weight:700; color:var(--accent);">${formatText(a.symbol)}</td>
-          <td>${formatTvLink(a.symbol, a.symbol)}</td>
-          <td style="font-weight:700; color:var(--text);">${formatPrice(a.alert_price)}</td>
-          <td style="font-weight:700; color:var(--text);">${formatPrice(a.current_price || a.alert_price)}</td>
-          <td style="color:var(--accent); font-weight:700;">${a.position_pct ? (parseFloat(a.position_pct) * 100).toFixed(1) + '%' : '-'}</td>
-          <td style="color:var(--win); font-weight:700;">${a.position_amount ? '₹' + Math.round(a.position_amount).toLocaleString('en-IN') : '-'}</td>
-          <td><span class="badge-ok">${formatText(a.portfolio_bucket || 'Core')}</span></td>
-          <td>${formatText(a.fm_score ? a.fm_score.toFixed(1) : '-')}</td>
-          <td><span class="badge-ok">${formatText(a.status || 'ACTIVE')}</span></td>
-        </tr>
-      `).join('');
+      window.ALL_WEALTH_ALERTS_CACHE = Array.isArray(alerts) ? alerts : [];
+      renderWealthAlertsTable(window.ALL_WEALTH_ALERTS_CACHE, window.ACTIVE_WEALTH_CATEGORY || 'ALL');
     })
     .catch(e => console.warn('Failed to load wealth buy alerts:', e));
 
@@ -9787,23 +9775,27 @@ function loadWealthEngineTab(forceRefresh = false) {
       const growthEl = document.getElementById('wealth-growth-count');
       const saleEl = document.getElementById('wealth-sale-count');
       const oppEl = document.getElementById('wealth-opp-count');
+      const buyEl = document.getElementById('wealth-buy-count');
 
       const items = Array.isArray(data) ? data : (data.data || []);
       if (countEl) countEl.innerText = items.length;
 
-      let cCount = 0, gCount = 0, sCount = 0, oCount = 0;
+      let cCount = 0, gCount = 0, sCount = 0, oCount = 0, bCount = 0;
       items.forEach(i => {
         const b = String(i.Portfolio_Bucket || '');
         if (b.includes('Core') || i.Core_Selected) cCount++;
         if (b.includes('Growth')) gCount++;
         if (b.includes('Quality-On-Sale')) sCount++;
         if (b.includes('Opportunistic')) oCount++;
+        const sig = String(i.Signal || i.Signal_Code || '').toUpperCase();
+        if (sig.includes('BUY')) bCount++;
       });
 
       if (coreEl) coreEl.innerText = cCount;
       if (growthEl) growthEl.innerText = gCount;
       if (saleEl) saleEl.innerText = sCount;
       if (oppEl) oppEl.innerText = oCount;
+      if (buyEl) buyEl.innerText = bCount;
 
       window.ALL_WEALTH_HOLDINGS_CACHE = items;
       renderWealthHoldingsTable(items, window.ACTIVE_WEALTH_CATEGORY || 'ALL');
@@ -9811,18 +9803,90 @@ function loadWealthEngineTab(forceRefresh = false) {
     .catch(e => console.warn('Failed to load wealth engine data:', e));
 }
 
+function renderWealthAlertsTable(alerts, filterBucket) {
+  const tbody = document.getElementById('wealth-alerts-tbody');
+  if (!tbody) return;
+
+  let filtered = alerts || [];
+  if (filterBucket && filterBucket !== 'ALL' && filterBucket !== 'BUY') {
+    filtered = filtered.filter(a => {
+      const b = String(a.portfolio_bucket || '');
+      if (filterBucket === 'Core') return b.includes('Core');
+      return b.includes(filterBucket);
+    });
+  }
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">No active Wealth buy alerts for bucket '${filterBucket || 'ALL'}'.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = filtered.map(a => `
+    <tr>
+      <td style="font-weight:700; color:var(--accent);">${formatText(a.symbol)}</td>
+      <td>${formatTvLink(a.symbol, a.symbol)}</td>
+      <td style="font-weight:700; color:var(--text);">${formatPrice(a.alert_price)}</td>
+      <td style="font-weight:700; color:var(--text);">${formatPrice(a.current_price || a.alert_price)}</td>
+      <td style="color:var(--accent); font-weight:700;">${a.position_pct ? (parseFloat(a.position_pct) * 100).toFixed(1) + '%' : '-'}</td>
+      <td style="color:var(--win); font-weight:700;">${a.position_amount ? '₹' + Math.round(a.position_amount).toLocaleString('en-IN') : '-'}</td>
+      <td><span class="badge-ok">${formatText(a.portfolio_bucket || 'Core')}</span></td>
+      <td>${formatText(a.fm_score ? a.fm_score.toFixed(1) : '-')}</td>
+      <td><span class="badge-ok">${formatText(a.status || 'ACTIVE')}</span></td>
+    </tr>
+  `).join('');
+}
+
 function filterWealthCategory(cat) {
   window.ACTIVE_WEALTH_CATEGORY = cat;
+  window._adminWealthHoldingsPage = 1;
+
+  // Highlight active KPI card
+  const cardMap = {
+    'ALL': 'wealth-card-all',
+    'Core': 'wealth-card-core',
+    'Growth': 'wealth-card-growth',
+    'Quality-On-Sale': 'wealth-card-sale',
+    'Opportunistic': 'wealth-card-opp',
+    'BUY': 'wealth-card-buy'
+  };
+  document.querySelectorAll('.wealth-kpi-card').forEach(c => {
+    c.style.borderColor = 'transparent';
+    c.style.boxShadow = 'none';
+    c.style.transform = 'none';
+  });
+  const activeCardId = cardMap[cat];
+  if (activeCardId) {
+    const activeCard = document.getElementById(activeCardId);
+    if (activeCard) {
+      activeCard.style.borderColor = (cat === 'BUY' || cat === 'Core') ? '#10b981' : (cat === 'Growth' ? '#3b82f6' : (cat === 'Quality-On-Sale' ? '#f59e0b' : (cat === 'Opportunistic' ? '#a855f7' : 'var(--accent)')));
+      activeCard.style.boxShadow = '0 0 12px rgba(245, 158, 11, 0.25)';
+      activeCard.style.transform = 'translateY(-2px)';
+    }
+  }
+
+  // Sync filter buttons
   const btns = document.querySelectorAll('#wealth-bucket-filter-btns button');
   btns.forEach(b => {
     b.style.background = 'var(--card2)';
     b.style.color = 'var(--text)';
     b.style.border = '1px solid var(--border)';
+    b.style.fontWeight = 'normal';
+    const oc = b.getAttribute('onclick') || '';
+    if (oc.includes(`'${cat}'`)) {
+      b.style.background = 'var(--accent)';
+      b.style.color = '#000';
+      b.style.fontWeight = '700';
+    }
   });
-  event.target.style.background = 'var(--accent)';
-  event.target.style.color = '#000';
-  event.target.style.fontWeight = '700';
+
+  // Render both candidates table and buy alerts below cards
   renderWealthHoldingsTable(window.ALL_WEALTH_HOLDINGS_CACHE || [], cat);
+  renderWealthAlertsTable(window.ALL_WEALTH_ALERTS_CACHE || [], cat);
+
+  // Smooth scroll to table section if initiated by user click
+  const targetScrollEl = (cat === 'BUY') ? document.getElementById('tbl-wealth-alerts') : document.getElementById('tbl-wealth-holdings');
+  if (targetScrollEl && typeof targetScrollEl.scrollIntoView === 'function') {
+    targetScrollEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 }
 
 function renderWealthHoldingsTable(items, filterBucket) {
