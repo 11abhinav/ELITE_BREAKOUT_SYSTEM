@@ -9605,14 +9605,37 @@ function renderStocksWatchRows(data) {
   }
   tbody.innerHTML = data.map(item => {
     const stageStr = item.stage || '👁️ BASE BUILDING (Watch)';
-    let stageBadge = `<span class="badge-stage-watch">${formatText(stageStr)}</span>`;
+    let stageBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">👀 BASE BUILDING</span>`;
     if (stageStr.includes('PRE-BREAKOUT') || stageStr.includes('ARMED')) {
-      stageBadge = `<span class="badge-stage-armed">${formatText(stageStr)}</span>`;
+      stageBadge = `<span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.35); padding:3px 8px; border-radius:6px; font-weight:800; font-size:11px;">🔥 ARMED (Pre-Breakout)</span>`;
     }
 
     const distVal = item.distance_pct !== null && item.distance_pct !== undefined ? item.distance_pct : null;
-    const distColor = (distVal !== null && distVal <= 2.0) ? 'var(--win)' : 'var(--amber)';
-    const distStr = distVal !== null ? (distVal > 0 ? `+${distVal.toFixed(2)}%` : `${distVal.toFixed(2)}%`) : '-';
+    let distHtml = '-';
+    if (distVal !== null) {
+      if (distVal <= 2.0) {
+        distHtml = `
+          <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
+            <span style="background:rgba(239,68,68,0.2); color:#ef4444; border:1px solid rgba(239,68,68,0.4); padding:2px 8px; border-radius:12px; font-weight:800; font-size:10px;">⚡ IMMINENT</span>
+            <span style="font-weight:800; color:#ef4444; font-family:var(--font-mono); font-size:12px;">+${distVal.toFixed(1)}%</span>
+          </div>
+        `;
+      } else if (distVal <= 5.0) {
+        distHtml = `
+          <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
+            <span style="background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.4); padding:2px 8px; border-radius:12px; font-weight:800; font-size:10px;">🎯 ON RADAR</span>
+            <span style="font-weight:800; color:#f59e0b; font-family:var(--font-mono); font-size:12px;">+${distVal.toFixed(1)}%</span>
+          </div>
+        `;
+      } else {
+        distHtml = `
+          <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
+            <span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px;">👀 FORMING</span>
+            <span style="font-weight:700; color:#3b82f6; font-family:var(--font-mono); font-size:12px;">+${distVal.toFixed(1)}%</span>
+          </div>
+        `;
+      }
+    }
 
     return `
       <tr style="border-bottom:1px solid var(--border); font-size:12px;">
@@ -9622,10 +9645,19 @@ function renderStocksWatchRows(data) {
         <td style="padding:10px 12px; text-align:center;">${stageBadge}</td>
         <td style="padding:10px 12px; text-align:center; font-weight:700; color:var(--text);">${item.maturity_score ? Number(item.maturity_score).toFixed(1) : '-'}</td>
         <td style="padding:10px 12px; font-weight:700; color:var(--text); font-family:var(--font-mono);">${formatPrice(item.cmp)}</td>
-        <td style="padding:10px 12px;" class="cell-trigger-price">${formatPrice(item.trigger_level)}</td>
-        <td style="padding:10px 12px; color:${distColor}; font-weight:800; font-family:var(--font-mono); text-align:center;">${distStr}</td>
-        <td style="padding:10px 12px;" class="cell-blocker-text">${formatText(item.primary_blocker)}</td>
-        <td style="padding:10px 12px;" class="cell-qualifies-text">${formatText(item.why_qualifies)}</td>
+        <td style="padding:10px 12px;">
+          <div style="display:flex; flex-direction:column;">
+            <span style="font-weight:800; color:var(--text); font-family:var(--font-mono); font-size:12px;">${formatPrice(item.trigger_level)}</span>
+            <span style="font-size:10px; color:var(--muted);">Needs close above</span>
+          </div>
+        </td>
+        <td style="padding:10px 12px; text-align:center;">${distHtml}</td>
+        <td style="padding:10px 12px;">
+          <span style="font-weight:600; font-size:11px; color:var(--text); display:flex; align-items:center; gap:4px;">
+            <span style="color:#f59e0b;">⏳</span> ${formatText(item.primary_blocker)}
+          </span>
+        </td>
+        <td style="padding:10px 12px; color:var(--muted); font-size:11px;" class="cell-qualifies-text">${formatText(item.why_qualifies)}</td>
       </tr>
     `;
   }).join('');
@@ -9648,13 +9680,13 @@ function renderInvestmentWatchRows(data) {
   }
   tbody.innerHTML = data.map(item => {
     const stateStr = item.investment_state || 'ACCUMULATE (Buy Zone)';
-    let stateBadge = `<span class="badge-stage-armed">${formatText(stateStr)}</span>`;
+    let stateBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
     if (stateStr.includes('BUY') || stateStr.includes('ACCUMULATE')) {
-      stateBadge = `<span style="background:rgba(16,185,129,0.15); color:var(--win); border:1px solid rgba(16,185,129,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
+      stateBadge = `<span style="background:rgba(16,185,129,0.2); color:var(--win); border:1px solid rgba(16,185,129,0.45); padding:3px 8px; border-radius:6px; font-weight:800; font-size:11px;">🟢 ACCUMULATE (Buy Zone)</span>`;
     } else if (stateStr.includes('GROWTH')) {
-      stateBadge = `<span style="background:rgba(139,92,246,0.15); color:#8b5cf6; border:1px solid rgba(139,92,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
+      stateBadge = `<span style="background:rgba(139,92,246,0.2); color:#8b5cf6; border:1px solid rgba(139,92,246,0.45); padding:3px 8px; border-radius:6px; font-weight:800; font-size:11px;">🚀 GROWTH RUNWAY</span>`;
     } else if (stateStr.includes('QUALITY')) {
-      stateBadge = `<span class="badge-stage-watch">${formatText(stateStr)}</span>`;
+      stateBadge = `<span style="background:rgba(0,212,161,0.15); color:#00d4a1; border:1px solid rgba(0,212,161,0.35); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">💎 QUALITY WATCH</span>`;
     }
 
     const valGrade = item.valuation_grade || 'Tier B+ (Quality Fair Value)';
@@ -9665,14 +9697,18 @@ function renderInvestmentWatchRows(data) {
         <td style="padding:10px 12px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}</td>
         <td style="padding:10px 12px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
         <td style="padding:10px 12px; font-weight:700; color:var(--text); font-family:var(--font-mono);">${formatPrice(item.cmp)}</td>
-        <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.business_quality)}</td>
-        <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.growth_durability)}</td>
-        <td style="padding:10px 12px; font-weight:600; color:var(--text); font-size:11px;">${formatText(item.moat_cash_quality)}</td>
+        <td style="padding:10px 12px; font-weight:700; color:var(--text); font-size:11px;">🏛️ ${formatText(item.business_quality)}</td>
+        <td style="padding:10px 12px; font-weight:700; color:#8b5cf6; font-size:11px;">🚀 ${formatText(item.growth_durability)}</td>
+        <td style="padding:10px 12px; font-weight:700; color:#00d4a1; font-size:11px;">💎 ${formatText(item.moat_cash_quality)}</td>
         <td style="padding:10px 12px; font-weight:700; color:${valColor}; font-size:11px;">${formatText(valGrade)}</td>
-        <td style="padding:10px 12px; color:var(--win); font-weight:800; font-family:var(--font-mono); text-align:center;">${formatPct(item.margin_of_safety_pct)}</td>
+        <td style="padding:10px 12px; text-align:center;">
+          <span style="background:rgba(16,185,129,0.15); color:var(--win); border:1px solid rgba(16,185,129,0.3); padding:3px 8px; border-radius:6px; font-weight:800; font-family:var(--font-mono); font-size:11px;">
+            🛡️ ${formatPct(item.margin_of_safety_pct)}
+          </span>
+        </td>
         <td style="padding:10px 12px; font-weight:700; color:var(--win); font-size:11px; text-align:center;"><span style="color:var(--win);">●</span> ${formatText(item.thesis_health || 'HEALTHY')}</td>
         <td style="padding:10px 12px; text-align:center;">${stateBadge}</td>
-        <td style="padding:10px 12px;" class="cell-qualifies-text">${formatText(item.why_qualifies)}</td>
+        <td style="padding:10px 12px; color:var(--muted); font-size:11px;" class="cell-qualifies-text">${formatText(item.why_qualifies)}</td>
       </tr>
     `;
   }).join('');
@@ -9978,29 +10014,104 @@ function renderWealthHoldingsTable(items, filterBucket) {
 
   tbody.innerHTML = paginated.map(item => {
     const score = item.FM_Score ? parseFloat(item.FM_Score).toFixed(1) : (item.score ? parseFloat(item.score).toFixed(1) : '-');
-    const momScore = item.momentum_score !== undefined ? item.momentum_score : '-';
+    const momVal = item.momentum_score !== undefined && item.momentum_score !== null ? parseFloat(item.momentum_score) : null;
+    let momScoreHtml = '-';
+    if (momVal !== null && !isNaN(momVal)) {
+      if (momVal <= 10) {
+        momScoreHtml = `<span style="color:#ef4444; font-weight:800; font-family:var(--font-mono);">${Math.round(momVal)}</span> <span style="color:var(--muted); font-size:9px;">(Oversold)</span>`;
+      } else if (momVal >= 35) {
+        momScoreHtml = `<span style="color:#10b981; font-weight:800; font-family:var(--font-mono);">${Math.round(momVal)}</span> <span style="color:#10b981; font-size:9px;">(Strong)</span>`;
+      } else {
+        momScoreHtml = `<span style="color:#3b82f6; font-weight:700; font-family:var(--font-mono);">${Math.round(momVal)}</span> <span style="color:#3b82f6; font-size:9px;">(Moderate)</span>`;
+      }
+    }
+
     const cmp = item.cmp || item.Close || item.close || 0;
     const rs6m = item.rs_6m !== undefined && item.rs_6m !== null ? parseFloat(item.rs_6m).toFixed(1) + '%' : '-';
-    const bucket = item.Portfolio_Bucket || (item.Core_Selected ? 'Core' : '-');
-    const sector = item.Sector || item.sector || 'Unknown';
-    const signal = item.Signal || item.Signal_Code || 'HOLD';
+    const rawBucket = item.Portfolio_Bucket || (item.Core_Selected ? 'Core' : '-');
+    let bucketBadge = `<span class="badge-ok" style="font-size:10px;">${formatText(rawBucket)}</span>`;
+    if (rawBucket.includes('Core')) {
+      bucketBadge = `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">💎 Core</span>`;
+    } else if (rawBucket.includes('Growth')) {
+      bucketBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🚀 Growth</span>`;
+    } else if (rawBucket.includes('Quality-On-Sale')) {
+      bucketBadge = `<span style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🏷️ On Sale</span>`;
+    } else if (rawBucket.includes('Opportunistic')) {
+      bucketBadge = `<span style="background:rgba(168,85,247,0.15); color:#c084fc; border:1px solid rgba(168,85,247,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">⚡ Opportunistic</span>`;
+    }
 
-    let sigStyle = "color:var(--text);";
-    if (signal.includes("BUY")) sigStyle = "color:var(--win); font-weight:800;";
-    else if (signal.includes("SELL")) sigStyle = "color:var(--loss); font-weight:800;";
-    else if (signal.includes("WATCH")) sigStyle = "color:var(--accent); font-weight:700;";
+    const sector = item.Sector || item.sector || 'Unknown';
+    const signal = String(item.Signal || item.Signal_Code || 'HOLD');
+
+    let signalHtml = '';
+    if (signal.includes('SELL_REVIEW') || signal.includes('SELL')) {
+      const scoreMatch = signal.match(/\d+\/100/);
+      const scoreNum = scoreMatch ? scoreMatch[0] : (item.Hold_Score ? Math.round(item.Hold_Score) + '/100' : '');
+      signalHtml = `
+        <div style="display:flex; flex-direction:column; gap:3px;">
+          <span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.35); padding:3px 8px; border-radius:6px; font-weight:800; font-size:11px; display:inline-flex; align-items:center; gap:4px;">
+            ⚠️ OWNED POSITION: Review Exit ${scoreNum ? '(' + scoreNum + ')' : ''}
+          </span>
+          <span style="color:var(--muted); font-size:10px; font-family:var(--font-mono);">Setup: Deep Retest (${rawBucket})</span>
+        </div>
+      `;
+    } else if (signal.includes('BUY')) {
+      signalHtml = `
+        <span style="background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.45); padding:3px 8px; border-radius:6px; font-weight:800; font-size:11px; display:inline-flex; align-items:center; gap:4px;">
+          🎯 BUY SIGNAL (${formatPrice(cmp)})
+        </span>
+      `;
+    } else if (signal.includes('PYRAMID')) {
+      signalHtml = `
+        <span style="background:rgba(59,130,246,0.2); color:#3b82f6; border:1px solid rgba(59,130,246,0.45); padding:3px 8px; border-radius:6px; font-weight:800; font-size:11px; display:inline-flex; align-items:center; gap:4px;">
+          🚀 PYRAMID BREAKOUT (52W High)
+        </span>
+      `;
+    } else if (signal.includes('Position Already Open')) {
+      signalHtml = `
+        <div style="display:flex; flex-direction:column; gap:2px;">
+          <span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px; display:inline-flex; align-items:center; gap:4px;">
+            💼 OWNED: Holding Strong
+          </span>
+          <span style="color:var(--muted); font-size:10px;">Hold Score: ${item.Hold_Score ? Math.round(item.Hold_Score) : 55}/100</span>
+        </div>
+      `;
+    } else if (signal.includes('Below 200 SMA')) {
+      signalHtml = `
+        <div style="display:flex; flex-direction:column; gap:2px;">
+          <span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px; display:inline-flex; align-items:center; gap:4px;">
+            🏷️ DEEP VALUE (Below 200 SMA)
+          </span>
+          <span style="color:var(--muted); font-size:10px;">Waiting for bottom confirmation</span>
+        </div>
+      `;
+    } else if (signal.includes('Top N') || signal.includes('Sector Cap')) {
+      signalHtml = `
+        <div style="display:flex; flex-direction:column; gap:2px;">
+          <span style="color:var(--muted); font-size:11px; font-weight:600;">⏳ Quality Watch</span>
+          <span style="color:var(--muted); font-size:10px;">Sector Allocation Full</span>
+        </div>
+      `;
+    } else {
+      signalHtml = `<span style="color:var(--muted); font-size:11px;">${formatText(signal)}</span>`;
+    }
+
+    const categoryText = (item.Category || '').split('+')[0].trim();
 
     return `
       <tr>
-        <td style="font-weight:700; color:var(--accent);">${formatText(item.Stock || item.symbol)}</td>
-        <td>${formatTvLink(item.tradingview_symbol, item.Stock || item.symbol)}</td>
-        <td style="font-weight:700; font-family:var(--font-mono);">${score}</td>
-        <td style="font-weight:700; font-family:var(--font-mono);">${momScore}</td>
-        <td style="font-weight:700; color:var(--text);">${formatPrice(cmp)}</td>
-        <td style="font-family:var(--font-mono);">${rs6m}</td>
-        <td><span class="badge-ok" style="font-size:10px;">${formatText(bucket)}</span></td>
-        <td>${formatText(sector)}</td>
-        <td style="${sigStyle}">${formatText(signal)}</td>
+        <td style="padding:10px 12px;">
+          <div style="font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.Stock || item.symbol)}${getEarningsBadgeHtml(item)}</div>
+          ${categoryText ? `<div style="font-size:10px; color:var(--muted); margin-top:2px; max-width:160px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${formatText(item['Category Explanation'] || item.Category || '')}">${formatText(categoryText)}</div>` : ''}
+        </td>
+        <td style="padding:10px 12px;">${formatTvLink(item.tradingview_symbol, item.Stock || item.symbol)}</td>
+        <td style="padding:10px 12px; font-weight:700; font-family:var(--font-mono);">${score}</td>
+        <td style="padding:10px 12px; font-family:var(--font-mono);">${momScoreHtml}</td>
+        <td style="padding:10px 12px; font-weight:700; color:var(--text); font-family:var(--font-mono);">${formatPrice(cmp)}</td>
+        <td style="padding:10px 12px; font-family:var(--font-mono);">${rs6m}</td>
+        <td style="padding:10px 12px;">${bucketBadge}</td>
+        <td style="padding:10px 12px; font-size:11px; color:var(--muted);">${formatText(sector)}</td>
+        <td style="padding:10px 12px;">${signalHtml}</td>
       </tr>
     `;
   }).join('');
