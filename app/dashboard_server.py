@@ -1590,6 +1590,7 @@ def get_v2_master_summary():
     return jsonify(orchestrator_v2.get_master_summary())
 
 @app.route("/api/v2/master_alerts")
+@app.route("/api/v2/confirmed_signals")
 def get_v2_master_alerts():
     from master_orchestrator import orchestrator_v2
     return jsonify(orchestrator_v2.get_confirmed_signals())
