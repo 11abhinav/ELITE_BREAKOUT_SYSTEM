@@ -3419,18 +3419,11 @@ function changeAdminPage(type, delta) {
 
     async function loadScannerStatus() {
       let stats = null;
-      const urls = [
-        `/api/scanner_status?_t=${Date.now()}`,
-      ];
-      for (const url of urls) {
-        try {
-          const r = await fetch(url, { cache: 'no-store' });
-          if (r.ok) { stats = await r.json(); break; }
-        } catch { }
-      }
-      if (!stats) stats = {};
-
-      return stats;
+      try {
+        const r = await fetch('/api/scanner_status', { cache: 'no-store' });
+        if (r.ok) stats = await r.json();
+      } catch { }
+      return stats || {};
     }
 
 
@@ -5343,11 +5336,12 @@ function getEarningsBadgeHtml(item) {
     }
 
     // ── API HEALTH & VALIDATION HEALTH FETCHERS (ADMIN)
-    // [RULE 67 - FIX RATIONALE]: Explicitly define loadApiHealth and loadValidationHealth to prevent
-    // ReferenceError exceptions during doRefresh(), and add single-click optimistic acknowledgment.
-    async function loadApiHealth() {
+    // [RULE 67 CHANGE-RATIONALE]: Use clean endpoint URLs during routine polling so backend 5.0s micro-caches
+    // eliminate redundant DB table scans, but pass ?force=true when an administrator explicitly triggers refresh or acknowledges an alert.
+    async function loadApiHealth(force = false) {
       try {
-        const r = await fetch('/api/data_fetch_health?_t=' + Date.now(), { cache: 'no-store' });
+        const url = force ? '/api/data_fetch_health?force=true' : '/api/data_fetch_health';
+        const r = await fetch(url, { cache: 'no-store' });
         if (!r.ok) return [];
         const data = await r.json();
         renderApiHealth(data);
@@ -5358,9 +5352,10 @@ function getEarningsBadgeHtml(item) {
       }
     }
 
-    async function loadValidationHealth() {
+    async function loadValidationHealth(force = false) {
       try {
-        const r = await fetch('/api/validation_health?_t=' + Date.now(), { cache: 'no-store' });
+        const url = force ? '/api/validation_health?force=true' : '/api/validation_health';
+        const r = await fetch(url, { cache: 'no-store' });
         if (!r.ok) return null;
         const res = await r.json();
         const records = res && res.data ? res.data : [];
@@ -5439,8 +5434,8 @@ function getEarningsBadgeHtml(item) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' }
         });
-        // Immediately reload API health directly with cache-busting
-        await loadApiHealth();
+        // Immediately reload API health directly with forced refresh
+        await loadApiHealth(true);
       } catch (e) {
         console.error('Failed to ack API health', e);
         if (btnElement) {
@@ -5668,7 +5663,7 @@ function getEarningsBadgeHtml(item) {
       // Trigger primary data load
       const dataPromise = loadData();
 
-      // Real-Time Background Updates (fetch health status and execution history on every poll)
+      // Real-Time Background Updates (fetch health status and capital info on routine poll)
       const promises = [
         loadScannerStatus().then(live => {
           if (live) {
@@ -5676,8 +5671,7 @@ function getEarningsBadgeHtml(item) {
             if (typeof renderScannerGrid === 'function') renderScannerGrid(window._scannerStats);
           }
         }),
-        loadCapitalInfo(),
-        fetchScannerExecutionHistory(currentSehPage)
+        loadCapitalInfo()
       ];
 
       const tab = activeAdminTab || 'signals-trades';
@@ -5690,6 +5684,9 @@ function getEarningsBadgeHtml(item) {
         promises.push(searchUsers());
         promises.push(loadManualWatchlist());
       } else if (tab === 'health-errors') {
+        // [RULE 67 CHANGE-RATIONALE] Moved fetchScannerExecutionHistory here so paginated DB history queries
+        // only execute when the admin actually views the health & errors screen, preventing unnecessary DB load.
+        promises.push(fetchScannerExecutionHistory(currentSehPage));
         promises.push(fetchSystemLogs());
         promises.push(loadNonCriticalErrors());
         promises.push(loadValidationHealth());
@@ -5978,17 +5975,19 @@ function showSehErrorModal(runId) {
 }
 
 // ── NON-CRITICAL ERRORS TRACKING
-// [RULE 67 - FIX RATIONALE]: Pass cache-buster timestamp and no-store cache directive to guarantee
-// instant refresh of unhandled system logs, and give visual spinner/button state feedback.
+// [RULE 67 CHANGE-RATIONALE]: Pass clean URL during routine polling to leverage 5.0s backend cache,
+// and pass ?force=true only when administrator explicitly clicks the refresh button.
 async function fetchSystemLogs(btnElement) {
   let origText = '';
+  const isExplicit = !!btnElement;
   if (btnElement) {
     origText = btnElement.innerHTML;
     btnElement.innerHTML = '⏳ Refreshing...';
     btnElement.disabled = true;
   }
   try {
-    const res = await fetch('/api/system_logs?_t=' + Date.now(), { cache: 'no-store' });
+    const url = isExplicit ? '/api/system_logs?force=true' : '/api/system_logs';
+    const res = await fetch(url, { cache: 'no-store' });
     if(res.ok) {
       const logs = await res.json();
       renderSystemLogs(logs);
@@ -6631,70 +6630,8 @@ async function generateAIModal() {
     generateAI(ticker, 'aiModalContent', document.getElementById('aiModalBtn'));
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    // Guard: skip if first DOMContentLoaded block already built this datalist
-    if (document.getElementById('tickerList')) return;
-    // Fetch all NSE tickers for autocomplete (AI modal input)
-    fetch('/api/all_tickers')
-        .then(res => res.json())
-        .then(symbols => {
-            // Reuse existing datalist if available (built by first block)
-            let datalist = document.getElementById('tickerList');
-            if (!datalist) {
-                datalist = document.createElement('datalist');
-                datalist.id = 'tickerList';
-                symbols.forEach(sym => {
-                    const option = document.createElement('option');
-                    option.value = sym;
-                    datalist.appendChild(option);
-                });
-                document.body.appendChild(datalist);
-            }
-
-            const searchBox = document.getElementById('searchBox');
-            if(searchBox) searchBox.setAttribute('list', 'tickerList');
-
-            const aiInput = document.getElementById('aiModalTicker');
-            if(aiInput) {
-                // Custom absolute-positioned dropdown to fix browser bug in modals
-                const wrapper = document.createElement('div');
-                wrapper.style.position = 'relative';
-                wrapper.style.flex = '1';
-                aiInput.parentNode.insertBefore(wrapper, aiInput);
-                wrapper.appendChild(aiInput);
-
-                const dropdown = document.createElement('div');
-                dropdown.style.position = 'absolute';
-                dropdown.style.top = '100%';
-                dropdown.style.left = '0';
-                dropdown.style.width = '100%';
-                dropdown.style.maxHeight = '200px';
-                dropdown.style.overflowY = 'auto';
-                dropdown.style.background = 'var(--bg)';
-                dropdown.style.border = '1px solid var(--border)';
-                dropdown.style.borderRadius = '0 0 6px 6px';
-                dropdown.style.zIndex = '10000';
-                dropdown.style.display = 'none';
-                dropdown.style.boxShadow = '0 4px 12px rgba(0,0,0,0.5)';
-                wrapper.appendChild(dropdown);
-
-                aiInput.addEventListener('input', e => {
-                    const val = e.target.value.toUpperCase();
-                    if(!val) { dropdown.style.display = 'none'; return; }
-                    const matches = symbols.filter(s => s.startsWith(val)).slice(0, 50);
-                    if(matches.length === 0) { dropdown.style.display = 'none'; return; }
-
-                    dropdown.innerHTML = matches.map(m => `<div style = "padding:8px 12px; cursor:pointer; color:var(--text); border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;" onmouseover = "this.style.background='var(--card2)'" onmouseout = "this.style.background='transparent'" onclick = "document.getElementById('aiModalTicker').value='${m}'; this.parentNode.style.display='none';" > ${ m }</div >`).join('');
-                    dropdown.style.display = 'block';
-                });
-                
-                document.addEventListener('click', e => {
-                    if(!wrapper.contains(e.target)) dropdown.style.display = 'none';
-                });
-            }
-        })
-        .catch(err => console.error("Failed to load ticker list", err));
-});
+// [RULE 67 CHANGE-RATIONALE] Removed redundant duplicate DOMContentLoaded block for /api/all_tickers.
+// The autocomplete datalist and dropdown are already initialized by the primary DOMContentLoaded block at line 5206.
   </script>
 
 
@@ -10002,11 +9939,10 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       loadMasterSystemV2Data();
     }
+    // [RULE 67 CHANGE-RATIONALE] Eliminated startup avalanche of non-active tabs (loadUserWatchlist,
+    // loadManualWatchlist, fetchDatabaseTablesSummary, loadNearMisses). Tabs now load strictly on-demand
+    // via switchAdminTab / triggerActiveTabFetch, cutting initial startup HTTP requests from 17 down to 5.
   }
-  loadUserWatchlist();
-  loadManualWatchlist();
-  fetchDatabaseTablesSummary();
-  loadNearMisses();
 });
 
   </script>
