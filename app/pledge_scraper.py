@@ -305,18 +305,11 @@ def fetch_promoter_pledge(symbol: str):
                     SELECT pledge_pct, updated_at 
                     FROM promoter_pledge_cache 
                     WHERE symbol = %s 
-                      AND updated_at >= NOW() - INTERVAL '30 days'
+                      AND (updated_at >= NOW() - INTERVAL '120 days' OR last_attempted_at >= NOW() - INTERVAL '120 days')
                 """, (symbol,))
                 row = cur.fetchone()
                 if row:
                     val = float(row[0])
-                    updated_at = row[1]
-                    if updated_at:
-                        age_days = (datetime.now(ZoneInfo('Asia/Kolkata')).date() - updated_at.date()).days
-                        if age_days <= 28:
-                            logger.debug(f"✅ [PLEDGE DB CACHE] {symbol}: Pledge cache FRESH (updated {age_days}d ago <= 28d TTL). Reusing DB data.")
-                        else:
-                            logger.debug(f"🔄 [PLEDGE DB CACHE] {symbol}: Pledge cache STALE (updated {age_days}d ago > 28d TTL). Worker will refetch.")
                     # Treat negative sentinel values (like -1.0 for 404/Not Found) as None
                     return None if val < 0 else val
 

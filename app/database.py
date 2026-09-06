@@ -4498,14 +4498,10 @@ def get_promoter_pledge_stats(symbols: list = None) -> dict:
                 last_symbol = last[0] if last else None
                 last_updated = last[1] if last else None
 
-                # [VERSION: PLEDGE_STATS_DB_v1.6] If symbols not provided, query daily watchlist tables to reconstruct universe dynamically from DB
+                # If symbols not provided, query all active universe tables dynamically from DB
                 if not symbols:
-                    cur.execute("""
-                        SELECT DISTINCT "Stock" FROM daily_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != ''
-                        UNION
-                        SELECT DISTINCT "Stock" FROM daily_excluded_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != ''
-                    """)
-                    symbols = [r[0] for r in cur.fetchall() if r[0]]
+                    universe_set = get_all_active_universe_symbols(cur)
+                    symbols = list(universe_set) if universe_set else []
 
                     if not symbols:
                         # Database fallback if daily tables are empty
@@ -4611,12 +4607,74 @@ def has_today_pledge_snapshot() -> bool:
         return False
 
 
+def get_all_active_universe_symbols(cur=None) -> set[str]:
+    """
+    Returns the distinct union of all active equity symbols across:
+    1. Daily Builder (daily_watchlist, daily_watchlist_v2, daily_excluded_watchlist, daily_excluded_watchlist_v2)
+    2. Multibagger & Wealth (watchlist, elite_wealth_system)
+    3. Manual Watchlists (user_watchlists)
+    4. Master Equities (master_symbols and local master json cache)
+    """
+    all_syms = set()
+
+    def _query(c):
+        tables_queries = [
+            'SELECT DISTINCT "Stock" FROM daily_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'',
+            'SELECT DISTINCT "Stock" FROM daily_excluded_watchlist WHERE "Stock" IS NOT NULL AND "Stock" != \'\'',
+            'SELECT DISTINCT symbol FROM daily_watchlist_v2 WHERE symbol IS NOT NULL AND symbol != \'\'',
+            'SELECT DISTINCT symbol FROM daily_excluded_watchlist_v2 WHERE symbol IS NOT NULL AND symbol != \'\'',
+            'SELECT DISTINCT symbol FROM watchlist WHERE symbol IS NOT NULL AND symbol != \'\'',
+            'SELECT DISTINCT symbol FROM user_watchlists WHERE symbol IS NOT NULL AND symbol != \'\'',
+            'SELECT DISTINCT symbol FROM master_symbols WHERE symbol IS NOT NULL AND symbol != \'\''
+        ]
+        for q in tables_queries:
+            try:
+                c.execute(q)
+                for r in c.fetchall():
+                    if r and r[0]:
+                        all_syms.add(str(r[0]).strip().upper())
+            except Exception:
+                pass
+
+    if cur is not None:
+        _query(cur)
+    else:
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as c:
+                    _query(c)
+        except Exception:
+            pass
+
+    # Include local master equities files if present
+    try:
+        from config import DATA_DIR
+        for fname in ["nse_master_equities.json", "nse_bse_master_universe.json"]:
+            fpath = os.path.join(DATA_DIR, fname)
+            if os.path.exists(fpath):
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        if isinstance(data, dict):
+                            for sym in data.keys():
+                                if sym:
+                                    all_syms.add(str(sym).strip().upper())
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    return all_syms
+
+
 def upsert_bulk_pledge_records(records: list, snapshot_meta: dict) -> int:
     """
     Bulk UPSERTs parsed NSE pledged records into promoter_pledge_cache and records the snapshot in pledge_snapshots.
+    Also ensures all active universe stocks (Daily Builder, Multibagger, Wealth, Manual Watchlists)
+    omitted from the encumbrance filing are explicitly recorded with 0.0% unencumbered pledge.
     Atomic transaction guarantees consistency.
     """
-    if not records:
+    if not records and not snapshot_meta:
         return 0
     init_db()
     inserted_count = 0
@@ -4657,17 +4715,40 @@ def upsert_bulk_pledge_records(records: list, snapshot_meta: dict) -> int:
                         r.get("depository_pledge_demat_pct"), r.get("source", "NSE"),
                         r.get("as_of_date"), r.get("snapshot_id")
                     )
-                    for r in records
+                    for r in (records or [])
+                    if r.get("symbol")
                 ]
-                cur.executemany(insert_sql, payload)
+                if payload:
+                    cur.executemany(insert_sql, payload)
                 inserted_count = len(payload)
 
-                # Record snapshot
-                snap_id = snapshot_meta.get("snapshot_id")
-                snap_date = snapshot_meta.get("snapshot_date")
-                total_rows = snapshot_meta.get("total_rows", inserted_count)
-                matched_cnt = snapshot_meta.get("matched_count", inserted_count)
+                # Snapshot metadata
+                snap_id = snapshot_meta.get("snapshot_id") if snapshot_meta else f"MANUAL_{int(time.time())}"
+                snap_date = snapshot_meta.get("snapshot_date") if snapshot_meta else datetime.now(IST).strftime("%Y-%m-%d")
+                total_rows = snapshot_meta.get("total_rows", inserted_count) if snapshot_meta else inserted_count
+                matched_cnt = snapshot_meta.get("matched_count", inserted_count) if snapshot_meta else inserted_count
 
+                # Populate 0.0% unencumbered defaults for all active universe symbols not in encumbrance filing
+                universe_symbols = get_all_active_universe_symbols(cur)
+                encumbered_symbols = {str(r["symbol"]).strip().upper() for r in (records or []) if r.get("symbol")}
+                unencumbered_symbols = [s for s in universe_symbols if s not in encumbered_symbols]
+
+                if unencumbered_symbols:
+                    unencumbered_payload = [
+                        (
+                            sym, 0.0, 0, None, None, 0, None, 0.0,
+                            "NSE_UNENCUMBERED_DEFAULT", snap_date, snap_id
+                        )
+                        for sym in unencumbered_symbols
+                    ]
+                    cur.executemany(insert_sql, unencumbered_payload)
+                    logger.info(
+                        f"🛡️ [PLEDGE_BULK_UPSERT] Auto-populated 0.0% unencumbered pledge for "
+                        f"{len(unencumbered_symbols)} universe symbols (DailyBuilder / Multibagger / Manual Watchlists)."
+                    )
+                    inserted_count += len(unencumbered_symbols)
+
+                # Record snapshot
                 cur.execute("""
                     INSERT INTO pledge_snapshots (
                         snapshot_id, snapshot_date, source, total_rows_downloaded,
@@ -4680,13 +4761,13 @@ def upsert_bulk_pledge_records(records: list, snapshot_meta: dict) -> int:
 
                 conn.commit()
 
-                # Invalidate dataset registry cache if available
+                # Invalidate dataset registry cache and reload in-memory map
                 try:
                     from data_registry import registry
                     registry.evict("promoter_pledge")
                 except Exception:
                     pass
-                logger.info(f"✅ [PLEDGE_BULK_UPSERT] Successfully upserted {inserted_count} official NSE pledge records (Snapshot: {snap_id})")
+                logger.info(f"✅ [PLEDGE_BULK_UPSERT] Successfully upserted {inserted_count} total pledge records into cache (Snapshot: {snap_id})")
 
             except Exception as e:
                 conn.rollback()
