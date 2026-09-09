@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 
 <head>
 <script>
@@ -118,44 +118,44 @@ function changeAdminPage(type, delta) {
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700&display=swap');
 
     /* ═══════════════════════════════════════════════
-       ELITE BREAKOUT — REDEFINED ULTRA-PREMIUM DESIGN SYSTEM
+       ELITE BREAKOUT — REDEFINED ULTRA-PREMIUM OBSIDIAN DARK DESIGN SYSTEM
        Next-Gen Financial Dashboard UI with Glassmorphism & High-Performance Typography
     ═══════════════════════════════════════════════ */
 
     :root {
-      /* Surfaces */
-      --bg:         #f8fafc;
-      --surface:    #ffffff;
-      --card:       #ffffff;
-      --card2:      #f1f5f9;
-      --card3:      #e2e8f0;
+      /* Obsidian Dark Core Surfaces */
+      --bg:         #080c14;
+      --surface:    #0f172a;
+      --card:       #111827;
+      --card2:      #1a2236;
+      --card3:      #24304c;
 
       /* Borders */
-      --border:     #e2e8f0;
-      --border2:    #cbd5e1;
+      --border:     rgba(255,255,255,0.08);
+      --border2:    rgba(255,255,255,0.16);
 
       /* Brand & Accent */
-      --accent:       #059669;
-      --accent-dim:   rgba(5,150,105,0.08);
-      --accent-hover: #047857;
-      --accent2:      #2563eb;
-      --accent2-dim:  rgba(37,99,235,0.08);
+      --accent:       #00e5a0;
+      --accent-dim:   rgba(0,229,160,0.12);
+      --accent-hover: #00c88b;
+      --accent2:      #3b82f6;
+      --accent2-dim:  rgba(59,130,246,0.12);
 
       /* Semantic Colors */
-      --win:      #059669;
-      --loss:     #dc2626;
-      --open:     #2563eb;
-      --neutral:  #64748b;
-      --down:     #dc2626;
-      --warn:     #dc2626;
-      --warn-dim: rgba(220,38,38,0.08);
-      --amber:    #d97706;
-      --amber-dim:rgba(217,119,6,0.08);
+      --win:      #00e5a0;
+      --loss:     #ef4444;
+      --open:     #3b82f6;
+      --neutral:  #94a3b8;
+      --down:     #ef4444;
+      --warn:     #ef4444;
+      --warn-dim: rgba(239,68,68,0.12);
+      --amber:    #f59e0b;
+      --amber-dim:rgba(245,158,11,0.12);
 
       /* Text */
-      --text:   #0f172a;
-      --muted:  #64748b;
-      --muted2: #94a3b8;
+      --text:   #f8fafc;
+      --muted:  #94a3b8;
+      --muted2: #64748b;
 
       /* Typography */
       --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -167,11 +167,11 @@ function changeAdminPage(type, delta) {
       --radius-sm: 6px;
       --radius-lg: 16px;
 
-      /* Shadows */
-      --shadow:    0 1px 3px rgba(0,0,0,.04), 0 1px 2px rgba(0,0,0,.02);
-      --shadow-md: 0 4px 16px rgba(0,0,0,.06), 0 2px 4px rgba(0,0,0,.03);
-      --shadow-lg: 0 12px 32px rgba(0,0,0,.08), 0 4px 8px rgba(0,0,0,.04);
-      --glow:      0 0 0 3px rgba(5,150,105,0.15);
+      /* Shadows & Glow */
+      --shadow:    0 2px 8px rgba(0,0,0,.4);
+      --shadow-md: 0 8px 24px rgba(0,0,0,.5);
+      --shadow-lg: 0 16px 40px rgba(0,0,0,.6);
+      --glow:      0 0 0 3px rgba(0,229,160,0.25);
     }
 
     [data-theme="dark"] {
@@ -180,9 +180,9 @@ function changeAdminPage(type, delta) {
       --card:    #111827;
       --card2:   #1a2236;
       --card3:   #24304c;
-      --border:  rgba(255,255,255,.07);
-      --border2: rgba(255,255,255,.14);
-      --text:    #f1f5f9;
+      --border:  rgba(255,255,255,.08);
+      --border2: rgba(255,255,255,.16);
+      --text:    #f8fafc;
       --muted:   #94a3b8;
       --muted2:  #64748b;
       --accent:       #00e5a0;
@@ -656,57 +656,61 @@ function changeAdminPage(type, delta) {
     }
 
     .kpi {
-      flex: 1 1 120px;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-left: 3px solid var(--border2);
+      flex: 1 1 130px;
+      background: linear-gradient(135deg, rgba(26, 34, 54, 0.75), rgba(17, 24, 39, 0.95));
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      border-left: 3px solid var(--accent);
       border-radius: var(--radius);
-      padding: 8px 12px;
+      padding: 10px 14px;
       cursor: pointer;
-      transition: all .18s;
+      transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
       position: relative;
       overflow: hidden;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(8px);
     }
 
     .kpi:hover {
-      border-color: var(--border2);
+      border-color: rgba(0, 229, 160, 0.4);
       border-left-color: var(--accent);
-      box-shadow: var(--shadow-md);
-      transform: translateY(-1px);
+      box-shadow: 0 8px 24px rgba(0, 229, 160, 0.18), 0 0 12px rgba(0, 229, 160, 0.1);
+      transform: translateY(-2px);
     }
 
     .kpi.active {
-      border-left-color: var(--accent);
-      background: linear-gradient(to right, var(--accent-dim), var(--card));
+      border-color: var(--accent);
+      background: linear-gradient(135deg, rgba(0, 229, 160, 0.18), rgba(17, 24, 39, 0.95));
+      box-shadow: 0 0 20px rgba(0, 229, 160, 0.25);
     }
 
     .kpi-label {
       font-size: 10px;
       color: var(--muted);
       text-transform: uppercase;
-      letter-spacing: .5px;
-      font-weight: 600;
-      margin-bottom: 3px;
+      letter-spacing: 0.8px;
+      font-weight: 700;
+      margin-bottom: 5px;
     }
 
     .kpi-value {
-      font-size: 18px;
-      font-weight: 700;
+      font-size: 20px;
+      font-weight: 800;
       font-family: var(--font-mono);
       color: var(--text);
-      line-height: 1;
-      letter-spacing: -0.3px;
+      line-height: 1.1;
+      letter-spacing: -0.4px;
     }
 
-    .kpi-value.green { color: var(--win); }
-    .kpi-value.red   { color: var(--loss); }
-    .kpi-value.blue  { color: var(--open); }
-    .kpi-value.amber { color: var(--amber); }
+    .kpi-value.green { color: var(--win); text-shadow: 0 0 10px rgba(0,229,160,0.3); }
+    .kpi-value.red   { color: var(--loss); text-shadow: 0 0 10px rgba(239,68,68,0.3); }
+    .kpi-value.blue  { color: var(--open); text-shadow: 0 0 10px rgba(59,130,246,0.3); }
+    .kpi-value.amber { color: var(--amber); text-shadow: 0 0 10px rgba(245,158,11,0.3); }
 
     .kpi-sub {
       font-size: 11px;
-      color: var(--muted2);
+      color: var(--muted);
       margin-top: 5px;
+      font-family: var(--font-mono);
     }
 
     .kpi-hint {
@@ -714,7 +718,7 @@ function changeAdminPage(type, delta) {
       color: var(--accent);
       margin-top: 4px;
       display: none;
-      font-weight: 500;
+      font-weight: 600;
     }
 
     .kpi.active .kpi-hint { display: block; }
@@ -782,18 +786,21 @@ function changeAdminPage(type, delta) {
     .scanner-grid > * { flex: 1 1 280px; box-sizing: border-box; max-width: 100%; }
 
     .scanner-card {
-      background: var(--card);
-      border: 1px solid var(--border);
+      background: linear-gradient(145deg, rgba(26, 34, 54, 0.65), rgba(17, 24, 39, 0.95));
+      border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: var(--radius-lg);
       padding: 20px;
       position: relative;
       overflow: hidden;
-      transition: all .18s;
+      transition: all .2s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(8px);
     }
 
     .scanner-card:hover {
-      border-color: var(--border2);
-      box-shadow: var(--shadow-md);
+      border-color: rgba(0, 229, 160, 0.4);
+      box-shadow: 0 8px 28px rgba(0, 229, 160, 0.15);
+      transform: translateY(-2px);
     }
 
     .scanner-card.status-ok {
@@ -1644,7 +1651,7 @@ function changeAdminPage(type, delta) {
       return response;
     };
 
-    const savedTheme = localStorage.getItem('theme') || 'light';
+    const savedTheme = localStorage.getItem('theme') || 'dark';
     document.documentElement.setAttribute('data-theme', savedTheme);
 
     let _audioCtx = null;
@@ -1814,9 +1821,12 @@ function changeAdminPage(type, delta) {
 
     <div class="container">
 
-      <!-- 9-TAB MASTER SYSTEM NAVIGATION BAR (DEDUPLICATED & CLEAN) -->
+      <!-- 10-TAB MASTER SYSTEM NAVIGATION BAR -->
       <div class="admin-tabs-bar">
-        <button class="admin-tab-btn active" data-tab="master-signals" onclick="switchAdminTab('master-signals')">
+        <button class="admin-tab-btn active" data-tab="signals-trades" onclick="switchAdminTab('signals-trades')">
+          <span>🚀</span> Live Alerts &amp; Signals
+        </button>
+        <button class="admin-tab-btn" data-tab="master-signals" onclick="switchAdminTab('master-signals')">
           <span>🔥</span> Confirmed Signals
         </button>
         <button class="admin-tab-btn" data-tab="stocks-watch" onclick="switchAdminTab('stocks-watch')">
@@ -1846,7 +1856,7 @@ function changeAdminPage(type, delta) {
       </div>
 
       <!-- TAB 0A: MASTER CONFIRMED SIGNALS -->
-      <div id="tab-master-signals" class="tab-panel active">
+      <div id="tab-master-signals" class="tab-panel">
         <!-- P&L AND PORTFOLIO BAR -->
         <div style="display:flex; justify-content:flex-start; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
           <!-- PORTFOLIO METRICS -->
@@ -2164,7 +2174,7 @@ function changeAdminPage(type, delta) {
       </div>
 
       <!-- TAB 1: SIGNALS & ALL TRADES -->
-      <div id="tab-signals-trades" class="tab-panel">
+      <div id="tab-signals-trades" class="tab-panel active">
 
       <!-- PURPOSE BANNER -->
       <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; padding:12px 16px; margin-bottom:16px;">
@@ -10559,14 +10569,12 @@ document.addEventListener('DOMContentLoaded', () => {
   if (requestedTab && typeof switchAdminTab === 'function') {
     switchAdminTab(requestedTab);
   } else {
-    // Default to active tab master-signals to ensure the primary Confirmed Signals tab loads on page load!
+    // Default to active tab signals-trades to ensure the primary Live Alerts & Signals tab loads on page load!
     if (typeof switchAdminTab === 'function') {
-      switchAdminTab('master-signals');
+      switchAdminTab('signals-trades');
     } else {
       loadMasterSystemV2Data();
     }
-    // [RULE 67 CHANGE-RATIONALE] Eliminated startup avalanche of non-active tabs. Tabs load strictly on-demand
-    // via switchAdminTab / triggerActiveTabFetch, cutting initial startup HTTP requests down significantly.
   }
 });
 
