@@ -692,6 +692,23 @@ def api_user_info():
 # Every query fetches real-time unread/read state directly from PostgreSQL with no-cache HTTP headers.
 _notifications_cache = {"ts": 0.0, "admin_payload": None, "user_payload": None}
 
+_LATEST_STREAM_EVENT = {
+    "seq": 0,
+    "last_broadcast_ts": 0.0,
+    "last_event_type": "alert",
+    "last_payload": {}
+}
+
+def notify_stream_clients(event_type: str = "alert", payload: dict = None):
+    """[RULE 67 CHANGE-RATIONALE]: Notify connected SSE clients of a new alert or notification instantly.
+    Eliminates client polling lag so web alerts trigger at the same sub-second speed as mobile push."""
+    global _LATEST_STREAM_EVENT
+    with _dashboard_cache_lock:
+        _LATEST_STREAM_EVENT["seq"] += 1
+        _LATEST_STREAM_EVENT["last_broadcast_ts"] = time.time()
+        _LATEST_STREAM_EVENT["last_event_type"] = event_type
+        _LATEST_STREAM_EVENT["last_payload"] = payload or {}
+
 def invalidate_notifications_cache():
     global _notifications_cache
     _notifications_cache["ts"] = 0.0
@@ -704,6 +721,11 @@ def invalidate_all_dashboard_caches():
     global _todays_alerts_cache, _BREAKOUT_RESPONSE_CACHE, _SCANNER_STATUS_CACHE
     global _SEH_API_CACHE, _ADVANCED_OUTCOMES_CACHE, _notifications_cache, _CAPITAL_INFO_CACHE
     global _fetch_errors_grouped_cache, _UNIVERSE_HEALTH_CACHE, _PENDING_USERS_CACHE
+    global _SYSTEM_LOGS_CACHE
+    try:
+        invalidate_performance_cache()
+    except Exception:
+        pass
     try:
         _todays_alerts_cache["ts"] = 0
         _todays_alerts_cache["admin_payload"] = None
@@ -733,6 +755,12 @@ def invalidate_all_dashboard_caches():
         _notifications_cache["ts"] = 0
         _notifications_cache["admin_payload"] = None
         _notifications_cache["user_payload"] = None
+    except Exception:
+        pass
+    try:
+        if "_SYSTEM_LOGS_CACHE" in globals() and isinstance(_SYSTEM_LOGS_CACHE, dict):
+            _SYSTEM_LOGS_CACHE["ts"] = 0.0
+            _SYSTEM_LOGS_CACHE["payload"] = None
     except Exception:
         pass
     try:
@@ -2587,7 +2615,9 @@ def api_stream_alerts():
         from snapshot_manager import get_snapshot_manager
         mgr = get_snapshot_manager()
         last_versions = {}
+        last_seq = _LATEST_STREAM_EVENT.get("seq", 0)
         while True:
+            # 1. Snapshot version updates
             for stype in ["wealth", "summary", "shortlist", "user_watchlist"]:
                 snap = mgr.get_snapshot(stype)
                 if snap and snap.version != last_versions.get(stype):
@@ -2599,7 +2629,16 @@ def api_stream_alerts():
                         "generated_at": snap.generated_at,
                     })
                     yield f"event: snapshot\ndata: {event_data}\n\n"
-            time.sleep(2)
+
+            # 2. Instant real-time alert and notification events
+            curr_seq = _LATEST_STREAM_EVENT.get("seq", 0)
+            if curr_seq != last_seq:
+                last_seq = curr_seq
+                ev_type = _LATEST_STREAM_EVENT.get("last_event_type", "alert")
+                ev_payload = _LATEST_STREAM_EVENT.get("last_payload", {})
+                yield f"event: {ev_type}\ndata: {json.dumps(ev_payload)}\n\n"
+
+            time.sleep(1)
 
     return Response(event_stream(), mimetype="text/event-stream")
 
@@ -3338,6 +3377,33 @@ def api_all_alerts():
     except Exception:
         logger.exception('❌ /api/alerts failed')
         return jsonify([]), 200
+
+
+@app.route('/api/alert/by_symbol/<symbol>', methods=['GET'])
+@login_required
+def api_alert_by_symbol(symbol: str):
+    """[RULE 67 CHANGE-RATIONALE]: Fast real-time direct DB lookup for a specific stock symbol.
+    Guarantees instant hydration with all trade details when a user clicks a notification
+    or searches a symbol in the UI, with zero dependence on cold or stale cache."""
+    try:
+        from database import get_alert_by_symbol
+        trade = get_alert_by_symbol(symbol)
+        if not trade:
+            return jsonify({"success": False, "trade": None, "message": f"No alert found for {symbol}"}), 404
+        
+        is_admin = session.get('role') in ('admin', 'superuser')
+        if not is_admin and trade.get('is_rejected', False):
+            return jsonify({"success": False, "trade": None, "message": "Alert not visible"}), 403
+            
+        payload = json.dumps(serialize_datetimes(trade))
+        return Response(payload, mimetype="application/json", headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        })
+    except Exception as e:
+        logger.exception(f"❌ /api/alert/by_symbol/{symbol} failed")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route('/api/alert/<int:alert_id>/events', methods=['GET'])

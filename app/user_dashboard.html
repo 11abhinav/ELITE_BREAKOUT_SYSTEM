@@ -1861,10 +1861,26 @@ document.addEventListener('click', e => {
   }
 });
 
+let _userFilterSymDebounce = null;
 ['searchTrades', 'filterScanner', 'filterStatus', 'filterCategory', 'filterSymbol', 'filterDate'].forEach(id => {
   const el = document.getElementById(id);
   if (el) {
-    el.addEventListener('input', () => { tradeCurrentPage = 1; renderTradeTable(); });
+    el.addEventListener('input', () => {
+      tradeCurrentPage = 1;
+      renderTradeTable();
+      if (id === 'filterSymbol' || id === 'searchTrades') {
+        const sym = (el.value || '').trim().toUpperCase();
+        if (sym && sym.length >= 2) {
+          clearTimeout(_userFilterSymDebounce);
+          _userFilterSymDebounce = setTimeout(() => {
+            const hasMatch = ALL_TRADES.some(t => (t.symbol || '').toUpperCase().includes(sym));
+            if (!hasMatch && typeof hydrateAndHighlightSymbol === 'function') {
+              hydrateAndHighlightSymbol(sym, false);
+            }
+          }, 400);
+        }
+      }
+    });
     el.addEventListener('change', () => { tradeCurrentPage = 1; renderTradeTable(); });
   }
 });
@@ -2534,6 +2550,34 @@ function setupSSEAlertStream() {
         }
       } catch(err) {}
     }, false);
+
+    // [RULE 67 CHANGE-RATIONALE]: Handle real-time alert and notification events pushed over SSE
+    source.addEventListener('alert', function(e) {
+      try {
+        const data = JSON.parse(e.data || '{}');
+        if (typeof fetchTodaysAlertsAndBlink_User === 'function') {
+          fetchTodaysAlertsAndBlink_User();
+        }
+        if (typeof fetchNotifications === 'function') {
+          fetchNotifications();
+        }
+        if (data && data.symbol && typeof hydrateAndHighlightSymbol === 'function') {
+          hydrateAndHighlightSymbol(data.symbol, false);
+        }
+      } catch(err) {}
+    }, false);
+
+    source.addEventListener('notification', function(e) {
+      try {
+        const data = JSON.parse(e.data || '{}');
+        if (typeof fetchNotifications === 'function') {
+          fetchNotifications();
+        }
+        if (data && data.symbol && typeof hydrateAndHighlightSymbol === 'function') {
+          hydrateAndHighlightSymbol(data.symbol, false);
+        }
+      } catch(err) {}
+    }, false);
   }
 }
 setupSSEAlertStream();
@@ -2926,39 +2970,86 @@ async function markNotificationSeen(id, symbol, title) {
                 return;
             }
 
-            // Wealth / position closed → filter trade table on current screen
+            // Wealth / position closed → switch to trades tab
             if (upTitle.includes('WEALTH') || upTitle === 'POSITION CLOSED') {
                 if (typeof switchUserTab === 'function') switchUserTab('trades-portfolio');
-                const filterInput = document.getElementById('filterSymbol');
-                if (filterInput) {
-                    filterInput.value = symbol;
-                    renderTradeTable();
-                }
-                return;
+            } else {
+                if (typeof switchUserTab === 'function') switchUserTab('trades-portfolio');
             }
 
-            // Default → filter trade table
-            const filterInput = document.getElementById('filterSymbol');
-            if (filterInput) {
-                document.getElementById('filterDate').value = 'ALL';
-                document.getElementById('filterScanner').value = '';
-                const statusInput = document.getElementById('filterStatus');
-                if (statusInput) statusInput.value = '';
-                const catInput = document.getElementById('filterCategory');
-                if (catInput) catInput.value = '';
-                filterInput.value = symbol;
-                renderTradeTable();
-                filterInput.scrollIntoView({behavior: 'smooth', block: 'center'});
-                const table = document.querySelector('.tbl-wrap table');
-                if (table) {
-                    table.style.transition = 'background-color 0.5s';
-                    table.style.backgroundColor = 'rgba(139, 92, 246, 0.2)';
-                    setTimeout(() => table.style.backgroundColor = '', 1000);
-                }
-            }
+            const filterDate = document.getElementById('filterDate');
+            if (filterDate) filterDate.value = 'ALL';
+            const filterScanner = document.getElementById('filterScanner');
+            if (filterScanner) filterScanner.value = '';
+            const statusInput = document.getElementById('filterStatus');
+            if (statusInput) statusInput.value = '';
+            const catInput = document.getElementById('filterCategory');
+            if (catInput) catInput.value = '';
+
+            await hydrateAndHighlightSymbol(symbol, true);
         }
     } catch (e) {
         console.error(e);
+    }
+}
+
+// [RULE 67 CHANGE-RATIONALE]: Real-time live DB trade alert hydrator for user dashboard.
+// When notification is clicked, symbol is searched, or SSE alert arrives, NEVER rely on stale/empty cache.
+// Performs an immediate query to /api/alert/by_symbol/<sym> and merges/prepends the record into ALL_TRADES.
+async function hydrateAndHighlightSymbol(symbol, shouldScroll = true) {
+    if (!symbol || symbol === 'null') return;
+    const sym = symbol.trim().toUpperCase();
+
+    // 1. If symbol already present in memory, render immediately
+    const existing = ALL_TRADES.find(t => (t.symbol || '').toUpperCase() === sym);
+    if (existing) {
+        const filterInput = document.getElementById('filterSymbol');
+        if (filterInput) filterInput.value = sym;
+        tradeCurrentPage = 1;
+        renderTradeTable();
+        if (shouldScroll) highlightSymbolRow(sym);
+    }
+
+    // 2. ALWAYS execute direct DB query to guarantee latest real-time alert state and CMP
+    try {
+        const res = await fetch('/api/alert/by_symbol/' + encodeURIComponent(sym), {
+            headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+        });
+        if (res.ok) {
+            const trade = await res.json();
+            if (trade && trade.symbol) {
+                const idx = ALL_TRADES.findIndex(t => (t.symbol || '').toUpperCase() === sym);
+                if (idx >= 0) {
+                    ALL_TRADES[idx] = {...ALL_TRADES[idx], ...trade};
+                } else {
+                    ALL_TRADES.unshift(trade);
+                }
+                populateFilters(ALL_TRADES);
+                const filterInput = document.getElementById('filterSymbol');
+                if (filterInput && (!filterInput.value || filterInput.value.toUpperCase() === sym)) {
+                    filterInput.value = sym;
+                }
+                tradeCurrentPage = 1;
+                renderTradeTable();
+                if (shouldScroll) highlightSymbolRow(sym);
+            }
+        }
+    } catch (err) {
+        console.warn('Real-time DB fetch for symbol failed:', err);
+    }
+}
+
+function highlightSymbolRow(symbol) {
+    const filterInput = document.getElementById('filterSymbol');
+    if (filterInput) {
+        filterInput.value = symbol;
+        filterInput.scrollIntoView({behavior: 'smooth', block: 'center'});
+    }
+    const table = document.querySelector('.tbl-wrap table');
+    if (table) {
+        table.style.transition = 'background-color 0.5s';
+        table.style.backgroundColor = 'rgba(139, 92, 246, 0.25)';
+        setTimeout(() => table.style.backgroundColor = '', 1200);
     }
 }
 
@@ -2989,8 +3080,8 @@ async function fetchUserInfo() {
     } catch(e) {}
 }
 
-// Poll every 15 seconds
-setInterval(fetchNotifications, 15000);
+// Poll every 10 seconds for ultra-fast fallback sync
+setInterval(fetchNotifications, 10000);
 fetchNotifications();
 fetchUserInfo();
 
@@ -3005,26 +3096,18 @@ window.addEventListener('DOMContentLoaded', () => {
             openSavedWatchlistAnalysis(watchlistSym);
         }, 600);
     } else if (sym) {
-        const filterInput = document.getElementById('filterSymbol');
-        if (filterInput) {
-            filterInput.value = sym;
-            document.getElementById('filterDate').value = 'ALL';
-            document.getElementById('filterScanner').value = '';
-            const statusInput = document.getElementById('filterStatus');
-            if (statusInput) statusInput.value = '';
-            const catInput = document.getElementById('filterCategory');
-            if (catInput) catInput.value = '';
-            setTimeout(() => {
-                renderTradeTable();
-                filterInput.scrollIntoView({behavior: 'smooth', block: 'center'});
-                const table = document.querySelector('.tbl-wrap table');
-                if (table) {
-                    table.style.transition = 'background-color 0.5s';
-                    table.style.backgroundColor = 'rgba(139, 92, 246, 0.2)';
-                    setTimeout(() => table.style.backgroundColor = '', 1000);
-                }
-            }, 500);
-        }
+        const filterDate = document.getElementById('filterDate');
+        if (filterDate) filterDate.value = 'ALL';
+        const filterScanner = document.getElementById('filterScanner');
+        if (filterScanner) filterScanner.value = '';
+        const statusInput = document.getElementById('filterStatus');
+        if (statusInput) statusInput.value = '';
+        const catInput = document.getElementById('filterCategory');
+        if (catInput) catInput.value = '';
+        setTimeout(() => {
+            if (typeof switchUserTab === 'function') switchUserTab('trades-portfolio');
+            hydrateAndHighlightSymbol(sym, true);
+        }, 300);
     }
 });
 // ============================================================================

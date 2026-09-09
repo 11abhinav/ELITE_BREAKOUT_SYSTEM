@@ -326,6 +326,13 @@ def _insert_notification_sync(notif_type: str, title: str, message: str, symbol:
         except Exception:
             pass
 
+        # [REAL-TIME WEB SSE DISPATCH] Notify web dashboards immediately
+        try:
+            from dashboard_server import notify_stream_clients
+            notify_stream_clients("notification", {"symbol": symbol, "title": title, "type": notif_type})
+        except Exception:
+            pass
+
         # [VERSION: ADMIN_MOBILE_PUSH_DISPATCH_v1.0] Dispatch WebPush to mobile devices whenever an admin notification occurs
         try:
             from push_service import send_push_to_all
@@ -1361,6 +1368,11 @@ def init_db():
                 """)
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_global_notif_created ON global_notifications(created_at DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_global_notif_type ON global_notifications(type, created_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_global_notif_seen ON global_notifications(is_seen, created_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_fetch_errors_unack ON fetch_errors(occurrences DESC, last_seen DESC) WHERE is_acknowledged = FALSE")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_unack ON system_logs(created_at DESC) WHERE is_acknowledged = FALSE")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_symbol_id ON alerts(symbol, id DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_date_time ON alerts(alert_date DESC, alert_time DESC)")
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS near_misses (
                         id SERIAL PRIMARY KEY,
@@ -3002,8 +3014,9 @@ def save_alert_if_new(
 
             # [RULE 67 CHANGE-RATIONALE]: Ensure newly saved alert invalidates any dashboard response caches immediately
             try:
-                from dashboard_server import invalidate_all_dashboard_caches
+                from dashboard_server import invalidate_all_dashboard_caches, notify_stream_clients
                 invalidate_all_dashboard_caches()
+                notify_stream_clients("alert", {"symbol": symbol, "scanner": scanner, "entry_price": float(entry_price or 0.0), "category": category})
             except Exception:
                 pass
 
@@ -4452,6 +4465,118 @@ def get_todays_alerts(today_str: str) -> list[dict]:
                 return [dict(row) for row in cur.fetchall()]
             except Exception:
                 logger.exception("❌ get_todays_alerts failed")
+                return []
+
+
+def get_alert_by_symbol(symbol: str) -> dict | None:
+    """[RULE 67 CHANGE-RATIONALE]: Fast direct real-time DB fetch for a specific stock symbol.
+    Guarantees that when a user clicks a notification or searches a stock, the full trade alert
+    is loaded from PostgreSQL with zero dependence on cold or stale cache."""
+    if not symbol or not isinstance(symbol, str):
+        return None
+    sym_clean = symbol.strip().upper()
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            try:
+                cur.execute("""
+                    SELECT a.id, a.symbol, a.breakout_type, a.alert_time::text as alert_time, a.alert_date::text as alert_date,
+                           a.scanner, a.category, a.entry_price, a.actual_entry_price, a.stop_loss, a.initial_stop_loss,
+                           a.target_1, a.target_2, a.target_3, a.target_4, a.target_price, a.remaining_shares, a.signals,
+                           a.score::int as score, a.status, a.seen_by_user, a.seen_by_admin, a.is_rejected, a.exit_signal,
+                           COALESCE(a.current_price, a.entry_price)                 AS current_price,
+                           COALESCE(a.pnl_pct, 0.0)                                 AS pnl_pct,
+                           COALESCE(a.pnl_rs, 0.0)                                  AS pnl_rs,
+                           a.exit_price,
+                           COALESCE(a.earnings_flag, FALSE)                         AS earnings_flag,
+                           COALESCE(a.days_to_earnings, 999)                        AS days_to_earnings,
+                           a.earnings_date,
+                           COALESCE(a.earnings_severity, 'NONE')                    AS earnings_severity,
+                           COALESCE(a.warning_msg, '')                              AS warning_msg,
+                           COALESCE(a.trade_evolution_state, 'INITIAL')             AS trade_evolution_state,
+                           COALESCE(a.evidence_count, 1)                            AS evidence_count,
+                           COALESCE(a.distinct_patterns_count, 1)                   AS distinct_patterns_count,
+                           COALESCE(a.confirmation_quality, 'INITIAL')              AS confirmation_quality,
+                           COALESCE(a.last_event_type, 'NEW_ENTRY')                 AS last_event_type,
+                           a.execution_state, a.execution_status
+                    FROM alerts a
+                    WHERE UPPER(a.symbol) = %s
+                    ORDER BY a.id DESC LIMIT 1
+                """, (sym_clean,))
+                row = cur.fetchone()
+                if row:
+                    return dict(row)
+
+                # Fallback to wealth_buy_alert if not in alerts
+                cur.execute("""
+                    SELECT w.id, w.symbol, w.breakout_type, w.alert_time::text as alert_time, w.alert_date::text as alert_date,
+                           w.breakout_type as scanner, w.portfolio_bucket as category, w.alert_price as entry_price,
+                           NULL::real as stop_loss, NULL::real as initial_stop_loss, NULL::real as target_1, NULL::real as target_2,
+                           NULL::real as target_3, NULL::real as target_4, NULL::real as target_price, NULL::int as remaining_shares,
+                           w.entry_signal as signals, w.fm_score::int as score,
+                           CASE WHEN w.is_closed THEN 'CLOSED' ELSE 'OPEN' END as status,
+                           FALSE as seen_by_user, FALSE as seen_by_admin, FALSE as is_rejected, w.exit_signal,
+                           COALESCE(w.alert_price, 0.0)                             AS current_price,
+                           0.0                                                      AS pnl_pct,
+                           0.0                                                      AS pnl_rs,
+                           NULL::real                                               AS exit_price,
+                           FALSE                                                    AS earnings_flag,
+                           999                                                      AS days_to_earnings,
+                           NULL::DATE                                               AS earnings_date,
+                           'NONE'::TEXT                                             AS earnings_severity,
+                           ''                                                       AS warning_msg,
+                           'INITIAL'::TEXT                                          AS trade_evolution_state,
+                           1::INT                                                   AS evidence_count,
+                           1::INT                                                   AS distinct_patterns_count,
+                           'INITIAL'::TEXT                                          AS confirmation_quality,
+                           'NEW_ENTRY'::TEXT                                        AS last_event_type
+                    FROM wealth_buy_alert w
+                    WHERE UPPER(w.symbol) = %s
+                    ORDER BY w.id DESC LIMIT 1
+                """, (sym_clean,))
+                wrow = cur.fetchone()
+                if wrow:
+                    return dict(wrow)
+                return None
+            except Exception as e:
+                logger.debug(f"get_alert_by_symbol failed for {sym_clean}: {e}")
+                return None
+
+
+def get_alerts_for_symbol(symbol: str) -> list[dict]:
+    """Return all historical alerts for a specific stock symbol."""
+    if not symbol or not isinstance(symbol, str):
+        return []
+    sym_clean = symbol.strip().upper()
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            try:
+                cur.execute("""
+                    SELECT a.id, a.symbol, a.breakout_type, a.alert_time::text as alert_time, a.alert_date::text as alert_date,
+                           a.scanner, a.category, a.entry_price, a.actual_entry_price, a.stop_loss, a.initial_stop_loss,
+                           a.target_1, a.target_2, a.target_3, a.target_4, a.target_price, a.remaining_shares, a.signals,
+                           a.score::int as score, a.status, a.seen_by_user, a.seen_by_admin, a.is_rejected, a.exit_signal,
+                           COALESCE(a.current_price, a.entry_price)                 AS current_price,
+                           COALESCE(a.pnl_pct, 0.0)                                 AS pnl_pct,
+                           COALESCE(a.pnl_rs, 0.0)                                  AS pnl_rs,
+                           a.exit_price,
+                           COALESCE(a.earnings_flag, FALSE)                         AS earnings_flag,
+                           COALESCE(a.days_to_earnings, 999)                        AS days_to_earnings,
+                           a.earnings_date,
+                           COALESCE(a.earnings_severity, 'NONE')                    AS earnings_severity,
+                           COALESCE(a.warning_msg, '')                              AS warning_msg,
+                           COALESCE(a.trade_evolution_state, 'INITIAL')             AS trade_evolution_state,
+                           COALESCE(a.evidence_count, 1)                            AS evidence_count,
+                           COALESCE(a.distinct_patterns_count, 1)                   AS distinct_patterns_count,
+                           COALESCE(a.confirmation_quality, 'INITIAL')              AS confirmation_quality,
+                           COALESCE(a.last_event_type, 'NEW_ENTRY')                 AS last_event_type,
+                           a.execution_state, a.execution_status
+                    FROM alerts a
+                    WHERE UPPER(a.symbol) = %s
+                    ORDER BY a.id DESC LIMIT 20
+                """, (sym_clean,))
+                return [dict(r) for r in cur.fetchall()]
+            except Exception as e:
+                logger.debug(f"get_alerts_for_symbol failed for {sym_clean}: {e}")
                 return []
 
 

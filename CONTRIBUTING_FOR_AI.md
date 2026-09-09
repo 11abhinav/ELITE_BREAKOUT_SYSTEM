@@ -71,5 +71,14 @@ Any new scanner, pipeline modification, or system update must strictly adhere to
 7. **Lock Hierarchy & Non-Interfering Intraday Scanners**:
    - Heavy full-universe scans (EOD, Reversal, Multibagger, Wealth Engine) acquire `ProcessLock("global_scanner_lock")` sequentially.
    - Multi-TF 15m/5m monitors use dedicated non-interfering locks (`multitf_scanner_lock`, `multitf_scanner_5m_lock`) allowing parallel execution without blocking the global scanner queue.
+8. **Real-Time Web Alerts & SSE Stream Invariant**:
+   - Whenever an alert is saved (`save_alert_if_new`) or notification created (`_insert_notification_sync`), immediately broadcast a real-time event via Server-Sent Events (`notify_stream_clients("alert"|"notification", ...)`).
+   - Web dashboards must react immediately to SSE events (update bell badge, trigger alert sound, and pre-fetch fresh trade data) to match mobile notification speed with 0ms human-perceived delay.
+9. **Zero-Cache Fallback for Notification Clicks & Symbol Search**:
+   - When a user clicks a notification or searches a symbol (`filterSymbol`), the web application must NEVER display an empty/stale state if the frontend cache is cold.
+   - It must execute a direct real-time PostgreSQL check (`GET /api/alert/by_symbol/<symbol>`) to fetch the full trade record (CMP, SL, Targets, Status, P&L) and prepend/hydrate it directly into `ALL_TRADES` in memory.
+10. **High-Performance History & Error APIs Indexing**:
+   - Unacknowledged error queries (`fetch_errors`, `system_logs`) must use partial indexes (`WHERE is_acknowledged = FALSE`) to execute in $<1$ms.
+   - All history, error, and alert endpoints must explicitly declare `Cache-Control: no-cache, no-store, must-revalidate` and invalidate on every status change.
 
 By enforcing these boundaries, we protect the production pipeline from silent regressions, performance degradation, and accidental feedback loops.
