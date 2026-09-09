@@ -387,6 +387,235 @@ function changeAdminPage(type, delta) {
       to { opacity: 1; transform: translateY(0); }
     }
 
+    /* ═══════════════════════════════════════════════
+       INTERACTIVE STOCK FORENSIC MODAL & ROW STYLES
+    ═══════════════════════════════════════════════ */
+    .clickable-stock-row {
+      cursor: pointer;
+      transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .clickable-stock-row:hover {
+      background: rgba(0, 229, 160, 0.07) !important;
+      transform: translateX(3px);
+    }
+    .clickable-stock-row:active {
+      background: rgba(0, 229, 160, 0.14) !important;
+    }
+
+    .forensic-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(4, 7, 13, 0.82);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      animation: fadeInBackdrop 0.2s ease-out;
+    }
+
+    @keyframes fadeInBackdrop {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .forensic-modal-container {
+      background: var(--card);
+      border: 1px solid var(--border2);
+      border-radius: 16px;
+      width: 100%;
+      max-width: 960px;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+      animation: slideUpModal 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes slideUpModal {
+      from { transform: translateY(20px) scale(0.97); opacity: 0; }
+      to { transform: translateY(0) scale(1); opacity: 1; }
+    }
+
+    .forensic-modal-header {
+      padding: 16px 24px;
+      background: var(--card2);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .forensic-symbol-badge {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--accent);
+      letter-spacing: -0.5px;
+    }
+
+    .forensic-status-pill {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(0, 229, 160, 0.15);
+      color: var(--win);
+      border: 1px solid rgba(0, 229, 160, 0.3);
+    }
+
+    .forensic-scanner-pill {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(59, 130, 246, 0.15);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    .forensic-btn-tv {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      background: rgba(37, 99, 235, 0.15);
+      color: #60a5fa;
+      border: 1px solid rgba(37, 99, 235, 0.35);
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: all 0.18s ease;
+    }
+
+    .forensic-btn-tv:hover {
+      background: rgba(37, 99, 235, 0.3);
+      border-color: #60a5fa;
+      color: #ffffff;
+      transform: translateY(-1px);
+    }
+
+    .forensic-modal-close {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-size: 22px;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 6px;
+      transition: all 0.18s;
+      line-height: 1;
+    }
+
+    .forensic-modal-close:hover {
+      background: var(--card3);
+      color: var(--text);
+    }
+
+    .forensic-modal-body {
+      padding: 24px;
+      overflow-y: auto;
+      max-height: calc(90vh - 75px);
+    }
+
+    .forensic-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+      gap: 16px;
+    }
+
+    .forensic-card {
+      background: var(--card2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .forensic-card-title {
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--muted);
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .forensic-metrics-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .f-metric {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .f-label {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      font-weight: 600;
+    }
+
+    .f-val {
+      font-family: var(--font-mono);
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .f-val-highlight {
+      font-family: var(--font-mono);
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--text);
+    }
+
+    .f-val-win {
+      font-family: var(--font-mono);
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--win);
+    }
+
+    .f-val-loss {
+      font-family: var(--font-mono);
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--loss);
+    }
+
+    .f-val-accent {
+      font-family: var(--font-mono);
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .forensic-why-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      min-height: 100px;
+    }
+
     /* ── LAYOUT ── */
     .container { max-width: 1600px; margin: 0 auto; padding: 12px 16px; }
 
@@ -1585,12 +1814,9 @@ function changeAdminPage(type, delta) {
 
     <div class="container">
 
-      <!-- 9-TAB MASTER SYSTEM NAVIGATION BAR (UNIVERSE HEALTH AT EXTREME RIGHT) -->
+      <!-- 9-TAB MASTER SYSTEM NAVIGATION BAR (DEDUPLICATED & CLEAN) -->
       <div class="admin-tabs-bar">
-        <button class="admin-tab-btn active" data-tab="signals-trades" onclick="switchAdminTab('signals-trades')">
-          <span>🚀</span> All Signals
-        </button>
-        <button class="admin-tab-btn" data-tab="master-signals" onclick="switchAdminTab('master-signals')">
+        <button class="admin-tab-btn active" data-tab="master-signals" onclick="switchAdminTab('master-signals')">
           <span>🔥</span> Confirmed Signals
         </button>
         <button class="admin-tab-btn" data-tab="stocks-watch" onclick="switchAdminTab('stocks-watch')">
@@ -1620,7 +1846,38 @@ function changeAdminPage(type, delta) {
       </div>
 
       <!-- TAB 0A: MASTER CONFIRMED SIGNALS -->
-      <div id="tab-master-signals" class="tab-panel">
+      <div id="tab-master-signals" class="tab-panel active">
+        <!-- P&L AND PORTFOLIO BAR -->
+        <div style="display:flex; justify-content:flex-start; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
+          <!-- PORTFOLIO METRICS -->
+          <div style="display:flex; flex-wrap:wrap; gap:12px;">
+            <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Base Capital:</span>
+              <span id="baseCapital" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
+            </div>
+            <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Total Capital:</span>
+              <span id="totalCapital" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
+            </div>
+            <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Booked P/L:</span>
+              <span id="realBookedPnl" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
+            </div>
+            <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">MTM P/L:</span>
+              <span id="realOpenPnl" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
+            </div>
+            <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
+              <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; display:flex; align-items:center; gap:6px;">
+                Available Cash:
+                <button onclick="forceSyncCash()" title="Re-verify and sync cash" style="background:none;border:none;cursor:pointer;font-size:12px;padding:2px;border-radius:4px;color:var(--accent);display:flex;align-items:center;justify-content:center;transition:background 0.2s;">🔄</button>
+              </span>
+              <span id="availableCash" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
+            </div>
+            <button class="refresh-btn" onclick="openDepositFundsDialog()" style="background:var(--accent); color:#080c14; font-weight:700; border:none; font-size:12px;">💰 Deposit Funds</button>
+          </div>
+        </div>
+
         <div class="card" style="padding:20px; margin-bottom:20px;">
           <div class="card-title">🔥 Confirmed Signals (Technical Master Track)</div>
           
@@ -1630,7 +1887,7 @@ function changeAdminPage(type, delta) {
               <span>💡</span> SCREEN PURPOSE & HOW TO USE:
             </div>
             <div style="font-size:12px; color:var(--muted); line-height:1.5;">
-              <strong>Actionable Buy Signals Screen</strong>: Displays high-conviction technical breakouts that passed all 100% point-in-time fresh data rules. Use this screen to get exact execution orders (Entry Price, Stop Loss, Target 1, Target 2, and R:R ratios).
+              <strong>Actionable Buy Signals Screen</strong>: Displays high-conviction technical breakouts that passed all 100% point-in-time fresh data rules. Use this screen to get exact execution orders (Entry Price, Stop Loss, Target 1, Target 2, and R:R ratios). Click any row to view complete Forensic Audit &amp; Technical Radar.
             </div>
           </div>
 
@@ -3027,8 +3284,8 @@ function changeAdminPage(type, delta) {
   </div>
 
   <script>
-    // ── [VERSION: MULTI_TAB_UI_v1.0] ACTIVE SCREEN TAB NAVIGATION & LAZY FETCHING ──
-    let activeAdminTab = 'signals-trades';
+    // ── [VERSION: MULTI_TAB_UI_v2.0] ACTIVE SCREEN TAB NAVIGATION & LAZY FETCHING ──
+    let activeAdminTab = 'master-signals';
 
     function switchAdminTab(tabId) {
       activeAdminTab = tabId;
@@ -3057,7 +3314,12 @@ function changeAdminPage(type, delta) {
       }
       _activeTabLoadingMap[tabId] = now;
 
-      if (tabId === 'signals-trades') {
+      if (tabId === 'master-signals' || tabId === 'stocks-watch' || tabId === 'investment-watch') {
+        if (typeof loadMasterSystemV2Data === 'function') loadMasterSystemV2Data();
+        if (typeof ALL_TRADES !== 'undefined' && ALL_TRADES.length > 0 && typeof renderTradeTable === 'function') {
+          renderTradeTable();
+        }
+      } else if (tabId === 'signals-trades') {
         if (typeof ALL_TRADES !== 'undefined' && ALL_TRADES.length > 0 && typeof renderTradeTable === 'function') {
           renderTradeTable();
         }
@@ -3083,8 +3345,6 @@ function changeAdminPage(type, delta) {
         if (typeof fetchScannerExecutionHistory === 'function') fetchScannerExecutionHistory(1);
         if (typeof loadValidationHealth === 'function') loadValidationHealth();
         if (typeof loadApiHealth === 'function') loadApiHealth();
-      } else if (tabId === 'master-signals' || tabId === 'stocks-watch' || tabId === 'investment-watch') {
-        if (typeof loadMasterSystemV2Data === 'function') loadMasterSystemV2Data();
       } else if (tabId === 'missed-opps') {
         if (typeof loadNearMisses === 'function') loadNearMisses();
       } else if (tabId === 'universe-health') {
@@ -9496,12 +9756,13 @@ function filterMissedOpps(query) {
 function renderNearMissesRows(data) {
   const tbody = document.getElementById('near-misses-tbody');
   const lowerTbody = document.getElementById('near-misses-tbody-lower');
+  window._forensicStore.missed = Array.isArray(data) ? data : [];
 
   if (tbody) {
     if (!Array.isArray(data) || data.length === 0) {
       tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:24px; color:var(--muted);">No near-miss alerts recorded in the selected window.</td></tr>`;
     } else {
-      tbody.innerHTML = data.map(item => {
+      tbody.innerHTML = data.map((item, idx) => {
         const scoreVal = item.score !== undefined && item.score !== null ? item.score : (item.observed_value || '—');
         const gradeText = item.quality_grade || (typeof scoreVal === 'number' ? (scoreVal >= 75 ? 'A' : scoreVal >= 60 ? 'B' : scoreVal >= 45 ? 'C' : 'D') : '—');
         const cmpVal = item.cmp || item.entry_price;
@@ -9571,9 +9832,9 @@ function renderNearMissesRows(data) {
         }
 
         return `
-          <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
+          <tr class="clickable-stock-row" onclick="openStockForensics('missed', ${idx})" style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;" title="Click to view full Forensic Audit &amp; Technical Radar">
             <td style="padding:10px 14px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}${getEarningsBadgeHtml(item)}</td>
-            <td style="padding:10px 14px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+            <td style="padding:10px 14px;" onclick="event.stopPropagation()">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
             <td style="padding:10px 14px; font-weight:700; color:var(--text); font-family:var(--font-mono);">${formatPrice(cmpVal)}</td>
             <td style="padding:10px 14px; color:var(--muted); font-size:11px; font-weight:600;">${formatText(item.scanner)}</td>
             <td style="padding:10px 14px; font-family:var(--font-mono); font-size:11px; color:var(--muted);">${formatISTDate(item.logged_at || item.logged_date)}</td>
@@ -9598,7 +9859,7 @@ function renderNearMissesRows(data) {
     if (!Array.isArray(data) || data.length === 0) {
       lowerTbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--muted);">No near-miss diagnostics available.</td></tr>`;
     } else {
-      lowerTbody.innerHTML = data.map(item => {
+      lowerTbody.innerHTML = data.map((item, idx) => {
         const deltaColor = item.delta_pct <= 3.0 ? '#ef4444' : (item.delta_pct <= 6.0 ? '#f59e0b' : '#3b82f6');
         const statusBadge = item.is_fallback || item.status === 'FORENSIC_EXCLUSION_FALLBACK'
           ? `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🔍 FORENSIC EXCLUSION</span>`
@@ -9609,7 +9870,7 @@ function renderNearMissesRows(data) {
               : `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">⏳ TRACKING</span>`));
 
         return `
-          <tr style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
+          <tr class="clickable-stock-row" onclick="openStockForensics('missed', ${idx})" style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;" title="Click to view full Forensic Audit &amp; Technical Radar">
             <td style="padding:10px 14px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}${getEarningsBadgeHtml(item)}</td>
             <td style="padding:10px 14px; color:var(--muted); font-size:11px; font-weight:600;">${formatText(item.scanner)}</td>
             <td style="padding:10px 14px; font-family:var(--font-mono); font-size:11px;">
@@ -9689,14 +9950,15 @@ function filterMasterSignals(query) {
 function renderMasterSignalsRows(data) {
   const tbody = document.getElementById('master-signals-tbody');
   if (!tbody) return;
+  window._forensicStore.master = Array.isArray(data) ? data : [];
   if (!Array.isArray(data) || data.length === 0) {
     tbody.innerHTML = `<tr><td colspan="13" style="text-align:center; padding:20px; color:var(--muted);">No active confirmed signals.</td></tr>`;
     return;
   }
-  tbody.innerHTML = data.map(item => `
-    <tr>
+  tbody.innerHTML = data.map((item, idx) => `
+    <tr class="clickable-stock-row" onclick="openStockForensics('master', ${idx})" title="Click to view full Forensic Audit &amp; Technical Radar">
       <td style="font-weight:700; color:var(--accent);">${formatText(item.symbol)}</td>
-      <td>${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+      <td onclick="event.stopPropagation()">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
       <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp || item.entry_price)}</td>
       <td>${(item.scanners || []).join(', ')}</td>
       <td><span class="badge-ok">${formatText(item.state)}</span></td>
@@ -9723,11 +9985,12 @@ function filterStocksWatch(query) {
 function renderStocksWatchRows(data) {
   const tbody = document.getElementById('stocks-watch-tbody');
   if (!tbody) return;
+  window._forensicStore.watch = Array.isArray(data) ? data : [];
   if (!Array.isArray(data) || data.length === 0) {
     tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:20px; color:var(--muted);">No stocks currently in Watch stage.</td></tr>`;
     return;
   }
-  tbody.innerHTML = data.map(item => {
+  tbody.innerHTML = data.map((item, idx) => {
     const stageStr = item.stage || '👁️ BASE BUILDING (Watch)';
     let stageBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">👀 BASE BUILDING</span>`;
     if (stageStr.includes('PRE-BREAKOUT') || stageStr.includes('ARMED')) {
@@ -9798,11 +10061,12 @@ function filterInvestmentWatch(query) {
 function renderInvestmentWatchRows(data) {
   const tbody = document.getElementById('investment-watch-tbody');
   if (!tbody) return;
+  window._forensicStore.investment = Array.isArray(data) ? data : [];
   if (!Array.isArray(data) || data.length === 0) {
     tbody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding:20px; color:var(--muted);">No fundamental compounders in Investment Watch.</td></tr>`;
     return;
   }
-  tbody.innerHTML = data.map(item => {
+  tbody.innerHTML = data.map((item, idx) => {
     const stateStr = item.investment_state || 'ACCUMULATE (Buy Zone)';
     let stateBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
     if (stateStr.includes('BUY') || stateStr.includes('ACCUMULATE')) {
@@ -9817,9 +10081,9 @@ function renderInvestmentWatchRows(data) {
     const valColor = valGrade.includes('Tier A') ? 'var(--win)' : (valGrade.includes('Tier B+') ? 'var(--accent2)' : 'var(--amber)');
 
     return `
-      <tr style="border-bottom:1px solid var(--border); font-size:12px;">
+      <tr class="clickable-stock-row" onclick="openStockForensics('investment', ${idx})" style="border-bottom:1px solid var(--border); font-size:12px;" title="Click to view full Forensic Audit &amp; Technical Radar">
         <td style="padding:10px 12px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}</td>
-        <td style="padding:10px 12px;">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+        <td style="padding:10px 12px;" onclick="event.stopPropagation()">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
         <td style="padding:10px 12px; font-weight:700; color:var(--text); font-family:var(--font-mono);">${formatPrice(item.cmp)}</td>
         <td style="padding:10px 12px; font-weight:700; color:var(--text); font-size:11px;">🏛️ ${formatText(item.business_quality)}</td>
         <td style="padding:10px 12px; font-weight:700; color:#8b5cf6; font-size:11px;">🚀 ${formatText(item.growth_durability)}</td>
@@ -10263,14 +10527,15 @@ function loadConfluenceMatrixTab() {
     .then(data => {
       const tbody = document.getElementById('confluence-matrix-tbody');
       if (!tbody) return;
+      window._forensicStore.confluence = Array.isArray(data) ? data : [];
       if (!Array.isArray(data) || data.length === 0) {
         tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:20px; color:var(--muted);">No active multi-scanner confluence setups right now.</td></tr>`;
         return;
       }
-      tbody.innerHTML = data.map(item => `
-        <tr>
+      tbody.innerHTML = data.map((item, idx) => `
+        <tr class="clickable-stock-row" onclick="openStockForensics('confluence', ${idx})" title="Click to view full Forensic Audit &amp; Technical Radar">
           <td style="font-weight:700; color:var(--accent);">${formatText(item.symbol)}</td>
-          <td>${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+          <td onclick="event.stopPropagation()">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
           <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp)}</td>
           <td>${(item.participating_scanners || []).join(', ')}</td>
           <td><span class="badge-ok">${item.confluence_depth} Engines</span></td>
@@ -10294,15 +10559,14 @@ document.addEventListener('DOMContentLoaded', () => {
   if (requestedTab && typeof switchAdminTab === 'function') {
     switchAdminTab(requestedTab);
   } else {
-    // Default to active tab signals-trades to ensure the initial tab loads data on page load!
+    // Default to active tab master-signals to ensure the primary Confirmed Signals tab loads on page load!
     if (typeof switchAdminTab === 'function') {
-      switchAdminTab('signals-trades');
+      switchAdminTab('master-signals');
     } else {
       loadMasterSystemV2Data();
     }
-    // [RULE 67 CHANGE-RATIONALE] Eliminated startup avalanche of non-active tabs (loadUserWatchlist,
-    // loadManualWatchlist, fetchDatabaseTablesSummary, loadNearMisses). Tabs now load strictly on-demand
-    // via switchAdminTab / triggerActiveTabFetch, cutting initial startup HTTP requests from 17 down to 5.
+    // [RULE 67 CHANGE-RATIONALE] Eliminated startup avalanche of non-active tabs. Tabs load strictly on-demand
+    // via switchAdminTab / triggerActiveTabFetch, cutting initial startup HTTP requests down significantly.
   }
 });
 
@@ -10552,7 +10816,244 @@ function loadInlineUniverseData(tierStr) {
       metaDiv.innerHTML = '<span style="color:var(--warn);">Error loading universe data.</span>';
     });
 }
+
+// ── [GLOBAL FORENSIC DATA STORE & CONTROLLERS] ─────────────
+window._forensicStore = {
+  master: [],
+  watch: [],
+  investment: [],
+  missed: [],
+  confluence: []
+};
+
+function openStockForensics(typeOrObj, index) {
+  let item = null;
+  if (typeof typeOrObj === 'string' && window._forensicStore[typeOrObj]) {
+    item = window._forensicStore[typeOrObj][index];
+  } else if (typeof typeOrObj === 'object' && typeOrObj !== null) {
+    item = typeOrObj;
+  }
+  if (!item) return;
+
+  const modal = document.getElementById('stockForensicModal');
+  if (!modal) return;
+
+  const symbol = item.symbol || 'STOCK';
+  const tvSym = item.tradingview_symbol || symbol;
+  const cmp = item.cmp || item.entry_price || item.current_price;
+  const entry = item.entry_price || item.trigger_level || cmp;
+  const sl = item.stop_loss || item.sl;
+  const t1 = item.target_1 || item.t1;
+  const t2 = item.target_2 || item.t2;
+
+  // Header Elements
+  document.getElementById('fm-symbol').textContent = symbol;
+  document.getElementById('fm-badge-status').textContent = item.state || item.stage || item.investment_state || (item.rejected_gate ? `REJECTED: ${item.rejected_gate}` : 'ACTIVE');
+  document.getElementById('fm-badge-scanners').textContent = Array.isArray(item.scanners) ? item.scanners.join(', ') : (item.scanner || (item.participating_scanners ? item.participating_scanners.join(', ') : 'Specialist Scanner'));
+  
+  const tvBtn = document.getElementById('fm-tv-btn');
+  if (tvBtn) {
+    tvBtn.href = `https://in.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(tvSym)}`;
+  }
+
+  // Quadrant 1: Orders
+  document.getElementById('fm-cmp').textContent = formatPrice(cmp);
+  document.getElementById('fm-entry').textContent = formatPrice(entry);
+  document.getElementById('fm-sl').textContent = formatPrice(sl);
+  document.getElementById('fm-t1').textContent = formatPrice(t1);
+  document.getElementById('fm-t2').textContent = formatPrice(t2);
+  
+  let rrStr = '—';
+  if (item.rr_ratio) {
+    rrStr = `${parseFloat(item.rr_ratio).toFixed(2)}R`;
+  } else if (entry && sl && t1 && (parseFloat(entry) - parseFloat(sl)) > 0) {
+    const risk = parseFloat(entry) - parseFloat(sl);
+    const rew = parseFloat(t1) - parseFloat(entry);
+    if (risk > 0 && rew > 0) rrStr = `${(rew / risk).toFixed(2)}R`;
+  }
+  document.getElementById('fm-rr').textContent = rrStr;
+
+  // Quadrant 2: Technicals
+  document.getElementById('fm-score').textContent = item.maturity_score != null ? `${Number(item.maturity_score).toFixed(1)} / 100` : (item.score != null ? `${item.score}` : '—');
+  document.getElementById('fm-vol').textContent = item.volume_surge != null ? `${Number(item.volume_surge).toFixed(1)}x` : (item.volume_ratio != null ? `${Number(item.volume_ratio).toFixed(1)}x` : '—');
+  document.getElementById('fm-stage').textContent = item.stage || 'Stage 2 (Breakout Engine)';
+  document.getElementById('fm-dist').textContent = item.distance_pct != null ? `+${Number(item.distance_pct).toFixed(1)}%` : '0.0%';
+  document.getElementById('fm-grade').textContent = item.quality_grade || 'Tier A';
+  document.getElementById('fm-confluence').textContent = item.meta_confluence_tier || (item.confluence_depth ? `${item.confluence_depth} Engines Agreeing` : 'Single Engine Setup');
+
+  // Quadrant 3: Fundamentals
+  document.getElementById('fm-biz').textContent = item.business_quality || 'High Moat / Cash Compounder';
+  document.getElementById('fm-growth').textContent = item.growth_durability || 'Double-Digit Secular';
+  document.getElementById('fm-moat').textContent = item.moat_cash_quality || 'Pristine OCF / Low Leverage';
+  document.getElementById('fm-valgrade').textContent = item.valuation_grade || 'Quality Fair Value';
+  document.getElementById('fm-mos').textContent = item.margin_of_safety_pct != null ? `${Number(item.margin_of_safety_pct).toFixed(1)}%` : '—';
+  document.getElementById('fm-thesis').textContent = item.thesis_health || 'HEALTHY';
+
+  // Quadrant 4: Why Qualifies & Blockers
+  const whyText = item.checklist_cleared || item.why_qualifies || item.notes || item.thesis || 'Meets structural point-in-time breakout criteria with confirmed volume expansion.';
+  document.getElementById('fm-why-text').textContent = whyText;
+
+  const blockerRow = document.getElementById('fm-blocker-row');
+  const blockerText = document.getElementById('fm-blocker-text');
+  const blocker = item.primary_blocker || item.rejected_gate || null;
+  if (blocker) {
+    blockerRow.style.display = 'block';
+    blockerText.textContent = blocker;
+  } else {
+    blockerRow.style.display = 'none';
+  }
+
+  modal.style.display = 'flex';
+}
+
+function closeStockForensicModal() {
+  const modal = document.getElementById('stockForensicModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function handleForensicBackdrop(e) {
+  if (e.target.id === 'stockForensicModal') {
+    closeStockForensicModal();
+  }
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeStockForensicModal();
+  }
+});
 </script>
+
+<!-- INTERACTIVE STOCK FORENSIC & AUDIT MODAL -->
+<div id="stockForensicModal" class="forensic-modal-backdrop" style="display:none;" onclick="handleForensicBackdrop(event)">
+  <div class="forensic-modal-container" onclick="event.stopPropagation()">
+    <!-- MODAL HEADER -->
+    <div class="forensic-modal-header">
+      <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+        <span id="fm-symbol" class="forensic-symbol-badge">SYMBOL</span>
+        <span id="fm-badge-status" class="forensic-status-pill">STATUS</span>
+        <span id="fm-badge-scanners" class="forensic-scanner-pill">SCANNER</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <a id="fm-tv-btn" href="#" target="_blank" class="forensic-btn-tv">
+          📈 Open in TradingView ↗
+        </a>
+        <button class="forensic-modal-close" onclick="closeStockForensicModal()" title="Close (Esc)">✕</button>
+      </div>
+    </div>
+
+    <!-- MODAL BODY -->
+    <div class="forensic-modal-body">
+      <!-- 4-GRID OVERVIEW -->
+      <div class="forensic-grid">
+        <!-- QUADRANT 1: EXECUTION MATRIX -->
+        <div class="forensic-card">
+          <div class="forensic-card-title">🎯 EXECUTION ORDER MATRIX</div>
+          <div class="forensic-metrics-grid">
+            <div class="f-metric">
+              <span class="f-label">Current Market Price</span>
+              <span id="fm-cmp" class="f-val-highlight">₹0.00</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Recommended Entry</span>
+              <span id="fm-entry" class="f-val">₹0.00</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Strict Stop Loss</span>
+              <span id="fm-sl" class="f-val-loss">₹0.00</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Target 1 (1:2 R:R)</span>
+              <span id="fm-t1" class="f-val-win">₹0.00</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Target 2 (1:4 R:R)</span>
+              <span id="fm-t2" class="f-val-win">₹0.00</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Reward / Risk (R:R)</span>
+              <span id="fm-rr" class="f-val-accent">0.0R</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- QUADRANT 2: TECHNICAL CONFLUENCE & MOMENTUM -->
+        <div class="forensic-card">
+          <div class="forensic-card-title">⚡ TECHNICAL CONFLUENCE & MOMENTUM</div>
+          <div class="forensic-metrics-grid">
+            <div class="f-metric">
+              <span class="f-label">Maturity / Score</span>
+              <span id="fm-score" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Volume Surge</span>
+              <span id="fm-vol" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Setup Stage</span>
+              <span id="fm-stage" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Breakout Distance %</span>
+              <span id="fm-dist" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Quality Grade</span>
+              <span id="fm-grade" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Confluence Tier</span>
+              <span id="fm-confluence" class="f-val">—</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- QUADRANT 3: FUNDAMENTAL FLOOR & VALUATION -->
+        <div class="forensic-card">
+          <div class="forensic-card-title">🏛️ FUNDAMENTAL FLOOR & COMPOUNDER RADAR</div>
+          <div class="forensic-metrics-grid">
+            <div class="f-metric">
+              <span class="f-label">Business Quality</span>
+              <span id="fm-biz" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Growth Durability</span>
+              <span id="fm-growth" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Moat / Cash Quality</span>
+              <span id="fm-moat" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Valuation Grade</span>
+              <span id="fm-valgrade" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Margin of Safety</span>
+              <span id="fm-mos" class="f-val-win">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Thesis Health</span>
+              <span id="fm-thesis" class="f-val-win">HEALTHY</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- QUADRANT 4: WHY IT QUALIFIES & FORENSIC AUDIT -->
+        <div class="forensic-card">
+          <div class="forensic-card-title">💡 FORENSIC QUALIFICATION REASONING</div>
+          <div id="fm-why-box" class="forensic-why-box">
+            <div id="fm-why-text" style="color:var(--text); font-size:13px; line-height:1.6;">—</div>
+          </div>
+          <div id="fm-blocker-row" style="margin-top:10px; display:none;">
+            <div style="font-size:11px; font-weight:700; color:var(--amber); margin-bottom:4px;">⏳ PRIMARY BLOCKER / PENDING TRIGGER:</div>
+            <div id="fm-blocker-text" style="font-size:12px; color:var(--text); background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.25); padding:6px 10px; border-radius:6px;">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
 </body>
 

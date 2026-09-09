@@ -297,6 +297,235 @@ var USER_PAGE_SIZE = 10;
   .utab-panel{display:none;}
   .utab-panel.active{display:block;animation:fadeInTab 0.2s ease-out;}
   @keyframes fadeInTab{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+
+  /* ═══════════════════════════════════════════════
+     INTERACTIVE STOCK FORENSIC MODAL & ROW STYLES
+  ═══════════════════════════════════════════════ */
+  .clickable-stock-row {
+    cursor: pointer;
+    transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .clickable-stock-row:hover {
+    background: rgba(0, 229, 160, 0.07) !important;
+    transform: translateX(3px);
+  }
+  .clickable-stock-row:active {
+    background: rgba(0, 229, 160, 0.14) !important;
+  }
+
+  .forensic-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(4, 7, 13, 0.82);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    animation: fadeInBackdrop 0.2s ease-out;
+  }
+
+  @keyframes fadeInBackdrop {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  .forensic-modal-container {
+    background: var(--card);
+    border: 1px solid var(--border2);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 960px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+    animation: slideUpModal 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes slideUpModal {
+    from { transform: translateY(20px) scale(0.97); opacity: 0; }
+    to { transform: translateY(0) scale(1); opacity: 1; }
+  }
+
+  .forensic-modal-header {
+    padding: 16px 24px;
+    background: var(--card2);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .forensic-symbol-badge {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--accent);
+    letter-spacing: -0.5px;
+  }
+
+  .forensic-status-pill {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    background: rgba(0, 229, 160, 0.15);
+    color: var(--win);
+    border: 1px solid rgba(0, 229, 160, 0.3);
+  }
+
+  .forensic-scanner-pill {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+  }
+
+  .forensic-btn-tv {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    background: rgba(37, 99, 235, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(37, 99, 235, 0.35);
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    text-decoration: none;
+    transition: all 0.18s ease;
+  }
+
+  .forensic-btn-tv:hover {
+    background: rgba(37, 99, 235, 0.3);
+    border-color: #60a5fa;
+    color: #ffffff;
+    transform: translateY(-1px);
+  }
+
+  .forensic-modal-close {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 22px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: all 0.18s;
+    line-height: 1;
+  }
+
+  .forensic-modal-close:hover {
+    background: var(--card3);
+    color: var(--text);
+  }
+
+  .forensic-modal-body {
+    padding: 24px;
+    overflow-y: auto;
+    max-height: calc(90vh - 75px);
+  }
+
+  .forensic-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+    gap: 16px;
+  }
+
+  .forensic-card {
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+
+  .forensic-card-title {
+    font-size: 11px;
+    font-weight: 800;
+    color: var(--muted);
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .forensic-metrics-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .f-metric {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .f-label {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-weight: 600;
+  }
+
+  .f-val {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .f-val-highlight {
+    font-family: var(--font-mono);
+    font-size: 17px;
+    font-weight: 800;
+    color: var(--text);
+  }
+
+  .f-val-win {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--win);
+  }
+
+  .f-val-loss {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--loss);
+  }
+
+  .f-val-accent {
+    font-family: var(--font-mono);
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  .forensic-why-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+    min-height: 100px;
+  }
   @media(max-width:768px){
     .notification-dropdown{position:fixed!important;top:60px!important;left:50%!important;transform:translateX(-50%)!important;width:95vw!important;max-width:400px!important;max-height:80vh!important;z-index:10000!important;right:auto!important;}
     .notification-list{max-height:calc(80vh - 60px)!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch;}
@@ -3574,8 +3803,9 @@ function renderMultibaggerWatchlist() {
   if (window._userMbWlPage > totalPages) window._userMbWlPage = Math.max(1, totalPages);
   const startIdx = (window._userMbWlPage - 1) * USER_PAGE_SIZE;
   const paginated = itemsToRender.slice(startIdx, startIdx + USER_PAGE_SIZE);
+  window._userForensicStore.multibagger = paginated;
 
-  tbody.innerHTML = paginated.map(item => {
+  tbody.innerHTML = paginated.map((item, idx) => {
     const sym = item.symbol || '';
     const cmp = parseFloat(item.latest_price) || 0;
     const bqs = parseFloat(item.growth_score) || 0;
@@ -3609,10 +3839,10 @@ function renderMultibaggerWatchlist() {
       : (trend >= 30 ? `<span style="color:#3b82f6; font-weight:700;" title="Moderate Uptrend">${trend.toFixed(0)}</span>` : `<span style="color:#ef4444;" title="Base/Pullback">⏳ ${trend.toFixed(0)}</span>`);
 
     return `
-      <tr class="${statusClass}">
+      <tr class="clickable-stock-row ${statusClass}" onclick="openStockForensics('multibagger', ${idx})" title="Click to view full Forensic Audit &amp; Technical Radar">
         <td class="font-bold">
           <div style="display:flex; align-items:center; gap:6px;">
-            <a href="https://chartink.com/stocks/${sym}.html" target="_blank" class="symbol-link">${sym}</a>${getEarningsBadgeHtml(item)}
+            <a href="https://chartink.com/stocks/${sym}.html" target="_blank" class="symbol-link" onclick="event.stopPropagation()">${sym}</a>${getEarningsBadgeHtml(item)}
           </div>
           <div style="font-size:10px; color:var(--muted); margin-top:2px;">${status === 'INVALIDATED' ? 'Failed Checks' : bucketTag(bucket)}</div>
         </td>
@@ -3629,7 +3859,7 @@ function renderMultibaggerWatchlist() {
           <div style="margin-bottom:3px;">${statusPill}</div>
           <div style="font-size:10px; color:var(--muted);">${notes.replace('Conviction: ', '')}</div>
         </td>
-        <td style="text-align: center;">
+        <td style="text-align: center;" onclick="event.stopPropagation()">
           <div style="display:flex; gap:6px; justify-content:center;">
             <a href="https://www.tradingview.com/chart/?symbol=NSE:${sym}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-weight: 700; font-size:11px; background:var(--card2); border:1px solid var(--border); padding:3px 8px; border-radius:4px;" title="Open on TradingView">📊 TV</a>
             <button onclick="triggerStockDiagnosticBySymbol('${sym}')" style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); border-radius:4px; font-size:10px; padding:3px 6px; cursor:pointer; font-weight:700;" title="Deep Diagnostic">🔍</button>
@@ -4789,6 +5019,110 @@ if (window.requestIdleCallback) {
   });
 }
 
+// ── [GLOBAL FORENSIC DATA STORE & CONTROLLERS] ─────────────
+window._userForensicStore = {
+  trades: [],
+  signals: [],
+  multibagger: [],
+  watchlist: []
+};
+
+function openStockForensics(typeOrObj, index) {
+  let item = null;
+  if (typeof typeOrObj === 'string' && window._userForensicStore[typeOrObj]) {
+    item = window._userForensicStore[typeOrObj][index];
+  } else if (typeof typeOrObj === 'object' && typeOrObj !== null) {
+    item = typeOrObj;
+  }
+  if (!item) return;
+
+  const modal = document.getElementById('stockForensicModal');
+  if (!modal) return;
+
+  const symbol = item.symbol || 'STOCK';
+  const tvSym = item.tradingview_symbol || symbol;
+  const cmp = item.cmp || item.entry_price || item.current_price;
+  const entry = item.entry_price || item.trigger_level || cmp;
+  const sl = item.stop_loss || item.sl;
+  const t1 = item.target_1 || item.t1;
+  const t2 = item.target_2 || item.t2;
+
+  // Header Elements
+  document.getElementById('fm-symbol').textContent = symbol;
+  document.getElementById('fm-badge-status').textContent = item.state || item.stage || item.investment_state || item.status || 'ACTIVE';
+  document.getElementById('fm-badge-scanners').textContent = Array.isArray(item.scanners) ? item.scanners.join(', ') : (item.scanner || 'Breakout Engine');
+  
+  const tvBtn = document.getElementById('fm-tv-btn');
+  if (tvBtn) {
+    tvBtn.href = `https://in.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(tvSym)}`;
+  }
+
+  // Quadrant 1: Orders
+  document.getElementById('fm-cmp').textContent = typeof formatPrice === 'function' ? formatPrice(cmp) : '₹' + (cmp || '0');
+  document.getElementById('fm-entry').textContent = typeof formatPrice === 'function' ? formatPrice(entry) : '₹' + (entry || '0');
+  document.getElementById('fm-sl').textContent = typeof formatPrice === 'function' ? formatPrice(sl) : '₹' + (sl || '0');
+  document.getElementById('fm-t1').textContent = typeof formatPrice === 'function' ? formatPrice(t1) : '₹' + (t1 || '0');
+  document.getElementById('fm-t2').textContent = typeof formatPrice === 'function' ? formatPrice(t2) : '₹' + (t2 || '0');
+  
+  let rrStr = '—';
+  if (item.rr_ratio) {
+    rrStr = `${parseFloat(item.rr_ratio).toFixed(2)}R`;
+  } else if (entry && sl && t1 && (parseFloat(entry) - parseFloat(sl)) > 0) {
+    const risk = parseFloat(entry) - parseFloat(sl);
+    const rew = parseFloat(t1) - parseFloat(entry);
+    if (risk > 0 && rew > 0) rrStr = `${(rew / risk).toFixed(2)}R`;
+  }
+  document.getElementById('fm-rr').textContent = rrStr;
+
+  // Quadrant 2: Technicals
+  document.getElementById('fm-score').textContent = item.maturity_score != null ? `${Number(item.maturity_score).toFixed(1)} / 100` : (item.score != null ? `${item.score}` : '—');
+  document.getElementById('fm-vol').textContent = item.volume_surge != null ? `${Number(item.volume_surge).toFixed(1)}x` : (item.volume_ratio != null ? `${Number(item.volume_ratio).toFixed(1)}x` : '—');
+  document.getElementById('fm-stage').textContent = item.stage || 'Stage 2 (Actionable Breakout)';
+  document.getElementById('fm-dist').textContent = item.distance_pct != null ? `+${Number(item.distance_pct).toFixed(1)}%` : '0.0%';
+  document.getElementById('fm-grade').textContent = item.quality_grade || 'Tier A';
+  document.getElementById('fm-confluence').textContent = item.meta_confluence_tier || 'Single Engine Setup';
+
+  // Quadrant 3: Fundamentals
+  document.getElementById('fm-biz').textContent = item.business_quality || 'High Moat / Cash Compounder';
+  document.getElementById('fm-growth').textContent = item.growth_durability || 'Double-Digit Secular';
+  document.getElementById('fm-moat').textContent = item.moat_cash_quality || 'Pristine OCF / Low Leverage';
+  document.getElementById('fm-valgrade').textContent = item.valuation_grade || 'Quality Fair Value';
+  document.getElementById('fm-mos').textContent = item.margin_of_safety_pct != null ? `${Number(item.margin_of_safety_pct).toFixed(1)}%` : '—';
+  document.getElementById('fm-thesis').textContent = item.thesis_health || 'HEALTHY';
+
+  // Quadrant 4: Why Qualifies & Blockers
+  const whyText = item.checklist_cleared || item.why_qualifies || item.notes || item.thesis || 'Meets structural point-in-time breakout criteria with confirmed volume expansion.';
+  document.getElementById('fm-why-text').textContent = whyText;
+
+  const blockerRow = document.getElementById('fm-blocker-row');
+  const blockerText = document.getElementById('fm-blocker-text');
+  const blocker = item.primary_blocker || item.rejected_gate || null;
+  if (blocker) {
+    blockerRow.style.display = 'block';
+    blockerText.textContent = blocker;
+  } else {
+    blockerRow.style.display = 'none';
+  }
+
+  modal.style.display = 'flex';
+}
+
+function closeStockForensicModal() {
+  const modal = document.getElementById('stockForensicModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function handleForensicBackdrop(e) {
+  if (e.target.id === 'stockForensicModal') {
+    closeStockForensicModal();
+  }
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeStockForensicModal();
+  }
+});
 </script>
 <script src="/static/shared_ui.js"></script>
 
@@ -4813,6 +5147,137 @@ document.addEventListener("DOMContentLoaded", function() {
     });
 });
 </script>
+
+<!-- INTERACTIVE STOCK FORENSIC & AUDIT MODAL -->
+<div id="stockForensicModal" class="forensic-modal-backdrop" style="display:none;" onclick="handleForensicBackdrop(event)">
+  <div class="forensic-modal-container" onclick="event.stopPropagation()">
+    <!-- MODAL HEADER -->
+    <div class="forensic-modal-header">
+      <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+        <span id="fm-symbol" class="forensic-symbol-badge">SYMBOL</span>
+        <span id="fm-badge-status" class="forensic-status-pill">STATUS</span>
+        <span id="fm-badge-scanners" class="forensic-scanner-pill">SCANNER</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <a id="fm-tv-btn" href="#" target="_blank" class="forensic-btn-tv">
+          📈 Open in TradingView ↗
+        </a>
+        <button class="forensic-modal-close" onclick="closeStockForensicModal()" title="Close (Esc)">✕</button>
+      </div>
+    </div>
+
+    <!-- MODAL BODY -->
+    <div class="forensic-modal-body">
+      <!-- 4-GRID OVERVIEW -->
+      <div class="forensic-grid">
+        <!-- QUADRANT 1: EXECUTION MATRIX -->
+        <div class="forensic-card">
+          <div class="forensic-card-title">🎯 EXECUTION ORDER MATRIX</div>
+          <div class="forensic-metrics-grid">
+            <div class="f-metric">
+              <span class="f-label">Current Market Price</span>
+              <span id="fm-cmp" class="f-val-highlight">₹0.00</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Recommended Entry</span>
+              <span id="fm-entry" class="f-val">₹0.00</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Strict Stop Loss</span>
+              <span id="fm-sl" class="f-val-loss">₹0.00</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Target 1 (1:2 R:R)</span>
+              <span id="fm-t1" class="f-val-win">₹0.00</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Target 2 (1:4 R:R)</span>
+              <span id="fm-t2" class="f-val-win">₹0.00</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Reward / Risk (R:R)</span>
+              <span id="fm-rr" class="f-val-accent">0.0R</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- QUADRANT 2: TECHNICAL CONFLUENCE & MOMENTUM -->
+        <div class="forensic-card">
+          <div class="forensic-card-title">⚡ TECHNICAL CONFLUENCE & MOMENTUM</div>
+          <div class="forensic-metrics-grid">
+            <div class="f-metric">
+              <span class="f-label">Maturity / Score</span>
+              <span id="fm-score" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Volume Surge</span>
+              <span id="fm-vol" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Setup Stage</span>
+              <span id="fm-stage" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Breakout Distance %</span>
+              <span id="fm-dist" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Quality Grade</span>
+              <span id="fm-grade" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Confluence Tier</span>
+              <span id="fm-confluence" class="f-val">—</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- QUADRANT 3: FUNDAMENTAL FLOOR & VALUATION -->
+        <div class="forensic-card">
+          <div class="forensic-card-title">🏛️ FUNDAMENTAL FLOOR & COMPOUNDER RADAR</div>
+          <div class="forensic-metrics-grid">
+            <div class="f-metric">
+              <span class="f-label">Business Quality</span>
+              <span id="fm-biz" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Growth Durability</span>
+              <span id="fm-growth" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Moat / Cash Quality</span>
+              <span id="fm-moat" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Valuation Grade</span>
+              <span id="fm-valgrade" class="f-val">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Margin of Safety</span>
+              <span id="fm-mos" class="f-val-win">—</span>
+            </div>
+            <div class="f-metric">
+              <span class="f-label">Thesis Health</span>
+              <span id="fm-thesis" class="f-val-win">HEALTHY</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- QUADRANT 4: WHY IT QUALIFIES & FORENSIC AUDIT -->
+        <div class="forensic-card">
+          <div class="forensic-card-title">💡 FORENSIC QUALIFICATION REASONING</div>
+          <div id="fm-why-box" class="forensic-why-box">
+            <div id="fm-why-text" style="color:var(--text); font-size:13px; line-height:1.6;">—</div>
+          </div>
+          <div id="fm-blocker-row" style="margin-top:10px; display:none;">
+            <div style="font-size:11px; font-weight:700; color:var(--amber); margin-bottom:4px;">⏳ PRIMARY BLOCKER / PENDING TRIGGER:</div>
+            <div id="fm-blocker-text" style="font-size:12px; color:var(--text); background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.25); padding:6px 10px; border-radius:6px;">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
 </body>
 </html>
