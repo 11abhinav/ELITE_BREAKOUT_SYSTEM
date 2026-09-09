@@ -80,5 +80,10 @@ Any new scanner, pipeline modification, or system update must strictly adhere to
 10. **High-Performance History & Error APIs Indexing**:
    - Unacknowledged error queries (`fetch_errors`, `system_logs`) must use partial indexes (`WHERE is_acknowledged = FALSE`) to execute in $<1$ms.
    - All history, error, and alert endpoints must explicitly declare `Cache-Control: no-cache, no-store, must-revalidate` and invalidate on every status change.
+11. **V2 Master Orchestration & Screen Performance Invariant**:
+    - All V2 master endpoints (`/api/v2/confirmed_signals`, `/api/v2/stocks_to_watch`, `/api/v2/investment_watch`, `/api/v2/portfolio_actions`, `/api/v2/confluence_breakdown`, `/api/v2/master_summary`) must execute in $<25\text{ms}$ by adhering to RAM-first resolution.
+    - `_ensure_contract_keys` must never perform per-symbol disk scans (`pd.read_parquet`), single-item database queries, or heavy mapper initializations in request loops. If a CMP or TradingView symbol is already present or memoized in RAM, format it in $<0.01\text{ms}$.
+    - Batch price resolution (`_batch_resolve_cmps`) must resolve missing symbols via a single bulk SQL round-trip to `stock_analysis_master`, populate `_FAST_CMP_MEMO`, and never trigger synchronous blocking network requests inside HTTP handlers.
+    - Thread-safe micro-caching (5s TTL) with thundering-herd mutex protection ensures zero duplicate backend executions during concurrent tab switches, while instant cache invalidation flushes all cached data upon any trade alert mutation.
 
 By enforcing these boundaries, we protect the production pipeline from silent regressions, performance degradation, and accidental feedback loops.

@@ -612,6 +612,7 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_today_unrejected ON alerts(alert_date DESC, is_rejected)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status_is_rejected ON alerts(status, is_rejected)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_evolution_state ON alerts(trade_evolution_state, alert_date DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_confirmed_active ON alerts (alert_time DESC) WHERE is_rejected = FALSE AND status IN ('OPEN', 'ACTIVE') AND scanner NOT IN ('MULTIBAGGER')")
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_alerts_idempotency ON alerts (idempotency_key) WHERE idempotency_key IS NOT NULL")
 
                 # 4.5. scanner_evaluation_log table
@@ -4468,7 +4469,7 @@ def get_todays_alerts(today_str: str) -> list[dict]:
                 return []
 
 
-def get_alert_by_symbol(symbol: str) -> dict | None:
+def get_alert_by_symbol(symbol: str) -> Optional[Dict[str, Any]]:
     """[RULE 67 CHANGE-RATIONALE]: Fast direct real-time DB fetch for a specific stock symbol.
     Guarantees that when a user clicks a notification or searches a stock, the full trade alert
     is loaded from PostgreSQL with zero dependence on cold or stale cache."""

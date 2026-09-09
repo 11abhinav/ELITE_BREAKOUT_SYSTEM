@@ -1366,8 +1366,7 @@ def invalidate_performance_cache():
         _perf_data_mem_ts = 0.0
     try:
         from master_orchestrator import orchestrator_v2
-        orchestrator_v2.invalidate_cache("confirmed_signals")
-        orchestrator_v2.invalidate_cache("master_summary")
+        orchestrator_v2.invalidate_cache()
     except Exception:
         pass
 

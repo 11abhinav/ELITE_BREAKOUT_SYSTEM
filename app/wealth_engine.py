@@ -1266,7 +1266,7 @@ def generate_entry_signal(candidate_df, buy_gate_active, suppression_reason, ope
 _orphan_fundamental_cache = {}
 _orphan_cache_timestamp = 0.0
 
-def resolve_orphan_fundamental_data(symbol: str) -> dict | None:
+def resolve_orphan_fundamental_data(symbol: str) -> Optional[Dict[str, Any]]:
     """
     [VERSION: ORPHAN_ENRICHMENT_v1.0]
     Resolves canonical fundamental metrics and calculates V5 FM_Score / RS_Rating
