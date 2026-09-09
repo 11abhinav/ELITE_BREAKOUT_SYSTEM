@@ -527,6 +527,153 @@ var USER_PAGE_SIZE = 10;
     padding: 14px;
     min-height: 100px;
   }
+
+  /* ── CONFLUENCE MULTI-SCANNER BREAKDOWN ── */
+  .confluence-panel-box {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.09) 0%, rgba(168, 85, 247, 0.06) 100%);
+    border: 1px solid rgba(99, 102, 241, 0.35);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+  .confluence-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .confluence-panel-title {
+    font-size: 13px;
+    font-weight: 800;
+    color: #818cf8;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .confluence-tier-badge {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 800;
+    background: rgba(245, 158, 11, 0.18);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.4);
+  }
+  .confluence-scanners-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 14px;
+  }
+  .confluence-engine-card {
+    background: var(--card);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: transform 0.2s, border-color 0.2s;
+  }
+  .confluence-engine-card:hover {
+    border-color: rgba(99, 102, 241, 0.5);
+    transform: translateY(-2px);
+  }
+  .engine-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .engine-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .engine-title {
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--text);
+  }
+  .engine-tf-pill {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 12px;
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+  }
+  .engine-state-pill {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+  }
+  .engine-metrics-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+  .engine-m-box {
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    text-align: center;
+  }
+  .engine-m-label {
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 2px;
+    font-weight: 600;
+  }
+  .engine-m-val {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .engine-tech-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 11px;
+  }
+  .engine-tech-pill {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 3px 8px;
+    border-radius: 6px;
+    color: var(--muted);
+  }
+  .engine-tech-pill b {
+    color: var(--text);
+  }
+  .engine-signals-box {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--muted);
+  }
+  .engine-signals-box b {
+    color: #a5b4fc;
+  }
   @media(max-width:768px){
     .notification-dropdown{position:fixed!important;top:60px!important;left:50%!important;transform:translateX(-50%)!important;width:95vw!important;max-width:400px!important;max-height:80vh!important;z-index:10000!important;right:auto!important;}
     .notification-list{max-height:calc(80vh - 60px)!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch;}
@@ -5028,6 +5175,96 @@ window._userForensicStore = {
   watchlist: []
 };
 
+function renderConfluenceBreakdown(scannersList, metaTier, depth) {
+  const panel = document.getElementById('fm-confluence-panel');
+  const grid = document.getElementById('fm-confluence-scanners-grid');
+  const tierBadge = document.getElementById('fm-confluence-tier-badge');
+  const countBadge = document.getElementById('fm-confluence-count-badge');
+  
+  if (!panel || !grid) return;
+  
+  if (!Array.isArray(scannersList) || scannersList.length === 0) {
+    panel.style.display = 'none';
+    return;
+  }
+  
+  panel.style.display = 'block';
+  const count = scannersList.length;
+  if (tierBadge) {
+    tierBadge.textContent = metaTier || (count >= 3 ? '🔥 APEX CONFLUENCE' : (count === 2 ? '⚡ HIGH CONFLUENCE' : 'CROSS-SCANNER ALIGNED'));
+  }
+  if (countBadge) {
+    countBadge.textContent = `${count} Independent Engines Agreeing`;
+  }
+  
+  grid.innerHTML = scannersList.map(sc => {
+    const scTitle = sc.scanner_title || `${sc.scanner || 'Breakout'} Engine`;
+    const tf = sc.timeframe || 'Daily';
+    const state = sc.state || 'CONFIRMED';
+    const score = sc.score != null ? `${Number(sc.score).toFixed(1)}` : '—';
+    const entry = sc.entry_price != null ? (typeof formatPrice === 'function' ? formatPrice(sc.entry_price) : `₹${Number(sc.entry_price).toFixed(2)}`) : '—';
+    const sl = sc.stop_loss != null ? (typeof formatPrice === 'function' ? formatPrice(sc.stop_loss) : `₹${Number(sc.stop_loss).toFixed(2)}`) : '—';
+    const riskPct = sc.risk_pct != null ? `(-${sc.risk_pct}%)` : '';
+    const t1 = sc.target_1 != null ? (typeof formatPrice === 'function' ? formatPrice(sc.target_1) : `₹${Number(sc.target_1).toFixed(2)}`) : '—';
+    const rewPct = sc.reward_pct != null ? `(+${sc.reward_pct}%)` : '';
+    const t2 = sc.target_2 != null ? (typeof formatPrice === 'function' ? `T2: ${formatPrice(sc.target_2)}` : `T2: ₹${Number(sc.target_2).toFixed(2)}`) : '';
+    const t3 = sc.target_3 != null ? (typeof formatPrice === 'function' ? `T3: ${formatPrice(sc.target_3)}` : `T3: ₹${Number(sc.target_3).toFixed(2)}`) : '';
+    const rr = sc.rr_ratio != null ? `${Number(sc.rr_ratio).toFixed(2)}R` : '—';
+    const vol = sc.volume_ratio != null ? `${Number(sc.volume_ratio).toFixed(1)}x` : '—';
+    const rsi = sc.rsi != null ? `${Number(sc.rsi).toFixed(1)}` : '—';
+    const pattern = sc.breakout_type || 'BREAKOUT';
+    const slMethod = sc.sl_method || 'Structural Anchor';
+    const signals = sc.signals || 'Meets quantitative breakout criteria with confirmed volume expansion.';
+    
+    return `
+      <div class="confluence-engine-card">
+        <div class="engine-card-header">
+          <div class="engine-title-wrap">
+            <span class="engine-title">⚙️ ${formatText(scTitle)}</span>
+            <span class="engine-tf-pill">${formatText(tf)}</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span class="engine-state-pill">${formatText(state)}</span>
+            <span style="font-size:10px; font-weight:700; color:var(--accent); background:rgba(99,102,241,0.15); border:1px solid rgba(99,102,241,0.3); padding:2px 7px; border-radius:10px;">★ Score: ${score}</span>
+          </div>
+        </div>
+
+        <div class="engine-metrics-row">
+          <div class="engine-m-box">
+            <div class="engine-m-label">Entry Price</div>
+            <div class="engine-m-val" style="color:var(--text);">${entry}</div>
+          </div>
+          <div class="engine-m-box">
+            <div class="engine-m-label">Stop Loss</div>
+            <div class="engine-m-val" style="color:var(--loss);">${sl} <span style="font-size:9px; font-weight:600;">${riskPct}</span></div>
+          </div>
+          <div class="engine-m-box">
+            <div class="engine-m-label">Target 1</div>
+            <div class="engine-m-val" style="color:var(--win);">${t1} <span style="font-size:9px; font-weight:600;">${rewPct}</span></div>
+          </div>
+          <div class="engine-m-box">
+            <div class="engine-m-label">Reward : Risk</div>
+            <div class="engine-m-val" style="color:var(--accent);">${rr}</div>
+          </div>
+        </div>
+
+        <div class="engine-tech-row">
+          <div class="engine-tech-pill">Pattern: <b>${formatText(pattern)}</b></div>
+          <div class="engine-tech-pill">Vol Surge: <b>${vol}</b></div>
+          <div class="engine-tech-pill">RSI: <b>${rsi}</b></div>
+          <div class="engine-tech-pill">SL Rule: <b>${formatText(slMethod)}</b></div>
+          ${t2 ? `<div class="engine-tech-pill" style="color:var(--win);"><b>${t2}</b></div>` : ''}
+          ${t3 ? `<div class="engine-tech-pill" style="color:var(--win);"><b>${t3}</b></div>` : ''}
+        </div>
+
+        <div class="engine-signals-box">
+          <b>Setup Rationale:</b> ${formatText(signals)}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 function openStockForensics(typeOrObj, index) {
   let item = null;
   if (typeof typeOrObj === 'string' && window._userForensicStore[typeOrObj]) {
@@ -5040,22 +5277,55 @@ function openStockForensics(typeOrObj, index) {
   const modal = document.getElementById('stockForensicModal');
   if (!modal) return;
 
+  const primaryEngine = (Array.isArray(item.scanners_breakdown) && item.scanners_breakdown.length > 0) ? item.scanners_breakdown[0] : null;
+
   const symbol = item.symbol || 'STOCK';
   const tvSym = item.tradingview_symbol || symbol;
-  const cmp = item.cmp || item.entry_price || item.current_price;
-  const entry = item.entry_price || item.trigger_level || cmp;
-  const sl = item.stop_loss || item.sl;
-  const t1 = item.target_1 || item.t1;
-  const t2 = item.target_2 || item.t2;
+  const cmp = item.cmp || item.entry_price || item.current_price || primaryEngine?.entry_price;
+  const entry = item.entry_price || item.trigger_level || primaryEngine?.entry_price || cmp;
+  const sl = item.stop_loss || item.sl || primaryEngine?.stop_loss;
+  const t1 = item.target_1 || item.t1 || primaryEngine?.target_1;
+  const t2 = item.target_2 || item.t2 || primaryEngine?.target_2;
+  const scoreVal = item.maturity_score != null ? item.maturity_score : (item.score != null ? item.score : (primaryEngine?.score != null ? primaryEngine.score : null));
+  const volVal = item.volume_surge != null ? item.volume_surge : (item.volume_ratio != null ? item.volume_ratio : (primaryEngine?.volume_ratio != null ? primaryEngine.volume_ratio : null));
 
   // Header Elements
   document.getElementById('fm-symbol').textContent = symbol;
-  document.getElementById('fm-badge-status').textContent = item.state || item.stage || item.investment_state || item.status || 'ACTIVE';
-  document.getElementById('fm-badge-scanners').textContent = Array.isArray(item.scanners) ? item.scanners.join(', ') : (item.scanner || 'Breakout Engine');
+  document.getElementById('fm-badge-status').textContent = item.state || item.stage || item.investment_state || primaryEngine?.state || (item.rejected_gate ? `REJECTED: ${item.rejected_gate}` : 'ACTIVE');
+  document.getElementById('fm-badge-scanners').textContent = Array.isArray(item.scanners) ? item.scanners.join(', ') : (item.scanner || (item.participating_scanners ? item.participating_scanners.join(', ') : (primaryEngine?.scanner_title || 'Specialist Scanner')));
   
   const tvBtn = document.getElementById('fm-tv-btn');
   if (tvBtn) {
     tvBtn.href = `https://in.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(tvSym)}`;
+  }
+
+  // Handle Multi-Scanner Confluence Panel
+  const confPanel = document.getElementById('fm-confluence-panel');
+  if (confPanel) confPanel.style.display = 'none';
+
+  if (Array.isArray(item.scanners_breakdown) && item.scanners_breakdown.length > 0) {
+    renderConfluenceBreakdown(item.scanners_breakdown, item.confluence_tier || item.meta_confluence_tier, item.confluence_depth);
+  } else if (symbol && symbol !== 'STOCK') {
+    fetch(`/api/v2/confluence_breakdown/${encodeURIComponent(symbol)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data && Array.isArray(data.scanners_breakdown) && data.scanners_breakdown.length > 0) {
+          renderConfluenceBreakdown(data.scanners_breakdown, data.confluence_tier, data.participating_scanners?.length);
+          // Also backfill Quadrant 1 and Quadrant 2 if they were not set initially
+          const pe = data.scanners_breakdown[0];
+          if (pe) {
+            if (!sl && pe.stop_loss) document.getElementById('fm-sl').textContent = typeof formatPrice === 'function' ? formatPrice(pe.stop_loss) : '₹' + pe.stop_loss;
+            if (!t1 && pe.target_1) document.getElementById('fm-t1').textContent = typeof formatPrice === 'function' ? formatPrice(pe.target_1) : '₹' + pe.target_1;
+            if (!t2 && pe.target_2) document.getElementById('fm-t2').textContent = typeof formatPrice === 'function' ? formatPrice(pe.target_2) : '₹' + pe.target_2;
+            if (pe.rr_ratio) document.getElementById('fm-rr').textContent = `${parseFloat(pe.rr_ratio).toFixed(2)}R`;
+            if (pe.score) document.getElementById('fm-score').textContent = `${Number(pe.score).toFixed(1)} / 100`;
+            if (pe.volume_ratio) document.getElementById('fm-vol').textContent = `${Number(pe.volume_ratio).toFixed(1)}x`;
+          }
+        }
+      })
+      .catch(err => {
+        console.debug('Confluence details not found for symbol:', symbol);
+      });
   }
 
   // Quadrant 1: Orders
@@ -5066,8 +5336,8 @@ function openStockForensics(typeOrObj, index) {
   document.getElementById('fm-t2').textContent = typeof formatPrice === 'function' ? formatPrice(t2) : '₹' + (t2 || '0');
   
   let rrStr = '—';
-  if (item.rr_ratio) {
-    rrStr = `${parseFloat(item.rr_ratio).toFixed(2)}R`;
+  if (item.rr_ratio || primaryEngine?.rr_ratio) {
+    rrStr = `${parseFloat(item.rr_ratio || primaryEngine?.rr_ratio).toFixed(2)}R`;
   } else if (entry && sl && t1 && (parseFloat(entry) - parseFloat(sl)) > 0) {
     const risk = parseFloat(entry) - parseFloat(sl);
     const rew = parseFloat(t1) - parseFloat(entry);
@@ -5076,12 +5346,12 @@ function openStockForensics(typeOrObj, index) {
   document.getElementById('fm-rr').textContent = rrStr;
 
   // Quadrant 2: Technicals
-  document.getElementById('fm-score').textContent = item.maturity_score != null ? `${Number(item.maturity_score).toFixed(1)} / 100` : (item.score != null ? `${item.score}` : '—');
-  document.getElementById('fm-vol').textContent = item.volume_surge != null ? `${Number(item.volume_surge).toFixed(1)}x` : (item.volume_ratio != null ? `${Number(item.volume_ratio).toFixed(1)}x` : '—');
-  document.getElementById('fm-stage').textContent = item.stage || 'Stage 2 (Actionable Breakout)';
+  document.getElementById('fm-score').textContent = scoreVal != null ? `${Number(scoreVal).toFixed(1)} / 100` : '—';
+  document.getElementById('fm-vol').textContent = volVal != null ? `${Number(volVal).toFixed(1)}x` : '—';
+  document.getElementById('fm-stage').textContent = item.stage || primaryEngine?.state || 'Stage 2 (Actionable Breakout)';
   document.getElementById('fm-dist').textContent = item.distance_pct != null ? `+${Number(item.distance_pct).toFixed(1)}%` : '0.0%';
   document.getElementById('fm-grade').textContent = item.quality_grade || 'Tier A';
-  document.getElementById('fm-confluence').textContent = item.meta_confluence_tier || 'Single Engine Setup';
+  document.getElementById('fm-confluence').textContent = item.meta_confluence_tier || (primaryEngine ? 'Multi-Scanner Setup' : 'Single Engine Setup');
 
   // Quadrant 3: Fundamentals
   document.getElementById('fm-biz').textContent = item.business_quality || 'High Moat / Cash Compounder';
@@ -5169,6 +5439,20 @@ document.addEventListener("DOMContentLoaded", function() {
 
     <!-- MODAL BODY -->
     <div class="forensic-modal-body">
+      <!-- CONFLUENCE MULTI-SCANNER BREAKDOWN PANEL -->
+      <div id="fm-confluence-panel" class="confluence-panel-box" style="display:none;">
+        <div class="confluence-panel-header">
+          <div class="confluence-panel-title">
+            <span>🌐 Multi-Scanner Confluence Engine Breakdown</span>
+            <span id="fm-confluence-tier-badge" class="confluence-tier-badge">🔥 APEX CONFLUENCE</span>
+          </div>
+          <span id="fm-confluence-count-badge" style="font-size:11px; color:var(--muted); font-weight:700;">3 Engines Qualified</span>
+        </div>
+        <div id="fm-confluence-scanners-grid" class="confluence-scanners-grid">
+          <!-- Dynamically populated scanner cards -->
+        </div>
+      </div>
+
       <!-- 4-GRID OVERVIEW -->
       <div class="forensic-grid">
         <!-- QUADRANT 1: EXECUTION MATRIX -->

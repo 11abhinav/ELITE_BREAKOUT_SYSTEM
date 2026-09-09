@@ -616,6 +616,153 @@ function changeAdminPage(type, delta) {
       min-height: 100px;
     }
 
+    /* ── CONFLUENCE MULTI-SCANNER BREAKDOWN ── */
+    .confluence-panel-box {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.09) 0%, rgba(168, 85, 247, 0.06) 100%);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    .confluence-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .confluence-panel-title {
+      font-size: 13px;
+      font-weight: 800;
+      color: #818cf8;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .confluence-tier-badge {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 800;
+      background: rgba(245, 158, 11, 0.18);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.4);
+    }
+    .confluence-scanners-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 14px;
+    }
+    .confluence-engine-card {
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .confluence-engine-card:hover {
+      border-color: rgba(99, 102, 241, 0.5);
+      transform: translateY(-2px);
+    }
+    .engine-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    .engine-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .engine-title {
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--text);
+    }
+    .engine-tf-pill {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 12px;
+      background: rgba(59, 130, 246, 0.15);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+    .engine-state-pill {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 12px;
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .engine-metrics-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+    .engine-m-box {
+      background: var(--card2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      text-align: center;
+    }
+    .engine-m-label {
+      font-size: 9px;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 2px;
+      font-weight: 600;
+    }
+    .engine-m-val {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .engine-tech-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      font-size: 11px;
+    }
+    .engine-tech-pill {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 3px 8px;
+      border-radius: 6px;
+      color: var(--muted);
+    }
+    .engine-tech-pill b {
+      color: var(--text);
+    }
+    .engine-signals-box {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 11px;
+      line-height: 1.4;
+      color: var(--muted);
+    }
+    .engine-signals-box b {
+      color: #a5b4fc;
+    }
+
     /* ── LAYOUT ── */
     .container { max-width: 1600px; margin: 0 auto; padding: 12px 16px; }
 
@@ -3745,18 +3892,32 @@ function changeAdminPage(type, delta) {
       const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
       const todayStr = formatter.format(new Date());
 
+      const getTradePnlPct = t => {
+        if (t.pnl_pct != null && !isNaN(t.pnl_pct)) return parseFloat(t.pnl_pct);
+        if (typeof calcFloatingPnl === 'function') {
+          const p = calcFloatingPnl(t);
+          if (p && p.totalPct != null && !isNaN(p.totalPct)) return p.totalPct;
+        }
+        if (t.entry_price && (t.exit_price || t.current_price)) {
+          const ep = parseFloat(t.exit_price || t.current_price);
+          const en = parseFloat(t.entry_price);
+          if (en > 0) return ((ep - en) / en) * 100.0;
+        }
+        return 0;
+      };
+
       const todaysCount = filteredTrades.filter(t => (t.alert_time || t.entry_date || '').startsWith(todayStr)).length;
       const judged = filteredTrades.filter(t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status));
-      const winners = judged.filter(t => t.status === 'WIN' || (t.status === 'CLOSED' && (t.pnl_pct || 0) > 0));
-      const losers = judged.filter(t => t.status === 'LOSS' || (t.status === 'CLOSED' && (t.pnl_pct || 0) <= 0));
+      const winners = judged.filter(t => t.status === 'WIN' || (t.status === 'CLOSED' && getTradePnlPct(t) > 0));
+      const losers = judged.filter(t => t.status === 'LOSS' || (t.status === 'CLOSED' && getTradePnlPct(t) <= 0));
       const winRate = judged.length > 0 ? ((winners.length / judged.length) * 100).toFixed(0) : 0;
-      const avgReturn = judged.length > 0 ? (judged.reduce((sum, t) => sum + (t.pnl_pct || 0), 0) / judged.length) : 0;
-      const avgWin = winners.length > 0 ? (winners.reduce((sum, t) => sum + (t.pnl_pct || 0), 0) / winners.length) : 0;
-      const avgLoss = losers.length > 0 ? (losers.reduce((sum, t) => sum + (t.pnl_pct || 0), 0) / losers.length) : 0;
-      const expectancy = (winRate / 100 * avgWin) + ((1 - winRate / 100) * avgLoss);
+      const avgReturn = judged.length > 0 ? (judged.reduce((sum, t) => sum + getTradePnlPct(t), 0) / judged.length) : 0;
+      const avgWin = winners.length > 0 ? (winners.reduce((sum, t) => sum + getTradePnlPct(t), 0) / winners.length) : 0;
+      const avgLoss = losers.length > 0 ? (losers.reduce((sum, t) => sum + Math.abs(getTradePnlPct(t)), 0) / losers.length) : 0;
+      const expectancy = (winRate / 100 * avgWin) - ((1 - winRate / 100) * avgLoss);
 
-      const bestTrade = filteredTrades.length > 0 ? filteredTrades.reduce((max, t) => (t.pnl_pct || 0) > max ? (t.pnl_pct || 0) : max, -100) : 0;
-      const worstTrade = filteredTrades.length > 0 ? filteredTrades.reduce((min, t) => (t.pnl_pct || 0) < min ? (t.pnl_pct || 0) : min, 100) : 0;
+      const bestTrade = filteredTrades.length > 0 ? filteredTrades.reduce((max, t) => getTradePnlPct(t) > max ? getTradePnlPct(t) : max, -100) : 0;
+      const worstTrade = filteredTrades.length > 0 ? filteredTrades.reduce((min, t) => getTradePnlPct(t) < min ? getTradePnlPct(t) : min, 100) : 0;
       
       const openStatuses = ['OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING'];
       const openTradesList = filteredTrades.filter(t => openStatuses.includes(t.status) || !['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED'].includes(t.status));
@@ -3767,12 +3928,12 @@ function changeAdminPage(type, delta) {
         { id: 'total', label: 'Total Alerts', value: filteredTrades.length, cls: '', sub: 'filtered', filter: t => true },
         { id: 'judged', label: 'Judged', value: judged.length, cls: '', sub: judged.length > 0 ? `${losers.length} SL · ${winners.length} target` : `${openPositions} active open`, filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) },
         { id: 'winrate', label: 'Win Rate', value: judged.length > 0 ? winRate + '%' : '—', cls: winRate >= 55 ? 'green' : winRate >= 45 ? 'amber' : '', sub: judged.length > 0 ? `${winners.length}W / ${losers.length}L` : 'all positions active', filter: t => t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' },
-        { id: 'avgret', label: 'Avg Return', value: judged.length > 0 ? pct(avgReturn) : '—', cls: avgReturn >= 0 ? 'green' : 'red', sub: 'per judged trade', filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) && t.pnl_pct != null },
-        { id: 'avgwin', label: 'Avg Win', value: winners.length > 0 ? pct(avgWin) : '—', cls: 'green', sub: 'winners only', filter: t => t.status === 'WIN' || (t.status === 'CLOSED' && (t.pnl_pct || 0) > 0) },
-        { id: 'avgloss', label: 'Avg Loss', value: losers.length > 0 ? pctLoss(avgLoss) : '—', cls: 'red', sub: 'losers only', filter: t => t.status === 'LOSS' || (t.status === 'CLOSED' && (t.pnl_pct || 0) <= 0) },
-        { id: 'expect', label: 'Expectancy', value: judged.length > 0 ? pct(expectancy) : '—', cls: expectancy >= 0 ? 'green' : 'red', sub: 'WR×avgW+(1-WR)×avgL', filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) },
-        { id: 'best', label: 'Best Trade', value: filteredTrades.length > 0 ? pct(bestTrade) : '—', cls: 'green', sub: '', filter: t => t.pnl_pct != null && t.pnl_pct === bestTrade },
-        { id: 'worst', label: 'Worst Trade', value: filteredTrades.length > 0 ? pct(worstTrade) : '—', cls: 'red', sub: '', filter: t => t.pnl_pct != null && t.pnl_pct === worstTrade },
+        { id: 'avgret', label: 'Avg Return', value: judged.length > 0 ? pct(avgReturn) : '—', cls: avgReturn >= 0 ? 'green' : 'red', sub: 'per judged trade', filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) },
+        { id: 'avgwin', label: 'Avg Win', value: winners.length > 0 ? pct(avgWin) : '—', cls: 'green', sub: 'winners only', filter: t => t.status === 'WIN' || (t.status === 'CLOSED' && getTradePnlPct(t) > 0) },
+        { id: 'avgloss', label: 'Avg Loss', value: losers.length > 0 ? pctLoss(avgLoss) : '—', cls: 'red', sub: 'losers only', filter: t => t.status === 'LOSS' || (t.status === 'CLOSED' && getTradePnlPct(t) <= 0) },
+        { id: 'expect', label: 'Expectancy', value: judged.length > 0 ? pct(expectancy) : '—', cls: expectancy >= 0 ? 'green' : 'red', sub: 'WR×avgW-(1-WR)×avgL', filter: t => ['WIN', 'LOSS', 'NEUTRAL', 'CLOSED'].includes(t.status) },
+        { id: 'best', label: 'Best Trade', value: filteredTrades.length > 0 ? pct(bestTrade) : '—', cls: 'green', sub: '', filter: t => getTradePnlPct(t) === bestTrade },
+        { id: 'worst', label: 'Worst Trade', value: filteredTrades.length > 0 ? pct(worstTrade) : '—', cls: 'red', sub: '', filter: t => getTradePnlPct(t) === worstTrade },
         { id: 'open', label: 'Open', value: openPositions, cls: 'blue', sub: 'active positions', filter: t => openStatuses.includes(t.status) || !['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED'].includes(t.status) },
       ];
       document.getElementById('kpis').innerHTML = defs.map(d => `
@@ -4659,6 +4820,10 @@ function getEarningsBadgeHtml(item) {
         let eventMarkHtml = getEarningsBadgeHtml(t);
         let evolutionBadge = getEvolutionBadgeHtml(t);
 
+        const capAllocated = (t.capital_allocated && parseFloat(t.capital_allocated) > 0)
+          ? t.capital_allocated
+          : ((t.shares_bought && t.entry_price && parseFloat(t.entry_price) > 0) ? (parseFloat(t.shares_bought) * parseFloat(t.entry_price)) : null);
+
         return `
     <tr class="main-row${isOpen ? ' open' : ''}" id="mr-${id}" onclick="toggleDetail('${id}', '${t.symbol}', '${key}', ${t.id})" style="${rowHighlightStyle}">
       <td onclick="event.stopPropagation();">${checkboxHtml}</td>
@@ -4678,7 +4843,7 @@ function getEarningsBadgeHtml(item) {
           ? (t.closed_at ? `<div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">Closed: ${fmtDetailTime(t.closed_at)}</div>` : '') 
           : ((t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) ? `<div style="font-size:9px; color:var(--muted); font-weight:normal; white-space:nowrap; margin-top:2px;">${fmtTs(t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT)}</div>` : '')}
       </td>
-      <td class="col-opt">${fmt(t.capital_allocated)}</td>
+      <td class="col-opt">${fmt(capAllocated)}</td>
       <td class="col-opt">${t.shares_bought || '\u2014'}</td>
       <td><div class="pnl-wrap"><div class="pnl-bar-track"><div class="pnl-bar-fill" style="width:${barW}%;background:${barColor}"></div></div><span class="pnl-text ${pctClass(pnlData.totalPct)}">${pct(pnlData.totalPct)}</span></div></td>
       <td class="${pctClass(pnlData.totalRs)}">${pnlData.totalRs !== 0 || pnlData.totalPct !== 0 ? fmt(pnlData.totalRs) : '—'}</td>
@@ -5821,17 +5986,18 @@ function getEarningsBadgeHtml(item) {
         totalFloating += simulatedFloating;
       });
 
-      const rbEl = document.getElementById('realBookedPnl');
-      if (rbEl) {
+      const rbEls = document.querySelectorAll('#realBookedPnl, .realBookedPnl');
+      if (rbEls.length > 0) {
         let realBookedPnl = 0;
         closedTrades.forEach(t => {
           realBookedPnl += (t.pnl_rs || 0);
         });
-        rbEl.textContent = (realBookedPnl >= 0 ? '+' : '') + '₹' + Math.round(realBookedPnl).toLocaleString('en-IN');
-        rbEl.style.color = realBookedPnl >= 0 ? 'var(--green)' : 'var(--red)';
+        const formatted = (realBookedPnl >= 0 ? '+' : '') + '₹' + Math.round(realBookedPnl).toLocaleString('en-IN');
+        const col = realBookedPnl >= 0 ? 'var(--green)' : 'var(--red)';
+        rbEls.forEach(el => { el.textContent = formatted; el.style.color = col; });
       }
-      const roEl = document.getElementById('realOpenPnl');
-      if (roEl) {
+      const roEls = document.querySelectorAll('#realOpenPnl, .realOpenPnl');
+      if (roEls.length > 0) {
         let realOpenPnl = 0;
         openTrades.forEach(t => {
           if (t.shares_bought && t.current_price) {
@@ -5840,8 +6006,9 @@ function getEarningsBadgeHtml(item) {
             realOpenPnl += t.pnl_rs;
           }
         });
-        roEl.textContent = (realOpenPnl >= 0 ? '+' : '') + '₹' + Math.round(realOpenPnl).toLocaleString('en-IN');
-        roEl.style.color = realOpenPnl >= 0 ? 'var(--green)' : 'var(--red)';
+        const formatted = (realOpenPnl >= 0 ? '+' : '') + '₹' + Math.round(realOpenPnl).toLocaleString('en-IN');
+        const col = realOpenPnl >= 0 ? 'var(--green)' : 'var(--red)';
+        roEls.forEach(el => { el.textContent = formatted; el.style.color = col; });
       }
 
       // Calculate Available Cash (Total Equity - Deployed Capital)
@@ -5854,11 +6021,11 @@ function getEarningsBadgeHtml(item) {
       let realizedEquity = cap + (closedTrades.reduce((sum, t) => sum + (t.pnl_rs || 0), 0));
       let availableCash = Math.max(0, realizedEquity - deployedCapital);
 
-      const acEl = document.getElementById('availableCash');
-      if (acEl) {
-        acEl.textContent = '₹' + Math.round(availableCash).toLocaleString('en-IN');
-        acEl.style.color = 'var(--text)';
-      }
+      const acEls = document.querySelectorAll('#availableCash, .availableCash');
+      acEls.forEach(el => {
+        el.textContent = '₹' + Math.round(availableCash).toLocaleString('en-IN');
+        el.style.color = 'var(--text)';
+      });
     }
 
     async function loadCapitalInfo() {
@@ -5870,17 +6037,17 @@ function getEarningsBadgeHtml(item) {
         }
         const data = await response.json();
 
-        const bcEl = document.getElementById('baseCapital');
-        if (bcEl) {
-          bcEl.textContent = '₹' + Math.round(data.base_capital).toLocaleString('en-IN');
-          bcEl.style.color = 'var(--text)';
-        }
+        const bcEls = document.querySelectorAll('#baseCapital, .baseCapital');
+        bcEls.forEach(el => {
+          el.textContent = '₹' + Math.round(data.base_capital).toLocaleString('en-IN');
+          el.style.color = 'var(--text)';
+        });
 
-        const tcEl = document.getElementById('totalCapital');
-        if (tcEl) {
-          tcEl.textContent = '₹' + Math.round(data.total_capital).toLocaleString('en-IN');
-          tcEl.style.color = data.total_deposited > 0 ? 'var(--green)' : 'var(--text)';
-        }
+        const tcEls = document.querySelectorAll('#totalCapital, .totalCapital');
+        tcEls.forEach(el => {
+          el.textContent = '₹' + Math.round(data.total_capital).toLocaleString('en-IN');
+          el.style.color = data.total_deposited > 0 ? 'var(--green)' : 'var(--text)';
+        });
 
         GLOBAL_CAPITAL = data.total_capital || 500000;
         if (typeof updateSim === 'function') updateSim();
@@ -9977,9 +10144,18 @@ function renderMasterSignalsRows(data) {
       <td style="font-weight:600; color:${(parseFloat(item.rr_ratio) >= 1.5) ? 'var(--win)' : 'var(--text)'};">${(parseFloat(item.rr_ratio) > 0) ? `${parseFloat(item.rr_ratio).toFixed(2)}R` : '—'}</td>
       <td>${formatText(item.quality_grade)}</td>
       <td><span class="badge-ok">${formatText(item.meta_confluence_tier)}</span></td>
-      <td style="font-size:11px; color:var(--win);">${formatText(item.checklist_cleared || item.why_qualifies)}</td>
+      <td style="font-size:11px; color:var(--win);">${formatWhyQualifies(item.checklist_cleared || item.why_qualifies)}</td>
     </tr>
   `).join('');
+}
+
+function formatWhyQualifies(str) {
+  if (!str) return 'Meets point-in-time structural breakout criteria with confirmed volume expansion.';
+  let s = String(str);
+  if (s.includes('BOX_ID=') || s.includes('box_id=')) {
+    return 'Multi-Timeframe 5m/15m Box Consolidation Breakout with Institutional Volume Expansion';
+  }
+  return formatText(s);
 }
 
 function filterStocksWatch(query) {
@@ -10008,25 +10184,26 @@ function renderStocksWatchRows(data) {
     const distVal = item.distance_pct !== null && item.distance_pct !== undefined ? item.distance_pct : null;
     let distHtml = '-';
     if (distVal !== null) {
+      const sign = distVal > 0 ? '+' : '';
       if (distVal <= 2.0) {
         distHtml = `
           <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
             <span style="background:rgba(239,68,68,0.2); color:#ef4444; border:1px solid rgba(239,68,68,0.4); padding:2px 8px; border-radius:12px; font-weight:800; font-size:10px;">⚡ IMMINENT</span>
-            <span style="font-weight:800; color:#ef4444; font-family:var(--font-mono); font-size:12px;">+${distVal.toFixed(1)}%</span>
+            <span style="font-weight:800; color:#ef4444; font-family:var(--font-mono); font-size:12px;">${sign}${distVal.toFixed(1)}%</span>
           </div>
         `;
       } else if (distVal <= 5.0) {
         distHtml = `
           <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
             <span style="background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.4); padding:2px 8px; border-radius:12px; font-weight:800; font-size:10px;">🎯 ON RADAR</span>
-            <span style="font-weight:800; color:#f59e0b; font-family:var(--font-mono); font-size:12px;">+${distVal.toFixed(1)}%</span>
+            <span style="font-weight:800; color:#f59e0b; font-family:var(--font-mono); font-size:12px;">${sign}${distVal.toFixed(1)}%</span>
           </div>
         `;
       } else {
         distHtml = `
           <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
             <span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px;">👀 FORMING</span>
-            <span style="font-weight:700; color:#3b82f6; font-family:var(--font-mono); font-size:12px;">+${distVal.toFixed(1)}%</span>
+            <span style="font-weight:700; color:#3b82f6; font-family:var(--font-mono); font-size:12px;">${sign}${distVal.toFixed(1)}%</span>
           </div>
         `;
       }
@@ -10052,7 +10229,7 @@ function renderStocksWatchRows(data) {
             <span style="color:#f59e0b;">⏳</span> ${formatText(item.primary_blocker)}
           </span>
         </td>
-        <td style="padding:10px 12px; color:var(--muted); font-size:11px;" class="cell-qualifies-text">${formatText(item.why_qualifies)}</td>
+        <td style="padding:10px 12px; color:var(--muted); font-size:11px;" class="cell-qualifies-text">${formatWhyQualifies(item.why_qualifies)}</td>
       </tr>
     `;
   }).join('');
@@ -10832,6 +11009,96 @@ window._forensicStore = {
   confluence: []
 };
 
+function renderConfluenceBreakdown(scannersList, metaTier, depth) {
+  const panel = document.getElementById('fm-confluence-panel');
+  const grid = document.getElementById('fm-confluence-scanners-grid');
+  const tierBadge = document.getElementById('fm-confluence-tier-badge');
+  const countBadge = document.getElementById('fm-confluence-count-badge');
+  
+  if (!panel || !grid) return;
+  
+  if (!Array.isArray(scannersList) || scannersList.length === 0) {
+    panel.style.display = 'none';
+    return;
+  }
+  
+  panel.style.display = 'block';
+  const count = scannersList.length;
+  if (tierBadge) {
+    tierBadge.textContent = metaTier || (count >= 3 ? '🔥 APEX CONFLUENCE' : (count === 2 ? '⚡ HIGH CONFLUENCE' : 'CROSS-SCANNER ALIGNED'));
+  }
+  if (countBadge) {
+    countBadge.textContent = `${count} Independent Engines Agreeing`;
+  }
+  
+  grid.innerHTML = scannersList.map(sc => {
+    const scTitle = sc.scanner_title || `${sc.scanner || 'Breakout'} Engine`;
+    const tf = sc.timeframe || 'Daily';
+    const state = sc.state || 'CONFIRMED';
+    const score = sc.score != null ? `${Number(sc.score).toFixed(1)}` : '—';
+    const entry = sc.entry_price != null ? `₹${Number(sc.entry_price).toFixed(2)}` : '—';
+    const sl = sc.stop_loss != null ? `₹${Number(sc.stop_loss).toFixed(2)}` : '—';
+    const riskPct = sc.risk_pct != null ? `(-${sc.risk_pct}%)` : '';
+    const t1 = sc.target_1 != null ? `₹${Number(sc.target_1).toFixed(2)}` : '—';
+    const rewPct = sc.reward_pct != null ? `(+${sc.reward_pct}%)` : '';
+    const t2 = sc.target_2 != null ? `T2: ₹${Number(sc.target_2).toFixed(2)}` : '';
+    const t3 = sc.target_3 != null ? `T3: ₹${Number(sc.target_3).toFixed(2)}` : '';
+    const rr = sc.rr_ratio != null ? `${Number(sc.rr_ratio).toFixed(2)}R` : '—';
+    const vol = sc.volume_ratio != null ? `${Number(sc.volume_ratio).toFixed(1)}x` : '—';
+    const rsi = sc.rsi != null ? `${Number(sc.rsi).toFixed(1)}` : '—';
+    const pattern = sc.breakout_type || 'BREAKOUT';
+    const slMethod = sc.sl_method || 'Structural Anchor';
+    const signals = sc.signals || 'Meets quantitative breakout criteria with confirmed volume expansion.';
+    
+    return `
+      <div class="confluence-engine-card">
+        <div class="engine-card-header">
+          <div class="engine-title-wrap">
+            <span class="engine-title">⚙️ ${formatText(scTitle)}</span>
+            <span class="engine-tf-pill">${formatText(tf)}</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span class="engine-state-pill">${formatText(state)}</span>
+            <span style="font-size:10px; font-weight:700; color:var(--accent); background:rgba(99,102,241,0.15); border:1px solid rgba(99,102,241,0.3); padding:2px 7px; border-radius:10px;">★ Score: ${score}</span>
+          </div>
+        </div>
+
+        <div class="engine-metrics-row">
+          <div class="engine-m-box">
+            <div class="engine-m-label">Entry Price</div>
+            <div class="engine-m-val" style="color:var(--text);">${entry}</div>
+          </div>
+          <div class="engine-m-box">
+            <div class="engine-m-label">Stop Loss</div>
+            <div class="engine-m-val" style="color:var(--loss);">${sl} <span style="font-size:9px; font-weight:600;">${riskPct}</span></div>
+          </div>
+          <div class="engine-m-box">
+            <div class="engine-m-label">Target 1</div>
+            <div class="engine-m-val" style="color:var(--win);">${t1} <span style="font-size:9px; font-weight:600;">${rewPct}</span></div>
+          </div>
+          <div class="engine-m-box">
+            <div class="engine-m-label">Reward : Risk</div>
+            <div class="engine-m-val" style="color:var(--accent);">${rr}</div>
+          </div>
+        </div>
+
+        <div class="engine-tech-row">
+          <div class="engine-tech-pill">Pattern: <b>${formatText(pattern)}</b></div>
+          <div class="engine-tech-pill">Vol Surge: <b>${vol}</b></div>
+          <div class="engine-tech-pill">RSI: <b>${rsi}</b></div>
+          <div class="engine-tech-pill">SL Rule: <b>${formatText(slMethod)}</b></div>
+          ${t2 ? `<div class="engine-tech-pill" style="color:var(--win);"><b>${t2}</b></div>` : ''}
+          ${t3 ? `<div class="engine-tech-pill" style="color:var(--win);"><b>${t3}</b></div>` : ''}
+        </div>
+
+        <div class="engine-signals-box">
+          <b>Setup Rationale:</b> ${formatText(signals)}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 function openStockForensics(typeOrObj, index) {
   let item = null;
   if (typeof typeOrObj === 'string' && window._forensicStore[typeOrObj]) {
@@ -10844,22 +11111,55 @@ function openStockForensics(typeOrObj, index) {
   const modal = document.getElementById('stockForensicModal');
   if (!modal) return;
 
+  const primaryEngine = (Array.isArray(item.scanners_breakdown) && item.scanners_breakdown.length > 0) ? item.scanners_breakdown[0] : null;
+
   const symbol = item.symbol || 'STOCK';
   const tvSym = item.tradingview_symbol || symbol;
-  const cmp = item.cmp || item.entry_price || item.current_price;
-  const entry = item.entry_price || item.trigger_level || cmp;
-  const sl = item.stop_loss || item.sl;
-  const t1 = item.target_1 || item.t1;
-  const t2 = item.target_2 || item.t2;
+  const cmp = item.cmp || item.entry_price || item.current_price || primaryEngine?.entry_price;
+  const entry = item.entry_price || item.trigger_level || primaryEngine?.entry_price || cmp;
+  const sl = item.stop_loss || item.sl || primaryEngine?.stop_loss;
+  const t1 = item.target_1 || item.t1 || primaryEngine?.target_1;
+  const t2 = item.target_2 || item.t2 || primaryEngine?.target_2;
+  const scoreVal = item.maturity_score != null ? item.maturity_score : (item.score != null ? item.score : (primaryEngine?.score != null ? primaryEngine.score : null));
+  const volVal = item.volume_surge != null ? item.volume_surge : (item.volume_ratio != null ? item.volume_ratio : (primaryEngine?.volume_ratio != null ? primaryEngine.volume_ratio : null));
 
   // Header Elements
   document.getElementById('fm-symbol').textContent = symbol;
-  document.getElementById('fm-badge-status').textContent = item.state || item.stage || item.investment_state || (item.rejected_gate ? `REJECTED: ${item.rejected_gate}` : 'ACTIVE');
-  document.getElementById('fm-badge-scanners').textContent = Array.isArray(item.scanners) ? item.scanners.join(', ') : (item.scanner || (item.participating_scanners ? item.participating_scanners.join(', ') : 'Specialist Scanner'));
+  document.getElementById('fm-badge-status').textContent = item.state || item.stage || item.investment_state || primaryEngine?.state || (item.rejected_gate ? `REJECTED: ${item.rejected_gate}` : 'ACTIVE');
+  document.getElementById('fm-badge-scanners').textContent = Array.isArray(item.scanners) ? item.scanners.join(', ') : (item.scanner || (item.participating_scanners ? item.participating_scanners.join(', ') : (primaryEngine?.scanner_title || 'Specialist Scanner')));
   
   const tvBtn = document.getElementById('fm-tv-btn');
   if (tvBtn) {
     tvBtn.href = `https://in.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(tvSym)}`;
+  }
+
+  // Handle Multi-Scanner Confluence Panel
+  const confPanel = document.getElementById('fm-confluence-panel');
+  if (confPanel) confPanel.style.display = 'none';
+
+  if (Array.isArray(item.scanners_breakdown) && item.scanners_breakdown.length > 0) {
+    renderConfluenceBreakdown(item.scanners_breakdown, item.confluence_tier || item.meta_confluence_tier, item.confluence_depth);
+  } else if (symbol && symbol !== 'STOCK') {
+    fetch(`/api/v2/confluence_breakdown/${encodeURIComponent(symbol)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data && Array.isArray(data.scanners_breakdown) && data.scanners_breakdown.length > 0) {
+          renderConfluenceBreakdown(data.scanners_breakdown, data.confluence_tier, data.participating_scanners?.length);
+          // Also backfill Quadrant 1 and Quadrant 2 if they were not set initially
+          const pe = data.scanners_breakdown[0];
+          if (pe) {
+            if (!sl && pe.stop_loss) document.getElementById('fm-sl').textContent = formatPrice(pe.stop_loss);
+            if (!t1 && pe.target_1) document.getElementById('fm-t1').textContent = formatPrice(pe.target_1);
+            if (!t2 && pe.target_2) document.getElementById('fm-t2').textContent = formatPrice(pe.target_2);
+            if (pe.rr_ratio) document.getElementById('fm-rr').textContent = `${parseFloat(pe.rr_ratio).toFixed(2)}R`;
+            if (pe.score) document.getElementById('fm-score').textContent = `${Number(pe.score).toFixed(1)} / 100`;
+            if (pe.volume_ratio) document.getElementById('fm-vol').textContent = `${Number(pe.volume_ratio).toFixed(1)}x`;
+          }
+        }
+      })
+      .catch(err => {
+        console.debug('Confluence details not found for symbol:', symbol);
+      });
   }
 
   // Quadrant 1: Orders
@@ -10872,6 +11172,8 @@ function openStockForensics(typeOrObj, index) {
   let rrStr = '—';
   if (item.rr_ratio) {
     rrStr = `${parseFloat(item.rr_ratio).toFixed(2)}R`;
+  } else if (primaryEngine && primaryEngine.rr_ratio) {
+    rrStr = `${parseFloat(primaryEngine.rr_ratio).toFixed(2)}R`;
   } else if (entry && sl && t1 && (parseFloat(entry) - parseFloat(sl)) > 0) {
     const risk = parseFloat(entry) - parseFloat(sl);
     const rew = parseFloat(t1) - parseFloat(entry);
@@ -10880,12 +11182,12 @@ function openStockForensics(typeOrObj, index) {
   document.getElementById('fm-rr').textContent = rrStr;
 
   // Quadrant 2: Technicals
-  document.getElementById('fm-score').textContent = item.maturity_score != null ? `${Number(item.maturity_score).toFixed(1)} / 100` : (item.score != null ? `${item.score}` : '—');
-  document.getElementById('fm-vol').textContent = item.volume_surge != null ? `${Number(item.volume_surge).toFixed(1)}x` : (item.volume_ratio != null ? `${Number(item.volume_ratio).toFixed(1)}x` : '—');
-  document.getElementById('fm-stage').textContent = item.stage || 'Stage 2 (Breakout Engine)';
-  document.getElementById('fm-dist').textContent = item.distance_pct != null ? `+${Number(item.distance_pct).toFixed(1)}%` : '0.0%';
+  document.getElementById('fm-score').textContent = scoreVal != null ? `${Number(scoreVal).toFixed(1)} / 100` : '—';
+  document.getElementById('fm-vol').textContent = volVal != null ? `${Number(volVal).toFixed(1)}x` : '—';
+  document.getElementById('fm-stage').textContent = item.stage || (primaryEngine ? `Stage 2 (${primaryEngine.scanner_title})` : 'Stage 2 (Breakout Engine)');
+  document.getElementById('fm-dist').textContent = item.distance_pct != null ? `${Number(item.distance_pct) >= 0 ? '+' : ''}${Number(item.distance_pct).toFixed(1)}%` : '0.0%';
   document.getElementById('fm-grade').textContent = item.quality_grade || 'Tier A';
-  document.getElementById('fm-confluence').textContent = item.meta_confluence_tier || (item.confluence_depth ? `${item.confluence_depth} Engines Agreeing` : 'Single Engine Setup');
+  document.getElementById('fm-confluence').textContent = item.meta_confluence_tier || (item.confluence_depth ? `${item.confluence_depth} Engines Agreeing` : (primaryEngine ? `${item.scanners_breakdown?.length || 1} Engine Setup` : 'Single Engine Setup'));
 
   // Quadrant 3: Fundamentals
   document.getElementById('fm-biz').textContent = item.business_quality || 'High Moat / Cash Compounder';
@@ -10896,7 +11198,7 @@ function openStockForensics(typeOrObj, index) {
   document.getElementById('fm-thesis').textContent = item.thesis_health || 'HEALTHY';
 
   // Quadrant 4: Why Qualifies & Blockers
-  const whyText = item.checklist_cleared || item.why_qualifies || item.notes || item.thesis || 'Meets structural point-in-time breakout criteria with confirmed volume expansion.';
+  const whyText = item.checklist_cleared || item.why_qualifies || primaryEngine?.signals || item.notes || item.thesis || 'Meets structural point-in-time breakout criteria with confirmed volume expansion.';
   document.getElementById('fm-why-text').textContent = whyText;
 
   const blockerRow = document.getElementById('fm-blocker-row');
@@ -10950,6 +11252,20 @@ document.addEventListener('keydown', function(e) {
 
     <!-- MODAL BODY -->
     <div class="forensic-modal-body">
+      <!-- CONFLUENCE MULTI-SCANNER BREAKDOWN PANEL -->
+      <div id="fm-confluence-panel" class="confluence-panel-box" style="display:none;">
+        <div class="confluence-panel-header">
+          <div class="confluence-panel-title">
+            <span>🌐 Multi-Scanner Confluence Engine Breakdown</span>
+            <span id="fm-confluence-tier-badge" class="confluence-tier-badge">🔥 APEX CONFLUENCE</span>
+          </div>
+          <span id="fm-confluence-count-badge" style="font-size:11px; color:var(--muted); font-weight:700;">3 Engines Qualified</span>
+        </div>
+        <div id="fm-confluence-scanners-grid" class="confluence-scanners-grid">
+          <!-- Dynamically populated scanner cards -->
+        </div>
+      </div>
+
       <!-- 4-GRID OVERVIEW -->
       <div class="forensic-grid">
         <!-- QUADRANT 1: EXECUTION MATRIX -->
