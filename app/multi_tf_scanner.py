@@ -146,6 +146,11 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
         ticker.columns = ticker.columns.get_level_values(0)
     ticker = ticker.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
 
+    # [RULE 67: HARD_WEEKEND_EXCLUSION_ASSERTION]
+    if isinstance(ticker.index, pd.DatetimeIndex):
+        ticker = ticker[~ticker.index.dayofweek.isin([5, 6])]
+        assert ticker.index.dayofweek.isin([5, 6]).sum() == 0, f"{symbol} contains weekend data"
+
     if len(ticker) < 50:
         return {"status": "NO", "reasons": [f"Insufficient valid bars ({len(ticker)} < 50)"], "score": 0.0, "qualified": False}
 
@@ -181,6 +186,34 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
         ema_ok = (close_price > e20 and e20 > s50)
         if not ema_ok:
             checks.append(f"Trend Permission Fail: Requires Close ({close_price:.2f}) > EMA20 ({e20:.2f}) > SMA50 ({s50:.2f})")
+
+    # [RULE 67: DIRECTIONAL_DAILY_TREND_GATE]
+    if MULTI_TF_CONFIG.get("ENABLE_DAILY_TREND_GATE", True):
+        ema20_series = ticker["EMA20"] if "EMA20" in ticker.columns else (ticker["Close"].ewm(span=20).mean() if len(ticker) >= 20 else None)
+        ema20_slope = (ema20_series.iloc[-1] - ema20_series.iloc[-3]) / 2.0 if ema20_series is not None and len(ema20_series) >= 3 else 0.0
+        if close_price <= e20 or ema20_slope <= 0:
+            checks.append(f"DAILY_TREND_MISALIGNED: Requires Close ({close_price:.2f}) > EMA20 ({e20:.2f}) & EMA20 Slope ({ema20_slope:.4f}) > 0")
+        if s50 > 0 and e20 <= s50:
+            checks.append(f"DAILY_TREND_MISALIGNED: Requires EMA20 ({e20:.2f}) > SMA50 ({s50:.2f})")
+
+    # [RULE 67: CONTEXTUAL_VOLUME_EXHAUSTION_GATE]
+    latest_vol = _safe_float(latest.get("Volume"))
+    vol_mean_20 = float(ticker["Volume"].iloc[-21:-1].mean()) if len(ticker) >= 21 else float(ticker["Volume"].mean())
+    vol_ratio_h1 = (latest_vol / vol_mean_20) if vol_mean_20 > 0 else 1.0
+    if MULTI_TF_CONFIG.get("ENABLE_EXHAUSTION_GATE", True) and vol_ratio_h1 > MULTI_TF_CONFIG.get("EXHAUSTION_VOLUME_THRESHOLD", 6.0):
+        h_val = _safe_float(latest.get("High"))
+        l_val = _safe_float(latest.get("Low"))
+        c_range = h_val - l_val
+        u_wick = h_val - close_price
+        u_wick_ratio = (u_wick / c_range) if c_range > 0 else 0.0
+        atr_curr = float(latest.get("ATR", close_price * 0.02))
+        is_extended_candle = c_range > (MULTI_TF_CONFIG.get("EXHAUSTION_CANDLE_ATR_MULT", 2.5) * atr_curr) if atr_curr > 0 else False
+        is_heavy_wick = u_wick_ratio > MULTI_TF_CONFIG.get("EXHAUSTION_WICK_RATIO", 0.40)
+        vwap_h1 = _safe_float(latest.get("VWAP", e20))
+        vwap_dist = abs(close_price - vwap_h1) if vwap_h1 > 0 else 0.0
+        is_overextended_vwap = vwap_dist > (MULTI_TF_CONFIG.get("EXHAUSTION_VWAP_DIST_MULT", 3.0) * atr_curr) if atr_curr > 0 else False
+        if is_extended_candle or is_heavy_wick or is_overextended_vwap:
+            checks.append(f"VOLUME_EXHAUSTION: Volume Ratio {vol_ratio_h1:.2f}x with exhaustion signature (ExtendedCandle={is_extended_candle}, UpperWick={u_wick_ratio:.2f}, VWAPDist={vwap_dist:.2f})")
 
     # [VERSION: MULTI_TF_PATCH_v1.9] ADX hard gate removed in favor of scoring model
 
@@ -256,71 +289,72 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
     has_15m_pass = False
     has_5m_pass = False
 
-    try:
-        m30_data = fetch_watchlist_data(pd.DataFrame([{"Stock": symbol}]), period="5d", interval="30m")
-        if m30_data and symbol in m30_data and isinstance(m30_data[symbol], pd.DataFrame) and not m30_data[symbol].empty:
-            df_30 = apply_indicators(m30_data[symbol].copy(), timeframe="30m")
-            if df_30 is not None and len(df_30) >= 2:
-                # [FIX P2-5] Look back 6-8 bars for recent squeeze, not just prior bar
-                bb_recent_squeeze = False
-                for _lb in range(1, min(8, len(df_30))):
-                    _idx = len(df_30) - 1 - _lb
-                    if _idx < 0:
-                        break
-                    _raw_p = df_30.iloc[_idx].get("BB_WIDTH_PCTILE", 1.0)
-                    _p = float(_raw_p) if pd.notna(_raw_p) else 1.0
-                    if _p < 0.45:
-                        bb_recent_squeeze = True
-                        break
-                dist_to_bo = (prior_high - close_price) / prior_high
-                if bb_recent_squeeze or dist_to_bo < -0.015:
-                    has_30m_pass = True
-                    phase_details.append(f"30m Phase B Squeeze-Released Met (recent squeeze detected)")
-                else:
-                    phase_details.append(f"30m Phase B Pending (no recent squeeze in lookback)")
-    except Exception as exc:
-        # [FIX MTF-24] Log diagnostic failures instead of silently discarding
-        logger.exception(f"{symbol}: diagnostic 30m evaluation failed: {exc}")
-        phase_details.append("30m Phase B unavailable due to processing error")
+    if allow_live_fetch:
+        try:
+            m30_data = fetch_watchlist_data(pd.DataFrame([{"Stock": symbol}]), period="5d", interval="30m")
+            if m30_data and symbol in m30_data and isinstance(m30_data[symbol], pd.DataFrame) and not m30_data[symbol].empty:
+                df_30 = apply_indicators(m30_data[symbol].copy(), timeframe="30m")
+                if df_30 is not None and len(df_30) >= 2:
+                    # [FIX P2-5] Look back 6-8 bars for recent squeeze, not just prior bar
+                    bb_recent_squeeze = False
+                    for _lb in range(1, min(8, len(df_30))):
+                        _idx = len(df_30) - 1 - _lb
+                        if _idx < 0:
+                            break
+                        _raw_p = df_30.iloc[_idx].get("BB_WIDTH_PCTILE", 1.0)
+                        _p = float(_raw_p) if pd.notna(_raw_p) else 1.0
+                        if _p < 0.45:
+                            bb_recent_squeeze = True
+                            break
+                    dist_to_bo = (prior_high - close_price) / prior_high
+                    if bb_recent_squeeze or dist_to_bo < -0.015:
+                        has_30m_pass = True
+                        phase_details.append(f"30m Phase B Squeeze-Released Met (recent squeeze detected)")
+                    else:
+                        phase_details.append(f"30m Phase B Pending (no recent squeeze in lookback)")
+        except Exception as exc:
+            # [FIX MTF-24] Log diagnostic failures instead of silently discarding
+            logger.exception(f"{symbol}: diagnostic 30m evaluation failed: {exc}")
+            phase_details.append("30m Phase B unavailable due to processing error")
 
-    try:
-        m15_data = fetch_watchlist_data(pd.DataFrame([{"Stock": symbol}]), period="5d", interval="15m")
-        if m15_data and symbol in m15_data and isinstance(m15_data[symbol], pd.DataFrame) and not m15_data[symbol].empty:
-            df_15 = apply_indicators(m15_data[symbol].copy(), timeframe="15m")
-            if df_15 is not None and len(df_15) >= 2:
-                lat_15 = df_15.iloc[-1]
-                ema15 = float(lat_15.get("EMA15", lat_15.get("EMA20", close_price)))
-                # [FIX MTF-23] Compare 15m close with 15m EMA (was incorrectly using 1h close_price)
-                close_15 = _safe_float(lat_15.get("Close"))
-                if close_15 >= ema15:
-                    has_15m_pass = True
-                    phase_details.append(f"15m Phase C Entry Ready (Close ₹{close_15:.2f} ≥ EMA15 ₹{ema15:.2f})")
-                else:
-                    phase_details.append(f"15m Phase C Pending (Close ₹{close_15:.2f} < EMA15 ₹{ema15:.2f})")
-    except Exception as exc:
-        # [FIX MTF-24] Log diagnostic failures instead of silently discarding
-        logger.exception(f"{symbol}: diagnostic 15m evaluation failed: {exc}")
-        phase_details.append("15m Phase C unavailable due to processing error")
+        try:
+            m15_data = fetch_watchlist_data(pd.DataFrame([{"Stock": symbol}]), period="5d", interval="15m")
+            if m15_data and symbol in m15_data and isinstance(m15_data[symbol], pd.DataFrame) and not m15_data[symbol].empty:
+                df_15 = apply_indicators(m15_data[symbol].copy(), timeframe="15m")
+                if df_15 is not None and len(df_15) >= 2:
+                    lat_15 = df_15.iloc[-1]
+                    ema15 = float(lat_15.get("EMA15", lat_15.get("EMA20", close_price)))
+                    # [FIX MTF-23] Compare 15m close with 15m EMA (was incorrectly using 1h close_price)
+                    close_15 = _safe_float(lat_15.get("Close"))
+                    if close_15 >= ema15:
+                        has_15m_pass = True
+                        phase_details.append(f"15m Phase C Entry Ready (Close ₹{close_15:.2f} ≥ EMA15 ₹{ema15:.2f})")
+                    else:
+                        phase_details.append(f"15m Phase C Pending (Close ₹{close_15:.2f} < EMA15 ₹{ema15:.2f})")
+        except Exception as exc:
+            # [FIX MTF-24] Log diagnostic failures instead of silently discarding
+            logger.exception(f"{symbol}: diagnostic 15m evaluation failed: {exc}")
+            phase_details.append("15m Phase C unavailable due to processing error")
 
-    try:
-        m5_data = fetch_watchlist_data(pd.DataFrame([{"Stock": symbol}]), period="5d", interval="5m")
-        if m5_data and symbol in m5_data and isinstance(m5_data[symbol], pd.DataFrame) and not m5_data[symbol].empty:
-            df_5 = apply_indicators(m5_data[symbol].copy(), timeframe="5m")
-            if df_5 is not None and len(df_5) >= 2:
-                lat_5 = df_5.iloc[-1]
-                close_5 = float(lat_5.get("Close"))
-                vol_5 = float(lat_5.get("Volume", 0))
-                mean_vol_5 = float(df_5["Volume"].iloc[-21:-1].mean()) if len(df_5) >= 22 else float(df_5["Volume"].mean())
-                vr_5 = (vol_5 / mean_vol_5) if mean_vol_5 > 0 else 1.0
-                if close_5 >= prior_high and vr_5 >= 1.2:
-                    has_5m_pass = True
-                    phase_details.append(f"5m Phase D Trigger Active! (Breakout Close ₹{close_5:.2f} ≥ ₹{prior_high:.2f} | 5m Vol {vr_5:.2f}x ≥ 1.2x)")
-                else:
-                    phase_details.append(f"5m Phase D Pending (Close ₹{close_5:.2f} vs Breakout ₹{prior_high:.2f} | 5m Vol {vr_5:.2f}x)")
-    except Exception as exc:
-        # [FIX MTF-24] Log diagnostic failures instead of silently discarding
-        logger.exception(f"{symbol}: diagnostic 5m evaluation failed: {exc}")
-        phase_details.append("5m Phase D unavailable due to processing error")
+        try:
+            m5_data = fetch_watchlist_data(pd.DataFrame([{"Stock": symbol}]), period="5d", interval="5m")
+            if m5_data and symbol in m5_data and isinstance(m5_data[symbol], pd.DataFrame) and not m5_data[symbol].empty:
+                df_5 = apply_indicators(m5_data[symbol].copy(), timeframe="5m")
+                if df_5 is not None and len(df_5) >= 2:
+                    lat_5 = df_5.iloc[-1]
+                    close_5 = float(lat_5.get("Close"))
+                    vol_5 = float(lat_5.get("Volume", 0))
+                    mean_vol_5 = float(df_5["Volume"].iloc[-21:-1].mean()) if len(df_5) >= 22 else float(df_5["Volume"].mean())
+                    vr_5 = (vol_5 / mean_vol_5) if mean_vol_5 > 0 else 1.0
+                    if close_5 >= prior_high and vr_5 >= 1.2:
+                        has_5m_pass = True
+                        phase_details.append(f"5m Phase D Trigger Active! (Breakout Close ₹{close_5:.2f} ≥ ₹{prior_high:.2f} | 5m Vol {vr_5:.2f}x ≥ 1.2x)")
+                    else:
+                        phase_details.append(f"5m Phase D Pending (Close ₹{close_5:.2f} vs Breakout ₹{prior_high:.2f} | 5m Vol {vr_5:.2f}x)")
+        except Exception as exc:
+            # [FIX MTF-24] Log diagnostic failures instead of silently discarding
+            logger.exception(f"{symbol}: diagnostic 5m evaluation failed: {exc}")
+            phase_details.append("5m Phase D unavailable due to processing error")
 
     if has_30m_pass and has_15m_pass and has_5m_pass:
         status_tag = "CORE MET (Phase A+B+C+D Trigger Ready)"
@@ -333,6 +367,34 @@ def evaluate_multi_tf_symbol(symbol: str, df: pd.DataFrame, regime_ctx: dict = N
 
     from sl_target_helper import compute_sl_and_target
     sl_result = compute_sl_and_target(entry_price=close_price, atr=atr_val, mode="MULTI_TF", ticker=ticker)
+
+    if sl_result.get("is_rejected"):
+        rejection_reason = sl_result.get("rejection_reason", "SL/Target validation failed")
+        rejection_code = sl_result.get("rejection_code", "SL_TARGET_INVALID")
+        try:
+            from scanner_telemetry import DecisionContext, telemetry_engine
+            ctx = DecisionContext(symbol=symbol, scanner_name="MULTI_TF")
+            ctx.capture_raw_market(
+                open_p=_safe_float(latest.get("Open")),
+                high_p=_safe_float(latest.get("High")),
+                low_p=_safe_float(latest.get("Low")),
+                close_p=close_price,
+                volume=_safe_float(latest.get("Volume"))
+            )
+            ctx.capture_gate("SL_Target_Gate", False, actual_val=close_price, reason=rejection_reason)
+            ctx.finalize(decision="REJECTED", primary_reason=rejection_code)
+            telemetry_engine.emit_terminal(ctx)
+        except Exception:
+            pass
+        return {
+            "status": "NO",
+            "reasons": [rejection_reason],
+            "score": 0.0,
+            "qualified": False,
+            "entry_price": close_price,
+            "rejection_code": rejection_code,
+            "rejection_reason": rejection_reason
+        }
 
     # ── PER-STOCK TERMINAL TELEMETRY DUMP (Section 4 & 8) ──
     try:
@@ -749,6 +811,18 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
             return {}
         try:
             res = fetch_watchlist_data(pd.DataFrame({"Stock": symbols_list}), period=period_val, interval=interval_val, requester=f"MULTI_TF_{tf_label}")
+            if res and isinstance(res, dict):
+                cleaned_res = {}
+                for sym, df_tf in res.items():
+                    if df_tf is not None and isinstance(df_tf, pd.DataFrame) and not df_tf.empty:
+                        if isinstance(df_tf.index, pd.DatetimeIndex):
+                            # [RULE 67: HARD_WEEKEND_EXCLUSION_ASSERTION]
+                            df_tf = df_tf[~df_tf.index.dayofweek.isin([5, 6])]
+                            assert df_tf.index.dayofweek.isin([5, 6]).sum() == 0, f"{sym} {tf_label} contains weekend data"
+                        cleaned_res[sym] = df_tf
+                    else:
+                        cleaned_res[sym] = df_tf
+                return cleaned_res
             return res if res is not None else {}
         except Exception as _e:
             logger.warning(f"Parallel fetch warning for {tf_label}: {_e}")
@@ -1315,6 +1389,32 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                             if vwap_val is None or pd.isna(vwap_val) or vwap_val <= 0:
                                 vwap_val = _safe_float(latest.get("EMA20", close))
                             
+                            # [RULE 67: CONTEXTUAL_VOLUME_EXHAUSTION_GATE]
+                            if MULTI_TF_CONFIG.get("ENABLE_EXHAUSTION_GATE", True) and vol_ratio > MULTI_TF_CONFIG.get("EXHAUSTION_VOLUME_THRESHOLD", 6.0):
+                                c_high = _safe_float(latest.get("High"))
+                                c_low = _safe_float(latest.get("Low"))
+                                c_range = c_high - c_low
+                                u_wick = c_high - close
+                                u_wick_ratio = (u_wick / c_range) if c_range > 0 else 0.0
+                                is_extended_candle = c_range > (MULTI_TF_CONFIG.get("EXHAUSTION_CANDLE_ATR_MULT", 2.5) * atr20) if atr20 > 0 else False
+                                is_heavy_wick = u_wick_ratio > MULTI_TF_CONFIG.get("EXHAUSTION_WICK_RATIO", 0.40)
+                                
+                                vwap_dist = abs(close - vwap_val) if vwap_val > 0 else 0.0
+                                is_overextended_vwap = vwap_dist > (MULTI_TF_CONFIG.get("EXHAUSTION_VWAP_DIST_MULT", 3.0) * atr20) if atr20 > 0 else False
+                                
+                                if is_extended_candle or is_heavy_wick or is_overextended_vwap:
+                                    logger.info(f"🚫 {symbol} Phase D Alert REJECTED: VOLUME_EXHAUSTION (VolRatio={vol_ratio:.2f}x, UpperWick={u_wick_ratio:.2f}, Extended={is_extended_candle})")
+                                    from database import save_rejected_alert
+                                    if not is_test_mode:
+                                        save_rejected_alert(
+                                            symbol=symbol,
+                                            scanner=SCANNER_MULTI_TF,
+                                            rejection_reason=f"VOLUME_EXHAUSTION: {vol_ratio:.2f}x volume with exhaustion signature",
+                                            engine_version=ACTIVE_ALGO_VERSION,
+                                            context={"category": cat, "score": 0, "volume_ratio": vol_ratio, "upper_wick_ratio": u_wick_ratio}
+                                        )
+                                    return
+
                             sl_result = compute_sl_and_target(
                                 entry_price=close,
                                 atr=atr20,
@@ -1348,22 +1448,27 @@ def run_lower_tf_phase(regime_ctx=None, is_test_mode=False, run_once=False, sess
                                 swing_low_1h=None,
                                 swing_high_1h=None,
                             )
-                            final_sl = sl_result["stop_loss"]
-                            calc_target = sl_result["target_1"]
+                            final_sl = sl_result.get("stop_loss")
+                            calc_target = sl_result.get("target_1")
 
-                            if sl_result.get("is_rejected"):
+                            risk_dist = close - final_sl if final_sl is not None else 0.0
+                            risk_pct = (risk_dist / close) * 100.0 if close > 0 else 0.0
+
+                            if sl_result.get("is_rejected") or final_sl is None or final_sl >= close or risk_pct < 1.2:
                                 with _batch_lock:
                                     lower_funnel["rr_rejections"] += 1
                                 from database import save_rejected_alert
+                                rej_code = sl_result.get("rejection_code", "RISK_TOO_TIGHT" if risk_pct < 1.2 else "SL_BELOW_ENTRY_INVALID")
+                                rej_reason = sl_result.get("rejection_reason", f"RISK_TOO_TIGHT (Risk {risk_pct:.2f}% < 1.20%)" if risk_pct < 1.2 else "SL_BELOW_ENTRY_INVALID")
                                 if not is_test_mode:
                                     save_rejected_alert(
                                         symbol=symbol,
                                         scanner=SCANNER_MULTI_TF,
-                                        rejection_reason=sl_result.get("rejection_reason", "V7 Engine Reject"),
+                                        rejection_reason=rej_reason,
                                         engine_version=sl_result.get("engine_version", "SL_ENGINE_V7.1"),
-                                        context={"category": cat, "score": 0, "sl_result": sl_result}
+                                        context={"category": cat, "score": 0, "sl_result": sl_result, "rejection_code": rej_code}
                                     )
-                                logger.info(f"🚫 {symbol} alert SUPPRESSED: {sl_result.get('rejection_reason')}")
+                                logger.info(f"🚫 {symbol} alert SUPPRESSED: {rej_reason}")
                                 return
 
                             invalidation_level = float(item.get("invalidation_level") or (low - atr20))

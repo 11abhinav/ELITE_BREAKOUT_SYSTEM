@@ -68,7 +68,7 @@ from config import ADAPTIVE_TARGET_CAPS, MIN_NATURAL_RR, MIN_REWARD_POTENTIAL, T
 _MODE_CONFIG = {
     #           atr_base  sl_atr_buf  sl_pct_buf  max_sl_atr
     "EOD":      (2.00,    0.80,       0.0075,     3.0),   # Balanced
-    "MULTI_TF": (1.50,    0.50,       0.0050,     3.0),   # Aggressive
+    "MULTI_TF": (2.00,    1.00,       0.0120,     3.5),   # Robust structural floor (min 1.2% / 1.0x ATR)
     "REVERSAL": (2.00,    1.00,       0.0100,     3.5),   # Wide
     "PULLBACK": (2.00,    0.75,       0.0075,     3.0),   # Pullback Continuation
 }
@@ -80,59 +80,109 @@ class TradeStructureValidator:
     """
     Centralized Validator enforcing all Mathematical Trade Structure Invariants:
       1. entry > 0
-      2. stop_loss < entry (rejection_code: INVALID_STOP_PLACEMENT)
-      3. risk = entry - stop_loss > 0
-      4. target_1 > entry
+      2. Directional SL:
+         - LONG: stop_loss < entry (rejection_code: SL_BELOW_ENTRY_INVALID)
+         - SHORT: stop_loss > entry (rejection_code: SL_ABOVE_ENTRY_INVALID)
+      3. risk = abs(entry - stop_loss) > 0 and risk_pct >= min_risk_pct (rejection_code: RISK_TOO_TIGHT)
+      4. Directional Target:
+         - LONG: target_1 > entry (rejection_code: TARGET_BELOW_ENTRY_INVALID)
+         - SHORT: target_1 < entry (rejection_code: TARGET_ABOVE_ENTRY_INVALID)
       5. target_1 <= target_2 <= target_3 (when multiple targets exist)
-      6. natural_rr = (target_1 - entry) / risk >= min_rr
+      6. natural_rr = abs(target_1 - entry) / risk >= min_rr (rejection_code: NO_VALID_STRUCTURAL_TARGET)
+      7. Outlier Target: natural_rr <= max_rr and distance <= max_target_atr_mult * ATR (rejection_code: OUTLIER_TARGET)
     """
     @staticmethod
     def validate(entry: float, stop_loss: float, target_1: float,
                  target_2: Optional[float] = None, target_3: Optional[float] = None,
                  target_4: Optional[float] = None,
-                 min_rr: float = 2.0) -> dict:
+                 min_rr: float = 2.0,
+                 direction: str = "LONG",
+                 min_risk_pct: float = 0.0,
+                 max_rr: float = 8.0,
+                 eff_atr: Optional[float] = None,
+                 max_target_atr_mult: float = 10.0) -> dict:
         if not entry or entry <= 0:
             return {
                 "is_valid": False, "rejection_code": "INVALID_ENTRY_PRICE",
                 "rejection_reason": f"INVALID_ENTRY_PRICE (Entry price ₹{entry} must be > 0)"
             }
 
-        if stop_loss >= entry:
+        is_short = str(direction).upper() == "SHORT"
+
+        # Directional SL validation
+        if not is_short and stop_loss >= entry:
             return {
-                "is_valid": False, "rejection_code": "INVALID_STOP_PLACEMENT",
-                "rejection_reason": f"INVALID_STOP_PLACEMENT (Stop Loss ₹{stop_loss:.2f} >= Entry Price ₹{entry:.2f})"
+                "is_valid": False, "rejection_code": "LONG_SL_NOT_BELOW_ENTRY",
+                "rejection_reason": f"LONG_SL_NOT_BELOW_ENTRY (Stop Loss ₹{stop_loss:.2f} >= Entry Price ₹{entry:.2f})"
+            }
+        elif is_short and stop_loss <= entry:
+            return {
+                "is_valid": False, "rejection_code": "SHORT_SL_NOT_ABOVE_ENTRY",
+                "rejection_reason": f"SHORT_SL_NOT_ABOVE_ENTRY (Stop Loss ₹{stop_loss:.2f} <= Entry Price ₹{entry:.2f})"
             }
 
-        risk = entry - stop_loss
+        risk = abs(entry - stop_loss)
         if risk <= 0:
             return {
                 "is_valid": False, "rejection_code": "INVALID_RISK_AMOUNT",
                 "rejection_reason": f"INVALID_RISK_AMOUNT (Risk ₹{risk:.2f} must be > 0)"
             }
 
-        if not target_1 or target_1 <= entry:
+        risk_pct = (risk / entry) * 100.0 if entry > 0 else 0.0
+        if min_risk_pct > 0 and risk_pct < min_risk_pct:
             return {
-                "is_valid": False, "rejection_code": "INVALID_TARGET_PRICE",
-                "rejection_reason": f"INVALID_TARGET_PRICE (Target 1 ₹{target_1} must be > Entry ₹{entry})"
+                "is_valid": False, "rejection_code": "RISK_TOO_TIGHT",
+                "rejection_reason": f"RISK_TOO_TIGHT (Risk {risk_pct:.2f}% < Minimum Required {min_risk_pct:.2f}%)",
+                "risk_pct": risk_pct
             }
 
-        # Target ordering invariants with epsilon spacing (t1 < t2 < t3 < t4)
+        # Directional Target 1 validation
+        if not target_1:
+            return {
+                "is_valid": False, "rejection_code": "INVALID_TARGET_PRICE",
+                "rejection_reason": f"INVALID_TARGET_PRICE (Target 1 missing or None)"
+            }
+
+        if not is_short and target_1 <= entry:
+            return {
+                "is_valid": False, "rejection_code": "LONG_TARGET_NOT_ABOVE_ENTRY",
+                "rejection_reason": f"LONG_TARGET_NOT_ABOVE_ENTRY (Target 1 ₹{target_1:.2f} <= Entry ₹{entry:.2f})"
+            }
+        elif is_short and target_1 >= entry:
+            return {
+                "is_valid": False, "rejection_code": "SHORT_TARGET_NOT_BELOW_ENTRY",
+                "rejection_reason": f"SHORT_TARGET_NOT_BELOW_ENTRY (Target 1 ₹{target_1:.2f} >= Entry ₹{entry:.2f})"
+            }
+
+        # Target ordering invariants with epsilon spacing (t1 < t2 < t3 < t4 for LONG; inverted for SHORT)
         epsilon = max(0.05, 0.002 * entry)
-        if target_2 and target_2 <= target_1 + epsilon:
-            return {
-                "is_valid": False, "rejection_code": "UNORDERED_TARGET_HIERARCHY",
-                "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Target 2 ₹{target_2:.2f} <= Target 1 ₹{target_1:.2f} + epsilon ₹{epsilon:.2f})"
-            }
-        if target_3 and target_2 and target_3 <= target_2 + epsilon:
-            return {
-                "is_valid": False, "rejection_code": "UNORDERED_TARGET_HIERARCHY",
-                "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Target 3 ₹{target_3:.2f} <= Target 2 ₹{target_2:.2f} + epsilon ₹{epsilon:.2f})"
-            }
-        if target_4 and target_3 and target_4 <= target_3 + epsilon:
-            return {
-                "is_valid": False, "rejection_code": "UNORDERED_TARGET_HIERARCHY",
-                "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Target 4 ₹{target_4:.2f} <= Target 3 ₹{target_3:.2f} + epsilon ₹{epsilon:.2f})"
-            }
+        if not is_short:
+            if target_2 and target_2 <= target_1 + epsilon:
+                return {
+                    "is_valid": False, "rejection_code": "UNORDERED_TARGET_HIERARCHY",
+                    "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Target 2 ₹{target_2:.2f} <= Target 1 ₹{target_1:.2f} + epsilon ₹{epsilon:.2f})"
+                }
+            if target_3 and target_2 and target_3 <= target_2 + epsilon:
+                return {
+                    "is_valid": False, "rejection_code": "UNORDERED_TARGET_HIERARCHY",
+                    "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Target 3 ₹{target_3:.2f} <= Target 2 ₹{target_2:.2f} + epsilon ₹{epsilon:.2f})"
+                }
+            if target_4 and target_3 and target_4 <= target_3 + epsilon:
+                return {
+                    "is_valid": False, "rejection_code": "UNORDERED_TARGET_HIERARCHY",
+                    "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Target 4 ₹{target_4:.2f} <= Target 3 ₹{target_3:.2f} + epsilon ₹{epsilon:.2f})"
+                }
+        else:
+            if target_2 and target_2 >= target_1 - epsilon:
+                return {
+                    "is_valid": False, "rejection_code": "UNORDERED_TARGET_HIERARCHY",
+                    "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Short Target 2 ₹{target_2:.2f} >= Target 1 ₹{target_1:.2f} - epsilon ₹{epsilon:.2f})"
+                }
+            if target_3 and target_2 and target_3 >= target_2 - epsilon:
+                return {
+                    "is_valid": False, "rejection_code": "UNORDERED_TARGET_HIERARCHY",
+                    "rejection_reason": f"UNORDERED_TARGET_HIERARCHY (Short Target 3 ₹{target_3:.2f} >= Target 2 ₹{target_2:.2f} - epsilon ₹{epsilon:.2f})"
+                }
 
         natural_rr = round(abs(target_1 - entry) / risk, 2)
         if natural_rr < min_rr:
@@ -142,7 +192,23 @@ class TradeStructureValidator:
                 "natural_rr": natural_rr
             }
 
-        return {"is_valid": True, "natural_rr": natural_rr, "risk": risk}
+        # [RULE 67: OUTLIER_TARGET_REJECTION] Reject unrealistic targets explicitly (no silent clamping)
+        if natural_rr > max_rr:
+            return {
+                "is_valid": False, "rejection_code": "OUTLIER_TARGET",
+                "rejection_reason": f"OUTLIER_TARGET (Natural R:R {natural_rr:.2f}x > Maximum Reasonable {max_rr:.1f}x limit)",
+                "natural_rr": natural_rr
+            }
+
+        target_dist = abs(target_1 - entry)
+        if eff_atr is not None and eff_atr > 0 and target_dist > (max_target_atr_mult * eff_atr):
+            return {
+                "is_valid": False, "rejection_code": "OUTLIER_TARGET",
+                "rejection_reason": f"OUTLIER_TARGET (Target distance ₹{target_dist:.2f} > {max_target_atr_mult:.1f}x ATR ₹{max_target_atr_mult * eff_atr:.2f})",
+                "natural_rr": natural_rr
+            }
+
+        return {"is_valid": True, "natural_rr": natural_rr, "risk": risk, "risk_pct": risk_pct}
 
 
 # ── Target Engine v7 Classes ──────────────────────────────────────────────────
@@ -763,13 +829,11 @@ def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, suppo
     telemetry_ctx = ctx.get("telemetry_ctx", None)
     min_stop_pct = MIN_STOP_PCT.get(mode, 0.0)
 
-    ranked_supports = SupportEngine.get_ranked_supports(entry, eff_atr, supports)
+    # Resolve mode-specific buffer percentage from _MODE_CONFIG
+    mode_cfg = _MODE_CONFIG.get(mode, _DEFAULT_CONFIG)
+    mode_pct_buf = mode_cfg[2] if len(mode_cfg) > 2 else 0.0075
 
-    best_support = None
-    best_buf = 0.0
-    best_vol_label = ""
-    best_qual_label = ""
-    best_final_mult = 1.0
+    ranked_supports = SupportEngine.get_ranked_supports(entry, eff_atr, supports)
 
     atr_p = atr_pct or 3.0
     if atr_p < 2.0:
@@ -782,11 +846,14 @@ def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, suppo
         base_mult = 0.75
         vol_label = "NORM_VOL"
 
-    # [VERSION: BUSINESS_LOGIC_FIX_v1.0] Tight Stop Rejection Fix
-    is_tight_stop = False
+    # [RULE 67: STRUCTURAL_SL_HIERARCHY_REPAIR]
+    # Check candidate structural SLs in order of support ranking.
+    # If top support gives risk < min_stop_pct, search alternative structural supports (1H swing, VWAP, S1/S2).
+    # If no structural support meets min_stop_pct, explicitly reject with RISK_TOO_TIGHT.
+    valid_support_found = None
+    best_observed_pct = 0.0
 
-    if ranked_supports:
-        support_data = ranked_supports[0]
+    for support_data in ranked_supports:
         best_score = support_data["score"]
         if best_score > 60:
             final_mult = base_mult * 0.8
@@ -800,31 +867,35 @@ def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, suppo
 
         buf = final_mult * eff_atr
         raw_sl = support_data["anchor_price"] - buf
-        sl_pct = (entry - raw_sl) / entry * 100 if entry > 0 else 0
+        if raw_sl >= entry:
+            continue
 
-        best_support = support_data
-        best_buf = buf
-        best_vol_label = vol_label
-        best_qual_label = qual_label
-        best_final_mult = final_mult
+        sl_pct = (entry - raw_sl) / entry * 100.0 if entry > 0 else 0.0
+        if sl_pct > best_observed_pct:
+            best_observed_pct = sl_pct
 
-        if sl_pct < min_stop_pct:
-            is_tight_stop = True
+        if min_stop_pct <= 0 or sl_pct >= min_stop_pct:
+            valid_support_found = {
+                "support_data": support_data,
+                "buf": buf,
+                "final_mult": final_mult,
+                "vol_label": vol_label,
+                "qual_label": qual_label,
+                "raw_sl": raw_sl,
+                "sl_pct": sl_pct
+            }
+            break
 
-    if not best_support:
-        # Explicitly reject if no structural stop meets MIN_STOP_PCT
-
-        # Find best pct observed for metadata
-        best_observed_pct = 0.0
-        for support_data in ranked_supports:
-            buf = eff_atr * 0.75 # approx
-            sl_pct = (entry - (support_data["anchor_price"] - buf)) / entry * 100
-            if sl_pct > best_observed_pct:
-                best_observed_pct = sl_pct
-
+    if not valid_support_found:
+        rejection_code = "RISK_TOO_TIGHT" if best_observed_pct > 0 else "NO_VALID_STRUCTURAL_STOP"
+        rejection_reason = (
+            f"RISK_TOO_TIGHT (Best structural stop {best_observed_pct:.2f}% < Required {min_stop_pct:.2f}%)"
+            if best_observed_pct > 0 else "NO_VALID_STRUCTURAL_STOP"
+        )
         return {
             "is_valid": False,
-            "rejection_reason": "NO_VALID_STRUCTURAL_STOP",
+            "rejection_code": rejection_code,
+            "rejection_reason": rejection_reason,
             "details": {
                 "clusters_found": len(ranked_supports),
                 "best_stop_pct": round(best_observed_pct, 2),
@@ -843,31 +914,32 @@ def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, suppo
             "buffer_method": "REJECTED"
         }
 
+    best_support = valid_support_found["support_data"]
+    best_buf = valid_support_found["buf"]
+    best_final_mult = valid_support_found["final_mult"]
+    best_vol_label = valid_support_found["vol_label"]
+    best_qual_label = valid_support_found["qual_label"]
+    raw_sl = valid_support_found["raw_sl"]
+    sl_pct = valid_support_found["sl_pct"]
+
     best_anchor = best_support["anchor_price"]
     best_score = best_support["score"]
     best_cluster_members = best_support["cluster_members"]
     best_names = "_".join(list(dict.fromkeys([m["type"] for m in best_cluster_members]))).upper().replace(" ", "_")
 
     method_str = f"{best_names} (Score: {best_score}) @ {best_anchor:.2f} — Buffer {best_buf:.2f} ({best_final_mult:.2f}x ATR)"
-    if is_tight_stop:
-        method_str = "TIGHT_STRUCT_" + method_str
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"TIGHT STRUCTURE | Entry: {entry:.2f} | Structure: {best_anchor:.2f} | Stop %: {sl_pct:.2f} | Accepted: YES | Reason: TIGHT_STRUCTURE")
-
 
     if telemetry_ctx:
         telemetry_ctx.capture_value("STRUCTURAL_STOP_RAW", best_anchor)
         telemetry_ctx.capture_value("STRUCTURAL_STOP_BUFFER", round(best_buf, 2))
-        telemetry_ctx.capture_value("STRUCTURAL_STOP_FINAL", best_anchor - best_buf)
+        telemetry_ctx.capture_value("STRUCTURAL_STOP_FINAL", round(raw_sl, 2))
         telemetry_ctx.capture_value("STRUCTURAL_STOP_SCORE", best_score)
         telemetry_ctx.capture_value("STRUCTURAL_STOP_METHOD", method_str)
-        if is_tight_stop:
-            telemetry_ctx.capture_value("STRUCTURAL_STOP_IS_TIGHT", True)
+        telemetry_ctx.capture_value("STRUCTURAL_STOP_PCT", round(sl_pct, 2))
 
     return {
         "is_valid": True,
-        "raw_sl": best_anchor - best_buf,
+        "raw_sl": round(raw_sl, 2),
         "sl_method": method_str,
         "anchor_price": best_anchor,
         "anchor_type": best_names,
@@ -878,8 +950,7 @@ def _compute_structural_stop(entry: float, eff_atr: float, atr_pct: float, suppo
         "cluster_members": best_cluster_members,
         "buffer_value": round(best_buf, 2),
         "buffer_method": f"{best_vol_label}_{best_qual_label}",
-        "is_tight_stop": is_tight_stop,
-        "tight_stop_pct": round(sl_pct, 2) if is_tight_stop else None,
+        "sl_pct": round(sl_pct, 2),
         "min_stop_pct": min_stop_pct
     }
 
@@ -1045,7 +1116,14 @@ def _compute_multi_tf_v2(entry: float, eff_atr: float, ticker: pd.DataFrame = No
         entry=entry,
         stop_loss=sl,
         target_1=t1,
-        min_rr=1.5
+        target_2=t2,
+        target_3=t3,
+        min_rr=1.5,
+        direction="LONG",
+        min_risk_pct=1.2,
+        max_rr=8.0,
+        eff_atr=eff_atr,
+        max_target_atr_mult=10.0
     )
 
     is_rejected = not validation.get("is_valid", False)
@@ -1071,7 +1149,8 @@ def _compute_multi_tf_v2(entry: float, eff_atr: float, ticker: pd.DataFrame = No
         "target_basis": target_basis,
         "t1_source": t1_source,
         "is_rejected": is_rejected,
-        "rejection_code": validation.get("rejection_code", "") if is_rejected else ""
+        "rejection_code": validation.get("rejection_code", "") if is_rejected else "",
+        "rejection_reason": validation.get("rejection_reason", "") if is_rejected else ""
     }
 
 
@@ -1092,7 +1171,9 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     sl_data = _compute_structural_stop(entry, eff_atr, atr_pct, supports, {"mode": "MULTI_TF"})
     if not sl_data.get("is_valid", True):
         return {
-            "engine_version": "SL_ENGINE_V7", "is_rejected": True, "rejection_reason": "NO_VALID_STRUCTURAL_STOP",
+            "engine_version": "SL_ENGINE_V7", "is_rejected": True,
+            "rejection_code": sl_data.get("rejection_code", "NO_VALID_STRUCTURAL_STOP"),
+            "rejection_reason": sl_data.get("rejection_reason", "NO_VALID_STRUCTURAL_STOP"),
             "gate": "MIN_STOP_PCT", "actual": sl_data.get("details", {}).get("best_stop_pct", 0.0),
             "required": sl_data.get("details", {}).get("required_stop_pct", 0.0), "context": sl_data.get("details", {}),
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
@@ -1116,7 +1197,8 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     if not clusters:
         return {
             "engine_version": "SL_ENGINE_V7.3", "is_rejected": True,
-            "rejection_reason": rejection_reason,
+            "rejection_code": "NO_VALID_TARGET_CLUSTERS",
+            "rejection_reason": rejection_reason or "NO_VALID_TARGET_CLUSTERS",
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
         }
 
@@ -1138,7 +1220,8 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     if sl_data["raw_sl"] >= entry:
         return {
             "engine_version": "SL_ENGINE_V7.1", "is_rejected": True,
-            "rejection_reason": f"INVALID_STOP_PLACEMENT (Stop Loss ₹{sl_data['raw_sl']:.2f} >= Entry Price ₹{entry:.2f})",
+            "rejection_code": "LONG_SL_NOT_BELOW_ENTRY",
+            "rejection_reason": f"LONG_SL_NOT_BELOW_ENTRY (Stop Loss ₹{sl_data['raw_sl']:.2f} >= Entry Price ₹{entry:.2f})",
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": 0.0, "sl_result": sl_data
         }
     min_rr = MIN_NATURAL_RR.get("MULTI_TF", 1.5)
@@ -1157,6 +1240,7 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
         natural_rr_val = round(abs(t1_fallback - entry) / risk_amount, 2) if risk_amount > 0 else 0.0
         return {
             "engine_version": "SL_ENGINE_V7.1", "is_rejected": True,
+            "rejection_code": "NO_VALID_STRUCTURAL_TARGET",
             "rejection_reason": f"NO_VALID_STRUCTURAL_TARGET (Min RR: {min_rr}x, Actual: {natural_rr_val}x)",
             "stop_loss": sl_data["raw_sl"], "target_1": entry, "natural_rr": natural_rr_val, "sl_result": sl_data
         }
@@ -1171,6 +1255,37 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
 
     t2 = valid_targets[1][0] if len(valid_targets) > 1 else None
     t3 = valid_targets[2][0] if len(valid_targets) > 2 else None
+    t4 = targets.get("t4")
+
+    def _r2(v):
+        return round(float(v), 2) if v is not None else None
+
+    # [RULE 67: TRADE_STRUCTURE_VALIDATION] Full Directional, Risk Floor, and Outlier Validation
+    validator_res = TradeStructureValidator.validate(
+        entry=entry,
+        stop_loss=sl_data["raw_sl"],
+        target_1=t1,
+        target_2=t2,
+        target_3=t3,
+        target_4=t4,
+        min_rr=min_rr,
+        direction="LONG",
+        min_risk_pct=1.2,
+        max_rr=8.0,
+        eff_atr=eff_atr,
+        max_target_atr_mult=10.0
+    )
+    if not validator_res.get("is_valid", False):
+        return {
+            "engine_version": "SL_ENGINE_V7.3",
+            "is_rejected": True,
+            "rejection_code": validator_res.get("rejection_code", "INVALID_TRADE_STRUCTURE"),
+            "rejection_reason": validator_res.get("rejection_reason", "Trade structure validation failed"),
+            "stop_loss": _r2(sl_data["raw_sl"]),
+            "target_1": _r2(t1),
+            "natural_rr": validator_res.get("natural_rr", natural_rr_val),
+            "sl_result": sl_data
+        }
 
     tq_score, _ = _compute_target_quality(
         natural_rr_val, kwargs.get("rsi"), kwargs.get("adx"), kwargs.get("macd_hist"),
@@ -1179,17 +1294,16 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
     s_f_s = _compute_structural_failure_stop(sl_data["raw_sl"], eff_atr, [s[0] for s in supports])
 
     explanation = targets.get("t1_cluster").analysis.explanation if targets and targets.get("t1_cluster") and getattr(targets.get("t1_cluster"), "analysis", None) else {}
-    def _r2(v):
-        return round(float(v), 2) if v is not None else None
 
     return {
         "engine_version": "SL_ENGINE_V7", "stop_loss": _r2(sl_data["raw_sl"]),
-        "target_1": _r2(t1), "target_2": _r2(t2), "target_3": _r2(t3), "target_4": _r2(targets.get("t4")),
+        "target_1": _r2(t1), "target_2": _r2(t2), "target_3": _r2(t3), "target_4": _r2(t4),
         "structural_failure_stop": _r2(s_f_s),
         "target_quality": tq_score,
         "natural_rr": natural_rr_val,
         "sl_method": sl_data["sl_method"], "t_method": f"TrendExtension [T1:{t1_src}]",
-        "sl_result": {"target_candidate_pool": pool, "t1_source": t1_src, "explanation": explanation}
+        "sl_result": {"target_candidate_pool": pool, "t1_source": t1_src, "explanation": explanation},
+        "is_rejected": False
     }
 
 def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: float, macd_hist: float, swing_low: float, swing_high: float, s1: float, s2: float, r1: float, r2: float, swing_low_raw: float, swing_high_raw: float, ticker=None, **kwargs) -> dict:
