@@ -1143,8 +1143,12 @@ def api_get_near_misses():
                                    nm.entry_price,
                                    COALESCE(nm.stop_loss, ROUND(nm.entry_price * 0.95, 2)) AS stop_loss,
                                    COALESCE(nm.target_1, ROUND(nm.entry_price * 1.08, 2)) AS target_1,
-                                   nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
+                                   nm.logged_at, nm.logged_date, nm.status, nm.realized_rr,
+                                   COALESCE(nmo.mfe, nm.max_mfe_r) AS max_mfe_r,
+                                   nmo.return_1d, nmo.return_3d, nmo.return_5d, nmo.return_10d, nmo.return_20d, nmo.return_60d,
+                                   nmo.mfe, nmo.mae, nmo.hypothetical_r, nmo.rejection_verdict
                             FROM near_misses nm
+                            LEFT JOIN near_miss_outcomes nmo ON nmo.near_miss_id = nm.id
                             WHERE nm.logged_date >= %s AND (nm.scanner = %s OR UPPER(nm.scanner) = UPPER(%s))
                             ORDER BY nm.logged_at DESC
                             LIMIT %s OFFSET %s
@@ -1157,8 +1161,12 @@ def api_get_near_misses():
                                    nm.entry_price,
                                    COALESCE(nm.stop_loss, ROUND(nm.entry_price * 0.95, 2)) AS stop_loss,
                                    COALESCE(nm.target_1, ROUND(nm.entry_price * 1.08, 2)) AS target_1,
-                                   nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
+                                   nm.logged_at, nm.logged_date, nm.status, nm.realized_rr,
+                                   COALESCE(nmo.mfe, nm.max_mfe_r) AS max_mfe_r,
+                                   nmo.return_1d, nmo.return_3d, nmo.return_5d, nmo.return_10d, nmo.return_20d, nmo.return_60d,
+                                   nmo.mfe, nmo.mae, nmo.hypothetical_r, nmo.rejection_verdict
                             FROM near_misses nm
+                            LEFT JOIN near_miss_outcomes nmo ON nmo.near_miss_id = nm.id
                             WHERE nm.logged_date >= %s AND UPPER(nm.scanner) IN ({placeholders})
                             ORDER BY nm.logged_at DESC
                             LIMIT %s OFFSET %s
@@ -1170,8 +1178,12 @@ def api_get_near_misses():
                                nm.entry_price,
                                COALESCE(nm.stop_loss, ROUND(nm.entry_price * 0.95, 2)) AS stop_loss,
                                COALESCE(nm.target_1, ROUND(nm.entry_price * 1.08, 2)) AS target_1,
-                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
+                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr,
+                               COALESCE(nmo.mfe, nm.max_mfe_r) AS max_mfe_r,
+                               nmo.return_1d, nmo.return_3d, nmo.return_5d, nmo.return_10d, nmo.return_20d, nmo.return_60d,
+                               nmo.mfe, nmo.mae, nmo.hypothetical_r, nmo.rejection_verdict
                         FROM near_misses nm
+                        LEFT JOIN near_miss_outcomes nmo ON nmo.near_miss_id = nm.id
                         WHERE nm.logged_date >= %s
                         ORDER BY nm.logged_at DESC
                         LIMIT %s OFFSET %s
@@ -1186,8 +1198,12 @@ def api_get_near_misses():
                                nm.entry_price,
                                COALESCE(nm.stop_loss, ROUND(nm.entry_price * 0.95, 2)) AS stop_loss,
                                COALESCE(nm.target_1, ROUND(nm.entry_price * 1.08, 2)) AS target_1,
-                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr, nm.max_mfe_r
+                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr,
+                               COALESCE(nmo.mfe, nm.max_mfe_r) AS max_mfe_r,
+                               nmo.return_1d, nmo.return_3d, nmo.return_5d, nmo.return_10d, nmo.return_20d, nmo.return_60d,
+                               nmo.mfe, nmo.mae, nmo.hypothetical_r, nmo.rejection_verdict
                         FROM near_misses nm
+                        LEFT JOIN near_miss_outcomes nmo ON nmo.near_miss_id = nm.id
                         ORDER BY nm.logged_at DESC
                         LIMIT %s
                     """, (fetch_limit,))
@@ -1210,25 +1226,81 @@ def api_get_near_misses():
                     """, (fetch_limit,))
                     rows = [dict(r) for r in cur.fetchall()]
 
-        # [AUDIT-FIX]: Enrich near_misses rows with fast RAM price lookup without blocking disk scans
+        # [RULE 67 CHANGE-RATIONALE]:
+        # Enrich near_misses rows with live RAM price lookup, live returns, live MFE, and elapsed audit days.
+        # Eliminates the empty/0.0% columns by dynamically populating live CMP and audit metrics.
+        now_dt = datetime.now(IST)
+        today_date = now_dt.date()
         for r in rows:
             sym = r.get("symbol")
-            ep = r.get("entry_price")
-            if ep is None or float(ep or 0) <= 0:
+            live_cmp = None
+            try:
+                from master_orchestrator import _FAST_CMP_MEMO
+                live_cmp = _FAST_CMP_MEMO.get(sym)
+            except Exception:
+                pass
+            if not live_cmp:
                 try:
                     from price_cache import get_cached_price
                     cp = get_cached_price(sym)
                     if cp and float(cp) > 0:
-                        ep = float(cp)
-                        r["entry_price"] = round(ep, 2)
+                        live_cmp = float(cp)
                 except Exception:
                     pass
+
+            ep = r.get("entry_price")
+            if ep is None or float(ep or 0) <= 0:
+                if live_cmp and float(live_cmp) > 0:
+                    ep = float(live_cmp)
+                    r["entry_price"] = round(ep, 2)
+                else:
+                    try:
+                        from price_cache import get_cached_price
+                        cp = get_cached_price(sym)
+                        if cp and float(cp) > 0:
+                            ep = float(cp)
+                            r["entry_price"] = round(ep, 2)
+                    except Exception:
+                        pass
+
+            if live_cmp and float(live_cmp) > 0:
+                r["cmp"] = round(float(live_cmp), 2)
+            elif ep and float(ep) > 0:
+                r["cmp"] = round(float(ep), 2)
+
             if ep and float(ep) > 0:
                 if r.get("stop_loss") is None or float(r.get("stop_loss") or 0) <= 0:
                     r["stop_loss"] = round(float(ep) * 0.95, 2)
                 if r.get("target_1") is None or float(r.get("target_1") or 0) <= 0:
                     sl = float(r.get("stop_loss") or (float(ep) * 0.95))
                     r["target_1"] = round(float(ep) + 2.0 * (float(ep) - sl), 2)
+
+                cmp_val = r.get("cmp") or float(ep)
+                cur_return = round(((float(cmp_val) - float(ep)) / float(ep)) * 100, 2)
+                r["live_return_pct"] = cur_return
+
+                sl_val = float(r.get("stop_loss") or (float(ep) * 0.95))
+                risk = float(ep) - sl_val
+                if risk > 0:
+                    live_r = round((float(cmp_val) - float(ep)) / risk, 2)
+                    r["live_mfe_r"] = max(0.0, live_r)
+
+            # Calculate days elapsed since logged_date
+            logged_dt = r.get("logged_date") or r.get("logged_at")
+            days_elapsed = 0
+            if logged_dt:
+                if hasattr(logged_dt, "date"):
+                    l_date = logged_dt.date()
+                elif isinstance(logged_dt, str):
+                    try:
+                        l_date = datetime.strptime(str(logged_dt)[:10], "%Y-%m-%d").date()
+                    except Exception:
+                        l_date = None
+                else:
+                    l_date = logged_dt
+                if l_date:
+                    days_elapsed = max(0, (today_date - l_date).days)
+            r["days_elapsed"] = days_elapsed
 
         try:
             from corporate_events import decorate_events
