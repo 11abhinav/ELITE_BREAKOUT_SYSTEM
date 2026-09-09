@@ -2881,11 +2881,11 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         except Exception as _ctx_err:
             logger.warning(f"⚠️ [MULTIBAGGER] Could not create fallback run_ctx: {_ctx_err}")
 
-    # Load fundamentals cache — force DB sync for main scanner so daily 19:00 scan
-    # always starts with the freshest possible data regardless of local file age.
-    # [VERSION: CACHE_DB_FIRST_v1.0] force_db_sync=True guarantees freshness for daily scan.
+    # Load fundamentals cache — uses smart TTL sync (syncs from DB if local file is missing or older than 20m)
+    # [RULE 67 CHANGE-RATIONALE: SMART_CACHE_TTL_LOAD_v1.0]
+    # force_db_sync=False avoids redundant multi-megabyte DB round-trips on consecutive scan runs when warm local cache is valid.
     t_load_cache_0 = time.perf_counter()
-    cache = load_cache(force_db_sync=True)
+    cache = load_cache(force_db_sync=False)
     t_load_cache_dur = time.perf_counter() - t_load_cache_0
     logger.info(f"⏱️ [STEP 2] Fundamentals Cache loaded ({len(cache)} entries) | Time: {t_load_cache_dur * 1000:.1f}ms")
 
@@ -3827,66 +3827,75 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
             logger.info(f"DEBUG PASS2: {sym} cached={bool(cached)} is_deep={is_deep_v5_cache(cached) if cached else False}")
             if cached and not is_deep_v5_cache(cached):
                 from fundamental_pipeline import get_unified_fundamentals
-                futures[executor.submit(get_unified_fundamentals, sym)] = cand
+                # [RULE 67 CHANGE-RATIONALE: PASS2_CACHE_FIRST_HYDRATION_v1.0]
+                # Pass force_refresh=False so warm DB/disk cached fundamental records are reused in <1ms.
+                futures[executor.submit(get_unified_fundamentals, sym, False)] = cand
 
         if futures:
-            logger.info(f"📥 [MULTIBAGGER PASS 2] Deep YFinance balance sheet hydration starting for {len(futures)} top finalist stocks...")
+            logger.info(f"📥 [MULTIBAGGER PASS 2] Deep fundamental balance sheet hydration starting for {len(futures)} top finalist stocks...")
             t_pass2_0 = time.perf_counter()
             completed_cnt = 0
-            for future in as_completed(futures, timeout=120):
-                completed_cnt += 1
-                if run_ctx:
-                    run_ctx.heartbeat(force=True)
-                cand = futures[future]
-                sym = cand["symbol"]
-                try:
-                    deep_f = future.result()
-                    if deep_f and not deep_f.get("failed"):
-                        deep_equity = deep_f.get("total_equity")
-                        resolved_tier = DEEP_V5_CACHE_TIER if deep_equity is not None else TV_BASELINE_CACHE_TIER
-                        deep_f["cache_tier"] = resolved_tier
+            # [RULE 67 CHANGE-RATIONALE: PASS2_HARD_LATENCY_BUDGET_v1.0]
+            # Enforce an overall 15.0s budget for Pass 2. If any external provider hangs, catch TimeoutError,
+            # apply baseline TV metrics and safe derivations, and complete the scan without blocking.
+            try:
+                for future in as_completed(futures, timeout=15.0):
+                    completed_cnt += 1
+                    if run_ctx:
+                        run_ctx.heartbeat(force=True)
+                    cand = futures[future]
+                    sym = cand["symbol"]
+                    try:
+                        deep_f = future.result()
+                        if deep_f and not deep_f.get("failed"):
+                            deep_equity = deep_f.get("total_equity")
+                            resolved_tier = DEEP_V5_CACHE_TIER if deep_equity is not None else TV_BASELINE_CACHE_TIER
+                            deep_f["cache_tier"] = resolved_tier
 
-                        fund = cand["raw_fundamentals"]
-                        for k, v in deep_f.items():
-                            if v is not None:
-                                fund[k] = v
-                        fund["fetched_at"] = datetime.now(IST).isoformat()
-                        fund["cache_tier"] = resolved_tier
-                        cache[sym] = fund
-                        logger.info(f"⚡ [MULTIBAGGER PASS 2] [{completed_cnt}/{len(futures)}] Hydrated {sym} | Tier={resolved_tier} | Equity={deep_equity}")
+                            fund = cand["raw_fundamentals"]
+                            for k, v in deep_f.items():
+                                if v is not None:
+                                    fund[k] = v
+                            fund["fetched_at"] = datetime.now(IST).isoformat()
+                            fund["cache_tier"] = resolved_tier
+                            cache[sym] = fund
+                            logger.info(f"⚡ [MULTIBAGGER PASS 2] [{completed_cnt}/{len(futures)}] Hydrated {sym} | Tier={resolved_tier} | Equity={deep_equity}")
 
-                        # Rerun V5 specifically for this finalist now that it has YFinance data
-                        try:
-                            technicals = {
-                                "price": cand["price"],
-                                "sma_50": cand["_price_data"].sma_50,
-                                "sma_200": cand["_price_data"].sma_200,
-                                "atr": cand["_price_data"].atr_14
-                            }
-                            decision = run_pipeline_for_symbol(sym, fund, technicals)
-                            cand["pipeline_result"] = decision
-                            cand["raw_fundamentals"] = fund
+                            # Rerun V5 specifically for this finalist now that it has deep data
+                            try:
+                                technicals = {
+                                    "price": cand["price"],
+                                    "sma_50": cand["_price_data"].sma_50,
+                                    "sma_200": cand["_price_data"].sma_200,
+                                    "atr": cand["_price_data"].atr_14
+                                }
+                                decision = run_pipeline_for_symbol(sym, fund, technicals)
+                                cand["pipeline_result"] = decision
+                                cand["raw_fundamentals"] = fund
 
-                            # Apply fundamental confidence multiplier based on provenance quality
-                            quality_rating = deep_f.get("hydration", {}).get("quality", "HIGH")
-                            conf_mult = 1.00 if quality_rating == "HIGH" else (0.85 if quality_rating == "MIXED" else 0.60)
+                                # Apply fundamental confidence multiplier based on provenance quality
+                                quality_rating = deep_f.get("hydration", {}).get("quality", "HIGH")
+                                conf_mult = 1.00 if quality_rating == "HIGH" else (0.85 if quality_rating == "MIXED" else 0.60)
 
-                            cand["total_score"] = decision.composite_score * conf_mult
-                            cand["fundamental_confidence"] = conf_mult
-                            cand["cqs"] = decision.quality.score
-                            cand["pas"] = decision.valuation.score
-                            cand["trend_score"] = decision.market_structure.score
-                            cand["tier"] = decision.classification
-                            cand["tier_val"] = 2 if "Prime" in decision.classification else 1
-                            logger.info(f"✅ Pass 2 Re-scored {sym} with {quality_rating} quality data (Score: {cand['total_score']:.1f}, Confidence: {conf_mult:.2f})")
-                        except Exception as re_err:
-                            logger.error(f"Failed Pass 2 V5 re-scoring for {sym}: {re_err}")
-                    else:
-                        logger.info(f"⚠️ [MULTIBAGGER PASS 2] [{completed_cnt}/{len(futures)}] {sym} hydration returned baseline metrics only")
-                except Exception as e:
-                    logger.error(f"❌ Error in Pass 2 fetch for {sym}: {e}")
+                                cand["total_score"] = decision.composite_score * conf_mult
+                                cand["fundamental_confidence"] = conf_mult
+                                cand["cqs"] = decision.quality.score
+                                cand["pas"] = decision.valuation.score
+                                cand["trend_score"] = decision.market_structure.score
+                                cand["tier"] = decision.classification
+                                cand["tier_val"] = 2 if "Prime" in decision.classification else 1
+                                logger.info(f"✅ Pass 2 Re-scored {sym} with {quality_rating} quality data (Score: {cand['total_score']:.1f}, Confidence: {conf_mult:.2f})")
+                            except Exception as re_err:
+                                logger.error(f"Failed Pass 2 V5 re-scoring for {sym}: {re_err}")
+                        else:
+                            logger.info(f"⚠️ [MULTIBAGGER PASS 2] [{completed_cnt}/{len(futures)}] {sym} hydration returned baseline metrics only")
+                    except Exception as e:
+                        logger.error(f"❌ Error in Pass 2 fetch for {sym}: {e}")
+            except TimeoutError:
+                logger.warning(f"⏱️ [MULTIBAGGER PASS 2] Hydration reached 15s latency budget ({completed_cnt}/{len(futures)} completed). Continuing with baseline/derived data for remaining finalists.")
+
             t_pass2_dur = time.perf_counter() - t_pass2_0
-            logger.info(f"⏱️ [STEP 5] YFinance Finalist Hydration (Pass 2) completed | Hydrated {completed_cnt} symbols | Time: {t_pass2_dur:.2f}s")
+            logger.info(f"⏱️ [STEP 5] Finalist Hydration (Pass 2) completed | Hydrated {completed_cnt}/{len(futures)} symbols | Time: {t_pass2_dur:.2f}s")
 
             # Resave cache if we fetched deep data
             t_save_cache2_0 = time.perf_counter()

@@ -199,18 +199,18 @@ def save_screener_cache_to_db(symbol: str, payload: Dict[str, Any]):
 
 # ── 5. PROVIDER HYDRATORS WITH CONCURRENCY SEMAPHORES ───────────────────────
 
-def _fetch_from_screener(symbol: str) -> Tuple[Dict[str, Any], bool]:
+def _fetch_from_screener(symbol: str, force_refresh: bool = False) -> Tuple[Dict[str, Any], bool]:
     """Tier 1: Screener.in Direct Scraper."""
     if not _is_provider_healthy("SCREENER"):
         return {}, False
     sem = _provider_semaphores["SCREENER"]
-    acquired = sem.acquire(blocking=True, timeout=5.0)
+    acquired = sem.acquire(blocking=True, timeout=3.0)
     if not acquired:
         logger.warning(f"⚠️ Screener.in concurrency limit reached for {symbol}. Moving to next tier.")
         return {}, False
     try:
         from screener_fetcher import fetch_screener_fundamentals
-        data = fetch_screener_fundamentals(symbol, force_refresh=True)
+        data = fetch_screener_fundamentals(symbol, force_refresh=force_refresh)
         if not data or data.get("failed"):
             return {}, False
 
@@ -481,29 +481,29 @@ def _execute_hydration_cascade(clean_sym: str, force_refresh: bool, now_ts: floa
             fields[k] = meta
             missing_fields.discard(k)
 
-    # 2. Tier 1: Screener.in Direct Scraper
-    if missing_fields:
+    # 2. Tier 1: Screener.in Direct Scraper (respects warm 30-day cache unless force_refresh=True)
+    if missing_fields and (time.perf_counter() - t_start) < 4.0:
         tiers_attempted.append(1)
-        sc_fields, ok = _fetch_from_screener(clean_sym)
+        sc_fields, ok = _fetch_from_screener(clean_sym, force_refresh=force_refresh)
         if ok and sc_fields:
             _merge_fields(sc_fields)
 
     # 3. Tier 2: TradingView Direct API Fields
-    if missing_fields:
+    if missing_fields and (time.perf_counter() - t_start) < 4.0:
         tiers_attempted.append(2)
         tv_fields, ok = _fetch_from_tradingview(clean_sym)
         if ok and tv_fields:
             _merge_fields(tv_fields)
 
     # 4. Tier 3: NSE Official Financial Results API
-    if missing_fields and "net_profit" in missing_fields:
+    if missing_fields and "net_profit" in missing_fields and (time.perf_counter() - t_start) < 4.0:
         tiers_attempted.append(3)
         nse_fields, ok = _fetch_from_nse(clean_sym)
         if ok and nse_fields:
             _merge_fields(nse_fields)
 
     # 5. Tier 4: Yahoo Finance API Fallback
-    if missing_fields:
+    if missing_fields and (time.perf_counter() - t_start) < 4.0:
         tiers_attempted.append(4)
         yf_fields, ok = _fetch_from_yahoo(clean_sym)
         if ok and yf_fields:
