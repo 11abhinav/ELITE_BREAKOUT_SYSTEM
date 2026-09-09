@@ -46,9 +46,30 @@ When a test fails, follow this order:
 2. **Preserve User State:** Background updates must mutate the DOM in-place (e.g., updating a table row or a metric) seamlessly without disrupting the user's current scroll position, selected text, or form inputs.
 3. **Graceful Degradation:** If an API endpoint fails, the UI must gracefully log the error without causing infinite refresh loops or blinding the user with repeated error modals.
 
-## 5. General Development
-- **No Silent Degration:** If a fallback mechanism fails (e.g., `.BO` fetch fails), fail gracefully but loudly. Do not suppress errors or introduce infinite retry loops.
-- **Regression Tests Required:** Every bug fix must include or update at least one regression test (unit, behavioral, or snapshot update) that explicitly breaks under the old logic and passes under the new logic.
-- **Code Duplication:** Prefer extending existing business rules over introducing duplicate logic in new modules.
+## 6. Scanner Performance & API Optimization Invariants (MANDATORY)
 
-By enforcing these boundaries, we protect the production pipeline from silent regressions and accidental feedback loops.
+Any new scanner, pipeline modification, or system update must strictly adhere to these hard performance invariants:
+
+1. **Cache-First Fundamentals & Zero Unconditional Bypass**:
+   - Never set `force_refresh=True` by default in scanner loops or Pass 2 finalist hydrations.
+   - Always check warm local/PostgreSQL caches first (<1ms). External web scraping (Screener.in, TradingView, NSE, Yahoo) is strictly a fallback when cache is missing.
+2. **Hard Latency Budgets on Hydration**:
+   - Any external enrichment step (e.g. Pass 2 deep balance sheets) must have a hard per-symbol timeout ($\le$ 4.0s) and an overall stage timeout ($\le$ 15.0s via `as_completed(futures, timeout=15.0)`).
+   - If external enrichment times out or fails, gracefully fall back immediately: `cached data -> baseline TradingView metrics -> safe mathematical derivations (e.g. total_equity = mcap / pb) -> continue scoring`. External web scraping must **never** hold a scanner hostage.
+3. **No Single-Symbol Network Calls in Loops (Invariant 4 Circuit Breaker)**:
+   - Bulk pre-fetch all live quotes (`get_live_prices(symbols)`), promoter pledge (`promoter_pledge_cache`), peer medians, and corporate action splits *before* candidate evaluation loops.
+   - Never call single-symbol network APIs (e.g., `requests.get`, `yf.Ticker`, `fetch_promoter_pledge`, `fetch_screener_fundamentals`) inside candidate evaluation loops. Single-symbol requests inside loops must hit RAM memory in 0ms.
+4. **Corporate Actions & Splits in RAM**:
+   - Corporate action split verification during portfolio evaluation must use RAM-cached factors (`get_bulk_split_factor`) rather than calling synchronous `yf.Ticker(sym).splits` per position.
+5. **Smart TTL Cache Downloads**:
+   - Never force complete database downloads (`download_parquet_from_db` / `force_db_sync=True`) on every scan run if the local file is fresh (< 20 min TTL).
+6. **Alert Recalculate & Replay Parity**:
+   - The candle-by-candle (5m/tick) replay engine in `performance_tracker.py` must maintain 100% parity with real-time exit monitoring:
+     - Clear stale `SL_HIT`/`WIN` states and calculate shares defensively on reset.
+     - Append live tick bridge during active market hours.
+     - Sequential multi-target trailing SL: T1 Hit $\to$ trail SL to `max(sl, effective_entry * 1.003)` (Breakeven + buffer); T2 Hit $\to$ trail SL to `max(sl, t1)`; T3 Hit $\to$ full profit exit.
+7. **Lock Hierarchy & Non-Interfering Intraday Scanners**:
+   - Heavy full-universe scans (EOD, Reversal, Multibagger, Wealth Engine) acquire `ProcessLock("global_scanner_lock")` sequentially.
+   - Multi-TF 15m/5m monitors use dedicated non-interfering locks (`multitf_scanner_lock`, `multitf_scanner_5m_lock`) allowing parallel execution without blocking the global scanner queue.
+
+By enforcing these boundaries, we protect the production pipeline from silent regressions, performance degradation, and accidental feedback loops.

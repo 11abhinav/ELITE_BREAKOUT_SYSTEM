@@ -31,6 +31,11 @@ Per system mandate, the repository documentation under `docs/` is consolidated i
 5. **Full-Universe Candidate Accumulation (ADR-005)**: Scanners accumulate candidate setups across all universe chunks before executing global score sorting and `SCANNER_MAX_ALERTS` (top 10) truncation.
 6. **Data Provider Selector Boundary (ADR-006)**: Data acquisition routing is strictly delegated to `ProviderSelector` in `app/data_providers/provider_selector.py`.
 7. **Un-nested Candidate Verification Locks**: Summary reporting, DB alert verification, `upsert_scanner_health()`, and memory purges run un-nested at function scope.
+8. **Cache-First Fundamentals & Bounded Hydration (ADR-007)**: Never bypass warm fundamentals cache (`force_refresh=False`). All secondary enrichment steps must enforce strict per-symbol ($\le$ 4.0s) and stage timeouts ($\le$ 15.0s via `as_completed(futures, timeout=15.0)`) with graceful fallback to baseline metrics and safe mathematical derivations (`total_equity = mcap / pb`). External scraping must never hold a scanner hostage.
+9. **No Single-Symbol Network Calls in Loops (Invariant 4 Circuit Breaker)**: Bulk pre-fetch all live quotes (`get_live_prices(symbols)`), promoter pledge, and peer medians *before* candidate evaluation loops. Single-symbol requests inside loops are blocked and served from RAM cache in 0ms.
+10. **Corporate Actions & Splits in RAM (ADR-008)**: Corporate action split verification during portfolio evaluation must use RAM-cached factors (`get_bulk_split_factor`) rather than calling synchronous `yf.Ticker(sym).splits` per position.
+11. **Alert Recalculate & Replay Parity (ADR-009)**: The candle-by-candle (5m/tick) replay engine must maintain 100% parity with real-time exit monitoring, including state initialization, market-hours live tick bridge, and sequential multi-target trailing SL progression (T1 $\to$ Breakeven + buffer, T2 $\to$ T1, T3 $\to$ Full exit).
+12. **Lock Hierarchy & Non-Interfering Intraday Scanners (ADR-010)**: Heavy full-universe scans acquire `ProcessLock("global_scanner_lock")` sequentially; Multi-TF 15m/5m monitors use dedicated non-interfering locks (`multitf_scanner_lock`, `multitf_scanner_5m_lock`) allowing parallel execution without blocking the global scanner queue.
 
 ---
 *End of Root System Specification — `ANTIGRAVITY.md`*

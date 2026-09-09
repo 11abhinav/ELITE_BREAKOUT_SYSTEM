@@ -2502,6 +2502,9 @@ def test_gate6_production_readiness_checklist(self):
 15. **Gate 15: Quality Trajectory Invariants**: Verify fundamentals trajectory calculations.
 16. **Gate 16: Forensic Risk Tiers**: Ensure CFO/PAT ratio $< 0.5$ or Debt/Equity $> 2.0$ triggers `HIGH`/`REJECT` risk tiers.
 17. **Gate 17: Data Readiness Policy**: Confirm watchlist parquet freshness before scanner runs.
+18. **Gate 18: Cache-First Fundamental Hydration & Bounded Latency**: Zero unconditional cache bypasses (`force_refresh=False`); secondary enrichment must enforce per-symbol ($\le 4.0\text{s}$) and stage ($\le 15.0\text{s}$) budgets with instant fallback to baseline metrics and safe mathematical derivations (`total_equity = mcap / pb`).
+19. **Gate 19: Invariant 4 Circuit Breaker & Corporate Actions in RAM**: Bulk pre-fetch all live quotes (`get_live_prices`), promoter pledge (`promoter_pledge_cache`), peer medians, and corporate action split factors (`get_bulk_split_factor`) in RAM *before* candidate evaluation loops; block single-symbol network requests in loops.
+20. **Gate 20: Alert Recalculate & Replay Parity**: The candle-by-candle (5m/tick) replay engine must maintain 100% parity with real-time exit monitoring, including state initialization, market-hours live tick bridging, and sequential multi-target trailing SL progression (T1 $\to$ Breakeven + buffer, T2 $\to$ T1, T3 $\to$ Full exit).
 
 ## 20.2 System Failure Decision Matrix
 
