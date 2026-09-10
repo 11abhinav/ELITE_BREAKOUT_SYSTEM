@@ -2535,7 +2535,6 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 except Exception as _notif_err:
                     logger.warning(f"Could not insert admin notification for {_sym}: {_notif_err}")
                 try:
-                    from telegram_engine import queue_telegram_message
                     queue_telegram_message(
                         f"⚠️ <b>[SELL REVIEW] {_sym}</b>\nExit evaluation deferred due to incomplete data: <i>{_inv_msg}</i>.\nPosition remains OPEN under review.",
                         symbol=_sym

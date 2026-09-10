@@ -1,0 +1,2477 @@
+[
+  {
+    "scanner": "WEALTH",
+    "variant_id": "WEALTH_CHAMPION_V1",
+    "experiment_type": "CONTROL_BENCHMARK",
+    "sha256": "7bae5046eb87f086",
+    "params": {
+      "control": true
+    },
+    "metrics_combined": {
+      "n": 45082,
+      "win_pct": 34.24,
+      "er": 0.0999,
+      "pf": 1.13,
+      "max_dd_r": 499.01,
+      "avg_win_r": 2.471,
+      "avg_loss_r": 1.135,
+      "payoff_ratio": 2.18,
+      "sharpe": 0.89,
+      "ci_95_low": 0.0835,
+      "ci_95_high": 0.1163
+    },
+    "metrics_locked_reproduction": {
+      "n": 10074,
+      "win_pct": 37.48,
+      "er": 0.1552,
+      "pf": 1.22,
+      "max_dd_r": 216.01,
+      "avg_win_r": 2.258,
+      "avg_loss_r": 1.106,
+      "payoff_ratio": 2.04,
+      "sharpe": 1.42,
+      "ci_95_low": 0.1213,
+      "ci_95_high": 0.1891
+    },
+    "status": "CONTROL"
+  },
+  {
+    "scanner": "WEALTH",
+    "variant_id": "WEALTH_CLV_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "76328532194f0d30",
+    "params": {
+      "clv_filter": true,
+      "clv_min": 0.75
+    },
+    "description": "Close Location Value >= 0.75 alone",
+    "metrics_combined": {
+      "n": 39672,
+      "win_pct": 34.1,
+      "er": 0.0939,
+      "pf": 1.13,
+      "max_dd_r": 393.3,
+      "avg_win_r": 2.469,
+      "avg_loss_r": 1.135,
+      "payoff_ratio": 2.18,
+      "sharpe": 0.84,
+      "ci_95_low": 0.0764,
+      "ci_95_high": 0.1114
+    },
+    "metrics_locked_reproduction": {
+      "n": 8952,
+      "win_pct": 36.75,
+      "er": 0.1311,
+      "pf": 1.19,
+      "max_dd_r": 216.01,
+      "avg_win_r": 2.262,
+      "avg_loss_r": 1.107,
+      "payoff_ratio": 2.04,
+      "sharpe": 1.2,
+      "ci_95_low": 0.0953,
+      "ci_95_high": 0.1669
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "WEALTH",
+    "variant_id": "WEALTH_WICK_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "b7a16607316e0238",
+    "params": {
+      "wick_filter": true,
+      "upper_wick_max": 0.2
+    },
+    "description": "Upper Wick Exhaustion <= 0.20 alone",
+    "metrics_combined": {
+      "n": 40573,
+      "win_pct": 34.05,
+      "er": 0.0927,
+      "pf": 1.12,
+      "max_dd_r": 398.51,
+      "avg_win_r": 2.47,
+      "avg_loss_r": 1.135,
+      "payoff_ratio": 2.18,
+      "sharpe": 0.83,
+      "ci_95_low": 0.0755,
+      "ci_95_high": 0.1099
+    },
+    "metrics_locked_reproduction": {
+      "n": 9162,
+      "win_pct": 36.7,
+      "er": 0.1296,
+      "pf": 1.19,
+      "max_dd_r": 216.01,
+      "avg_win_r": 2.262,
+      "avg_loss_r": 1.106,
+      "payoff_ratio": 2.05,
+      "sharpe": 1.19,
+      "ci_95_low": 0.0942,
+      "ci_95_high": 0.165
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "WEALTH",
+    "variant_id": "WEALTH_ATR_SQUEEZE_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "34eb048de20e3a05",
+    "params": {
+      "atr_squeeze_filter": true
+    },
+    "description": "ATR5/ATR20 Volatility Squeeze <= 0.75 alone",
+    "metrics_combined": {
+      "n": 38319,
+      "win_pct": 34.22,
+      "er": 0.097,
+      "pf": 1.13,
+      "max_dd_r": 393.3,
+      "avg_win_r": 2.464,
+      "avg_loss_r": 1.135,
+      "payoff_ratio": 2.17,
+      "sharpe": 0.87,
+      "ci_95_low": 0.0792,
+      "ci_95_high": 0.1148
+    },
+    "metrics_locked_reproduction": {
+      "n": 8682,
+      "win_pct": 37.07,
+      "er": 0.1426,
+      "pf": 1.2,
+      "max_dd_r": 216.01,
+      "avg_win_r": 2.263,
+      "avg_loss_r": 1.106,
+      "payoff_ratio": 2.05,
+      "sharpe": 1.31,
+      "ci_95_low": 0.1062,
+      "ci_95_high": 0.179
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "WEALTH",
+    "variant_id": "WEALTH_RS_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "e100309c6d0105ea",
+    "params": {
+      "rs_filter": true,
+      "rs_min": 75
+    },
+    "description": "Relative Strength Rating >= 75 alone",
+    "metrics_combined": {
+      "n": 38319,
+      "win_pct": 34.22,
+      "er": 0.097,
+      "pf": 1.13,
+      "max_dd_r": 393.3,
+      "avg_win_r": 2.464,
+      "avg_loss_r": 1.135,
+      "payoff_ratio": 2.17,
+      "sharpe": 0.87,
+      "ci_95_low": 0.0792,
+      "ci_95_high": 0.1148
+    },
+    "metrics_locked_reproduction": {
+      "n": 8682,
+      "win_pct": 37.07,
+      "er": 0.1426,
+      "pf": 1.2,
+      "max_dd_r": 216.01,
+      "avg_win_r": 2.263,
+      "avg_loss_r": 1.106,
+      "payoff_ratio": 2.05,
+      "sharpe": 1.31,
+      "ci_95_low": 0.1062,
+      "ci_95_high": 0.179
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "WEALTH",
+    "variant_id": "WEALTH_BREAKEVEN_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "9c7ce06ba073e027",
+    "params": {
+      "breakeven_filter": true,
+      "breakeven_mfe_r": 1.0
+    },
+    "description": "Breakeven Stop at +1.0R MFE alone",
+    "metrics_combined": {
+      "n": 45082,
+      "win_pct": 34.24,
+      "er": 0.215,
+      "pf": 1.34,
+      "max_dd_r": 499.01,
+      "avg_win_r": 2.471,
+      "avg_loss_r": 0.96,
+      "payoff_ratio": 2.57,
+      "sharpe": 1.98,
+      "ci_95_low": 0.1991,
+      "ci_95_high": 0.2309
+    },
+    "metrics_locked_reproduction": {
+      "n": 10074,
+      "win_pct": 37.48,
+      "er": 0.2554,
+      "pf": 1.43,
+      "max_dd_r": 216.01,
+      "avg_win_r": 2.258,
+      "avg_loss_r": 0.945,
+      "payoff_ratio": 2.39,
+      "sharpe": 2.41,
+      "ci_95_low": 0.2225,
+      "ci_95_high": 0.2883
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "PULLBACK_V2",
+    "variant_id": "PULL_V2G_VOL_DRY_BULL_CLOSE_HYBRID",
+    "experiment_type": "CONTROL_BENCHMARK",
+    "sha256": "2a1468ca4c2540c8",
+    "params": {
+      "control": true
+    },
+    "metrics_combined": {
+      "n": 82840,
+      "win_pct": 43.96,
+      "er": 0.0545,
+      "pf": 1.09,
+      "max_dd_r": 1268.56,
+      "avg_win_r": 1.574,
+      "avg_loss_r": 1.137,
+      "payoff_ratio": 1.38,
+      "sharpe": 0.59,
+      "ci_95_low": 0.0444,
+      "ci_95_high": 0.0646
+    },
+    "metrics_locked_reproduction": {
+      "n": 17372,
+      "win_pct": 42.97,
+      "er": 0.0529,
+      "pf": 1.08,
+      "max_dd_r": 656.99,
+      "avg_win_r": 1.633,
+      "avg_loss_r": 1.138,
+      "payoff_ratio": 1.43,
+      "sharpe": 0.56,
+      "ci_95_low": 0.0306,
+      "ci_95_high": 0.0752
+    },
+    "status": "CONTROL"
+  },
+  {
+    "scanner": "PULLBACK_V2",
+    "variant_id": "PULLBACK_V2_CLV_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "76328532194f0d30",
+    "params": {
+      "clv_filter": true,
+      "clv_min": 0.75
+    },
+    "description": "Close Location Value >= 0.75 alone",
+    "metrics_combined": {
+      "n": 72899,
+      "win_pct": 44.23,
+      "er": 0.062,
+      "pf": 1.1,
+      "max_dd_r": 1268.56,
+      "avg_win_r": 1.574,
+      "avg_loss_r": 1.137,
+      "payoff_ratio": 1.38,
+      "sharpe": 0.67,
+      "ci_95_low": 0.0513,
+      "ci_95_high": 0.0727
+    },
+    "metrics_locked_reproduction": {
+      "n": 15268,
+      "win_pct": 43.76,
+      "er": 0.0745,
+      "pf": 1.12,
+      "max_dd_r": 539.33,
+      "avg_win_r": 1.63,
+      "avg_loss_r": 1.136,
+      "payoff_ratio": 1.43,
+      "sharpe": 0.79,
+      "ci_95_low": 0.0507,
+      "ci_95_high": 0.0983
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "PULLBACK_V2",
+    "variant_id": "PULLBACK_V2_WICK_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "b7a16607316e0238",
+    "params": {
+      "wick_filter": true,
+      "upper_wick_max": 0.2
+    },
+    "description": "Upper Wick Exhaustion <= 0.20 alone",
+    "metrics_combined": {
+      "n": 74556,
+      "win_pct": 44.2,
+      "er": 0.0609,
+      "pf": 1.1,
+      "max_dd_r": 1268.56,
+      "avg_win_r": 1.574,
+      "avg_loss_r": 1.137,
+      "payoff_ratio": 1.38,
+      "sharpe": 0.65,
+      "ci_95_low": 0.0503,
+      "ci_95_high": 0.0715
+    },
+    "metrics_locked_reproduction": {
+      "n": 15647,
+      "win_pct": 43.41,
+      "er": 0.0639,
+      "pf": 1.1,
+      "max_dd_r": 539.33,
+      "avg_win_r": 1.63,
+      "avg_loss_r": 1.138,
+      "payoff_ratio": 1.43,
+      "sharpe": 0.68,
+      "ci_95_low": 0.0404,
+      "ci_95_high": 0.0874
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "PULLBACK_V2",
+    "variant_id": "PULLBACK_V2_ATR_SQUEEZE_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "34eb048de20e3a05",
+    "params": {
+      "atr_squeeze_filter": true
+    },
+    "description": "ATR5/ATR20 Volatility Squeeze <= 0.75 alone",
+    "metrics_combined": {
+      "n": 70414,
+      "win_pct": 44.22,
+      "er": 0.062,
+      "pf": 1.1,
+      "max_dd_r": 1268.56,
+      "avg_win_r": 1.574,
+      "avg_loss_r": 1.137,
+      "payoff_ratio": 1.38,
+      "sharpe": 0.67,
+      "ci_95_low": 0.0511,
+      "ci_95_high": 0.0729
+    },
+    "metrics_locked_reproduction": {
+      "n": 14915,
+      "win_pct": 43.94,
+      "er": 0.0824,
+      "pf": 1.13,
+      "max_dd_r": 539.33,
+      "avg_win_r": 1.636,
+      "avg_loss_r": 1.135,
+      "payoff_ratio": 1.44,
+      "sharpe": 0.87,
+      "ci_95_low": 0.0583,
+      "ci_95_high": 0.1065
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "PULLBACK_V2",
+    "variant_id": "PULLBACK_V2_RS_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "e100309c6d0105ea",
+    "params": {
+      "rs_filter": true,
+      "rs_min": 75
+    },
+    "description": "Relative Strength Rating >= 75 alone",
+    "metrics_combined": {
+      "n": 70414,
+      "win_pct": 44.22,
+      "er": 0.062,
+      "pf": 1.1,
+      "max_dd_r": 1268.56,
+      "avg_win_r": 1.574,
+      "avg_loss_r": 1.137,
+      "payoff_ratio": 1.38,
+      "sharpe": 0.67,
+      "ci_95_low": 0.0511,
+      "ci_95_high": 0.0729
+    },
+    "metrics_locked_reproduction": {
+      "n": 14915,
+      "win_pct": 43.94,
+      "er": 0.0824,
+      "pf": 1.13,
+      "max_dd_r": 539.33,
+      "avg_win_r": 1.636,
+      "avg_loss_r": 1.135,
+      "payoff_ratio": 1.44,
+      "sharpe": 0.87,
+      "ci_95_low": 0.0583,
+      "ci_95_high": 0.1065
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "PULLBACK_V2",
+    "variant_id": "PULLBACK_V2_BREAKEVEN_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "9c7ce06ba073e027",
+    "params": {
+      "breakeven_filter": true,
+      "breakeven_mfe_r": 1.0
+    },
+    "description": "Breakeven Stop at +1.0R MFE alone",
+    "metrics_combined": {
+      "n": 82840,
+      "win_pct": 43.96,
+      "er": 0.154,
+      "pf": 1.29,
+      "max_dd_r": 998.39,
+      "avg_win_r": 1.574,
+      "avg_loss_r": 0.96,
+      "payoff_ratio": 1.64,
+      "sharpe": 1.72,
+      "ci_95_low": 0.1443,
+      "ci_95_high": 0.1637
+    },
+    "metrics_locked_reproduction": {
+      "n": 17372,
+      "win_pct": 42.97,
+      "er": 0.1648,
+      "pf": 1.31,
+      "max_dd_r": 656.99,
+      "avg_win_r": 1.633,
+      "avg_loss_r": 0.942,
+      "payoff_ratio": 1.73,
+      "sharpe": 1.82,
+      "ci_95_low": 0.1435,
+      "ci_95_high": 0.1861
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "ACCUMULATION_VCP",
+    "variant_id": "VCP_V55_PRECISION_B_CLV65",
+    "experiment_type": "CONTROL_BENCHMARK",
+    "sha256": "110c4cb8000886e7",
+    "params": {
+      "control": true
+    },
+    "metrics_combined": {
+      "n": 12158,
+      "win_pct": 40.76,
+      "er": -0.0527,
+      "pf": 0.9,
+      "max_dd_r": 1044.5,
+      "avg_win_r": 1.127,
+      "avg_loss_r": 0.864,
+      "payoff_ratio": 1.3,
+      "sharpe": -0.72,
+      "ci_95_low": -0.0734,
+      "ci_95_high": -0.032
+    },
+    "metrics_locked_reproduction": {
+      "n": 3310,
+      "win_pct": 46.28,
+      "er": 0.0585,
+      "pf": 1.14,
+      "max_dd_r": 215.93,
+      "avg_win_r": 1.045,
+      "avg_loss_r": 0.791,
+      "payoff_ratio": 1.32,
+      "sharpe": 0.83,
+      "ci_95_low": 0.0202,
+      "ci_95_high": 0.0968
+    },
+    "status": "CONTROL"
+  },
+  {
+    "scanner": "ACCUMULATION_VCP",
+    "variant_id": "ACCUMULATION_VCP_CLV_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "76328532194f0d30",
+    "params": {
+      "clv_filter": true,
+      "clv_min": 0.75
+    },
+    "description": "Close Location Value >= 0.75 alone",
+    "metrics_combined": {
+      "n": 10699,
+      "win_pct": 39.78,
+      "er": -0.0818,
+      "pf": 0.84,
+      "max_dd_r": 972.89,
+      "avg_win_r": 1.103,
+      "avg_loss_r": 0.864,
+      "payoff_ratio": 1.28,
+      "sharpe": -1.13,
+      "ci_95_low": -0.1035,
+      "ci_95_high": -0.0601
+    },
+    "metrics_locked_reproduction": {
+      "n": 2930,
+      "win_pct": 45.02,
+      "er": 0.0324,
+      "pf": 1.08,
+      "max_dd_r": 215.93,
+      "avg_win_r": 1.028,
+      "avg_loss_r": 0.783,
+      "payoff_ratio": 1.31,
+      "sharpe": 0.46,
+      "ci_95_low": -0.0078,
+      "ci_95_high": 0.0726
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "ACCUMULATION_VCP",
+    "variant_id": "ACCUMULATION_VCP_WICK_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "b7a16607316e0238",
+    "params": {
+      "wick_filter": true,
+      "upper_wick_max": 0.2
+    },
+    "description": "Upper Wick Exhaustion <= 0.20 alone",
+    "metrics_combined": {
+      "n": 10942,
+      "win_pct": 39.71,
+      "er": -0.0827,
+      "pf": 0.84,
+      "max_dd_r": 1044.5,
+      "avg_win_r": 1.106,
+      "avg_loss_r": 0.865,
+      "payoff_ratio": 1.28,
+      "sharpe": -1.14,
+      "ci_95_low": -0.1042,
+      "ci_95_high": -0.0612
+    },
+    "metrics_locked_reproduction": {
+      "n": 3005,
+      "win_pct": 44.43,
+      "er": 0.0158,
+      "pf": 1.04,
+      "max_dd_r": 215.93,
+      "avg_win_r": 1.019,
+      "avg_loss_r": 0.786,
+      "payoff_ratio": 1.3,
+      "sharpe": 0.23,
+      "ci_95_low": -0.0237,
+      "ci_95_high": 0.0553
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "ACCUMULATION_VCP",
+    "variant_id": "ACCUMULATION_VCP_ATR_SQUEEZE_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "34eb048de20e3a05",
+    "params": {
+      "atr_squeeze_filter": true
+    },
+    "description": "ATR5/ATR20 Volatility Squeeze <= 0.75 alone",
+    "metrics_combined": {
+      "n": 10334,
+      "win_pct": 40.16,
+      "er": -0.0784,
+      "pf": 0.85,
+      "max_dd_r": 893.18,
+      "avg_win_r": 1.1,
+      "avg_loss_r": 0.869,
+      "payoff_ratio": 1.27,
+      "sharpe": -1.08,
+      "ci_95_low": -0.1005,
+      "ci_95_high": -0.0563
+    },
+    "metrics_locked_reproduction": {
+      "n": 2801,
+      "win_pct": 45.66,
+      "er": 0.0349,
+      "pf": 1.08,
+      "max_dd_r": 215.93,
+      "avg_win_r": 1.023,
+      "avg_loss_r": 0.796,
+      "payoff_ratio": 1.29,
+      "sharpe": 0.5,
+      "ci_95_low": -0.0063,
+      "ci_95_high": 0.0761
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "ACCUMULATION_VCP",
+    "variant_id": "ACCUMULATION_VCP_RS_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "e100309c6d0105ea",
+    "params": {
+      "rs_filter": true,
+      "rs_min": 75
+    },
+    "description": "Relative Strength Rating >= 75 alone",
+    "metrics_combined": {
+      "n": 10334,
+      "win_pct": 40.16,
+      "er": -0.0784,
+      "pf": 0.85,
+      "max_dd_r": 893.18,
+      "avg_win_r": 1.1,
+      "avg_loss_r": 0.869,
+      "payoff_ratio": 1.27,
+      "sharpe": -1.08,
+      "ci_95_low": -0.1005,
+      "ci_95_high": -0.0563
+    },
+    "metrics_locked_reproduction": {
+      "n": 2801,
+      "win_pct": 45.66,
+      "er": 0.0349,
+      "pf": 1.08,
+      "max_dd_r": 215.93,
+      "avg_win_r": 1.023,
+      "avg_loss_r": 0.796,
+      "payoff_ratio": 1.29,
+      "sharpe": 0.5,
+      "ci_95_low": -0.0063,
+      "ci_95_high": 0.0761
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "ACCUMULATION_VCP",
+    "variant_id": "ACCUMULATION_VCP_BREAKEVEN_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "9c7ce06ba073e027",
+    "params": {
+      "breakeven_filter": true,
+      "breakeven_mfe_r": 1.0
+    },
+    "description": "Breakeven Stop at +1.0R MFE alone",
+    "metrics_combined": {
+      "n": 12158,
+      "win_pct": 40.76,
+      "er": 0.0208,
+      "pf": 1.05,
+      "max_dd_r": 748.79,
+      "avg_win_r": 1.127,
+      "avg_loss_r": 0.74,
+      "payoff_ratio": 1.52,
+      "sharpe": 0.29,
+      "ci_95_low": 0.0008,
+      "ci_95_high": 0.0408
+    },
+    "metrics_locked_reproduction": {
+      "n": 3310,
+      "win_pct": 46.28,
+      "er": 0.1261,
+      "pf": 1.35,
+      "max_dd_r": 152.81,
+      "avg_win_r": 1.045,
+      "avg_loss_r": 0.665,
+      "payoff_ratio": 1.57,
+      "sharpe": 1.85,
+      "ci_95_low": 0.0893,
+      "ci_95_high": 0.1629
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "EOD_BREAKOUT",
+    "variant_id": "EOD_ABL_3_NO_VOL_FILTER",
+    "experiment_type": "CONTROL_BENCHMARK",
+    "sha256": "8ea07c2a07010879",
+    "params": {
+      "control": true
+    },
+    "metrics_combined": {
+      "n": 10523,
+      "win_pct": 41.01,
+      "er": -0.0742,
+      "pf": 0.87,
+      "max_dd_r": 1165.25,
+      "avg_win_r": 1.161,
+      "avg_loss_r": 0.933,
+      "payoff_ratio": 1.24,
+      "sharpe": -0.97,
+      "ci_95_low": -0.0973,
+      "ci_95_high": -0.0511
+    },
+    "metrics_locked_reproduction": {
+      "n": 2421,
+      "win_pct": 47.5,
+      "er": 0.1195,
+      "pf": 1.24,
+      "max_dd_r": 126.74,
+      "avg_win_r": 1.301,
+      "avg_loss_r": 0.949,
+      "payoff_ratio": 1.37,
+      "sharpe": 1.45,
+      "ci_95_low": 0.0674,
+      "ci_95_high": 0.1716
+    },
+    "status": "CONTROL"
+  },
+  {
+    "scanner": "EOD_BREAKOUT",
+    "variant_id": "EOD_BREAKOUT_CLV_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "76328532194f0d30",
+    "params": {
+      "clv_filter": true,
+      "clv_min": 0.75
+    },
+    "description": "Close Location Value >= 0.75 alone",
+    "metrics_combined": {
+      "n": 9260,
+      "win_pct": 39.96,
+      "er": -0.1047,
+      "pf": 0.82,
+      "max_dd_r": 1165.25,
+      "avg_win_r": 1.161,
+      "avg_loss_r": 0.947,
+      "payoff_ratio": 1.23,
+      "sharpe": -1.38,
+      "ci_95_low": -0.1293,
+      "ci_95_high": -0.0801
+    },
+    "metrics_locked_reproduction": {
+      "n": 2160,
+      "win_pct": 46.3,
+      "er": 0.0721,
+      "pf": 1.14,
+      "max_dd_r": 126.74,
+      "avg_win_r": 1.276,
+      "avg_loss_r": 0.966,
+      "payoff_ratio": 1.32,
+      "sharpe": 0.88,
+      "ci_95_low": 0.0173,
+      "ci_95_high": 0.1269
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "EOD_BREAKOUT",
+    "variant_id": "EOD_BREAKOUT_WICK_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "b7a16607316e0238",
+    "params": {
+      "wick_filter": true,
+      "upper_wick_max": 0.2
+    },
+    "description": "Upper Wick Exhaustion <= 0.20 alone",
+    "metrics_combined": {
+      "n": 9470,
+      "win_pct": 40.07,
+      "er": -0.1,
+      "pf": 0.82,
+      "max_dd_r": 1165.25,
+      "avg_win_r": 1.161,
+      "avg_loss_r": 0.944,
+      "payoff_ratio": 1.23,
+      "sharpe": -1.32,
+      "ci_95_low": -0.1243,
+      "ci_95_high": -0.0757
+    },
+    "metrics_locked_reproduction": {
+      "n": 2230,
+      "win_pct": 46.37,
+      "er": 0.0755,
+      "pf": 1.15,
+      "max_dd_r": 126.74,
+      "avg_win_r": 1.276,
+      "avg_loss_r": 0.962,
+      "payoff_ratio": 1.33,
+      "sharpe": 0.92,
+      "ci_95_low": 0.0216,
+      "ci_95_high": 0.1294
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "EOD_BREAKOUT",
+    "variant_id": "EOD_BREAKOUT_ATR_SQUEEZE_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "34eb048de20e3a05",
+    "params": {
+      "atr_squeeze_filter": true
+    },
+    "description": "ATR5/ATR20 Volatility Squeeze <= 0.75 alone",
+    "metrics_combined": {
+      "n": 8944,
+      "win_pct": 39.67,
+      "er": -0.1092,
+      "pf": 0.81,
+      "max_dd_r": 1165.25,
+      "avg_win_r": 1.161,
+      "avg_loss_r": 0.944,
+      "payoff_ratio": 1.23,
+      "sharpe": -1.44,
+      "ci_95_low": -0.1342,
+      "ci_95_high": -0.0842
+    },
+    "metrics_locked_reproduction": {
+      "n": 2119,
+      "win_pct": 46.44,
+      "er": 0.07,
+      "pf": 1.14,
+      "max_dd_r": 126.74,
+      "avg_win_r": 1.262,
+      "avg_loss_r": 0.963,
+      "payoff_ratio": 1.31,
+      "sharpe": 0.86,
+      "ci_95_low": 0.0149,
+      "ci_95_high": 0.1251
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "EOD_BREAKOUT",
+    "variant_id": "EOD_BREAKOUT_RS_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "e100309c6d0105ea",
+    "params": {
+      "rs_filter": true,
+      "rs_min": 75
+    },
+    "description": "Relative Strength Rating >= 75 alone",
+    "metrics_combined": {
+      "n": 8944,
+      "win_pct": 39.67,
+      "er": -0.1092,
+      "pf": 0.81,
+      "max_dd_r": 1165.25,
+      "avg_win_r": 1.161,
+      "avg_loss_r": 0.944,
+      "payoff_ratio": 1.23,
+      "sharpe": -1.44,
+      "ci_95_low": -0.1342,
+      "ci_95_high": -0.0842
+    },
+    "metrics_locked_reproduction": {
+      "n": 2119,
+      "win_pct": 46.44,
+      "er": 0.07,
+      "pf": 1.14,
+      "max_dd_r": 126.74,
+      "avg_win_r": 1.262,
+      "avg_loss_r": 0.963,
+      "payoff_ratio": 1.31,
+      "sharpe": 0.86,
+      "ci_95_low": 0.0149,
+      "ci_95_high": 0.1251
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "EOD_BREAKOUT",
+    "variant_id": "EOD_BREAKOUT_BREAKEVEN_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "9c7ce06ba073e027",
+    "params": {
+      "breakeven_filter": true,
+      "breakeven_mfe_r": 1.0
+    },
+    "description": "Breakeven Stop at +1.0R MFE alone",
+    "metrics_combined": {
+      "n": 10523,
+      "win_pct": 41.01,
+      "er": 0.0055,
+      "pf": 1.01,
+      "max_dd_r": 1040.95,
+      "avg_win_r": 1.161,
+      "avg_loss_r": 0.798,
+      "payoff_ratio": 1.45,
+      "sharpe": 0.07,
+      "ci_95_low": -0.0168,
+      "ci_95_high": 0.0278
+    },
+    "metrics_locked_reproduction": {
+      "n": 2421,
+      "win_pct": 47.5,
+      "er": 0.1998,
+      "pf": 1.48,
+      "max_dd_r": 126.74,
+      "avg_win_r": 1.301,
+      "avg_loss_r": 0.796,
+      "payoff_ratio": 1.63,
+      "sharpe": 2.52,
+      "ci_95_low": 0.1498,
+      "ci_95_high": 0.2498
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "MULTITF_5M",
+    "variant_id": "MULTITF_5M_CHAMPION_V1",
+    "experiment_type": "CONTROL_BENCHMARK",
+    "sha256": "64150c3f8029355c",
+    "params": {
+      "control": true
+    },
+    "metrics_combined": {
+      "n": 1824,
+      "win_pct": 42.0,
+      "er": -0.0176,
+      "pf": 0.97,
+      "max_dd_r": 76.24,
+      "avg_win_r": 1.172,
+      "avg_loss_r": 0.879,
+      "payoff_ratio": 1.33,
+      "sharpe": -0.24,
+      "ci_95_low": -0.0701,
+      "ci_95_high": 0.0349
+    },
+    "metrics_locked_reproduction": {
+      "n": 464,
+      "win_pct": 51.29,
+      "er": 0.1649,
+      "pf": 1.4,
+      "max_dd_r": 17.97,
+      "avg_win_r": 1.122,
+      "avg_loss_r": 0.843,
+      "payoff_ratio": 1.33,
+      "sharpe": 2.31,
+      "ci_95_low": 0.0618,
+      "ci_95_high": 0.268
+    },
+    "status": "CONTROL"
+  },
+  {
+    "scanner": "MULTITF_5M",
+    "variant_id": "MULTITF_5M_CLV_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "76328532194f0d30",
+    "params": {
+      "clv_filter": true,
+      "clv_min": 0.75
+    },
+    "description": "Close Location Value >= 0.75 alone",
+    "metrics_combined": {
+      "n": 1605,
+      "win_pct": 41.87,
+      "er": -0.0293,
+      "pf": 0.94,
+      "max_dd_r": 76.24,
+      "avg_win_r": 1.152,
+      "avg_loss_r": 0.88,
+      "payoff_ratio": 1.31,
+      "sharpe": -0.41,
+      "ci_95_low": -0.0849,
+      "ci_95_high": 0.0263
+    },
+    "metrics_locked_reproduction": {
+      "n": 402,
+      "win_pct": 50.25,
+      "er": 0.1384,
+      "pf": 1.33,
+      "max_dd_r": 17.97,
+      "avg_win_r": 1.106,
+      "avg_loss_r": 0.839,
+      "payoff_ratio": 1.32,
+      "sharpe": 1.95,
+      "ci_95_low": 0.0284,
+      "ci_95_high": 0.2484
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "MULTITF_5M",
+    "variant_id": "MULTITF_5M_WICK_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "b7a16607316e0238",
+    "params": {
+      "wick_filter": true,
+      "upper_wick_max": 0.2
+    },
+    "description": "Upper Wick Exhaustion <= 0.20 alone",
+    "metrics_combined": {
+      "n": 1641,
+      "win_pct": 41.8,
+      "er": -0.0313,
+      "pf": 0.94,
+      "max_dd_r": 76.24,
+      "avg_win_r": 1.154,
+      "avg_loss_r": 0.882,
+      "payoff_ratio": 1.31,
+      "sharpe": -0.44,
+      "ci_95_low": -0.0863,
+      "ci_95_high": 0.0237
+    },
+    "metrics_locked_reproduction": {
+      "n": 408,
+      "win_pct": 50.0,
+      "er": 0.1383,
+      "pf": 1.33,
+      "max_dd_r": 17.97,
+      "avg_win_r": 1.114,
+      "avg_loss_r": 0.837,
+      "payoff_ratio": 1.33,
+      "sharpe": 1.95,
+      "ci_95_low": 0.0289,
+      "ci_95_high": 0.2477
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "MULTITF_5M",
+    "variant_id": "MULTITF_5M_ATR_SQUEEZE_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "34eb048de20e3a05",
+    "params": {
+      "atr_squeeze_filter": true
+    },
+    "description": "ATR5/ATR20 Volatility Squeeze <= 0.75 alone",
+    "metrics_combined": {
+      "n": 1550,
+      "win_pct": 41.55,
+      "er": -0.0325,
+      "pf": 0.94,
+      "max_dd_r": 76.24,
+      "avg_win_r": 1.157,
+      "avg_loss_r": 0.878,
+      "payoff_ratio": 1.32,
+      "sharpe": -0.45,
+      "ci_95_low": -0.089,
+      "ci_95_high": 0.024
+    },
+    "metrics_locked_reproduction": {
+      "n": 394,
+      "win_pct": 50.25,
+      "er": 0.1332,
+      "pf": 1.32,
+      "max_dd_r": 17.97,
+      "avg_win_r": 1.09,
+      "avg_loss_r": 0.833,
+      "payoff_ratio": 1.31,
+      "sharpe": 1.9,
+      "ci_95_low": 0.0231,
+      "ci_95_high": 0.2433
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "MULTITF_5M",
+    "variant_id": "MULTITF_5M_RS_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "e100309c6d0105ea",
+    "params": {
+      "rs_filter": true,
+      "rs_min": 75
+    },
+    "description": "Relative Strength Rating >= 75 alone",
+    "metrics_combined": {
+      "n": 1550,
+      "win_pct": 41.55,
+      "er": -0.0325,
+      "pf": 0.94,
+      "max_dd_r": 76.24,
+      "avg_win_r": 1.157,
+      "avg_loss_r": 0.878,
+      "payoff_ratio": 1.32,
+      "sharpe": -0.45,
+      "ci_95_low": -0.089,
+      "ci_95_high": 0.024
+    },
+    "metrics_locked_reproduction": {
+      "n": 394,
+      "win_pct": 50.25,
+      "er": 0.1332,
+      "pf": 1.32,
+      "max_dd_r": 17.97,
+      "avg_win_r": 1.09,
+      "avg_loss_r": 0.833,
+      "payoff_ratio": 1.31,
+      "sharpe": 1.9,
+      "ci_95_low": 0.0231,
+      "ci_95_high": 0.2433
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "MULTITF_5M",
+    "variant_id": "MULTITF_5M_BREAKEVEN_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "9c7ce06ba073e027",
+    "params": {
+      "breakeven_filter": true,
+      "breakeven_mfe_r": 1.0
+    },
+    "description": "Breakeven Stop at +1.0R MFE alone",
+    "metrics_combined": {
+      "n": 1824,
+      "win_pct": 42.0,
+      "er": 0.0585,
+      "pf": 1.14,
+      "max_dd_r": 63.83,
+      "avg_win_r": 1.172,
+      "avg_loss_r": 0.747,
+      "payoff_ratio": 1.57,
+      "sharpe": 0.84,
+      "ci_95_low": 0.0078,
+      "ci_95_high": 0.1092
+    },
+    "metrics_locked_reproduction": {
+      "n": 464,
+      "win_pct": 51.29,
+      "er": 0.2289,
+      "pf": 1.66,
+      "max_dd_r": 17.21,
+      "avg_win_r": 1.122,
+      "avg_loss_r": 0.711,
+      "payoff_ratio": 1.58,
+      "sharpe": 3.33,
+      "ci_95_low": 0.1297,
+      "ci_95_high": 0.3281
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "TECHNICAL_AHAT",
+    "variant_id": "TECHNICAL_CHAMPION_V1",
+    "experiment_type": "CONTROL_BENCHMARK",
+    "sha256": "1869186d755709f5",
+    "params": {
+      "control": true
+    },
+    "metrics_combined": {
+      "n": 1036,
+      "win_pct": 37.45,
+      "er": -0.075,
+      "pf": 0.89,
+      "max_dd_r": 129.67,
+      "avg_win_r": 1.686,
+      "avg_loss_r": 1.129,
+      "payoff_ratio": 1.49,
+      "sharpe": -0.85,
+      "ci_95_low": -0.1598,
+      "ci_95_high": 0.0098
+    },
+    "metrics_locked_reproduction": {
+      "n": 282,
+      "win_pct": 43.97,
+      "er": 0.0677,
+      "pf": 1.11,
+      "max_dd_r": 35.09,
+      "avg_win_r": 1.545,
+      "avg_loss_r": 1.092,
+      "payoff_ratio": 1.41,
+      "sharpe": 0.78,
+      "ci_95_low": -0.0927,
+      "ci_95_high": 0.2281
+    },
+    "status": "CONTROL"
+  },
+  {
+    "scanner": "TECHNICAL_AHAT",
+    "variant_id": "TECHNICAL_AHAT_CLV_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "76328532194f0d30",
+    "params": {
+      "clv_filter": true,
+      "clv_min": 0.75
+    },
+    "description": "Close Location Value >= 0.75 alone",
+    "metrics_combined": {
+      "n": 911,
+      "win_pct": 37.76,
+      "er": -0.0682,
+      "pf": 0.9,
+      "max_dd_r": 114.72,
+      "avg_win_r": 1.679,
+      "avg_loss_r": 1.128,
+      "payoff_ratio": 1.49,
+      "sharpe": -0.78,
+      "ci_95_low": -0.1586,
+      "ci_95_high": 0.0222
+    },
+    "metrics_locked_reproduction": {
+      "n": 242,
+      "win_pct": 43.8,
+      "er": 0.0556,
+      "pf": 1.09,
+      "max_dd_r": 35.09,
+      "avg_win_r": 1.533,
+      "avg_loss_r": 1.096,
+      "payoff_ratio": 1.4,
+      "sharpe": 0.64,
+      "ci_95_low": -0.1169,
+      "ci_95_high": 0.2281
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "TECHNICAL_AHAT",
+    "variant_id": "TECHNICAL_AHAT_WICK_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "b7a16607316e0238",
+    "params": {
+      "wick_filter": true,
+      "upper_wick_max": 0.2
+    },
+    "description": "Upper Wick Exhaustion <= 0.20 alone",
+    "metrics_combined": {
+      "n": 932,
+      "win_pct": 37.55,
+      "er": -0.0737,
+      "pf": 0.9,
+      "max_dd_r": 114.72,
+      "avg_win_r": 1.682,
+      "avg_loss_r": 1.129,
+      "payoff_ratio": 1.49,
+      "sharpe": -0.84,
+      "ci_95_low": -0.1631,
+      "ci_95_high": 0.0157
+    },
+    "metrics_locked_reproduction": {
+      "n": 244,
+      "win_pct": 43.44,
+      "er": 0.0456,
+      "pf": 1.07,
+      "max_dd_r": 35.09,
+      "avg_win_r": 1.533,
+      "avg_loss_r": 1.097,
+      "payoff_ratio": 1.4,
+      "sharpe": 0.53,
+      "ci_95_low": -0.1261,
+      "ci_95_high": 0.2173
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "TECHNICAL_AHAT",
+    "variant_id": "TECHNICAL_AHAT_ATR_SQUEEZE_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "34eb048de20e3a05",
+    "params": {
+      "atr_squeeze_filter": true
+    },
+    "description": "ATR5/ATR20 Volatility Squeeze <= 0.75 alone",
+    "metrics_combined": {
+      "n": 880,
+      "win_pct": 38.41,
+      "er": -0.05,
+      "pf": 0.93,
+      "max_dd_r": 114.72,
+      "avg_win_r": 1.676,
+      "avg_loss_r": 1.126,
+      "payoff_ratio": 1.49,
+      "sharpe": -0.57,
+      "ci_95_low": -0.1422,
+      "ci_95_high": 0.0422
+    },
+    "metrics_locked_reproduction": {
+      "n": 236,
+      "win_pct": 44.07,
+      "er": 0.0613,
+      "pf": 1.1,
+      "max_dd_r": 35.09,
+      "avg_win_r": 1.528,
+      "avg_loss_r": 1.094,
+      "payoff_ratio": 1.4,
+      "sharpe": 0.71,
+      "ci_95_low": -0.1132,
+      "ci_95_high": 0.2358
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "TECHNICAL_AHAT",
+    "variant_id": "TECHNICAL_AHAT_RS_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "e100309c6d0105ea",
+    "params": {
+      "rs_filter": true,
+      "rs_min": 75
+    },
+    "description": "Relative Strength Rating >= 75 alone",
+    "metrics_combined": {
+      "n": 880,
+      "win_pct": 38.41,
+      "er": -0.05,
+      "pf": 0.93,
+      "max_dd_r": 114.72,
+      "avg_win_r": 1.676,
+      "avg_loss_r": 1.126,
+      "payoff_ratio": 1.49,
+      "sharpe": -0.57,
+      "ci_95_low": -0.1422,
+      "ci_95_high": 0.0422
+    },
+    "metrics_locked_reproduction": {
+      "n": 236,
+      "win_pct": 44.07,
+      "er": 0.0613,
+      "pf": 1.1,
+      "max_dd_r": 35.09,
+      "avg_win_r": 1.528,
+      "avg_loss_r": 1.094,
+      "payoff_ratio": 1.4,
+      "sharpe": 0.71,
+      "ci_95_low": -0.1132,
+      "ci_95_high": 0.2358
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "TECHNICAL_AHAT",
+    "variant_id": "TECHNICAL_AHAT_BREAKEVEN_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "9c7ce06ba073e027",
+    "params": {
+      "breakeven_filter": true,
+      "breakeven_mfe_r": 1.0
+    },
+    "description": "Breakeven Stop at +1.0R MFE alone",
+    "metrics_combined": {
+      "n": 1036,
+      "win_pct": 37.45,
+      "er": 0.0328,
+      "pf": 1.05,
+      "max_dd_r": 115.33,
+      "avg_win_r": 1.686,
+      "avg_loss_r": 0.957,
+      "payoff_ratio": 1.76,
+      "sharpe": 0.39,
+      "ci_95_low": -0.049,
+      "ci_95_high": 0.1146
+    },
+    "metrics_locked_reproduction": {
+      "n": 282,
+      "win_pct": 43.97,
+      "er": 0.1408,
+      "pf": 1.26,
+      "max_dd_r": 28.02,
+      "avg_win_r": 1.545,
+      "avg_loss_r": 0.961,
+      "payoff_ratio": 1.61,
+      "sharpe": 1.68,
+      "ci_95_low": -0.0148,
+      "ci_95_high": 0.2964
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "DAILY_BUILDER",
+    "variant_id": "DAILY_BUILDER_CHAMPION_V1",
+    "experiment_type": "CONTROL_BENCHMARK",
+    "sha256": "ecbb24c0588e50e1",
+    "params": {
+      "control": true
+    },
+    "metrics_combined": {
+      "n": 29754,
+      "win_pct": 40.12,
+      "er": 0.0001,
+      "pf": 1.0,
+      "max_dd_r": 617.34,
+      "avg_win_r": 1.663,
+      "avg_loss_r": 1.114,
+      "payoff_ratio": 1.49,
+      "sharpe": 0.0,
+      "ci_95_low": -0.0158,
+      "ci_95_high": 0.016
+    },
+    "metrics_locked_reproduction": {
+      "n": 6858,
+      "win_pct": 43.13,
+      "er": 0.0625,
+      "pf": 1.1,
+      "max_dd_r": 206.43,
+      "avg_win_r": 1.566,
+      "avg_loss_r": 1.078,
+      "payoff_ratio": 1.45,
+      "sharpe": 0.72,
+      "ci_95_low": 0.03,
+      "ci_95_high": 0.095
+    },
+    "status": "CONTROL"
+  },
+  {
+    "scanner": "DAILY_BUILDER",
+    "variant_id": "DAILY_BUILDER_CLV_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "76328532194f0d30",
+    "params": {
+      "clv_filter": true,
+      "clv_min": 0.75
+    },
+    "description": "Close Location Value >= 0.75 alone",
+    "metrics_combined": {
+      "n": 26183,
+      "win_pct": 39.74,
+      "er": -0.0108,
+      "pf": 0.98,
+      "max_dd_r": 617.34,
+      "avg_win_r": 1.664,
+      "avg_loss_r": 1.115,
+      "payoff_ratio": 1.49,
+      "sharpe": -0.12,
+      "ci_95_low": -0.0277,
+      "ci_95_high": 0.0061
+    },
+    "metrics_locked_reproduction": {
+      "n": 6072,
+      "win_pct": 42.65,
+      "er": 0.0491,
+      "pf": 1.08,
+      "max_dd_r": 206.43,
+      "avg_win_r": 1.572,
+      "avg_loss_r": 1.084,
+      "payoff_ratio": 1.45,
+      "sharpe": 0.57,
+      "ci_95_low": 0.0146,
+      "ci_95_high": 0.0836
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "DAILY_BUILDER",
+    "variant_id": "DAILY_BUILDER_WICK_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "b7a16607316e0238",
+    "params": {
+      "wick_filter": true,
+      "upper_wick_max": 0.2
+    },
+    "description": "Upper Wick Exhaustion <= 0.20 alone",
+    "metrics_combined": {
+      "n": 26778,
+      "win_pct": 39.76,
+      "er": -0.0104,
+      "pf": 0.98,
+      "max_dd_r": 617.34,
+      "avg_win_r": 1.662,
+      "avg_loss_r": 1.115,
+      "payoff_ratio": 1.49,
+      "sharpe": -0.12,
+      "ci_95_low": -0.0271,
+      "ci_95_high": 0.0063
+    },
+    "metrics_locked_reproduction": {
+      "n": 6204,
+      "win_pct": 42.59,
+      "er": 0.0442,
+      "pf": 1.07,
+      "max_dd_r": 206.43,
+      "avg_win_r": 1.564,
+      "avg_loss_r": 1.083,
+      "payoff_ratio": 1.44,
+      "sharpe": 0.51,
+      "ci_95_low": 0.0101,
+      "ci_95_high": 0.0783
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "DAILY_BUILDER",
+    "variant_id": "DAILY_BUILDER_ATR_SQUEEZE_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "34eb048de20e3a05",
+    "params": {
+      "atr_squeeze_filter": true
+    },
+    "description": "ATR5/ATR20 Volatility Squeeze <= 0.75 alone",
+    "metrics_combined": {
+      "n": 25290,
+      "win_pct": 39.9,
+      "er": -0.0067,
+      "pf": 0.99,
+      "max_dd_r": 617.34,
+      "avg_win_r": 1.662,
+      "avg_loss_r": 1.115,
+      "payoff_ratio": 1.49,
+      "sharpe": -0.08,
+      "ci_95_low": -0.0239,
+      "ci_95_high": 0.0105
+    },
+    "metrics_locked_reproduction": {
+      "n": 5920,
+      "win_pct": 42.97,
+      "er": 0.0577,
+      "pf": 1.09,
+      "max_dd_r": 206.43,
+      "avg_win_r": 1.571,
+      "avg_loss_r": 1.083,
+      "payoff_ratio": 1.45,
+      "sharpe": 0.67,
+      "ci_95_low": 0.0227,
+      "ci_95_high": 0.0927
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "DAILY_BUILDER",
+    "variant_id": "DAILY_BUILDER_RS_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "e100309c6d0105ea",
+    "params": {
+      "rs_filter": true,
+      "rs_min": 75
+    },
+    "description": "Relative Strength Rating >= 75 alone",
+    "metrics_combined": {
+      "n": 25290,
+      "win_pct": 39.9,
+      "er": -0.0067,
+      "pf": 0.99,
+      "max_dd_r": 617.34,
+      "avg_win_r": 1.662,
+      "avg_loss_r": 1.115,
+      "payoff_ratio": 1.49,
+      "sharpe": -0.08,
+      "ci_95_low": -0.0239,
+      "ci_95_high": 0.0105
+    },
+    "metrics_locked_reproduction": {
+      "n": 5920,
+      "win_pct": 42.97,
+      "er": 0.0577,
+      "pf": 1.09,
+      "max_dd_r": 206.43,
+      "avg_win_r": 1.571,
+      "avg_loss_r": 1.083,
+      "payoff_ratio": 1.45,
+      "sharpe": 0.67,
+      "ci_95_low": 0.0227,
+      "ci_95_high": 0.0927
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "DAILY_BUILDER",
+    "variant_id": "DAILY_BUILDER_BREAKEVEN_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "9c7ce06ba073e027",
+    "params": {
+      "breakeven_filter": true,
+      "breakeven_mfe_r": 1.0
+    },
+    "description": "Breakeven Stop at +1.0R MFE alone",
+    "metrics_combined": {
+      "n": 29754,
+      "win_pct": 40.12,
+      "er": 0.1034,
+      "pf": 1.18,
+      "max_dd_r": 566.37,
+      "avg_win_r": 1.663,
+      "avg_loss_r": 0.942,
+      "payoff_ratio": 1.77,
+      "sharpe": 1.22,
+      "ci_95_low": 0.0881,
+      "ci_95_high": 0.1187
+    },
+    "metrics_locked_reproduction": {
+      "n": 6858,
+      "win_pct": 43.13,
+      "er": 0.149,
+      "pf": 1.28,
+      "max_dd_r": 206.43,
+      "avg_win_r": 1.566,
+      "avg_loss_r": 0.926,
+      "payoff_ratio": 1.69,
+      "sharpe": 1.79,
+      "ci_95_low": 0.1177,
+      "ci_95_high": 0.1803
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "REVERSAL",
+    "variant_id": "REV_V23D_15D_MULTI_REGIME",
+    "experiment_type": "CONTROL_BENCHMARK",
+    "sha256": "2a166d21a712bc7a",
+    "params": {
+      "control": true
+    },
+    "metrics_combined": {
+      "n": 35440,
+      "win_pct": 39.92,
+      "er": 0.1376,
+      "pf": 1.2,
+      "max_dd_r": 565.14,
+      "avg_win_r": 2.029,
+      "avg_loss_r": 1.119,
+      "payoff_ratio": 1.81,
+      "sharpe": 1.37,
+      "ci_95_low": 0.1209,
+      "ci_95_high": 0.1543
+    },
+    "metrics_locked_reproduction": {
+      "n": 5479,
+      "win_pct": 46.41,
+      "er": 0.3498,
+      "pf": 1.58,
+      "max_dd_r": 187.95,
+      "avg_win_r": 2.053,
+      "avg_loss_r": 1.125,
+      "payoff_ratio": 1.82,
+      "sharpe": 3.38,
+      "ci_95_low": 0.3063,
+      "ci_95_high": 0.3933
+    },
+    "status": "CONTROL"
+  },
+  {
+    "scanner": "REVERSAL",
+    "variant_id": "REVERSAL_CLV_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "76328532194f0d30",
+    "params": {
+      "clv_filter": true,
+      "clv_min": 0.75
+    },
+    "description": "Close Location Value >= 0.75 alone",
+    "metrics_combined": {
+      "n": 31187,
+      "win_pct": 40.06,
+      "er": 0.1426,
+      "pf": 1.21,
+      "max_dd_r": 565.14,
+      "avg_win_r": 2.029,
+      "avg_loss_r": 1.118,
+      "payoff_ratio": 1.81,
+      "sharpe": 1.41,
+      "ci_95_low": 0.1248,
+      "ci_95_high": 0.1604
+    },
+    "metrics_locked_reproduction": {
+      "n": 4964,
+      "win_pct": 46.68,
+      "er": 0.3715,
+      "pf": 1.62,
+      "max_dd_r": 187.95,
+      "avg_win_r": 2.076,
+      "avg_loss_r": 1.12,
+      "payoff_ratio": 1.85,
+      "sharpe": 3.58,
+      "ci_95_low": 0.3256,
+      "ci_95_high": 0.4174
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "REVERSAL",
+    "variant_id": "REVERSAL_WICK_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "b7a16607316e0238",
+    "params": {
+      "wick_filter": true,
+      "upper_wick_max": 0.2
+    },
+    "description": "Upper Wick Exhaustion <= 0.20 alone",
+    "metrics_combined": {
+      "n": 31896,
+      "win_pct": 40.2,
+      "er": 0.1456,
+      "pf": 1.22,
+      "max_dd_r": 565.14,
+      "avg_win_r": 2.026,
+      "avg_loss_r": 1.119,
+      "payoff_ratio": 1.81,
+      "sharpe": 1.44,
+      "ci_95_low": 0.128,
+      "ci_95_high": 0.1632
+    },
+    "metrics_locked_reproduction": {
+      "n": 5036,
+      "win_pct": 46.88,
+      "er": 0.3719,
+      "pf": 1.62,
+      "max_dd_r": 187.95,
+      "avg_win_r": 2.063,
+      "avg_loss_r": 1.121,
+      "payoff_ratio": 1.84,
+      "sharpe": 3.59,
+      "ci_95_low": 0.3264,
+      "ci_95_high": 0.4174
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "REVERSAL",
+    "variant_id": "REVERSAL_ATR_SQUEEZE_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "34eb048de20e3a05",
+    "params": {
+      "atr_squeeze_filter": true
+    },
+    "description": "ATR5/ATR20 Volatility Squeeze <= 0.75 alone",
+    "metrics_combined": {
+      "n": 30124,
+      "win_pct": 40.05,
+      "er": 0.1406,
+      "pf": 1.21,
+      "max_dd_r": 565.14,
+      "avg_win_r": 2.024,
+      "avg_loss_r": 1.117,
+      "payoff_ratio": 1.81,
+      "sharpe": 1.4,
+      "ci_95_low": 0.1225,
+      "ci_95_high": 0.1587
+    },
+    "metrics_locked_reproduction": {
+      "n": 4735,
+      "win_pct": 46.23,
+      "er": 0.3592,
+      "pf": 1.6,
+      "max_dd_r": 187.95,
+      "avg_win_r": 2.077,
+      "avg_loss_r": 1.118,
+      "payoff_ratio": 1.86,
+      "sharpe": 3.46,
+      "ci_95_low": 0.3123,
+      "ci_95_high": 0.4061
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "REVERSAL",
+    "variant_id": "REVERSAL_RS_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "e100309c6d0105ea",
+    "params": {
+      "rs_filter": true,
+      "rs_min": 75
+    },
+    "description": "Relative Strength Rating >= 75 alone",
+    "metrics_combined": {
+      "n": 30124,
+      "win_pct": 40.05,
+      "er": 0.1406,
+      "pf": 1.21,
+      "max_dd_r": 565.14,
+      "avg_win_r": 2.024,
+      "avg_loss_r": 1.117,
+      "payoff_ratio": 1.81,
+      "sharpe": 1.4,
+      "ci_95_low": 0.1225,
+      "ci_95_high": 0.1587
+    },
+    "metrics_locked_reproduction": {
+      "n": 4735,
+      "win_pct": 46.23,
+      "er": 0.3592,
+      "pf": 1.6,
+      "max_dd_r": 187.95,
+      "avg_win_r": 2.077,
+      "avg_loss_r": 1.118,
+      "payoff_ratio": 1.86,
+      "sharpe": 3.46,
+      "ci_95_low": 0.3123,
+      "ci_95_high": 0.4061
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "REVERSAL",
+    "variant_id": "REVERSAL_BREAKEVEN_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "9c7ce06ba073e027",
+    "params": {
+      "breakeven_filter": true,
+      "breakeven_mfe_r": 1.0
+    },
+    "description": "Breakeven Stop at +1.0R MFE alone",
+    "metrics_combined": {
+      "n": 35440,
+      "win_pct": 39.92,
+      "er": 0.2385,
+      "pf": 1.42,
+      "max_dd_r": 565.14,
+      "avg_win_r": 2.029,
+      "avg_loss_r": 0.951,
+      "payoff_ratio": 2.13,
+      "sharpe": 2.45,
+      "ci_95_low": 0.2224,
+      "ci_95_high": 0.2546
+    },
+    "metrics_locked_reproduction": {
+      "n": 5479,
+      "win_pct": 46.41,
+      "er": 0.4242,
+      "pf": 1.8,
+      "max_dd_r": 187.95,
+      "avg_win_r": 2.053,
+      "avg_loss_r": 0.987,
+      "payoff_ratio": 2.08,
+      "sharpe": 4.23,
+      "ci_95_low": 0.382,
+      "ci_95_high": 0.4664
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "MULTITF_1H",
+    "variant_id": "M1H_V57_QUAL_F_MULTI_REG",
+    "experiment_type": "CONTROL_BENCHMARK",
+    "sha256": "dca6efe0ed9a76ff",
+    "params": {
+      "control": true
+    },
+    "metrics_combined": {
+      "n": 596,
+      "win_pct": 36.58,
+      "er": -0.0284,
+      "pf": 0.96,
+      "max_dd_r": 100.65,
+      "avg_win_r": 1.746,
+      "avg_loss_r": 1.051,
+      "payoff_ratio": 1.66,
+      "sharpe": -0.3,
+      "ci_95_low": -0.1474,
+      "ci_95_high": 0.0906
+    },
+    "metrics_locked_reproduction": {
+      "n": 440,
+      "win_pct": 36.59,
+      "er": 0.015,
+      "pf": 1.02,
+      "max_dd_r": 86.07,
+      "avg_win_r": 1.851,
+      "avg_loss_r": 1.045,
+      "payoff_ratio": 1.77,
+      "sharpe": 0.16,
+      "ci_95_low": -0.1262,
+      "ci_95_high": 0.1562
+    },
+    "status": "CONTROL"
+  },
+  {
+    "scanner": "MULTITF_1H",
+    "variant_id": "MULTITF_1H_CLV_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "76328532194f0d30",
+    "params": {
+      "clv_filter": true,
+      "clv_min": 0.75
+    },
+    "description": "Close Location Value >= 0.75 alone",
+    "metrics_combined": {
+      "n": 524,
+      "win_pct": 35.11,
+      "er": -0.1098,
+      "pf": 0.84,
+      "max_dd_r": 100.65,
+      "avg_win_r": 1.618,
+      "avg_loss_r": 1.045,
+      "payoff_ratio": 1.55,
+      "sharpe": -1.23,
+      "ci_95_low": -0.2306,
+      "ci_95_high": 0.011
+    },
+    "metrics_locked_reproduction": {
+      "n": 381,
+      "win_pct": 34.12,
+      "er": -0.0978,
+      "pf": 0.86,
+      "max_dd_r": 86.07,
+      "avg_win_r": 1.718,
+      "avg_loss_r": 1.038,
+      "payoff_ratio": 1.66,
+      "sharpe": -1.09,
+      "ci_95_low": -0.2411,
+      "ci_95_high": 0.0455
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "MULTITF_1H",
+    "variant_id": "MULTITF_1H_WICK_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "b7a16607316e0238",
+    "params": {
+      "wick_filter": true,
+      "upper_wick_max": 0.2
+    },
+    "description": "Upper Wick Exhaustion <= 0.20 alone",
+    "metrics_combined": {
+      "n": 536,
+      "win_pct": 35.82,
+      "er": -0.084,
+      "pf": 0.87,
+      "max_dd_r": 100.65,
+      "avg_win_r": 1.64,
+      "avg_loss_r": 1.046,
+      "payoff_ratio": 1.57,
+      "sharpe": -0.93,
+      "ci_95_low": -0.2048,
+      "ci_95_high": 0.0368
+    },
+    "metrics_locked_reproduction": {
+      "n": 393,
+      "win_pct": 35.11,
+      "er": -0.0629,
+      "pf": 0.91,
+      "max_dd_r": 86.07,
+      "avg_win_r": 1.742,
+      "avg_loss_r": 1.04,
+      "payoff_ratio": 1.68,
+      "sharpe": -0.69,
+      "ci_95_low": -0.206,
+      "ci_95_high": 0.0802
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "MULTITF_1H",
+    "variant_id": "MULTITF_1H_ATR_SQUEEZE_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "34eb048de20e3a05",
+    "params": {
+      "atr_squeeze_filter": true
+    },
+    "description": "ATR5/ATR20 Volatility Squeeze <= 0.75 alone",
+    "metrics_combined": {
+      "n": 506,
+      "win_pct": 34.98,
+      "er": -0.125,
+      "pf": 0.82,
+      "max_dd_r": 100.65,
+      "avg_win_r": 1.628,
+      "avg_loss_r": 1.068,
+      "payoff_ratio": 1.52,
+      "sharpe": -1.4,
+      "ci_95_low": -0.2487,
+      "ci_95_high": -0.0013
+    },
+    "metrics_locked_reproduction": {
+      "n": 364,
+      "win_pct": 34.07,
+      "er": -0.1159,
+      "pf": 0.84,
+      "max_dd_r": 86.07,
+      "avg_win_r": 1.729,
+      "avg_loss_r": 1.069,
+      "payoff_ratio": 1.62,
+      "sharpe": -1.28,
+      "ci_95_low": -0.2636,
+      "ci_95_high": 0.0318
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "MULTITF_1H",
+    "variant_id": "MULTITF_1H_RS_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "e100309c6d0105ea",
+    "params": {
+      "rs_filter": true,
+      "rs_min": 75
+    },
+    "description": "Relative Strength Rating >= 75 alone",
+    "metrics_combined": {
+      "n": 506,
+      "win_pct": 34.98,
+      "er": -0.125,
+      "pf": 0.82,
+      "max_dd_r": 100.65,
+      "avg_win_r": 1.628,
+      "avg_loss_r": 1.068,
+      "payoff_ratio": 1.52,
+      "sharpe": -1.4,
+      "ci_95_low": -0.2487,
+      "ci_95_high": -0.0013
+    },
+    "metrics_locked_reproduction": {
+      "n": 364,
+      "win_pct": 34.07,
+      "er": -0.1159,
+      "pf": 0.84,
+      "max_dd_r": 86.07,
+      "avg_win_r": 1.729,
+      "avg_loss_r": 1.069,
+      "payoff_ratio": 1.62,
+      "sharpe": -1.28,
+      "ci_95_low": -0.2636,
+      "ci_95_high": 0.0318
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "MULTITF_1H",
+    "variant_id": "MULTITF_1H_BREAKEVEN_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "9c7ce06ba073e027",
+    "params": {
+      "breakeven_filter": true,
+      "breakeven_mfe_r": 1.0
+    },
+    "description": "Breakeven Stop at +1.0R MFE alone",
+    "metrics_combined": {
+      "n": 596,
+      "win_pct": 36.58,
+      "er": 0.0805,
+      "pf": 1.14,
+      "max_dd_r": 66.57,
+      "avg_win_r": 1.746,
+      "avg_loss_r": 0.88,
+      "payoff_ratio": 1.98,
+      "sharpe": 0.89,
+      "ci_95_low": -0.0346,
+      "ci_95_high": 0.1956
+    },
+    "metrics_locked_reproduction": {
+      "n": 440,
+      "win_pct": 36.59,
+      "er": 0.1192,
+      "pf": 1.21,
+      "max_dd_r": 54.41,
+      "avg_win_r": 1.851,
+      "avg_loss_r": 0.88,
+      "payoff_ratio": 2.1,
+      "sharpe": 1.29,
+      "ci_95_low": -0.0175,
+      "ci_95_high": 0.2559
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "SHORT_COVERING_EOD",
+    "variant_id": "SC_ABL_2_NO_RSI_FILTER",
+    "experiment_type": "CONTROL_BENCHMARK",
+    "sha256": "4e9eb6174102c2c3",
+    "params": {
+      "control": true
+    },
+    "metrics_combined": {
+      "n": 6842,
+      "win_pct": 34.67,
+      "er": -0.0681,
+      "pf": 0.91,
+      "max_dd_r": 517.23,
+      "avg_win_r": 1.884,
+      "avg_loss_r": 1.104,
+      "payoff_ratio": 1.71,
+      "sharpe": -0.72,
+      "ci_95_low": -0.1037,
+      "ci_95_high": -0.0325
+    },
+    "metrics_locked_reproduction": {
+      "n": 1280,
+      "win_pct": 34.77,
+      "er": -0.0231,
+      "pf": 0.97,
+      "max_dd_r": 139.0,
+      "avg_win_r": 1.979,
+      "avg_loss_r": 1.09,
+      "payoff_ratio": 1.82,
+      "sharpe": -0.24,
+      "ci_95_low": -0.1071,
+      "ci_95_high": 0.0609
+    },
+    "status": "CONTROL"
+  },
+  {
+    "scanner": "SHORT_COVERING_EOD",
+    "variant_id": "SHORT_COVERING_EOD_CLV_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "76328532194f0d30",
+    "params": {
+      "clv_filter": true,
+      "clv_min": 0.75
+    },
+    "description": "Close Location Value >= 0.75 alone",
+    "metrics_combined": {
+      "n": 6020,
+      "win_pct": 34.73,
+      "er": -0.0708,
+      "pf": 0.9,
+      "max_dd_r": 473.27,
+      "avg_win_r": 1.868,
+      "avg_loss_r": 1.103,
+      "payoff_ratio": 1.69,
+      "sharpe": -0.75,
+      "ci_95_low": -0.1087,
+      "ci_95_high": -0.0329
+    },
+    "metrics_locked_reproduction": {
+      "n": 1134,
+      "win_pct": 34.48,
+      "er": -0.0395,
+      "pf": 0.94,
+      "max_dd_r": 139.0,
+      "avg_win_r": 1.953,
+      "avg_loss_r": 1.088,
+      "payoff_ratio": 1.8,
+      "sharpe": -0.41,
+      "ci_95_low": -0.128,
+      "ci_95_high": 0.049
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "SHORT_COVERING_EOD",
+    "variant_id": "SHORT_COVERING_EOD_WICK_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "b7a16607316e0238",
+    "params": {
+      "wick_filter": true,
+      "upper_wick_max": 0.2
+    },
+    "description": "Upper Wick Exhaustion <= 0.20 alone",
+    "metrics_combined": {
+      "n": 6157,
+      "win_pct": 35.1,
+      "er": -0.0559,
+      "pf": 0.92,
+      "max_dd_r": 473.27,
+      "avg_win_r": 1.877,
+      "avg_loss_r": 1.101,
+      "payoff_ratio": 1.7,
+      "sharpe": -0.59,
+      "ci_95_low": -0.0935,
+      "ci_95_high": -0.0183
+    },
+    "metrics_locked_reproduction": {
+      "n": 1175,
+      "win_pct": 35.57,
+      "er": -0.0017,
+      "pf": 1.0,
+      "max_dd_r": 139.0,
+      "avg_win_r": 1.964,
+      "avg_loss_r": 1.087,
+      "payoff_ratio": 1.81,
+      "sharpe": -0.02,
+      "ci_95_low": -0.0895,
+      "ci_95_high": 0.0861
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "SHORT_COVERING_EOD",
+    "variant_id": "SHORT_COVERING_EOD_ATR_SQUEEZE_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "34eb048de20e3a05",
+    "params": {
+      "atr_squeeze_filter": true
+    },
+    "description": "ATR5/ATR20 Volatility Squeeze <= 0.75 alone",
+    "metrics_combined": {
+      "n": 5815,
+      "win_pct": 35.12,
+      "er": -0.0558,
+      "pf": 0.92,
+      "max_dd_r": 424.97,
+      "avg_win_r": 1.874,
+      "avg_loss_r": 1.1,
+      "payoff_ratio": 1.7,
+      "sharpe": -0.59,
+      "ci_95_low": -0.0945,
+      "ci_95_high": -0.0171
+    },
+    "metrics_locked_reproduction": {
+      "n": 1097,
+      "win_pct": 34.28,
+      "er": -0.036,
+      "pf": 0.95,
+      "max_dd_r": 139.0,
+      "avg_win_r": 1.979,
+      "avg_loss_r": 1.087,
+      "payoff_ratio": 1.82,
+      "sharpe": -0.37,
+      "ci_95_low": -0.1265,
+      "ci_95_high": 0.0545
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "SHORT_COVERING_EOD",
+    "variant_id": "SHORT_COVERING_EOD_RS_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "e100309c6d0105ea",
+    "params": {
+      "rs_filter": true,
+      "rs_min": 75
+    },
+    "description": "Relative Strength Rating >= 75 alone",
+    "metrics_combined": {
+      "n": 5815,
+      "win_pct": 35.12,
+      "er": -0.0558,
+      "pf": 0.92,
+      "max_dd_r": 424.97,
+      "avg_win_r": 1.874,
+      "avg_loss_r": 1.1,
+      "payoff_ratio": 1.7,
+      "sharpe": -0.59,
+      "ci_95_low": -0.0945,
+      "ci_95_high": -0.0171
+    },
+    "metrics_locked_reproduction": {
+      "n": 1097,
+      "win_pct": 34.28,
+      "er": -0.036,
+      "pf": 0.95,
+      "max_dd_r": 139.0,
+      "avg_win_r": 1.979,
+      "avg_loss_r": 1.087,
+      "payoff_ratio": 1.82,
+      "sharpe": -0.37,
+      "ci_95_low": -0.1265,
+      "ci_95_high": 0.0545
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "SHORT_COVERING_EOD",
+    "variant_id": "SHORT_COVERING_EOD_BREAKEVEN_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "9c7ce06ba073e027",
+    "params": {
+      "breakeven_filter": true,
+      "breakeven_mfe_r": 1.0
+    },
+    "description": "Breakeven Stop at +1.0R MFE alone",
+    "metrics_combined": {
+      "n": 6842,
+      "win_pct": 34.67,
+      "er": 0.0396,
+      "pf": 1.06,
+      "max_dd_r": 517.23,
+      "avg_win_r": 1.884,
+      "avg_loss_r": 0.939,
+      "payoff_ratio": 2.01,
+      "sharpe": 0.43,
+      "ci_95_low": 0.0051,
+      "ci_95_high": 0.0741
+    },
+    "metrics_locked_reproduction": {
+      "n": 1280,
+      "win_pct": 34.77,
+      "er": 0.1074,
+      "pf": 1.18,
+      "max_dd_r": 124.68,
+      "avg_win_r": 1.979,
+      "avg_loss_r": 0.89,
+      "payoff_ratio": 2.22,
+      "sharpe": 1.16,
+      "ci_95_low": 0.0268,
+      "ci_95_high": 0.188
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "MULTIBAGGER",
+    "variant_id": "MBAG_V57_SCALE_A_60D_165V",
+    "experiment_type": "CONTROL_BENCHMARK",
+    "sha256": "1b44d8f3c6c68a1f",
+    "params": {
+      "control": true
+    },
+    "metrics_combined": {
+      "n": 2493,
+      "win_pct": 40.15,
+      "er": 0.2287,
+      "pf": 1.37,
+      "max_dd_r": 73.3,
+      "avg_win_r": 2.103,
+      "avg_loss_r": 1.029,
+      "payoff_ratio": 2.04,
+      "sharpe": 1.93,
+      "ci_95_low": 0.155,
+      "ci_95_high": 0.3024
+    },
+    "metrics_locked_reproduction": {
+      "n": 865,
+      "win_pct": 39.31,
+      "er": 0.2774,
+      "pf": 1.45,
+      "max_dd_r": 65.42,
+      "avg_win_r": 2.283,
+      "avg_loss_r": 1.022,
+      "payoff_ratio": 2.23,
+      "sharpe": 2.23,
+      "ci_95_low": 0.1459,
+      "ci_95_high": 0.4089
+    },
+    "status": "CONTROL"
+  },
+  {
+    "scanner": "MULTIBAGGER",
+    "variant_id": "MULTIBAGGER_CLV_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "76328532194f0d30",
+    "params": {
+      "clv_filter": true,
+      "clv_min": 0.75
+    },
+    "description": "Close Location Value >= 0.75 alone",
+    "metrics_combined": {
+      "n": 2193,
+      "win_pct": 39.49,
+      "er": 0.2065,
+      "pf": 1.33,
+      "max_dd_r": 73.3,
+      "avg_win_r": 2.112,
+      "avg_loss_r": 1.037,
+      "payoff_ratio": 2.04,
+      "sharpe": 1.75,
+      "ci_95_low": 0.1283,
+      "ci_95_high": 0.2847
+    },
+    "metrics_locked_reproduction": {
+      "n": 773,
+      "win_pct": 39.07,
+      "er": 0.2473,
+      "pf": 1.39,
+      "max_dd_r": 65.42,
+      "avg_win_r": 2.25,
+      "avg_loss_r": 1.037,
+      "payoff_ratio": 2.17,
+      "sharpe": 2.02,
+      "ci_95_low": 0.1102,
+      "ci_95_high": 0.3844
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "MULTIBAGGER",
+    "variant_id": "MULTIBAGGER_WICK_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "b7a16607316e0238",
+    "params": {
+      "wick_filter": true,
+      "upper_wick_max": 0.2
+    },
+    "description": "Upper Wick Exhaustion <= 0.20 alone",
+    "metrics_combined": {
+      "n": 2243,
+      "win_pct": 39.81,
+      "er": 0.2174,
+      "pf": 1.35,
+      "max_dd_r": 73.3,
+      "avg_win_r": 2.11,
+      "avg_loss_r": 1.034,
+      "payoff_ratio": 2.04,
+      "sharpe": 1.84,
+      "ci_95_low": 0.14,
+      "ci_95_high": 0.2948
+    },
+    "metrics_locked_reproduction": {
+      "n": 788,
+      "win_pct": 39.21,
+      "er": 0.2616,
+      "pf": 1.41,
+      "max_dd_r": 65.42,
+      "avg_win_r": 2.275,
+      "avg_loss_r": 1.038,
+      "payoff_ratio": 2.19,
+      "sharpe": 2.12,
+      "ci_95_low": 0.1247,
+      "ci_95_high": 0.3985
+    },
+    "status": "NEUTRAL_OR_NEGATIVE"
+  },
+  {
+    "scanner": "MULTIBAGGER",
+    "variant_id": "MULTIBAGGER_ATR_SQUEEZE_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "34eb048de20e3a05",
+    "params": {
+      "atr_squeeze_filter": true
+    },
+    "description": "ATR5/ATR20 Volatility Squeeze <= 0.75 alone",
+    "metrics_combined": {
+      "n": 2119,
+      "win_pct": 40.3,
+      "er": 0.2313,
+      "pf": 1.37,
+      "max_dd_r": 73.3,
+      "avg_win_r": 2.112,
+      "avg_loss_r": 1.038,
+      "payoff_ratio": 2.03,
+      "sharpe": 1.95,
+      "ci_95_low": 0.1513,
+      "ci_95_high": 0.3113
+    },
+    "metrics_locked_reproduction": {
+      "n": 757,
+      "win_pct": 39.89,
+      "er": 0.2754,
+      "pf": 1.44,
+      "max_dd_r": 65.42,
+      "avg_win_r": 2.25,
+      "avg_loss_r": 1.035,
+      "payoff_ratio": 2.17,
+      "sharpe": 2.24,
+      "ci_95_low": 0.1361,
+      "ci_95_high": 0.4147
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "MULTIBAGGER",
+    "variant_id": "MULTIBAGGER_RS_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "e100309c6d0105ea",
+    "params": {
+      "rs_filter": true,
+      "rs_min": 75
+    },
+    "description": "Relative Strength Rating >= 75 alone",
+    "metrics_combined": {
+      "n": 2119,
+      "win_pct": 40.3,
+      "er": 0.2313,
+      "pf": 1.37,
+      "max_dd_r": 73.3,
+      "avg_win_r": 2.112,
+      "avg_loss_r": 1.038,
+      "payoff_ratio": 2.03,
+      "sharpe": 1.95,
+      "ci_95_low": 0.1513,
+      "ci_95_high": 0.3113
+    },
+    "metrics_locked_reproduction": {
+      "n": 757,
+      "win_pct": 39.89,
+      "er": 0.2754,
+      "pf": 1.44,
+      "max_dd_r": 65.42,
+      "avg_win_r": 2.25,
+      "avg_loss_r": 1.035,
+      "payoff_ratio": 2.17,
+      "sharpe": 2.24,
+      "ci_95_low": 0.1361,
+      "ci_95_high": 0.4147
+    },
+    "status": "POSITIVE"
+  },
+  {
+    "scanner": "MULTIBAGGER",
+    "variant_id": "MULTIBAGGER_BREAKEVEN_ALONE",
+    "experiment_type": "SINGLE_LEVER_HYPOTHESIS",
+    "sha256": "9c7ce06ba073e027",
+    "params": {
+      "breakeven_filter": true,
+      "breakeven_mfe_r": 1.0
+    },
+    "description": "Breakeven Stop at +1.0R MFE alone",
+    "metrics_combined": {
+      "n": 2493,
+      "win_pct": 40.15,
+      "er": 0.3254,
+      "pf": 1.63,
+      "max_dd_r": 73.3,
+      "avg_win_r": 2.103,
+      "avg_loss_r": 0.867,
+      "payoff_ratio": 2.43,
+      "sharpe": 2.83,
+      "ci_95_low": 0.2536,
+      "ci_95_high": 0.3972
+    },
+    "metrics_locked_reproduction": {
+      "n": 865,
+      "win_pct": 39.31,
+      "er": 0.3713,
+      "pf": 1.71,
+      "max_dd_r": 65.42,
+      "avg_win_r": 2.283,
+      "avg_loss_r": 0.867,
+      "payoff_ratio": 2.63,
+      "sharpe": 3.06,
+      "ci_95_low": 0.243,
+      "ci_95_high": 0.4996
+    },
+    "status": "POSITIVE"
+  }
+]

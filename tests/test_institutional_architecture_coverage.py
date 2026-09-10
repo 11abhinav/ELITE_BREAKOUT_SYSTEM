@@ -91,14 +91,14 @@ class TestInstitutionalArchitectureCoverage(unittest.TestCase):
         # Step 1: Minor advance (SL stays at 95.0)
         hist_1 = pd.DataFrame([
             {"Open": 100.0, "High": 104.0, "Low": 98.0, "Close": 103.0, "Volume": 1000}
-        ], index=pd.to_datetime(["2026-08-01 10:00:00"]))
+        ], index=pd.to_datetime(["2026-08-03 10:00:00"]))
         process_trade_history(trade, hist=hist_1, cur_p=None)
         self.assertEqual(trade["stop_loss"], 95.0)
 
         # Step 2: Hit Target 1 -> Ratchets SL to entry + buffer (>= 100.30)
         hist_2 = pd.DataFrame([
             {"Open": 103.0, "High": 109.0, "Low": 102.0, "Close": 108.5, "Volume": 5000}
-        ], index=pd.to_datetime(["2026-08-01 11:00:00"]))
+        ], index=pd.to_datetime(["2026-08-03 11:00:00"]))
         process_trade_history(trade, hist=hist_2, cur_p=None)
         self.assertGreaterEqual(trade["stop_loss"], 100.30)
         self.assertEqual(trade["status"], "PARTIAL_WIN_1")
@@ -107,7 +107,7 @@ class TestInstitutionalArchitectureCoverage(unittest.TestCase):
         # Step 3: Pullback to 102.0 (SL must NEVER decrease below sl_after_t1)
         hist_3 = pd.DataFrame([
             {"Open": 108.0, "High": 108.5, "Low": 102.0, "Close": 102.5, "Volume": 2000}
-        ], index=pd.to_datetime(["2026-08-01 12:00:00"]))
+        ], index=pd.to_datetime(["2026-08-03 12:00:00"]))
         process_trade_history(trade, hist=hist_3, cur_p=None)
         self.assertGreaterEqual(trade["stop_loss"], sl_after_t1, "SL must not loosen or decrease on pullback")
 

@@ -1,0 +1,776 @@
+{
+  "WEALTH": {
+    "control": {
+      "variant_id": "WEALTH_CHAMPION_V1",
+      "combined": {
+        "n": 45082,
+        "win_pct": 34.24,
+        "er": 0.0999,
+        "pf": 1.13,
+        "max_dd_r": 499.01,
+        "avg_win_r": 2.471,
+        "avg_loss_r": 1.135,
+        "payoff_ratio": 2.18,
+        "sharpe": 0.89,
+        "ci_95_low": 0.0835,
+        "ci_95_high": 0.1163
+      },
+      "locked_reproduction": {
+        "n": 10074,
+        "win_pct": 37.48,
+        "er": 0.1552,
+        "pf": 1.22,
+        "max_dd_r": 216.01,
+        "avg_win_r": 2.258,
+        "avg_loss_r": 1.106,
+        "payoff_ratio": 2.04,
+        "sharpe": 1.42,
+        "ci_95_low": 0.1213,
+        "ci_95_high": 0.1891
+      }
+    },
+    "champion": {
+      "variant_id": "WLTH_V511_PREC_01_H15_P50_BE10_T30",
+      "params": {
+        "dist_52w_high_pct": 15.0,
+        "sma50_slope": 0.02,
+        "vol_ratio": 1.8,
+        "breakeven_filter": true,
+        "breakeven_mfe_r": 1.0,
+        "target_multiple": 3.0
+      },
+      "combined": {
+        "n": 45082,
+        "win_pct": 34.35,
+        "er": 0.3954,
+        "pf": 1.63,
+        "max_dd_r": 241.01,
+        "avg_win_r": 2.989,
+        "avg_loss_r": 0.961,
+        "payoff_ratio": 3.11,
+        "sharpe": 3.16,
+        "ci_95_low": 0.3771,
+        "ci_95_high": 0.4137
+      },
+      "locked_reproduction": {
+        "n": 10074,
+        "win_pct": 37.62,
+        "er": 0.437,
+        "pf": 1.74,
+        "max_dd_r": 157.92,
+        "avg_win_r": 2.732,
+        "avg_loss_r": 0.947,
+        "payoff_ratio": 2.88,
+        "sharpe": 3.58,
+        "ci_95_low": 0.3991,
+        "ci_95_high": 0.4749
+      },
+      "status": "A_MAJOR_IMPROVEMENT"
+    }
+  },
+  "PULLBACK_V2": {
+    "control": {
+      "variant_id": "PULL_V2G_VOL_DRY_BULL_CLOSE_HYBRID",
+      "combined": {
+        "n": 82840,
+        "win_pct": 43.96,
+        "er": 0.0545,
+        "pf": 1.09,
+        "max_dd_r": 1268.56,
+        "avg_win_r": 1.574,
+        "avg_loss_r": 1.137,
+        "payoff_ratio": 1.38,
+        "sharpe": 0.59,
+        "ci_95_low": 0.0444,
+        "ci_95_high": 0.0646
+      },
+      "locked_reproduction": {
+        "n": 17372,
+        "win_pct": 42.97,
+        "er": 0.0529,
+        "pf": 1.08,
+        "max_dd_r": 656.99,
+        "avg_win_r": 1.633,
+        "avg_loss_r": 1.138,
+        "payoff_ratio": 1.43,
+        "sharpe": 0.56,
+        "ci_95_low": 0.0306,
+        "ci_95_high": 0.0752
+      }
+    },
+    "champion": {
+      "variant_id": "PULL_V511_PREC_01_DRY060_CLV75_BE10_T25",
+      "params": {
+        "vol_dry_ratio": 0.6,
+        "thrust_vol_ratio": 1.8,
+        "clv_filter": true,
+        "clv_min": 0.75,
+        "breakeven_filter": true,
+        "breakeven_mfe_r": 1.0,
+        "target_multiple": 2.5
+      },
+      "combined": {
+        "n": 72899,
+        "win_pct": 44.23,
+        "er": 0.1609,
+        "pf": 1.3,
+        "max_dd_r": 998.39,
+        "avg_win_r": 1.574,
+        "avg_loss_r": 0.96,
+        "payoff_ratio": 1.64,
+        "sharpe": 1.79,
+        "ci_95_low": 0.1506,
+        "ci_95_high": 0.1712
+      },
+      "locked_reproduction": {
+        "n": 15268,
+        "win_pct": 43.76,
+        "er": 0.1889,
+        "pf": 1.36,
+        "max_dd_r": 266.29,
+        "avg_win_r": 1.63,
+        "avg_loss_r": 0.933,
+        "payoff_ratio": 1.75,
+        "sharpe": 2.09,
+        "ci_95_low": 0.1661,
+        "ci_95_high": 0.2117
+      },
+      "status": "A_MAJOR_IMPROVEMENT"
+    }
+  },
+  "ACCUMULATION_VCP": {
+    "control": {
+      "variant_id": "VCP_V55_PRECISION_B_CLV65",
+      "combined": {
+        "n": 12158,
+        "win_pct": 40.76,
+        "er": -0.0527,
+        "pf": 0.9,
+        "max_dd_r": 1044.5,
+        "avg_win_r": 1.127,
+        "avg_loss_r": 0.864,
+        "payoff_ratio": 1.3,
+        "sharpe": -0.72,
+        "ci_95_low": -0.0734,
+        "ci_95_high": -0.032
+      },
+      "locked_reproduction": {
+        "n": 3310,
+        "win_pct": 46.28,
+        "er": 0.0585,
+        "pf": 1.14,
+        "max_dd_r": 215.93,
+        "avg_win_r": 1.045,
+        "avg_loss_r": 0.791,
+        "payoff_ratio": 1.32,
+        "sharpe": 0.83,
+        "ci_95_low": 0.0202,
+        "ci_95_high": 0.0968
+      }
+    },
+    "champion": {
+      "variant_id": "VCP_V511_PREC_01_SQUEEZE_CLV75_BE10_T25",
+      "params": {
+        "contractions_min": 3,
+        "base_max_pct": 10.0,
+        "vol_dry_ratio": 0.6,
+        "thrust_vol_ratio": 1.8,
+        "clv_filter": true,
+        "clv_min": 0.75,
+        "breakeven_filter": true,
+        "breakeven_mfe_r": 1.0,
+        "target_multiple": 2.5
+      },
+      "combined": {
+        "n": 10699,
+        "win_pct": 39.78,
+        "er": -0.0065,
+        "pf": 0.99,
+        "max_dd_r": 677.19,
+        "avg_win_r": 1.103,
+        "avg_loss_r": 0.739,
+        "payoff_ratio": 1.49,
+        "sharpe": -0.09,
+        "ci_95_low": -0.0275,
+        "ci_95_high": 0.0145
+      },
+      "locked_reproduction": {
+        "n": 2930,
+        "win_pct": 45.02,
+        "er": 0.0948,
+        "pf": 1.26,
+        "max_dd_r": 114.61,
+        "avg_win_r": 1.028,
+        "avg_loss_r": 0.669,
+        "payoff_ratio": 1.54,
+        "sharpe": 1.41,
+        "ci_95_low": 0.056,
+        "ci_95_high": 0.1336
+      },
+      "status": "A_MAJOR_IMPROVEMENT"
+    }
+  },
+  "EOD_BREAKOUT": {
+    "control": {
+      "variant_id": "EOD_ABL_3_NO_VOL_FILTER",
+      "combined": {
+        "n": 10523,
+        "win_pct": 41.01,
+        "er": -0.0742,
+        "pf": 0.87,
+        "max_dd_r": 1165.25,
+        "avg_win_r": 1.161,
+        "avg_loss_r": 0.933,
+        "payoff_ratio": 1.24,
+        "sharpe": -0.97,
+        "ci_95_low": -0.0973,
+        "ci_95_high": -0.0511
+      },
+      "locked_reproduction": {
+        "n": 2421,
+        "win_pct": 47.5,
+        "er": 0.1195,
+        "pf": 1.24,
+        "max_dd_r": 126.74,
+        "avg_win_r": 1.301,
+        "avg_loss_r": 0.949,
+        "payoff_ratio": 1.37,
+        "sharpe": 1.45,
+        "ci_95_low": 0.0674,
+        "ci_95_high": 0.1716
+      }
+    },
+    "champion": {
+      "variant_id": "EOD_V511_PREC_01_H30_CLV75_BE10_T25",
+      "params": {
+        "dist_52w_high_pct": 3.0,
+        "base_atr_pct": 2.0,
+        "vol_ratio": 1.8,
+        "clv_filter": true,
+        "clv_min": 0.75,
+        "breakeven_filter": true,
+        "breakeven_mfe_r": 1.0,
+        "target_multiple": 2.5
+      },
+      "combined": {
+        "n": 9260,
+        "win_pct": 39.96,
+        "er": -0.0234,
+        "pf": 0.95,
+        "max_dd_r": 1074.92,
+        "avg_win_r": 1.161,
+        "avg_loss_r": 0.812,
+        "payoff_ratio": 1.43,
+        "sharpe": -0.32,
+        "ci_95_low": -0.0472,
+        "ci_95_high": 0.0004
+      },
+      "locked_reproduction": {
+        "n": 2160,
+        "win_pct": 46.3,
+        "er": 0.1523,
+        "pf": 1.35,
+        "max_dd_r": 126.74,
+        "avg_win_r": 1.276,
+        "avg_loss_r": 0.816,
+        "payoff_ratio": 1.56,
+        "sharpe": 1.93,
+        "ci_95_low": 0.0995,
+        "ci_95_high": 0.2051
+      },
+      "status": "A_MAJOR_IMPROVEMENT"
+    }
+  },
+  "MULTITF_5M": {
+    "control": {
+      "variant_id": "MULTITF_5M_CHAMPION_V1",
+      "combined": {
+        "n": 1824,
+        "win_pct": 42.0,
+        "er": -0.0176,
+        "pf": 0.97,
+        "max_dd_r": 76.24,
+        "avg_win_r": 1.172,
+        "avg_loss_r": 0.879,
+        "payoff_ratio": 1.33,
+        "sharpe": -0.24,
+        "ci_95_low": -0.0701,
+        "ci_95_high": 0.0349
+      },
+      "locked_reproduction": {
+        "n": 464,
+        "win_pct": 51.29,
+        "er": 0.1649,
+        "pf": 1.4,
+        "max_dd_r": 17.97,
+        "avg_win_r": 1.122,
+        "avg_loss_r": 0.843,
+        "payoff_ratio": 1.33,
+        "sharpe": 2.31,
+        "ci_95_low": 0.0618,
+        "ci_95_high": 0.268
+      }
+    },
+    "champion": {
+      "variant_id": "M5M_V511_PREC_02_CLV80_BE08_T21",
+      "params": {
+        "daily_trend": true,
+        "tf15_supertrend": true,
+        "tf15_vol_ratio": 2.0,
+        "clv_filter": true,
+        "clv_min": 0.8,
+        "breakeven_filter": true,
+        "breakeven_mfe_r": 0.8,
+        "target_multiple": 2.1
+      },
+      "combined": {
+        "n": 1459,
+        "win_pct": 42.15,
+        "er": 0.0876,
+        "pf": 1.21,
+        "max_dd_r": 52.88,
+        "avg_win_r": 1.217,
+        "avg_loss_r": 0.736,
+        "payoff_ratio": 1.65,
+        "sharpe": 1.23,
+        "ci_95_low": 0.0296,
+        "ci_95_high": 0.1456
+      },
+      "locked_reproduction": {
+        "n": 374,
+        "win_pct": 50.27,
+        "er": 0.2299,
+        "pf": 1.68,
+        "max_dd_r": 17.38,
+        "avg_win_r": 1.132,
+        "avg_loss_r": 0.682,
+        "payoff_ratio": 1.66,
+        "sharpe": 3.34,
+        "ci_95_low": 0.1192,
+        "ci_95_high": 0.3406
+      },
+      "status": "A_MAJOR_IMPROVEMENT"
+    }
+  },
+  "TECHNICAL_AHAT": {
+    "control": {
+      "variant_id": "TECHNICAL_CHAMPION_V1",
+      "combined": {
+        "n": 1036,
+        "win_pct": 37.45,
+        "er": -0.075,
+        "pf": 0.89,
+        "max_dd_r": 129.67,
+        "avg_win_r": 1.686,
+        "avg_loss_r": 1.129,
+        "payoff_ratio": 1.49,
+        "sharpe": -0.85,
+        "ci_95_low": -0.1598,
+        "ci_95_high": 0.0098
+      },
+      "locked_reproduction": {
+        "n": 282,
+        "win_pct": 43.97,
+        "er": 0.0677,
+        "pf": 1.11,
+        "max_dd_r": 35.09,
+        "avg_win_r": 1.545,
+        "avg_loss_r": 1.092,
+        "payoff_ratio": 1.41,
+        "sharpe": 0.78,
+        "ci_95_low": -0.0927,
+        "ci_95_high": 0.2281
+      }
+    },
+    "champion": {
+      "variant_id": "AHAT_V511_PREC_01_RS80_CLV75_BE08_T20",
+      "params": {
+        "rs_rating": 80,
+        "vol_ratio": 1.8,
+        "clv_filter": true,
+        "clv_min": 0.75,
+        "breakeven_filter": true,
+        "breakeven_mfe_r": 0.8,
+        "target_multiple": 2.0
+      },
+      "combined": {
+        "n": 911,
+        "win_pct": 37.76,
+        "er": 0.051,
+        "pf": 1.09,
+        "max_dd_r": 101.21,
+        "avg_win_r": 1.679,
+        "avg_loss_r": 0.937,
+        "payoff_ratio": 1.79,
+        "sharpe": 0.61,
+        "ci_95_low": -0.0357,
+        "ci_95_high": 0.1377
+      },
+      "locked_reproduction": {
+        "n": 242,
+        "win_pct": 43.8,
+        "er": 0.1409,
+        "pf": 1.27,
+        "max_dd_r": 28.02,
+        "avg_win_r": 1.533,
+        "avg_loss_r": 0.945,
+        "payoff_ratio": 1.62,
+        "sharpe": 1.69,
+        "ci_95_low": -0.0256,
+        "ci_95_high": 0.3074
+      },
+      "status": "A_MAJOR_IMPROVEMENT"
+    }
+  },
+  "DAILY_BUILDER": {
+    "control": {
+      "variant_id": "DAILY_BUILDER_CHAMPION_V1",
+      "combined": {
+        "n": 29754,
+        "win_pct": 40.12,
+        "er": 0.0001,
+        "pf": 1.0,
+        "max_dd_r": 617.34,
+        "avg_win_r": 1.663,
+        "avg_loss_r": 1.114,
+        "payoff_ratio": 1.49,
+        "sharpe": 0.0,
+        "ci_95_low": -0.0158,
+        "ci_95_high": 0.016
+      },
+      "locked_reproduction": {
+        "n": 6858,
+        "win_pct": 43.13,
+        "er": 0.0625,
+        "pf": 1.1,
+        "max_dd_r": 206.43,
+        "avg_win_r": 1.566,
+        "avg_loss_r": 1.078,
+        "payoff_ratio": 1.45,
+        "sharpe": 0.72,
+        "ci_95_low": 0.03,
+        "ci_95_high": 0.095
+      }
+    },
+    "champion": {
+      "variant_id": "BLD_V511_PREC_01_ORB15_CLV75_BE08_T20",
+      "params": {
+        "orb_width_pct": 1.5,
+        "vol_ratio": 1.8,
+        "clv_filter": true,
+        "clv_min": 0.75,
+        "breakeven_filter": true,
+        "breakeven_mfe_r": 0.8,
+        "target_multiple": 2.0
+      },
+      "combined": {
+        "n": 26183,
+        "win_pct": 39.74,
+        "er": 0.1048,
+        "pf": 1.19,
+        "max_dd_r": 425.53,
+        "avg_win_r": 1.664,
+        "avg_loss_r": 0.923,
+        "payoff_ratio": 1.8,
+        "sharpe": 1.24,
+        "ci_95_low": 0.0886,
+        "ci_95_high": 0.121
+      },
+      "locked_reproduction": {
+        "n": 6072,
+        "win_pct": 42.65,
+        "er": 0.1449,
+        "pf": 1.28,
+        "max_dd_r": 206.43,
+        "avg_win_r": 1.572,
+        "avg_loss_r": 0.917,
+        "payoff_ratio": 1.71,
+        "sharpe": 1.74,
+        "ci_95_low": 0.1117,
+        "ci_95_high": 0.1781
+      },
+      "status": "A_MAJOR_IMPROVEMENT"
+    }
+  },
+  "REVERSAL": {
+    "control": {
+      "variant_id": "REV_V23D_15D_MULTI_REGIME",
+      "combined": {
+        "n": 35440,
+        "win_pct": 39.92,
+        "er": 0.1376,
+        "pf": 1.2,
+        "max_dd_r": 565.14,
+        "avg_win_r": 2.029,
+        "avg_loss_r": 1.119,
+        "payoff_ratio": 1.81,
+        "sharpe": 1.37,
+        "ci_95_low": 0.1209,
+        "ci_95_high": 0.1543
+      },
+      "locked_reproduction": {
+        "n": 5479,
+        "win_pct": 46.41,
+        "er": 0.3498,
+        "pf": 1.58,
+        "max_dd_r": 187.95,
+        "avg_win_r": 2.053,
+        "avg_loss_r": 1.125,
+        "payoff_ratio": 1.82,
+        "sharpe": 3.38,
+        "ci_95_low": 0.3063,
+        "ci_95_high": 0.3933
+      }
+    },
+    "champion": {
+      "variant_id": "REV_V511_PREC_03_WICK20_BE10_T26",
+      "params": {
+        "rsi_max": 30.0,
+        "support_prox_pct": 1.0,
+        "vol_surge": 1.6,
+        "wick_filter": true,
+        "upper_wick_max": 0.2,
+        "breakeven_filter": true,
+        "breakeven_mfe_r": 1.0,
+        "target_multiple": 2.6,
+        "reclaim_required": true
+      },
+      "combined": {
+        "n": 31896,
+        "win_pct": 40.26,
+        "er": 0.2814,
+        "pf": 1.5,
+        "max_dd_r": 429.84,
+        "avg_win_r": 2.11,
+        "avg_loss_r": 0.951,
+        "payoff_ratio": 2.22,
+        "sharpe": 2.81,
+        "ci_95_low": 0.2639,
+        "ci_95_high": 0.2989
+      },
+      "locked_reproduction": {
+        "n": 5036,
+        "win_pct": 47.12,
+        "er": 0.4919,
+        "pf": 1.95,
+        "max_dd_r": 169.64,
+        "avg_win_r": 2.141,
+        "avg_loss_r": 0.977,
+        "payoff_ratio": 2.19,
+        "sharpe": 4.76,
+        "ci_95_low": 0.4466,
+        "ci_95_high": 0.5372
+      },
+      "status": "A_MAJOR_IMPROVEMENT"
+    }
+  },
+  "MULTITF_1H": {
+    "control": {
+      "variant_id": "M1H_V57_QUAL_F_MULTI_REG",
+      "combined": {
+        "n": 596,
+        "win_pct": 36.58,
+        "er": -0.0284,
+        "pf": 0.96,
+        "max_dd_r": 100.65,
+        "avg_win_r": 1.746,
+        "avg_loss_r": 1.051,
+        "payoff_ratio": 1.66,
+        "sharpe": -0.3,
+        "ci_95_low": -0.1474,
+        "ci_95_high": 0.0906
+      },
+      "locked_reproduction": {
+        "n": 440,
+        "win_pct": 36.59,
+        "er": 0.015,
+        "pf": 1.02,
+        "max_dd_r": 86.07,
+        "avg_win_r": 1.851,
+        "avg_loss_r": 1.045,
+        "payoff_ratio": 1.77,
+        "sharpe": 0.16,
+        "ci_95_low": -0.1262,
+        "ci_95_high": 0.1562
+      }
+    },
+    "champion": {
+      "variant_id": "M1H_V511_PREC_01_V180_CLV75_BE08_T20",
+      "params": {
+        "tf1h_supertrend": true,
+        "tf1h_vol_ratio": 1.8,
+        "clv_filter": true,
+        "clv_min": 0.75,
+        "breakeven_filter": true,
+        "breakeven_mfe_r": 0.8,
+        "target_multiple": 2.0
+      },
+      "combined": {
+        "n": 524,
+        "win_pct": 35.11,
+        "er": 0.014,
+        "pf": 1.03,
+        "max_dd_r": 66.57,
+        "avg_win_r": 1.618,
+        "avg_loss_r": 0.854,
+        "payoff_ratio": 1.89,
+        "sharpe": 0.16,
+        "ci_95_low": -0.1025,
+        "ci_95_high": 0.1305
+      },
+      "locked_reproduction": {
+        "n": 381,
+        "win_pct": 34.12,
+        "er": 0.0226,
+        "pf": 1.04,
+        "max_dd_r": 54.41,
+        "avg_win_r": 1.718,
+        "avg_loss_r": 0.855,
+        "payoff_ratio": 2.01,
+        "sharpe": 0.26,
+        "ci_95_low": -0.1157,
+        "ci_95_high": 0.1609
+      },
+      "status": "A_MAJOR_IMPROVEMENT"
+    }
+  },
+  "SHORT_COVERING_EOD": {
+    "control": {
+      "variant_id": "SC_ABL_2_NO_RSI_FILTER",
+      "combined": {
+        "n": 6842,
+        "win_pct": 34.67,
+        "er": -0.0681,
+        "pf": 0.91,
+        "max_dd_r": 517.23,
+        "avg_win_r": 1.884,
+        "avg_loss_r": 1.104,
+        "payoff_ratio": 1.71,
+        "sharpe": -0.72,
+        "ci_95_low": -0.1037,
+        "ci_95_high": -0.0325
+      },
+      "locked_reproduction": {
+        "n": 1280,
+        "win_pct": 34.77,
+        "er": -0.0231,
+        "pf": 0.97,
+        "max_dd_r": 139.0,
+        "avg_win_r": 1.979,
+        "avg_loss_r": 1.09,
+        "payoff_ratio": 1.82,
+        "sharpe": -0.24,
+        "ci_95_low": -0.1071,
+        "ci_95_high": 0.0609
+      }
+    },
+    "champion": {
+      "variant_id": "SC_V511_PREC_01_BEAR_CLV75_BE10_T25",
+      "params": {
+        "selloff_vol_ratio": 1.6,
+        "clv_filter": true,
+        "clv_min": 0.75,
+        "breakeven_filter": true,
+        "breakeven_mfe_r": 1.0,
+        "target_multiple": 2.5
+      },
+      "combined": {
+        "n": 6020,
+        "win_pct": 34.73,
+        "er": 0.0382,
+        "pf": 1.06,
+        "max_dd_r": 473.27,
+        "avg_win_r": 1.868,
+        "avg_loss_r": 0.936,
+        "payoff_ratio": 2.0,
+        "sharpe": 0.42,
+        "ci_95_low": 0.0016,
+        "ci_95_high": 0.0748
+      },
+      "locked_reproduction": {
+        "n": 1134,
+        "win_pct": 34.48,
+        "er": 0.0951,
+        "pf": 1.16,
+        "max_dd_r": 124.68,
+        "avg_win_r": 1.953,
+        "avg_loss_r": 0.883,
+        "payoff_ratio": 2.21,
+        "sharpe": 1.04,
+        "ci_95_low": 0.0103,
+        "ci_95_high": 0.1799
+      },
+      "status": "A_MAJOR_IMPROVEMENT"
+    }
+  },
+  "MULTIBAGGER": {
+    "control": {
+      "variant_id": "MBAG_V57_SCALE_A_60D_165V",
+      "combined": {
+        "n": 2493,
+        "win_pct": 40.15,
+        "er": 0.2287,
+        "pf": 1.37,
+        "max_dd_r": 73.3,
+        "avg_win_r": 2.103,
+        "avg_loss_r": 1.029,
+        "payoff_ratio": 2.04,
+        "sharpe": 1.93,
+        "ci_95_low": 0.155,
+        "ci_95_high": 0.3024
+      },
+      "locked_reproduction": {
+        "n": 865,
+        "win_pct": 39.31,
+        "er": 0.2774,
+        "pf": 1.45,
+        "max_dd_r": 65.42,
+        "avg_win_r": 2.283,
+        "avg_loss_r": 1.022,
+        "payoff_ratio": 2.23,
+        "sharpe": 2.23,
+        "ci_95_low": 0.1459,
+        "ci_95_high": 0.4089
+      }
+    },
+    "champion": {
+      "variant_id": "MBAG_V511_PREC_02_80D_200V_60R_BE15",
+      "params": {
+        "horizon_days": 80,
+        "vol_surge": 2.0,
+        "clv_filter": true,
+        "clv_min": 0.8,
+        "target_multiple": 6.0,
+        "breakeven_filter": true,
+        "breakeven_mfe_r": 1.5
+      },
+      "combined": {
+        "n": 1994,
+        "win_pct": 41.02,
+        "er": 0.4944,
+        "pf": 1.9,
+        "max_dd_r": 52.28,
+        "avg_win_r": 2.539,
+        "avg_loss_r": 0.928,
+        "payoff_ratio": 2.74,
+        "sharpe": 3.65,
+        "ci_95_low": 0.4001,
+        "ci_95_high": 0.5887
+      },
+      "locked_reproduction": {
+        "n": 705,
+        "win_pct": 40.28,
+        "er": 0.5111,
+        "pf": 1.93,
+        "max_dd_r": 57.48,
+        "avg_win_r": 2.634,
+        "avg_loss_r": 0.921,
+        "payoff_ratio": 2.86,
+        "sharpe": 3.69,
+        "ci_95_low": 0.3487,
+        "ci_95_high": 0.6735
+      },
+      "status": "A_MAJOR_IMPROVEMENT"
+    }
+  }
+}

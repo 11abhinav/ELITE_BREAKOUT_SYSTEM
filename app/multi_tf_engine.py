@@ -118,10 +118,16 @@ def evaluate_multi_tf_v2_symbol(
     daily_df: pd.DataFrame,
     hourly_df: pd.DataFrame,
     is_nq_universe: bool = False,
-    provisional_vol_threshold: float = 1.5
+    provisional_vol_threshold: float = 1.5,
+    max_extension_atr: float = 1.8,
+    max_opening_gap_pct: float = 4.0,
+    min_body_ratio: float = 0.40,
+    min_close_pos: float = 0.70,
+    max_upper_wick: float = 0.25,
 ) -> Dict[str, Any]:
     """
     Evaluates a symbol against Phase 2C Multi-TF V2 Breakout rules across Weekly, Daily, and Hourly timeframes.
+    Confirmation gate parameters are configurable to support empirical challenger testing.
     """
     # 1. Weekly Thesis Verification
     w_res = check_weekly_thesis(weekly_df)
@@ -197,25 +203,25 @@ def evaluate_multi_tf_v2_symbol(
             current_state = "NQ_OBSERVATION_ONLY"
             reasons.append("NEAR_QUALIFIED stock — Pre-WATCH observation only")
         else:
-            if breakout_extension_atr > 1.8:
+            if breakout_extension_atr > max_extension_atr:
                 conf_passed = False
-                reasons.append(f"LATE_BREAKOUT_CHASE: Extension {breakout_extension_atr:.2f} ATR > 1.8 max")
+                reasons.append(f"LATE_BREAKOUT_CHASE: Extension {breakout_extension_atr:.2f} ATR > {max_extension_atr:.2f} max")
 
-            if opening_gap_pct > 4.0:
+            if opening_gap_pct > max_opening_gap_pct:
                 conf_passed = False
-                reasons.append(f"GAP_CHASE_REJECT: Opening gap {opening_gap_pct:.1f}% > 4.0% max")
+                reasons.append(f"GAP_CHASE_REJECT: Opening gap {opening_gap_pct:.1f}% > {max_opening_gap_pct:.1f}% max")
 
-            if body_ratio < 0.40:
+            if body_ratio < min_body_ratio:
                 conf_passed = False
-                reasons.append(f"WEAK_CANDLE_BODY: Body ratio {body_ratio:.2f} < 0.40 min")
+                reasons.append(f"WEAK_CANDLE_BODY: Body ratio {body_ratio:.2f} < {min_body_ratio:.2f} min")
 
-            if close_pos < 0.70:
+            if close_pos < min_close_pos:
                 conf_passed = False
-                reasons.append(f"WEAK_CLOSE_POSITION: Close pos {close_pos:.2f} < 0.70 min")
+                reasons.append(f"WEAK_CLOSE_POSITION: Close pos {close_pos:.2f} < {min_close_pos:.2f} min")
 
-            if upper_wick_ratio > 0.25:
+            if upper_wick_ratio > max_upper_wick:
                 conf_passed = False
-                reasons.append(f"EXCESS_UPPER_WICK: Upper wick ratio {upper_wick_ratio:.2f} > 0.25 max")
+                reasons.append(f"EXCESS_UPPER_WICK: Upper wick ratio {upper_wick_ratio:.2f} > {max_upper_wick:.2f} max")
 
             if conf_passed:
                 current_state = "CONFIRMED"

@@ -99,8 +99,8 @@ class TestMultiTFEarlyIgnitionRedesign(unittest.TestCase):
         planned_entry = box_high + (0.05 * atr_5m) # 500.10
         planned_sl = box_low - (0.10 * atr_5m)     # 489.80
 
-        # Create 1H ticker with higher overhead resistance at 525.0
-        df_1h = pd.DataFrame([{"LOOKBACK_SWING_HIGH": 525.0, "R1": 530.0}])
+        # Create 1H ticker with higher overhead resistance at 518.0 (providing >= 1.5R and <= 10x ATR target distance)
+        df_1h = pd.DataFrame([{"LOOKBACK_SWING_HIGH": 518.0, "R1": 530.0}])
 
         # Planned trade projected metrics
         proj = compute_sl_and_target(

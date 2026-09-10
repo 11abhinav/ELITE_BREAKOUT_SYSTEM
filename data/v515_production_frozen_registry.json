@@ -1,0 +1,346 @@
+{
+  "system_version": "v5.15-production-live",
+  "deployment_timestamp": "2026-09-11T00:00:00+05:30",
+  "status": "LIVE_PRODUCTION_ACTIVE",
+  "freeze_policy": "STRICT_IMMUTABLE_NO_POST_LAUNCH_TUNING",
+  "weekend_candle_policy": "ABSOLUTE_ZERO_TOLERANCE_SAT_SUN_PROHIBITED",
+  "forward_validation_dataset_status": "POST_2026_09_04_PRISTINE_FROZEN",
+  "scanners": {
+    "REVERSAL": {
+      "champion_id": "REV_V515_T1_GREEN_QUAD_BULL_BE5",
+      "specialization": "Bull-Gated 60%+ Specialist Champion",
+      "architecture": "T1_CONFIRM_GREEN",
+      "confirmation_rule": "Next bar T1 Close > Candidate T0 Close",
+      "execution_boundary": "Enter at Open of T2 (or Open of T1 after T0 Close)",
+      "target_r": 2.0,
+      "be_stop_r": 0.5,
+      "be_execution_rule": "Stop moved to 0.0R strictly from next bar open onward; worst-case intrabar SL assumed",
+      "quality_gates": {
+        "regime": "BULL",
+        "min_cpos": 0.75,
+        "min_rs_tier": 70,
+        "min_vol_ratio": 1.40,
+        "min_price": 60.0,
+        "min_risk_pct": 0.010,
+        "max_risk_pct": 0.070
+      },
+      "friction_profile": {
+        "holding_type": "SWING_COUNTER_TREND",
+        "statutory_r": 0.061,
+        "spread_r": 0.045,
+        "entry_slippage_r": 0.040,
+        "stop_slippage_r": 0.060
+      },
+      "certified_historical_metrics": {
+        "net_wr": 60.87,
+        "net_er": 0.5915,
+        "net_pf": 3.623,
+        "total_n": 115,
+        "locked_wr": 50.00,
+        "locked_er": 0.3621
+      }
+    },
+    "PULLBACK_V2": {
+      "champion_id": "PULL_V515_T1_GREEN_RS70_VOL14X_BE5",
+      "specialization": "Multi-Regime Trend Follower",
+      "architecture": "T1_CONFIRM_GREEN",
+      "confirmation_rule": "Next bar T1 Close > Candidate T0 Close",
+      "execution_boundary": "Enter at Open of T2",
+      "target_r": 2.0,
+      "be_stop_r": 0.5,
+      "be_execution_rule": "Stop moved to 0.0R strictly from next bar open onward; worst-case intrabar SL assumed",
+      "quality_gates": {
+        "regime": "ALL_REGIMES",
+        "min_rs_tier": 70,
+        "min_vol_ratio": 1.40,
+        "min_price": 60.0,
+        "min_risk_pct": 0.010,
+        "max_risk_pct": 0.065
+      },
+      "friction_profile": {
+        "holding_type": "SWING_TREND",
+        "statutory_r": 0.061,
+        "spread_r": 0.035,
+        "entry_slippage_r": 0.040,
+        "stop_slippage_r": 0.050
+      },
+      "certified_historical_metrics": {
+        "net_wr": 53.21,
+        "net_er": 0.4244,
+        "net_pf": 2.432,
+        "total_n": 577,
+        "locked_wr": 53.92,
+        "locked_er": 0.4765
+      }
+    },
+    "EOD_BREAKOUT": {
+      "champion_id": "EOD_V515_T2_DEFENSE_BULL_RS70_BE5",
+      "specialization": "Bull Swing Specialist",
+      "architecture": "T2_CONFIRM_DEFENSE",
+      "confirmation_rule": "Next bar T1 Low >= T0 Breakout Level * 0.998",
+      "execution_boundary": "Enter at Open of T2",
+      "target_r": 2.5,
+      "be_stop_r": 0.5,
+      "be_execution_rule": "Stop moved to 0.0R strictly from next bar open onward; worst-case intrabar SL assumed",
+      "quality_gates": {
+        "regime": "BULL",
+        "min_rs_tier": 70,
+        "min_vol_ratio": 1.40,
+        "min_price": 60.0,
+        "min_risk_pct": 0.015,
+        "max_risk_pct": 0.080
+      },
+      "friction_profile": {
+        "holding_type": "SWING_BREAKOUT",
+        "statutory_r": 0.061,
+        "spread_r": 0.040,
+        "entry_slippage_r": 0.045,
+        "stop_slippage_r": 0.060
+      },
+      "certified_historical_metrics": {
+        "net_wr": 54.65,
+        "net_er": 0.1420,
+        "net_pf": 1.550,
+        "total_n": 913,
+        "locked_wr": 48.94,
+        "locked_er": 0.1109
+      }
+    },
+    "ACCUMULATION_VCP": {
+      "champion_id": "VCP_V515_T4_RANGE_BULL_RS70_BE5",
+      "specialization": "Bull Swing Specialist",
+      "architecture": "T4_CONFIRM_RANGE",
+      "confirmation_rule": "Next bar T1 High > Candidate T0 High",
+      "execution_boundary": "Enter at Open of T2",
+      "target_r": 2.5,
+      "be_stop_r": 0.5,
+      "be_execution_rule": "Stop moved to 0.0R strictly from next bar open onward; worst-case intrabar SL assumed",
+      "quality_gates": {
+        "regime": "BULL",
+        "min_rs_tier": 70,
+        "min_vol_ratio": 1.40,
+        "min_price": 60.0,
+        "min_risk_pct": 0.015,
+        "max_risk_pct": 0.075
+      },
+      "friction_profile": {
+        "holding_type": "SWING_SQUEEZE",
+        "statutory_r": 0.061,
+        "spread_r": 0.045,
+        "entry_slippage_r": 0.045,
+        "stop_slippage_r": 0.060
+      },
+      "certified_historical_metrics": {
+        "net_wr": 53.55,
+        "net_er": 0.1750,
+        "net_pf": 1.627,
+        "total_n": 719,
+        "locked_wr": 48.18,
+        "locked_er": 0.1276
+      }
+    },
+    "MULTITF_1H": {
+      "champion_id": "M1H_V512_CPOS75_RS70_VOL15X_BE8",
+      "specialization": "Retained V5.12 Champion — Intraday Hourly Specialist",
+      "architecture": "T0_IMMEDIATE",
+      "confirmation_rule": "Immediate execution on hourly bar close",
+      "execution_boundary": "Enter at Open of T1",
+      "target_r": 2.2,
+      "be_stop_r": 0.8,
+      "quality_gates": {
+        "regime": "BULL_NEUTRAL",
+        "min_cpos": 0.75,
+        "min_rs_tier": 70,
+        "min_vol_ratio": 1.50,
+        "min_price": 60.0
+      },
+      "friction_profile": {
+        "holding_type": "INTRADAY_SWING_HOURLY",
+        "statutory_r": 0.035,
+        "spread_r": 0.035,
+        "entry_slippage_r": 0.035,
+        "stop_slippage_r": 0.045
+      },
+      "certified_historical_metrics": {
+        "net_wr": 48.96,
+        "net_er": 0.4550,
+        "net_pf": 2.073,
+        "total_n": 96,
+        "locked_wr": 45.83,
+        "locked_er": 0.3850
+      }
+    },
+    "MULTITF_5M": {
+      "champion_id": "M5M_V512_CLV80_BE08_T21",
+      "specialization": "Retained V5.12 Champion — Intraday Momentum Specialist",
+      "architecture": "T0_IMMEDIATE",
+      "confirmation_rule": "Immediate execution on 5M bar close",
+      "execution_boundary": "Enter at Open of T1",
+      "target_r": 2.1,
+      "be_stop_r": 0.8,
+      "quality_gates": {
+        "regime": "ALL_REGIMES",
+        "min_cpos": 0.80,
+        "min_price": 60.0
+      },
+      "friction_profile": {
+        "holding_type": "INTRADAY_MOMENTUM",
+        "statutory_r": 0.028,
+        "spread_r": 0.030,
+        "entry_slippage_r": 0.030,
+        "stop_slippage_r": 0.040
+      },
+      "certified_historical_metrics": {
+        "net_wr": 42.32,
+        "net_er": 0.0860,
+        "net_pf": 1.200,
+        "total_n": 464,
+        "locked_wr": 43.22,
+        "locked_er": 0.0950
+      }
+    },
+    "MULTIBAGGER": {
+      "champion_id": "MBAG_V511_PREC_02_80D_200V_60R_BE15",
+      "specialization": "Production Certified — Convexity Specialist (Right-Tail Asymmetry)",
+      "architecture": "POSITIONAL_CONVEXITY",
+      "confirmation_rule": "Weekly/Daily base breakout with 200% volume surge",
+      "execution_boundary": "Enter at Open of T1",
+      "target_r": 6.0,
+      "be_stop_r": 1.5,
+      "quality_gates": {
+        "regime": "ALL_REGIMES",
+        "min_vol_ratio": 2.0,
+        "min_base_days": 80
+      },
+      "friction_profile": {
+        "holding_type": "POSITIONAL_CONVEXITY",
+        "statutory_r": 0.061,
+        "spread_r": 0.035,
+        "entry_slippage_r": 0.040,
+        "stop_slippage_r": 0.050
+      },
+      "certified_historical_metrics": {
+        "net_wr": 40.43,
+        "net_er": 0.5070,
+        "net_pf": 1.980,
+        "total_n": 865,
+        "locked_wr": 39.42,
+        "locked_er": 0.5630,
+        "runners_5r_pct": 10.4
+      }
+    },
+    "WEALTH": {
+      "champion_id": "WLTH_V511_PREC_01_H15_P50_BE10_T30",
+      "specialization": "Production Certified — Positional Compounder",
+      "architecture": "POSITIONAL_COMPOUND",
+      "confirmation_rule": "Multi-week structural momentum expansion",
+      "execution_boundary": "Enter at Open of T1",
+      "target_r": 3.0,
+      "be_stop_r": 1.0,
+      "quality_gates": {
+        "regime": "ALL_REGIMES",
+        "min_cpos": 0.70
+      },
+      "friction_profile": {
+        "holding_type": "POSITIONAL_COMPOUND",
+        "statutory_r": 0.061,
+        "spread_r": 0.035,
+        "entry_slippage_r": 0.040,
+        "stop_slippage_r": 0.050
+      },
+      "certified_historical_metrics": {
+        "net_wr": 34.24,
+        "net_er": 0.2150,
+        "net_pf": 1.340,
+        "total_n": 10074,
+        "locked_wr": 37.48,
+        "locked_er": 0.2550
+      }
+    },
+    "DAILY_BUILDER": {
+      "champion_id": "BLD_V511_PREC_01_ORB15_CLV75_BE08_T20",
+      "specialization": "Production Certified — Intraday Momentum Specialist",
+      "architecture": "INTRADAY_MOMENTUM",
+      "confirmation_rule": "Opening range breakout 15M with mandatory 15:15 IST exit",
+      "execution_boundary": "Enter at Open of T1; force exit at 15:15 IST",
+      "target_r": 2.0,
+      "be_stop_r": 0.8,
+      "quality_gates": {
+        "regime": "ALL_REGIMES",
+        "min_cpos": 0.75
+      },
+      "friction_profile": {
+        "holding_type": "INTRADAY_MOMENTUM",
+        "statutory_r": 0.028,
+        "spread_r": 0.030,
+        "entry_slippage_r": 0.030,
+        "stop_slippage_r": 0.040
+      },
+      "certified_historical_metrics": {
+        "net_wr": 40.12,
+        "net_er": 0.1030,
+        "net_pf": 1.180,
+        "total_n": 6858,
+        "locked_wr": 43.13,
+        "locked_er": 0.1490
+      }
+    },
+    "SHORT_COVERING": {
+      "champion_id": "SC_V511_PREC_01_BEAR_CLV75_BE10_T25",
+      "specialization": "Production Certified — Bear Market Specialist",
+      "architecture": "SWING_COUNTER_TREND",
+      "confirmation_rule": "Bear regime short squeeze reversal candle",
+      "execution_boundary": "Enter at Open of T1",
+      "target_r": 2.5,
+      "be_stop_r": 1.0,
+      "quality_gates": {
+        "regime": "BEAR_ONLY",
+        "min_cpos": 0.75
+      },
+      "friction_profile": {
+        "holding_type": "SWING_COUNTER_TREND",
+        "statutory_r": 0.061,
+        "spread_r": 0.045,
+        "entry_slippage_r": 0.040,
+        "stop_slippage_r": 0.060
+      },
+      "certified_historical_metrics": {
+        "net_wr": 37.45,
+        "net_er": 0.1510,
+        "net_pf": 1.269,
+        "total_n": 1280,
+        "locked_wr": 34.77,
+        "locked_er": 0.1070
+      }
+    },
+    "TECHNICAL_AHAT": {
+      "champion_id": "AHAT_V511_PREC_01_RS80_CLV75_BE08_T20",
+      "specialization": "Production Certified — Swing Confluence Specialist",
+      "architecture": "SWING_CONFLUENCE",
+      "confirmation_rule": "Technical alignment on multi-indicator confluence",
+      "execution_boundary": "Enter at Open of T1",
+      "target_r": 2.0,
+      "be_stop_r": 0.8,
+      "quality_gates": {
+        "regime": "ALL_REGIMES",
+        "min_rs_tier": 80,
+        "min_cpos": 0.75
+      },
+      "friction_profile": {
+        "holding_type": "SWING_CONFLUENCE",
+        "statutory_r": 0.061,
+        "spread_r": 0.040,
+        "entry_slippage_r": 0.040,
+        "stop_slippage_r": 0.050
+      },
+      "certified_historical_metrics": {
+        "net_wr": 37.45,
+        "net_er": 0.0330,
+        "net_pf": 1.050,
+        "total_n": 282,
+        "locked_wr": 43.97,
+        "locked_er": 0.1410
+      }
+    }
+  }
+}

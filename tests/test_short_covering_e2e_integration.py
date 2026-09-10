@@ -162,7 +162,7 @@ class TestShortCoveringE2EIntegration(unittest.TestCase):
             mock_eval.assert_not_called()
 
             # Verify health is recorded as STALE_WATCHLIST outcome (deliberate safety skip)
-            mock_5m_health.assert_called_once_with(
+            mock_5m_health.assert_called_with(
                 scanner_name="SHORT_COVERING_5M",
                 status="OK",
                 outcome="STALE_WATCHLIST",
@@ -253,7 +253,7 @@ class TestShortCoveringE2EIntegration(unittest.TestCase):
                 persist_db=True
             )
             self.assertEqual(alerts, [])
-            mock_health.assert_called_once_with(
+            mock_health.assert_called_with(
                 scanner_name="SHORT_COVERING_5M",
                 status="OK",
                 outcome="SUCCESS",

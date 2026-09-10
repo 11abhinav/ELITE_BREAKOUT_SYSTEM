@@ -1,0 +1,707 @@
+{
+  "frozen_registry": {
+    "WEALTH": {
+      "variant_id": "WEALTH_CHAMPION_V1",
+      "file": "wealth_outcomes.csv",
+      "sha256": "9fc272c299ac8e6238985837fd5866def10bb7fff48b4d48aea92f2f0c793aaa",
+      "tier": 1,
+      "governance_status": "LIVE_CHAMPION",
+      "live_allowed": true,
+      "base_weight": 1.0,
+      "holding_type": "POSITIONAL_COMPOUND",
+      "description": "Multi-year momentum trend compounder; primary capacity engine.",
+      "total_trades": 22541,
+      "holdout_trades": 5037
+    },
+    "PULLBACK_V2": {
+      "variant_id": "PULL_V2G_VOL_DRY_BULL_CLOSE_HYBRID",
+      "file": "pullback_v2_ablation_outcomes.csv",
+      "sha256": "5d5cc7d486c4c89da0014a7b141ec5e02762353277c5c59d4314d4daf89968e6",
+      "tier": 1,
+      "governance_status": "LIVE_CHAMPION",
+      "live_allowed": true,
+      "base_weight": 1.0,
+      "holding_type": "SWING_TREND",
+      "description": "High-capacity balanced trend pullback flagship.",
+      "total_trades": 7768,
+      "holdout_trades": 1805
+    },
+    "ACCUMULATION_VCP": {
+      "variant_id": "VCP_V55_PRECISION_B_CLV65",
+      "file": "vcp_v55_sample_expansion_outcomes.csv",
+      "sha256": "58bd3f9c93ef91bdc39350886a49df66ae2959c2cb9f5214140fab108b273e44",
+      "tier": 1,
+      "governance_status": "LIVE_CHAMPION",
+      "live_allowed": true,
+      "base_weight": 1.0,
+      "holding_type": "SWING_BREAKOUT",
+      "description": "Volatility Contraction Pattern precision breakout; 60% WR leader.",
+      "total_trades": 353,
+      "holdout_trades": 110
+    },
+    "EOD_BREAKOUT": {
+      "variant_id": "EOD_ABL_3_NO_VOL_FILTER",
+      "file": "eod_v56_sample_expansion_outcomes.csv",
+      "sha256": "7f48454d5f30ef74319944333614e7b3889fa03ed3f4143eec4d276dff2d7d2c",
+      "tier": 1,
+      "governance_status": "LIVE_CHAMPION",
+      "live_allowed": true,
+      "base_weight": 1.0,
+      "holding_type": "SWING_BREAKOUT",
+      "description": "Daily shelf range expansion with structural stop; 56% WR leader.",
+      "total_trades": 587,
+      "holdout_trades": 126
+    },
+    "MULTITF_5M": {
+      "variant_id": "MULTITF_5M_CHAMPION_V1",
+      "file": "multitf_5m_outcomes.csv",
+      "sha256": "8afe8d30070f50b3080646e713650937a59d463e71ee6c07cb7ec859667d0e70",
+      "tier": 1,
+      "governance_status": "LIVE_CHAMPION",
+      "live_allowed": true,
+      "base_weight": 1.0,
+      "holding_type": "INTRADAY_MOMENTUM",
+      "description": "Multi-timeframe 5-minute intraday momentum engine.",
+      "total_trades": 912,
+      "holdout_trades": 232
+    },
+    "TECHNICAL_AHAT": {
+      "variant_id": "TECHNICAL_CHAMPION_V1",
+      "file": "technical_outcomes.csv",
+      "sha256": "773758483d93786cc7dd90adccb450cb26300fb553ca04e9297d2dbc96647844",
+      "tier": 2,
+      "governance_status": "LIVE_CHAMPION",
+      "live_allowed": true,
+      "base_weight": 0.6,
+      "holding_type": "SWING_CONFLUENCE",
+      "description": "Multi-indicator technical confluence swing engine.",
+      "total_trades": 518,
+      "holdout_trades": 141
+    },
+    "DAILY_BUILDER": {
+      "variant_id": "DAILY_BUILDER_CHAMPION_V1",
+      "file": "daily_builder_outcomes.csv",
+      "sha256": "af478141863edf655dc289a0551836ec6cf2ad81392c67f31020e2829aa2844b",
+      "tier": 2,
+      "governance_status": "LIVE_CHAMPION",
+      "live_allowed": true,
+      "base_weight": 0.6,
+      "holding_type": "SWING_BREADTH",
+      "description": "High-capacity market breadth accumulation feeder.",
+      "total_trades": 14877,
+      "holdout_trades": 3429
+    },
+    "REVERSAL": {
+      "variant_id": "REV_V23D_15D_MULTI_REGIME",
+      "file": "reversal_v54_outcomes.csv",
+      "sha256": "8fc893f5a0fc264ab079c5edcab4e60ec641f87ca4f6f0a0d40628d0d6d9314e",
+      "tier": 1,
+      "governance_status": "LIVE_CHAMPION",
+      "live_allowed": true,
+      "base_weight": 1.0,
+      "holding_type": "SWING_COUNTER_TREND",
+      "description": "Counter-trend CLV shelf reclaim alpha engine; Bear shock absorber.",
+      "total_trades": 1746,
+      "holdout_trades": 256
+    },
+    "MULTITF_1H": {
+      "variant_id": "M1H_V57_QUAL_F_MULTI_REG",
+      "file": "multitf_1h_v57_quality_outcomes.csv",
+      "sha256": "b7e94703b28ab5a0cd201364ab28cfc2d42fdf95aa4f2e7bf33bb7c00baa1ea8",
+      "tier": 3,
+      "governance_status": "SHADOW_PAPER",
+      "live_allowed": false,
+      "base_weight": 0.25,
+      "holding_type": "INTRADAY_SWING_HOURLY",
+      "description": "Hourly compression breakout with multi-regime adaptability.",
+      "total_trades": 138,
+      "holdout_trades": 98
+    },
+    "SHORT_COVERING_EOD": {
+      "variant_id": "SC_ABL_2_NO_RSI_FILTER",
+      "file": "short_covering_v56_specialist_outcomes.csv",
+      "sha256": "26adfbba24e488dbd47eed419de666f8e986af813051e39d4201c27a42859e7f",
+      "tier": 3,
+      "governance_status": "SHADOW_PAPER",
+      "live_allowed": false,
+      "base_weight": 0.25,
+      "holding_type": "SWING_SQUEEZE",
+      "description": "Failed breakdown exhaustion squeeze; dedicated Bear/Neutral specialist.",
+      "total_trades": 702,
+      "holdout_trades": 152
+    },
+    "MULTIBAGGER": {
+      "variant_id": "MBAG_V57_SCALE_A_60D_165V",
+      "file": "multibagger_v57_scale_outcomes.csv",
+      "sha256": "4025b2635951314d00a634bb4207d6a54931bf873d40780511af27edc2e60e81",
+      "tier": 3,
+      "governance_status": "SHADOW_PAPER",
+      "live_allowed": false,
+      "base_weight": 0.25,
+      "holding_type": "POSITIONAL_CONVEXITY",
+      "description": "1:5R asymmetric breakout convexity engine; right-tail compounder.",
+      "total_trades": 306,
+      "holdout_trades": 89
+    }
+  },
+  "individual_performance": {
+    "WEALTH": {
+      "gross_holdout": {
+        "n": 5037,
+        "win_pct": 38.4,
+        "er": 0.316,
+        "pf": 1.53,
+        "ci_low": 0.269,
+        "ci_high": 0.362,
+        "max_dd_r": 60.8,
+        "sharpe": 2.89,
+        "sortino": 30.27
+      },
+      "net_holdout": {
+        "n": 5037,
+        "win_pct": 37.6,
+        "er": 0.09,
+        "pf": 1.12,
+        "ci_low": 0.042,
+        "ci_high": 0.138,
+        "max_dd_r": 161.7,
+        "sharpe": 0.8,
+        "sortino": 6.81
+      }
+    },
+    "PULLBACK_V2": {
+      "gross_holdout": {
+        "n": 1805,
+        "win_pct": 49.4,
+        "er": 0.333,
+        "pf": 1.77,
+        "ci_low": 0.271,
+        "ci_high": 0.396,
+        "max_dd_r": 31.6,
+        "sharpe": 3.86,
+        "sortino": 18.01
+      },
+      "net_holdout": {
+        "n": 1805,
+        "win_pct": 46.9,
+        "er": 0.126,
+        "pf": 1.22,
+        "ci_low": 0.062,
+        "ci_high": 0.192,
+        "max_dd_r": 84.5,
+        "sharpe": 1.4,
+        "sortino": 5.46
+      }
+    },
+    "ACCUMULATION_VCP": {
+      "gross_holdout": {
+        "n": 110,
+        "win_pct": 60.0,
+        "er": 0.355,
+        "pf": 2.28,
+        "ci_low": 0.163,
+        "ci_high": 0.561,
+        "max_dd_r": 5.5,
+        "sharpe": 5.03,
+        "sortino": 16.51
+      },
+      "net_holdout": {
+        "n": 110,
+        "win_pct": 51.8,
+        "er": 0.148,
+        "pf": 1.37,
+        "ci_low": -0.053,
+        "ci_high": 0.363,
+        "max_dd_r": 10.5,
+        "sharpe": 2.0,
+        "sortino": 5.04
+      }
+    },
+    "EOD_BREAKOUT": {
+      "gross_holdout": {
+        "n": 126,
+        "win_pct": 56.3,
+        "er": 0.344,
+        "pf": 2.01,
+        "ci_low": 0.157,
+        "ci_high": 0.569,
+        "max_dd_r": 4.5,
+        "sharpe": 4.52,
+        "sortino": 15.88
+      },
+      "net_holdout": {
+        "n": 126,
+        "win_pct": 51.6,
+        "er": 0.132,
+        "pf": 1.28,
+        "ci_low": -0.064,
+        "ci_high": 0.364,
+        "max_dd_r": 8.5,
+        "sharpe": 1.66,
+        "sortino": 4.76
+      }
+    },
+    "MULTITF_5M": {
+      "gross_holdout": {
+        "n": 232,
+        "win_pct": 54.3,
+        "er": 0.273,
+        "pf": 1.76,
+        "ci_low": 0.122,
+        "ci_high": 0.413,
+        "max_dd_r": 7.2,
+        "sharpe": 3.83,
+        "sortino": 13.11
+      },
+      "net_holdout": {
+        "n": 232,
+        "win_pct": 50.4,
+        "er": 0.132,
+        "pf": 1.3,
+        "ci_low": -0.02,
+        "ci_high": 0.274,
+        "max_dd_r": 9.9,
+        "sharpe": 1.82,
+        "sortino": 5.27
+      }
+    },
+    "TECHNICAL_AHAT": {
+      "gross_holdout": {
+        "n": 141,
+        "win_pct": 46.1,
+        "er": 0.234,
+        "pf": 1.45,
+        "ci_low": 0.014,
+        "ci_high": 0.456,
+        "max_dd_r": 11.6,
+        "sharpe": 2.71,
+        "sortino": 24.46
+      },
+      "net_holdout": {
+        "n": 141,
+        "win_pct": 44.0,
+        "er": 0.018,
+        "pf": 1.03,
+        "ci_low": -0.212,
+        "ci_high": 0.249,
+        "max_dd_r": 20.2,
+        "sharpe": 0.2,
+        "sortino": 1.06
+      }
+    },
+    "DAILY_BUILDER": {
+      "gross_holdout": {
+        "n": 3429,
+        "win_pct": 44.6,
+        "er": 0.223,
+        "pf": 1.43,
+        "ci_low": 0.18,
+        "ci_high": 0.27,
+        "max_dd_r": 41.8,
+        "sharpe": 2.58,
+        "sortino": 18.04
+      },
+      "net_holdout": {
+        "n": 3429,
+        "win_pct": 43.2,
+        "er": 0.005,
+        "pf": 1.01,
+        "ci_low": -0.04,
+        "ci_high": 0.054,
+        "max_dd_r": 144.0,
+        "sharpe": 0.06,
+        "sortino": 0.3
+      }
+    },
+    "REVERSAL": {
+      "gross_holdout": {
+        "n": 256,
+        "win_pct": 47.3,
+        "er": 0.509,
+        "pf": 2.0,
+        "ci_low": 0.314,
+        "ci_high": 0.701,
+        "max_dd_r": 11.6,
+        "sharpe": 4.95,
+        "sortino": 55.74
+      },
+      "net_holdout": {
+        "n": 256,
+        "win_pct": 46.1,
+        "er": 0.295,
+        "pf": 1.45,
+        "ci_low": 0.092,
+        "ci_high": 0.491,
+        "max_dd_r": 19.9,
+        "sharpe": 2.77,
+        "sortino": 20.64
+      }
+    },
+    "MULTITF_1H": {
+      "gross_holdout": {
+        "n": 98,
+        "win_pct": 39.8,
+        "er": 0.218,
+        "pf": 1.39,
+        "ci_low": -0.064,
+        "ci_high": 0.52,
+        "max_dd_r": 14.3,
+        "sharpe": 2.27,
+        "sortino": 16.71
+      },
+      "net_holdout": {
+        "n": 98,
+        "win_pct": 38.8,
+        "er": 0.032,
+        "pf": 1.05,
+        "ci_low": -0.255,
+        "ci_high": 0.34,
+        "max_dd_r": 20.6,
+        "sharpe": 0.32,
+        "sortino": 2.04
+      }
+    },
+    "SHORT_COVERING_EOD": {
+      "gross_holdout": {
+        "n": 152,
+        "win_pct": 42.8,
+        "er": 0.378,
+        "pf": 1.71,
+        "ci_low": 0.127,
+        "ci_high": 0.647,
+        "max_dd_r": 7.4,
+        "sharpe": 3.78,
+        "sortino": 32.49
+      },
+      "net_holdout": {
+        "n": 152,
+        "win_pct": 42.1,
+        "er": 0.153,
+        "pf": 1.22,
+        "ci_low": -0.108,
+        "ci_high": 0.432,
+        "max_dd_r": 12.5,
+        "sharpe": 1.48,
+        "sortino": 11.29
+      }
+    },
+    "MULTIBAGGER": {
+      "gross_holdout": {
+        "n": 89,
+        "win_pct": 43.8,
+        "er": 0.468,
+        "pf": 1.97,
+        "ci_low": 0.079,
+        "ci_high": 0.886,
+        "max_dd_r": 7.0,
+        "sharpe": 3.85,
+        "sortino": 26.21
+      },
+      "net_holdout": {
+        "n": 89,
+        "win_pct": 42.7,
+        "er": 0.254,
+        "pf": 1.4,
+        "ci_low": -0.147,
+        "ci_high": 0.68,
+        "max_dd_r": 10.1,
+        "sharpe": 2.04,
+        "sortino": 12.74
+      }
+    }
+  },
+  "portfolio_performance": {
+    "DEV": {
+      "gross": {
+        "total_r": 149.5,
+        "calmar": 1.42,
+        "n": 115,
+        "win_pct": 52.2,
+        "er": 1.3,
+        "pf": 1.57,
+        "ci_low": -0.01,
+        "ci_high": 2.685,
+        "max_dd_r": 105.4,
+        "sharpe": 2.75,
+        "sortino": 6.47
+      },
+      "net": {
+        "total_r": -353.0,
+        "calmar": -0.84,
+        "n": 115,
+        "win_pct": 33.9,
+        "er": -3.069,
+        "pf": 0.39,
+        "ci_low": -4.489,
+        "ci_high": -1.546,
+        "max_dd_r": 418.4,
+        "sharpe": -5.97,
+        "sortino": -9.37
+      }
+    },
+    "VAL": {
+      "gross": {
+        "total_r": 134.3,
+        "calmar": 0.44,
+        "n": 107,
+        "win_pct": 48.6,
+        "er": 1.255,
+        "pf": 1.31,
+        "ci_low": -0.966,
+        "ci_high": 3.692,
+        "max_dd_r": 305.9,
+        "sharpe": 1.7,
+        "sortino": 3.15
+      },
+      "net": {
+        "total_r": -406.8,
+        "calmar": -0.7,
+        "n": 107,
+        "win_pct": 37.4,
+        "er": -3.802,
+        "pf": 0.47,
+        "ci_low": -6.127,
+        "ci_high": -1.249,
+        "max_dd_r": 583.9,
+        "sharpe": -4.85,
+        "sortino": -7.76
+      }
+    },
+    "HOLDOUT": {
+      "gross": {
+        "total_r": 241.1,
+        "calmar": 7.53,
+        "n": 65,
+        "win_pct": 63.1,
+        "er": 3.71,
+        "pf": 3.51,
+        "ci_low": 1.626,
+        "ci_high": 5.75,
+        "max_dd_r": 32.0,
+        "sharpe": 7.02,
+        "sortino": 14.78
+      },
+      "net": {
+        "total_r": -43.0,
+        "calmar": -0.38,
+        "n": 65,
+        "win_pct": 38.5,
+        "er": -0.661,
+        "pf": 0.81,
+        "ci_low": -2.733,
+        "ci_high": 1.406,
+        "max_dd_r": 113.6,
+        "sharpe": -1.29,
+        "sortino": -2.04
+      }
+    },
+    "FULL": {
+      "gross": {
+        "total_r": 524.9,
+        "calmar": 1.26,
+        "n": 287,
+        "win_pct": 53.3,
+        "er": 1.829,
+        "pf": 1.66,
+        "ci_low": 0.671,
+        "ci_high": 2.988,
+        "max_dd_r": 417.0,
+        "sharpe": 3.04,
+        "sortino": 5.65
+      },
+      "net": {
+        "total_r": -802.8,
+        "calmar": -0.79,
+        "n": 287,
+        "win_pct": 36.2,
+        "er": -2.797,
+        "pf": 0.49,
+        "ci_low": -3.976,
+        "ci_high": -1.551,
+        "max_dd_r": 1017.1,
+        "sharpe": -4.42,
+        "sortino": -6.63
+      }
+    }
+  },
+  "risk_controlled_performance": {
+    "DEV": {
+      "unconstrained_net": {
+        "total_r": -353.0,
+        "calmar": -0.84,
+        "n": 115,
+        "win_pct": 33.9,
+        "er": -3.069,
+        "pf": 0.39,
+        "ci_low": -4.489,
+        "ci_high": -1.546,
+        "max_dd_r": 418.4,
+        "sharpe": -5.97,
+        "sortino": -9.37
+      },
+      "controlled_net": {
+        "total_r": -116.0,
+        "calmar": -0.95,
+        "n": 115,
+        "win_pct": 27.0,
+        "er": -1.009,
+        "pf": 0.39,
+        "ci_low": -1.447,
+        "ci_high": -0.543,
+        "max_dd_r": 122.2,
+        "sharpe": -6.38,
+        "sortino": -14.71
+      }
+    },
+    "VAL": {
+      "unconstrained_net": {
+        "total_r": -406.8,
+        "calmar": -0.7,
+        "n": 107,
+        "win_pct": 37.4,
+        "er": -3.802,
+        "pf": 0.47,
+        "ci_low": -6.127,
+        "ci_high": -1.249,
+        "max_dd_r": 583.9,
+        "sharpe": -4.85,
+        "sortino": -7.76
+      },
+      "controlled_net": {
+        "total_r": -83.8,
+        "calmar": -0.78,
+        "n": 107,
+        "win_pct": 31.8,
+        "er": -0.783,
+        "pf": 0.5,
+        "ci_low": -1.234,
+        "ci_high": -0.264,
+        "max_dd_r": 107.4,
+        "sharpe": -4.75,
+        "sortino": -11.39
+      }
+    },
+    "HOLDOUT": {
+      "unconstrained_net": {
+        "total_r": -43.0,
+        "calmar": -0.38,
+        "n": 65,
+        "win_pct": 38.5,
+        "er": -0.661,
+        "pf": 0.81,
+        "ci_low": -2.733,
+        "ci_high": 1.406,
+        "max_dd_r": 113.6,
+        "sharpe": -1.29,
+        "sortino": -2.04
+      },
+      "controlled_net": {
+        "total_r": -32.0,
+        "calmar": -0.8,
+        "n": 65,
+        "win_pct": 32.3,
+        "er": -0.492,
+        "pf": 0.58,
+        "ci_low": -1.062,
+        "ci_high": 0.09,
+        "max_dd_r": 40.2,
+        "sharpe": -3.29,
+        "sortino": -6.41
+      }
+    },
+    "FULL": {
+      "unconstrained_net": {
+        "total_r": -802.8,
+        "calmar": -0.79,
+        "n": 287,
+        "win_pct": 36.2,
+        "er": -2.797,
+        "pf": 0.49,
+        "ci_low": -3.976,
+        "ci_high": -1.551,
+        "max_dd_r": 1017.1,
+        "sharpe": -4.42,
+        "sortino": -6.63
+      },
+      "controlled_net": {
+        "total_r": -231.9,
+        "calmar": -0.97,
+        "n": 287,
+        "win_pct": 30.0,
+        "er": -0.808,
+        "pf": 0.46,
+        "ci_low": -1.094,
+        "ci_high": -0.509,
+        "max_dd_r": 238.0,
+        "sharpe": -5.07,
+        "sortino": -11.24
+      }
+    }
+  },
+  "rejection_statistics": {
+    "SYMBOL_CAP": 337,
+    "SECTOR_CAP": 10496,
+    "SCANNER_POS_CAP": 3227,
+    "CORRELATED_CLUSTER_CAP": 12,
+    "CIRCUIT_BREAKER": 34687
+  },
+  "shadow_summary": {
+    "MULTITF_1H": {
+      "net_holdout": {
+        "n": 98,
+        "win_pct": 38.8,
+        "er": 0.032,
+        "pf": 1.05,
+        "ci_low": -0.255,
+        "ci_high": 0.34,
+        "max_dd_r": 20.6,
+        "sharpe": 0.32,
+        "sortino": 2.04
+      },
+      "bear_er": 0.377,
+      "neut_er": -0.116,
+      "bull_er": -0.02,
+      "pct_5r": 0.0,
+      "recommendation": "MAINTAIN_SHADOW_PAPER",
+      "promotion_gate": "\u226550 forward trades + positive net ER across all 3 regimes + PF \u22651.30"
+    },
+    "SHORT_COVERING_EOD": {
+      "net_holdout": {
+        "n": 152,
+        "win_pct": 42.1,
+        "er": 0.153,
+        "pf": 1.22,
+        "ci_low": -0.108,
+        "ci_high": 0.432,
+        "max_dd_r": 12.5,
+        "sharpe": 1.48,
+        "sortino": 11.29
+      },
+      "bear_er": 0.285,
+      "neut_er": -0.086,
+      "bull_er": 0.0,
+      "pct_5r": 0.0,
+      "recommendation": "MAINTAIN_SHADOW_PAPER",
+      "promotion_gate": "\u226550 forward trades + Bear net ER \u2265+0.30R + Volume Surge \u22651.60x verified"
+    },
+    "MULTIBAGGER": {
+      "net_holdout": {
+        "n": 89,
+        "win_pct": 42.7,
+        "er": 0.254,
+        "pf": 1.4,
+        "ci_low": -0.147,
+        "ci_high": 0.68,
+        "max_dd_r": 10.1,
+        "sharpe": 2.04,
+        "sortino": 12.74
+      },
+      "bear_er": 0.0,
+      "neut_er": 0.593,
+      "bull_er": 0.234,
+      "pct_5r": 9.0,
+      "recommendation": "MAINTAIN_SHADOW_PAPER",
+      "promotion_gate": "\u226550 forward trades + 5R+ frequency \u22657.0% + net ER \u2265+0.30R (Do NOT use Win Rate as gate)"
+    }
+  }
+}

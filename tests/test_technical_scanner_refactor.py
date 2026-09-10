@@ -111,9 +111,10 @@ class TestTechnicalScannerRefactor(unittest.TestCase):
     def test_universal_hard_gates_excessive_upper_wick(self):
         """Universal Gate 6: Reject Upper Wick > 30%."""
         df = make_dummy_df(60, 100.0, base_vol=50000.0)
-        # High=115, Low=100, Open=101, Close=108 -> Range=15, Upper Wick = (115-108)/15 = 7/15 = 46.7% > 30%
-        df.iloc[-1, df.columns.get_loc("open")] = 101.0
-        df.iloc[-1, df.columns.get_loc("close")] = 108.0
+        # High=115, Low=100, Open=105, Close=110 -> Range=15, Upper Wick = (115-110)/15 = 5/15 = 33.3% > 30%
+        # CLV = (110-100)/15 = 10/15 = 66.7% > 60% (passes CLV gate)
+        df.iloc[-1, df.columns.get_loc("open")] = 105.0
+        df.iloc[-1, df.columns.get_loc("close")] = 110.0
         df.iloc[-1, df.columns.get_loc("high")] = 115.0
         df.iloc[-1, df.columns.get_loc("low")] = 100.0
         df.iloc[-1, df.columns.get_loc("volume")] = 100000.0
@@ -124,11 +125,18 @@ class TestTechnicalScannerRefactor(unittest.TestCase):
 
     def test_shakeout_reclaim_target_deadlock_fixed(self):
         """Shakeout Reclaim Target Resolution: Ensure target allows natural >= 1.5R room."""
-        df = make_dummy_df(60, base_price=100.0, base_vol=50000.0)
+        dates = pd.date_range("2026-06-01", periods=60, freq="B")
+        df = pd.DataFrame({
+            "open": np.full(60, 100.0),
+            "high": np.full(60, 101.0),
+            "low": np.full(60, 99.0),
+            "close": np.full(60, 100.0),
+            "volume": np.full(60, 50000.0),
+        }, index=dates)
         
-        # Structure pre-selloff high 20 bars ago at 120
-        df.iloc[-25:-10, df.columns.get_loc("high")] = 120.0
-        df.iloc[-25:-10, df.columns.get_loc("close")] = 118.0
+        # Structure pre-selloff high 20 bars ago at 125
+        df.iloc[-25:-10, df.columns.get_loc("high")] = 125.0
+        df.iloc[-25:-10, df.columns.get_loc("close")] = 122.0
 
         # Selloff from 110 to 100
         for i, idx in enumerate(range(-6, -1)):
@@ -198,16 +206,21 @@ class TestTechnicalScannerRefactor(unittest.TestCase):
 
     def test_tier_b_ascending_triangle_score_qualification(self):
         """Tier B Pattern Scoring: Ascending Triangle should qualify with >= 70 score."""
-        df = make_dummy_df(60, base_price=100.0, base_vol=50000.0)
+        dates = pd.date_range("2026-06-01", periods=60, freq="B")
+        df = pd.DataFrame({
+            "open": np.full(60, 100.0),
+            "high": np.full(60, 101.0),
+            "low": np.full(60, 99.0),
+            "close": np.full(60, 100.0),
+            "volume": np.full(60, 50000.0),
+        }, index=dates)
 
-        # Build Ascending Triangle: Flat resistance at 105, ascending swing lows at 98, 100, 102
-        df.iloc[-25, df.columns.get_loc("low")] = 98.0
+        # Build Ascending Triangle: Flat resistance at 105.0 / 105.1, ascending swing lows at 90, 94, 98
+        df.iloc[-25, df.columns.get_loc("low")] = 90.0
         df.iloc[-20, df.columns.get_loc("high")] = 105.0
-        df.iloc[-20, df.columns.get_loc("close")] = 104.8
-        df.iloc[-14, df.columns.get_loc("low")] = 100.5
+        df.iloc[-14, df.columns.get_loc("low")] = 94.0
         df.iloc[-10, df.columns.get_loc("high")] = 105.1
-        df.iloc[-10, df.columns.get_loc("close")] = 104.9
-        df.iloc[-5, df.columns.get_loc("low")] = 102.5
+        df.iloc[-6, df.columns.get_loc("low")] = 98.0
         
         # Breakout today above 105.1
         df.iloc[-1, df.columns.get_loc("open")] = 104.0

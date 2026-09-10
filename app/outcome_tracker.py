@@ -97,76 +97,41 @@ def run_outcome_tracker(force: bool = False) -> Dict[str, Any]:
         t1 = alert_dict["target_1"]
         t2 = alert_dict.get("target_2")
 
-        risk_dist = max(0.01, float(entry) - float(sl))
-        holding_bars = len(df_after)
+        from alert_quality_engine import AlertQualityEngine
+        eval_res = AlertQualityEngine.evaluate_trade_outcome(
+            entry_price=entry,
+            stop_loss=sl,
+            target_1=t1,
+            target_2=t2,
+            price_df=df_after,
+            scanner=scanner
+        )
 
-        # Running MFE and MAE Accumulation
-        highs = df_after["High"].values
-        lows = df_after["Low"].values
-        closes = df_after["Close"].values
-        opens = df_after["Open"].values
+        exit_reason = eval_res["exit_reason"]
+        exit_timestamp = eval_res["exit_date"]
+        realized_rr = eval_res["realized_rr"]
+        holding_bars = eval_res["holding_period_bars"]
+        running_mfe_r = eval_res["max_favorable_excursion_r"]
+        running_mae_r = eval_res["max_adverse_excursion_r"]
+        r1_hit = eval_res["r1_hit_before_sl"]
+        r1_5_hit = eval_res["r1_5_hit_before_sl"]
+        r2_hit = eval_res["r2_hit_before_sl"]
+        same_bar_conflict = eval_res["same_bar_conflict"]
+        post_sl_min_excursion_r = eval_res["post_sl_min_excursion_r"]
+        post_sl_recovered_entry = eval_res["post_sl_recovered_entry"]
+        post_sl_recovered_t1 = eval_res["post_sl_recovered_t1"]
+        post_sl_max_recovery_r = eval_res["post_sl_max_recovery_r"]
+        post_sl_recovery_bars = eval_res["post_sl_recovery_bars"]
 
-        running_mfe_r = max(0.0, float((highs.max() - entry) / risk_dist))
-        running_mae_r = max(0.0, float((entry - lows.min()) / risk_dist))
-
-        # Check resolution bar-by-bar
-        exit_reason = None
-        exit_timestamp = None
-        realized_rr = None
-        unrealized_rr = None
-        is_closed = False
-
-        for idx in range(len(df_after)):
-            b_open = float(opens[idx])
-            b_high = float(highs[idx])
-            b_low = float(lows[idx])
-            b_close = float(closes[idx])
-            bar_date = str(df_after.index[idx])[:10]
-
-            hit_target = (b_high >= float(t1))
-            hit_sl = (b_low <= float(sl))
-
-            # Fix #2: Conservative Same-Bar Collision Rule
-            if hit_target and hit_sl:
-                exit_reason = "AMBIGUOUS_SL_HIT"
-                exit_timestamp = bar_date
-                realized_rr = -1.0  # Conservative -1.0R loss
-                is_closed = True
-                break
-
-            elif hit_sl:
-                exit_reason = "SL_HIT"
-                exit_timestamp = bar_date
-                # Fix #2 (Refinement): Gap-Through-SL Slippage Calculation
-                if b_open < float(sl):
-                    realized_rr = round((b_open - float(entry)) / risk_dist, 2)
-                else:
-                    realized_rr = -1.0
-                is_closed = True
-                break
-
-            elif hit_target:
-                exit_reason = "T1_HIT"
-                exit_timestamp = bar_date
-                realized_rr = round((float(t1) - float(entry)) / risk_dist, 2)
-                is_closed = True
-                break
-
-        # Check Expiry (20 days for most, 40 days for REVERSAL to allow basing)
-        if not is_closed and ((scanner != 'REVERSAL' and holding_bars >= 20) or (scanner == 'REVERSAL' and holding_bars >= 40)):
-            last_close = float(closes[-1])
-            unrealized_rr = round((last_close - float(entry)) / risk_dist, 2)
-            exit_reason = "EXPIRED_POS" if unrealized_rr >= 0 else "EXPIRED_NEG"
-            exit_timestamp = today_str
-            realized_rr = unrealized_rr
-            is_closed = True
+        is_closed = exit_reason not in ["OPEN"]
+        unrealized_rr = realized_rr if exit_reason in ["EXPIRED_POS", "EXPIRED_NEG"] else None
 
         # Update Database Record
         try:
             with get_connection() as conn:
                 with conn.cursor() as cur:
                     if is_closed:
-                        db_status = "WIN" if (realized_rr and realized_rr > 0 and exit_reason != "AMBIGUOUS_SL_HIT") else "LOSS"
+                        db_status = "WIN" if (realized_rr and realized_rr > 0 and exit_reason != "SAME_BAR_CONFLICT_SL") else "LOSS"
                         calc_exit_price = float(t1) if exit_reason == "T1_HIT" else float(sl)
                         cur.execute("""
                             UPDATE alerts
@@ -185,20 +150,37 @@ def run_outcome_tracker(force: bool = False) -> Dict[str, Any]:
                                 unrealized_rr_at_expiry = %s,
                                 holding_period_bars = %s,
                                 max_favorable_excursion_r = %s,
-                                max_adverse_excursion_r = %s
+                                max_adverse_excursion_r = %s,
+                                r1_hit_before_sl = %s,
+                                r1_5_hit_before_sl = %s,
+                                r2_hit_before_sl = %s,
+                                same_bar_conflict = %s,
+                                post_sl_min_excursion_r = %s,
+                                post_sl_recovered_entry = %s,
+                                post_sl_recovered_t1 = %s,
+                                post_sl_max_recovery_r = %s,
+                                post_sl_recovery_bars = %s
                             WHERE alert_id = %s AND leg = 1
                         """, (exit_timestamp, exit_reason, realized_rr, unrealized_rr, holding_bars,
-                              round(running_mfe_r, 2), round(running_mae_r, 2), alert_id))
+                              round(running_mfe_r, 2), round(running_mae_r, 2),
+                              r1_hit, r1_5_hit, r2_hit, same_bar_conflict,
+                              round(post_sl_min_excursion_r, 2), post_sl_recovered_entry,
+                              post_sl_recovered_t1, round(post_sl_max_recovery_r, 2),
+                              post_sl_recovery_bars, alert_id))
                         closed_count += 1
                     else:
-                        # Update running excursion for OPEN alert
+                        # Update running excursion and quality ladder for OPEN alert
                         cur.execute("""
                             UPDATE alert_outcomes
                             SET holding_period_bars = %s,
                                 max_favorable_excursion_r = %s,
-                                max_adverse_excursion_r = %s
+                                max_adverse_excursion_r = %s,
+                                r1_hit_before_sl = %s,
+                                r1_5_hit_before_sl = %s,
+                                r2_hit_before_sl = %s
                             WHERE alert_id = %s AND leg = 1
-                        """, (holding_bars, round(running_mfe_r, 2), round(running_mae_r, 2), alert_id))
+                        """, (holding_bars, round(running_mfe_r, 2), round(running_mae_r, 2),
+                              r1_hit, r1_5_hit, r2_hit, alert_id))
                     conn.commit()
                     updated_count += 1
         except Exception as dbe:

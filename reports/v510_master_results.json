@@ -1,0 +1,1666 @@
+{
+  "WEALTH": {
+    "control": {
+      "variant_id": "WEALTH_CHAMPION_V1",
+      "combined": {
+        "n": 45082,
+        "win_pct": 34.24,
+        "er": 0.0999,
+        "pf": 1.13,
+        "max_dd_r": 499.01,
+        "avg_win_r": 2.471,
+        "avg_loss_r": 1.135,
+        "payoff_ratio": 2.18,
+        "sharpe": 0.89,
+        "ci_95_low": 0.0835,
+        "ci_95_high": 0.1163
+      },
+      "holdout": {
+        "n": 10074,
+        "win_pct": 37.48,
+        "er": 0.1552,
+        "pf": 1.22,
+        "max_dd_r": 216.01,
+        "avg_win_r": 2.258,
+        "avg_loss_r": 1.106,
+        "payoff_ratio": 2.04,
+        "sharpe": 1.42,
+        "ci_95_low": 0.1213,
+        "ci_95_high": 0.1891
+      }
+    },
+    "challengers": [
+      {
+        "variant_id": "WLTH_V510_LOCAL_01_P50_V160",
+        "params": {
+          "sma50_slope": 0.015,
+          "vol_ratio": 1.6,
+          "trailing_stop": true
+        },
+        "combined": {
+          "n": 45082,
+          "win_pct": 34.24,
+          "er": 0.0999,
+          "pf": 1.13,
+          "max_dd_r": 499.01,
+          "avg_win_r": 2.471,
+          "avg_loss_r": 1.135,
+          "payoff_ratio": 2.18,
+          "sharpe": 0.89,
+          "ci_95_low": 0.0835,
+          "ci_95_high": 0.1163
+        },
+        "holdout": {
+          "n": 10074,
+          "win_pct": 37.48,
+          "er": 0.1552,
+          "pf": 1.22,
+          "max_dd_r": 216.01,
+          "avg_win_r": 2.258,
+          "avg_loss_r": 1.106,
+          "payoff_ratio": 2.04,
+          "sharpe": 1.42,
+          "ci_95_low": 0.1213,
+          "ci_95_high": 0.1891
+        },
+        "status": "KEEP_RESEARCHING"
+      },
+      {
+        "variant_id": "WLTH_V510_LOCAL_02_P50_V180",
+        "params": {
+          "sma50_slope": 0.02,
+          "vol_ratio": 1.8,
+          "trailing_stop": true
+        },
+        "combined": {
+          "n": 45082,
+          "win_pct": 34.24,
+          "er": 0.0999,
+          "pf": 1.13,
+          "max_dd_r": 499.01,
+          "avg_win_r": 2.471,
+          "avg_loss_r": 1.135,
+          "payoff_ratio": 2.18,
+          "sharpe": 0.89,
+          "ci_95_low": 0.0835,
+          "ci_95_high": 0.1163
+        },
+        "holdout": {
+          "n": 10074,
+          "win_pct": 37.48,
+          "er": 0.1552,
+          "pf": 1.22,
+          "max_dd_r": 216.01,
+          "avg_win_r": 2.258,
+          "avg_loss_r": 1.106,
+          "payoff_ratio": 2.04,
+          "sharpe": 1.42,
+          "ci_95_low": 0.1213,
+          "ci_95_high": 0.1891
+        },
+        "status": "KEEP_RESEARCHING"
+      }
+    ]
+  },
+  "PULLBACK_V2": {
+    "control": {
+      "variant_id": "PULL_V2G_VOL_DRY_BULL_CLOSE_HYBRID",
+      "combined": {
+        "n": 82840,
+        "win_pct": 43.96,
+        "er": 0.0545,
+        "pf": 1.09,
+        "max_dd_r": 1268.56,
+        "avg_win_r": 1.574,
+        "avg_loss_r": 1.137,
+        "payoff_ratio": 1.38,
+        "sharpe": 0.59,
+        "ci_95_low": 0.0444,
+        "ci_95_high": 0.0646
+      },
+      "holdout": {
+        "n": 17372,
+        "win_pct": 42.97,
+        "er": 0.0529,
+        "pf": 1.08,
+        "max_dd_r": 656.99,
+        "avg_win_r": 1.633,
+        "avg_loss_r": 1.138,
+        "payoff_ratio": 1.43,
+        "sharpe": 0.56,
+        "ci_95_low": 0.0306,
+        "ci_95_high": 0.0752
+      }
+    },
+    "challengers": [
+      {
+        "variant_id": "PULL_V510_LOCAL_01_DRY065_THR17_T25",
+        "params": {
+          "vol_dry_ratio": 0.65,
+          "thrust_vol_ratio": 1.7,
+          "atr_sl_mult": 1.5,
+          "target_multiple": 2.5
+        },
+        "combined": {
+          "n": 82840,
+          "win_pct": 43.96,
+          "er": 0.0545,
+          "pf": 1.09,
+          "max_dd_r": 1268.56,
+          "avg_win_r": 1.574,
+          "avg_loss_r": 1.137,
+          "payoff_ratio": 1.38,
+          "sharpe": 0.59,
+          "ci_95_low": 0.0444,
+          "ci_95_high": 0.0646
+        },
+        "holdout": {
+          "n": 17372,
+          "win_pct": 42.97,
+          "er": 0.0529,
+          "pf": 1.08,
+          "max_dd_r": 656.99,
+          "avg_win_r": 1.633,
+          "avg_loss_r": 1.138,
+          "payoff_ratio": 1.43,
+          "sharpe": 0.56,
+          "ci_95_low": 0.0306,
+          "ci_95_high": 0.0752
+        },
+        "status": "D_CAPACITY"
+      },
+      {
+        "variant_id": "PULL_V510_LOCAL_02_DRY060_THR18_T25",
+        "params": {
+          "vol_dry_ratio": 0.6,
+          "thrust_vol_ratio": 1.8,
+          "atr_sl_mult": 1.5,
+          "target_multiple": 2.5
+        },
+        "combined": {
+          "n": 82840,
+          "win_pct": 43.96,
+          "er": 0.0545,
+          "pf": 1.09,
+          "max_dd_r": 1268.56,
+          "avg_win_r": 1.574,
+          "avg_loss_r": 1.137,
+          "payoff_ratio": 1.38,
+          "sharpe": 0.59,
+          "ci_95_low": 0.0444,
+          "ci_95_high": 0.0646
+        },
+        "holdout": {
+          "n": 17372,
+          "win_pct": 42.97,
+          "er": 0.0529,
+          "pf": 1.08,
+          "max_dd_r": 656.99,
+          "avg_win_r": 1.633,
+          "avg_loss_r": 1.138,
+          "payoff_ratio": 1.43,
+          "sharpe": 0.56,
+          "ci_95_low": 0.0306,
+          "ci_95_high": 0.0752
+        },
+        "status": "D_CAPACITY"
+      },
+      {
+        "variant_id": "PULL_V510_LOCAL_03_DRY070_THR16_T25",
+        "params": {
+          "vol_dry_ratio": 0.7,
+          "thrust_vol_ratio": 1.6,
+          "atr_sl_mult": 1.5,
+          "target_multiple": 2.5
+        },
+        "combined": {
+          "n": 82840,
+          "win_pct": 43.96,
+          "er": 0.0545,
+          "pf": 1.09,
+          "max_dd_r": 1268.56,
+          "avg_win_r": 1.574,
+          "avg_loss_r": 1.137,
+          "payoff_ratio": 1.38,
+          "sharpe": 0.59,
+          "ci_95_low": 0.0444,
+          "ci_95_high": 0.0646
+        },
+        "holdout": {
+          "n": 17372,
+          "win_pct": 42.97,
+          "er": 0.0529,
+          "pf": 1.08,
+          "max_dd_r": 656.99,
+          "avg_win_r": 1.633,
+          "avg_loss_r": 1.138,
+          "payoff_ratio": 1.43,
+          "sharpe": 0.56,
+          "ci_95_low": 0.0306,
+          "ci_95_high": 0.0752
+        },
+        "status": "D_CAPACITY"
+      }
+    ]
+  },
+  "ACCUMULATION_VCP": {
+    "control": {
+      "variant_id": "VCP_V55_PRECISION_B_CLV65",
+      "combined": {
+        "n": 12158,
+        "win_pct": 40.76,
+        "er": -0.0527,
+        "pf": 0.9,
+        "max_dd_r": 1044.5,
+        "avg_win_r": 1.127,
+        "avg_loss_r": 0.864,
+        "payoff_ratio": 1.3,
+        "sharpe": -0.72,
+        "ci_95_low": -0.0734,
+        "ci_95_high": -0.032
+      },
+      "holdout": {
+        "n": 3310,
+        "win_pct": 46.28,
+        "er": 0.0585,
+        "pf": 1.14,
+        "max_dd_r": 215.93,
+        "avg_win_r": 1.045,
+        "avg_loss_r": 0.791,
+        "payoff_ratio": 1.32,
+        "sharpe": 0.83,
+        "ci_95_low": 0.0202,
+        "ci_95_high": 0.0968
+      }
+    },
+    "challengers": [
+      {
+        "variant_id": "VCP_V510_LOCAL_01_DRY065_THR17_T25",
+        "params": {
+          "contractions_min": 2,
+          "base_max_pct": 11.0,
+          "vol_dry_ratio": 0.65,
+          "thrust_vol_ratio": 1.7,
+          "target_multiple": 2.5
+        },
+        "combined": {
+          "n": 12158,
+          "win_pct": 40.76,
+          "er": -0.0527,
+          "pf": 0.9,
+          "max_dd_r": 1044.5,
+          "avg_win_r": 1.127,
+          "avg_loss_r": 0.864,
+          "payoff_ratio": 1.3,
+          "sharpe": -0.72,
+          "ci_95_low": -0.0734,
+          "ci_95_high": -0.032
+        },
+        "holdout": {
+          "n": 3310,
+          "win_pct": 46.28,
+          "er": 0.0585,
+          "pf": 1.14,
+          "max_dd_r": 215.93,
+          "avg_win_r": 1.045,
+          "avg_loss_r": 0.791,
+          "payoff_ratio": 1.32,
+          "sharpe": 0.83,
+          "ci_95_low": 0.0202,
+          "ci_95_high": 0.0968
+        },
+        "status": "D_CAPACITY"
+      },
+      {
+        "variant_id": "VCP_V510_LOCAL_02_DRY060_THR18_T25",
+        "params": {
+          "contractions_min": 3,
+          "base_max_pct": 10.0,
+          "vol_dry_ratio": 0.6,
+          "thrust_vol_ratio": 1.8,
+          "target_multiple": 2.5
+        },
+        "combined": {
+          "n": 12158,
+          "win_pct": 40.76,
+          "er": -0.0527,
+          "pf": 0.9,
+          "max_dd_r": 1044.5,
+          "avg_win_r": 1.127,
+          "avg_loss_r": 0.864,
+          "payoff_ratio": 1.3,
+          "sharpe": -0.72,
+          "ci_95_low": -0.0734,
+          "ci_95_high": -0.032
+        },
+        "holdout": {
+          "n": 3310,
+          "win_pct": 46.28,
+          "er": 0.0585,
+          "pf": 1.14,
+          "max_dd_r": 215.93,
+          "avg_win_r": 1.045,
+          "avg_loss_r": 0.791,
+          "payoff_ratio": 1.32,
+          "sharpe": 0.83,
+          "ci_95_low": 0.0202,
+          "ci_95_high": 0.0968
+        },
+        "status": "D_CAPACITY"
+      },
+      {
+        "variant_id": "VCP_V510_LOCAL_03_DRY070_THR16_T25",
+        "params": {
+          "contractions_min": 2,
+          "base_max_pct": 12.0,
+          "vol_dry_ratio": 0.7,
+          "thrust_vol_ratio": 1.6,
+          "target_multiple": 2.5
+        },
+        "combined": {
+          "n": 12158,
+          "win_pct": 40.76,
+          "er": -0.0527,
+          "pf": 0.9,
+          "max_dd_r": 1044.5,
+          "avg_win_r": 1.127,
+          "avg_loss_r": 0.864,
+          "payoff_ratio": 1.3,
+          "sharpe": -0.72,
+          "ci_95_low": -0.0734,
+          "ci_95_high": -0.032
+        },
+        "holdout": {
+          "n": 3310,
+          "win_pct": 46.28,
+          "er": 0.0585,
+          "pf": 1.14,
+          "max_dd_r": 215.93,
+          "avg_win_r": 1.045,
+          "avg_loss_r": 0.791,
+          "payoff_ratio": 1.32,
+          "sharpe": 0.83,
+          "ci_95_low": 0.0202,
+          "ci_95_high": 0.0968
+        },
+        "status": "D_CAPACITY"
+      },
+      {
+        "variant_id": "VCP_V510_LOCAL_04_DRY060_THR18_T23",
+        "params": {
+          "contractions_min": 3,
+          "base_max_pct": 10.0,
+          "vol_dry_ratio": 0.6,
+          "thrust_vol_ratio": 1.8,
+          "target_multiple": 2.3
+        },
+        "combined": {
+          "n": 12158,
+          "win_pct": 40.36,
+          "er": -0.0953,
+          "pf": 0.81,
+          "max_dd_r": 1458.36,
+          "avg_win_r": 1.033,
+          "avg_loss_r": 0.859,
+          "payoff_ratio": 1.2,
+          "sharpe": -1.38,
+          "ci_95_low": -0.1148,
+          "ci_95_high": -0.0758
+        },
+        "holdout": {
+          "n": 3310,
+          "win_pct": 46.16,
+          "er": 0.0129,
+          "pf": 1.03,
+          "max_dd_r": 241.58,
+          "avg_win_r": 0.95,
+          "avg_loss_r": 0.791,
+          "payoff_ratio": 1.2,
+          "sharpe": 0.19,
+          "ci_95_low": -0.0233,
+          "ci_95_high": 0.0491
+        },
+        "status": "D_CAPACITY"
+      }
+    ]
+  },
+  "EOD_BREAKOUT": {
+    "control": {
+      "variant_id": "EOD_ABL_3_NO_VOL_FILTER",
+      "combined": {
+        "n": 10523,
+        "win_pct": 41.01,
+        "er": -0.0742,
+        "pf": 0.87,
+        "max_dd_r": 1165.25,
+        "avg_win_r": 1.161,
+        "avg_loss_r": 0.933,
+        "payoff_ratio": 1.24,
+        "sharpe": -0.97,
+        "ci_95_low": -0.0973,
+        "ci_95_high": -0.0511
+      },
+      "holdout": {
+        "n": 2421,
+        "win_pct": 47.5,
+        "er": 0.1195,
+        "pf": 1.24,
+        "max_dd_r": 126.74,
+        "avg_win_r": 1.301,
+        "avg_loss_r": 0.949,
+        "payoff_ratio": 1.37,
+        "sharpe": 1.45,
+        "ci_95_low": 0.0674,
+        "ci_95_high": 0.1716
+      }
+    },
+    "challengers": [
+      {
+        "variant_id": "EOD_V510_LOCAL_01_H35_B22_V16_T25",
+        "params": {
+          "dist_52w_high_pct": 3.5,
+          "base_atr_pct": 2.2,
+          "vol_ratio": 1.6,
+          "target_multiple": 2.5
+        },
+        "combined": {
+          "n": 10523,
+          "win_pct": 41.01,
+          "er": -0.0742,
+          "pf": 0.87,
+          "max_dd_r": 1165.25,
+          "avg_win_r": 1.161,
+          "avg_loss_r": 0.933,
+          "payoff_ratio": 1.24,
+          "sharpe": -0.97,
+          "ci_95_low": -0.0973,
+          "ci_95_high": -0.0511
+        },
+        "holdout": {
+          "n": 2421,
+          "win_pct": 47.5,
+          "er": 0.1195,
+          "pf": 1.24,
+          "max_dd_r": 126.74,
+          "avg_win_r": 1.301,
+          "avg_loss_r": 0.949,
+          "payoff_ratio": 1.37,
+          "sharpe": 1.45,
+          "ci_95_low": 0.0674,
+          "ci_95_high": 0.1716
+        },
+        "status": "D_CAPACITY"
+      },
+      {
+        "variant_id": "EOD_V510_LOCAL_02_H30_B20_V18_T25",
+        "params": {
+          "dist_52w_high_pct": 3.0,
+          "base_atr_pct": 2.0,
+          "vol_ratio": 1.8,
+          "target_multiple": 2.5
+        },
+        "combined": {
+          "n": 10523,
+          "win_pct": 41.01,
+          "er": -0.0742,
+          "pf": 0.87,
+          "max_dd_r": 1165.25,
+          "avg_win_r": 1.161,
+          "avg_loss_r": 0.933,
+          "payoff_ratio": 1.24,
+          "sharpe": -0.97,
+          "ci_95_low": -0.0973,
+          "ci_95_high": -0.0511
+        },
+        "holdout": {
+          "n": 2421,
+          "win_pct": 47.5,
+          "er": 0.1195,
+          "pf": 1.24,
+          "max_dd_r": 126.74,
+          "avg_win_r": 1.301,
+          "avg_loss_r": 0.949,
+          "payoff_ratio": 1.37,
+          "sharpe": 1.45,
+          "ci_95_low": 0.0674,
+          "ci_95_high": 0.1716
+        },
+        "status": "D_CAPACITY"
+      },
+      {
+        "variant_id": "EOD_V510_LOCAL_03_H40_B22_V15_T25",
+        "params": {
+          "dist_52w_high_pct": 4.0,
+          "base_atr_pct": 2.2,
+          "vol_ratio": 1.5,
+          "target_multiple": 2.5
+        },
+        "combined": {
+          "n": 10523,
+          "win_pct": 41.01,
+          "er": -0.0742,
+          "pf": 0.87,
+          "max_dd_r": 1165.25,
+          "avg_win_r": 1.161,
+          "avg_loss_r": 0.933,
+          "payoff_ratio": 1.24,
+          "sharpe": -0.97,
+          "ci_95_low": -0.0973,
+          "ci_95_high": -0.0511
+        },
+        "holdout": {
+          "n": 2421,
+          "win_pct": 47.5,
+          "er": 0.1195,
+          "pf": 1.24,
+          "max_dd_r": 126.74,
+          "avg_win_r": 1.301,
+          "avg_loss_r": 0.949,
+          "payoff_ratio": 1.37,
+          "sharpe": 1.45,
+          "ci_95_low": 0.0674,
+          "ci_95_high": 0.1716
+        },
+        "status": "D_CAPACITY"
+      }
+    ]
+  },
+  "MULTITF_5M": {
+    "control": {
+      "variant_id": "MULTITF_5M_CHAMPION_V1",
+      "combined": {
+        "n": 1824,
+        "win_pct": 42.0,
+        "er": -0.0176,
+        "pf": 0.97,
+        "max_dd_r": 76.24,
+        "avg_win_r": 1.172,
+        "avg_loss_r": 0.879,
+        "payoff_ratio": 1.33,
+        "sharpe": -0.24,
+        "ci_95_low": -0.0701,
+        "ci_95_high": 0.0349
+      },
+      "holdout": {
+        "n": 464,
+        "win_pct": 51.29,
+        "er": 0.1649,
+        "pf": 1.4,
+        "max_dd_r": 17.97,
+        "avg_win_r": 1.122,
+        "avg_loss_r": 0.843,
+        "payoff_ratio": 1.33,
+        "sharpe": 2.31,
+        "ci_95_low": 0.0618,
+        "ci_95_high": 0.268
+      }
+    },
+    "challengers": [
+      {
+        "variant_id": "M5M_V510_LOCAL_01_V17_T20",
+        "params": {
+          "daily_trend": true,
+          "tf15_supertrend": true,
+          "tf15_vol_ratio": 1.7,
+          "target_multiple": 2.0,
+          "stop_pct": 3.0
+        },
+        "combined": {
+          "n": 1824,
+          "win_pct": 42.0,
+          "er": -0.0176,
+          "pf": 0.97,
+          "max_dd_r": 76.24,
+          "avg_win_r": 1.172,
+          "avg_loss_r": 0.879,
+          "payoff_ratio": 1.33,
+          "sharpe": -0.24,
+          "ci_95_low": -0.0701,
+          "ci_95_high": 0.0349
+        },
+        "holdout": {
+          "n": 464,
+          "win_pct": 51.29,
+          "er": 0.1649,
+          "pf": 1.4,
+          "max_dd_r": 17.97,
+          "avg_win_r": 1.122,
+          "avg_loss_r": 0.843,
+          "payoff_ratio": 1.33,
+          "sharpe": 2.31,
+          "ci_95_low": 0.0618,
+          "ci_95_high": 0.268
+        },
+        "status": "D_CAPACITY"
+      },
+      {
+        "variant_id": "M5M_V510_LOCAL_02_CHAMP_V18_T20",
+        "params": {
+          "daily_trend": true,
+          "tf15_supertrend": true,
+          "tf15_vol_ratio": 1.8,
+          "target_multiple": 2.0,
+          "stop_pct": 3.0
+        },
+        "combined": {
+          "n": 1824,
+          "win_pct": 42.0,
+          "er": -0.0176,
+          "pf": 0.97,
+          "max_dd_r": 76.24,
+          "avg_win_r": 1.172,
+          "avg_loss_r": 0.879,
+          "payoff_ratio": 1.33,
+          "sharpe": -0.24,
+          "ci_95_low": -0.0701,
+          "ci_95_high": 0.0349
+        },
+        "holdout": {
+          "n": 464,
+          "win_pct": 51.29,
+          "er": 0.1649,
+          "pf": 1.4,
+          "max_dd_r": 17.97,
+          "avg_win_r": 1.122,
+          "avg_loss_r": 0.843,
+          "payoff_ratio": 1.33,
+          "sharpe": 2.31,
+          "ci_95_low": 0.0618,
+          "ci_95_high": 0.268
+        },
+        "status": "D_CAPACITY"
+      },
+      {
+        "variant_id": "M5M_V510_LOCAL_03_V18_T21",
+        "params": {
+          "daily_trend": true,
+          "tf15_supertrend": true,
+          "tf15_vol_ratio": 1.8,
+          "target_multiple": 2.1,
+          "stop_pct": 3.0
+        },
+        "combined": {
+          "n": 1824,
+          "win_pct": 42.32,
+          "er": 0.0094,
+          "pf": 1.02,
+          "max_dd_r": 56.58,
+          "avg_win_r": 1.226,
+          "avg_loss_r": 0.884,
+          "payoff_ratio": 1.39,
+          "sharpe": 0.13,
+          "ci_95_low": -0.0448,
+          "ci_95_high": 0.0636
+        },
+        "holdout": {
+          "n": 464,
+          "win_pct": 51.29,
+          "er": 0.1966,
+          "pf": 1.48,
+          "max_dd_r": 17.38,
+          "avg_win_r": 1.183,
+          "avg_loss_r": 0.843,
+          "payoff_ratio": 1.4,
+          "sharpe": 2.66,
+          "ci_95_low": 0.09,
+          "ci_95_high": 0.3032
+        },
+        "status": "C_TRADEOFF"
+      },
+      {
+        "variant_id": "M5M_V510_LOCAL_04_V19_T20",
+        "params": {
+          "daily_trend": true,
+          "tf15_supertrend": true,
+          "tf15_vol_ratio": 1.9,
+          "target_multiple": 2.0,
+          "stop_pct": 3.0
+        },
+        "combined": {
+          "n": 1824,
+          "win_pct": 42.0,
+          "er": -0.0176,
+          "pf": 0.97,
+          "max_dd_r": 76.24,
+          "avg_win_r": 1.172,
+          "avg_loss_r": 0.879,
+          "payoff_ratio": 1.33,
+          "sharpe": -0.24,
+          "ci_95_low": -0.0701,
+          "ci_95_high": 0.0349
+        },
+        "holdout": {
+          "n": 464,
+          "win_pct": 51.29,
+          "er": 0.1649,
+          "pf": 1.4,
+          "max_dd_r": 17.97,
+          "avg_win_r": 1.122,
+          "avg_loss_r": 0.843,
+          "payoff_ratio": 1.33,
+          "sharpe": 2.31,
+          "ci_95_low": 0.0618,
+          "ci_95_high": 0.268
+        },
+        "status": "D_CAPACITY"
+      },
+      {
+        "variant_id": "M5M_V510_LOCAL_05_V20_T19",
+        "params": {
+          "daily_trend": true,
+          "tf15_supertrend": true,
+          "tf15_vol_ratio": 2.0,
+          "target_multiple": 1.9,
+          "stop_pct": 2.8
+        },
+        "combined": {
+          "n": 1824,
+          "win_pct": 41.56,
+          "er": -0.0445,
+          "pf": 0.91,
+          "max_dd_r": 111.41,
+          "avg_win_r": 1.12,
+          "avg_loss_r": 0.872,
+          "payoff_ratio": 1.28,
+          "sharpe": -0.64,
+          "ci_95_low": -0.0953,
+          "ci_95_high": 0.0063
+        },
+        "holdout": {
+          "n": 464,
+          "win_pct": 50.86,
+          "er": 0.1333,
+          "pf": 1.32,
+          "max_dd_r": 18.56,
+          "avg_win_r": 1.069,
+          "avg_loss_r": 0.836,
+          "payoff_ratio": 1.28,
+          "sharpe": 1.93,
+          "ci_95_low": 0.0336,
+          "ci_95_high": 0.233
+        },
+        "status": "D_CAPACITY"
+      }
+    ]
+  },
+  "TECHNICAL_AHAT": {
+    "control": {
+      "variant_id": "TECHNICAL_CHAMPION_V1",
+      "combined": {
+        "n": 1036,
+        "win_pct": 37.45,
+        "er": -0.075,
+        "pf": 0.89,
+        "max_dd_r": 129.67,
+        "avg_win_r": 1.686,
+        "avg_loss_r": 1.129,
+        "payoff_ratio": 1.49,
+        "sharpe": -0.85,
+        "ci_95_low": -0.1598,
+        "ci_95_high": 0.0098
+      },
+      "holdout": {
+        "n": 282,
+        "win_pct": 43.97,
+        "er": 0.0677,
+        "pf": 1.11,
+        "max_dd_r": 35.09,
+        "avg_win_r": 1.545,
+        "avg_loss_r": 1.092,
+        "payoff_ratio": 1.41,
+        "sharpe": 0.78,
+        "ci_95_low": -0.0927,
+        "ci_95_high": 0.2281
+      }
+    },
+    "challengers": [
+      {
+        "variant_id": "AHAT_V510_LOCAL_01_RS75_V180",
+        "params": {
+          "rs_rating": 75,
+          "vol_ratio": 1.8,
+          "target_multiple": 2.0
+        },
+        "combined": {
+          "n": 1036,
+          "win_pct": 37.45,
+          "er": -0.075,
+          "pf": 0.89,
+          "max_dd_r": 129.67,
+          "avg_win_r": 1.686,
+          "avg_loss_r": 1.129,
+          "payoff_ratio": 1.49,
+          "sharpe": -0.85,
+          "ci_95_low": -0.1598,
+          "ci_95_high": 0.0098
+        },
+        "holdout": {
+          "n": 282,
+          "win_pct": 43.97,
+          "er": 0.0677,
+          "pf": 1.11,
+          "max_dd_r": 35.09,
+          "avg_win_r": 1.545,
+          "avg_loss_r": 1.092,
+          "payoff_ratio": 1.41,
+          "sharpe": 0.78,
+          "ci_95_low": -0.0927,
+          "ci_95_high": 0.2281
+        },
+        "status": "KEEP_RESEARCHING"
+      },
+      {
+        "variant_id": "AHAT_V510_LOCAL_02_RS80_V200",
+        "params": {
+          "rs_rating": 80,
+          "vol_ratio": 2.0,
+          "target_multiple": 2.0
+        },
+        "combined": {
+          "n": 1036,
+          "win_pct": 37.45,
+          "er": -0.075,
+          "pf": 0.89,
+          "max_dd_r": 129.67,
+          "avg_win_r": 1.686,
+          "avg_loss_r": 1.129,
+          "payoff_ratio": 1.49,
+          "sharpe": -0.85,
+          "ci_95_low": -0.1598,
+          "ci_95_high": 0.0098
+        },
+        "holdout": {
+          "n": 282,
+          "win_pct": 43.97,
+          "er": 0.0677,
+          "pf": 1.11,
+          "max_dd_r": 35.09,
+          "avg_win_r": 1.545,
+          "avg_loss_r": 1.092,
+          "payoff_ratio": 1.41,
+          "sharpe": 0.78,
+          "ci_95_low": -0.0927,
+          "ci_95_high": 0.2281
+        },
+        "status": "KEEP_RESEARCHING"
+      }
+    ]
+  },
+  "DAILY_BUILDER": {
+    "control": {
+      "variant_id": "DAILY_BUILDER_CHAMPION_V1",
+      "combined": {
+        "n": 29754,
+        "win_pct": 40.12,
+        "er": 0.0001,
+        "pf": 1.0,
+        "max_dd_r": 617.34,
+        "avg_win_r": 1.663,
+        "avg_loss_r": 1.114,
+        "payoff_ratio": 1.49,
+        "sharpe": 0.0,
+        "ci_95_low": -0.0158,
+        "ci_95_high": 0.016
+      },
+      "holdout": {
+        "n": 6858,
+        "win_pct": 43.13,
+        "er": 0.0625,
+        "pf": 1.1,
+        "max_dd_r": 206.43,
+        "avg_win_r": 1.566,
+        "avg_loss_r": 1.078,
+        "payoff_ratio": 1.45,
+        "sharpe": 0.72,
+        "ci_95_low": 0.03,
+        "ci_95_high": 0.095
+      }
+    },
+    "challengers": [
+      {
+        "variant_id": "BLD_V510_LOCAL_01_ORB15_V180",
+        "params": {
+          "orb_width_pct": 1.5,
+          "vol_ratio": 1.8,
+          "vwap_confluence": true,
+          "target_multiple": 2.0
+        },
+        "combined": {
+          "n": 29754,
+          "win_pct": 40.12,
+          "er": 0.0001,
+          "pf": 1.0,
+          "max_dd_r": 617.34,
+          "avg_win_r": 1.663,
+          "avg_loss_r": 1.114,
+          "payoff_ratio": 1.49,
+          "sharpe": 0.0,
+          "ci_95_low": -0.0158,
+          "ci_95_high": 0.016
+        },
+        "holdout": {
+          "n": 6858,
+          "win_pct": 43.13,
+          "er": 0.0625,
+          "pf": 1.1,
+          "max_dd_r": 206.43,
+          "avg_win_r": 1.566,
+          "avg_loss_r": 1.078,
+          "payoff_ratio": 1.45,
+          "sharpe": 0.72,
+          "ci_95_low": 0.03,
+          "ci_95_high": 0.095
+        },
+        "status": "KEEP_RESEARCHING"
+      },
+      {
+        "variant_id": "BLD_V510_LOCAL_02_ORB15_V200",
+        "params": {
+          "orb_width_pct": 1.5,
+          "vol_ratio": 2.0,
+          "vwap_confluence": true,
+          "target_multiple": 2.0
+        },
+        "combined": {
+          "n": 29754,
+          "win_pct": 40.12,
+          "er": 0.0001,
+          "pf": 1.0,
+          "max_dd_r": 617.34,
+          "avg_win_r": 1.663,
+          "avg_loss_r": 1.114,
+          "payoff_ratio": 1.49,
+          "sharpe": 0.0,
+          "ci_95_low": -0.0158,
+          "ci_95_high": 0.016
+        },
+        "holdout": {
+          "n": 6858,
+          "win_pct": 43.13,
+          "er": 0.0625,
+          "pf": 1.1,
+          "max_dd_r": 206.43,
+          "avg_win_r": 1.566,
+          "avg_loss_r": 1.078,
+          "payoff_ratio": 1.45,
+          "sharpe": 0.72,
+          "ci_95_low": 0.03,
+          "ci_95_high": 0.095
+        },
+        "status": "KEEP_RESEARCHING"
+      }
+    ]
+  },
+  "REVERSAL": {
+    "control": {
+      "variant_id": "REV_V23D_15D_MULTI_REGIME",
+      "combined": {
+        "n": 35440,
+        "win_pct": 39.92,
+        "er": 0.1376,
+        "pf": 1.2,
+        "max_dd_r": 565.14,
+        "avg_win_r": 2.029,
+        "avg_loss_r": 1.119,
+        "payoff_ratio": 1.81,
+        "sharpe": 1.37,
+        "ci_95_low": 0.1209,
+        "ci_95_high": 0.1543
+      },
+      "holdout": {
+        "n": 5479,
+        "win_pct": 46.41,
+        "er": 0.3498,
+        "pf": 1.58,
+        "max_dd_r": 187.95,
+        "avg_win_r": 2.053,
+        "avg_loss_r": 1.125,
+        "payoff_ratio": 1.82,
+        "sharpe": 3.38,
+        "ci_95_low": 0.3063,
+        "ci_95_high": 0.3933
+      }
+    },
+    "challengers": [
+      {
+        "variant_id": "REV_V510_LOCAL_01_RSI28_P10_V15_T24",
+        "params": {
+          "rsi_max": 28.0,
+          "support_prox_pct": 1.0,
+          "vol_surge": 1.5,
+          "target_multiple": 2.4,
+          "reclaim_required": true
+        },
+        "combined": {
+          "n": 35440,
+          "win_pct": 39.88,
+          "er": 0.1028,
+          "pf": 1.15,
+          "max_dd_r": 705.27,
+          "avg_win_r": 1.944,
+          "avg_loss_r": 1.118,
+          "payoff_ratio": 1.74,
+          "sharpe": 1.05,
+          "ci_95_low": 0.0866,
+          "ci_95_high": 0.119
+        },
+        "holdout": {
+          "n": 5479,
+          "win_pct": 46.36,
+          "er": 0.3088,
+          "pf": 1.51,
+          "max_dd_r": 206.26,
+          "avg_win_r": 1.967,
+          "avg_loss_r": 1.124,
+          "payoff_ratio": 1.75,
+          "sharpe": 3.07,
+          "ci_95_low": 0.2665,
+          "ci_95_high": 0.3511
+        },
+        "status": "D_CAPACITY"
+      },
+      {
+        "variant_id": "REV_V510_LOCAL_02_CHAMP_RSI30_P10_V15_T25",
+        "params": {
+          "rsi_max": 30.0,
+          "support_prox_pct": 1.0,
+          "vol_surge": 1.5,
+          "target_multiple": 2.5,
+          "reclaim_required": true
+        },
+        "combined": {
+          "n": 35440,
+          "win_pct": 39.92,
+          "er": 0.1376,
+          "pf": 1.2,
+          "max_dd_r": 565.14,
+          "avg_win_r": 2.029,
+          "avg_loss_r": 1.119,
+          "payoff_ratio": 1.81,
+          "sharpe": 1.37,
+          "ci_95_low": 0.1209,
+          "ci_95_high": 0.1543
+        },
+        "holdout": {
+          "n": 5479,
+          "win_pct": 46.41,
+          "er": 0.3498,
+          "pf": 1.58,
+          "max_dd_r": 187.95,
+          "avg_win_r": 2.053,
+          "avg_loss_r": 1.125,
+          "payoff_ratio": 1.82,
+          "sharpe": 3.38,
+          "ci_95_low": 0.3063,
+          "ci_95_high": 0.3933
+        },
+        "status": "D_CAPACITY"
+      },
+      {
+        "variant_id": "REV_V510_LOCAL_03_RSI30_P09_V16_T24",
+        "params": {
+          "rsi_max": 30.0,
+          "support_prox_pct": 0.9,
+          "vol_surge": 1.6,
+          "target_multiple": 2.4,
+          "reclaim_required": true
+        },
+        "combined": {
+          "n": 35440,
+          "win_pct": 39.88,
+          "er": 0.1028,
+          "pf": 1.15,
+          "max_dd_r": 705.27,
+          "avg_win_r": 1.944,
+          "avg_loss_r": 1.118,
+          "payoff_ratio": 1.74,
+          "sharpe": 1.05,
+          "ci_95_low": 0.0866,
+          "ci_95_high": 0.119
+        },
+        "holdout": {
+          "n": 5479,
+          "win_pct": 46.36,
+          "er": 0.3088,
+          "pf": 1.51,
+          "max_dd_r": 206.26,
+          "avg_win_r": 1.967,
+          "avg_loss_r": 1.124,
+          "payoff_ratio": 1.75,
+          "sharpe": 3.07,
+          "ci_95_low": 0.2665,
+          "ci_95_high": 0.3511
+        },
+        "status": "D_CAPACITY"
+      },
+      {
+        "variant_id": "REV_V510_LOCAL_04_RSI30_P11_V14_T25",
+        "params": {
+          "rsi_max": 30.0,
+          "support_prox_pct": 1.1,
+          "vol_surge": 1.4,
+          "target_multiple": 2.5,
+          "reclaim_required": true
+        },
+        "combined": {
+          "n": 35440,
+          "win_pct": 39.92,
+          "er": 0.1376,
+          "pf": 1.2,
+          "max_dd_r": 565.14,
+          "avg_win_r": 2.029,
+          "avg_loss_r": 1.119,
+          "payoff_ratio": 1.81,
+          "sharpe": 1.37,
+          "ci_95_low": 0.1209,
+          "ci_95_high": 0.1543
+        },
+        "holdout": {
+          "n": 5479,
+          "win_pct": 46.41,
+          "er": 0.3498,
+          "pf": 1.58,
+          "max_dd_r": 187.95,
+          "avg_win_r": 2.053,
+          "avg_loss_r": 1.125,
+          "payoff_ratio": 1.82,
+          "sharpe": 3.38,
+          "ci_95_low": 0.3063,
+          "ci_95_high": 0.3933
+        },
+        "status": "D_CAPACITY"
+      },
+      {
+        "variant_id": "REV_V510_LOCAL_05_RSI32_P10_V15_T25",
+        "params": {
+          "rsi_max": 32.0,
+          "support_prox_pct": 1.0,
+          "vol_surge": 1.5,
+          "target_multiple": 2.5,
+          "reclaim_required": true
+        },
+        "combined": {
+          "n": 35440,
+          "win_pct": 39.92,
+          "er": 0.1376,
+          "pf": 1.2,
+          "max_dd_r": 565.14,
+          "avg_win_r": 2.029,
+          "avg_loss_r": 1.119,
+          "payoff_ratio": 1.81,
+          "sharpe": 1.37,
+          "ci_95_low": 0.1209,
+          "ci_95_high": 0.1543
+        },
+        "holdout": {
+          "n": 5479,
+          "win_pct": 46.41,
+          "er": 0.3498,
+          "pf": 1.58,
+          "max_dd_r": 187.95,
+          "avg_win_r": 2.053,
+          "avg_loss_r": 1.125,
+          "payoff_ratio": 1.82,
+          "sharpe": 3.38,
+          "ci_95_low": 0.3063,
+          "ci_95_high": 0.3933
+        },
+        "status": "D_CAPACITY"
+      }
+    ]
+  },
+  "MULTITF_1H": {
+    "control": {
+      "variant_id": "M1H_V57_QUAL_F_MULTI_REG",
+      "combined": {
+        "n": 596,
+        "win_pct": 36.58,
+        "er": -0.0284,
+        "pf": 0.96,
+        "max_dd_r": 100.65,
+        "avg_win_r": 1.746,
+        "avg_loss_r": 1.051,
+        "payoff_ratio": 1.66,
+        "sharpe": -0.3,
+        "ci_95_low": -0.1474,
+        "ci_95_high": 0.0906
+      },
+      "holdout": {
+        "n": 440,
+        "win_pct": 36.59,
+        "er": 0.015,
+        "pf": 1.02,
+        "max_dd_r": 86.07,
+        "avg_win_r": 1.851,
+        "avg_loss_r": 1.045,
+        "payoff_ratio": 1.77,
+        "sharpe": 0.16,
+        "ci_95_low": -0.1262,
+        "ci_95_high": 0.1562
+      }
+    },
+    "challengers": [
+      {
+        "variant_id": "M1H_V510_LOCAL_01_V160_T20",
+        "params": {
+          "tf1h_supertrend": true,
+          "tf1h_vol_ratio": 1.6,
+          "target_multiple": 2.0
+        },
+        "combined": {
+          "n": 596,
+          "win_pct": 36.58,
+          "er": -0.0284,
+          "pf": 0.96,
+          "max_dd_r": 100.65,
+          "avg_win_r": 1.746,
+          "avg_loss_r": 1.051,
+          "payoff_ratio": 1.66,
+          "sharpe": -0.3,
+          "ci_95_low": -0.1474,
+          "ci_95_high": 0.0906
+        },
+        "holdout": {
+          "n": 440,
+          "win_pct": 36.59,
+          "er": 0.015,
+          "pf": 1.02,
+          "max_dd_r": 86.07,
+          "avg_win_r": 1.851,
+          "avg_loss_r": 1.045,
+          "payoff_ratio": 1.77,
+          "sharpe": 0.16,
+          "ci_95_low": -0.1262,
+          "ci_95_high": 0.1562
+        },
+        "status": "KEEP_RESEARCHING"
+      },
+      {
+        "variant_id": "M1H_V510_LOCAL_02_V180_T20",
+        "params": {
+          "tf1h_supertrend": true,
+          "tf1h_vol_ratio": 1.8,
+          "target_multiple": 2.0
+        },
+        "combined": {
+          "n": 596,
+          "win_pct": 36.58,
+          "er": -0.0284,
+          "pf": 0.96,
+          "max_dd_r": 100.65,
+          "avg_win_r": 1.746,
+          "avg_loss_r": 1.051,
+          "payoff_ratio": 1.66,
+          "sharpe": -0.3,
+          "ci_95_low": -0.1474,
+          "ci_95_high": 0.0906
+        },
+        "holdout": {
+          "n": 440,
+          "win_pct": 36.59,
+          "er": 0.015,
+          "pf": 1.02,
+          "max_dd_r": 86.07,
+          "avg_win_r": 1.851,
+          "avg_loss_r": 1.045,
+          "payoff_ratio": 1.77,
+          "sharpe": 0.16,
+          "ci_95_low": -0.1262,
+          "ci_95_high": 0.1562
+        },
+        "status": "KEEP_RESEARCHING"
+      }
+    ]
+  },
+  "SHORT_COVERING_EOD": {
+    "control": {
+      "variant_id": "SC_ABL_2_NO_RSI_FILTER",
+      "combined": {
+        "n": 6842,
+        "win_pct": 34.67,
+        "er": -0.0681,
+        "pf": 0.91,
+        "max_dd_r": 517.23,
+        "avg_win_r": 1.884,
+        "avg_loss_r": 1.104,
+        "payoff_ratio": 1.71,
+        "sharpe": -0.72,
+        "ci_95_low": -0.1037,
+        "ci_95_high": -0.0325
+      },
+      "holdout": {
+        "n": 1280,
+        "win_pct": 34.77,
+        "er": -0.0231,
+        "pf": 0.97,
+        "max_dd_r": 139.0,
+        "avg_win_r": 1.979,
+        "avg_loss_r": 1.09,
+        "payoff_ratio": 1.82,
+        "sharpe": -0.24,
+        "ci_95_low": -0.1071,
+        "ci_95_high": 0.0609
+      }
+    },
+    "challengers": [
+      {
+        "variant_id": "SC_V510_LOCAL_01_V15_T25",
+        "params": {
+          "selloff_vol_ratio": 1.5,
+          "target_multiple": 2.5,
+          "reclaim_bar": true
+        },
+        "combined": {
+          "n": 6842,
+          "win_pct": 34.67,
+          "er": -0.0681,
+          "pf": 0.91,
+          "max_dd_r": 517.23,
+          "avg_win_r": 1.884,
+          "avg_loss_r": 1.104,
+          "payoff_ratio": 1.71,
+          "sharpe": -0.72,
+          "ci_95_low": -0.1037,
+          "ci_95_high": -0.0325
+        },
+        "holdout": {
+          "n": 1280,
+          "win_pct": 34.77,
+          "er": -0.0231,
+          "pf": 0.97,
+          "max_dd_r": 139.0,
+          "avg_win_r": 1.979,
+          "avg_loss_r": 1.09,
+          "payoff_ratio": 1.82,
+          "sharpe": -0.24,
+          "ci_95_low": -0.1071,
+          "ci_95_high": 0.0609
+        },
+        "status": "KEEP_RESEARCHING"
+      },
+      {
+        "variant_id": "SC_V510_LOCAL_02_V16_T24",
+        "params": {
+          "selloff_vol_ratio": 1.6,
+          "target_multiple": 2.4,
+          "reclaim_bar": true
+        },
+        "combined": {
+          "n": 6842,
+          "win_pct": 34.62,
+          "er": -0.0965,
+          "pf": 0.87,
+          "max_dd_r": 674.47,
+          "avg_win_r": 1.804,
+          "avg_loss_r": 1.103,
+          "payoff_ratio": 1.64,
+          "sharpe": -1.05,
+          "ci_95_low": -0.1311,
+          "ci_95_high": -0.0619
+        },
+        "holdout": {
+          "n": 1280,
+          "win_pct": 34.77,
+          "er": -0.0529,
+          "pf": 0.93,
+          "max_dd_r": 153.7,
+          "avg_win_r": 1.893,
+          "avg_loss_r": 1.09,
+          "payoff_ratio": 1.74,
+          "sharpe": -0.56,
+          "ci_95_low": -0.1345,
+          "ci_95_high": 0.0287
+        },
+        "status": "KEEP_RESEARCHING"
+      },
+      {
+        "variant_id": "SC_V510_LOCAL_03_V17_T25",
+        "params": {
+          "selloff_vol_ratio": 1.7,
+          "target_multiple": 2.5,
+          "reclaim_bar": true
+        },
+        "combined": {
+          "n": 6842,
+          "win_pct": 34.67,
+          "er": -0.0681,
+          "pf": 0.91,
+          "max_dd_r": 517.23,
+          "avg_win_r": 1.884,
+          "avg_loss_r": 1.104,
+          "payoff_ratio": 1.71,
+          "sharpe": -0.72,
+          "ci_95_low": -0.1037,
+          "ci_95_high": -0.0325
+        },
+        "holdout": {
+          "n": 1280,
+          "win_pct": 34.77,
+          "er": -0.0231,
+          "pf": 0.97,
+          "max_dd_r": 139.0,
+          "avg_win_r": 1.979,
+          "avg_loss_r": 1.09,
+          "payoff_ratio": 1.82,
+          "sharpe": -0.24,
+          "ci_95_low": -0.1071,
+          "ci_95_high": 0.0609
+        },
+        "status": "KEEP_RESEARCHING"
+      }
+    ]
+  },
+  "MULTIBAGGER": {
+    "control": {
+      "variant_id": "MBAG_V57_SCALE_A_60D_165V",
+      "combined": {
+        "n": 2493,
+        "win_pct": 40.15,
+        "er": 0.2287,
+        "pf": 1.37,
+        "max_dd_r": 73.3,
+        "avg_win_r": 2.103,
+        "avg_loss_r": 1.029,
+        "payoff_ratio": 2.04,
+        "sharpe": 1.93,
+        "ci_95_low": 0.155,
+        "ci_95_high": 0.3024
+      },
+      "holdout": {
+        "n": 865,
+        "win_pct": 39.31,
+        "er": 0.2774,
+        "pf": 1.45,
+        "max_dd_r": 65.42,
+        "avg_win_r": 2.283,
+        "avg_loss_r": 1.022,
+        "payoff_ratio": 2.23,
+        "sharpe": 2.23,
+        "ci_95_low": 0.1459,
+        "ci_95_high": 0.4089
+      }
+    },
+    "challengers": [
+      {
+        "variant_id": "MBAG_V510_LOCAL_01_70D_170V_50R",
+        "params": {
+          "horizon_days": 70,
+          "vol_surge": 1.7,
+          "target_multiple": 5.0,
+          "convexity_gate": true
+        },
+        "combined": {
+          "n": 2493,
+          "win_pct": 40.15,
+          "er": 0.2287,
+          "pf": 1.37,
+          "max_dd_r": 73.3,
+          "avg_win_r": 2.103,
+          "avg_loss_r": 1.029,
+          "payoff_ratio": 2.04,
+          "sharpe": 1.93,
+          "ci_95_low": 0.155,
+          "ci_95_high": 0.3024
+        },
+        "holdout": {
+          "n": 865,
+          "win_pct": 39.31,
+          "er": 0.2774,
+          "pf": 1.45,
+          "max_dd_r": 65.42,
+          "avg_win_r": 2.283,
+          "avg_loss_r": 1.022,
+          "payoff_ratio": 2.23,
+          "sharpe": 2.23,
+          "ci_95_low": 0.1459,
+          "ci_95_high": 0.4089
+        },
+        "status": "A_MAJOR_CONVEXITY"
+      },
+      {
+        "variant_id": "MBAG_V510_LOCAL_02_CHAMP_75D_180V_50R",
+        "params": {
+          "horizon_days": 75,
+          "vol_surge": 1.8,
+          "target_multiple": 5.0,
+          "convexity_gate": true
+        },
+        "combined": {
+          "n": 2493,
+          "win_pct": 40.15,
+          "er": 0.2287,
+          "pf": 1.37,
+          "max_dd_r": 73.3,
+          "avg_win_r": 2.103,
+          "avg_loss_r": 1.029,
+          "payoff_ratio": 2.04,
+          "sharpe": 1.93,
+          "ci_95_low": 0.155,
+          "ci_95_high": 0.3024
+        },
+        "holdout": {
+          "n": 865,
+          "win_pct": 39.31,
+          "er": 0.2774,
+          "pf": 1.45,
+          "max_dd_r": 65.42,
+          "avg_win_r": 2.283,
+          "avg_loss_r": 1.022,
+          "payoff_ratio": 2.23,
+          "sharpe": 2.23,
+          "ci_95_low": 0.1459,
+          "ci_95_high": 0.4089
+        },
+        "status": "A_MAJOR_CONVEXITY"
+      },
+      {
+        "variant_id": "MBAG_V510_LOCAL_03_80D_180V_50R",
+        "params": {
+          "horizon_days": 80,
+          "vol_surge": 1.8,
+          "target_multiple": 5.0,
+          "convexity_gate": true
+        },
+        "combined": {
+          "n": 2493,
+          "win_pct": 40.15,
+          "er": 0.2287,
+          "pf": 1.37,
+          "max_dd_r": 73.3,
+          "avg_win_r": 2.103,
+          "avg_loss_r": 1.029,
+          "payoff_ratio": 2.04,
+          "sharpe": 1.93,
+          "ci_95_low": 0.155,
+          "ci_95_high": 0.3024
+        },
+        "holdout": {
+          "n": 865,
+          "win_pct": 39.31,
+          "er": 0.2774,
+          "pf": 1.45,
+          "max_dd_r": 65.42,
+          "avg_win_r": 2.283,
+          "avg_loss_r": 1.022,
+          "payoff_ratio": 2.23,
+          "sharpe": 2.23,
+          "ci_95_low": 0.1459,
+          "ci_95_high": 0.4089
+        },
+        "status": "A_MAJOR_CONVEXITY"
+      },
+      {
+        "variant_id": "MBAG_V510_LOCAL_04_75D_190V_55R",
+        "params": {
+          "horizon_days": 75,
+          "vol_surge": 1.9,
+          "target_multiple": 5.5,
+          "convexity_gate": true
+        },
+        "combined": {
+          "n": 2493,
+          "win_pct": 40.35,
+          "er": 0.3195,
+          "pf": 1.52,
+          "max_dd_r": 60.03,
+          "avg_win_r": 2.317,
+          "avg_loss_r": 1.032,
+          "payoff_ratio": 2.25,
+          "sharpe": 2.5,
+          "ci_95_low": 0.24,
+          "ci_95_high": 0.399
+        },
+        "holdout": {
+          "n": 865,
+          "win_pct": 39.42,
+          "er": 0.3734,
+          "pf": 1.6,
+          "max_dd_r": 61.44,
+          "avg_win_r": 2.52,
+          "avg_loss_r": 1.023,
+          "payoff_ratio": 2.46,
+          "sharpe": 2.78,
+          "ci_95_low": 0.2313,
+          "ci_95_high": 0.5155
+        },
+        "status": "A_MAJOR_CONVEXITY"
+      },
+      {
+        "variant_id": "MBAG_V510_LOCAL_05_75D_180V_45R",
+        "params": {
+          "horizon_days": 75,
+          "vol_surge": 1.8,
+          "target_multiple": 4.5,
+          "convexity_gate": true
+        },
+        "combined": {
+          "n": 2493,
+          "win_pct": 40.15,
+          "er": 0.1378,
+          "pf": 1.22,
+          "max_dd_r": 100.75,
+          "avg_win_r": 1.877,
+          "avg_loss_r": 1.029,
+          "payoff_ratio": 1.82,
+          "sharpe": 1.27,
+          "ci_95_low": 0.07,
+          "ci_95_high": 0.2056
+        },
+        "holdout": {
+          "n": 865,
+          "win_pct": 39.31,
+          "er": 0.1815,
+          "pf": 1.29,
+          "max_dd_r": 69.87,
+          "avg_win_r": 2.039,
+          "avg_loss_r": 1.022,
+          "payoff_ratio": 2.0,
+          "sharpe": 1.59,
+          "ci_95_low": 0.0606,
+          "ci_95_high": 0.3024
+        },
+        "status": "C_TRADEOFF"
+      }
+    ]
+  }
+}

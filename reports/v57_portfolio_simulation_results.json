@@ -1,0 +1,154 @@
+{
+  "Strategy_1_Flat_Equal_Risk_11": {
+    "DEV": {
+      "total_r": 5189.2,
+      "mean_r": 45.123,
+      "std_r": 77.829,
+      "sharpe": 9.2,
+      "sortino": 25.08,
+      "max_dd_r": 170.3,
+      "calmar": 30.46
+    },
+    "VAL": {
+      "total_r": 4731.65,
+      "mean_r": 44.221,
+      "std_r": 91.448,
+      "sharpe": 7.68,
+      "sortino": 19.83,
+      "max_dd_r": 473.1,
+      "calmar": 10.0
+    },
+    "HOLDOUT": {
+      "total_r": 3835.9,
+      "mean_r": 59.014,
+      "std_r": 88.029,
+      "sharpe": 10.64,
+      "sortino": 60.12,
+      "max_dd_r": 128.6,
+      "calmar": 29.84
+    },
+    "FULL": {
+      "total_r": 13756.75,
+      "mean_r": 47.933,
+      "std_r": 85.651,
+      "sharpe": 8.88,
+      "sortino": 23.5,
+      "max_dd_r": 473.1,
+      "calmar": 29.08
+    }
+  },
+  "Strategy_2_Staged_Tier_Governance": {
+    "DEV": {
+      "total_r": 4562.6,
+      "mean_r": 39.675,
+      "std_r": 67.692,
+      "sharpe": 9.3,
+      "sortino": 24.96,
+      "max_dd_r": 129.8,
+      "calmar": 35.16
+    },
+    "VAL": {
+      "total_r": 4126.63,
+      "mean_r": 38.567,
+      "std_r": 78.619,
+      "sharpe": 7.79,
+      "sortino": 19.76,
+      "max_dd_r": 349.0,
+      "calmar": 11.82
+    },
+    "HOLDOUT": {
+      "total_r": 3266.84,
+      "mean_r": 50.259,
+      "std_r": 76.322,
+      "sharpe": 10.45,
+      "sortino": 50.41,
+      "max_dd_r": 119.1,
+      "calmar": 27.42
+    },
+    "FULL": {
+      "total_r": 11956.08,
+      "mean_r": 41.659,
+      "std_r": 74.038,
+      "sharpe": 8.93,
+      "sortino": 23.23,
+      "max_dd_r": 382.8,
+      "calmar": 31.23
+    }
+  },
+  "Strategy_3_Certified_Champion_Rollout": {
+    "DEV": {
+      "total_r": 4772.73,
+      "mean_r": 41.502,
+      "std_r": 68.144,
+      "sharpe": 9.67,
+      "sortino": 26.93,
+      "max_dd_r": 131.5,
+      "calmar": 36.3
+    },
+    "VAL": {
+      "total_r": 4367.43,
+      "mean_r": 40.817,
+      "std_r": 80.86,
+      "sharpe": 8.01,
+      "sortino": 21.27,
+      "max_dd_r": 390.5,
+      "calmar": 11.18
+    },
+    "HOLDOUT": {
+      "total_r": 3435.9,
+      "mean_r": 52.86,
+      "std_r": 77.935,
+      "sharpe": 10.77,
+      "sortino": 57.56,
+      "max_dd_r": 118.5,
+      "calmar": 28.99
+    },
+    "FULL": {
+      "total_r": 12576.05,
+      "mean_r": 43.819,
+      "std_r": 75.485,
+      "sharpe": 9.22,
+      "sortino": 24.6,
+      "max_dd_r": 412.7,
+      "calmar": 30.47
+    }
+  },
+  "Strategy_4_Regime_Adaptive_Dynamic": {
+    "DEV": {
+      "total_r": 4391.43,
+      "mean_r": 38.186,
+      "std_r": 67.231,
+      "sharpe": 9.02,
+      "sortino": 25.56,
+      "max_dd_r": 133.3,
+      "calmar": 32.94
+    },
+    "VAL": {
+      "total_r": 4003.02,
+      "mean_r": 37.411,
+      "std_r": 77.33,
+      "sharpe": 7.68,
+      "sortino": 19.99,
+      "max_dd_r": 348.4,
+      "calmar": 11.49
+    },
+    "HOLDOUT": {
+      "total_r": 3194.93,
+      "mean_r": 49.153,
+      "std_r": 74.919,
+      "sharpe": 10.41,
+      "sortino": 52.73,
+      "max_dd_r": 111.2,
+      "calmar": 28.73
+    },
+    "FULL": {
+      "total_r": 11589.38,
+      "mean_r": 40.381,
+      "std_r": 73.037,
+      "sharpe": 8.78,
+      "sortino": 23.67,
+      "max_dd_r": 380.0,
+      "calmar": 30.5
+    }
+  }
+}

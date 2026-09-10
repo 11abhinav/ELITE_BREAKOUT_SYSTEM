@@ -1,0 +1,5 @@
+parameter,specification,audit_verification
+BE MFE Trigger Threshold,+0.5R Max Favorable Excursion (MFE) for Swing; +0.8R for Intraday; +1.5R for Convexity,PASS — Evaluated strictly on forward high (MFE) prior to stop hit
+Intrabar Sequence Ordering,"Worst-case assumption: if both BE trigger and SL are within candle high/low range, SL hit is assumed","PASS — Zero intrabar lookahead bias, prevents phantom BE executions"
+Next-Bar Fill Boundary,Stop loss moved to Breakeven (0.0R) effective strictly from next candle open onward,PASS — No same-bar retrospective stop modification
+Gap-Down / Slippage Model,Full friction applied to BE stops: Statutory + Spread + Entry Slippage + Stop Modification Slippage,"PASS — Friction scale 1.0x (base), 1.5x (adverse), 2.0x (stress) all remain profitable"

@@ -31,7 +31,8 @@ ENV/
 *.sublime-workspace
 
 # ── Data, Parquet & Database Files ──
-data/
+data/*
+!data/v515_production_frozen_registry.json
 *.parquet
 *.feather
 *.pkl
@@ -69,6 +70,7 @@ logs/
 scratch/
 app/scratch/
 app/artifacts/
+app/data/
 scratch*.py
 scratch_*.py
 test.csv

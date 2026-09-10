@@ -1,0 +1,29 @@
+{
+  "wealth_builder_co_fires": {
+    "total_co_fires": 14773,
+    "both_loss": 8391,
+    "both_win": 4729,
+    "unconstrained_net_r": 356.6,
+    "capped_net_r": 667.1,
+    "priority_net_r": 888.9
+  },
+  "acute_shock_simulation": {
+    "shock_days_count": 138,
+    "normal_sharpe": 0.37,
+    "normal_max_dd": 3368.8,
+    "stressed_sharpe": -5.27,
+    "stressed_max_dd": 16829.2,
+    "drawdown_expansion_factor": 5.0
+  },
+  "sector_breakdown": {
+    "BROAD_MARKET": 48251,
+    "PHARMA": 307,
+    "IT": 190,
+    "METALS": 335,
+    "ENERGY": 300,
+    "INFRA": 277,
+    "AUTO": 342,
+    "FMCG": 160,
+    "BANK": 286
+  }
+}

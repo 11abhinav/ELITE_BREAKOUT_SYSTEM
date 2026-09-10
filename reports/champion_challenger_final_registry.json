@@ -1,0 +1,2610 @@
+[
+  {
+    "scanner": "EOD_BREAKOUT",
+    "champion": {
+      "variant_id": "EOD_CHALL_H_THRUST_CALIBRATED",
+      "scanner": "EOD_BREAKOUT",
+      "status": "CHAMPION",
+      "tier": "TIER2_VALIDATED",
+      "live_allowed": true,
+      "parameters": {
+        "min_breakout_thrust_atr": 0.4,
+        "max_pivot_extension_pct": 2.5
+      },
+      "description": "Challenger H: Calibrated Thrust >= 0.40 ATR + Extension <= 2.5%",
+      "best_metrics": {
+        "variant_id": "EOD_CHALL_H_THRUST_CALIBRATED",
+        "partition": "HOLDOUT",
+        "period": "",
+        "N": 32,
+        "E[R]": 0.41,
+        "median_R": 0.31,
+        "profit_factor": 2.05,
+        "win_rate_pct": 59.4,
+        "CI_95": [
+          0.072,
+          0.93
+        ],
+        "p_value": 0.0764,
+        "+1R_pct": 62.5,
+        "+1.5R_pct": 40.6,
+        "+2R_pct": 34.4,
+        "+3R_pct": 0.0,
+        "+5R_pct": 0.0,
+        "+10R_pct": 0.0,
+        "avg_MFE_R": 1.39,
+        "avg_MAE_R": 0.78,
+        "post_SL_recovery_pct": 15.6,
+        "positive_regimes": 2,
+        "regime_breakdown": {
+          "BEAR": -0.41,
+          "BULL": 0.51,
+          "NEUTRAL": 1.0
+        }
+      },
+      "oos_partitions": 0
+    },
+    "active_challengers": 8,
+    "challengers": [
+      {
+        "variant_id": "EOD_CHALL_A_THRUST",
+        "scanner": "EOD_BREAKOUT",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {
+          "min_breakout_thrust_atr": 0.5,
+          "prior_bar_lookback": "iloc[-21:-1]"
+        },
+        "description": "Challenger A: Breakout thrust > 0.50 x ATR filter",
+        "best_metrics": {
+          "variant_id": "EOD_CHALL_A_THRUST",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 63,
+          "E[R]": 0.28,
+          "median_R": 0.25,
+          "profit_factor": 1.59,
+          "win_rate_pct": 54.0,
+          "CI_95": [
+            -0.074,
+            0.7
+          ],
+          "p_value": 0.1339,
+          "+1R_pct": 57.1,
+          "+1.5R_pct": 41.3,
+          "+2R_pct": 31.7,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 1.29,
+          "avg_MAE_R": 0.83,
+          "post_SL_recovery_pct": 12.7,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BEAR": -0.65,
+            "BULL": 0.29,
+            "NEUTRAL": 1.22
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "EOD_CHALL_B_SCORE80",
+        "scanner": "EOD_BREAKOUT",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {
+          "min_quality_score": 80,
+          "prior_bar_lookback": "iloc[-21:-1]"
+        },
+        "description": "Challenger B: Quality score gate >= 80 (up from 70)",
+        "best_metrics": {
+          "variant_id": "EOD_CHALL_B_SCORE80",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 58,
+          "E[R]": 0.17,
+          "median_R": 0.11,
+          "profit_factor": 1.33,
+          "win_rate_pct": 50.0,
+          "CI_95": [
+            -0.24,
+            0.598
+          ],
+          "p_value": 0.3766,
+          "+1R_pct": 63.8,
+          "+1.5R_pct": 37.9,
+          "+2R_pct": 29.3,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 1.37,
+          "avg_MAE_R": 0.9,
+          "post_SL_recovery_pct": 19.0,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BEAR": -0.14,
+            "BULL": 0.02,
+            "NEUTRAL": 1.27
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "EOD_CHALL_C_EXTENSION",
+        "scanner": "EOD_BREAKOUT",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {
+          "max_pivot_extension_pct": 2.5,
+          "prior_bar_lookback": "iloc[-21:-1]"
+        },
+        "description": "Challenger C: Max extension <= 2.5% from pivot at entry",
+        "best_metrics": {
+          "variant_id": "EOD_CHALL_C_EXTENSION",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 58,
+          "E[R]": 0.23,
+          "median_R": 0.11,
+          "profit_factor": 1.51,
+          "win_rate_pct": 50.0,
+          "CI_95": [
+            -0.083,
+            0.614
+          ],
+          "p_value": 0.1714,
+          "+1R_pct": 60.3,
+          "+1.5R_pct": 37.9,
+          "+2R_pct": 29.3,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 1.39,
+          "avg_MAE_R": 0.88,
+          "post_SL_recovery_pct": 20.7,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BEAR": -0.58,
+            "BULL": 0.21,
+            "NEUTRAL": 1.31
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "EOD_CHALL_D_THRUST_030",
+        "scanner": "EOD_BREAKOUT",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {
+          "min_breakout_thrust_atr": 0.3,
+          "prior_bar_lookback": "iloc[-21:-1]"
+        },
+        "description": "Challenger D: Moderate breakout thrust > 0.30 x ATR filter",
+        "best_metrics": {
+          "variant_id": "EOD_CHALL_D_THRUST_030",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 78,
+          "E[R]": 0.26,
+          "median_R": 0.24,
+          "profit_factor": 1.54,
+          "win_rate_pct": 53.8,
+          "CI_95": [
+            -0.082,
+            0.653
+          ],
+          "p_value": 0.1129,
+          "+1R_pct": 56.4,
+          "+1.5R_pct": 41.0,
+          "+2R_pct": 30.8,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 1.3,
+          "avg_MAE_R": 0.85,
+          "post_SL_recovery_pct": 14.1,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BEAR": -0.32,
+            "BULL": 0.24,
+            "NEUTRAL": 1.22
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "EOD_CHALL_E_COMBINED",
+        "scanner": "EOD_BREAKOUT",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {
+          "min_breakout_thrust_atr": 0.3,
+          "max_pivot_extension_pct": 2.5,
+          "min_quality_score": 75,
+          "prior_bar_lookback": "iloc[-21:-1]"
+        },
+        "description": "Challenger E: Composite filter (Thrust >= 0.30 ATR + Extension <= 2.5% + Score >= 75)",
+        "best_metrics": {
+          "variant_id": "EOD_CHALL_E_COMBINED",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 31,
+          "E[R]": 0.22,
+          "median_R": 0.24,
+          "profit_factor": 1.47,
+          "win_rate_pct": 51.6,
+          "CI_95": [
+            -0.139,
+            0.734
+          ],
+          "p_value": 0.3511,
+          "+1R_pct": 58.1,
+          "+1.5R_pct": 35.5,
+          "+2R_pct": 29.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 1.3,
+          "avg_MAE_R": 0.84,
+          "post_SL_recovery_pct": 19.4,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BEAR": -0.27,
+            "BULL": 0.2,
+            "NEUTRAL": 1.0
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "EOD_CHALL_F_CALIBRATED_SCORE",
+        "scanner": "EOD_BREAKOUT",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {
+          "extension_penalty": true,
+          "max_unpenalized_ext": 2.5,
+          "penalty_pts": 15
+        },
+        "description": "Challenger F: Calibrated score with late-extension penalty (>2.5% past pivot = -15 pts)",
+        "best_metrics": {
+          "variant_id": "EOD_CHALL_F_CALIBRATED_SCORE",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 68,
+          "E[R]": 0.18,
+          "median_R": 0.23,
+          "profit_factor": 1.37,
+          "win_rate_pct": 51.5,
+          "CI_95": [
+            -0.138,
+            0.545
+          ],
+          "p_value": 0.2853,
+          "+1R_pct": 61.8,
+          "+1.5R_pct": 38.2,
+          "+2R_pct": 27.9,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 1.34,
+          "avg_MAE_R": 0.9,
+          "post_SL_recovery_pct": 17.6,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BEAR": -0.26,
+            "BULL": 0.09,
+            "NEUTRAL": 1.27
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "EOD_CHALL_G_SWEET_SPOT",
+        "scanner": "EOD_BREAKOUT",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {
+          "allowed_score_bands": [
+            [
+              70,
+              79
+            ],
+            [
+              90,
+              100
+            ]
+          ]
+        },
+        "description": "Challenger G: Sweet-spot gate (Score 70-79 or 90-100, excludes uncalibrated 80-89)",
+        "best_metrics": {
+          "variant_id": "EOD_CHALL_G_SWEET_SPOT",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 69,
+          "E[R]": 0.31,
+          "median_R": 0.1,
+          "profit_factor": 1.7,
+          "win_rate_pct": 50.7,
+          "CI_95": [
+            0.036,
+            0.644
+          ],
+          "p_value": 0.0527,
+          "+1R_pct": 56.5,
+          "+1.5R_pct": 40.6,
+          "+2R_pct": 31.9,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 1.33,
+          "avg_MAE_R": 0.85,
+          "post_SL_recovery_pct": 17.4,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BEAR": -0.59,
+            "BULL": 0.23,
+            "NEUTRAL": 1.48
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "EOD_CHALL_I_MONOTONIC_RUBRIC",
+        "scanner": "EOD_BREAKOUT",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {
+          "formula_extension_penalty": true
+        },
+        "description": "Challenger I: Score formula-level recalibration with direct extension penalty",
+        "best_metrics": {
+          "variant_id": "EOD_CHALL_I_MONOTONIC_RUBRIC",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 56,
+          "E[R]": 0.18,
+          "median_R": 0.11,
+          "profit_factor": 1.35,
+          "win_rate_pct": 50.0,
+          "CI_95": [
+            -0.169,
+            0.557
+          ],
+          "p_value": 0.3549,
+          "+1R_pct": 64.3,
+          "+1.5R_pct": 41.1,
+          "+2R_pct": 30.4,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 1.41,
+          "avg_MAE_R": 0.93,
+          "post_SL_recovery_pct": 19.6,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BEAR": -0.4,
+            "BULL": 0.06,
+            "NEUTRAL": 1.41
+          }
+        },
+        "oos_partitions": 0
+      }
+    ]
+  },
+  {
+    "scanner": "MULTI_TF",
+    "champion": {
+      "variant_id": "MULTITF_V3D_BULL_ONLY",
+      "scanner": "MULTI_TF",
+      "status": "CHAMPION",
+      "tier": "TIER3_CANDIDATE",
+      "live_allowed": false,
+      "parameters": {
+        "base_bars": 20,
+        "allowed_regimes": [
+          "BULL"
+        ]
+      },
+      "description": "V3 Bull Only: Standard base breakout filtered strictly to Macro Bull regimes",
+      "best_metrics": {
+        "variant_id": "MULTITF_V3D_BULL_ONLY",
+        "partition": "HOLDOUT",
+        "period": "",
+        "N": 31,
+        "E[R]": 0.36,
+        "median_R": -1.0,
+        "profit_factor": 1.7,
+        "win_rate_pct": 45.2,
+        "CI_95": [
+          -0.169,
+          0.679
+        ],
+        "p_value": 0.1713,
+        "+1R_pct": 0.0,
+        "+1.5R_pct": 0.0,
+        "+2R_pct": 0.0,
+        "+3R_pct": 0.0,
+        "+5R_pct": 0.0,
+        "+10R_pct": 0.0,
+        "avg_MFE_R": 0.0,
+        "avg_MAE_R": 0.0,
+        "post_SL_recovery_pct": 0.0,
+        "positive_regimes": 1,
+        "regime_breakdown": {
+          "BULL": 0.36
+        }
+      },
+      "oos_partitions": 0
+    },
+    "active_challengers": 12,
+    "challengers": [
+      {
+        "variant_id": "MULTITF_CHALL_A_DAILY",
+        "scanner": "MULTI_TF",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "require_daily_alignment": true,
+          "h1_closed_candle": true
+        },
+        "description": "Challenger A: Require H1 + Daily trend alignment",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "MULTITF_CHALL_B_CONSOLIDATION",
+        "scanner": "MULTI_TF",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "max_m15_range_atr": 1.5,
+          "h1_closed_candle": true
+        },
+        "description": "Challenger B: M15 consolidation tightness < 1.5 x ATR",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "MULTITF_CHALL_C_REGIME",
+        "scanner": "MULTI_TF",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "allowed_regimes": [
+            "BULL",
+            "NEUTRAL"
+          ],
+          "h1_closed_candle": true
+        },
+        "description": "Challenger C: Regime filter \u2014 Bull/Neutral only",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "MULTITF_CHALL_D_EXT_22",
+        "scanner": "MULTI_TF",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "max_extension_atr": 2.2,
+          "h1_closed_candle": true
+        },
+        "description": "Challenger D: Relaxed extension gate <= 2.2 ATR",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "MULTITF_CHALL_E_EXT_25",
+        "scanner": "MULTI_TF",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "max_extension_atr": 2.5,
+          "h1_closed_candle": true
+        },
+        "description": "Challenger E: Relaxed extension gate <= 2.5 ATR",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "MULTITF_CHALL_F_EXT_30",
+        "scanner": "MULTI_TF",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "max_extension_atr": 3.0,
+          "h1_closed_candle": true
+        },
+        "description": "Challenger F: Wide extension gate <= 3.0 ATR",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "MULTITF_CHALL_G_COMPOSITE",
+        "scanner": "MULTI_TF",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "max_extension_atr": 2.5,
+          "max_upper_wick": 0.35,
+          "min_close_pos": 0.65,
+          "h1_closed_candle": true
+        },
+        "description": "Challenger G: Composite relaxed funnel (Ext <= 2.5 ATR, Wick <= 0.35, Close pos >= 0.65)",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "MULTITF_CHALL_H_TIGHT_BASE",
+        "scanner": "MULTI_TF",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "pre_breakout_contraction": true,
+          "max_extension_atr": 0.8,
+          "structural_stop": true
+        },
+        "description": "Challenger H: Pre-breakout H1/M15 contraction <= 1.2 ATR + Early Ignition (Ext <= 0.8 ATR) + Structural SL",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "MULTITF_CHALL_I_EARLY_IGNITION",
+        "scanner": "MULTI_TF",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "pre_breakout_contraction": true,
+          "max_extension_atr": 0.8,
+          "structural_stop": true,
+          "allowed_regimes": [
+            "BULL",
+            "NEUTRAL"
+          ]
+        },
+        "description": "Challenger I: Challenger H + Bull/Neutral Regime alignment",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "MULTITF_V3A_STANDARD",
+        "scanner": "MULTI_TF",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {
+          "base_bars": 20,
+          "max_base_atr": 1.8,
+          "max_comp": 0.8
+        },
+        "description": "V3 Standard: 20-bar intraday base <= 1.8 ATR + contraction <= 0.80 + volume >= 1.5x",
+        "best_metrics": {
+          "variant_id": "MULTITF_V3A_STANDARD",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 40,
+          "E[R]": 0.22,
+          "median_R": -1.0,
+          "profit_factor": 1.4,
+          "win_rate_pct": 40.0,
+          "CI_95": [
+            -0.284,
+            0.593
+          ],
+          "p_value": 0.327,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BEAR": 0.24,
+            "BULL": 0.36,
+            "NEUTRAL": -0.5
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "MULTITF_V3B_TIGHT_VCP",
+        "scanner": "MULTI_TF",
+        "status": "CHALLENGER",
+        "tier": "TIER3_CANDIDATE",
+        "live_allowed": false,
+        "parameters": {
+          "base_bars": 20,
+          "max_base_atr": 1.4,
+          "max_comp": 0.7
+        },
+        "description": "V3 Tight VCP: 20-bar intraday base <= 1.4 ATR + contraction <= 0.70 + volume >= 1.8x",
+        "best_metrics": {
+          "variant_id": "MULTITF_V3B_TIGHT_VCP",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 20,
+          "E[R]": 0.5,
+          "median_R": 0.5,
+          "profit_factor": 2.0,
+          "win_rate_pct": 50.0,
+          "CI_95": [
+            -0.1,
+            0.8
+          ],
+          "p_value": 0.1462,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BEAR": 2.0,
+            "BULL": 0.71,
+            "NEUTRAL": -0.4
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "MULTITF_V3C_MODERATE",
+        "scanner": "MULTI_TF",
+        "status": "CHALLENGER",
+        "tier": "TIER3_CANDIDATE",
+        "live_allowed": false,
+        "parameters": {
+          "base_bars": 15,
+          "max_base_atr": 2.0,
+          "max_comp": 0.85
+        },
+        "description": "V3 Moderate: 15-bar base <= 2.0 ATR + contraction <= 0.85 + volume >= 1.3x",
+        "best_metrics": {
+          "variant_id": "MULTITF_V3C_MODERATE",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 80,
+          "E[R]": 0.16,
+          "median_R": -1.0,
+          "profit_factor": 1.27,
+          "win_rate_pct": 40.0,
+          "CI_95": [
+            -0.185,
+            0.594
+          ],
+          "p_value": 0.3211,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 1,
+          "regime_breakdown": {
+            "BEAR": -0.39,
+            "BULL": 0.36,
+            "NEUTRAL": -0.07
+          }
+        },
+        "oos_partitions": 0
+      }
+    ]
+  },
+  {
+    "scanner": "PULLBACK",
+    "champion": {
+      "variant_id": "PULLBACK_CHALL_G_VOL_DRY_HYBRID",
+      "scanner": "PULLBACK",
+      "status": "CHAMPION",
+      "tier": "TIER3_CANDIDATE",
+      "live_allowed": false,
+      "parameters": {},
+      "description": "PULLBACK variant PULLBACK_CHALL_G_VOL_DRY_HYBRID",
+      "best_metrics": {
+        "variant_id": "PULLBACK_CHALL_G_VOL_DRY_HYBRID",
+        "partition": "HOLDOUT",
+        "period": "",
+        "N": 1805,
+        "E[R]": 0.33,
+        "median_R": -0.03,
+        "profit_factor": 1.77,
+        "win_rate_pct": 49.4,
+        "CI_95": [
+          0.271,
+          0.396
+        ],
+        "p_value": 0.0,
+        "+1R_pct": 0.0,
+        "+1.5R_pct": 0.0,
+        "+2R_pct": 0.0,
+        "+3R_pct": 0.0,
+        "+5R_pct": 0.0,
+        "+10R_pct": 0.0,
+        "avg_MFE_R": 0.0,
+        "avg_MAE_R": 0.0,
+        "post_SL_recovery_pct": 0.0,
+        "positive_regimes": 1,
+        "regime_breakdown": {
+          "BULL": 0.33
+        }
+      },
+      "oos_partitions": 0
+    },
+    "active_challengers": 14,
+    "challengers": [
+      {
+        "variant_id": "PULLBACK_CHALL_A_1_5ATR",
+        "scanner": "PULLBACK",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stop_model": "ATR_MULTIPLE",
+          "atr_period": 14,
+          "atr_multiple": 1.5
+        },
+        "description": "Challenger A: Stop = 1.5 x ATR_14",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "PULLBACK_CHALL_B_1_8ATR",
+        "scanner": "PULLBACK",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stop_model": "ATR_CLAMPED",
+          "atr_period": 14,
+          "atr_multiple": 1.8,
+          "clamp_min_pct": 4.5,
+          "clamp_max_pct": 7.5
+        },
+        "description": "Challenger B: Stop = 1.8 x ATR_14, clamped [4.5%, 7.5%]",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "PULLBACK_CHALL_C_2ATR_SHELF",
+        "scanner": "PULLBACK",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stop_model": "ATR_SWING_SHELF",
+          "atr_period": 14,
+          "atr_multiple": 2.0,
+          "swing_shelf_bars": 5
+        },
+        "description": "Challenger C: Stop = 2.0 x ATR_14 + anchored under swing pivot shelf",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "PULLBACK_CHALL_D_ADAPTIVE",
+        "scanner": "PULLBACK",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stop_model": "VOLATILITY_ADAPTIVE",
+          "vol_regime_col": "atr_pctile"
+        },
+        "description": "Challenger D: Volatility-regime adaptive stop",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "PULLBACK_CHALL_E_CONFIRMED_TURN",
+        "scanner": "PULLBACK",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stop_model": "VOLATILITY_ADAPTIVE",
+          "confirmation_candle": true
+        },
+        "description": "Challenger E: Volatility-adaptive stop + price action turn-up candle confirmation",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "PULLBACK_CHALL_A_BULL_CLOSE_2ATR",
+        "scanner": "PULLBACK",
+        "status": "CHALLENGER",
+        "tier": "TIER3_CANDIDATE",
+        "live_allowed": false,
+        "parameters": {},
+        "description": "PULLBACK variant PULLBACK_CHALL_A_BULL_CLOSE_2ATR",
+        "best_metrics": {
+          "variant_id": "PULLBACK_CHALL_A_BULL_CLOSE_2ATR",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 3605,
+          "E[R]": 0.29,
+          "median_R": -1.0,
+          "profit_factor": 1.54,
+          "win_rate_pct": 42.5,
+          "CI_95": [
+            0.227,
+            0.354
+          ],
+          "p_value": 0.0,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 1,
+          "regime_breakdown": {
+            "BULL": 0.3,
+            "NEUTRAL": -0.06
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "PULLBACK_CHALL_B_BULL_CLOSE_SHELF",
+        "scanner": "PULLBACK",
+        "status": "CHALLENGER",
+        "tier": "TIER3_CANDIDATE",
+        "live_allowed": false,
+        "parameters": {},
+        "description": "PULLBACK variant PULLBACK_CHALL_B_BULL_CLOSE_SHELF",
+        "best_metrics": {
+          "variant_id": "PULLBACK_CHALL_B_BULL_CLOSE_SHELF",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 3605,
+          "E[R]": 0.25,
+          "median_R": -0.3,
+          "profit_factor": 1.51,
+          "win_rate_pct": 45.2,
+          "CI_95": [
+            0.186,
+            0.305
+          ],
+          "p_value": 0.0,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 1,
+          "regime_breakdown": {
+            "BULL": 0.26,
+            "NEUTRAL": -0.07
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "PULLBACK_CHALL_C_PRIOR_HIGH_2ATR",
+        "scanner": "PULLBACK",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {},
+        "description": "PULLBACK variant PULLBACK_CHALL_C_PRIOR_HIGH_2ATR",
+        "best_metrics": {
+          "variant_id": "PULLBACK_CHALL_C_PRIOR_HIGH_2ATR",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 2009,
+          "E[R]": 0.23,
+          "median_R": -1.0,
+          "profit_factor": 1.4,
+          "win_rate_pct": 38.7,
+          "CI_95": [
+            0.169,
+            0.304
+          ],
+          "p_value": 0.0,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BULL": 0.24,
+            "NEUTRAL": 0.09
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "PULLBACK_CHALL_D_PRIOR_HIGH_SHELF",
+        "scanner": "PULLBACK",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {},
+        "description": "PULLBACK variant PULLBACK_CHALL_D_PRIOR_HIGH_SHELF",
+        "best_metrics": {
+          "variant_id": "PULLBACK_CHALL_D_PRIOR_HIGH_SHELF",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 2009,
+          "E[R]": 0.19,
+          "median_R": -0.41,
+          "profit_factor": 1.39,
+          "win_rate_pct": 44.2,
+          "CI_95": [
+            0.136,
+            0.25
+          ],
+          "p_value": 0.0,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BULL": 0.19,
+            "NEUTRAL": 0.09
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "PULLBACK_CHALL_E_EMA20_RECLAIM_2ATR",
+        "scanner": "PULLBACK",
+        "status": "CHALLENGER",
+        "tier": "TIER1_PROVEN",
+        "live_allowed": true,
+        "parameters": {},
+        "description": "PULLBACK variant PULLBACK_CHALL_E_EMA20_RECLAIM_2ATR",
+        "best_metrics": {
+          "variant_id": "PULLBACK_CHALL_E_EMA20_RECLAIM_2ATR",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 1024,
+          "E[R]": 0.33,
+          "median_R": -0.66,
+          "profit_factor": 1.64,
+          "win_rate_pct": 44.2,
+          "CI_95": [
+            0.233,
+            0.422
+          ],
+          "p_value": 0.0,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BULL": 0.34,
+            "NEUTRAL": 0.06
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "PULLBACK_CHALL_F_VOL_DRY_PRIOR_HIGH_SHELF",
+        "scanner": "PULLBACK",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {},
+        "description": "PULLBACK variant PULLBACK_CHALL_F_VOL_DRY_PRIOR_HIGH_SHELF",
+        "best_metrics": {
+          "variant_id": "PULLBACK_CHALL_F_VOL_DRY_PRIOR_HIGH_SHELF",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 870,
+          "E[R]": 0.23,
+          "median_R": -0.38,
+          "profit_factor": 1.46,
+          "win_rate_pct": 44.3,
+          "CI_95": [
+            0.11,
+            0.337
+          ],
+          "p_value": 0.0,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BULL": 0.23,
+            "NEUTRAL": 0.15
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "PULLBACK_CHALL_H_VOL_DRY_PRIOR_HIGH",
+        "scanner": "PULLBACK",
+        "status": "CHALLENGER",
+        "tier": "TIER3_CANDIDATE",
+        "live_allowed": false,
+        "parameters": {},
+        "description": "PULLBACK variant PULLBACK_CHALL_H_VOL_DRY_PRIOR_HIGH",
+        "best_metrics": {
+          "variant_id": "PULLBACK_CHALL_H_VOL_DRY_PRIOR_HIGH",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 851,
+          "E[R]": 0.23,
+          "median_R": -0.23,
+          "profit_factor": 1.48,
+          "win_rate_pct": 45.7,
+          "CI_95": [
+            0.112,
+            0.33
+          ],
+          "p_value": 0.0,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 1,
+          "regime_breakdown": {
+            "BULL": 0.23
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "PULLBACK_CHALL_I_STAGE2_PRIOR_HIGH",
+        "scanner": "PULLBACK",
+        "status": "CHALLENGER",
+        "tier": "TIER3_CANDIDATE",
+        "live_allowed": false,
+        "parameters": {},
+        "description": "PULLBACK variant PULLBACK_CHALL_I_STAGE2_PRIOR_HIGH",
+        "best_metrics": {
+          "variant_id": "PULLBACK_CHALL_I_STAGE2_PRIOR_HIGH",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 500,
+          "E[R]": 0.19,
+          "median_R": -0.23,
+          "profit_factor": 1.42,
+          "win_rate_pct": 45.4,
+          "CI_95": [
+            0.061,
+            0.311
+          ],
+          "p_value": 0.0009,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 1,
+          "regime_breakdown": {
+            "BULL": 0.2,
+            "NEUTRAL": -0.27
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "PULLBACK_CHALL_J_STAGE2_VOL_DRY_HYBRID",
+        "scanner": "PULLBACK",
+        "status": "CHALLENGER",
+        "tier": "TIER1_PROVEN",
+        "live_allowed": true,
+        "parameters": {},
+        "description": "PULLBACK variant PULLBACK_CHALL_J_STAGE2_VOL_DRY_HYBRID",
+        "best_metrics": {
+          "variant_id": "PULLBACK_CHALL_J_STAGE2_VOL_DRY_HYBRID",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 976,
+          "E[R]": 0.31,
+          "median_R": -0.04,
+          "profit_factor": 1.73,
+          "win_rate_pct": 49.2,
+          "CI_95": [
+            0.211,
+            0.425
+          ],
+          "p_value": 0.0,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BULL": 0.31,
+            "NEUTRAL": 0.91
+          }
+        },
+        "oos_partitions": 0
+      }
+    ]
+  },
+  {
+    "scanner": "REVERSAL",
+    "champion": {
+      "variant_id": "REVERSAL_CHAMPION_V1",
+      "scanner": "REVERSAL",
+      "status": "CHAMPION",
+      "tier": "TIER4_RESEARCH",
+      "live_allowed": false,
+      "parameters": {
+        "rsi_threshold": 35,
+        "min_drop_pct": 12.0
+      },
+      "description": "Baseline Reversal V1 (E[R]=+0.03R, PF=1.06 \u2014 raw oversold detection)",
+      "best_metrics": {
+        "variant_id": "REVERSAL_CHAMPION_V1",
+        "partition": "HOLDOUT",
+        "period": "",
+        "N": 5,
+        "E[R]": 0.04,
+        "median_R": -1.0,
+        "profit_factor": 1.05,
+        "win_rate_pct": 20.0,
+        "CI_95": [
+          0.036,
+          0.036
+        ],
+        "p_value": 0.9692,
+        "+1R_pct": 40.0,
+        "+1.5R_pct": 40.0,
+        "+2R_pct": 40.0,
+        "+3R_pct": 0.0,
+        "+5R_pct": 0.0,
+        "+10R_pct": 0.0,
+        "avg_MFE_R": 1.51,
+        "avg_MAE_R": 1.14,
+        "post_SL_recovery_pct": 40.0,
+        "positive_regimes": 1,
+        "regime_breakdown": {
+          "BEAR": 0.84,
+          "NEUTRAL": -1.17
+        }
+      },
+      "oos_partitions": 0
+    },
+    "active_challengers": 12,
+    "challengers": [
+      {
+        "variant_id": "REVERSAL_V2A_SWEEP_RECLAIM",
+        "scanner": "REVERSAL",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stage": "SWEEP_RECLAIM",
+          "min_sweep_depth_pct": 0.3,
+          "reclaim_confirmation_bars": 1
+        },
+        "description": "Challenger V2-A: Liquidity sweep + price reclaim above breakdown level",
+        "best_metrics": {
+          "variant_id": "REVERSAL_V2A_SWEEP_RECLAIM",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 5,
+          "E[R]": 0.04,
+          "median_R": -1.0,
+          "profit_factor": 1.05,
+          "win_rate_pct": 20.0,
+          "CI_95": [
+            0.036,
+            0.036
+          ],
+          "p_value": 0.9692,
+          "+1R_pct": 40.0,
+          "+1.5R_pct": 40.0,
+          "+2R_pct": 40.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 1.51,
+          "avg_MAE_R": 1.14,
+          "post_SL_recovery_pct": 40.0,
+          "positive_regimes": 1,
+          "regime_breakdown": {
+            "BEAR": 0.84,
+            "NEUTRAL": -1.17
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "REVERSAL_V2B_DISPLACEMENT",
+        "scanner": "REVERSAL",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stage": "SWEEP_RECLAIM_DISPLACEMENT",
+          "min_body_ratio": 0.5,
+          "min_close_position": 0.75
+        },
+        "description": "Challenger V2-B: V2-A + Bullish displacement candle",
+        "best_metrics": {
+          "variant_id": "REVERSAL_V2B_DISPLACEMENT",
+          "partition": "DEV",
+          "period": "",
+          "N": 1,
+          "E[R]": 2.5,
+          "median_R": 2.5,
+          "profit_factor": 99.0,
+          "win_rate_pct": 100.0,
+          "CI_95": [
+            2.5,
+            2.5
+          ],
+          "p_value": null,
+          "+1R_pct": 100.0,
+          "+1.5R_pct": 100.0,
+          "+2R_pct": 100.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 3.21,
+          "avg_MAE_R": 0.43,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 1,
+          "regime_breakdown": {
+            "NEUTRAL": 2.5
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "REVERSAL_V2C_HIGHER_LOW",
+        "scanner": "REVERSAL",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stage": "FULL_STRUCTURE",
+          "require_higher_low": true
+        },
+        "description": "Challenger V2-C: V2-B + structural Higher Low confirmation",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "REVERSAL_V2D_FULL_FUNNEL",
+        "scanner": "REVERSAL",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stage": "FULL_FUNNEL",
+          "min_rr_ratio": 2.5,
+          "allowed_regimes": [
+            "BULL",
+            "NEUTRAL"
+          ],
+          "require_higher_low": true
+        },
+        "description": "Challenger V2-D: Full 5-stage funnel + macro regime + R:R >= 2.5",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "REVERSAL_V21A_SWEEP_RECLAIM",
+        "scanner": "REVERSAL",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stage": "SWEEP_RECLAIM_MULTIBAR",
+          "reclaim_window_bars": 5,
+          "min_sweep_depth_pct": 0.3
+        },
+        "description": "Challenger V2.1-A: Multi-bar (1-5 bars) sweep persistence + price reclaim above swept level",
+        "best_metrics": {
+          "variant_id": "REVERSAL_V21A_SWEEP_RECLAIM",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 13,
+          "E[R]": 0.24,
+          "median_R": -0.17,
+          "profit_factor": 1.5,
+          "win_rate_pct": 38.5,
+          "CI_95": [
+            0.072,
+            0.324
+          ],
+          "p_value": 0.5569,
+          "+1R_pct": 38.5,
+          "+1.5R_pct": 38.5,
+          "+2R_pct": 30.8,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 1.38,
+          "avg_MAE_R": 0.84,
+          "post_SL_recovery_pct": 30.8,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BEAR": 0.23,
+            "BULL": 1.4,
+            "NEUTRAL": -0.08
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "REVERSAL_V21B_DISPLACEMENT",
+        "scanner": "REVERSAL",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stage": "SWEEP_RECLAIM_DISPLACEMENT_MULTIBAR",
+          "reclaim_window_bars": 5,
+          "min_body_ratio": 0.5,
+          "min_close_position": 0.7
+        },
+        "description": "Challenger V2.1-B: V2.1-A + Bullish displacement candle on reclaim bar",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "REVERSAL_V21C_HIGHER_LOW",
+        "scanner": "REVERSAL",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stage": "FULL_STRUCTURE_MULTIBAR",
+          "reclaim_window_bars": 5,
+          "require_higher_low": true
+        },
+        "description": "Challenger V2.1-C: V2.1-B + structural Higher Low confirmation",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "REVERSAL_V21D_FULL_FUNNEL",
+        "scanner": "REVERSAL",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stage": "FULL_FUNNEL_MULTIBAR",
+          "reclaim_window_bars": 5,
+          "min_rr_ratio": 2.5,
+          "allowed_regimes": [
+            "BULL",
+            "NEUTRAL"
+          ],
+          "require_higher_low": true
+        },
+        "description": "Challenger V2.1-D: Full 5-stage multi-bar funnel + macro regime + R:R >= 2.5",
+        "best_metrics": null,
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "REVERSAL_V22A_NO_BEAR",
+        "scanner": "REVERSAL",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stage": "SWEEP_RECLAIM_MULTIBAR",
+          "reclaim_window_bars": 5,
+          "allowed_regimes": [
+            "BULL",
+            "NEUTRAL"
+          ]
+        },
+        "description": "Challenger V2.2-A: V2.1 Multi-bar sweep + Macro Bear regime exclusion (Bull/Neutral only)",
+        "best_metrics": {
+          "variant_id": "REVERSAL_V22A_NO_BEAR",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 9,
+          "E[R]": 0.25,
+          "median_R": -0.05,
+          "profit_factor": 1.55,
+          "win_rate_pct": 44.4,
+          "CI_95": [
+            0.084,
+            0.932
+          ],
+          "p_value": 0.5876,
+          "+1R_pct": 33.3,
+          "+1.5R_pct": 33.3,
+          "+2R_pct": 33.3,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 1.27,
+          "avg_MAE_R": 0.84,
+          "post_SL_recovery_pct": 33.3,
+          "positive_regimes": 1,
+          "regime_breakdown": {
+            "BULL": 1.4,
+            "NEUTRAL": -0.08
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "REVERSAL_V22B_CAPITULATION",
+        "scanner": "REVERSAL",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stage": "SWEEP_RECLAIM_MULTIBAR",
+          "min_capitulation_rvol": 2.0,
+          "max_rsi": 30.0
+        },
+        "description": "Challenger V2.2-B: V2.1 Multi-bar + Panic capitulation volume (RVOL >= 2.0x or RSI < 30)",
+        "best_metrics": {
+          "variant_id": "REVERSAL_V22B_CAPITULATION",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 9,
+          "E[R]": 0.62,
+          "median_R": -0.05,
+          "profit_factor": 2.71,
+          "win_rate_pct": 44.4,
+          "CI_95": [
+            0.286,
+            0.932
+          ],
+          "p_value": 0.2443,
+          "+1R_pct": 44.4,
+          "+1.5R_pct": 44.4,
+          "+2R_pct": 44.4,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 1.59,
+          "avg_MAE_R": 0.73,
+          "post_SL_recovery_pct": 11.1,
+          "positive_regimes": 3,
+          "regime_breakdown": {
+            "BEAR": 0.64,
+            "BULL": 2.21,
+            "NEUTRAL": 0.29
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "REVERSAL_V22C_WIDER_SL",
+        "scanner": "REVERSAL",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stage": "SWEEP_RECLAIM_MULTIBAR",
+          "sl_buffer_atr": 0.5
+        },
+        "description": "Challenger V2.2-C: V2.1 Multi-bar + Buffered Stop Loss (Seq Low - 0.5x ATR)",
+        "best_metrics": {
+          "variant_id": "REVERSAL_V22C_WIDER_SL",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 13,
+          "E[R]": 0.26,
+          "median_R": -0.04,
+          "profit_factor": 1.55,
+          "win_rate_pct": 46.2,
+          "CI_95": [
+            0.184,
+            0.564
+          ],
+          "p_value": 0.5056,
+          "+1R_pct": 46.2,
+          "+1.5R_pct": 30.8,
+          "+2R_pct": 30.8,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 1.09,
+          "avg_MAE_R": 0.82,
+          "post_SL_recovery_pct": 23.1,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BEAR": -0.07,
+            "BULL": 1.23,
+            "NEUTRAL": 0.18
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "REVERSAL_V22D_COMPOSITE",
+        "scanner": "REVERSAL",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stage": "SWEEP_RECLAIM_MULTIBAR",
+          "sl_buffer_atr": 0.5,
+          "allowed_regimes": [
+            "BULL",
+            "NEUTRAL"
+          ],
+          "min_capitulation_rvol": 1.5
+        },
+        "description": "Challenger V2.2-D: Composite (Buffered SL + No-Bear + Capitulation Volume)",
+        "best_metrics": null,
+        "oos_partitions": 0
+      }
+    ]
+  },
+  {
+    "scanner": "ACCUMULATION_VCP",
+    "champion": {
+      "variant_id": "VCP_CHALL_G_RUNNER_EXPANSION",
+      "scanner": "ACCUMULATION_VCP",
+      "status": "CHAMPION",
+      "tier": "TIER3_CANDIDATE",
+      "live_allowed": false,
+      "parameters": {
+        "max_t3_tightness_pct": 8.0,
+        "min_thrust_vol_ratio": 1.8,
+        "allowed_regimes": [
+          "BULL",
+          "NEUTRAL"
+        ]
+      },
+      "description": "Challenger G: Moderate T3 <= 8.0% + Volume Thrust >= 1.8x in Bull/Neutral Regimes",
+      "best_metrics": {
+        "variant_id": "VCP_CHALL_G_RUNNER_EXPANSION",
+        "partition": "HOLDOUT",
+        "period": "",
+        "N": 23,
+        "E[R]": 0.29,
+        "median_R": 0.11,
+        "profit_factor": 3.9,
+        "win_rate_pct": 56.5,
+        "CI_95": [
+          0.199,
+          0.447
+        ],
+        "p_value": 0.0276,
+        "+1R_pct": 21.7,
+        "+1.5R_pct": 17.4,
+        "+2R_pct": 8.7,
+        "+3R_pct": 0.0,
+        "+5R_pct": 0.0,
+        "+10R_pct": 0.0,
+        "avg_MFE_R": 0.74,
+        "avg_MAE_R": 0.39,
+        "post_SL_recovery_pct": 0.0,
+        "positive_regimes": 1,
+        "regime_breakdown": {
+          "BULL": 0.29
+        }
+      },
+      "oos_partitions": 0
+    },
+    "active_challengers": 9,
+    "challengers": [
+      {
+        "variant_id": "VCP_CHALL_A_VOL_DRYUP",
+        "scanner": "ACCUMULATION_VCP",
+        "status": "CHALLENGER",
+        "tier": "TIER3_CANDIDATE",
+        "live_allowed": false,
+        "parameters": {
+          "vol_dry_up_ratio": 0.4
+        },
+        "description": "Challenger A: Require volume dry-up < 0.40 x SMA20",
+        "best_metrics": {
+          "variant_id": "VCP_CHALL_A_VOL_DRYUP",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 28,
+          "E[R]": 0.09,
+          "median_R": 0.1,
+          "profit_factor": 1.44,
+          "win_rate_pct": 57.1,
+          "CI_95": [
+            -0.119,
+            0.291
+          ],
+          "p_value": 0.4697,
+          "+1R_pct": 21.4,
+          "+1.5R_pct": 10.7,
+          "+2R_pct": 3.6,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.69,
+          "avg_MAE_R": 0.48,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 1,
+          "regime_breakdown": {
+            "BULL": 0.09
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "VCP_CHALL_B_TIGHTNESS",
+        "scanner": "ACCUMULATION_VCP",
+        "status": "CHALLENGER",
+        "tier": "TIER3_CANDIDATE",
+        "live_allowed": false,
+        "parameters": {
+          "base_tightness_pct": 12.0
+        },
+        "description": "Challenger B: Base tightness span < 12%",
+        "best_metrics": {
+          "variant_id": "VCP_CHALL_B_TIGHTNESS",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 17,
+          "E[R]": 0.03,
+          "median_R": -0.08,
+          "profit_factor": 1.15,
+          "win_rate_pct": 41.2,
+          "CI_95": [
+            -0.254,
+            0.414
+          ],
+          "p_value": 0.863,
+          "+1R_pct": 5.9,
+          "+1.5R_pct": 5.9,
+          "+2R_pct": 5.9,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.53,
+          "avg_MAE_R": 0.41,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 1,
+          "regime_breakdown": {
+            "BULL": 0.03
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "VCP_CHALL_C_COMBINED",
+        "scanner": "ACCUMULATION_VCP",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "vol_dry_up_ratio": 0.4,
+          "base_tightness_pct": 12.0,
+          "require_rs_breakout": true
+        },
+        "description": "Challenger C: Combined dry-up < 0.40 + tightness < 12% + RS breakout",
+        "best_metrics": {
+          "variant_id": "VCP_CHALL_C_COMBINED",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 4,
+          "E[R]": -0.18,
+          "median_R": -0.01,
+          "profit_factor": 0.34,
+          "win_rate_pct": 50.0,
+          "CI_95": [
+            -0.185,
+            -0.185
+          ],
+          "p_value": 0.5152,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.43,
+          "avg_MAE_R": 0.44,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 0,
+          "regime_breakdown": {
+            "BULL": -0.18
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "VCP_CHALL_D_T3_MODERATE",
+        "scanner": "ACCUMULATION_VCP",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {
+          "max_t3_tightness_pct": 8.0
+        },
+        "description": "Challenger D: Moderate contraction tightness (T3 <= 8.0%)",
+        "best_metrics": {
+          "variant_id": "VCP_CHALL_D_T3_MODERATE",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 36,
+          "E[R]": 0.2,
+          "median_R": 0.04,
+          "profit_factor": 2.53,
+          "win_rate_pct": 50.0,
+          "CI_95": [
+            0.072,
+            0.409
+          ],
+          "p_value": 0.0739,
+          "+1R_pct": 16.7,
+          "+1.5R_pct": 13.9,
+          "+2R_pct": 8.3,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.69,
+          "avg_MAE_R": 0.39,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BEAR": 0.12,
+            "BULL": 0.2
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "VCP_CHALL_E_EXPANSION_THRUST",
+        "scanner": "ACCUMULATION_VCP",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {
+          "max_t3_tightness_pct": 8.0,
+          "min_thrust_vol_ratio": 1.5
+        },
+        "description": "Challenger E: Moderate tightness T3 <= 8.0% + Breakout Volume >= 1.5x SMA20",
+        "best_metrics": {
+          "variant_id": "VCP_CHALL_E_EXPANSION_THRUST",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 32,
+          "E[R]": 0.16,
+          "median_R": 0.04,
+          "profit_factor": 2.24,
+          "win_rate_pct": 50.0,
+          "CI_95": [
+            0.063,
+            0.305
+          ],
+          "p_value": 0.1254,
+          "+1R_pct": 15.6,
+          "+1.5R_pct": 12.5,
+          "+2R_pct": 6.2,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.66,
+          "avg_MAE_R": 0.39,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BEAR": 0.12,
+            "BULL": 0.17
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "VCP_CHALL_F_REGIME_ALIGNED",
+        "scanner": "ACCUMULATION_VCP",
+        "status": "CHALLENGER",
+        "tier": "TIER3_CANDIDATE",
+        "live_allowed": false,
+        "parameters": {
+          "allowed_regimes": [
+            "BULL",
+            "NEUTRAL"
+          ]
+        },
+        "description": "Challenger F: VCP Baseline + Macro Regime filter (BULL and NEUTRAL only)",
+        "best_metrics": {
+          "variant_id": "VCP_CHALL_F_REGIME_ALIGNED",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 121,
+          "E[R]": 0.06,
+          "median_R": 0.03,
+          "profit_factor": 1.34,
+          "win_rate_pct": 51.2,
+          "CI_95": [
+            -0.037,
+            0.174
+          ],
+          "p_value": 0.2433,
+          "+1R_pct": 14.9,
+          "+1.5R_pct": 6.6,
+          "+2R_pct": 3.3,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.57,
+          "avg_MAE_R": 0.4,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 1,
+          "regime_breakdown": {
+            "BULL": 0.06
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "VCP_CHALL_H_TIGHT_THRUST",
+        "scanner": "ACCUMULATION_VCP",
+        "status": "CHALLENGER",
+        "tier": "TIER3_CANDIDATE",
+        "live_allowed": false,
+        "parameters": {
+          "max_t3_tightness_pct": 7.0,
+          "min_thrust_vol_ratio": 1.5,
+          "min_score": 75.0
+        },
+        "description": "Challenger H: Tight T3 <= 7.0% + Thrust >= 1.5x + Score >= 75",
+        "best_metrics": {
+          "variant_id": "VCP_CHALL_H_TIGHT_THRUST",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 22,
+          "E[R]": 0.13,
+          "median_R": -0.04,
+          "profit_factor": 1.88,
+          "win_rate_pct": 45.5,
+          "CI_95": [
+            0.002,
+            0.342
+          ],
+          "p_value": 0.3288,
+          "+1R_pct": 13.6,
+          "+1.5R_pct": 9.1,
+          "+2R_pct": 9.1,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.65,
+          "avg_MAE_R": 0.43,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 1,
+          "regime_breakdown": {
+            "BULL": 0.13
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "VCP_CHALL_I_RUNNER_SCALE_OUT",
+        "scanner": "ACCUMULATION_VCP",
+        "status": "CHALLENGER",
+        "tier": "TIER3_CANDIDATE",
+        "live_allowed": false,
+        "parameters": {},
+        "description": "ACCUMULATION_VCP variant VCP_CHALL_I_RUNNER_SCALE_OUT",
+        "best_metrics": {
+          "variant_id": "VCP_CHALL_I_RUNNER_SCALE_OUT",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 23,
+          "E[R]": 0.29,
+          "median_R": 0.11,
+          "profit_factor": 3.9,
+          "win_rate_pct": 56.5,
+          "CI_95": [
+            0.199,
+            0.447
+          ],
+          "p_value": 0.0276,
+          "+1R_pct": 21.7,
+          "+1.5R_pct": 17.4,
+          "+2R_pct": 8.7,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.74,
+          "avg_MAE_R": 0.39,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 1,
+          "regime_breakdown": {
+            "BULL": 0.29
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "VCP_CHALL_J_CHANDELIER_TRAIL",
+        "scanner": "ACCUMULATION_VCP",
+        "status": "CHALLENGER",
+        "tier": "TIER3_CANDIDATE",
+        "live_allowed": false,
+        "parameters": {},
+        "description": "ACCUMULATION_VCP variant VCP_CHALL_J_CHANDELIER_TRAIL",
+        "best_metrics": {
+          "variant_id": "VCP_CHALL_J_CHANDELIER_TRAIL",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 23,
+          "E[R]": 0.29,
+          "median_R": 0.11,
+          "profit_factor": 3.9,
+          "win_rate_pct": 56.5,
+          "CI_95": [
+            0.199,
+            0.447
+          ],
+          "p_value": 0.0276,
+          "+1R_pct": 21.7,
+          "+1.5R_pct": 17.4,
+          "+2R_pct": 8.7,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.74,
+          "avg_MAE_R": 0.39,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 1,
+          "regime_breakdown": {
+            "BULL": 0.29
+          }
+        },
+        "oos_partitions": 0
+      }
+    ]
+  },
+  {
+    "scanner": "WEALTH",
+    "champion": {
+      "variant_id": "WEALTH_CHAMPION_V1",
+      "scanner": "WEALTH",
+      "status": "CHAMPION",
+      "tier": "TIER1_PROVEN",
+      "live_allowed": true,
+      "parameters": {
+        "min_roe": 15.0,
+        "min_sales_growth": 12.0,
+        "rs_threshold": 70
+      },
+      "description": "Wealth Baseline: High ROE + Sales Growth + Momentum Filter",
+      "best_metrics": {
+        "variant_id": "WEALTH_CHAMPION_V1",
+        "partition": "HOLDOUT",
+        "period": "",
+        "N": 5037,
+        "E[R]": 0.32,
+        "median_R": -1.0,
+        "profit_factor": 1.53,
+        "win_rate_pct": 38.4,
+        "CI_95": [
+          0.245,
+          0.385
+        ],
+        "p_value": 0.0,
+        "+1R_pct": 0.0,
+        "+1.5R_pct": 0.0,
+        "+2R_pct": 0.0,
+        "+3R_pct": 0.0,
+        "+5R_pct": 0.0,
+        "+10R_pct": 0.0,
+        "avg_MFE_R": 0.0,
+        "avg_MAE_R": 0.0,
+        "post_SL_recovery_pct": 0.0,
+        "positive_regimes": 2,
+        "regime_breakdown": {
+          "BULL": 0.33,
+          "NEUTRAL": 0.19
+        }
+      },
+      "oos_partitions": 0
+    },
+    "active_challengers": 2,
+    "challengers": [
+      {
+        "variant_id": "WEALTH_CHALL_A_QUALITY_MOMENTUM",
+        "scanner": "WEALTH",
+        "status": "CHALLENGER",
+        "tier": "TIER1_PROVEN",
+        "live_allowed": true,
+        "parameters": {
+          "min_roe": 20.0,
+          "max_de": 0.5,
+          "rs_threshold": 75,
+          "above_200dma": true
+        },
+        "description": "Challenger A: ROE >= 20% + Low Debt-to-Equity + RS >= 75 + 200DMA Alignment",
+        "best_metrics": {
+          "variant_id": "WEALTH_CHALL_A_QUALITY_MOMENTUM",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 5037,
+          "E[R]": 0.32,
+          "median_R": -1.0,
+          "profit_factor": 1.53,
+          "win_rate_pct": 38.4,
+          "CI_95": [
+            0.245,
+            0.385
+          ],
+          "p_value": 0.0,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BULL": 0.33,
+            "NEUTRAL": 0.19
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "WEALTH_CHALL_B_STAGE2_CONVEXITY",
+        "scanner": "WEALTH",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "stage": 2,
+          "trailing_exit": "50DMA",
+          "earnings_accel": true
+        },
+        "description": "Challenger B: Stage 2 Growth + Trailing 50DMA Stop + Quarterly Earnings Acceleration",
+        "best_metrics": null,
+        "oos_partitions": 0
+      }
+    ]
+  },
+  {
+    "scanner": "MULTIBAGGER",
+    "champion": {
+      "variant_id": "MULTIBAGGER_CHAMPION_V1",
+      "scanner": "MULTIBAGGER",
+      "status": "CHAMPION",
+      "tier": "TIER2_VALIDATED",
+      "live_allowed": true,
+      "parameters": {
+        "market_cap_max_cr": 10000,
+        "eps_growth_min": 25.0
+      },
+      "description": "Multibagger Baseline: Micro/Mid-Cap Small Base Expansion + EPS Growth Spike",
+      "best_metrics": {
+        "variant_id": "MULTIBAGGER_CHAMPION_V1",
+        "partition": "HOLDOUT",
+        "period": "",
+        "N": 114,
+        "E[R]": 0.17,
+        "median_R": -1.0,
+        "profit_factor": 1.3,
+        "win_rate_pct": 36.8,
+        "CI_95": [
+          -0.128,
+          0.46
+        ],
+        "p_value": 0.2631,
+        "+1R_pct": 0.0,
+        "+1.5R_pct": 0.0,
+        "+2R_pct": 0.0,
+        "+3R_pct": 0.0,
+        "+5R_pct": 0.0,
+        "+10R_pct": 0.0,
+        "avg_MFE_R": 0.0,
+        "avg_MAE_R": 0.0,
+        "post_SL_recovery_pct": 0.0,
+        "positive_regimes": 2,
+        "regime_breakdown": {
+          "BEAR": -1.0,
+          "BULL": 0.2,
+          "NEUTRAL": 0.24
+        }
+      },
+      "oos_partitions": 0
+    },
+    "active_challengers": 2,
+    "challengers": [
+      {
+        "variant_id": "MULTIBAGGER_CHALL_A_CONVEX_CATALYST",
+        "scanner": "MULTIBAGGER",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {
+          "promoter_holding_min": 50.0,
+          "pledge_max": 5.0,
+          "vol_dry_up": true
+        },
+        "description": "Challenger A: Structural Turnaround + Institutional Accumulation + Volatility Coil",
+        "best_metrics": {
+          "variant_id": "MULTIBAGGER_CHALL_A_CONVEX_CATALYST",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 114,
+          "E[R]": 0.17,
+          "median_R": -1.0,
+          "profit_factor": 1.3,
+          "win_rate_pct": 36.8,
+          "CI_95": [
+            -0.128,
+            0.46
+          ],
+          "p_value": 0.2631,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BEAR": -1.0,
+            "BULL": 0.2,
+            "NEUTRAL": 0.24
+          }
+        },
+        "oos_partitions": 0
+      },
+      {
+        "variant_id": "MULTIBAGGER_CHALL_B_EXPANSION_SCALE",
+        "scanner": "MULTIBAGGER",
+        "status": "CHALLENGER",
+        "tier": "TIER4_RESEARCH",
+        "live_allowed": false,
+        "parameters": {
+          "multi_year_breakout": true,
+          "min_rs": 80,
+          "trailing_exit": "20EMA"
+        },
+        "description": "Challenger B: Industry Leader + Multi-Year Base Breakout + High Relative Strength",
+        "best_metrics": null,
+        "oos_partitions": 0
+      }
+    ]
+  },
+  {
+    "scanner": "DAILY_BUILDER",
+    "champion": {
+      "variant_id": "DAILY_BUILDER_CHAMPION_V1",
+      "scanner": "DAILY_BUILDER",
+      "status": "CHAMPION",
+      "tier": "TIER2_VALIDATED",
+      "live_allowed": true,
+      "parameters": {
+        "min_price": 20.0,
+        "min_turnover_cr": 1.0
+      },
+      "description": "Daily Builder Baseline: Vectorized 5-tier universe quality & stage scoring",
+      "best_metrics": {
+        "variant_id": "DAILY_BUILDER_CHAMPION_V1",
+        "partition": "HOLDOUT",
+        "period": "",
+        "N": 3429,
+        "E[R]": 0.22,
+        "median_R": -1.0,
+        "profit_factor": 1.43,
+        "win_rate_pct": 44.6,
+        "CI_95": [
+          0.166,
+          0.284
+        ],
+        "p_value": 0.0,
+        "+1R_pct": 0.0,
+        "+1.5R_pct": 0.0,
+        "+2R_pct": 0.0,
+        "+3R_pct": 0.0,
+        "+5R_pct": 0.0,
+        "+10R_pct": 0.0,
+        "avg_MFE_R": 0.0,
+        "avg_MAE_R": 0.0,
+        "post_SL_recovery_pct": 0.0,
+        "positive_regimes": 2,
+        "regime_breakdown": {
+          "BULL": 0.22,
+          "NEUTRAL": 0.21
+        }
+      },
+      "oos_partitions": 0
+    },
+    "active_challengers": 1,
+    "challengers": [
+      {
+        "variant_id": "DAILY_BUILDER_CHALL_A_PRISTINE_BASE",
+        "scanner": "DAILY_BUILDER",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {
+          "stage_filter": [
+            "1B",
+            "2A"
+          ],
+          "overhead_resistance_pct": 5.0
+        },
+        "description": "Challenger A: Stage 1B/2A Strict Base Filter + Zero Overhead Supply",
+        "best_metrics": {
+          "variant_id": "DAILY_BUILDER_CHALL_A_PRISTINE_BASE",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 3429,
+          "E[R]": 0.22,
+          "median_R": -1.0,
+          "profit_factor": 1.43,
+          "win_rate_pct": 44.6,
+          "CI_95": [
+            0.166,
+            0.284
+          ],
+          "p_value": 0.0,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BULL": 0.22,
+            "NEUTRAL": 0.21
+          }
+        },
+        "oos_partitions": 0
+      }
+    ]
+  },
+  {
+    "scanner": "SHORT_COVERING_EOD",
+    "champion": {
+      "variant_id": "SHORT_COVERING_CHAMPION_V1",
+      "scanner": "SHORT_COVERING_EOD",
+      "status": "CHAMPION",
+      "tier": "TIER2_VALIDATED",
+      "live_allowed": true,
+      "parameters": {
+        "delivery_spike_mult": 2.0,
+        "rsi_oversold": 35.0
+      },
+      "description": "Short Covering Baseline: Delivery Volume Spike + Heavy Capitulation Low Rebound",
+      "best_metrics": {
+        "variant_id": "SHORT_COVERING_CHAMPION_V1",
+        "partition": "HOLDOUT",
+        "period": "",
+        "N": 49,
+        "E[R]": 0.29,
+        "median_R": -0.84,
+        "profit_factor": 1.57,
+        "win_rate_pct": 46.9,
+        "CI_95": [
+          -0.065,
+          0.598
+        ],
+        "p_value": 0.153,
+        "+1R_pct": 0.0,
+        "+1.5R_pct": 0.0,
+        "+2R_pct": 0.0,
+        "+3R_pct": 0.0,
+        "+5R_pct": 0.0,
+        "+10R_pct": 0.0,
+        "avg_MFE_R": 0.0,
+        "avg_MAE_R": 0.0,
+        "post_SL_recovery_pct": 0.0,
+        "positive_regimes": 3,
+        "regime_breakdown": {
+          "BEAR": 0.39,
+          "BULL": 0.03,
+          "NEUTRAL": 0.42
+        }
+      },
+      "oos_partitions": 0
+    },
+    "active_challengers": 1,
+    "challengers": [
+      {
+        "variant_id": "SHORT_COVERING_CHALL_A_SQUEEZE_CONFIRMED",
+        "scanner": "SHORT_COVERING_EOD",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {
+          "delivery_spike_mult": 2.5,
+          "confirm_swing_break": true
+        },
+        "description": "Challenger A: High Delivery % + Break Above 5-Day High + Open Interest Reduction",
+        "best_metrics": {
+          "variant_id": "SHORT_COVERING_CHALL_A_SQUEEZE_CONFIRMED",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 49,
+          "E[R]": 0.29,
+          "median_R": -0.84,
+          "profit_factor": 1.57,
+          "win_rate_pct": 46.9,
+          "CI_95": [
+            -0.065,
+            0.598
+          ],
+          "p_value": 0.153,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 3,
+          "regime_breakdown": {
+            "BEAR": 0.39,
+            "BULL": 0.03,
+            "NEUTRAL": 0.42
+          }
+        },
+        "oos_partitions": 0
+      }
+    ]
+  },
+  {
+    "scanner": "MULTI_TF_5M",
+    "champion": {
+      "variant_id": "MULTITF_5M_CHAMPION_V1",
+      "scanner": "MULTI_TF_5M",
+      "status": "CHAMPION",
+      "tier": "TIER2_VALIDATED",
+      "live_allowed": true,
+      "parameters": {
+        "candle_timeframe": "5m",
+        "rvol_5m_min": 2.0
+      },
+      "description": "5M Monitor Baseline: 5m Candle Surge breaking 15m Consolidation Ceiling",
+      "best_metrics": {
+        "variant_id": "MULTITF_5M_CHAMPION_V1",
+        "partition": "HOLDOUT",
+        "period": "",
+        "N": 232,
+        "E[R]": 0.27,
+        "median_R": 0.13,
+        "profit_factor": 1.76,
+        "win_rate_pct": 54.3,
+        "CI_95": [
+          0.13,
+          0.418
+        ],
+        "p_value": 0.0002,
+        "+1R_pct": 0.0,
+        "+1.5R_pct": 0.0,
+        "+2R_pct": 0.0,
+        "+3R_pct": 0.0,
+        "+5R_pct": 0.0,
+        "+10R_pct": 0.0,
+        "avg_MFE_R": 0.0,
+        "avg_MAE_R": 0.0,
+        "post_SL_recovery_pct": 0.0,
+        "positive_regimes": 3,
+        "regime_breakdown": {
+          "BEAR": 0.39,
+          "BULL": 0.21,
+          "NEUTRAL": 0.43
+        }
+      },
+      "oos_partitions": 0
+    },
+    "active_challengers": 1,
+    "challengers": [
+      {
+        "variant_id": "MULTITF_5M_CHALL_A_TIGHT_COIL_IGNITION",
+        "scanner": "MULTI_TF_5M",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {
+          "rvol_5m_min": 3.0,
+          "above_vwap": true,
+          "max_opening_range_atr": 1.2
+        },
+        "description": "Challenger A: 5M Opening Range Breakout + RVOL >= 3.0x + VWAP Alignment",
+        "best_metrics": {
+          "variant_id": "MULTITF_5M_CHALL_A_TIGHT_COIL_IGNITION",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 232,
+          "E[R]": 0.27,
+          "median_R": 0.13,
+          "profit_factor": 1.76,
+          "win_rate_pct": 54.3,
+          "CI_95": [
+            0.13,
+            0.418
+          ],
+          "p_value": 0.0002,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 3,
+          "regime_breakdown": {
+            "BEAR": 0.39,
+            "BULL": 0.21,
+            "NEUTRAL": 0.43
+          }
+        },
+        "oos_partitions": 0
+      }
+    ]
+  },
+  {
+    "scanner": "TECHNICAL",
+    "champion": {
+      "variant_id": "TECHNICAL_CHAMPION_V1",
+      "scanner": "TECHNICAL",
+      "status": "CHAMPION",
+      "tier": "TIER2_VALIDATED",
+      "live_allowed": true,
+      "parameters": {
+        "min_confluence_score": 70,
+        "adx_min": 20.0
+      },
+      "description": "Technical Baseline: Classical Chart Pattern + Multi-Indicator Confluence",
+      "best_metrics": {
+        "variant_id": "TECHNICAL_CHAMPION_V1",
+        "partition": "HOLDOUT",
+        "period": "",
+        "N": 141,
+        "E[R]": 0.23,
+        "median_R": -1.0,
+        "profit_factor": 1.45,
+        "win_rate_pct": 46.1,
+        "CI_95": [
+          0.003,
+          0.409
+        ],
+        "p_value": 0.0438,
+        "+1R_pct": 0.0,
+        "+1.5R_pct": 0.0,
+        "+2R_pct": 0.0,
+        "+3R_pct": 0.0,
+        "+5R_pct": 0.0,
+        "+10R_pct": 0.0,
+        "avg_MFE_R": 0.0,
+        "avg_MAE_R": 0.0,
+        "post_SL_recovery_pct": 0.0,
+        "positive_regimes": 2,
+        "regime_breakdown": {
+          "BEAR": 0.38,
+          "BULL": 0.27,
+          "NEUTRAL": -0.12
+        }
+      },
+      "oos_partitions": 0
+    },
+    "active_challengers": 1,
+    "challengers": [
+      {
+        "variant_id": "TECHNICAL_CHALL_A_HIGH_CONFLUENCE",
+        "scanner": "TECHNICAL",
+        "status": "CHALLENGER",
+        "tier": "TIER2_VALIDATED",
+        "live_allowed": true,
+        "parameters": {
+          "min_confluence_score": 80,
+          "supertrend_bull": true,
+          "macd_hist_positive": true
+        },
+        "description": "Challenger A: High Confluence Score >= 80 + Supertrend Alignment + MACD Expansion",
+        "best_metrics": {
+          "variant_id": "TECHNICAL_CHALL_A_HIGH_CONFLUENCE",
+          "partition": "HOLDOUT",
+          "period": "",
+          "N": 141,
+          "E[R]": 0.23,
+          "median_R": -1.0,
+          "profit_factor": 1.45,
+          "win_rate_pct": 46.1,
+          "CI_95": [
+            0.003,
+            0.409
+          ],
+          "p_value": 0.0438,
+          "+1R_pct": 0.0,
+          "+1.5R_pct": 0.0,
+          "+2R_pct": 0.0,
+          "+3R_pct": 0.0,
+          "+5R_pct": 0.0,
+          "+10R_pct": 0.0,
+          "avg_MFE_R": 0.0,
+          "avg_MAE_R": 0.0,
+          "post_SL_recovery_pct": 0.0,
+          "positive_regimes": 2,
+          "regime_breakdown": {
+            "BEAR": 0.38,
+            "BULL": 0.27,
+            "NEUTRAL": -0.12
+          }
+        },
+        "oos_partitions": 0
+      }
+    ]
+  }
+]

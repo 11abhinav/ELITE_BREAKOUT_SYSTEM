@@ -1496,6 +1496,26 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_scanner ON alert_outcomes(scanner)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_outcomes_regime ON alert_outcomes(regime)")
 
+                # [INSTITUTIONAL ALERT QUALITY & EXCURSION TELEMETRY] Safe column migrations
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS r1_hit_before_sl BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS r1_5_hit_before_sl BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS r2_hit_before_sl BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS same_bar_conflict BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS post_sl_min_excursion_r NUMERIC(5, 2) DEFAULT 0.0")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS post_sl_recovered_entry BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS post_sl_recovered_t1 BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS post_sl_max_recovery_r NUMERIC(5, 2) DEFAULT 0.0")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS post_sl_recovery_bars INTEGER DEFAULT 0")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS event_risk BOOLEAN DEFAULT FALSE")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS live_trade_allowed BOOLEAN DEFAULT TRUE")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS signal_generated BOOLEAN DEFAULT TRUE")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS sector_regime TEXT DEFAULT 'NEUTRAL'")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS sector_relative_strength NUMERIC(5, 2) DEFAULT 50.0")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS stock_vs_sector_rs NUMERIC(5, 2) DEFAULT 0.0")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS slippage_pct NUMERIC(5, 2) DEFAULT 0.0")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS gap_pct NUMERIC(5, 2) DEFAULT 0.0")
+                cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS circuit_dist_pct NUMERIC(5, 2) DEFAULT 999.0")
+
                 # 31. sector_rankings
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS sector_rankings (

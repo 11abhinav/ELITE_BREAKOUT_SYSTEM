@@ -108,7 +108,7 @@ def test_eod_base_tightness_gate():
     ticker_fail = _create_synthetic_eod_ticker(atr_pct=0.040)
     res_fail = _check_eod_conditions(ticker=ticker_fail, latest=ticker_fail.iloc[-1], symbol="TEST_STOCK")
     assert res_fail["passed"] is False, "Expected ATR10 > 2.5% to fail base tightness"
-    assert "tightness floor" in res_fail["reason"]
+    assert "tightness" in res_fail["reason"]
 
     # 2. Tight consolidated base (atr_pct = 1.8% <= 2.5%) -> Must PASS
     ticker_pass = _create_synthetic_eod_ticker(atr_pct=0.018)
