@@ -15,7 +15,7 @@ import time
 import logging
 import threading
 import pandas as pd
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any, List, Union
 import json
 from config import ACTIVE_ALGO_VERSION, DATA_DIR
 _last_parquet_upload = 0

@@ -20,6 +20,7 @@
 
 import logging
 import os
+import time
 import json
 import sqlite3
 import math
@@ -1121,12 +1122,15 @@ class MasterOrchestratorV2:
         if not rows:
             is_fallback = True
             query_fb = """
-                SELECT id, symbol, scanner_name as scanner, state as breakout_type, created_at as alert_time,
-                       entry_price, stop_loss, target_1, target_2, quality_score, rsi, volume_surge as volume_ratio,
-                       why_qualifies as signals, pattern_name, last_seen_price as cmp
+                SELECT candidate_id AS id, symbol, scanner_name AS scanner, state AS breakout_type,
+                       COALESCE(detected_at, created_at, NOW()) AS alert_time,
+                       trigger_level AS entry_price, stop_loss, target_1, target_2, target_3,
+                       quality_score, NULL::numeric AS rsi, last_seen_volume AS volume_ratio,
+                       COALESCE(last_change_summary, status_reason, setup_type) AS signals,
+                       setup_type AS pattern_name, last_seen_price AS cmp
                 FROM scanner_candidates
-                WHERE state IN ('CANDIDATE', 'ARMED', 'DEVELOPING') AND COALESCE(quality_score, 75) >= 70.0
-                ORDER BY created_at DESC
+                WHERE state IN ('CANDIDATE', 'ARMED', 'DEVELOPING', 'WATCH') AND COALESCE(quality_score, 75) >= 70.0
+                ORDER BY COALESCE(detected_at, created_at) DESC
                 LIMIT 200
             """
             rows = self._run_query(query_fb)
@@ -1230,13 +1234,17 @@ class MasterOrchestratorV2:
         # 2. Query scanner_candidates
         if len(scanners_breakdown) < 4:
             query_cand = """
-                SELECT id, symbol, scanner_name as scanner, state as breakout_type, created_at as alert_time,
-                       entry_price, stop_loss, target_1, target_2, quality_score as score, rsi,
-                       volume_surge as volume_ratio, why_qualifies as signals, pattern_name,
-                       last_seen_price as cmp
+                SELECT candidate_id AS id, symbol, scanner_name AS scanner, state AS breakout_type,
+                       COALESCE(detected_at, created_at, NOW()) AS alert_time,
+                       trigger_level AS entry_price, stop_loss, target_1, target_2, target_3,
+                       quality_score AS score, NULL::numeric AS rsi,
+                       last_seen_volume AS volume_ratio,
+                       COALESCE(last_change_summary, status_reason, setup_type) AS signals,
+                       setup_type AS pattern_name,
+                       last_seen_price AS cmp
                 FROM scanner_candidates
                 WHERE symbol IN (%s, %s)
-                ORDER BY created_at DESC
+                ORDER BY COALESCE(detected_at, created_at) DESC
                 LIMIT 30
             """
             cand_rows = self._run_query(query_cand, params=(symbol, symbol_clean))

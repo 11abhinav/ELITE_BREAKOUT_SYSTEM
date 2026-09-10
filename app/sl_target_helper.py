@@ -1109,9 +1109,14 @@ def _compute_multi_tf_v2(entry: float, eff_atr: float, ticker: pd.DataFrame = No
         target_basis = "2R_Measured_Move"
         t1_source = "MEASURED_MOVE"
 
-    rr = (t1 - entry) / effective_risk
+    rr = (t1 - entry) / effective_risk if effective_risk > 0 else 0.0
 
-    # 3. Validation Gate via TradeStructureValidator
+    # 3. Fib Extensions for T2/T3 based on the T1 structure
+    t1_dist = max(t1 - entry, 0.01)
+    t2 = round(entry + (t1_dist * 1.618), 2)
+    t3 = round(entry + (t1_dist * 2.618), 2)
+
+    # 4. Validation Gate via TradeStructureValidator
     validation = TradeStructureValidator.validate(
         entry=entry,
         stop_loss=sl,
@@ -1127,11 +1132,6 @@ def _compute_multi_tf_v2(entry: float, eff_atr: float, ticker: pd.DataFrame = No
     )
 
     is_rejected = not validation.get("is_valid", False)
-
-    # 4. Fib Extensions for T2/T3 based on the T1 structure
-    t1_dist = max(t1 - entry, 0.01)
-    t2 = round(entry + (t1_dist * 1.618), 2)
-    t3 = round(entry + (t1_dist * 2.618), 2)
 
     return {
         "entry": entry,

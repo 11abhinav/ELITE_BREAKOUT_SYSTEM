@@ -1962,7 +1962,7 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
             logger.info(f"✅ [COMPLETE] MULTI-TF LADDER DONE | {elapsed_time:.2f}s | Status=OK")
             logger.info("=========================================")
 
-            status = "OK" if market_open else "IDLE"
+            status = "OK" if is_active_window else "IDLE"
             error_msg = None
             
             total_stale = (metrics_a.get("stale", 0) + metrics_b.get("stale", 0))
