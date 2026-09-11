@@ -494,18 +494,47 @@ We investigated whether a morning Daily Builder Gem (09:35 IST) retains predicti
 
 ---
 
-## 21. Certified Artifact Directory Reference
+---
+
+## 22. V5.25 Daily Builder Two-Stage EOD Catalyst Survival & Exhaustion Architecture
+
+### A. Paradigm Shift: From Single-Point Breakout to Two-Stage Certification
+- **Stage 1 (Morning Discovery 09:15--11:30 IST)**: `ORB20` / `ORB30` + Top 10--20% Quality Gate identifies institutional momentum ignition candidates.
+- **Stage 2 (EOD Certification 15:30 IST)**: Evaluates structural survival vs climax exhaustion via Close Location Value ($CLV = (C-L)/(H-L) \ge 0.70$), ATR Extension ($\le 3.2R$), Retracement depth ($\le 30\%$), and Volume retention ($\ge 1.1x$).
+
+### B. The 4 EOD Catalyst Survival States (500-Day Forensic Validation)
+| Catalyst State | % of Days | Win Rate (%) | Net Expectancy ($E[R]$) | Profit Factor | Production Mandate |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **🟢 CATALYST_SURVIVED** | **4.7%** | **89.2%** | **`+0.857R`** | **`12.08`** | **🏆 High-Priority Swing Alert ($1.50R$ Size)** |
+| **🟡 CATALYST_COOLING** | **11.4%** | **69.9%** | **`+0.322R`** | **`2.90`** | **🟡 Standard Sizing ($1.00R$ Size)** |
+| **🔴 CATALYST_EXHAUSTED** | **7.5%** | **34.7%** | **`-0.209R`** | **`0.46`** | **❌ STRICT VETO (Exhaustion Drag Removed)** |
+| **⚪ NO_CATALYST (Organic)** | **76.4%** | **73.8%** | **`+0.382R`** | **`3.38`** | **⚪ Clean Organic Baseline ($1.00R$ Size)** |
+
+### C. Head-to-Head Out-of-Sample Results
+- **Naive EOD Gem Carry (Buy All Morning Gems)**: $62.5\%$ WR | $+0.259R$ E[R] | PF $2.17$ (❌ Dragged down by $34.7\%$ exhausted climax cohort).
+- **Two-Stage Daily Builder (`CATALYST_SURVIVED` Only)**: **$89.2\%$ WR | $+0.857R$ E[R] | PF $12.08$** (🏆 **$+0.598R$ Net Alpha Lift, PF expands $2.17 \to 12.08$**).
+- **Clean Standalone Baseline**: $73.8\%$ WR | $+0.382R$ E[R] | PF $3.38$.
+
+### D. Cross-Scanner Contextual Provider Matrix
+- **`CATALYST_SURVIVED` Context** $\longrightarrow$ Multiplies continuation expectancy for `Pullback V2` (**$+0.880R$, PF 5.10**) and `Multibagger` (**$+1.240R$, PF 4.45**).
+- **`CATALYST_EXHAUSTED` Context** $\longrightarrow$ Powers `Reversal` climax fades (**$+0.890R$, PF 5.40**) while **strictly vetoing continuation breakout chases** ($-0.220R$).
+
+---
+
+## 23. Certified Artifact Directory Reference
 
 - [docs/MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/docs/MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md) (Master Canonical Document)
+- [reports/v525_daily_builder_catalyst_survival_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v525_daily_builder_catalyst_survival_report.md)
+- [reports/v525_catalyst_survival_state_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v525_catalyst_survival_state_matrix.csv)
+- [reports/v525_daily_builder_head_to_head_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v525_daily_builder_head_to_head_matrix.csv)
+- [reports/v525_cross_scanner_catalyst_context_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v525_cross_scanner_catalyst_context_matrix.csv)
+- [reports/v524_afterhours_scanner_gem_carry_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v524_afterhours_scanner_gem_carry_certification_report.md)
+- [reports/v524_afterhours_counterfactual_replay_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v524_afterhours_counterfactual_replay_matrix.csv)
 - [reports/v523_market_catalyst_regime_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v523_market_catalyst_regime_report.md)
-- [reports/v523_market_catalyst_score_distribution.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v523_market_catalyst_score_distribution.csv)
-- [reports/v523_scanner_regime_response_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v523_scanner_regime_response_matrix.csv)
-- [reports/v523_fresh_vs_exhausted_eod_filter_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v523_fresh_vs_exhausted_eod_filter_matrix.csv)
-- [reports/v523_multiday_regime_persistence_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v523_multiday_regime_persistence_matrix.csv)
-- [reports/v523_production_regime_policy_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v523_production_regime_policy_matrix.csv)
-- [engine/production/v523_market_catalyst_regime_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v523_market_catalyst_regime_engine.py)
 - [reports/v522_gem_temporal_validity_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v522_gem_temporal_validity_certification_report.md)
-- [reports/v521_final_forward_validation_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v521_final_forward_validation_report.md)
+- [engine/production/v523_market_catalyst_regime_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v523_market_catalyst_regime_engine.py)
+- [engine/production/v520_gem_router_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v520_gem_router_engine.py)
+
 
 
 
