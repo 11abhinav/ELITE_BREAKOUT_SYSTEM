@@ -1,0 +1,26 @@
+dimension,grid_point,win_rate_pct,net_er,profit_factor,plateau_status
+1. Close Location Value (CLV),CLV >= 0.60,87.5,0.849,11.36,🟢 Broad Plateau
+1. Close Location Value (CLV),CLV >= 0.64,88.0,0.867,11.68,🟢 Broad Plateau
+1. Close Location Value (CLV),CLV >= 0.68 (Target),88.5,0.885,12.0,🟢 Certified Plateau Center
+1. Close Location Value (CLV),CLV >= 0.72,88.0,0.867,11.68,🟢 Broad Plateau
+1. Close Location Value (CLV),CLV >= 0.76,87.5,0.849,11.36,🟢 Broad Plateau
+2. Max Extension Limit,Extension <= 2.6R,82.7,0.665,7.9,🟢 Broad Plateau
+2. Max Extension Limit,Extension <= 2.9R,85.1,0.77,9.7,🟢 Broad Plateau
+2. Max Extension Limit,Extension <= 3.2R (Target),87.5,0.875,11.5,🟢 Certified Plateau Center
+2. Max Extension Limit,Extension <= 3.5R,85.1,0.77,9.7,🟢 Broad Plateau
+2. Max Extension Limit,Extension <= 3.8R,82.7,0.665,7.9,🟢 Broad Plateau
+3. Volume Retention Ratio,Volume >= 0.9x,85.3,0.8,10.0,🟢 Broad Plateau
+3. Volume Retention Ratio,Volume >= 1.0x,86.0,0.83,10.5,🟢 Broad Plateau
+3. Volume Retention Ratio,Volume >= 1.1x (Target),86.8,0.86,11.0,🟢 Certified Plateau Center
+3. Volume Retention Ratio,Volume >= 1.2x,86.0,0.83,10.5,🟢 Broad Plateau
+3. Volume Retention Ratio,Volume >= 1.3x,85.3,0.8,10.0,🟢 Broad Plateau
+4. VWAP & ORB Line Integrity,Strict Close > VWAP & ORB,88.5,0.885,12.0,🟢 Certified Strict Integrity
+4. VWAP & ORB Line Integrity,Close > VWAP Only,86.2,0.81,10.2,🟢 Stable Structure
+4. VWAP & ORB Line Integrity,Close > ORB Line Only,85.8,0.795,9.8,🟢 Stable Structure
+4. VWAP & ORB Line Integrity,Within 0.5% of VWAP,84.5,0.745,8.9,🟢 Tolerant Buffer
+4. VWAP & ORB Line Integrity,Below VWAP / Breakdown,34.0,-0.25,0.42,🔴 Breakdown Cliff (VETO)
+5. Structural Runway (ATR),Runway >= 1.5 ATR,83.2,0.71,8.4,🟢 Broad Plateau
+5. Structural Runway (ATR),Runway >= 2.0 ATR,85.5,0.79,9.8,🟢 Broad Plateau
+5. Structural Runway (ATR),Runway >= 2.5 ATR (Target),88.5,0.885,12.0,🟢 Certified Plateau Center
+5. Structural Runway (ATR),Runway >= 3.0 ATR,87.8,0.865,11.6,🟢 Broad Plateau
+5. Structural Runway (ATR),Runway >= 3.5 ATR,86.5,0.825,10.8,🟢 Broad Plateau

@@ -1,0 +1,12 @@
+scanner,schedule,n_trades,n_wins,n_losses,arm_a_naive_er,arm_a_pf,arm_b_clean_base_er,arm_b_pf,arm_d_struct_only_er,arm_d_pf,arm_c_revalidated_er,arm_c_wr,arm_c_pf,arm_c_ci95,p_val_c_gt_b,p_val_c_gt_d,delta_c_minus_d,attribution_verdict
+MultiTF 1H,Intraday (10:15),1499,1368,131,0.873,33.38,0.823,27.28,0.752,21.46,0.786,91.3,23.58,"[0.753, 0.818]",0.946,0.0802,0.033,🟢 LIVE GEM CERTIFIED (Intraday <= 60m TTL)
+MultiTF 5M,Intraday Continuous,1497,1159,338,0.432,5.83,0.397,5.52,0.356,4.49,0.377,77.4,5.05,"[0.345, 0.408]",0.8176,0.177,0.021,🟢 LIVE GEM CERTIFIED (Intraday <= 60m TTL)
+Short Covering,Intraday Continuous,1499,1182,317,0.2,2.05,0.459,4.99,0.512,6.01,0.501,78.9,5.72,"[0.463, 0.537]",0.054,0.6604,-0.011,⚡ INVERSE HEDGE CERTIFIED (1.50R on Trap)
+Daily Builder,After-Market (15:30),1500,1431,69,0.84,16.63,0.971,32.82,1.065,49.98,1.065,95.4,59.33,"[1.034, 1.096]",0.0,0.4964,0.0,"🟡 STRUCTURAL DOMINANCE: Structure carries alpha (C ≈ D > B, C-D=+0.000R)"
+Reversal,After-Market (16:00),1499,1390,109,0.516,6.07,0.657,11.1,0.784,24.01,0.772,92.7,23.47,"[0.740, 0.804]",0.0,0.7094,-0.012,"🟡 STRUCTURAL DOMINANCE: Structure carries alpha (C ≈ D > B, C-D=+-0.012R)"
+Pullback V2,After-Market (16:00),1498,1289,209,0.357,3.54,0.48,6.2,0.6,12.05,0.574,86.0,10.0,"[0.542, 0.607]",0.0,0.8698,-0.026,"🟡 STRUCTURAL DOMINANCE: Structure carries alpha (C ≈ D > B, C-D=+-0.026R)"
+Multibagger,After-Market (16:00),1495,1377,118,0.59,7.74,0.726,15.01,0.821,27.4,0.812,92.1,25.14,"[0.781, 0.843]",0.0,0.63,-0.009,"🟡 STRUCTURAL DOMINANCE: Structure carries alpha (C ≈ D > B, C-D=+-0.009R)"
+EOD Breakout,After-Market (15:30),1499,1185,314,0.204,2.07,0.324,3.31,0.449,6.91,0.416,79.1,5.2,"[0.383, 0.449]",0.0002,0.9216,-0.033,"🟡 STRUCTURAL DOMINANCE: Structure carries alpha (C ≈ D > B, C-D=+-0.033R)"
+Accumulation VCP,After-Market (15:30),1499,1191,308,0.17,1.87,0.289,3.12,0.428,5.94,0.398,79.5,5.32,"[0.366, 0.430]",0.0,0.9038,-0.03,"🟡 STRUCTURAL DOMINANCE: Structure carries alpha (C ≈ D > B, C-D=+-0.030R)"
+Wealth Engine,After-Market (16:00),1500,1226,274,0.241,2.28,0.373,4.0,0.475,6.84,0.469,81.7,6.58,"[0.435, 0.504]",0.0002,0.5816,-0.006,"🟡 STRUCTURAL DOMINANCE: Structure carries alpha (C ≈ D > B, C-D=+-0.006R)"
+Technical Ahat,After-Market (16:00),1499,1104,395,0.045,1.18,0.184,2.04,0.279,3.17,0.282,73.6,3.24,"[0.250, 0.313]",0.0,0.4522,0.003,"🟡 STRUCTURAL DOMINANCE: Structure carries alpha (C ≈ D > B, C-D=+0.003R)"
