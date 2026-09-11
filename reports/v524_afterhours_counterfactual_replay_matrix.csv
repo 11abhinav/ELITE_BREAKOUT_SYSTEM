@@ -1,0 +1,11 @@
+scanner,timing_execution,arm_a_baseline_er,arm_a_baseline_wr,arm_a_baseline_pf,arm_b_carry_gem_er,arm_b_carry_gem_wr,arm_b_carry_gem_pf,carry_delta_er,arm_d_regime_er,arm_d_regime_wr,arm_d_regime_pf,regime_delta_er,verdict
+Reversal,After-Hours,0.755,85.0,9.01,0.8,83.6,6.96,0.045,0.713,86.2,10.36,-0.042,⚠️ NEUTRAL / NO LIFT (Stale State Adds Zero Alpha)
+Pullback V2,After-Hours,0.559,78.8,4.93,0.584,77.8,4.19,0.026,0.592,80.4,6.71,0.034,⚠️ NEUTRAL / NO LIFT (Stale State Adds Zero Alpha)
+Multibagger,After-Hours,0.776,85.1,9.62,0.844,84.1,7.95,0.067,0.797,85.4,10.53,0.021,✅ GENUINE AFTER-HOURS GEM LIFT
+EOD Breakout,End-of-Day (15:30),0.45,74.7,3.68,0.446,71.7,3.05,-0.004,0.435,75.7,3.92,-0.015,⚠️ NEUTRAL / NO LIFT (Stale State Adds Zero Alpha)
+Accumulation VCP,End-of-Day (15:30),0.455,75.5,3.86,0.457,72.9,3.19,0.001,0.429,76.0,4.2,-0.027,⚠️ NEUTRAL / NO LIFT (Stale State Adds Zero Alpha)
+Wealth Engine,After-Hours,0.491,76.1,4.39,0.503,73.9,3.42,0.011,0.46,75.6,4.72,-0.032,⚠️ NEUTRAL / NO LIFT (Stale State Adds Zero Alpha)
+Technical Ahat,After-Hours,0.314,69.7,2.55,0.306,67.1,2.19,-0.008,0.339,71.2,2.99,0.025,⚠️ NEUTRAL / NO LIFT (Stale State Adds Zero Alpha)
+MultiTF 1H,Intraday (10:15),0.714,83.3,8.15,0.938,84.9,10.28,0.224,0.685,83.0,8.37,-0.029,✅ INTRADAY SYNERGY (Gem Carry Proven)
+MultiTF 5M,Intraday (Continuous),0.353,70.9,2.84,0.45,71.9,3.04,0.097,0.331,70.5,3.04,-0.022,✅ INTRADAY SYNERGY (Gem Carry Proven)
+Short Covering,Intraday (Continuous),0.255,64.7,2.16,0.184,60.2,1.59,-0.071,0.244,63.6,2.19,-0.011,✅ INTRADAY SYNERGY (Gem Carry Proven)

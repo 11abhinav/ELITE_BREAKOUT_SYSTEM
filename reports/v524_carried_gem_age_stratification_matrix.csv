@@ -1,0 +1,11 @@
+scanner,age_bucket,trade_count,win_rate_pct,net_er
+Reversal,stale_gt_180m_afterhours,516,79.1,0.542
+Pullback V2,stale_gt_180m_afterhours,518,68.7,0.333
+Multibagger,stale_gt_180m_afterhours,545,80.6,0.589
+EOD Breakout,stale_gt_180m_afterhours,559,64.2,0.276
+Accumulation VCP,stale_gt_180m_afterhours,504,67.3,0.305
+Wealth Engine,stale_gt_180m_afterhours,517,67.7,0.297
+Technical Ahat,stale_gt_180m_afterhours,539,57.7,0.142
+MultiTF 1H,fresh_le_60m,525,90.5,1.047
+MultiTF 5M,fresh_le_60m,524,76.9,0.45
+Short Covering,fresh_le_60m,543,47.1,-0.005
