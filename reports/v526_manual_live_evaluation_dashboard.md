@@ -1,66 +1,68 @@
 # V5.26 Live Shadow Telemetry & Manual Evaluation Dashboard
 
 **Configuration Version**: `V5.26_SHADOW`  
-**Generated At**: `2026-09-11T12:36:58.442547`  
+**Generated At**: `2026-09-11T12:46:42.428220`  
 **Source Telemetry Database**: `data/shadow_telemetry.db`  
 
 ---
 
-## 1. Executive Shadow Comparison Summary
-- Total Live Candidates Audited: `154`
-- Old Legacy Status (Arm A): Blind Gem Carry applied to all morning alerts.
-- V5.26 Shadow Status (Arm C/D): Deterministic Catalyst State Routing with strict <=60m Intraday TTL and structural revalidation.
+## 1. Executive Daily Scanner Comparison
+
+| Scanner | Legacy A Alerts | V5.26 Shadow Alerts | Net Diff (Δ) | Avoided Trades (Climax/Stale) | New Trades (Fresh/Survived) | Unchanged Trades |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **MultiTF 1H** | `8` | `10` | `+2` | 🔴 **`4`** | 🟢 **`6`** | ⚪ **`4`** |
+| **MultiTF 5M** | `2` | `0` | `-2` | 🔴 **`2`** | 🟢 **`0`** | ⚪ **`0`** |
+| **Short Covering** | `0` | `0` | `0` | 🔴 **`0`** | 🟢 **`0`** | ⚪ **`0`** |
+| **Daily Builder** | `0` | `0` | `0` | 🔴 **`0`** | 🟢 **`0`** | ⚪ **`0`** |
+| **Reversal** | `0` | `0` | `0` | 🔴 **`0`** | 🟢 **`0`** | ⚪ **`0`** |
+| **Pullback V2** | `0` | `0` | `0` | 🔴 **`0`** | 🟢 **`0`** | ⚪ **`0`** |
+| **Multibagger** | `0` | `0` | `0` | 🔴 **`0`** | 🟢 **`0`** | ⚪ **`0`** |
+| **EOD Breakout** | `0` | `0` | `0` | 🔴 **`0`** | 🟢 **`0`** | ⚪ **`0`** |
+| **Accumulation VCP** | `0` | `0` | `0` | 🔴 **`0`** | 🟢 **`0`** | ⚪ **`0`** |
+| **Wealth Engine** | `0` | `0` | `0` | 🔴 **`0`** | 🟢 **`0`** | ⚪ **`0`** |
+| **Technical Ahat** | `0` | `0` | `0` | 🔴 **`0`** | 🟢 **`0`** | ⚪ **`0`** |
 
 ---
 
-## 2. Sample Telemetry Breakdown (Auditable Alert Changes)
+## 2. Signal Disagreement Log (The Manual Review Heart)
 
-| Scanner | Symbol | Decision Time | Gem Age | Catalyst State | CLV | Ext (R) | Vol | Old Rank | New Rank | Shadow Status | Decision Rationale |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **MultiTF 1H** | `RELIANCE` | `10:15:00` | `15m` | **`LIVE_GEM_ACTIVE`** | `0.67` | `0.9R` | `1.1x` | `#59` | `#1` | **`SELECTED`** | Live Intraday Gem Active (Age 15.0m <= 60m TTL) |
-| **MultiTF 1H** | `TCS` | `10:15:00` | `N/A` | **`ORGANIC_INTRADAY`** | `0.85` | `1.0R` | `1.3x` | `#132` | `#55` | **`FILTERED`** | Organic Intraday Candidate (No Gem) |
-| **MultiTF 1H** | `INFY` | `10:15:00` | `55m` | **`LIVE_GEM_ACTIVE`** | `0.18` | `-1.2R` | `2.0x` | `#88` | `#2` | **`SELECTED`** | Live Intraday Gem Active (Age 55.0m <= 60m TTL) |
-| **MultiTF 1H** | `HDFCBANK` | `10:15:00` | `30m` | **`LIVE_GEM_ACTIVE`** | `0.90` | `1.6R` | `2.5x` | `#1` | `#3` | **`SELECTED`** | Live Intraday Gem Active (Age 30.0m <= 60m TTL) |
-| **MultiTF 1H** | `ICICIBANK` | `10:15:00` | `30m` | **`LIVE_GEM_ACTIVE`** | `0.90` | `1.6R` | `2.5x` | `#2` | `#4` | **`SELECTED`** | Live Intraday Gem Active (Age 30.0m <= 60m TTL) |
-| **MultiTF 1H** | `SBIN` | `10:15:00` | `55m` | **`LIVE_GEM_ACTIVE`** | `0.18` | `-1.2R` | `2.0x` | `#89` | `#5` | **`SELECTED`** | Live Intraday Gem Active (Age 55.0m <= 60m TTL) |
-| **MultiTF 1H** | `BHARTIARTL` | `10:15:00` | `55m` | **`LIVE_GEM_ACTIVE`** | `0.18` | `-1.2R` | `2.0x` | `#90` | `#6` | **`FILTERED`** | Live Intraday Gem Active (Age 55.0m <= 60m TTL) |
-| **MultiTF 1H** | `TATAMOTORS` | `10:15:00` | `55m` | **`LIVE_GEM_ACTIVE`** | `0.86` | `3.6R` | `1.8x` | `#37` | `#7` | **`FILTERED`** | Live Intraday Gem Active (Age 55.0m <= 60m TTL) |
-| **MultiTF 1H** | `LTIM` | `10:15:00` | `30m` | **`LIVE_GEM_ACTIVE`** | `0.90` | `1.6R` | `2.5x` | `#3` | `#8` | **`FILTERED`** | Live Intraday Gem Active (Age 30.0m <= 60m TTL) |
-| **MultiTF 1H** | `DIXON` | `10:15:00` | `15m` | **`LIVE_GEM_ACTIVE`** | `0.67` | `0.9R` | `1.1x` | `#60` | `#9` | **`FILTERED`** | Live Intraday Gem Active (Age 15.0m <= 60m TTL) |
-| **MultiTF 1H** | `POLYCAB` | `10:15:00` | `30m` | **`LIVE_GEM_ACTIVE`** | `0.90` | `1.6R` | `2.5x` | `#4` | `#10` | **`FILTERED`** | Live Intraday Gem Active (Age 30.0m <= 60m TTL) |
-| **MultiTF 1H** | `KALYANKJIL` | `10:15:00` | `30m` | **`LIVE_GEM_ACTIVE`** | `0.90` | `1.6R` | `2.5x` | `#5` | `#11` | **`FILTERED`** | Live Intraday Gem Active (Age 30.0m <= 60m TTL) |
-| **MultiTF 1H** | `TRENT` | `10:15:00` | `50m` | **`LIVE_GEM_ACTIVE`** | `0.14` | `-1.0R` | `1.2x` | `#106` | `#12` | **`FILTERED`** | Live Intraday Gem Active (Age 50.0m <= 60m TTL) |
-| **MultiTF 1H** | `ZOMATO` | `10:15:00` | `15m` | **`LIVE_GEM_ACTIVE`** | `0.67` | `0.9R` | `1.1x` | `#61` | `#13` | **`FILTERED`** | Live Intraday Gem Active (Age 15.0m <= 60m TTL) |
-| **MultiTF 5M** | `RELIANCE` | `11:30:00` | `105m` | **`INTRADAY_EXPIRED`** | `0.90` | `1.6R` | `2.5x` | `#6` | `#92` | **`FILTERED`** | Intraday Gem Expired (Age 105.0m > 60m TTL) |
-| **MultiTF 5M** | `TCS` | `11:30:00` | `N/A` | **`ORGANIC_INTRADAY`** | `0.85` | `1.0R` | `1.3x` | `#133` | `#56` | **`FILTERED`** | Organic Intraday Candidate (No Gem) |
-| **MultiTF 5M** | `INFY` | `11:30:00` | `105m` | **`INTRADAY_EXPIRED`** | `0.90` | `1.6R` | `2.5x` | `#7` | `#93` | **`FILTERED`** | Intraday Gem Expired (Age 105.0m > 60m TTL) |
-| **MultiTF 5M** | `HDFCBANK` | `11:30:00` | `125m` | **`INTRADAY_EXPIRED`** | `0.14` | `-1.0R` | `1.2x` | `#107` | `#94` | **`FILTERED`** | Intraday Gem Expired (Age 125.0m > 60m TTL) |
-| **MultiTF 5M** | `ICICIBANK` | `11:30:00` | `130m` | **`INTRADAY_EXPIRED`** | `0.86` | `3.6R` | `1.8x` | `#38` | `#95` | **`FILTERED`** | Intraday Gem Expired (Age 130.0m > 60m TTL) |
-| **MultiTF 5M** | `SBIN` | `11:30:00` | `130m` | **`INTRADAY_EXPIRED`** | `0.18` | `-1.2R` | `2.0x` | `#91` | `#96` | **`FILTERED`** | Intraday Gem Expired (Age 130.0m > 60m TTL) |
-| **MultiTF 5M** | `BHARTIARTL` | `11:30:00` | `130m` | **`INTRADAY_EXPIRED`** | `0.86` | `3.6R` | `1.8x` | `#39` | `#97` | **`FILTERED`** | Intraday Gem Expired (Age 130.0m > 60m TTL) |
-| **MultiTF 5M** | `TATAMOTORS` | `11:30:00` | `125m` | **`INTRADAY_EXPIRED`** | `0.14` | `-1.0R` | `1.2x` | `#108` | `#98` | **`FILTERED`** | Intraday Gem Expired (Age 125.0m > 60m TTL) |
-| **MultiTF 5M** | `LTIM` | `11:30:00` | `130m` | **`INTRADAY_EXPIRED`** | `0.86` | `3.6R` | `1.8x` | `#40` | `#99` | **`FILTERED`** | Intraday Gem Expired (Age 130.0m > 60m TTL) |
-| **MultiTF 5M** | `DIXON` | `11:30:00` | `105m` | **`INTRADAY_EXPIRED`** | `0.90` | `1.6R` | `2.5x` | `#8` | `#100` | **`FILTERED`** | Intraday Gem Expired (Age 105.0m > 60m TTL) |
-| **MultiTF 5M** | `POLYCAB` | `11:30:00` | `130m` | **`INTRADAY_EXPIRED`** | `0.86` | `3.6R` | `1.8x` | `#41` | `#101` | **`FILTERED`** | Intraday Gem Expired (Age 130.0m > 60m TTL) |
+### A. Avoided Trades (Suppressed Stale Climax / Invalidated Breakdown)
+These are candidates the Legacy system would have promoted, but V5.26 suppressed to prevent stale climax drag:
+
+| Timestamp | Scanner | Symbol | Old Rank | New Rank | Catalyst State | Gem Age | CLV | Extension | Rationale |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `10:15:00` | **MultiTF 1H** | `LTIM` | `#3` | `#8` | **`LIVE_GEM_ACTIVE`** | `30m` | `0.90` | `1.6R` | Live Intraday Gem Active (Age 30.0m <= 60m TTL) |
+| `10:15:00` | **MultiTF 1H** | `POLYCAB` | `#4` | `#10` | **`LIVE_GEM_ACTIVE`** | `30m` | `0.90` | `1.6R` | Live Intraday Gem Active (Age 30.0m <= 60m TTL) |
+| `10:15:00` | **MultiTF 1H** | `KALYANKJIL` | `#5` | `#11` | **`LIVE_GEM_ACTIVE`** | `30m` | `0.90` | `1.6R` | Live Intraday Gem Active (Age 30.0m <= 60m TTL) |
+| `10:15:00` | **MultiTF 1H** | `BHARTIARTL` | `#3` | `#7` | **`LIVE_GEM_ACTIVE`** | `30m` | `0.90` | `1.6R` | Live Intraday Gem Active (Age 30.0m <= 60m TTL) |
+| `11:30:00` | **MultiTF 5M** | `RELIANCE` | `#4` | `#89` | **`INTRADAY_EXPIRED`** | `105m` | `0.90` | `1.6R` | Intraday Gem Expired (Age 105.0m > 60m TTL) |
+| `11:30:00` | **MultiTF 5M** | `KALYANKJIL` | `#5` | `#99` | **`INTRADAY_EXPIRED`** | `105m` | `0.90` | `1.6R` | Intraday Gem Expired (Age 105.0m > 60m TTL) |
+
+### B. New Promoted Trades (Fresh EOD Bases & Survived Catalysts)
+These are high-quality consolidation structures or surviving catalysts elevated by V5.26:
+
+| Timestamp | Scanner | Symbol | Old Rank | New Rank | Catalyst State | Gem Age | CLV | Runway | Sizing | Rationale |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `10:15:00` | **MultiTF 1H** | `RELIANCE` | `#59` | `#1` | **`LIVE_GEM_ACTIVE`** | `15m` | `0.67` | `2.3 ATR` | `1.00R` | Live Intraday Gem Active (Age 15.0m <= 60m TTL) |
+| `10:15:00` | **MultiTF 1H** | `INFY` | `#88` | `#2` | **`LIVE_GEM_ACTIVE`** | `55m` | `0.18` | `4.2 ATR` | `1.00R` | Live Intraday Gem Active (Age 55.0m <= 60m TTL) |
+| `10:15:00` | **MultiTF 1H** | `SBIN` | `#89` | `#5` | **`LIVE_GEM_ACTIVE`** | `55m` | `0.18` | `4.2 ATR` | `1.00R` | Live Intraday Gem Active (Age 55.0m <= 60m TTL) |
+| `10:15:00` | **MultiTF 1H** | `RELIANCE` | `#36` | `#1` | **`LIVE_GEM_ACTIVE`** | `55m` | `0.86` | `0.4 ATR` | `1.00R` | Live Intraday Gem Active (Age 55.0m <= 60m TTL) |
+| `10:15:00` | **MultiTF 1H** | `TCS` | `#84` | `#2` | **`LIVE_GEM_ACTIVE`** | `15m` | `0.67` | `2.3 ATR` | `1.00R` | Live Intraday Gem Active (Age 15.0m <= 60m TTL) |
+| `10:15:00` | **MultiTF 1H** | `HDFCBANK` | `#33` | `#4` | **`LIVE_GEM_ACTIVE`** | `55m` | `0.86` | `0.4 ATR` | `1.00R` | Live Intraday Gem Active (Age 55.0m <= 60m TTL) |
 
 ---
 
-## 3. Catalyst State Breakdown in Shadow
+## 3. False Veto Audit Tracker
+Mandatory manual checkpoint: Monitor all `CATALYST_EXHAUSTED` and `CATALYST_INVALIDATED` signals after trade resolution to ensure no false negative structural rejection of genuine high-momentum leaders.
 
-| Catalyst State | Candidate Count | Avg Old Rank | Avg New Rank | Sizing (R) | Production Action |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **`CATALYST_SURVIVED`** | High-Quality Consolidation | Promoted | Top Tier | **1.00R** | 🟢 Priority 1 Continuation Allocation |
-| **`FRESH_BASE`** | Clean EOD Bases | Promoted | Top Tier | **1.00R** | 🟢 Priority 1 Organic Allocation |
-| **`LIVE_GEM_ACTIVE`** | Intraday <= 60m TTL | Promoted | Top Tier | **1.00R** | 🟢 Live Intraday Momentum Surge |
-| **`MORNING_TRAP_ACTIVE`**| Short Covering Specialist | Demoted in Longs | Sized 1.50R | ⚡ **1.50R Inverse Hedge Allocation** |
-| **`CATALYST_COOLING`** | Moderate Structure | Maintained | Mid Tier | **0.75R** | 🟡 Controlled Standard Revenue |
-| **`CATALYST_EXHAUSTED`**| Climax Runners (>3.2R) | Ranked Top in Arm A | **Demoted / VETO** | **0.00R** | 🔴 **VETOED: Zero Stale Climax Drag** |
-| **`CATALYST_INVALIDATED`**| Structure Breakdown (<VWAP)| Ranked Mid in Arm A | **Demoted / VETO** | **0.00R** | 🔴 **VETOED: Hard Breakdown Rejection** |
+| Telemetry ID | Symbol | Scanner | Catalyst State | Tracked Outcome Actual R | MFE (R) | MAE (R) | Post-Trade Review Verdict |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `#TEL-001` | Pending Live Exit | Daily Builder | `CATALYST_EXHAUSTED` | `TBD` | `TBD` | `TBD` | ⏳ Awaiting Live Session Close |
+| `#TEL-002` | Pending Live Exit | Reversal | `CATALYST_INVALIDATED` | `TBD` | `TBD` | `TBD` | ⏳ Awaiting Live Session Close |
 
 ---
 
-## 4. Operational Invariant Verification
-- [x] **Zero Weekend Bars**: Saturday/Sunday filtering strictly enforced.
-- [x] **Zero Lookahead**: Decision timestamp <= entry timestamp verified.
-- [x] **Immutable Parameter Registry**: DB records linked to `V5.26_SHADOW`.
-- [x] **Human-Auditable Rationale**: Every state transition logged.
+## 4. Production Operational Status
+- Current Active Production: **`V5.25_PRODUCTION`** (Unmodified)
+- Parallel Shadow Observer: **`V5.26_SHADOW`** (Active in Background)
+- Automatic Promotion: ❌ **DISABLED** (Manual Live Confirmation Required)

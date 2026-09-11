@@ -156,6 +156,35 @@ def generate_dashboard_report():
         conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT * FROM shadow_alert_telemetry WHERE config_version_id = ?", (SHADOW_CONFIG_VERSION,)).fetchall()
 
+    # Categorize Disagreements
+    avoided_trades = []
+    new_trades = []
+    unchanged_trades = []
+    by_scanner_stats = {}
+
+    for r in rows:
+        sc = r["scanner_name"]
+        if sc not in by_scanner_stats:
+            by_scanner_stats[sc] = {"legacy_alerts": 0, "shadow_alerts": 0, "avoided": 0, "new": 0, "unchanged": 0}
+
+        is_old_sel = r["old_status"] == "SELECTED"
+        is_new_sel = r["new_status"] == "SELECTED"
+
+        if is_old_sel:
+            by_scanner_stats[sc]["legacy_alerts"] += 1
+        if is_new_sel:
+            by_scanner_stats[sc]["shadow_alerts"] += 1
+
+        if is_old_sel and not is_new_sel:
+            avoided_trades.append(r)
+            by_scanner_stats[sc]["avoided"] += 1
+        elif not is_old_sel and is_new_sel:
+            new_trades.append(r)
+            by_scanner_stats[sc]["new"] += 1
+        elif is_old_sel and is_new_sel:
+            unchanged_trades.append(r)
+            by_scanner_stats[sc]["unchanged"] += 1
+
     # Generate Markdown Report
     report_lines = [
         f"# V5.26 Live Shadow Telemetry & Manual Evaluation Dashboard",
@@ -166,48 +195,71 @@ def generate_dashboard_report():
         f"",
         f"---",
         f"",
-        f"## 1. Executive Shadow Comparison Summary",
-        f"- Total Live Candidates Audited: `{len(rows)}`",
-        f"- Old Legacy Status (Arm A): Blind Gem Carry applied to all morning alerts.",
-        f"- V5.26 Shadow Status (Arm C/D): Deterministic Catalyst State Routing with strict <=60m Intraday TTL and structural revalidation.",
+        f"## 1. Executive Daily Scanner Comparison",
         f"",
-        f"---",
-        f"",
-        f"## 2. Sample Telemetry Breakdown (Auditable Alert Changes)",
-        f"",
-        f"| Scanner | Symbol | Decision Time | Gem Age | Catalyst State | CLV | Ext (R) | Vol | Old Rank | New Rank | Shadow Status | Decision Rationale |",
-        f"| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+        f"| Scanner | Legacy A Alerts | V5.26 Shadow Alerts | Net Diff (Δ) | Avoided Trades (Climax/Stale) | New Trades (Fresh/Survived) | Unchanged Trades |",
+        f"| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
     ]
 
-    for r in rows[:25]: # Show representative samples
-        gem_age_str = f"{r['gem_age_minutes']:.0f}m" if r['gem_age_minutes'] is not None else "N/A"
+    for sc, s in by_scanner_stats.items():
+        diff = s["shadow_alerts"] - s["legacy_alerts"]
+        diff_str = f"+{diff}" if diff > 0 else f"{diff}"
         report_lines.append(
-            f"| **{r['scanner_name']}** | `{r['symbol']}` | `{r['decision_timestamp'][-8:]}` | `{gem_age_str}` | **`{r['catalyst_state']}`** | `{r['clv']:.2f}` | `{r['extension_r']:.1f}R` | `{r['volume_retention_ratio']:.1f}x` | `#{r['old_rank']}` | `#{r['new_rank']}` | **`{r['new_status']}`** | {r['decision_rationale']} |"
+            f"| **{sc}** | `{s['legacy_alerts']}` | `{s['shadow_alerts']}` | `{diff_str}` | 🔴 **`{s['avoided']}`** | 🟢 **`{s['new']}`** | ⚪ **`{s['unchanged']}`** |"
         )
 
     report_lines.extend([
         f"",
         f"---",
         f"",
-        f"## 3. Catalyst State Breakdown in Shadow",
+        f"## 2. Signal Disagreement Log (The Manual Review Heart)",
         f"",
-        f"| Catalyst State | Candidate Count | Avg Old Rank | Avg New Rank | Sizing (R) | Production Action |",
-        f"| :--- | :--- | :--- | :--- | :--- | :--- |",
-        f"| **`CATALYST_SURVIVED`** | High-Quality Consolidation | Promoted | Top Tier | **1.00R** | 🟢 Priority 1 Continuation Allocation |",
-        f"| **`FRESH_BASE`** | Clean EOD Bases | Promoted | Top Tier | **1.00R** | 🟢 Priority 1 Organic Allocation |",
-        f"| **`LIVE_GEM_ACTIVE`** | Intraday <= 60m TTL | Promoted | Top Tier | **1.00R** | 🟢 Live Intraday Momentum Surge |",
-        f"| **`MORNING_TRAP_ACTIVE`**| Short Covering Specialist | Demoted in Longs | Sized 1.50R | ⚡ **1.50R Inverse Hedge Allocation** |",
-        f"| **`CATALYST_COOLING`** | Moderate Structure | Maintained | Mid Tier | **0.75R** | 🟡 Controlled Standard Revenue |",
-        f"| **`CATALYST_EXHAUSTED`**| Climax Runners (>3.2R) | Ranked Top in Arm A | **Demoted / VETO** | **0.00R** | 🔴 **VETOED: Zero Stale Climax Drag** |",
-        f"| **`CATALYST_INVALIDATED`**| Structure Breakdown (<VWAP)| Ranked Mid in Arm A | **Demoted / VETO** | **0.00R** | 🔴 **VETOED: Hard Breakdown Rejection** |",
+        f"### A. Avoided Trades (Suppressed Stale Climax / Invalidated Breakdown)",
+        f"These are candidates the Legacy system would have promoted, but V5.26 suppressed to prevent stale climax drag:",
+        f"",
+        f"| Timestamp | Scanner | Symbol | Old Rank | New Rank | Catalyst State | Gem Age | CLV | Extension | Rationale |",
+        f"| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+    ])
+
+    for r in avoided_trades[:15]:
+        gem_age_str = f"{r['gem_age_minutes']:.0f}m" if r['gem_age_minutes'] is not None else "N/A"
+        report_lines.append(
+            f"| `{r['decision_timestamp'][-8:]}` | **{r['scanner_name']}** | `{r['symbol']}` | `#{r['old_rank']}` | `#{r['new_rank']}` | **`{r['catalyst_state']}`** | `{gem_age_str}` | `{r['clv']:.2f}` | `{r['extension_r']:.1f}R` | {r['decision_rationale']} |"
+        )
+
+    report_lines.extend([
+        f"",
+        f"### B. New Promoted Trades (Fresh EOD Bases & Survived Catalysts)",
+        f"These are high-quality consolidation structures or surviving catalysts elevated by V5.26:",
+        f"",
+        f"| Timestamp | Scanner | Symbol | Old Rank | New Rank | Catalyst State | Gem Age | CLV | Runway | Sizing | Rationale |",
+        f"| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+    ])
+
+    for r in new_trades[:15]:
+        gem_age_str = f"{r['gem_age_minutes']:.0f}m" if r['gem_age_minutes'] is not None else "N/A"
+        report_lines.append(
+            f"| `{r['decision_timestamp'][-8:]}` | **{r['scanner_name']}** | `{r['symbol']}` | `#{r['old_rank']}` | `#{r['new_rank']}` | **`{r['catalyst_state']}`** | `{gem_age_str}` | `{r['clv']:.2f}` | `{r['runway_atr']:.1f} ATR` | `{r['allocated_r']:.2f}R` | {r['decision_rationale']} |"
+        )
+
+    report_lines.extend([
         f"",
         f"---",
         f"",
-        f"## 4. Operational Invariant Verification",
-        f"- [x] **Zero Weekend Bars**: Saturday/Sunday filtering strictly enforced.",
-        f"- [x] **Zero Lookahead**: Decision timestamp <= entry timestamp verified.",
-        f"- [x] **Immutable Parameter Registry**: DB records linked to `V5.26_SHADOW`.",
-        f"- [x] **Human-Auditable Rationale**: Every state transition logged."
+        f"## 3. False Veto Audit Tracker",
+        f"Mandatory manual checkpoint: Monitor all `CATALYST_EXHAUSTED` and `CATALYST_INVALIDATED` signals after trade resolution to ensure no false negative structural rejection of genuine high-momentum leaders.",
+        f"",
+        f"| Telemetry ID | Symbol | Scanner | Catalyst State | Tracked Outcome Actual R | MFE (R) | MAE (R) | Post-Trade Review Verdict |",
+        f"| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+        f"| `#TEL-001` | Pending Live Exit | Daily Builder | `CATALYST_EXHAUSTED` | `TBD` | `TBD` | `TBD` | ⏳ Awaiting Live Session Close |",
+        f"| `#TEL-002` | Pending Live Exit | Reversal | `CATALYST_INVALIDATED` | `TBD` | `TBD` | `TBD` | ⏳ Awaiting Live Session Close |",
+        f"",
+        f"---",
+        f"",
+        f"## 4. Production Operational Status",
+        f"- Current Active Production: **`V5.25_PRODUCTION`** (Unmodified)",
+        f"- Parallel Shadow Observer: **`V5.26_SHADOW`** (Active in Background)",
+        f"- Automatic Promotion: ❌ **DISABLED** (Manual Live Confirmation Required)"
     ])
 
     report_path = "reports/v526_manual_live_evaluation_dashboard.md"
