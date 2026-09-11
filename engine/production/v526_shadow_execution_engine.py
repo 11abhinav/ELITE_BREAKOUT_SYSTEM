@@ -165,31 +165,57 @@ class ShadowExecutionEngine:
                 legacy_score += 40.0 # Blind boost
             legacy_score += feats["clv"] * 20.0
 
-            # V5.26 Shadow Score (Arm C/D: Deterministic State Routing)
-            shadow_score = 50.0
-            alloc_r = 1.00
+            # V5.26 / V5.28 Shadow Score
+            if c.scanner_name == "Daily Builder":
+                # V5.28 Daily Builder Decoupled Structure x Timing & Exhaustion Model
+                s_base = 15.0 # baseline consolidation
+                s_cont = 12.0
+                s_clv = feats["clv"] * 25.0
+                s_run = min(feats["runway_atr"] / 4.0, 1.0) * 20.0
+                s_vol = min(feats["volume_retention_ratio"] / 1.5, 1.0) * 20.0
+                struct_score = s_base + s_cont + s_clv + s_run + s_vol
 
-            if state == "LIVE_GEM_ACTIVE":
-                shadow_score += 45.0
-                alloc_r = 1.00
-            elif state == "MORNING_TRAP_ACTIVE":
-                shadow_score += 40.0
-                alloc_r = 1.50
-            elif state == "CATALYST_SURVIVED":
-                shadow_score += 35.0 # Quality priority
-                alloc_r = 1.00
-            elif state == "FRESH_BASE":
-                shadow_score += 30.0 # First-class organic EOD base
-                alloc_r = 1.00
-            elif state == "CATALYST_COOLING":
-                shadow_score += 10.0
-                alloc_r = 0.75
-            elif state in ["CATALYST_EXHAUSTED", "CATALYST_INVALIDATED", "INTRADAY_EXPIRED"]:
-                shadow_score = 0.0 # VETOED
-                alloc_r = 0.00
+                t_bo = 25.0
+                t_fresh = 25.0
+                t_wick = max(0.0, 1.0 - (1.0 - feats["clv"]) * 1.5) * 20.0
+                t_vwap = 20.0 if feats["vwap_relationship"] == "ABOVE_VWAP" else 0.0
+                timing_score = t_bo + t_fresh + t_wick + t_vwap
+
+                p_ext = max(0.0, (feats["extension_r"] - 2.50) * 15.0)
+                p_retrace = 5.0 if feats["clv"] < 0.70 else 0.0
+                exhaust_pen = min(p_ext + p_retrace, 60.0)
+
+                raw_comp = (struct_score * (timing_score / 100.0)) - exhaust_pen
+                if feats["vwap_relationship"] == "BELOW_VWAP" or feats["clv"] < 0.50 or feats["extension_r"] > 3.20:
+                    raw_comp = 0.0 # Strict Hard Veto
+                shadow_score = round(max(0.0, raw_comp), 2)
+                alloc_r = 1.00 if shadow_score >= 55.0 else 0.00
             else:
-                shadow_score += 15.0
+                # Standard Scanner State Routing
+                shadow_score = 50.0
                 alloc_r = 1.00
+
+                if state == "LIVE_GEM_ACTIVE":
+                    shadow_score += 45.0
+                    alloc_r = 1.00
+                elif state == "MORNING_TRAP_ACTIVE":
+                    shadow_score += 40.0
+                    alloc_r = 1.50
+                elif state == "CATALYST_SURVIVED":
+                    shadow_score += 35.0
+                    alloc_r = 1.00
+                elif state == "FRESH_BASE":
+                    shadow_score += 30.0
+                    alloc_r = 1.00
+                elif state == "CATALYST_COOLING":
+                    shadow_score += 10.0
+                    alloc_r = 0.75
+                elif state in ["CATALYST_EXHAUSTED", "CATALYST_INVALIDATED", "INTRADAY_EXPIRED"]:
+                    shadow_score = 0.0 # VETOED
+                    alloc_r = 0.00
+                else:
+                    shadow_score += 15.0
+                    alloc_r = 1.00
 
             evaluated.append({
                 "bar": c,
