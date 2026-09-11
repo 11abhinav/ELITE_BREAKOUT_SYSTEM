@@ -740,19 +740,46 @@ We investigated whether a morning Daily Builder Gem (09:35 IST) retains predicti
 
 ---
 
-## 29. Certified Artifact Directory Reference
+## 29. V5.27 Daily Builder Untouched Holdout Certification & Plateau Robustness
+
+### A. Executive Summary & Holdout Baseline
+- **Certification Release**: **`V5.27_HOLDOUT_CERTIFIED`**
+- **Holdout Period**: 250 Untouched Trading Days (Out-Of-Sample 2025–2026, zero lookahead, zero weekend bars).
+- **Core Certification Result**:
+  - **V5.25 Baseline Uncapped Daily Builder**: $+0.670R$ / PF $2.82$ (MaxDD $-7.85R$, Avg MFE $1.92R$).
+  - **V5.27 Certified Daily Builder (Top 5 DB-A+/A)**: **`+0.989R` / PF `3.95` (MaxDD `-6.70R`, Avg MFE `+2.37R`, Avg MAE `-0.65R`)**.
+  - **Net Out-Of-Sample Delta**: **`+0.319R` net expectancy lift ($p < 0.0001$)**, $+1.13$ PF lift, $+1.15R$ MaxDD reduction, $+0.45R$ MFE expansion.
+
+### B. Plateau Robustness Certification (Top 3 vs Top 5 vs Top 10)
+
+| Cutoff Level | Alerts/Day | Total Trades | Win Rate (%) | Net E[R] | Profit Factor | Max Drawdown (R) | 95% Bootstrap CI | Plateau Verdict |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Top 3 Cutoff** | `3` | `750` | **`63.9%`** | **`+0.987R`** | **`3.93`** | `-5.85R` | `[+0.881, +1.093]` | 🟢 **Broad Plateau Confirmed** |
+| **Top 5 Cutoff (Target)**| **`5`** | **`1,250`** | **`63.9%`** | **`+0.989R`** | **`3.95`** | **`-6.70R`** | **`[+0.907, +1.069]`** | 🟢 **Certified Plateau Center** |
+| **Top 10 Cutoff** | `10` | `2,500` | **`62.9%`** | **`+0.918R`** | **`3.67`** | `-6.95R` | `[+0.861, +0.974]` | 🟢 **Broad Plateau Confirmed** |
+
+### C. Head-to-Head Holdout Comparison (250 Days OOS)
+
+| System Version | Total Trades | Alerts/Day | Win Rate (%) | Net E[R] | Profit Factor | Max Drawdown | 95% Bootstrap CI | Avg MFE | Avg MAE |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **V5.25 Baseline Daily Builder** | `6,967` | `27.9` | `60.2%` | `+0.670R` | `2.82` | `-7.85R` | `[+0.638, +0.702]` | `+1.92R` | `-0.75R` |
+| **V5.27 Certified Daily Builder** | **`1,250`** | **`5.0`** | **`63.9%`** | **`+0.989R`** | **`3.95`** | **`-6.70R`** | **`[+0.905, +1.072]`** | **`+2.37R`** | **`-0.65R`** |
+| **Net Delta (V5.27 vs V5.25)** | `-5,717` | `-22.9` | **`+3.8%`** | **`+0.319R`** | **`+1.13`** | **`+1.15R`** | **$p < 0.0001$** | **`+0.45R`** | **`+0.10R`** |
+
+---
+
+## 30. Certified Artifact Directory Reference
 
 - [docs/MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/docs/MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md) (Master Canonical Document)
+- [reports/v527_daily_builder_holdout_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_daily_builder_holdout_certification_report.md)
+- [reports/v527_daily_builder_holdout_plateau_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_daily_builder_holdout_plateau_matrix.csv)
+- [reports/v527_daily_builder_holdout_h2h_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_daily_builder_holdout_h2h_matrix.csv)
 - [reports/v527_daily_builder_alert_quality_research_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_daily_builder_alert_quality_research_report.md)
-- [reports/v527_daily_builder_feature_attribution.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_daily_builder_feature_attribution.csv)
-- [reports/v527_daily_builder_alert_dilution_curve.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_daily_builder_alert_dilution_curve.csv)
-- [reports/v527_daily_builder_tier_performance.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_daily_builder_tier_performance.csv)
-- [reports/v527_daily_builder_model_comparison.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_daily_builder_model_comparison.csv)
+- [scripts/v527_daily_builder_holdout_certification.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scripts/v527_daily_builder_holdout_certification.py)
 - [scripts/v527_daily_builder_quality_and_freshness_research.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scripts/v527_daily_builder_quality_and_freshness_research.py)
 - [reports/v526_manual_live_evaluation_dashboard.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v526_manual_live_evaluation_dashboard.md)
 - [engine/production/v526_shadow_execution_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v526_shadow_execution_engine.py)
 - [engine/production/v525_parameter_registry.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v525_parameter_registry.py)
-- [reports/v525_cross_scanner_attribution_and_arm_d_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v525_cross_scanner_attribution_and_arm_d_certification_report.md)
 
 
 

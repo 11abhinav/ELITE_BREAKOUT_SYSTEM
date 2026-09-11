@@ -1,0 +1,4 @@
+version,total_trades,alerts_per_day,win_rate_pct,net_er,profit_factor,max_drawdown_r,bootstrap_95_ci,avg_mfe_r,avg_mae_r
+V5.25 Baseline Daily Builder (Uncapped Pool),6967,27.9,60.2,0.67,2.82,-7.85,"[+0.638, +0.702]",1.92,-0.75
+V5.27 Certified Daily Builder (Top 5 DB-A+/A),1250,5.0,63.9,0.989,3.95,-6.7,"[+0.905, +1.072]",2.37,-0.65
+NET DELTA (V5.27 vs V5.25) [p = 0.0000],-5717,-22.9,3.8,0.319,1.36,1.05,STATISTICALLY SIGNIFICANT,0.45,0.1

@@ -1,0 +1,4 @@
+cutoff_level,alerts_per_day,total_holdout_trades,win_rate_pct,net_er,profit_factor,max_drawdown_r,bootstrap_95_ci,avg_mfe_r,avg_mae_r,plateau_status
+Top 3 Cutoff (High Conviction),3,750,63.9,0.987,3.93,-5.85,"[+0.881, +1.093]",2.38,-0.65,🟢 Broad Plateau Confirmed (Top 3 ≈ Top 5 ≈ Top 10)
+Top 5 Cutoff (Certified Center),5,1250,63.9,0.989,3.95,-6.7,"[+0.907, +1.069]",2.37,-0.65,🟢 Broad Plateau Confirmed (Top 3 ≈ Top 5 ≈ Top 10)
+Top 10 Cutoff (Broad Reserve),10,2500,62.9,0.918,3.67,-6.95,"[+0.861, +0.974]",2.28,-0.67,🟢 Broad Plateau Confirmed (Top 3 ≈ Top 5 ≈ Top 10)
