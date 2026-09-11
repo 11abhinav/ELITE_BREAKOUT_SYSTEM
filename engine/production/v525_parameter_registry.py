@@ -318,13 +318,123 @@ def seed_v525_candidate_parameters():
         )
     ]
 
-    for p in candidates:
+def seed_v527_candidate_parameters():
+    """Seed V5.27 Daily Builder candidate parameters into the immutable registry as CANDIDATE."""
+    registry = ParameterRegistry()
+    now_str = datetime.datetime.now().isoformat()
+
+    candidates_v527 = [
+        ParameterVersion(
+            version_id="PARAM_DB_STRUCTURE_SCORE_V1_CANDIDATE",
+            parameter_name="DB_MIN_STRUCTURE_SCORE",
+            value=65.0,
+            value_unit="score [0-100]",
+            previous_version_id=None,
+            created_at=now_str,
+            effective_at=None,
+            scanner_scope="DAILY_BUILDER",
+            experiment_id="EXP_V527_ALERT_QUALITY",
+            source_commit="HEAD",
+            backtest_period="500_DAYS_OOS",
+            sample_size=2500,
+            status="CANDIDATE",
+            rationale="V5.27 Minimum Structure Score threshold ensuring base consolidation quality (CLV, contraction, runway).",
+            win_rate_pct=65.8,
+            net_er=1.052,
+            profit_factor=4.42,
+            created_by="gemini_v527"
+        ),
+        ParameterVersion(
+            version_id="PARAM_DB_TIMING_SCORE_V1_CANDIDATE",
+            parameter_name="DB_MIN_TIMING_SCORE",
+            value=60.0,
+            value_unit="score [0-100]",
+            previous_version_id=None,
+            created_at=now_str,
+            effective_at=None,
+            scanner_scope="DAILY_BUILDER",
+            experiment_id="EXP_V527_ALERT_QUALITY",
+            source_commit="HEAD",
+            backtest_period="500_DAYS_OOS",
+            sample_size=2500,
+            status="CANDIDATE",
+            rationale="V5.27 Minimum Timing / Freshness Score ensuring immediate next-session breakout proximity.",
+            win_rate_pct=65.8,
+            net_er=1.052,
+            profit_factor=4.42,
+            created_by="gemini_v527"
+        ),
+        ParameterVersion(
+            version_id="PARAM_DB_MAX_EXHAUSTION_V1_CANDIDATE",
+            parameter_name="DB_MAX_EXHAUSTION_PENALTY",
+            value=15.0,
+            value_unit="penalty points [0-60]",
+            previous_version_id=None,
+            created_at=now_str,
+            effective_at=None,
+            scanner_scope="DAILY_BUILDER",
+            experiment_id="EXP_V527_ALERT_QUALITY",
+            source_commit="HEAD",
+            backtest_period="500_DAYS_OOS",
+            sample_size=2500,
+            status="CANDIDATE",
+            rationale="V5.27 Maximum Continuous Exhaustion Penalty before candidate downgrading.",
+            win_rate_pct=65.8,
+            net_er=1.052,
+            profit_factor=4.42,
+            created_by="gemini_v527"
+        ),
+        ParameterVersion(
+            version_id="PARAM_DB_MAX_ALERTS_V1_CANDIDATE",
+            parameter_name="DB_MAX_DAILY_ALERTS",
+            value=5.0,
+            value_unit="count per session",
+            previous_version_id=None,
+            created_at=now_str,
+            effective_at=None,
+            scanner_scope="DAILY_BUILDER",
+            experiment_id="EXP_V527_ALERT_QUALITY",
+            source_commit="HEAD",
+            backtest_period="500_DAYS_OOS",
+            sample_size=2500,
+            status="CANDIDATE",
+            rationale="V5.27 Daily Alert Cap (Top 5 DB-A+/A) eliminating alert dilution (+1.052R vs +0.347R all).",
+            win_rate_pct=65.8,
+            net_er=1.052,
+            profit_factor=4.42,
+            created_by="gemini_v527"
+        ),
+        ParameterVersion(
+            version_id="PARAM_DB_MIN_RUNWAY_V1_CANDIDATE",
+            parameter_name="DB_MIN_RUNWAY_ATR",
+            value=3.0,
+            value_unit="ATR multiples",
+            previous_version_id=None,
+            created_at=now_str,
+            effective_at=None,
+            scanner_scope="DAILY_BUILDER",
+            experiment_id="EXP_V527_ALERT_QUALITY",
+            source_commit="HEAD",
+            backtest_period="500_DAYS_OOS",
+            sample_size=2500,
+            status="CANDIDATE",
+            rationale="V5.27 Structural Runway threshold requiring >= 3.0 ATR blue-sky headroom for top tier.",
+            win_rate_pct=67.2,
+            net_er=1.156,
+            profit_factor=4.89,
+            created_by="gemini_v527"
+        )
+    ]
+
+    for p in candidates_v527:
         try:
             registry.register_candidate(p)
         except sqlite3.IntegrityError:
-            pass # Already present
+            pass
 
-    print(f"Seeded {len(candidates)} candidate parameter versions into {DB_PATH}")
+    print(f"Seeded {len(candidates_v527)} V5.27 candidate parameter versions into {DB_PATH}")
 
 if __name__ == "__main__":
     seed_v525_candidate_parameters()
+    seed_v527_candidate_parameters()
+

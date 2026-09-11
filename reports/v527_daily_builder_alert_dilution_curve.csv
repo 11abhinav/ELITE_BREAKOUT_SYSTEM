@@ -1,0 +1,7 @@
+alert_tier_cutoff,total_trades,avg_alerts_per_day,win_rate_pct,net_er,profit_factor,total_r,avg_mfe_r,avg_mae_r
+Top 3 Alerts/Day,1500,3,65.2,1.044,4.32,1565.7,2.45,-0.63
+Top 5 Alerts/Day,2500,5,65.8,1.052,4.42,2629.6,2.43,-0.63
+Top 10 Alerts/Day,5000,10,65.5,0.991,4.19,4953.2,2.34,-0.64
+Top 15 Alerts/Day,7500,15,63.8,0.884,3.72,6633.4,2.2,-0.67
+Top 25 Alerts/Day,12500,25,61.4,0.746,3.16,9323.0,2.03,-0.71
+Top 40 Alerts/Day,20000,40,49.0,0.347,1.82,6943.5,1.52,-0.87

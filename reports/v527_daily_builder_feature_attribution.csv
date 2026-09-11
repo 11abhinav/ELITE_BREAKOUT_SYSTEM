@@ -1,0 +1,14 @@
+feature,winner_median,loser_median,delta_median,winner_mean,loser_mean,predictive_direction
+clv,0.83,0.74,0.09,0.79,0.65,HIGHER_IS_BETTER
+upper_wick_pct,0.15,0.2,-0.05,0.18,0.32,LOWER_IS_BETTER
+impulse_extension_r,1.95,2.15,-0.2,2.11,2.63,LOWER_IS_BETTER
+intraday_retracement_pct,9.2,12.9,-3.7,12.06,22.29,LOWER_IS_BETTER
+consecutive_expansion_days,2.0,2.0,0.0,1.71,2.29,LOWER_IS_BETTER
+volume_retention,1.49,1.21,0.28,1.46,1.19,HIGHER_IS_BETTER
+runway_atr,4.32,3.08,1.24,4.13,2.88,HIGHER_IS_BETTER
+range_contraction_ratio,0.56,0.71,-0.15,0.6,0.78,LOWER_IS_BETTER
+tight_close_count,4.0,2.0,2.0,3.96,2.68,HIGHER_IS_BETTER
+structure_score,81.78,72.53,9.25,76.12,58.2,HIGHER_IS_BETTER
+timing_score,80.41,69.94,10.47,75.03,56.79,HIGHER_IS_BETTER
+exhaustion_penalty,0.0,4.75,-4.75,6.95,25.83,LOWER_IS_BETTER
+composite_db_score,65.48,52.06,13.42,58.33,34.64,HIGHER_IS_BETTER

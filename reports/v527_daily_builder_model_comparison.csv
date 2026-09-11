@@ -1,0 +1,8 @@
+model_name,n_candidates,win_rate_pct,net_er,profit_factor,bootstrap_95_ci,avg_mfe_r,avg_mae_r
+Model A: V5.25 Baseline Daily Builder,14024,61.5,0.711,3.05,"[+0.689, +0.733]",1.97,-0.73
+Model B: Engine B (Fresh Base Only),7927,62.9,0.841,3.53,"[+0.810, +0.873]",2.16,-0.68
+Model C: Engine A (Surviving Catalyst Only),4627,59.5,0.639,2.76,"[+0.601, +0.676]",1.91,-0.73
+Model D: Baseline + Freshness Gate (consec_exp <= 2),14024,61.5,0.711,3.05,"[+0.688, +0.733]",1.97,-0.73
+Model E: Baseline + Exhaustion Penalty Filter,14024,61.5,0.711,3.05,"[+0.688, +0.733]",1.97,-0.73
+Model F: Structure x Timing Decoupled Model,12554,61.6,0.767,3.23,"[+0.742, +0.790]",2.07,-0.7
+Model G: V5.27 Dual-Engine Winner (Top 5 A+/A per Day),2500,65.8,1.052,4.42,"[+0.994, +1.110]",2.43,-0.63

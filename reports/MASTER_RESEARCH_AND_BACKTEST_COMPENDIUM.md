@@ -702,19 +702,57 @@ We investigated whether a morning Daily Builder Gem (09:35 IST) retains predicti
 
 ---
 
-## 28. Certified Artifact Directory Reference
+## 28. V5.27 Daily Builder Alert Quality & Next-Day Opportunity Selection Engine
+
+### A. Executive Summary & The Alert Dilution Breakthrough
+- **Research Version**: **`V5.27_DAILY_BUILDER_RESEARCH`**
+- **Core Realization**: Morning Gem is strictly historical metadata ($0.00R$ direct boost). Daily Builder alert quality is governed by **Completed EOD Structure $\times$ Timing/Freshness** and addressing **Alert Dilution**.
+- **The Dilution Discovery**: Uncapped Daily Builder alert generation ($40$ candidates/day) dilutes next-session expectancy down to $+0.347R$ (PF $1.82$). By scoring candidates with the decoupled Structure $\times$ Timing engine and restricting output to **Top 5 DB-A+/A Tiers**, next-session expectancy rises to **`+1.052R` (PF `4.42`, 95% Bootstrap CI `[+0.994, +1.110]`)**, achieving an immediate **`+0.705R` alert-quality lift**.
+
+### B. Winner vs Loser Feature Attribution Matrix (Next-Session Forward Outcomes)
+
+| Feature | Winner Median | Loser Median | Delta (W - L) | Winner Mean | Loser Mean | Predictive Mechanism |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`clv`** | `0.83` | `0.74` | **`+0.09`** | `0.79` | `0.65` | Higher Close Location Value confirms buying into the bell |
+| **`upper_wick_pct`** | `0.15` | `0.20` | **`-0.05`** | `0.18` | `0.32` | Lower upper wick indicates absence of late-session selling |
+| **`impulse_extension_r`** | `1.95` | `2.15` | **`-0.20`** | `2.11` | `2.63` | Controlled extension avoids overextended climax runners |
+| **`intraday_retracement_pct`**| `9.2%` | `12.9%` | **`-3.7%`** | `12.1%` | `22.3%` | Tight holding without deep intraday pullbacks |
+| **`volume_retention`** | `1.49x` | `1.21x` | **`+0.28x`** | `1.46x` | `1.19x` | Institutional volume persistence throughout the day |
+| **`runway_atr`** | `4.32` | `3.08` | **`+1.24 ATR`** | `4.13` | `2.88` | Open blue-sky headroom to nearest overhead resistance |
+| **`composite_db_score`** | `65.48` | `52.06` | **`+13.42`** | `58.33` | `34.64` | Decoupled composite score accurately separates winners |
+
+### C. The Alert Quality Dilution Curve
+
+| Alert Cutoff | Total Candidates | Alerts/Day | Win Rate (%) | Net Expectancy (E[R]) | Profit Factor | Total R | Avg MFE (R) | Avg MAE (R) |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Top 3 Alerts/Day** | `1,500` | `3` | **`65.2%`** | **`+1.044R`** | **`4.32`** | `+1565.7R` | `+2.45R` | `-0.63R` |
+| **Top 5 Alerts/Day (Target)**| **`2,500`** | **`5`** | **`65.8%`** | **`+1.052R`** | **`4.42`** | `+2629.6R` | `+2.43R` | `-0.63R` |
+| **Top 10 Alerts/Day** | `5,000` | `10` | **`65.5%`** | **`+0.991R`** | **`4.19`** | `+4953.2R` | `+2.34R` | `-0.64R` |
+| **Top 15 Alerts/Day** | `7,500` | `15` | **`63.8%`** | **`+0.884R`** | **`3.72`** | `+6633.4R` | `+2.20R` | `-0.67R` |
+| **Top 25 Alerts/Day** | `12,500` | `25` | **`61.4%`** | **`+0.746R`** | **`3.16`** | `+9323.0R` | `+2.03R` | `-0.71R` |
+| **Top 40 Alerts/Day (All)** | `20,000` | `40` | **`49.0%`** | **`+0.347R`** | **`1.82`** | `+6943.5R` | `+1.52R` | `-0.87R` |
+
+### D. Candidate Quality Tiering Matrix
+- **`DB-A+` Tier ($17.5\%$ share)**: **`67.2%` Win Rate, `+1.156R` E[R], PF `4.89`** (Priority 1 Main Feed).
+- **`DB-A` Tier ($45.2\%$ share)**: `59.5%` Win Rate, `+0.616R` E[R], PF `2.70` (Priority 2 Standard).
+- **`DB-B` Tier ($7.3\%$ share)**: `60.7%` Win Rate, `+0.233R` E[R], PF `1.62` (Secondary Reserve).
+- **`DB-REJECT` Tier ($29.9\%$ share)**: `19.6%` Win Rate, **`-0.506R` E[R], PF `0.16`** (Strict Structural Veto).
+
+---
+
+## 29. Certified Artifact Directory Reference
 
 - [docs/MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/docs/MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md) (Master Canonical Document)
+- [reports/v527_daily_builder_alert_quality_research_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_daily_builder_alert_quality_research_report.md)
+- [reports/v527_daily_builder_feature_attribution.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_daily_builder_feature_attribution.csv)
+- [reports/v527_daily_builder_alert_dilution_curve.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_daily_builder_alert_dilution_curve.csv)
+- [reports/v527_daily_builder_tier_performance.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_daily_builder_tier_performance.csv)
+- [reports/v527_daily_builder_model_comparison.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_daily_builder_model_comparison.csv)
+- [scripts/v527_daily_builder_quality_and_freshness_research.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scripts/v527_daily_builder_quality_and_freshness_research.py)
 - [reports/v526_manual_live_evaluation_dashboard.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v526_manual_live_evaluation_dashboard.md)
 - [engine/production/v526_shadow_execution_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v526_shadow_execution_engine.py)
 - [engine/production/v525_parameter_registry.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v525_parameter_registry.py)
 - [reports/v525_cross_scanner_attribution_and_arm_d_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v525_cross_scanner_attribution_and_arm_d_certification_report.md)
-- [reports/v525_master_4arm_attribution_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v525_master_4arm_attribution_matrix.csv)
-- [reports/v525_complete_5d_sensitivity_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v525_complete_5d_sensitivity_matrix.csv)
-- [reports/v524_cross_scanner_revalidation_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v524_cross_scanner_revalidation_certification_report.md)
-- [engine/production/v524_catalyst_state_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v524_catalyst_state_engine.py)
-- [engine/production/v523_market_catalyst_regime_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v523_market_catalyst_regime_engine.py)
-- [engine/production/v520_gem_router_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v520_gem_router_engine.py)
 
 
 
