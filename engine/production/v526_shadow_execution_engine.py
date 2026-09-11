@@ -48,12 +48,14 @@ CREATE TABLE IF NOT EXISTS shadow_alert_telemetry (
     mfe_r REAL,
     mae_r REAL,
     exit_reason TEXT,
-    holding_period_bars INTEGER
+    holding_period_bars INTEGER,
+    outcome_classification TEXT CHECK(outcome_classification IN ('CORRECT_AVOID', 'FALSE_AVOID', 'CORRECT_PROMOTE', 'BAD_PROMOTE', 'CONCURRING_WIN', 'CONCURRING_LOSS', 'PENDING'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_telemetry_scanner_ts ON shadow_alert_telemetry (scanner_name, decision_timestamp);
 CREATE INDEX IF NOT EXISTS idx_telemetry_state ON shadow_alert_telemetry (catalyst_state);
 CREATE INDEX IF NOT EXISTS idx_telemetry_config ON shadow_alert_telemetry (config_version_id);
+CREATE INDEX IF NOT EXISTS idx_telemetry_outcome ON shadow_alert_telemetry (outcome_classification);
 """
 
 @dataclass
@@ -228,8 +230,8 @@ class ShadowExecutionEngine:
                         gem_timestamp, gem_age_minutes, catalyst_state, clv, extension_r,
                         volume_retention_ratio, vwap_relationship, orb_relationship, runway_atr,
                         old_rank, new_rank, old_status, new_status, allocated_r, entry_price,
-                        stop_loss, target_price, decision_rationale
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        stop_loss, target_price, decision_rationale, outcome_classification
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     SHADOW_CONFIG_VERSION, b.scanner_name, b.symbol, b.decision_timestamp,
                     b.gem_timestamp, f["gem_age_minutes"], item["catalyst_state"],
@@ -237,6 +239,40 @@ class ShadowExecutionEngine:
                     f["vwap_relationship"], f["orb_relationship"], f["runway_atr"],
                     item["old_rank"], item["new_rank"], item["old_status"],
                     item["new_status"], item["allocated_r"], b.close_p, sl, tgt,
-                    item["rationale"]
+                    item["rationale"], "PENDING"
                 ))
             conn.commit()
+
+    def resolve_telemetry_outcome(self, alert_id: int, actual_r: float, mfe_r: float, mae_r: float, exit_reason: str, holding_bars: int):
+        """Classifies resolved trade outcome into 4-way classification:
+        - CORRECT_AVOID: Legacy would trade (SELECTED) and lose (<0R), Shadow avoided (FILTERED).
+        - FALSE_AVOID: Legacy would trade (SELECTED) and win (>0R), Shadow suppressed (FILTERED).
+        - CORRECT_PROMOTE: Shadow new trade (SELECTED), Legacy filtered, and trade won (>0R).
+        - BAD_PROMOTE: Shadow new trade (SELECTED), Legacy filtered, and trade lost (<0R).
+        - CONCURRING_WIN / CONCURRING_LOSS: Both agreed.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute("SELECT old_status, new_status FROM shadow_alert_telemetry WHERE id = ?", (alert_id,)).fetchone()
+            if not row:
+                return
+
+            old_sel = row["old_status"] == "SELECTED"
+            new_sel = row["new_status"] == "SELECTED"
+
+            if old_sel and not new_sel:
+                classification = "CORRECT_AVOID" if actual_r <= 0.0 else "FALSE_AVOID"
+            elif not old_sel and new_sel:
+                classification = "CORRECT_PROMOTE" if actual_r > 0.0 else "BAD_PROMOTE"
+            elif old_sel and new_sel:
+                classification = "CONCURRING_WIN" if actual_r > 0.0 else "CONCURRING_LOSS"
+            else:
+                classification = "CORRECT_AVOID" if actual_r <= 0.0 else "FALSE_AVOID"
+
+            conn.execute("""
+                UPDATE shadow_alert_telemetry 
+                SET actual_r = ?, mfe_r = ?, mae_r = ?, exit_reason = ?, holding_period_bars = ?, outcome_classification = ?
+                WHERE id = ?
+            """, (actual_r, mfe_r, mae_r, exit_reason, holding_bars, classification, alert_id))
+            conn.commit()
+
