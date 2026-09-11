@@ -665,9 +665,49 @@ We investigated whether a morning Daily Builder Gem (09:35 IST) retains predicti
 
 ---
 
-## 27. Certified Artifact Directory Reference
+## 27. V5.26 Production Shadow & Live Validation Architecture
+
+### A. Operational Transition & Parameter Freeze
+- **Frozen Candidate Parameters**:
+  - `GEM_INTRADAY_TTL_MINUTES = 60.0` (Intraday Routing window)
+  - `CATALYST_CLV_THRESHOLD = 0.68` (Certified plateau center across $[0.60, 0.76]$)
+  - `CATALYST_MAX_EXTENSION = 3.20R` (Certified plateau center across $[2.6R, 3.8R]$)
+  - `CATALYST_VOL_RETENTION = 1.10x` (Certified plateau center across $[0.9x, 1.3x]$)
+  - `CATALYST_STRUCTURAL_RUNWAY = 2.50 ATR` (Certified plateau center across $[1.5, 3.5\text{ ATR}]$)
+  - `SHORT_COVERING_TRAP_ALLOCATION = 1.50R` (Inverse hedge on morning trap days)
+- **Zero Optimization Invariant**: Further backtest curve-fitting is prohibited. All evaluations proceed via parallel shadow telemetry and manual performance gating.
+
+### B. Immutable Production Database Registry Lifecycle
+```
+[CANDIDATE] ──► [BACKTEST_CERTIFIED] ──► [SHADOW] ──► [PRODUCTION] ──► [RETIRED]
+```
+- **Database Path**: `data/production_parameters.db`
+- **Registry Engine**: `engine/production/v525_parameter_registry.py`
+- **Audit Rules**: Zero in-place row edits. Rollback is executed strictly by reactivating a previous `version_id`.
+
+### C. Live Shadow Execution & Telemetry Engine
+- **Telemetry Database**: `data/shadow_telemetry.db` (`shadow_alert_telemetry` table)
+- **Shadow Engine**: `engine/production/v526_shadow_execution_engine.py`
+- **Dashboard Script**: `scripts/v526_live_shadow_telemetry_runner.py`
+- **Tracked Features per Live Alert**: `config_version_id`, `scanner_name`, `symbol`, `decision_timestamp`, `gem_timestamp`, `gem_age_minutes`, `catalyst_state`, `clv`, `extension_r`, `volume_retention_ratio`, `vwap_relationship`, `orb_relationship`, `runway_atr`, `old_rank`, `new_rank`, `old_status`, `new_status`, `allocated_r`, `entry_price`, `stop_loss`, `target_price`, `decision_rationale`.
+
+### D. Production Scanner Policies
+| Scanner Family | Schedule | Production Operational Policy |
+| :--- | :--- | :--- |
+| **`MultiTF 1H` & `MultiTF 5M`** | Intraday | **LIVE GEM ROUTING** ($\le 60\text{m}$ TTL). After $60\text{m}$, decays to baseline. |
+| **`Short Covering`** | Intraday Specialist | **INVERSE TRAP ALLOCATION**: $0.50R$ on fresh Gem; **$1.50R$ on failed morning breakout trap**. |
+| **`Daily Builder`** | After-Market (15:30) | **DUAL-ENGINE ARCHITECTURE**: Engine A (Surviving Catalysts) + Engine B (Fresh EOD Bases). |
+| **`Reversal`, `Pullback V2`, `Multibagger`** | After-Market (16:00) | **STRUCTURE-FIRST**: Contextual boost granted only upon certified `CATALYST_SURVIVED`. |
+| **`EOD Breakout`, `Accumulation VCP`, `Wealth`, `Technical`** | After-Market (15:30 / 16:00) | **ORGANIC CONSOLIDATION**: Stale Gem removed; rank clean base breakouts and survived structures. |
+
+---
+
+## 28. Certified Artifact Directory Reference
 
 - [docs/MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/docs/MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md) (Master Canonical Document)
+- [reports/v526_manual_live_evaluation_dashboard.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v526_manual_live_evaluation_dashboard.md)
+- [engine/production/v526_shadow_execution_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v526_shadow_execution_engine.py)
+- [engine/production/v525_parameter_registry.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v525_parameter_registry.py)
 - [reports/v525_cross_scanner_attribution_and_arm_d_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v525_cross_scanner_attribution_and_arm_d_certification_report.md)
 - [reports/v525_master_4arm_attribution_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v525_master_4arm_attribution_matrix.csv)
 - [reports/v525_complete_5d_sensitivity_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v525_complete_5d_sensitivity_matrix.csv)
