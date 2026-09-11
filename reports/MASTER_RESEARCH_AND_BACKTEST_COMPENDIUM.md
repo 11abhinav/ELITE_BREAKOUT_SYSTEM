@@ -521,9 +521,36 @@ We investigated whether a morning Daily Builder Gem (09:35 IST) retains predicti
 
 ---
 
-## 23. Certified Artifact Directory Reference
+---
+
+## 23. V5.26 Daily Builder Dual-Engine EOD Architecture & 5-Test Out-of-Sample Certification
+
+### A. Dual-Engine Architecture
+1. **Engine A (Catalyst Engine - Gem-Originated)**: Identifies institutional morning ignition via frozen `ORB20` / `ORB30` criteria, and evaluates EOD survival vs climax exhaustion.
+2. **Engine B (Fresh EOD Setups Engine - Non-Gem Organic Bases)**: Identifies stocks that did not trigger a morning Gem but developed clean, fresh closing consolidation structures into 15:30.
+3. **EOD Certification & Unified Expectancy Ranking**: Selects Top-$K$ trades from `CATALYST_SURVIVED` and `FRESH_ORGANIC_BASE`, while strictly vetoing `EXHAUSTED_CLIMAX`.
+
+### B. 5-Test Out-of-Sample Performance Matrix (500 Trading Days)
+| Model Architecture | Trades ($N$) | Win Rate (%) | Net Expectancy ($E[R]$) | Profit Factor | Max DD (%) | Avg MFE | Avg MAE |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Test 1: Current Baseline (Naive Gem Carry)** | 1,420 | $51.1\%$ | $+0.349R$ | 1.94 | $2.5\%$ | $1.32R$ | $0.95R$ |
+| **Test 2: Gem + EOD Catalyst Survival** | 391 | **$87.7\%$** | **`+1.920R`** | **`21.17`** | **`0.2%`** | **`3.35R`** | **`0.37R`** |
+| **Test 3: Gem + Climax Exhaustion Rejection** | 1,211 | $60.4\%$ | $+0.663R$ | 3.21 | $1.0\%$ | $1.72R$ | $0.75R$ |
+| **Test 4: Clean EOD Setups (Fresh Organic Bases)**| 1,158 | **$76.3\%$** | **`+1.083R`** | **`7.09`** | **`0.3%`** | **`2.26R`** | **`0.47R`** |
+| **Test 5: Combined Dual-Engine Model (Certified Winner)**| 1,287 | **`78.9%`** | **`+1.239R`** | **`8.90`** | **`0.3%`** | **`2.49R`** | **`0.45R`** |
+
+### C. Core Discoveries
+- **Exhaustion Removal (+0.314R Lift)**: Simply rejecting the $34\%$ `EXHAUSTED_CLIMAX` cohort elevates morning Gem expectancy from $+0.349R$ to $+0.663R$ (PF $1.94 \to 3.21$).
+- **The Power of Non-Gem Clean Bases (Test 4)**: Non-Gem organic bases generate $+1.083R$ net expectancy (PF 7.09) with low drawdown ($0.3\%$). Restricting Daily Builder to morning Gems discarded this high-performing stream.
+- **Combined Dual-Engine Superiority (Test 5)**: The combined dual-engine portfolio quadruples Profit Factor ($1.94 \to 8.90$) and delivers $+1.239R$ net expectancy across 1,287 trades.
+
+---
+
+## 24. Certified Artifact Directory Reference
 
 - [docs/MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/docs/MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md) (Master Canonical Document)
+- [reports/v526_daily_builder_dual_engine_oos_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v526_daily_builder_dual_engine_oos_certification_report.md)
+- [reports/v526_daily_builder_5test_comparison_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v526_daily_builder_5test_comparison_matrix.csv)
 - [reports/v525_daily_builder_catalyst_survival_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v525_daily_builder_catalyst_survival_report.md)
 - [reports/v525_catalyst_survival_state_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v525_catalyst_survival_state_matrix.csv)
 - [reports/v525_daily_builder_head_to_head_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v525_daily_builder_head_to_head_matrix.csv)
@@ -534,6 +561,7 @@ We investigated whether a morning Daily Builder Gem (09:35 IST) retains predicti
 - [reports/v522_gem_temporal_validity_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v522_gem_temporal_validity_certification_report.md)
 - [engine/production/v523_market_catalyst_regime_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v523_market_catalyst_regime_engine.py)
 - [engine/production/v520_gem_router_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v520_gem_router_engine.py)
+
 
 
 

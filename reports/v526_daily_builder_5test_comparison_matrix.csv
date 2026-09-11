@@ -1,0 +1,6 @@
+model,trades_n,win_rate_pct,net_er,profit_factor,max_dd_pct,avg_mfe,avg_mae
+Test 1: Current Baseline (Naive Gem Carry),1420,51.1,0.349,1.94,2.5,1.32,0.95
+Test 2: Gem + EOD Catalyst Survival,391,87.7,1.92,21.17,0.2,3.35,0.37
+Test 3: Gem + Climax Exhaustion Rejection,1211,60.4,0.663,3.21,1.0,1.72,0.75
+Test 4: Clean EOD Setup Without Gem (Fresh Organic),1158,76.3,1.083,7.09,0.3,2.26,0.47
+Test 5: Combined Dual-Engine Model (Certified Winner),1287,78.9,1.239,8.9,0.3,2.49,0.45
