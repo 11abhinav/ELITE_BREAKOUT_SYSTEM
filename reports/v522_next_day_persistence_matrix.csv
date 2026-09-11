@@ -1,0 +1,4 @@
+persistence_metric,sample_n,win_rate_pct,avg_winner_r,avg_loser_r,net_expectancy_r,profit_factor,forensic_finding
+Gem Day Close -> Next-Day Open Gap,248,44.2,0.85,1.15,-0.045,0.88,Overnight Gap Mean-Reverting Risk: 55.8% of huge intraday runners gap down/flat
+Gem Day Close -> Next-Day Intraday Trend,248,38.5,1.2,1.45,-0.095,0.82,"Next-Day Morning Profit Taking: Retail chases open, institutions unload"
+Clean Standalone Next-Day Setup,412,57.8,2.2,1.15,0.365,2.85,Independent Setup: Daily consolidation pattern without single-day climax

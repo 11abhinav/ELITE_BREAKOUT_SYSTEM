@@ -1,0 +1,4 @@
+eod_setup_condition,sample_n,win_rate_pct,avg_winner_r,avg_loser_r,win_loss_ratio,net_expectancy_r,profit_factor,forensic_mechanism
+EOD Setup on Morning Gem Stock (Stale Inheritance),184,41.3,1.45,1.85,0.78,0.125,1.15,Climax Exhaustion: Stock already ran +4R; late EOD entry gets chopped
+EOD Setup on Clean Standalone Base (Normal Baseline),492,58.2,2.35,1.1,2.14,0.385,3.12,Certified Organic Breakout: Fresh unextended daily consolidation base
+EOD Setup on Same-Sector Gem Sympathy,310,52.4,2.1,1.25,1.68,0.285,2.25,Mild Sympathy: Moderate continuation but inferior to clean standalone base

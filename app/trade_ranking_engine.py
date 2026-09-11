@@ -172,8 +172,9 @@ class TradeRankingEngine:
           4. Institutional Footprint
           5. Structural Reward/Risk
         """
-        tier1_beneficiaries = {"REVERSAL", "PULLBACK", "PULLBACK_V2", "MULTITF_1H", "MULTIBAGGER"}
-        tier3_inverses = {"SHORT_COVERING"}
+        class_a_tier1 = {"REVERSAL", "PULLBACK", "PULLBACK_V2", "MULTITF_1H", "MULTIBAGGER"}
+        class_a_tier3 = {"SHORT_COVERING"}
+        class_b_and_c = {"EOD", "EOD_BREAKOUT", "ACCUMULATION", "ACCUMULATION_VCP", "WEALTH", "WEALTH_ENGINE", "TECHNICAL", "TECHNICAL_AHAT"}
 
         ranked = TradeRankingEngine.rank_candidates(candidates)
 
@@ -183,31 +184,41 @@ class TradeRankingEngine:
             tech = c.get("ranking_breakdown", {}).get("technical", 50)
             passed_top20 = tech >= quality_top20_threshold
 
-            if gem_active:
-                if any(t1 in scanner_name for t1 in tier1_beneficiaries):
+            is_class_b_or_c = any(bc in scanner_name for bc in class_b_and_c)
+
+            if is_class_b_or_c:
+                # Class B EOD & Class C After-Hours: Strictly decoupled to prevent stale-signal exhaustion
+                priority = 2
+                risk_r = 1.00
+                tier = "Standalone Clean Baseline (Class B/C Decoupled)"
+                effective_gem_active = False
+            elif gem_active:
+                effective_gem_active = True
+                if any(t1 in scanner_name for t1 in class_a_tier1):
                     priority = 1
                     risk_r = 1.50
-                    tier = "Tier 1: High Synergy"
-                elif any(t3 in scanner_name for t3 in tier3_inverses):
+                    tier = "Tier 1: High Synergy (Class A Intraday)"
+                elif any(t3 in scanner_name for t3 in class_a_tier3):
                     priority = 3
                     risk_r = 0.50
-                    tier = "Tier 3: Inverse Decoupled"
+                    tier = "Tier 3: Inverse Decoupled (Class A Intraday)"
                 else:
                     priority = 2
                     risk_r = 1.00
-                    tier = "Tier 2: Neutral Standalone"
+                    tier = "Tier 2: Intraday Scalp (Class A Intraday)"
             else:
+                effective_gem_active = False
                 priority = 2
                 risk_r = 1.00
                 tier = "Normal Baseline"
 
             c["gem_routing"] = {
-                "gem_active": gem_active,
+                "gem_active": effective_gem_active,
                 "ecosystem_tier": tier,
                 "priority": priority,
                 "risk_allocation_r": risk_r,
-                "two_stage_quality_pass": passed_top20 if gem_active else True,
-                "execution_permitted": (passed_top20 if (gem_active and priority == 1) else True)
+                "two_stage_quality_pass": passed_top20 if effective_gem_active else True,
+                "execution_permitted": (passed_top20 if (effective_gem_active and priority == 1) else True)
             }
 
         # Sort by priority first (1 is highest), then by original rank

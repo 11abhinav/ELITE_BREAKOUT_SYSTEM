@@ -120,19 +120,41 @@ class GemStateRouter:
         quality_top20_threshold: float = 75.0
     ) -> Dict[str, Any]:
         """
-        Calculates priority, risk multiplier, and two-stage ranking eligibility.
+        V5.22 Certified Timing Router:
+          - Class A (Intraday): Reversal, Pullback, MultiTF 1H, MultiTF 5M, Multibagger, Short Covering
+          - Class B (End-of-Day): EOD Breakout, Accumulation VCP (Strictly Decoupled)
+          - Class C (After-Hours): Wealth Engine, Technical Ahat (Strictly Decoupled)
         """
+        norm_name = str(scanner_name).upper().replace(" ", "_").replace("-", "_")
+        
+        class_a_tier1 = ["REVERSAL", "PULLBACK", "PULLBACK_V2", "MULTITF_1H", "MULTIBAGGER"]
+        class_a_tier2 = ["MULTITF_5M"]
+        class_a_tier3 = ["SHORT_COVERING"]
+        class_b_eod = ["EOD", "EOD_BREAKOUT", "ACCUMULATION", "ACCUMULATION_VCP"]
+        class_c_after_hours = ["WEALTH", "WEALTH_ENGINE", "TECHNICAL", "TECHNICAL_AHAT"]
+
+        # Class B & C Scanners: Permanently decoupled from intraday Gem state to eliminate exhaustion contamination
+        if any(b in norm_name for b in class_b_eod) or any(c in norm_name for c in class_c_after_hours):
+            return {
+                "ecosystem_tier": "Standalone Clean Baseline",
+                "timing_class": "Class B/C Decoupled",
+                "priority": 2,
+                "risk_allocation_r": 1.00,
+                "gem_active": False,
+                "quality_top20_passed": True,
+                "executable": True,
+                "action": "ROUTE_NORMAL_STANDALONE_EXECUTION"
+            }
+
+        # Class A Intraday Scanners: Evaluated against active 60m Gem window
         gem_active = self.is_gem_active(current_time)
         passes_quality_filter = scanner_quality_score >= quality_top20_threshold
 
-        tier1_beneficiaries = ["REVERSAL", "PULLBACK_V2", "MULTITF_1H", "MULTIBAGGER"]
-        tier2_neutrals = ["EOD_BREAKOUT", "ACCUMULATION_VCP", "MULTITF_5M", "WEALTH", "TECHNICAL_AHAT"]
-        tier3_inverses = ["SHORT_COVERING"]
-
         if gem_active:
-            if scanner_name in tier1_beneficiaries:
+            if any(t1 in norm_name for t1 in class_a_tier1):
                 return {
-                    "ecosystem_tier": "Tier 1: High Synergy",
+                    "ecosystem_tier": "Tier 1: High Synergy (Class A Intraday)",
+                    "timing_class": "Class A (Intraday)",
                     "priority": 1,
                     "risk_allocation_r": 1.50,
                     "gem_active": True,
@@ -140,9 +162,10 @@ class GemStateRouter:
                     "executable": passes_quality_filter,
                     "action": "ROUTE_TOP_PRIORITY_SCALED_RISK"
                 }
-            elif scanner_name in tier2_neutrals:
+            elif any(t2 in norm_name for t2 in class_a_tier2):
                 return {
-                    "ecosystem_tier": "Tier 2: Neutral / Robust",
+                    "ecosystem_tier": "Tier 2: Intraday Scalp (Class A Intraday)",
+                    "timing_class": "Class A (Intraday)",
                     "priority": 2,
                     "risk_allocation_r": 1.00,
                     "gem_active": True,
@@ -150,9 +173,10 @@ class GemStateRouter:
                     "executable": passes_quality_filter,
                     "action": "ROUTE_STANDARD_PRIORITY_BASE_RISK"
                 }
-            elif scanner_name in tier3_inverses:
+            elif any(t3 in norm_name for t3 in class_a_tier3):
                 return {
-                    "ecosystem_tier": "Tier 3: Inverse Decoupled",
+                    "ecosystem_tier": "Tier 3: Inverse Decoupled (Class A Intraday)",
+                    "timing_class": "Class A (Intraday)",
                     "priority": 3,
                     "risk_allocation_r": 0.50,
                     "gem_active": True,
@@ -160,17 +184,18 @@ class GemStateRouter:
                     "executable": passes_quality_filter,
                     "action": "ROUTE_DEPRIORITIZED_HALVED_RISK"
                 }
-        else:
-            # Standalone execution when No Gem is active
-            return {
-                "ecosystem_tier": "Baseline Standalone",
-                "priority": 2,
-                "risk_allocation_r": 1.00,
-                "gem_active": False,
-                "quality_top20_passed": True, # Normal standalone execution
-                "executable": True,
-                "action": "ROUTE_NORMAL_STANDALONE_EXECUTION"
-            }
+
+        # Baseline execution when No Gem is active or expired (>60m)
+        return {
+            "ecosystem_tier": "Baseline Standalone",
+            "timing_class": "Class A (Intraday)",
+            "priority": 2,
+            "risk_allocation_r": 1.00,
+            "gem_active": False,
+            "quality_top20_passed": True,
+            "executable": True,
+            "action": "ROUTE_NORMAL_STANDALONE_EXECUTION"
+        }
 
 
 class PortfolioRiskController:

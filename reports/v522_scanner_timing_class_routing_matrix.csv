@@ -1,0 +1,11 @@
+scanner_family,timing_class,gem_allowed,max_permissible_age,assigned_risk_r,execution_priority,architectural_mandate
+Reversal,Class A (Intraday),YES (Active Window),≤ 60 Minutes,1.5,1,+0.26R Lift certified strictly within 60m of ignition
+Pullback V2,Class A (Intraday),YES (Active Window),≤ 60 Minutes,1.5,1,+0.27R Lift certified strictly within 60m of ignition
+MultiTF 1H,Class A (Intraday),YES (Active Window),≤ 60 Minutes,1.5,1,+0.30R Lift certified strictly within 60m of ignition
+MultiTF 5M,Class A (Intraday),YES (Active Window),≤ 60 Minutes,1.0,2,Lightweight intraday scalp; neutral risk
+Multibagger,Class A (Intraday),YES (Active Window),≤ 60 Minutes,1.5,1,+0.50R Lift certified on high-volume intraday base breakout
+EOD Breakout,Class B (End-of-Day),NO (Strictly Decoupled),0 Minutes (Decoupled),1.0,2,Stale Gem causes -0.26R degradation; must run on standalone baseline
+Accumulation VCP,Class B (End-of-Day),NO (Strictly Decoupled),0 Minutes (Decoupled),1.0,2,Multi-week VCP pattern requires standalone structural evaluation
+Wealth Engine,Class C (After-Hours),NO (Strictly Decoupled),0 Minutes (Decoupled),1.0,2,Long-term fundamental compounding; immune to 60m intraday pulses
+Technical Ahat,Class C (After-Hours),NO (Strictly Decoupled),0 Minutes (Decoupled),1.0,2,Multi-pattern technical scan; runs exclusively on pure standalone rules
+Short Covering,Class A (Intraday),DE-PRIORITIZED,≤ 60 Minutes,0.5,3,Anti-correlated to strong momentum; downsized to 0.50R to protect capital

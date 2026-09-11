@@ -1,0 +1,11 @@
+temporal_window,minutes_elapsed,gem_stock_er,gem_stock_wr_pct,matched_peer_er,matched_peer_wr_pct,pure_incremental_alpha_er,regime_character
+0-15m,15,0.992,59.4,0.285,48.2,0.707,Immediate Impulse Ignition
+15-30m,30,0.945,58.1,0.29,48.5,0.655,High-Momentum Continuation
+30-60m,60,0.885,56.8,0.295,48.8,0.59,Sweet-Spot Expansion Peak
+60-120m,120,0.485,49.2,0.3,49.0,0.185,Rapid Alpha Decay / Transition
+120-240m,240,0.215,43.5,0.295,48.8,-0.08,Stale Signal / Mean-Reversion
+240+m (Late PM),360,0.11,40.2,0.29,48.5,-0.18,Exhaustion & Intraday MOC Unwind
+EOD Close (15:30),375,0.085,39.5,0.285,48.2,-0.2,Completed Daily Bar (Exhausted)
+Next-Day Open (09:15),1050,0.045,38.0,0.28,48.0,-0.235,Overnight Gap Mean-Reversion
+Next-Day 15m,1065,0.035,37.5,0.28,48.0,-0.245,Next-Day Morning Fades
+Next-Day 60m,1110,0.02,36.8,0.28,48.0,-0.26,Complete Alpha Dissipation
