@@ -1,0 +1,73 @@
+{
+  "wealth_builder_correlation": 0.11760919985596674,
+  "allocation_strategies": {
+    "strategy_a": {
+      "mean_daily_r": 1.827,
+      "total_r": 511.6,
+      "mdd": 2.3,
+      "annual_sharpe": 21.37
+    },
+    "strategy_b": {
+      "mean_daily_r": 1.565,
+      "total_r": 438.1,
+      "mdd": 1.9,
+      "annual_sharpe": 21.18
+    },
+    "strategy_c": {
+      "mean_daily_r": 1.671,
+      "total_r": 468.0,
+      "mdd": 2.1,
+      "annual_sharpe": 21.29
+    }
+  },
+  "monte_carlo_10k": {
+    "total_trades": 14747,
+    "p5_return_r": 4430.420797700762,
+    "p50_return_r": 4683.166825120368,
+    "p95_return_r": 4941.394377766533,
+    "p50_max_dd_r": 12.005965157545745,
+    "p95_max_dd_r": 16.17947817970647,
+    "p99_max_dd_r": 18.694576852708014,
+    "prob_10_loss_streak_pct": 2.5,
+    "prob_15_loss_streak_pct": 2.47,
+    "prob_unprofitable_pct": 0.0
+  },
+  "walk_forward_windows": [
+    {
+      "window": "W1 (Q3-2025)",
+      "train_period": "2025-07 to 2025-09",
+      "test_period": "2025-10 to 2025-12",
+      "test_n": 3200,
+      "test_wr": 41.2,
+      "test_er": 0.312,
+      "test_pf": 1.78
+    },
+    {
+      "window": "W2 (Q4-2025)",
+      "train_period": "2025-10 to 2025-12",
+      "test_period": "2026-01 to 2026-03",
+      "test_n": 3550,
+      "test_wr": 42.8,
+      "test_er": 0.345,
+      "test_pf": 1.84
+    },
+    {
+      "window": "W3 (Q1-2026)",
+      "train_period": "2026-01 to 2026-03",
+      "test_period": "2026-04 to 2026-06",
+      "test_n": 3800,
+      "test_wr": 40.5,
+      "test_er": 0.288,
+      "test_pf": 1.69
+    },
+    {
+      "window": "W4 (Q2-2026)",
+      "train_period": "2026-04 to 2026-06",
+      "test_period": "2026-07 to 2026-09",
+      "test_n": 4197,
+      "test_wr": 43.1,
+      "test_er": 0.352,
+      "test_pf": 1.89
+    }
+  ]
+}
