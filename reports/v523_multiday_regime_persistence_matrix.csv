@@ -1,0 +1,6 @@
+holding_horizon,regime_days_n,win_rate_pct,net_expectancy_r,profit_factor,macro_implication
+Strong Catalyst -> T+1 Next-Day Swing,124,62.4,0.525,3.45,Strong positive carryover: Morning institutional surge carries into next session
+Strong Catalyst -> T+2 Multi-Day Swing,124,60.1,0.485,3.1,"Sustained momentum window for swing trades (Reversal, Pullback, Multibagger)"
+Strong Catalyst -> T+3 Multi-Day Swing,124,57.8,0.41,2.75,Normal trend continuation
+Strong Catalyst -> T+5 Multi-Day Swing,124,54.2,0.335,2.3,Regime mean-reversion boundary
+Failed Trap -> T+1 Next-Day Longs,58,36.5,-0.165,0.78,Severe negative drag: Failed morning breakouts trigger multi-day distribution

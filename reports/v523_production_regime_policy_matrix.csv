@@ -1,0 +1,11 @@
+scanner_family,strong_catalyst_policy,normal_momentum_policy,weak_chop_policy,failed_trap_policy,architectural_rationale
+Reversal,1.50R (Priority 1),1.00R (Priority 2),0.75R (Priority 2),0.50R / VETO (Priority 3),Elevated priority on Strong Catalyst; protected on Trap regimes
+Pullback V2,1.50R (Priority 1),1.00R (Priority 2),0.75R (Priority 2),0.50R / VETO (Priority 3),Aggressive pullback loading on confirmed institutional days
+Multibagger,1.50R (Priority 1),1.00R (Priority 2),0.50R (Priority 2),VETO (Priority 3),Max risk on expansion days; complete veto on bull-trap days
+EOD Breakout,1.25R (Fresh Base Only),1.00R (Priority 2),0.75R (Priority 2),VETO (Priority 3),Scaled risk for fresh bases; automatic veto for same-day extended climaxes
+Accumulation VCP,1.25R (Fresh Base Only),1.00R (Priority 2),0.75R (Priority 2),VETO (Priority 3),Scaled risk for fresh VCPs; automatic veto for extended climaxes
+MultiTF 1H,1.50R (Priority 1),1.00R (Priority 2),0.75R (Priority 2),0.50R / VETO (Priority 3),Intraday trend ignition scaled to macro momentum
+MultiTF 5M,1.00R (Priority 2),1.00R (Priority 2),0.75R (Priority 2),0.50R / VETO (Priority 3),Fast intraday scalps; neutral baseline
+Wealth Engine,1.25R (Priority 2),1.00R (Priority 2),1.00R (Priority 2),0.75R (Priority 3),Long-term compounding; mild regime scaling
+Technical Ahat,1.25R (Priority 2),1.00R (Priority 2),0.75R (Priority 2),VETO (Priority 3),Multi-pattern setups gated by market health
+Short Covering,0.50R / VETO (Priority 3),1.00R (Priority 2),1.25R (Priority 1),1.50R (Priority 1),INVERTED MASTER HEDGE: Max size on Failed Bull-Traps; Vetoed on Strong Catalyst

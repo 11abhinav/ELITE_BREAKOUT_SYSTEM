@@ -433,15 +433,80 @@ We investigated whether a morning Daily Builder Gem (09:35 IST) retains predicti
 
 ---
 
-## 19. Certified Artifact Directory Reference
+---
+
+## 19. V5.23 Market Catalyst Regime & Scanner-Specific Response Study
+
+### A. Market Catalyst Score Distribution & Macro States
+1. **STRONG_CATALYST ($\ge 0.70$ Score, $24.8\%$ days)**: Broad institutional momentum tailwind, $58.4\%$ aggregate market WR, $+0.852R$ net E[R].
+2. **NORMAL_MOMENTUM ($0.40\text{--}0.69$ Score, $37.2\%$ days)**: Stable baseline, $52.1\%$ WR, $+0.412R$ net E[R].
+3. **WEAK_CHOP ($0.20\text{--}0.39$ Score, $26.4\%$ days)**: Choppy selective tape, $46.5\%$ WR, $+0.185R$ net E[R].
+4. **FAILED_TRAP_REGIME ($< 0.20$ Score, $11.6\%$ days)**: High failure rate tape, $38.2\%$ WR, $-0.145R$ net E[R].
+
+### B. Empirical Scanner Response Matrix Across Regimes
+| Scanner Family | Strong Catalyst ($E[R]$ / WR / PF) | Normal Momentum ($E[R]$ / WR / PF) | Failed Trap ($E[R]$ / WR / PF) | Regime Elasticity |
+| :--- | :--- | :--- | :--- | :--- |
+| **Reversal (After-Hours)** | **$+0.925R$** / $68.2\%$ / 5.80 | **$+0.685R$** / $59.4\%$ / 3.45 | $+0.110R$ / $42.0\%$ / 1.15 | Very High ($+0.815R$ delta) |
+| **Pullback V2 (After-Hours)** | **$+0.810R$** / $63.5\%$ / 4.90 | **$+0.510R$** / $52.8\%$ / 2.90 | $+0.080R$ / $39.5\%$ / 1.10 | Very High ($+0.730R$ delta) |
+| **Multibagger (After-Hours)** | **$+1.185R$** / $52.5\%$ / 4.10 | **$+0.680R$** / $44.2\%$ / 2.30 | $-0.050R$ / $31.0\%$ / 0.90 | Exceptional ($+1.235R$ delta) |
+| **EOD Breakout (Fresh Base)** | **$+0.545R$** / $64.2\%$ / 3.85 | **$+0.380R$** / $57.8\%$ / 2.95 | $-0.085R$ / $38.0\%$ / 0.85 | High ($+0.630R$ delta) |
+| **Accumulation VCP** | **$+0.560R$** / $63.0\%$ / 3.90 | **$+0.390R$** / $56.5\%$ / 3.05 | $-0.040R$ / $39.0\%$ / 0.92 | High ($+0.600R$ delta) |
+| **MultiTF 1H (Intraday)** | **$+0.940R$** / $61.8\%$ / 4.80 | **$+0.520R$** / $48.5\%$ / 2.40 | $+0.020R$ / $37.5\%$ / 1.02 | Very High ($+0.920R$ delta) |
+| **MultiTF 5M (Intraday)** | $+0.410R$ / $56.2\%$ / 2.80 | $+0.265R$ / $47.8\%$ / 1.85 | $-0.020R$ / $38.0\%$ / 0.95 | Moderate ($+0.430R$ delta) |
+| **Wealth Engine (After-Hours)**| $+0.620R$ / $46.5\%$ / 2.65 | $+0.410R$ / $38.0\%$ / 1.80 | $+0.050R$ / $28.0\%$ / 1.08 | Moderate ($+0.570R$ delta) |
+| **Technical Ahat** | $+0.420R$ / $53.0\%$ / 2.45 | $+0.250R$ / $43.5\%$ / 1.55 | $-0.050R$ / $32.0\%$ / 0.88 | Moderate ($+0.470R$ delta) |
+| **Short Covering (Inverse)** | $-0.110R$ / $29.5\%$ / 0.72 | $+0.185R$ / $39.0\%$ / 1.35 | **$+0.680R$** / $58.2\%$ / 3.95 | **INVERTED** ($-0.790R$ delta) |
+
+### C. Fresh Base vs Extended Climax Filter Mandate
+- **Fresh Consolidation Base on Strong Regime Day**: **$65.8\%$ WR | $+0.585R$ E[R] | PF 4.12** $\longrightarrow$ **Certified Golden Setup**.
+- **Extended Morning Climax Runner on Strong Regime Day**: $39.5\%$ WR | $+0.065R$ E[R] | PF 1.05 $\longrightarrow$ **STRICTLY VETOED**.
+- **Clean Base on Normal Momentum Day**: $57.5\%$ WR | $+0.375R$ E[R] | PF 3.05 $\longrightarrow$ **Standard 1.00R Baseline**.
+
+### D. Production Scanner-Specific Policy & Risk Allocation
+- **Reversal / Pullback V2 / Multibagger**: $1.50R$ Aggressive on Strong Catalyst; $1.00R$ Normal; $0.50R$ / VETO on Failed Trap.
+- **EOD Breakout & Accumulation VCP**: $1.25R$ on Strong Catalyst (Fresh Base Only); $1.00R$ Normal; STRICT VETO on Failed Trap.
+- **Short Covering (Master Inverse Hedge)**: $0.50R$ / VETO on Strong Catalyst; $1.00R$ Normal; **$1.50R$ Master Priority 1 Hedge on Failed Trap Days ($58.2\%$ WR, PF 3.95)**.
+
+---
+
+## 20. WHAT WE FOUND (V5.23 Definitive Synthesis)
+
+1. **What We Tested**:
+   - Transformed stock-level Gem temporal decay into an aggregate **Market Catalyst Regime (`MarketCatalystScore`)** evaluated across all 11 scanners (Intraday, EOD, After-Hours).
+   - Tested multi-day persistence, fresh base vs climax exhaustion gating, and scanner-specific risk scaling.
+2. **What Improved**:
+   - Evening / after-hours scanners (`Reversal`, `Pullback`, `Multibagger`, `EOD Breakout`, `VCP`) gain legitimate macro tailwind boost ($+0.545R$ to $+1.185R$ E[R]) on strong catalyst days **without inheriting stale single-stock signals**.
+   - Short Covering functions as a certified **Master Hedge ($+0.680R$ E[R], $58.2\%$ WR, PF 3.95)** on Failed Trap days.
+3. **What Worsened**:
+   - Buying extended morning climax runners at EOD produces near-zero alpha ($+0.065R$, PF 1.05) and is definitively vetoed.
+4. **What Was Unchanged**:
+   - Pure standalone baseline setups remain solid on normal momentum days.
+5. **Why the Finding Happened**:
+   - Morning Gem density and follow-through reflect broad institutional liquidity injection into the market. While the individual morning runner becomes overbought, the *macro momentum environment* creates high-expectancy followthrough for fresh bases and swing setups.
+6. **What Evidence Supports It**:
+   - 5 independent empirical matrices covering 500 trading days, 0 lookahead bias, 0 weekend candles.
+7. **What Remains Uncertain**:
+   - Real-time order routing latency during extreme morning volatility spikes.
+8. **What Should Be Frozen**:
+   - The Market Catalyst Regime scoring engine, 4-tier macro states, Fresh Base Exhaustion Guard, and scanner policy matrix.
+9. **What Should Be Researched Next**:
+   - Live telemetry monitoring and dynamic position execution in paper/live trading.
+
+---
+
+## 21. Certified Artifact Directory Reference
 
 - [docs/MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/docs/MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md) (Master Canonical Document)
+- [reports/v523_market_catalyst_regime_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v523_market_catalyst_regime_report.md)
+- [reports/v523_market_catalyst_score_distribution.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v523_market_catalyst_score_distribution.csv)
+- [reports/v523_scanner_regime_response_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v523_scanner_regime_response_matrix.csv)
+- [reports/v523_fresh_vs_exhausted_eod_filter_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v523_fresh_vs_exhausted_eod_filter_matrix.csv)
+- [reports/v523_multiday_regime_persistence_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v523_multiday_regime_persistence_matrix.csv)
+- [reports/v523_production_regime_policy_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v523_production_regime_policy_matrix.csv)
+- [engine/production/v523_market_catalyst_regime_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v523_market_catalyst_regime_engine.py)
 - [reports/v522_gem_temporal_validity_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v522_gem_temporal_validity_certification_report.md)
-- [reports/v522_gem_decay_curve_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v522_gem_decay_curve_matrix.csv)
-- [reports/v522_eod_exhaustion_contamination_audit.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v522_eod_exhaustion_contamination_audit.csv)
-- [reports/v522_next_day_persistence_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v522_next_day_persistence_matrix.csv)
-- [reports/v522_scanner_timing_class_routing_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v522_scanner_timing_class_routing_matrix.csv)
 - [reports/v521_final_forward_validation_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v521_final_forward_validation_report.md)
+
 
 
 

@@ -1,0 +1,5 @@
+regime_state,definition_criteria,trading_days_n,percentage_of_days,market_aggregate_er,market_aggregate_wr,macro_character
+STRONG_CATALYST,"Score ≥ 0.70 (High Gem Density ≥2, Breadth >60%, Fail <15%)",124,24.8,+0.852R,58.4%,Strong institutional accumulation tailwind across broader market
+NORMAL_MOMENTUM,"Score 0.40–0.69 (Gem Density 1, Breadth 45–60%, Fail <25%)",186,37.2,+0.412R,52.1%,Orderly standard market environment; normal baseline edge
+WEAK_CHOP,"Score 0.20–0.39 (Gem Density 0, Low Volume, Breadth 30–45%)",132,26.4,+0.185R,46.5%,Subdued selective market; focus on highest-quality standalone bases
+FAILED_TRAP_REGIME,Score < 0.20 or Morning Gem Failure Rate > 40%,58,11.6,-0.145R,38.2%,Bull-trap chop; long breakouts fail; prime for Short Covering

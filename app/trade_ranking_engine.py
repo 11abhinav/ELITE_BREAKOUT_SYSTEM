@@ -229,3 +229,65 @@ class TradeRankingEngine:
 
         return ranked
 
+    @staticmethod
+    def rank_candidates_regime_aware(
+        candidates: list,
+        regime_score: float = 0.50,
+        quality_top20_threshold: float = 75.0
+    ) -> list:
+        """
+        V5.23 Market-Catalyst-Regime Hierarchical Ranking & Dynamic Risk Allocation.
+        
+        Applies aggregate market catalyst regime to all 11 scanners (Intraday, EOD, After-Hours).
+        Replaces individual stale Gem inheritance with macro catalyst regime scoring and
+        fresh consolidation base gating.
+        """
+        try:
+            from engine.production.v523_market_catalyst_regime_engine import (
+                ScannerRegimePolicyEngine,
+                MarketCatalystScoreAggregator,
+                FreshnessExhaustionGuard
+            )
+        except ImportError:
+            # Fallback if engine package structure varies
+            return TradeRankingEngine.rank_candidates(candidates)
+
+        ranked = TradeRankingEngine.rank_candidates(candidates)
+        regime = MarketCatalystScoreAggregator.resolve_regime(regime_score)
+
+        for c in ranked:
+            policy_decision = ScannerRegimePolicyEngine.evaluate_candidate(c, regime_score=regime_score)
+            tech = c.get("ranking_breakdown", {}).get("technical", 50)
+            passed_top20 = tech >= quality_top20_threshold
+
+            exec_permitted = policy_decision.execution_permitted
+            if policy_decision.priority == 1 and not passed_top20:
+                # Priority 1 allocations require top 20% technical quality
+                exec_permitted = False
+
+            c["regime_routing"] = {
+                "regime_state": policy_decision.regime.value,
+                "regime_score": policy_decision.score,
+                "scanner_name": policy_decision.scanner_name,
+                "priority": policy_decision.priority,
+                "risk_allocation_r": policy_decision.risk_allocation_r,
+                "execution_permitted": exec_permitted,
+                "veto_reason": policy_decision.veto_reason,
+                "policy_description": policy_decision.policy_description,
+                "climax_exhaustion_checked": policy_decision.climax_exhaustion_checked,
+                "is_fresh_base": FreshnessExhaustionGuard.is_fresh_base(c)
+            }
+
+        # Sort by regime priority (1 is highest), execution permitted flag, then global technical rank
+        ranked.sort(key=lambda x: (
+            0 if x["regime_routing"]["execution_permitted"] else 1,
+            x["regime_routing"]["priority"],
+            x["ranking_breakdown"]["global_rank"]
+        ))
+
+        for idx, c in enumerate(ranked):
+            c["ranking_breakdown"]["regime_routed_rank"] = idx + 1
+
+        return ranked
+
+
