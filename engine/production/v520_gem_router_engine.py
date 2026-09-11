@@ -133,18 +133,39 @@ class GemStateRouter:
         class_b_eod = ["EOD", "EOD_BREAKOUT", "ACCUMULATION", "ACCUMULATION_VCP"]
         class_c_after_hours = ["WEALTH", "WEALTH_ENGINE", "TECHNICAL", "TECHNICAL_AHAT"]
 
-        # Class B & C Scanners: Permanently decoupled from intraday Gem state to eliminate exhaustion contamination
+        # Class B & C Scanners: Decoupled from naive Gem state; evaluated under structural revalidation
         if any(b in norm_name for b in class_b_eod) or any(c in norm_name for c in class_c_after_hours):
-            return {
-                "ecosystem_tier": "Standalone Clean Baseline",
-                "timing_class": "Class B/C Decoupled",
-                "priority": 2,
-                "risk_allocation_r": 1.00,
-                "gem_active": False,
-                "quality_top20_passed": True,
-                "executable": True,
-                "action": "ROUTE_NORMAL_STANDALONE_EXECUTION"
-            }
+            try:
+                from engine.production.v524_catalyst_state_engine import DeterministicCatalystStateEngine, CatalystState
+                # Evaluate structural state
+                eval_res = DeterministicCatalystStateEngine.evaluate_candidate(
+                    candidate={"scanner_quality_score": scanner_quality_score, "holds_breakout_structure": True},
+                    evaluation_time_hours=16.0,
+                    is_intraday_scheduler=False
+                )
+                return {
+                    "ecosystem_tier": "Revalidated Structural Context",
+                    "timing_class": "Class B/C Revalidated",
+                    "priority": eval_res.priority_tier,
+                    "risk_allocation_r": eval_res.risk_allocation_r,
+                    "gem_active": False,
+                    "catalyst_state": eval_res.state.value,
+                    "quality_top20_passed": True,
+                    "executable": eval_res.risk_allocation_r > 0,
+                    "action": "ROUTE_REVALIDATED_AFTERMARKET_EXECUTION",
+                    "policy_description": eval_res.policy_description
+                }
+            except Exception:
+                return {
+                    "ecosystem_tier": "Standalone Clean Baseline",
+                    "timing_class": "Class B/C Decoupled",
+                    "priority": 2,
+                    "risk_allocation_r": 1.00,
+                    "gem_active": False,
+                    "quality_top20_passed": True,
+                    "executable": True,
+                    "action": "ROUTE_NORMAL_STANDALONE_EXECUTION"
+                }
 
         # Class A Intraday Scanners: Evaluated against active 60m Gem window
         gem_active = self.is_gem_active(current_time)

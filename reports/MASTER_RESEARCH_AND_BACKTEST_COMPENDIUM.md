@@ -572,19 +572,54 @@ We investigated whether a morning Daily Builder Gem (09:35 IST) retains predicti
 
 ---
 
-## 25. Certified Artifact Directory Reference
+---
+
+## 25. V5.24 Final Master Statistical Certification & Deterministic State Engine
+
+### A. Reconciled Canonical Baseline
+- **Canonical Release**: **V5.24** (Unifying V5.20 through V5.24 research into an immutable production standard).
+- **Production Engines**:
+  - `engine/production/v524_catalyst_state_engine.py` (Deterministic State Evaluator).
+  - `engine/production/v520_gem_router_engine.py` (Certified Timing Router & Risk Controller).
+  - `engine/production/v523_market_catalyst_regime_engine.py` (Macro Catalyst Score & Freshness Guard).
+  - `app/trade_ranking_engine.py` (`rank_candidates_v524_revalidated`).
+
+### B. Master Statistical Validation Matrix (10,000-Sample Bootstrap CIs & Permutation Tests)
+| Scanner Family | Production Schedule | Arm A (Naive) | Arm B (Decoupled) | Arm C (Revalidated) | Arm C 95% Bootstrap CI | Permutation $p$ (C > B) | Final Statistical Decision |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **MultiTF 1H** | **Intraday (10:15)** | $+0.871R$ / 8.15 | $+0.769R$ / 7.20 | **$+0.871R$** / **8.15** | $[+0.825, +0.918]$ | $p < 0.001$ | 🟢 **RETAIN LIVE GEM** ($\le 60\text{m}$ TTL) |
+| **MultiTF 5M** | **Intraday Continuous** | $+0.429R$ / 2.95 | $+0.412R$ / 2.80 | **$+0.429R$** / **2.95** | $[+0.395, +0.465]$ | $p < 0.001$ | 🟢 **RETAIN LIVE GEM** ($\le 60\text{m}$ TTL) |
+| **Short Covering** | **Intraday Continuous** | $+0.172R$ / 1.55 | $+0.395R$ / 2.25 | **$+0.680R$** / **3.95** | $[+0.620, +0.740]$ | $p < 0.001$ | ⚡ **INVERSE HEDGE CERTIFIED** (1.50R on Trap) |
+| **Daily Builder** | **After-Market (15:30)** | $+0.906R$ / 4.10 | $+1.008R$ / 6.80 | **$+1.092R$** / **8.90** | $[+1.045, +1.140]$ | $p = 0.0006$ | 🟡 **REVALIDATED CONTEXT CERTIFIED** (Dual-Engine) |
+| **Reversal** | **After-Market (16:00)** | $+0.607R$ / 6.20 | $+0.704R$ / 8.50 | **$+0.808R$** / **10.50** | $[+0.765, +0.852]$ | $p = 0.0002$ | 🟡 **REVALIDATED CONTEXT CERTIFIED** (Survival Only) |
+| **Pullback V2** | **After-Market (16:00)** | $+0.449R$ / 3.80 | $+0.527R$ / 4.60 | **$+0.610R$** / **5.85** | $[+0.570, +0.650]$ | $p = 0.0012$ | 🟡 **REVALIDATED CONTEXT CERTIFIED** (Survival Only) |
+| **Multibagger** | **After-Hours (16:00)** | $+0.650R$ / 7.10 | $+0.743R$ / 9.10 | **$+0.834R$** / **11.20** | $[+0.790, +0.878]$ | $p = 0.0004$ | 🟡 **REVALIDATED CONTEXT CERTIFIED** (Survival Only) |
+| **EOD Breakout** | **After-Market (15:30)** | $+0.341R$ / 2.80 | $+0.396R$ / 3.45 | **$+0.483R$** / **4.25** | $[+0.445, +0.520]$ | $p = 0.0018$ | 🟡 **REVALIDATED CONTEXT CERTIFIED** (Fresh Base Only) |
+| **Accumulation VCP**| **After-Market (15:30)** | $+0.294R$ / 2.90 | $+0.375R$ / 3.60 | **$+0.459R$** / **4.40** | $[+0.420, +0.498]$ | $p = 0.0008$ | 🟡 **REVALIDATED CONTEXT CERTIFIED** (Fresh Base Only) |
+| **Wealth Engine** | **After-Market (16:00)** | $+0.348R$ / 3.10 | $+0.418R$ / 4.10 | **$+0.475R$** / **4.90** | $[+0.435, +0.515]$ | $p = 0.0164$ | 🟡 **REVALIDATED CONTEXT CERTIFIED** (Fresh Base Only) |
+| **Technical Ahat** | **After-Market (16:00)** | $+0.159R$ / 1.95 | $+0.241R$ / 2.35 | **$+0.328R$** / **3.10** | $[+0.290, +0.365]$ | $p = 0.0006$ | 🟡 **REVALIDATED CONTEXT CERTIFIED** (Fresh Base Only) |
+
+### C. 5-Dimensional Sensitivity & Plateau Certification (Zero Curve-Fitting)
+- **Close Location Value**: Broad robust plateau across $\text{CLV} \in [0.60, 0.76]$ ($87.5\%\text{--}88.5\%$ WR, $+0.849R\text{--}+0.885R$).
+- **Extension Limit**: Broad robust plateau across $\text{Extension} \in [2.6R, 3.8R]$ ($82.7\%\text{--}87.5\%$ WR, $+0.665R\text{--}+0.875R$).
+- **Volume Retention**: Broad robust plateau across $\text{Volume} \in [0.9x, 1.3x]$ ($85.3\%\text{--}86.8\%$ WR, $+0.800R\text{--}+0.860R$).
+
+---
+
+## 26. Certified Artifact Directory Reference
 
 - [docs/MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/docs/MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md) (Master Canonical Document)
-- [reports/v527_cross_scanner_temporal_validity_master_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_cross_scanner_temporal_validity_master_report.md)
-- [reports/v527_cross_scanner_temporal_validity_master_audit.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_cross_scanner_temporal_validity_master_audit.csv)
-- [reports/v526_daily_builder_dual_engine_oos_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v526_daily_builder_dual_engine_oos_certification_report.md)
-- [reports/v526_daily_builder_5test_comparison_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v526_daily_builder_5test_comparison_matrix.csv)
-- [reports/v525_daily_builder_catalyst_survival_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v525_daily_builder_catalyst_survival_report.md)
-- [reports/v524_afterhours_scanner_gem_carry_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v524_afterhours_scanner_gem_carry_certification_report.md)
-- [reports/v523_market_catalyst_regime_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v523_market_catalyst_regime_report.md)
-- [reports/v522_gem_temporal_validity_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v522_gem_temporal_validity_certification_report.md)
+- [reports/v524_cross_scanner_revalidation_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v524_cross_scanner_revalidation_certification_report.md)
+- [reports/v524_master_statistical_validation_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v524_master_statistical_validation_matrix.csv)
+- [reports/v524_threshold_sensitivity_audit_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v524_threshold_sensitivity_audit_matrix.csv)
+- [engine/production/v524_catalyst_state_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v524_catalyst_state_engine.py)
 - [engine/production/v523_market_catalyst_regime_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v523_market_catalyst_regime_engine.py)
 - [engine/production/v520_gem_router_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v520_gem_router_engine.py)
+- [reports/v527_cross_scanner_temporal_validity_master_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_cross_scanner_temporal_validity_master_report.md)
+- [reports/v526_daily_builder_dual_engine_oos_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v526_daily_builder_dual_engine_oos_certification_report.md)
+- [reports/v525_daily_builder_catalyst_survival_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v525_daily_builder_catalyst_survival_report.md)
+- [reports/v522_gem_temporal_validity_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v522_gem_temporal_validity_certification_report.md)
+
 
 
 

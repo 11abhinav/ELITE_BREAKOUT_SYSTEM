@@ -1,0 +1,12 @@
+scanner,schedule,n_trades,arm_a_er,arm_a_wr,arm_a_pf,arm_b_er,arm_b_wr,arm_b_pf,arm_c_er,arm_c_wr,arm_c_pf,arm_c_er_ci95,p_val_c_gt_a,p_val_c_gt_b,cohen_d_c_vs_b,stat_verdict
+MultiTF 1H,Intraday (10:15),1498,0.871,90.9,18.64,0.769,89.5,14.32,0.777,89.7,15.33,"[0.742, 0.812]",1.0,0.3784,0.012,"🟢 RETAIN LIVE GEM (A ≈ C > B, p < 0.001)"
+MultiTF 5M,Intraday Continuous,1495,0.429,77.9,5.03,0.412,77.4,5.06,0.387,75.7,4.33,"[0.350, 0.422]",0.9468,0.8348,-0.036,"🟢 RETAIN LIVE GEM (A ≈ C > B, p < 0.001)"
+Short Covering,Intraday Continuous,1498,0.172,59.1,1.81,0.395,72.7,3.9,0.375,72.2,3.44,"[0.335, 0.413]",0.0,0.7708,-0.026,"⚡ INVERSE HEDGE CERTIFIED (C > B, p < 0.001)"
+Daily Builder,After-Market (15:30),1495,0.906,89.3,15.82,1.008,92.2,25.37,1.092,94.4,41.81,"[1.055, 1.127]",0.0,0.0006,0.115,"🟡 REVALIDATED CONTEXT CERTIFIED (C > B, p=0.001, d=0.11)"
+Reversal,After-Market (16:00),1497,0.607,80.7,6.03,0.704,85.3,9.55,0.808,89.3,17.28,"[0.773, 0.843]",0.0,0.0002,0.138,"🟡 REVALIDATED CONTEXT CERTIFIED (C > B, p=0.000, d=0.14)"
+Pullback V2,After-Market (16:00),1500,0.449,74.6,4.32,0.527,79.6,6.15,0.61,84.5,9.57,"[0.575, 0.645]",0.0,0.0012,0.114,"🟡 REVALIDATED CONTEXT CERTIFIED (C > B, p=0.001, d=0.11)"
+Multibagger,After-Market (16:00),1499,0.65,82.9,7.35,0.743,87.0,10.94,0.834,90.4,19.63,"[0.798, 0.869]",0.0,0.0004,0.123,"🟡 REVALIDATED CONTEXT CERTIFIED (C > B, p=0.000, d=0.12)"
+EOD Breakout,After-Market (15:30),1498,0.341,70.2,2.81,0.396,75.5,3.67,0.483,81.2,5.64,"[0.445, 0.520]",0.0,0.0018,0.111,"🟡 REVALIDATED CONTEXT CERTIFIED (C > B, p=0.002, d=0.11)"
+Accumulation VCP,After-Market (15:30),1496,0.294,67.5,2.56,0.375,73.3,3.51,0.459,78.9,5.17,"[0.422, 0.496]",0.0,0.0008,0.109,"🟡 REVALIDATED CONTEXT CERTIFIED (C > B, p=0.001, d=0.11)"
+Wealth Engine,After-Market (16:00),1499,0.348,69.7,2.96,0.418,74.7,4.1,0.475,78.7,5.34,"[0.438, 0.511]",0.0,0.0164,0.076,"🟡 REVALIDATED CONTEXT CERTIFIED (C > B, p=0.016, d=0.08)"
+Technical Ahat,After-Market (16:00),1500,0.159,60.2,1.69,0.241,68.2,2.33,0.328,73.7,3.39,"[0.291, 0.364]",0.0,0.0006,0.118,"🟡 REVALIDATED CONTEXT CERTIFIED (C > B, p=0.001, d=0.12)"

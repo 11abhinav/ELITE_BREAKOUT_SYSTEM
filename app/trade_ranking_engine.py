@@ -290,4 +290,68 @@ class TradeRankingEngine:
 
         return ranked
 
+    @staticmethod
+    def rank_candidates_v524_revalidated(
+        candidates: list,
+        evaluation_time_hours: float = 16.0,
+        is_intraday_scheduler: bool = False,
+        quality_top20_threshold: float = 75.0
+    ) -> list:
+        """
+        V5.24 Deterministic Catalyst State & Revalidation Hierarchical Ranking Engine.
+        
+        Separates live intraday Gem routing (<= 60m TTL) from after-market structural revalidation.
+        Consumes DeterministicCatalystStateEngine to classify every candidate into:
+          - FRESH (Intraday active, 1.50R, Priority 1)
+          - SURVIVED (EOD structural survivor, 1.50R, Priority 1 Context Boost)
+          - COOLING (Standard 1.00R Baseline, Priority 2)
+          - EXHAUSTED (Climax runner, 0.00R VETO for continuation breakouts)
+          - INVALIDATED (Breakdown, 0.00R VETO)
+          - NO_CATALYST (Organic base, 1.00R Baseline)
+        """
+        try:
+            from engine.production.v524_catalyst_state_engine import DeterministicCatalystStateEngine, CatalystState
+        except ImportError:
+            return TradeRankingEngine.rank_candidates(candidates)
+
+        ranked = TradeRankingEngine.rank_candidates(candidates)
+
+        for c in ranked:
+            eval_res = DeterministicCatalystStateEngine.evaluate_candidate(
+                candidate=c,
+                evaluation_time_hours=evaluation_time_hours,
+                is_intraday_scheduler=is_intraday_scheduler
+            )
+            tech = c.get("ranking_breakdown", {}).get("technical", 50)
+            passed_top20 = tech >= quality_top20_threshold
+
+            exec_permitted = eval_res.risk_allocation_r > 0.0
+            if eval_res.priority_tier == 1 and not passed_top20:
+                exec_permitted = False
+
+            c["catalyst_revalidation"] = {
+                "state": eval_res.state.value,
+                "gem_age_minutes": eval_res.gem_age_minutes,
+                "priority_tier": eval_res.priority_tier,
+                "risk_allocation_r": eval_res.risk_allocation_r,
+                "execution_permitted": exec_permitted,
+                "veto_reason": eval_res.veto_reason,
+                "policy_description": eval_res.policy_description,
+                "is_live_intraday_eligible": eval_res.is_live_intraday_eligible,
+                "is_aftermarket_context_eligible": eval_res.is_aftermarket_context_eligible
+            }
+
+        # Sort: permitted first, priority tier (1 is highest), then technical rank
+        ranked.sort(key=lambda x: (
+            0 if x["catalyst_revalidation"]["execution_permitted"] else 1,
+            x["catalyst_revalidation"]["priority_tier"],
+            x["ranking_breakdown"]["global_rank"]
+        ))
+
+        for idx, c in enumerate(ranked):
+            c["ranking_breakdown"]["v524_revalidated_rank"] = idx + 1
+
+        return ranked
+
+
 
