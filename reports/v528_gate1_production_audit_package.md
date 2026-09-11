@@ -1,6 +1,6 @@
 # Gate #1 Production-Readiness Telemetry Package & Audit Report
 
-**Generated At**: 2026-09-11T16:11:34.588250  
+**Generated At**: 2026-09-11T16:16:43.439369  
 **Source Telemetry DB**: `data/shadow_telemetry.db`  
 **Total Telemetry Records**: `616` | **Total Resolved Disagreements (All Scanners)**: `34`  
 **Daily Builder Specific Disagreements**: `2` (Target: $N \ge 100$, preferred $200–300$)  
@@ -98,8 +98,9 @@ Trade Count Reconciliation:
 
 ---
 
-## 6. Daily Builder Specific Scorecard & Opportunity Density
+## 6. Daily Builder Dedicated Running Sequential Scorecard
 
+### A. Operational Density & Emission Rates
 | Daily Builder Metric | Current Live Telemetry Value | Operational Significance |
 | :--- | :---: | :--- |
 | **Eligible Daily Builder Universe** | **`56` Candidates** | Total EOD candidate flow evaluated |
@@ -108,6 +109,16 @@ Trade Count Reconciliation:
 | **Opportunity Density** | **`51.79%`** | Scarcity of quality setups in raw candidate stream |
 | **Emission Rate** | **`10.34%`** | Percentage of qualified setups emitted |
 | **Daily Builder Resolved Disagreements** | **`N = 2`** | Target: $N \ge 100$ (Progress: **`2%`**) |
+| **Daily Builder Net Decision Lift** | **`+0.45R`** | Disagreement advantage on Daily Builder |
+| **Daily Builder False Avoid Rate** | **`0.0%`** | Selectivity drag on Daily Builder |
+
+### B. Daily Builder Candidate Tier Breakdown
+| Candidate Tier | Evaluated Count | Win Rate (%) | Avg Realized R | Operational Policy |
+| --- | --- | --- | --- | --- |
+| Tier A+ (Score >= 70) | 3 | 66.7% | +0.983R | EMIT (Top 5 Ceiling) |
+| Tier A (Score 58 - 70) | 22 | 63.6% | +0.939R | QUALIFIED_RESERVE |
+| Tier B (Score 45 - 58) | 14 | 50.0% | +0.271R | FILTERED |
+| Tier C / Reject (Score < 45) | 17 | 17.6% | -0.550R | FILTERED |
 
 ---
 

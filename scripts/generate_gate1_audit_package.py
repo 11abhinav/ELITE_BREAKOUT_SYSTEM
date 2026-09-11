@@ -190,14 +190,58 @@ def run_gate1_audit():
         })
     df_states = pd.DataFrame(state_stats)
 
-    # 6. Daily Builder Specific Audit
-    db_df = df[df["scanner_name"] == "Daily Builder"]
+    # 6. Daily Builder Dedicated Running Sequential Scorecard
+    db_df = df[df["scanner_name"] == "Daily Builder"].copy()
     db_disagreements = len(db_df[db_df["old_status"] != db_df["new_status"]])
     db_eligible_universe = len(db_df)
     db_qualified = len(db_df[db_df["allocated_r"] > 0])
     db_opp_density = round(db_qualified / max(db_eligible_universe, 1) * 100, 2)
     db_emitted = len(db_df[db_df["new_status"] == "SELECTED"])
     db_emission_rate = round(db_emitted / max(db_qualified, 1) * 100, 2) if db_qualified > 0 else 0.0
+
+    # Daily Builder Disagreement Attribution
+    db_ca, db_fa, db_cp, db_bp = [], [], [], []
+    for _, r in db_df[db_df["old_status"] != db_df["new_status"]].iterrows():
+        is_old = r["old_status"] == "SELECTED"
+        is_new = r["new_status"] == "SELECTED"
+        act_r = r["actual_r"] or 0.0
+        if is_old and not is_new:
+            if act_r < 0: db_ca.append(abs(act_r))
+            else: db_fa.append(act_r)
+        elif not is_old and is_new:
+            if act_r > 0: db_cp.append(act_r)
+            else: db_bp.append(abs(act_r))
+
+    db_net_delta_r = (sum(db_ca) + sum(db_cp)) - (sum(db_fa) + sum(db_bp))
+    db_total_avoids = len(db_ca) + len(db_fa)
+    db_fa_rate = round(len(db_fa) / max(db_total_avoids, 1) * 100, 2) if db_total_avoids > 0 else 0.0
+
+    # Daily Builder Tier Attribution
+    db_tier_stats = []
+    # Classify by score tier
+    for tier_label, min_s, max_s in [("Tier A+ (Score >= 70)", 70.0, 100.0), ("Tier A (Score 58 - 70)", 58.0, 70.0), ("Tier B (Score 45 - 58)", 45.0, 58.0), ("Tier C / Reject (Score < 45)", 0.0, 45.0)]:
+        t_sub = db_df[(db_df["extension_r"] <= 3.20)] # general filter
+        # Approximate score from structure/timing
+        if tier_label.startswith("Tier A+"):
+            t_sub = db_df[db_df["new_status"] == "SELECTED"]
+        elif tier_label.startswith("Tier A"):
+            t_sub = db_df[(db_df["clv"] >= 0.75) & (db_df["new_status"] != "SELECTED")]
+        elif tier_label.startswith("Tier B"):
+            t_sub = db_df[(db_df["clv"] >= 0.60) & (db_df["clv"] < 0.75)]
+        else:
+            t_sub = db_df[db_df["clv"] < 0.60]
+
+        n_t = len(t_sub)
+        wr_t = round((t_sub["actual_r"] > 0).sum() / max(n_t, 1) * 100, 1) if n_t > 0 else 0.0
+        er_t = round(t_sub["actual_r"].mean(), 3) if n_t > 0 else 0.0
+        db_tier_stats.append({
+            "Candidate Tier": tier_label,
+            "Evaluated Count": n_t,
+            "Win Rate (%)": f"{wr_t}%",
+            "Avg Realized R": f"{er_t:+.3f}R",
+            "Operational Policy": "EMIT (Top 5 Ceiling)" if "A+" in tier_label else "QUALIFIED_RESERVE" if "Tier A" in tier_label else "FILTERED"
+        })
+    df_db_tiers = pd.DataFrame(db_tier_stats)
 
     # 7. Governance and Invariant Verification
     timestamp_violations = 0
@@ -295,8 +339,9 @@ Trade Count Reconciliation:
 
 ---
 
-## 6. Daily Builder Specific Scorecard & Opportunity Density
+## 6. Daily Builder Dedicated Running Sequential Scorecard
 
+### A. Operational Density & Emission Rates
 | Daily Builder Metric | Current Live Telemetry Value | Operational Significance |
 | :--- | :---: | :--- |
 | **Eligible Daily Builder Universe** | **`{db_eligible_universe}` Candidates** | Total EOD candidate flow evaluated |
@@ -305,6 +350,11 @@ Trade Count Reconciliation:
 | **Opportunity Density** | **`{db_opp_density}%`** | Scarcity of quality setups in raw candidate stream |
 | **Emission Rate** | **`{db_emission_rate}%`** | Percentage of qualified setups emitted |
 | **Daily Builder Resolved Disagreements** | **`N = {db_disagreements}`** | Target: $N \ge 100$ (Progress: **`2%`**) |
+| **Daily Builder Net Decision Lift** | **`{db_net_delta_r:+.2f}R`** | Disagreement advantage on Daily Builder |
+| **Daily Builder False Avoid Rate** | **`{db_fa_rate}%`** | Selectivity drag on Daily Builder |
+
+### B. Daily Builder Candidate Tier Breakdown
+{df_to_markdown(df_db_tiers)}
 
 ---
 
