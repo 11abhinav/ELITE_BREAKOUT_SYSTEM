@@ -218,6 +218,14 @@ class OpportunityManager:
             breakout_type_val = str(c.get("breakout_type") or scanner_val).strip()
             category_val = c.get("category") or scanner_val
 
+            gem_info = c.get("gem_routing", {})
+            sig_val = c.get("signals") or ""
+            if gem_info.get("gem_active"):
+                tier_str = gem_info.get("ecosystem_tier", "Gem Active")
+                risk_alloc = gem_info.get("risk_allocation_r", 1.0)
+                gem_tag = f"💎 GEM PICK ({risk_alloc:.2f}R)" if gem_info.get("priority") == 1 else f"💎 GEM ROUTED ({risk_alloc:.2f}R)"
+                sig_val = f"{gem_tag} · {sig_val}".strip(" ·")
+
             if status == "FUNDED":
                 try:
                     inserted, reason, _, _ = save_alert_if_new(
@@ -231,7 +239,7 @@ class OpportunityManager:
                         target_1=c.get("target_1"),
                         target_2=c.get("target_2"),
                         target_3=c.get("target_3"),
-                        signals=c.get("signals"),
+                        signals=sig_val,
                         score=c.get("technical_score", 0),
                         rsi=c.get("rsi", 0.0),
                         volume_ratio=c.get("volume_ratio", 0.0),
@@ -243,6 +251,7 @@ class OpportunityManager:
                             "portfolio_funded": True,
                             "ranking": c.get("ranking_breakdown"),
                             "allocation": c.get("allocation"),
+                            "gem_routing": gem_info,
                         },
                         entry_mode=c.get("entry_mode", "MARKET"),
                         source_trading_date=c.get("source_trading_date"),
