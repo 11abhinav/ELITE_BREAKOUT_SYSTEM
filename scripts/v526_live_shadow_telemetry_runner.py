@@ -183,11 +183,22 @@ def generate_dashboard_report():
         conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT * FROM shadow_alert_telemetry WHERE config_version_id = ?", (SHADOW_CONFIG_VERSION,)).fetchall()
 
-    # Categorize Disagreements & 4-Way Outcome Scorecard
+    # Categorize Disagreements, 4-Way Scorecard & Shadow Advantage Ledger
     avoided_trades = []
     new_trades = []
     unchanged_trades = []
     by_scanner_stats = {}
+    failure_breakdown = {
+        "Extension Breach (>3.20R)": 0,
+        "CLV Failure (<0.68)": 0,
+        "Volume Decay (<1.10x)": 0,
+        "VWAP Breakdown (<VWAP)": 0,
+        "ORB Breakdown": 0,
+        "Runway Shortfall (<2.50 ATR)": 0,
+        "Multiple Structural Failures": 0,
+        "Intraday Gem Expired (>60m TTL)": 0
+    }
+
     scorecard = {
         "CORRECT_AVOID": 0,
         "FALSE_AVOID": 0,
@@ -204,7 +215,11 @@ def generate_dashboard_report():
     for r in rows:
         sc = r["scanner_name"]
         if sc not in by_scanner_stats:
-            by_scanner_stats[sc] = {"legacy_alerts": 0, "shadow_alerts": 0, "avoided": 0, "new": 0, "unchanged": 0}
+            by_scanner_stats[sc] = {
+                "legacy_alerts": 0, "shadow_alerts": 0, "avoided": 0, "new": 0, "unchanged": 0,
+                "disagreements": 0, "correct_avoid_r": 0.0, "false_avoid_r": 0.0,
+                "correct_promote_r": 0.0, "bad_promote_r": 0.0, "net_delta_r": 0.0
+            }
 
         is_old_sel = r["old_status"] == "SELECTED"
         is_new_sel = r["new_status"] == "SELECTED"
@@ -218,12 +233,58 @@ def generate_dashboard_report():
             by_scanner_stats[sc]["shadow_alerts"] += 1
             shadow_total_r += act_r
 
+        # Attribution of Failures
+        if r["catalyst_state"] in ["CATALYST_EXHAUSTED", "CATALYST_INVALIDATED", "INTRADAY_EXPIRED"]:
+            ext = r["extension_r"]
+            clv = r["clv"]
+            vol = r["volume_retention_ratio"]
+            vwap_rel = r["vwap_relationship"]
+            runway = r["runway_atr"]
+            gem_age = r["gem_age_minutes"]
+
+            failures = []
+            if gem_age is not None and gem_age > 60.0 and r["scanner_name"] in ["MultiTF 1H", "MultiTF 5M"]:
+                failures.append("Intraday Gem Expired (>60m TTL)")
+            if ext > 3.20:
+                failures.append("Extension Breach (>3.20R)")
+            if clv < 0.68:
+                failures.append("CLV Failure (<0.68)")
+            if vol < 1.10:
+                failures.append("Volume Decay (<1.10x)")
+            if vwap_rel == "BELOW_VWAP":
+                failures.append("VWAP Breakdown (<VWAP)")
+            if runway < 2.50:
+                failures.append("Runway Shortfall (<2.50 ATR)")
+
+            if len(failures) > 1:
+                failure_breakdown["Multiple Structural Failures"] += 1
+            elif len(failures) == 1:
+                k = failures[0]
+                if k in failure_breakdown:
+                    failure_breakdown[k] += 1
+                else:
+                    failure_breakdown["Multiple Structural Failures"] += 1
+
         if is_old_sel and not is_new_sel:
             avoided_trades.append(r)
             by_scanner_stats[sc]["avoided"] += 1
+            by_scanner_stats[sc]["disagreements"] += 1
+            if act_r <= 0.0:
+                by_scanner_stats[sc]["correct_avoid_r"] += abs(act_r) # Saved loss
+                by_scanner_stats[sc]["net_delta_r"] += abs(act_r)
+            else:
+                by_scanner_stats[sc]["false_avoid_r"] += act_r # Missed gain
+                by_scanner_stats[sc]["net_delta_r"] -= act_r
         elif not is_old_sel and is_new_sel:
             new_trades.append(r)
             by_scanner_stats[sc]["new"] += 1
+            by_scanner_stats[sc]["disagreements"] += 1
+            if act_r > 0.0:
+                by_scanner_stats[sc]["correct_promote_r"] += act_r
+                by_scanner_stats[sc]["net_delta_r"] += act_r
+            else:
+                by_scanner_stats[sc]["bad_promote_r"] += abs(act_r)
+                by_scanner_stats[sc]["net_delta_r"] -= abs(act_r)
         elif is_old_sel and is_new_sel:
             unchanged_trades.append(r)
             by_scanner_stats[sc]["unchanged"] += 1
@@ -242,7 +303,29 @@ def generate_dashboard_report():
         f"",
         f"---",
         f"",
-        f"## 1. Executive 4-Way Outcome Scorecard",
+        f"## 1. Shadow Advantage Ledger (Net Live Delta vs Legacy Production)",
+        f"",
+        f"| Scanner | Disagreements | Correct Avoid Savings (+R) | False Avoid Cost (-R) | Correct Promote Gains (+R) | Bad Promote Losses (-R) | **Net Shadow ΔR** |",
+        f"| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+    ]
+
+    total_disagree = 0
+    total_net_delta = 0.0
+    for sc, s in by_scanner_stats.items():
+        total_disagree += s["disagreements"]
+        total_net_delta += s["net_delta_r"]
+        delta_str = f"**`{s['net_delta_r']:+.2f}R`**"
+        report_lines.append(
+            f"| **{sc}** | `{s['disagreements']}` | `+{s['correct_avoid_r']:.2f}R` | `-{s['false_avoid_r']:.2f}R` | `+{s['correct_promote_r']:.2f}R` | `-{s['bad_promote_r']:.2f}R` | {delta_str} |"
+        )
+
+    report_lines.extend([
+        f"",
+        f"**Total Disagreements Audited**: `{total_disagree}` | **Aggregate Net Advantage**: **`{total_net_delta:+.2f}R`**",
+        f"",
+        f"---",
+        f"",
+        f"## 2. Executive 4-Way Outcome Scorecard",
         f"",
         f"| Four-Way Classification | Outcome Meaning | Trade Count | R Impact / Verdict |",
         f"| :--- | :--- | :--- | :--- |",
@@ -253,31 +336,28 @@ def generate_dashboard_report():
         f"| **⚪ Concurring Win** | Both Legacy & Shadow traded and won | **`{scorecard['CONCURRING_WIN']}`** | ⚪ Core Baseline Profit |",
         f"| **⚪ Concurring Loss** | Both Legacy & Shadow traded and lost | **`{scorecard['CONCURRING_LOSS']}`** | ⚪ Standard Market Loss |",
         f"",
-        f"**Performance Delta**: Legacy Total Realized: `{legacy_total_r:+.2f}R` vs **Shadow Hypothetical Total: `{shadow_total_r:+.2f}R` (Net $\\Delta = {shadow_total_r - legacy_total_r:+.2f}R$)**",
-        f"",
         f"---",
         f"",
-        f"## 2. Daily Scanner Disagreement Breakdown",
+        f"## 3. Structural Failure Attribution (Why Candidates Were Avoided)",
         f"",
-        f"| Scanner | Legacy A Alerts | V5.26 Shadow Alerts | Net Diff (Δ) | Avoided Trades (Climax/Stale) | New Trades (Fresh/Survived) | Unchanged Trades |",
-        f"| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
-    ]
+        f"| Structural Failure Dimension | Root Cause Mechanism | Suppressed Count | Failure Rate (%) |",
+        f"| :--- | :--- | :--- | :--- |"
+    ])
 
-    for sc, s in by_scanner_stats.items():
-        diff = s["shadow_alerts"] - s["legacy_alerts"]
-        diff_str = f"+{diff}" if diff > 0 else f"{diff}"
+    total_fails = sum(failure_breakdown.values()) or 1
+    for k, v in failure_breakdown.items():
+        pct = (v / total_fails) * 100.0
         report_lines.append(
-            f"| **{sc}** | `{s['legacy_alerts']}` | `{s['shadow_alerts']}` | `{diff_str}` | 🔴 **`{s['avoided']}`** | 🟢 **`{s['new']}`** | ⚪ **`{s['unchanged']}`** |"
+            f"| **{k}** | Structural Filter Rule Triggered | **`{v}`** | `{pct:.1f}%` |"
         )
 
     report_lines.extend([
         f"",
         f"---",
         f"",
-        f"## 3. Signal Disagreement Log (The Manual Review Heart)",
+        f"## 4. Signal Disagreement Log (The Manual Review Heart)",
         f"",
         f"### A. Avoided Trades (Suppressed Stale Climax / Invalidated Breakdown)",
-        f"These are candidates the Legacy system would have promoted, but V5.26 suppressed to prevent stale climax drag:",
         f"",
         f"| Timestamp | Scanner | Symbol | Old Rank | New Rank | Catalyst State | Gem Age | Outcome R | Classification | Rationale |",
         f"| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
@@ -294,7 +374,6 @@ def generate_dashboard_report():
     report_lines.extend([
         f"",
         f"### B. New Promoted Trades (Fresh EOD Bases & Survived Catalysts)",
-        f"These are high-quality consolidation structures or surviving catalysts elevated by V5.26:",
         f"",
         f"| Timestamp | Scanner | Symbol | Old Rank | New Rank | Catalyst State | Gem Age | Outcome R | Classification | Sizing | Rationale |",
         f"| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
@@ -312,8 +391,7 @@ def generate_dashboard_report():
         f"",
         f"---",
         f"",
-        f"## 4. False Veto Audit Tracker",
-        f"Mandatory manual checkpoint: Monitor all `CATALYST_EXHAUSTED` and `CATALYST_INVALIDATED` signals after trade resolution to ensure no false negative structural rejection of genuine high-momentum leaders.",
+        f"## 5. False Veto Audit Tracker",
         f"",
         f"| Telemetry ID | Symbol | Scanner | Catalyst State | Tracked Outcome Actual R | MFE (R) | MAE (R) | Post-Trade Review Verdict |",
         f"| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
@@ -328,17 +406,20 @@ def generate_dashboard_report():
             report_lines.append(
                 f"| `#{r['id']}` | `{r['symbol']}` | **{r['scanner_name']}** | `{r['catalyst_state']}` | `{act_r_str}` | `{mfe_str}` | `{mae_str}` | **{verdict}** |"
             )
-            if len(report_lines) >= 85: # Cap rows for display
+            if len(report_lines) >= 110:
                 break
 
     report_lines.extend([
         f"",
         f"---",
         f"",
-        f"## 5. Production Operational Status",
-        f"- Current Active Production: **`V5.25_PRODUCTION`** (Unmodified)",
-        f"- Parallel Shadow Observer: **`V5.26_SHADOW`** (Active in Background)",
-        f"- Automatic Promotion: ❌ **DISABLED** (Manual Live Confirmation Required)"
+        f"## 6. Live Validation Gate #1 Progress & Operational Status",
+        f"- **Sample Size Target**: `N >= 100` Live Resolved Disagreements (Current: `{total_disagree}`)",
+        f"- **Current Net Shadow Advantage**: **`{total_net_delta:+.2f}R`**",
+        f"- **False Veto Rate**: `{scorecard['FALSE_AVOID'] / (scorecard['TOTAL_RESOLVED'] or 1) * 100:.1f}%`",
+        f"- **Current Active Production**: **`V5.25_PRODUCTION`** (Unmodified)",
+        f"- **Parallel Shadow Observer**: **`V5.26_SHADOW`** (Active in Background)",
+        f"- **Automatic Promotion**: ❌ **DISABLED** (Manual Live Confirmation Required at Gate #1 Review)"
     ])
 
     report_path = "reports/v526_manual_live_evaluation_dashboard.md"
