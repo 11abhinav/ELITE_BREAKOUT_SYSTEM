@@ -1,0 +1,6 @@
+consumer_scanner,context_received,forward_er,win_rate_pct,profit_factor,policy
+Pullback V2,CATALYST_SURVIVED,+0.880R,67.5%,5.10,1.50R High-Conviction Continuation Pullback
+Multibagger,CATALYST_SURVIVED,+1.240R,54.0%,4.45,1.50R Multi-Week Expansion Trigger
+EOD Breakout,CATALYST_SURVIVED,+0.620R,66.0%,4.20,1.25R Fresh Base Sizing
+Reversal,CATALYST_EXHAUSTED,+0.890R,68.0%,5.40,1.50R Climax Fade Reversal
+Continuation Longs,CATALYST_EXHAUSTED,-0.220R,38.0%,0.75,STRICT VETO (Do not chase climax runners)

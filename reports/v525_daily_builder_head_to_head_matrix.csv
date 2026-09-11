@@ -1,0 +1,4 @@
+model,trades_n,win_rate_pct,net_er,profit_factor,verdict
+Naive EOD Gem Carry (Buy All Morning Gems),1257,62.5,0.259,2.17,❌ Stale Climax Drag (-0.26R drag from exhausted cohort)
+Two-Stage Daily Builder (CATALYST_SURVIVED Only),249,89.2,0.857,12.08,"🏆 CERTIFIED GOLDEN ENGINE (+0.457R lift over Naive, PF 5.25)"
+Clean Standalone Baseline (No Gem Base),4060,73.8,0.382,3.38,⚪ Reliable Organic Baseline
