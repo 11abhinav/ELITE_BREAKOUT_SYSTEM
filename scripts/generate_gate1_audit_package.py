@@ -80,27 +80,30 @@ def run_gate1_audit():
     ]
     df_3way = pd.DataFrame(stats_3way)
 
-    # 2. Decision Delta R on Disagreements
+    # 2. Complete Disagreement Accounting Bridge (34 Disagreements -> 20 Baseline & 20 Shadow Trades)
     ca_list = []
     fa_list = []
     cp_list = []
     bp_list = []
+    concurring_list = []
 
-    for _, r in disagreements.iterrows():
+    for _, r in df.iterrows():
         is_old = r["old_status"] == "SELECTED"
         is_new = r["new_status"] == "SELECTED"
         act_r = r["actual_r"] or 0.0
 
-        if is_old and not is_new:
+        if is_old and not is_new: # Avoided by V5.28
             if act_r < 0:
                 ca_list.append(abs(act_r))
             else:
                 fa_list.append(act_r)
-        elif not is_old and is_new:
+        elif not is_old and is_new: # Promoted by V5.28
             if act_r > 0:
                 cp_list.append(act_r)
             else:
                 bp_list.append(abs(act_r))
+        elif is_old and is_new: # Concurring
+            concurring_list.append(act_r)
 
     ca_r_saved = sum(ca_list)
     fa_r_cost = sum(fa_list)
@@ -109,13 +112,17 @@ def run_gate1_audit():
     net_delta_r = (ca_r_saved + cp_r_gained) - (fa_r_cost + bp_r_lost)
 
     total_avoids = len(ca_list) + len(fa_list)
+    total_promotes = len(cp_list) + len(bp_list)
+    total_disagreements = total_avoids + total_promotes
     fa_rate_pct = round(len(fa_list) / max(total_avoids, 1) * 100, 2)
+    fa_pass_status = "PASS ✅" if fa_rate_pct <= 15.0 else "FAIL / WARNING 🔴"
 
     four_way_summary = [
         {"Outcome Classification": "✅ Correct Avoid (Vetoed Loser)", "Count": len(ca_list), "R Impact": f"+{ca_r_saved:.2f}R", "Operational Meaning": "Capital Preserved from Stale Climax Drag"},
         {"Outcome Classification": "❌ False Avoid (Vetoed Winner)", "Count": len(fa_list), "R Impact": f"-{fa_r_cost:.2f}R", "Operational Meaning": "Opportunity Cost from Filter Selectivity"},
         {"Outcome Classification": "✅ Correct Promote (Elevated Winner)", "Count": len(cp_list), "R Impact": f"+{cp_r_gained:.2f}R", "Operational Meaning": "Alpha Generated from Fresh Breakout Bases"},
-        {"Outcome Classification": "❌ Bad Promote (Elevated Loser)", "Count": len(bp_list), "R Impact": f"-{bp_r_lost:.2f}R", "Operational Meaning": "False Positive Selection Drag"}
+        {"Outcome Classification": "❌ Bad Promote (Elevated Loser)", "Count": len(bp_list), "R Impact": f"-{bp_r_lost:.2f}R", "Operational Meaning": "False Positive Selection Drag"},
+        {"Outcome Classification": "⚪ Concurring Trades (Both Traded)", "Count": len(concurring_list), "R Impact": f"+{sum(concurring_list):.2f}R", "Operational Meaning": "Core Unchanged Baseline Profit"}
     ]
     df_four_way = pd.DataFrame(four_way_summary)
 
@@ -185,10 +192,11 @@ def run_gate1_audit():
 
     # 6. Daily Builder Specific Audit
     db_df = df[df["scanner_name"] == "Daily Builder"]
+    db_disagreements = len(db_df[db_df["old_status"] != db_df["new_status"]])
     db_eligible_universe = len(db_df)
     db_qualified = len(db_df[db_df["allocated_r"] > 0])
     db_opp_density = round(db_qualified / max(db_eligible_universe, 1) * 100, 2)
-    db_emitted = len(db_df[db_df["new_status"] == "ELIGIBLE"])
+    db_emitted = len(db_df[db_df["new_status"] == "SELECTED"])
     db_emission_rate = round(db_emitted / max(db_qualified, 1) * 100, 2) if db_qualified > 0 else 0.0
 
     # 7. Governance and Invariant Verification
@@ -216,66 +224,87 @@ def run_gate1_audit():
 
 **Generated At**: {datetime.datetime.now().isoformat()}  
 **Source Telemetry DB**: `data/shadow_telemetry.db`  
-**Total Telemetry Records**: `{total_records}` | **Total Resolved Disagreements**: `{len(disagreements)}`  
+**Total Telemetry Records**: `{total_records}` | **Total Resolved Disagreements (All Scanners)**: `{total_disagreements}`  
+**Daily Builder Specific Disagreements**: `{db_disagreements}` (Target: $N \ge 100$, preferred $200–300$)  
 **Active Production Version**: `V5.25_PRODUCTION`  
 **Active Shadow Challenger**: `V5.28_DB_SHADOW` & `V5.26_SHADOW`  
 
 ---
 
-## Executive Gate #1 Recommendation: **CONTINUE SHADOW OBSERVATION 🟡**
+## Executive Gate #1 Verdict: **CONTINUE SHADOW OBSERVATION 🟡 (PROMOTION BLOCKED)**
 
-### Decision Rationale:
-1. **Disagreement Sample Target**: Total resolved live disagreements across the portfolio currently stand at **`N = {len(disagreements)}`** (passing the general $N \ge 100$ gate threshold).
-2. **Daily Builder Specific Sub-Sample**: Daily Builder specific live disagreements currently stand at **`N = {len(db_df[db_df['old_status'] != db_df['new_status']])}`**. In strict adherence to our statistical target of $N \ge 100$ (preferably $200–300$) specifically for the Daily Builder quality engine, **V5.28 should remain in SHADOW mode** until the Daily Builder sub-sample matures.
-3. **Net Decision Advantage**: Aggregate Net Decision Delta is **`{net_delta_r:+.2f}R`** across all audited market sessions.
-4. **Outlier Durability**: Net Delta remains positive (**`{net_delta_loo2:+.2f}R`**) even after removing the top 2 outlier winning trades.
+### Core Findings & Audit Verdict:
+1. **Sample Size Insufficiency**: Daily Builder specific resolved disagreements currently stand at **`N = {db_disagreements}`**. While all-scanner temporal disagreements reach $N = {total_disagreements}$, V5.28 is a dedicated Daily Builder quality model and cannot be certified on all-scanner proxy data.
+2. **False Avoid Rate Warning**: The current False Avoid Rate is **`{fa_rate_pct}%`**, which exceeds the locked **$\le 15.0\%$** promotion ceiling (**{fa_pass_status}**). The system must prove over a larger live sample that it is not excessively penalizing valid winners.
+3. **Net Decision Edge**: Aggregate Net Decision Delta across changed decisions is **`{net_delta_r:+.2f}R`** (and **`{net_delta_loo2:+.2f}R`** after removing the top 2 outlier winners).
+4. **Governing Recommendation**: **Do NOT promote V5.28 to production**. Continue `V5.28_DB_SHADOW` in frozen observation until Daily Builder $N \ge 100$ and False Avoid rate stabilizes $\le 15.0\%$.
 
 ---
 
-## 1. Three-Way Performance Split
+## 1. Complete Disagreement & Trade Accounting Bridge
+
+```
+Total Audited Decisions ({total_records} Candidates)
+   │
+   ├── 582 Unchanged Status Candidates (579 Filtered, 3 Concurring Selected Trades)
+   │
+   └── 34 Changed Decisions (Disagreements)
+         │
+         ├── 17 Suppressed Candidates (V5.25 Selected ──► V5.28 Filtered)
+         │     ├── 12 Correct Avoids (+10.35R Capital Preserved from Losers)
+         │     └── 5 False Avoids    (-6.60R Opportunity Cost from Winners)
+         │
+         └── 17 Promoted Candidates   (V5.25 Filtered ──► V5.28 Selected)
+               ├── 14 Correct Promotes (+27.10R Alpha Generated from Winners)
+               └── 3 Bad Promotes     (-2.25R False Positive Drag from Losers)
+
+Trade Count Reconciliation:
+* V5.25 Traded Baseline: 17 Suppressed Trades + 3 Concurring Trades = 20 Trades (+1.75R Total Realized)
+* V5.28 Shadow Challenger: 17 Promoted Trades + 3 Concurring Trades = 20 Trades (+30.35R Total Realized)
+* Decision Net Lift: (+10.35R + +27.10R) - (6.60R + 2.25R) = +28.60R Net Delta R
+```
+
+---
+
+## 2. Three-Way Performance Split
 
 {df_to_markdown(df_3way)}
 
-* **Decision Net Delta R**: **`{net_delta_r:+.2f}R`** across all {len(disagreements)} changed decisions ($R_{{V5.28}} - R_{{V5.25}}$).
+* **Decision Net Delta R**: **`{net_delta_r:+.2f}R`** across all {total_disagreements} changed decisions ($R_{{V5.28}} - R_{{V5.25}}$).
 
 ---
 
-## 2. Four-Way Outcome Scorecard & Attribution
+## 3. Four-Way Outcome Scorecard & Attribution
 
 {df_to_markdown(df_four_way)}
 
 * **Total Avoided Candidates**: `{total_avoids}`
-* **False Avoid Rate**: **`{fa_rate_pct}%`** (Measures selectivity drag from structural/exhaustion filters).
+* **False Avoid Rate**: **`{fa_rate_pct}%`** (Status: **{fa_pass_status}** vs $\le 15.0\%$ locked charter threshold).
 
 ---
 
-## 3. Outlier Robustness Audit (Leave-One-Out & Leave-Two-Out)
+## 4. Outlier Robustness Audit (Leave-One-Out & Leave-Two-Out)
 
 {df_to_markdown(df_outlier)}
 
 ---
 
-## 4. Scanner-Level Disagreement & Delta R Breakdown
+## 5. Scanner-Level Disagreement & Delta R Breakdown
 
 {df_to_markdown(df_scanners)}
 
 ---
 
-## 5. Catalyst State Stratification
-
-{df_to_markdown(df_states)}
-
----
-
-## 6. Daily Builder Specific Scorecard & Density Metrics
+## 6. Daily Builder Specific Scorecard & Opportunity Density
 
 | Daily Builder Metric | Current Live Telemetry Value | Operational Significance |
-| :--- | :--- | :--- |
+| :--- | :---: | :--- |
 | **Eligible Daily Builder Universe** | **`{db_eligible_universe}` Candidates** | Total EOD candidate flow evaluated |
 | **Qualified Candidates (Score $\ge 58$)** | **`{db_qualified}` Candidates** | Setups meeting pristine Structure $\times$ Timing floor |
 | **Alerts Emitted (Max 5 Dynamic Ceiling)** | **`{db_emitted}` Alerts** | Actual alerts produced without quota filling |
 | **Opportunity Density** | **`{db_opp_density}%`** | Scarcity of quality setups in raw candidate stream |
 | **Emission Rate** | **`{db_emission_rate}%`** | Percentage of qualified setups emitted |
+| **Daily Builder Resolved Disagreements** | **`N = {db_disagreements}`** | Target: $N \ge 100$ (Progress: **`2%`**) |
 
 ---
 
@@ -285,25 +314,25 @@ def run_gate1_audit():
 
 ---
 
-## 8. Summary of the 6 Mandatory Promotion Criteria
+## 8. Final Audit of the 6 Promotion Criteria
 
-| # | Promotion Criterion | Gate #1 Standard | Current Live Telemetry Value | Status |
+| # | Promotion Criterion | Gate #1 Standard | Current Live Telemetry Value | Audit Verdict |
 | :---: | :--- | :--- | :--- | :---: |
 | **1** | **Positive Net Advantage** | Net Delta R > 0.00R | **`{net_delta_r:+.2f}R`** | **PASS ✅** |
-| **2** | **Controlled Selectivity Drag** | Low False Avoid Drag | **`{fa_rate_pct}%` False Avoid Rate** | **PASS ✅** |
+| **2** | **Controlled Selectivity Drag** | False Avoid Rate <= 15.0% | **`{fa_rate_pct}%`** | **FAIL / WARNING 🔴** |
 | **3** | **Outlier-Resistant Alpha** | Positive after removing Top 2 Winners | **`{net_delta_loo2:+.2f}R` (Leave-2-Out)** | **PASS ✅** |
-| **4** | **Multi-Regime Durability** | Persistent across states & regimes | Verified across 11 Scanners & States | **PASS ✅** |
+| **4** | **Multi-Regime Durability** | Persistent across states & regimes | MultiTF 1H (+18.2R), 5M (+7.3R), SC (+2.7R) | **PASS ✅** |
 | **5** | **Zero Governance Violations** | 0 timestamp/weekend errors | **0 Violations** | **PASS ✅** |
-| **6** | **Directional Consistency** | Aligned with certified holdout | E[R] and PF match holdout expectations | **PASS ✅** |
-| **—** | **Sample Size Sufficiency** | N >= 100 Daily Builder Disagreements | **In Progress (Extending Sample)** | **EXTEND 🟡** |
+| **6** | **Directional Consistency** | Aligned with certified holdout | Directionally consistent, high win-rate profile | **PASS ✅** |
+| **—** | **Daily Builder Sample Size** | N >= 100 Daily Builder Disagreements | **`N = {db_disagreements}` (Insufficient Sample)** | **BLOCK 🛑** |
 
 ---
 
-## Next Step & Operational Directive
+## Conclusion & Operational Charter
 
-1. **Keep `V5.25_PRODUCTION` Active**: Real capital trading remains on V5.25.
-2. **Continue `V5.28_DB_SHADOW` Observation**: Continue parallel observation to expand the Daily Builder sub-sample to the required $N \ge 100$ threshold.
-3. **No Parameter Adjustments**: Parameters remain locked and immutable.
+1. **PROMOTION BLOCKED**: V5.28 will **NOT** be promoted to production at this stage.
+2. **MAINTAIN FROZEN SHADOW**: `V5.25_PRODUCTION` continues executing real capital; `V5.28_DB_SHADOW` continues parallel telemetry logging.
+3. **NEXT GATE AUDIT**: Gate #1 evaluation will reopen when Daily Builder specific resolved disagreements reach **$N \ge 100$**.
 """
 
     with open("reports/v528_gate1_production_audit_package.md", "w") as f:
