@@ -1,0 +1,7 @@
+selection_mode,total_trades,avg_alerts_per_day,zero_alert_days,days_1_to_2_alerts,days_3_to_4_alerts,days_5_alerts,win_rate_pct,expectancy_r,profit_factor,max_drawdown_r,avg_mfe_r,avg_mae_r
+Fixed Top 3,1421,2.84,26,1,473,0,83.32,1.285,12.24,-2.69,2.38,-0.41
+Fixed Top 5,2355,4.71,26,1,9,464,81.7,1.231,10.69,-3.44,2.33,-0.42
+Fixed Top 10,4454,8.91,26,1,9,464,80.58,1.195,9.74,-5.23,2.29,-0.42
+"Dynamic Strict Quality (Score >= 60, Max 5)",2092,4.18,69,13,9,409,83.7,1.282,12.48,-3.44,2.37,-0.41
+"Dynamic Tier-Gated (A+ & A only, Max 5)",2121,4.24,55,25,7,413,83.45,1.277,12.24,-3.44,2.37,-0.41
+Dynamic Gap-Aware (Min Score 55 + Max 5 + Delta>=3 to Rank 6),2204,4.41,30,34,14,422,82.85,1.262,11.72,-3.44,2.35,-0.41

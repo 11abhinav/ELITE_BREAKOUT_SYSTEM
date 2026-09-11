@@ -1,0 +1,6 @@
+execution_taxonomy,trade_count,win_rate_pct,expectancy_r,profit_factor,avg_mfe_r,avg_mae_r,avg_open_gap_pct
+OPEN_BUY,1365,85.42,1.303,13.97,2.39,-0.4,1.12
+OPEN_FADE,86,59.3,0.681,3.33,1.76,-0.52,1.69
+PULLBACK_BUY,669,100.0,1.643,99.9,2.72,-0.33,-1.09
+BREAKOUT_CONT,9410,100.0,1.661,99.9,2.76,-0.32,0.39
+NO_TRADE,6121,0.0,-0.711,0.0,0.35,-0.83,0.19

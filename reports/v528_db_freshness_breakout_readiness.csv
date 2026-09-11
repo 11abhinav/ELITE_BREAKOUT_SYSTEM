@@ -1,0 +1,5 @@
+readiness_classification,candidate_count,win_rate_pct,expectancy_r,profit_factor,avg_mfe_r,avg_mae_r,avg_compression_days,avg_dist_to_bo_atr
+BREAKOUT_READY,4710,78.51,1.154,8.66,2.24,-0.43,26.5,0.25
+NEAR_BREAKOUT,4561,69.5,0.928,5.28,2.02,-0.48,16.3,0.79
+NOT_READY,2822,56.24,0.619,2.97,1.71,-0.55,7.3,1.43
+ALREADY_EXTENDED,5558,51.12,0.503,2.45,1.58,-0.57,3.0,3.01

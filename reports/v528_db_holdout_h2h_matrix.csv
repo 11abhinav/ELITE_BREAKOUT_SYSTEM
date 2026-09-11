@@ -1,0 +1,4 @@
+version,total_trades,alerts_per_day,win_rate_pct,expectancy_r,profit_factor,max_drawdown_r,avg_mfe_r,avg_mae_r,bootstrap_ci_95
+V5.25 Daily Builder (Legacy Baseline),8336,33.34,65.99,0.845,4.47,-8.09,1.93,-0.5,"[0.818R, 0.872R]"
+V5.27 Daily Builder (Certified Benchmark),1250,5.0,79.28,1.161,9.0,-2.77,2.26,-0.43,"[1.102R, 1.223R]"
+V5.28 Daily Builder (Frontier Challenger),1058,4.23,84.22,1.272,13.0,-2.26,2.38,-0.41,"[1.216R, 1.326R]"

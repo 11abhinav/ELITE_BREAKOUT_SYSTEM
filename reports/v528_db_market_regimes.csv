@@ -1,0 +1,6 @@
+nifty_regime,sample_candidates,qualified_trades,win_rate_pct,expectancy_r,profit_factor,avg_mfe_r,avg_mae_r,recommended_governance_policy
+STRONG_BULL,4707,2077,84.21,1.289,12.4,2.37,-0.4,"AGGRESSIVE_EMISSION (Max 5 Alerts, Full Sizing 1.00R)"
+NEUTRAL_BULL,5687,2236,83.32,1.248,11.73,2.34,-0.41,"AGGRESSIVE_EMISSION (Max 5 Alerts, Full Sizing 1.00R)"
+CHOPPY_RANGE,4258,1477,72.71,1.021,6.5,2.12,-0.46,"AGGRESSIVE_EMISSION (Max 5 Alerts, Full Sizing 1.00R)"
+NEUTRAL_BEAR,2054,121,66.12,0.891,4.69,2.01,-0.48,"NORMAL_EMISSION (Max 3-5 Alerts, Sizing 1.00R)"
+SHARP_SELLOFF,945,0,0.0,0.0,99.9,0.0,0.0,"REGIME_SHUTDOWN (Zero Alerts Emitted, Capital Protected)"

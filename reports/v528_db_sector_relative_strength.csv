@@ -1,0 +1,5 @@
+relative_strength_quadrant,total_candidates,win_rate_pct,expectancy_r,profit_factor,avg_mfe_r,avg_mae_r
+Strong Stock in Strong Sector (RS_Stock > 0 & RS_Sector > 0),5843,66.2,0.859,4.57,1.95,-0.49
+Strong Stock in Weak Sector (RS_Stock > 0 & RS_Sector <= 0),5800,63.28,0.782,3.96,1.87,-0.51
+Weak Stock in Strong Sector (RS_Stock <= 0 & RS_Sector > 0),3037,65.23,0.836,4.42,1.92,-0.5
+Weak Stock in Weak Sector (RS_Stock <= 0 & RS_Sector <= 0),2971,59.81,0.715,3.54,1.79,-0.53

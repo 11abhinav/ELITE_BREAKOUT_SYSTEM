@@ -1,0 +1,4 @@
+mae_severity_bracket,trade_count,pct_of_universe,win_rate_pct,expectancy_r,avg_mfe_r,avg_base_tightness,avg_clv,avg_runway_atr
+Controlled MAE (0.00 to -0.30R),5096,28.9,100.0,1.644,2.75,1.78,0.752,3.18
+Moderate MAE (-0.30 to -0.65R),6206,35.2,99.9,1.667,2.76,1.81,0.751,3.17
+Severe MAE (-0.65 to -1.00R),6349,36.0,0.0,-0.71,0.35,2.25,0.687,2.51

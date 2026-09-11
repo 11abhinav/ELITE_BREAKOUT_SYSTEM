@@ -1,0 +1,7 @@
+exhaustion_penalty_bracket,candidate_count,win_rate_pct,expectancy_r,profit_factor,avg_mfe_r,avg_mae_r,policy_verdict
+Penalty 0 - 5 (Pristine Base),4811,78.88,1.16,8.82,2.25,-0.43,ELIGIBLE
+Penalty 5 - 10 (Minor Extension),2346,72.21,0.982,5.97,2.08,-0.47,ELIGIBLE
+Penalty 10 - 15 (Moderate Extension),1729,66.57,0.866,4.6,1.95,-0.49,ELIGIBLE
+Penalty 15 - 25 (High Extension Threshold),2246,61.71,0.75,3.74,1.83,-0.52,ELIGIBLE
+Penalty 25 - 40 (Severe Exhaustion Cliff),1566,46.42,0.398,2.05,1.48,-0.6,DOWNGRADE_SIZING
+Penalty 40+ (Terminal Climax State),4953,51.34,0.509,2.47,1.59,-0.57,ELIGIBLE

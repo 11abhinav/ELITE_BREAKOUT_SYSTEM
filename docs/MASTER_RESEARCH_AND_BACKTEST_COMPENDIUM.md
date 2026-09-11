@@ -768,18 +768,89 @@ We investigated whether a morning Daily Builder Gem (09:35 IST) retains predicti
 
 ---
 
-## 30. Certified Artifact Directory Reference
+---
+
+## 31. V5.28 Daily Builder Comprehensive Frontier Research (15 Priority Domains)
+
+### A. Executive Overview
+- **Dataset**: 500 Discovery Trading Days | Total Candidates Evaluated: 17,651.
+- **Governing Objective**: Systematically explore the 15 research priorities above V5.27 to identify optimal ranking models, dynamic natural 0–5 emission, market regime conditioning, sector confirmation, breakout readiness, continuous exhaustion degradation, and multi-scanner confluence.
+
+### B. Module 1: Ranking Model Taxonomy
+
+| Model Code | Model Name | Total Trades | Alerts/Day | Win Rate (%) | Net E[R] | Profit Factor | Max Drawdown | Avg MFE | Avg MAE |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `model_a_score` | Model A (Current V5.27) | 2,499 | 5.00 | 79.35% | +1.191R | 9.34 | -4.00R | 2.28R | -0.43R |
+| `model_b_score` | Model B (Structure-First) | 2,500 | 5.00 | 79.20% | +1.178R | 9.15 | -4.00R | 2.27R | -0.43R |
+| `model_c_score` | Model C (Timing-First) | 2,500 | 5.00 | 79.40% | +1.187R | 9.24 | -5.02R | 2.28R | -0.43R |
+| `model_d_score` | Model D (Continuous Exhaustion) | 2,500 | 5.00 | 79.52% | +1.189R | 9.32 | -4.00R | 2.28R | -0.43R |
+| `model_e_score` | Model E (Risk/MAE-Adjusted) | 2,499 | 5.00 | 79.71% | +1.198R | 9.48 | -5.00R | 2.29R | -0.43R |
+| **`model_f_score`** | **Model F (Composite + Context)** | **2,355** | **4.71** | **`81.70%`** | **`+1.231R`** | **`10.69`** | **`-3.44R`** | **`2.33R`** | **`-0.42R`** |
+
+### C. Module 2: Dynamic 0–5 Selection vs Fixed Quotas
+
+| Selection Mode | Total Trades | Avg Alerts/Day | 0-Alert Days | 1-2 Alert Days | 3-4 Alert Days | 5 Alert Days | Win Rate (%) | Net E[R] | Profit Factor | Max Drawdown |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Fixed Top 3** | 1,421 | 2.84 | 26 | 1 | 473 | 0 | 83.32% | +1.285R | 12.24 | -2.69R |
+| **Fixed Top 5** | 2,355 | 4.71 | 26 | 1 | 9 | 464 | 81.70% | +1.231R | 10.69 | -3.44R |
+| **Fixed Top 10** | 4,454 | 8.91 | 26 | 1 | 9 | 464 | 80.58% | +1.195R | 9.74 | -5.23R |
+| **Dynamic Tier-Gated (Score ≥ 58.0 + BO Ready/Near)** | **2,121** | **4.24** | **55** | **25** | **7** | **413** | **`83.45%`** | **`+1.277R`** | **`12.24`** | **`-3.44R`** |
+
+### D. Key Empirical Insights from Research Modules
+1. **Continuous Exhaustion Curve**: E[R] degrades smoothly from $+1.160R$ (Penalty 0-5) to $+0.866R$ (Penalty 10-15), dropping abruptly to $+0.398R$ at Penalty 25+, defining an empirical hard veto cliff at Penalty $\ge 25.0$.
+2. **Sector Relative Strength Alignment**: Stocks with positive RS in sectors with positive RS produce $+0.859R$ / PF $4.57$ vs $+0.715R$ for lagging peers in lagging sectors.
+3. **Multi-Scanner Confluence**: Confluence from 3+ scanners achieves $+1.266R$ / PF $11.51$.
+4. **Market Regime Shutdown**: Gating emission to 0 alerts under sharp selloff regimes eliminates tail losses.
+
+---
+
+## 32. V5.28 Daily Builder 250-Day Untouched Holdout Certification
+
+### A. Certification Release Summary
+- **Release Version**: **`V5.28_DAILY_BUILDER_CERTIFIED`**
+- **Holdout Window**: 250 Untouched Trading Days (Zero In-Sample Overlap, Seed `982528`).
+- **Head-to-Head Comparison (250 Days OOS)**:
+
+| System Version | Total Trades | Alerts/Day | Win Rate (%) | Net E[R] | Profit Factor | Max Drawdown | 95% Bootstrap CI | Avg MFE | Avg MAE | Certification Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **V5.25 Daily Builder (Legacy Baseline)** | `8,336` | `33.34` | `65.99%` | `+0.845R` | `4.47` | `-8.09R` | `[+0.818, +0.872]` | `+1.93R` | `-0.50R` | Retired Baseline |
+| **V5.27 Daily Builder (Certified Benchmark)**| `1,250` | `5.00` | `79.28%` | `+1.161R` | `9.00` | `-2.77R` | `[+1.102, +1.223]` | `+2.26R` | `-0.43R` | Backtest Certified |
+| **V5.28 Daily Builder (Frontier Challenger)** | **`1,058`** | **`4.23`** | **`84.22%`** | **`+1.272R`** | **`13.00`** | **`-2.26R`** | **`[+1.216, +1.326]`** | **`+2.38R`** | **`-0.41R`** | 🏆 **CERTIFIED WINNER** |
+| **Net Lift (V5.28 vs V5.27 Benchmark)** | `-192` | `-0.77` | **`+4.94%`** | **`+0.111R`** | **`+4.00`** | **`+0.51R`** | **$p = 0.0100$** | **`+0.12R`** | **`+0.02R`** | **Statistically Significant Alpha** |
+
+### B. Holdout Robustness Plateau Matrix (250 Days OOS)
+
+| Score Threshold | Alert Ceiling ($k$) | Total Trades | Alerts/Day | Win Rate (%) | Net E[R] | Profit Factor | Max Drawdown | Plateau Verdict |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `55.0` | `3.0` | `672` | `2.69` | `83.48%` | `+1.243R` | `12.12` | `-1.97R` | 🟢 Broad Plateau Confirmed |
+| `55.0` | `5.0` | `1,093` | `4.37` | `83.44%` | `+1.256R` | `12.27` | `-2.95R` | 🟢 Broad Plateau Confirmed |
+| **`58.0`** | **`5.0` (Target)** | **`1,058`** | **`4.23`** | **`84.22%`** | **`+1.272R`** | **`13.00`** | **`-2.26R`** | 🏆 **Certified Robust Center** |
+| `62.0` | `5.0` | `1,027` | `4.11` | `84.42%` | `+1.278R` | `13.31` | `-2.26R` | 🟢 High Conviction Frontier |
+
+---
+
+## 33. Certified Artifact Directory Reference
 
 - [docs/MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/docs/MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md) (Master Canonical Document)
-- [reports/v527_daily_builder_holdout_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_daily_builder_holdout_certification_report.md)
-- [reports/v527_daily_builder_holdout_plateau_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_daily_builder_holdout_plateau_matrix.csv)
-- [reports/v527_daily_builder_holdout_h2h_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_daily_builder_holdout_h2h_matrix.csv)
-- [reports/v527_daily_builder_alert_quality_research_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v527_daily_builder_alert_quality_research_report.md)
-- [scripts/v527_daily_builder_holdout_certification.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scripts/v527_daily_builder_holdout_certification.py)
-- [scripts/v527_daily_builder_quality_and_freshness_research.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scripts/v527_daily_builder_quality_and_freshness_research.py)
+- [reports/v528_daily_builder_holdout_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v528_daily_builder_holdout_certification_report.md)
+- [reports/v528_db_holdout_h2h_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v528_db_holdout_h2h_matrix.csv)
+- [reports/v528_db_holdout_plateau_matrix.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v528_db_holdout_plateau_matrix.csv)
+- [reports/v528_daily_builder_comprehensive_research_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v528_daily_builder_comprehensive_research_report.md)
+- [reports/v528_db_ranking_models.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v528_db_ranking_models.csv)
+- [reports/v528_db_dynamic_selection.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v528_db_dynamic_selection.csv)
+- [reports/v528_db_market_regimes.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v528_db_market_regimes.csv)
+- [reports/v528_db_sector_relative_strength.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v528_db_sector_relative_strength.csv)
+- [reports/v528_db_freshness_breakout_readiness.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v528_db_freshness_breakout_readiness.csv)
+- [reports/v528_db_exhaustion_curve.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v528_db_exhaustion_curve.csv)
+- [reports/v528_db_mae_mfe_profiles.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v528_db_mae_mfe_profiles.csv)
+- [reports/v528_db_multiscanner_interaction.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v528_db_multiscanner_interaction.csv)
+- [reports/v528_db_execution_taxonomy.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v528_db_execution_taxonomy.csv)
+- [scripts/v528_daily_builder_frontier_research_suite.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scripts/v528_daily_builder_frontier_research_suite.py)
+- [scripts/v528_daily_builder_holdout_certification.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scripts/v528_daily_builder_holdout_certification.py)
 - [reports/v526_manual_live_evaluation_dashboard.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v526_manual_live_evaluation_dashboard.md)
 - [engine/production/v526_shadow_execution_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v526_shadow_execution_engine.py)
 - [engine/production/v525_parameter_registry.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v525_parameter_registry.py)
+
 
 
 

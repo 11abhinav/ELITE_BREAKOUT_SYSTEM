@@ -1,0 +1,7 @@
+model_code,model_name,total_trades,alerts_per_day,win_rate_pct,expectancy_r,profit_factor,max_drawdown_r,avg_mfe_r,avg_mae_r
+model_a_score,Model A (Current V5.27),2499,5.0,79.35,1.191,9.34,-4.0,2.28,-0.43
+model_b_score,Model B (Structure-First),2500,5.0,79.2,1.178,9.15,-4.0,2.27,-0.43
+model_c_score,Model C (Timing-First),2500,5.0,79.4,1.187,9.24,-5.02,2.28,-0.43
+model_d_score,Model D (Continuous Exhaustion),2500,5.0,79.52,1.189,9.32,-4.0,2.28,-0.43
+model_e_score,Model E (Risk/MAE-Adjusted),2499,5.0,79.71,1.198,9.48,-5.0,2.29,-0.43
+model_f_score,Model F (Composite + Context),2355,4.71,81.7,1.231,10.69,-3.44,2.33,-0.42

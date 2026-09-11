@@ -11,6 +11,7 @@ Operationalizes Phases 1 through 12 of the V5.26 Production Mandate:
 """
 
 import os
+import math
 import sqlite3
 import datetime
 from typing import Dict, List, Any, Optional, Tuple
@@ -167,29 +168,35 @@ class ShadowExecutionEngine:
 
             # V5.26 / V5.28 Shadow Score
             if c.scanner_name == "Daily Builder":
-                # V5.28 Daily Builder Decoupled Structure x Timing & Exhaustion Model
-                s_base = 15.0 # baseline consolidation
-                s_cont = 12.0
-                s_clv = feats["clv"] * 25.0
-                s_run = min(feats["runway_atr"] / 4.0, 1.0) * 20.0
-                s_vol = min(feats["volume_retention_ratio"] / 1.5, 1.0) * 20.0
-                struct_score = s_base + s_cont + s_clv + s_run + s_vol
+                # V5.28 Daily Builder Model F Composite Engine (Structure x Timing x Context - Continuous Exhaustion)
+                s_base = 18.0 # baseline consolidation base
+                s_clv = feats["clv"] * 30.0
+                s_run = min(feats["runway_atr"] / 4.0, 1.0) * 25.0
+                s_vol = min(feats["volume_retention_ratio"] / 1.5, 1.0) * 27.0
+                struct_score = s_base + s_clv + s_run + s_vol
 
-                t_bo = 25.0
-                t_fresh = 25.0
-                t_wick = max(0.0, 1.0 - (1.0 - feats["clv"]) * 1.5) * 20.0
+                t_bo = 35.0
+                t_fresh = 30.0
                 t_vwap = 20.0 if feats["vwap_relationship"] == "ABOVE_VWAP" else 0.0
-                timing_score = t_bo + t_fresh + t_wick + t_vwap
+                t_vol_conc = 15.0 if feats["volume_retention_ratio"] >= 1.2 else 5.0
+                timing_score = t_bo + t_fresh + t_vwap + t_vol_conc
 
-                p_ext = max(0.0, (feats["extension_r"] - 2.50) * 15.0)
-                p_retrace = 5.0 if feats["clv"] < 0.70 else 0.0
-                exhaust_pen = min(p_ext + p_retrace, 60.0)
+                p_ext = max(0.0, (feats["extension_r"] - 2.20) * 18.0)
+                p_wick = max(0.0, (1.0 - feats["clv"]) * 25.0)
+                p_runway = max(0.0, (3.0 - feats["runway_atr"]) * 12.0)
+                exhaust_pen = min(80.0, p_ext + p_wick + p_runway)
 
-                raw_comp = (struct_score * (timing_score / 100.0)) - exhaust_pen
-                if feats["vwap_relationship"] == "BELOW_VWAP" or feats["clv"] < 0.50 or feats["extension_r"] > 3.20:
+                # Continuous Sigmoid Dampener
+                exhaust_dampener = 1.0 / (1.0 + math.exp((exhaust_pen - 20.0) / 6.0))
+                
+                # Context factor
+                sec_factor = 1.05 if (feats["runway_atr"] >= 3.0 and feats["volume_retention_ratio"] >= 1.2) else 0.95
+                
+                raw_comp = (struct_score * 0.45 + timing_score * 0.45) * exhaust_dampener * sec_factor * 100.0 / 75.0
+                if feats["vwap_relationship"] == "BELOW_VWAP" or feats["clv"] < 0.55 or feats["extension_r"] > 3.20 or exhaust_pen >= 25.0:
                     raw_comp = 0.0 # Strict Hard Veto
                 shadow_score = round(max(0.0, raw_comp), 2)
-                alloc_r = 1.00 if shadow_score >= 55.0 else 0.00
+                alloc_r = 1.00 if shadow_score >= 58.0 else 0.00
             else:
                 # Standard Scanner State Routing
                 shadow_score = 50.0
