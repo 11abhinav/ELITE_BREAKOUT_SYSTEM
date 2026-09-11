@@ -163,13 +163,21 @@ class OpportunityManager:
                 logger.info(f"🏃 {symbol} EXPIRED — price drifted too far (entry={entry}, current={current})")
 
     def _rank(self, live_candidates: list[dict]) -> None:
-        """Delegates to TradeRankingEngine. Updates candidates in-place."""
+        """Delegates to TradeRankingEngine with Gem-awareness. Updates candidates in-place."""
         from trade_ranking_engine import TradeRankingEngine
-        ranked = TradeRankingEngine.rank_candidates(live_candidates)
-        logger.info(
-            f"🏆 Ranked {len(ranked)} candidates. "
-            f"Top: {ranked[0]['symbol']} — {ranked[0].get('ranking_breakdown', {}).get('reasons', [])[:1]}"
-        )
+        try:
+            from engine.production.v520_gem_router_engine import GemStateRouter
+            gem_active = GemStateRouter.is_gem_active()
+        except Exception:
+            gem_active = False
+
+        ranked = TradeRankingEngine.rank_candidates_gem_aware(live_candidates, gem_active=gem_active)
+        if ranked:
+            top_reasons = ranked[0].get('ranking_breakdown', {}).get('reasons', [])[:1]
+            logger.info(
+                f"🏆 Ranked {len(ranked)} candidates (Gem Active: {gem_active}). "
+                f"Top: {ranked[0]['symbol']} — {top_reasons}"
+            )
 
     def _allocate(self, ranked_candidates: list[dict]) -> None:
         """

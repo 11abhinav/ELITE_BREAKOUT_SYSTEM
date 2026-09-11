@@ -1,0 +1,8 @@
+event_type,event_count,avg_r_delta,total_r_impact,description
+PREVENTED_FULL_LOSS_SAVE,193,1.08,208.44,Stopped at +0.08R instead of full -1.0R loss
+TRUNCATED_BEFORE_1R,84,-0.52,-43.68,"Exited at +0.08R, peak MFE reached +0.6R to +0.9R"
+TRUNCATED_BEFORE_2R,174,-1.92,-334.08,"Exited at +0.08R, subsequent path reached +2.0R+"
+TRUNCATED_BEFORE_3R,68,-2.92,-198.56,"Exited at +0.08R, subsequent path reached +3.0R+"
+TRUNCATED_BEFORE_5R,18,-4.92,-88.56,"Exited at +0.08R, subsequent path reached +5.0R+"
+NET_BE_DAMAGE_UNDER_V515,537,-0.85,-456.44,Net destructive drag of BE 0.8R on Daily Builder
+NET_BE_REPAIR_UNDER_V516,193,0.82,158.26,Net positive alpha after moving BE trigger to 1.0R

@@ -1,0 +1,6 @@
+failure_mode,pct_of_gem_failures,root_cause_diagnosis,proposed_failure_risk_veto,expected_failure_reduction_pct
+OVERHEAD_DAILY_RESISTANCE_TRAP,38.5,"Stock breaks ORB but encounters major daily 200 SMA / multi-month swing high within <1.0R runway.","Add Minimum Overhead Runway Gate: Entry must have >= 1.5R clearance to major daily resistance.",30.0
+MARKET_INDEX_REVERSAL_WHIPSAW,26.9,"Nifty 50/Bank Nifty opens strong then breaks below VWAP within first 45 mins.","Add Index VWAP Filter: Halt new Gem triggers if Nifty breaks below VWAP with declining slope.",21.0
+VOLUME_EXHAUSTION_CLIMAX,15.4,"Single massive 5-minute opening candle absorbs all day liquidity (>400% RVOL), stalling immediately.","Add Volume Climax Cap: Reject setups where Candle 1 RVOL > 6.0x with spinning top / doji.",12.0
+SECTOR_DIVERGENCE_ROTATION,11.5,"Stock breaks out while its sector index is red / lagging.","Add Sector Relative Strength Filter: Sector index must be in top 50th percentile of morning market breadth.",9.0
+OPENING_GAP_FADE,7.7,"Stock gaps up >4.5% at open, creating immediate profit-taking sell-side pressure.","Add Maximum Gap Threshold: Cap eligible open gap to <= 3.5% above previous close.",6.0

@@ -1,0 +1,11 @@
+scanner,ecosystem_tier,gem_active_priority,gem_active_risk_r,baseline_er,gem_active_er,gem_er_delta,no_gem_priority,no_gem_risk_r,no_gem_er,operational_routing_mandate
+REVERSAL,Tier 1: High Synergy,High (Priority 1),1.5,0.7188,0.942,0.2232,Normal (Priority 2),1.0,0.7188,Route to Top Priority on Gem; Scale Risk to 1.50R
+PULLBACK_V2,Tier 1: High Synergy,High (Priority 1),1.5,0.538,0.745,0.207,Normal (Priority 2),1.0,0.538,Route to Top Priority on Gem; Scale Risk to 1.50R
+MULTITF_1H,Tier 1: High Synergy,High (Priority 1),1.5,0.5502,0.812,0.2618,Normal (Priority 2),1.0,0.5502,Route to Top Priority on Gem; Scale Risk to 1.50R
+MULTIBAGGER,Tier 1: High Synergy,High (Priority 1),1.5,0.7018,1.045,0.3432,Normal (Priority 2),1.0,0.7018,Route to Top Priority on Gem; Scale Risk to 1.50R
+EOD_BREAKOUT,Tier 2: Neutral / Robust,Normal (Priority 2),1.0,0.221,0.384,0.163,Normal (Priority 2),1.0,0.221,Standard Execution; 1.00R Risk Maintained
+ACCUMULATION_VCP,Tier 2: Neutral / Robust,Normal (Priority 2),1.0,0.251,0.392,0.141,Normal (Priority 2),1.0,0.251,Standard Execution; 1.00R Risk Maintained
+MULTITF_5M,Tier 2: Neutral / Robust,Normal (Priority 2),1.0,0.1801,0.325,0.1449,Normal (Priority 2),1.0,0.1801,Standard Execution; 1.00R Risk Maintained
+WEALTH,Tier 2: Neutral / Robust,Normal (Priority 2),1.0,0.299,0.442,0.143,Normal (Priority 2),1.0,0.299,Standard Execution; 1.00R Risk Maintained
+TECHNICAL_AHAT,Tier 2: Neutral / Robust,Normal (Priority 2),1.0,0.16,0.285,0.125,Normal (Priority 2),1.0,0.16,Standard Execution; 1.00R Risk Maintained
+SHORT_COVERING,Tier 3: Inverse / Decoupled,Low (Priority 3),0.5,0.246,0.051,-0.195,Normal (Priority 2),1.0,0.246,De-prioritize & Halve Risk to 0.50R During Bull Gem

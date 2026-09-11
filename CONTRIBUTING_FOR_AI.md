@@ -78,12 +78,23 @@ Any new scanner, pipeline modification, or system update must strictly adhere to
    - When a user clicks a notification or searches a symbol (`filterSymbol`), the web application must NEVER display an empty/stale state if the frontend cache is cold.
    - It must execute a direct real-time PostgreSQL check (`GET /api/alert/by_symbol/<symbol>`) to fetch the full trade record (CMP, SL, Targets, Status, P&L) and prepend/hydrate it directly into `ALL_TRADES` in memory.
 10. **High-Performance History & Error APIs Indexing**:
-   - Unacknowledged error queries (`fetch_errors`, `system_logs`) must use partial indexes (`WHERE is_acknowledged = FALSE`) to execute in $<1$ms.
-   - All history, error, and alert endpoints must explicitly declare `Cache-Control: no-cache, no-store, must-revalidate` and invalidate on every status change.
+    - Unacknowledged error queries (`fetch_errors`, `system_logs`) must use partial indexes (`WHERE is_acknowledged = FALSE`) to execute in $<1$ms.
+    - All history, error, and alert endpoints must explicitly declare `Cache-Control: no-cache, no-store, must-revalidate` and invalidate on every status change.
 11. **V2 Master Orchestration & Screen Performance Invariant**:
     - All V2 master endpoints (`/api/v2/confirmed_signals`, `/api/v2/stocks_to_watch`, `/api/v2/investment_watch`, `/api/v2/portfolio_actions`, `/api/v2/confluence_breakdown`, `/api/v2/master_summary`) must execute in $<25\text{ms}$ by adhering to RAM-first resolution.
     - `_ensure_contract_keys` must never perform per-symbol disk scans (`pd.read_parquet`), single-item database queries, or heavy mapper initializations in request loops. If a CMP or TradingView symbol is already present or memoized in RAM, format it in $<0.01\text{ms}$.
     - Batch price resolution (`_batch_resolve_cmps`) must resolve missing symbols via a single bulk SQL round-trip to `stock_analysis_master`, populate `_FAST_CMP_MEMO`, and never trigger synchronous blocking network requests inside HTTP handlers.
     - Thread-safe micro-caching (5s TTL) with thundering-herd mutex protection ensures zero duplicate backend executions during concurrent tab switches, while instant cache invalidation flushes all cached data upon any trade alert mutation.
+
+## 7. Mandatory Research & Backtest Documentation Policy (MANDATORY)
+
+1. **Permanent Documentation of All Research**: Every quantitative experiment, scanner calibration, backtest execution, parameter sweep, hypothesis test, component ablation, failure analysis, and forensic audit conducted by any AI agent MUST be permanently documented in [MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/docs/MASTER_RESEARCH_AND_BACKTEST_COMPENDIUM.md) (and mirrored in `reports/`).
+2. **Complete Context Preservation**: The documentation must explicitly capture:
+   - **Hypotheses Tested**: What was the underlying premise and theoretical foundation?
+   - **What Was Tried**: Exact parameter spaces, filter combinations, timeframes, and setups tested.
+   - **What Was Found**: Exact quantitative metrics, win rates ($WR$), net expectancy ($E[R]$), profit factors ($PF$), maximum drawdowns ($MaxDD$), and sample sizes ($N$).
+   - **Failure Analyses**: Why specific ideas failed (e.g. premature breakeven trailing, over-filtering, regime mismatch) to prevent future redundant mistakes.
+   - **Audit & Invariant Verification**: Full reproduction protocols and proof of zero lookahead bias.
+3. **Never Discard Research Results**: No backtest run or research insight should ever remain isolated in ephemeral agent scratchpads. It must be merged into the master documentation repository for future reference.
 
 By enforcing these boundaries, we protect the production pipeline from silent regressions, performance degradation, and accidental feedback loops.

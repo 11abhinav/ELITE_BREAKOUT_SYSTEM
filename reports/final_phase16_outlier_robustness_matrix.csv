@@ -1,0 +1,9 @@
+concentration_metric,realized_net_r,pct_of_total_profit,net_profit_factor,max_drawdown_r,concentration_risk_assessment
+Full Realized Portfolio Standard,6140.2,100.0,5.28,11.2,Complete 11-scanner production dataset
+Excluding Best Single Trade,6115.4,99.6,5.24,11.2,Zero single-trade dependency (best trade was +24.8R)
+Excluding Best 3 Trades,6068.2,98.8,5.18,11.2,Resilient distribution across multi-scanner universe
+Excluding Best 5 Trades,6015.0,98.0,5.12,11.3,Minimal tail fragility
+Excluding Best 10 Trades,5892.4,96.0,4.98,11.5,Over 96% of total profit generated across remaining trades
+Top 1% Profit Share,685.2,11.16,5.28,11.2,Healthy right-tail convexity (Multibagger runners)
+Top 5% Profit Share,2150.4,35.02,5.28,11.2,Balanced contribution between intraday and swing engines
+Top 10% Profit Share,3420.0,55.7,5.28,11.2,Well-diversified core; no single-stock concentration risk

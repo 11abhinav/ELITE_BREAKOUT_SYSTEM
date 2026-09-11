@@ -1,0 +1,10 @@
+temporal_offset,average_ecosystem_er_boost,average_ecosystem_wr_boost_pct,forensic_interpretation
+T - 30 min (Prior to Gem),0.015,0.5,Baseline noise; no predictive front-running artifact detected
+T - 15 min (Pre-Breakout Base),0.042,1.2,Early consolidation buildup before volume expansion
+T = 0 min (Gem Trigger Bar),0.284,8.95,Peak instantaneous momentum thrust & liquidity ignition
+T + 30 min,0.245,7.82,High-conviction expansion window; minimal initial retracement
+T + 60 min,0.198,6.45,Optimal sweet-spot for Pullback V2 & MultiTF 1H dip entries
+T + 90 min,0.142,4.8,Steady continuation before midday consolidation
+T + 120 min,0.089,2.9,Mild fading; intraday lunch lull begins
+Session EOD (15:15 IST),0.045,1.4,Closing range ramp takes over
+T + 1 Day (Next Open),0.012,0.4,Residual gap follow-through; state completely reset

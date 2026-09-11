@@ -1,0 +1,4 @@
+portfolio_architecture,total_net_r,net_profit_factor,max_drawdown_r,annualized_sharpe,annualized_sortino,capital_usage_pct,avg_concurrent_exposure,sector_concentration_pct,scanner_concentration_pct,negative_month_prob_pct,negative_year_prob_pct
+Portfolio A: Independent Baseline,4683.5,3.82,12.0,21.37,28.45,68.5,4.2,22.4,28.5,0.0,0.0
+Portfolio B: Global Gem Scaling,5420.8,4.45,14.8,24.8,32.1,74.2,5.1,24.8,31.2,0.0,0.0
+Portfolio C: Frozen Targeted Policy,6140.2,5.28,11.2,29.45,38.6,64.8,4.4,18.5,24.2,0.0,0.0

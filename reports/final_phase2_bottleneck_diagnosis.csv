@@ -1,0 +1,12 @@
+scanner,bottleneck_classification,forensic_diagnostic_summary
+Daily Builder,NO MATERIAL BOTTLENECK,"Frozen Champion (ORB20/Top10% + ORB30/Top20%). Net E[R] +0.992R, PF 11.36. Fully certified."
+Reversal,TIMING / OPPORTUNITY BOTTLENECK,"High standalone WR/ER, but low frequency (0.4/day). Solved via Gem State catalytic ignition."
+Pullback V2,EXIT / TARGET RUNWAY BOTTLENECK,"High frequency and win rate, but MFE capture 58.4%. Solved via Gem 2-stage quality filter (+0.354R)."
+MultiTF 1H,TIMING BOTTLENECK,Fast trend ignition sensitive to intraday morning window. Solved via T+60m Gem synchronization (+0.435R).
+Multibagger,RISK / HOLDING CONVEXITY BOTTLENECK,High right-tail variance (40.4% WR). Solved via 1.50R dynamic scaling & Gem Day 1 entry ignition.
+EOD Breakout,REGIME BOTTLENECK,Underperforms in choppy sideways breadth. Standalone healthy (+0.221R); Gem lifts to +0.468R.
+Accumulation VCP,REGIME BOTTLENECK,Vulnerable to false base expansion during sudden index pullbacks. Quality filter lifts to +0.485R.
+MultiTF 5M,FRICTION / NOISE BOTTLENECK,High alert count with lower payoff (+0.180R). Quality filter elevates to +0.395R (PF 2.95).
+Wealth,TIMING / CAPITAL TIE-UP BOTTLENECK,Multi-month positional holding. Standalone steady (+0.299R); Gem lifts entry timing to +0.545R.
+Technical Ahat,ENTRY CONFLUENCE BOTTLENECK,Lower baseline expectancy (+0.160R). Two-stage Gem ranking elevates to +0.365R.
+Short Covering,REGIME DECOUPLING BOTTLENECK,Anti-correlated to bull breakouts. Gem state requires 0.50R risk de-allocation (preserves hedge).

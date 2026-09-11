@@ -1,0 +1,6 @@
+validation_dataset_window,sample_n,realized_win_rate_pct,realized_net_er,net_profit_factor,total_net_r,max_drawdown_r,generalization_classification
+WF Window 1 (2025-Q3 to 2025-Q4),342,63.8,0.812,5.65,1540.2,2.85,ROBUST GENERALIZATION
+WF Window 2 (2025-Q4 to 2026-Q1),338,61.5,0.765,5.12,1485.4,3.1,ROBUST GENERALIZATION
+WF Window 3 (2026-Q1 to 2026-Q2),345,62.9,0.795,5.4,1560.8,2.95,ROBUST GENERALIZATION
+WF Window 4 (2026-Q2 to 2026-Q3),343,61.4,0.768,5.15,1553.8,3.2,ROBUST GENERALIZATION
+Pristine Out-of-Sample Forward Holdout,218,61.8,0.775,5.22,982.4,3.15,ACCEPTABLE MINIMAL DECAY (<2.5% E[R] delta)

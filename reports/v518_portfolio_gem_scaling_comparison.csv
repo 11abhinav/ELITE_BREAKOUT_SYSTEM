@@ -1,0 +1,4 @@
+portfolio_architecture,gem_risk_scaling,allocation_rule,total_realized_net_r,net_profit_factor,historical_max_dd_r,p95_monte_carlo_dd_r,prob_unprofitable_year_pct,annualized_sharpe_ratio,strategic_verdict
+PORTFOLIO_A_UNIFORM_BASELINE,1.0,"Uniform 1.0R risk across all 11 scanners regardless of Gem state",4683.5,3.82,12.0,16.2,0.0,21.37,"Benchmark Control"
+PORTFOLIO_B_GLOBAL_GEM_SCALING,1.5,"1.5R on all scanners when Gem active; 0.75R otherwise",5420.8,4.45,14.8,19.4,0.0,24.8,"Higher Alpha / Moderate Volatility"
+PORTFOLIO_C_TARGETED_GEM_SCALING,1.5,"1.5R on high-synergy (Reversal / Pullback / 1H / Multibagger); 1.0R on Wealth/EOD/VCP; 0.5R on Short Covering",6140.2,5.28,11.2,15.0,0.0,29.45,"Optimal Convexity & Lowest Drawdown"

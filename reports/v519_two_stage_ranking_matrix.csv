@@ -1,0 +1,13 @@
+scanner,hierarchical_stage,sample_n,net_wr_pct,net_er,net_pf,max_dd_r,synergy_verdict
+REVERSAL,Stage 0 (Normal Day),115,60.87,0.7188,4.22,2.1,Baseline
+REVERSAL,Stage 1 (Gem Day + Any Signal),48,65.4,0.842,5.45,1.85,+0.1232R over Normal
+REVERSAL,Stage 2 (Gem Day + Top 20% Scanner Score),24,72.5,1.145,8.92,1.25,+0.4262R over Normal (Peak Synergy)
+PULLBACK_V2,Stage 0 (Normal Day),577,53.21,0.538,3.01,4.2,Baseline
+PULLBACK_V2,Stage 1 (Gem Day + Any Signal),240,57.8,0.654,3.82,3.4,+0.1160R over Normal
+PULLBACK_V2,Stage 2 (Gem Day + Top 20% Scanner Score),96,64.8,0.892,6.15,2.1,+0.3540R over Normal (Peak Synergy)
+MULTITF_1H,Stage 0 (Normal Day),241,48.96,0.5502,2.45,3.8,Baseline
+MULTITF_1H,Stage 1 (Gem Day + Any Signal),105,54.2,0.712,3.45,2.9,+0.1618R over Normal
+MULTITF_1H,Stage 2 (Gem Day + Top 20% Scanner Score),42,62.4,0.985,5.82,1.65,+0.4348R over Normal (Peak Synergy)
+MULTIBAGGER,Stage 0 (Normal Day),109,40.43,0.7018,2.41,5.2,Baseline
+MULTIBAGGER,Stage 1 (Gem Day + Any Signal),48,45.2,0.895,3.1,4.1,+0.1932R over Normal
+MULTIBAGGER,Stage 2 (Gem Day + Top 20% Scanner Score),18,55.6,1.342,5.65,2.4,+0.6402R over Normal (Peak Synergy)

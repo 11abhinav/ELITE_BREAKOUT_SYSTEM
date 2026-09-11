@@ -1,0 +1,13 @@
+metric_category,feature,orb15,orb20,orb30,unit,finding
+ENTRY_SIGNAL,Relative Strength (RS),73.4,78.6,83.2,Score (0-100),ORB30 exhibits +9.8 RS points higher persistence over morning open
+ENTRY_SIGNAL,Closing Location Value (CLV),0.79,0.84,0.88,Ratio (0-1),ORB30 candle closes exceptionally near bar high (less upper wick shadow)
+ENTRY_SIGNAL,Relative Volume (RVOL),1.62,1.95,2.38,Multiple (x),"ORB30 filters out low-liquidity volume blips, confirming institutional flow"
+ENTRY_SIGNAL,Volume Acceleration (dT),1.18,1.42,1.65,Acceleration Ratio,Sustained volume build rather than single-candle spike
+ENTRY_SIGNAL,Breakout Range Compression,1.15,0.92,0.78,% of Daily ATR,Tighter base consolidation in 30M allows tighter SL and larger R multiples
+ENTRY_SIGNAL,Distance to Key Daily Resistance,1.82,2.45,3.1,R Multiple to Overhead Level,ORB30 candidates have more open runway before overhead supply
+PATH_DYNAMICS,Average Adverse Excursion (MAE),-0.28,-0.22,-0.18,R Multiple,ORB30 entries experience -35.7% less drawdown before expanding
+PATH_DYNAMICS,Average Favorable Excursion (MFE),2.68,2.94,3.25,R Multiple,ORB30 runners expand significantly further (+21.3% higher peak MFE)
+PATH_DYNAMICS,Time to Adverse Low (MAE),18.0,14.5,11.0,Minutes Post-Entry,Shakeout happens quickly; successful trades never look back
+PATH_DYNAMICS,Time to +1.0R Threshold,38.5,29.0,24.5,Minutes Post-Entry,"ORB30 reaches +1.0R 36% faster, locking in breakeven earlier"
+PATH_DYNAMICS,Time to +2.0R Threshold,72.0,58.0,46.0,Minutes Post-Entry,Rapid morning velocity drives immediate target capture
+PATH_DYNAMICS,MFE Capture Ratio (Realized / MFE),54.71,56.73,59.51,% Efficiency,Tighter consolidation + faster expansion yields highest capture efficiency

@@ -4149,21 +4149,21 @@ function changeAdminPage(type, delta) {
     const SCANNER_META = {
       'DAILY_BUILDER': { label: 'Daily Builder', desc: 'Universe Watchlist Builder · Daily 05:00 IST' },
       'MULTI_TF': { label: 'MULTI_TF Scanner', desc: '15m Universe Scan / 5m Armed Monitor (09:30–15:30 IST)' },
-      'Wealth Engine': { label: 'Wealth Engine', desc: 'Long-term Wealth Scan · Daily 17:00 IST' },
+      'Wealth Engine': { label: 'Wealth Engine', desc: 'Long-term Wealth Scan · Daily 06:00 & 17:00 IST · Market Hours (09:15–15:30 IST)' },
       'EOD': { label: 'EOD Scanner', desc: 'Daily Breakout Scan · Daily 18:30 IST (Post-Bhavcopy)' },
       'REVERSAL': { label: 'Reversal Scanner', desc: 'Mean Reversion Scan · Daily 18:30 IST (Post-Bhavcopy)' },
       'PULLBACK': { label: 'Pullback Pipeline', desc: 'Pullback Continuation Scan · Daily 18:30 IST (Post-Bhavcopy)' },
       'TECHNICAL': { label: 'Technical Scanner', desc: 'Multi-Pattern Technical · Daily 18:15 IST' },
       'ACCUMULATION': { label: 'Accumulation Scanner', desc: 'Post-Bhavcopy Delivery Scan · Daily 18:35 IST' },
       'MULTIBAGGER': { label: 'Multibagger Scanner', desc: 'Daily Fundamental Scan · Daily 17:30 IST' },
-      'AI Worker': { label: 'AI Worker', desc: 'Concall & Fundamental Caching · Continuous' },
-      'Pledge Worker': { label: 'Pledge Worker', desc: 'Promoter Pledge Tracking · Continuous' },
+      'AI Worker': { label: 'AI Worker', desc: 'Concall & Fundamental Caching · Continuous (Sat-Sun Active)' },
+      'Pledge Worker': { label: 'Pledge Worker', desc: 'Promoter Pledge Tracking · Continuous (Daily Refresh)' },
       'PERFORMANCE_TRACKER': { label: 'Alerts Exit Monitor', desc: 'Exit Signals & Trade Lifecycle · Every 5m (09:15–15:30 IST)' },
       'MULTIBAGGER_EXIT': { label: 'Multibagger Exit Monitor', desc: 'Exit Signals for Multibagger · Every 15m (09:15–15:30 IST)' },
       'WEALTH_EXIT': { label: 'Wealth Exit Monitor', desc: 'Exit Signals & Trailing Stop · Every 5m (09:15–15:30 IST)' },
       'MULTI_TF_5M': { label: 'Multi-TF 5M Monitor', desc: 'Secondary Breakout Confirmation · Every 5m (09:35–15:25 IST)' },
-      'SHORT_COVERING_EOD': { label: 'Short Covering EOD', desc: 'Short Covering Candidate Detector · Daily 19:15 IST' },
-      'SHORT_COVERING_5M': { label: 'Short Covering 5M Monitor', desc: 'Intraday Ignition Monitor · Every 5m (09:20–15:25 IST)' },
+      'SHORT_COVERING_EOD': { label: 'Short Covering EOD', desc: 'Short Covering Candidate Detector · Daily 19:15 IST (Market Days)' },
+      'SHORT_COVERING_5M': { label: 'Short Covering 5M Monitor', desc: 'Intraday Ignition Monitor · Every 5m (09:20–15:25 IST Market Days)' },
       'BayesianUpdater': { label: 'Bayesian Updater', desc: 'Machine Learning Feedback Loop · Daily 24h' }
     };
 

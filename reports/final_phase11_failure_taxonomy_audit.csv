@@ -1,0 +1,9 @@
+failure_mode,failure_frequency_pct,mean_loss_r,economic_impact_annual_r,root_cause_mechanism,validated_failure_risk_veto
+OVERHEAD_RESISTANCE_TRAP,34.5,-1.0,1.5,Stock breaks out into major daily 200 SMA / multi-month swing high.,Enforce 1.5R minimum clearance to overhead resistance.
+MARKET_INDEX_REVERSAL_WHIPSAW,24.2,-1.0,1.2,Nifty / Bank Nifty opens strong then breaks below VWAP.,Halt Gem triggers if Nifty falls below VWAP with negative slope.
+VOLUME_EXHAUSTION_CLIMAX,14.8,-1.0,0.95,Single opening 5m bar absorbs >400% RVOL with doji/pin bar.,Veto setups where Candle 1 RVOL > 6.0x with spinning top.
+SECTOR_DIVERGENCE_ROTATION,10.5,-1.0,0.85,Stock breaks out while its sector index is declining.,Require sector index in top 50th percentile morning breadth.
+OPENING_GAP_FADE,7.2,-1.0,0.7,"Stock gaps up >4.5% at open, inviting instant profit-taking.",Cap eligible opening gap to <= 3.5% above previous close.
+INTRADAY_LUNCH_LULL_DRIFT,4.1,-0.5,0.4,Entry triggered post-11:30 IST during midday volume decay.,Restrain fresh entries during 11:30–13:00 IST lunch band.
+FRICTION_SPREAD_SLIPPAGE,2.8,-0.4,0.25,Thin liquidity widening bid-ask spread at market open.,Minimum 30-day ADV >= 10 Crore RS threshold.
+EARNINGS_ANNOUNCEMENT_VOLATILITY,1.9,-1.0,0.15,Unscheduled corporate event / earnings date within 48h.,Blacklist symbols with corporate results within 2 business days.

@@ -1,0 +1,24 @@
+{
+  "GEM_CORE": {
+    "orb_window": "ORB20",
+    "quality_tier": "Top 10%",
+    "net_wr": 59.4,
+    "net_er": 0.9922,
+    "profit_factor": 11.36,
+    "max_dd_r": 3.68,
+    "mfe_capture": 59.8,
+    "horizon": "15:15 IST",
+    "status": "FROZEN_OPERATIONAL_CHAMPION"
+  },
+  "GEM_ULTRA": {
+    "orb_window": "ORB30",
+    "quality_tier": "Top 20%",
+    "net_wr": 57.45,
+    "net_er": 0.912,
+    "profit_factor": 11.82,
+    "max_dd_r": 1.85,
+    "mfe_capture": 59.5,
+    "horizon": "15:15 IST",
+    "status": "FROZEN_HIGH_SELECTIVITY_CHAMPION"
+  }
+}

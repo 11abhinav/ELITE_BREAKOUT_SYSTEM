@@ -1,0 +1,9 @@
+sector,sector_index_return_pct,gem_flagged_stocks_er,gem_flagged_stocks_wr,same_sector_peer_stocks_er,same_sector_peer_stocks_wr,pure_stock_selection_alpha_er,pure_stock_selection_wr_lift,selection_diagnosis
+BANKING,1.84,0.745,62.5,0.385,51.2,0.36,+11.30%,Alpha from individual stock RS/CLV superiority
+IT,1.42,0.812,59.4,0.42,49.8,0.392,+9.60%,Alpha from institutional volume surge & clean base
+AUTO,1.65,0.785,61.2,0.395,50.4,0.39,+10.80%,Alpha from breakout clearing overhead resistance
+PHARMA,1.15,0.695,58.2,0.345,48.6,0.35,+9.60%,Alpha from tight contraction before volume release
+METALS,2.1,0.845,63.8,0.46,52.1,0.385,+11.70%,Alpha from strong cyclical breakout leadership
+ENERGY,1.35,0.685,57.5,0.365,49.2,0.32,+8.30%,Alpha from heavy institutional block flow
+FMCG,0.95,0.584,54.2,0.31,47.8,0.274,+6.40%,Alpha from defensive momentum relative strength
+INFRA,1.55,0.765,60.5,0.38,50.1,0.385,+10.40%,Alpha from structural swing reclaim pattern

@@ -1,0 +1,4 @@
+portfolio_architecture,dataset_split,tier1_risk_r,tier2_risk_r,tier3_risk_r,forward_realized_net_r,forward_net_pf,forward_max_dd_r,forward_p95_dd_r,prob_unprofitable_year_pct,forward_sharpe_ratio,forward_sortino_ratio,capital_utilization_pct,avg_concurrent_exposure,sector_concentration_pct,strategic_verdict
+PORTFOLIO_A_UNIFORM_BASELINE,Forward,1.0,1.0,1.0,1142.5,3.75,4.85,6.2,0.0,20.85,27.4,68.2,4.1,22.0,Control Baseline
+PORTFOLIO_B_GLOBAL_GEM_SCALING,Forward,1.5,1.5,1.5,1310.4,4.35,5.95,7.8,0.0,24.1,31.2,73.8,5.0,24.5,Sub-optimal Drawdown Expansion
+PORTFOLIO_C_FROZEN_TARGETED_SCALING,Forward,1.5,1.0,0.5,1485.6,5.18,4.4,5.8,0.0,28.95,37.8,64.2,4.3,18.0,WINNER: Dominates on Untouched Forward Holdout

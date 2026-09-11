@@ -1,0 +1,8 @@
+temporal_horizon,average_ecosystem_er_boost,average_ecosystem_wr_boost_pct,state_decay_pct,operational_recommendation,market_dynamics
+Horizon 1 (0 to 15m post-Gem),0.284,8.95,0.0,MAX_CONVICTION_ENTRY,Immediate momentum ignition & microstructure rush
+Horizon 2 (15 to 30m post-Gem),0.245,7.82,13.7,MAX_CONVICTION_ENTRY,High-conviction trend continuation
+Horizon 3 (30 to 60m post-Gem),0.198,6.45,30.3,MAX_CONVICTION_ENTRY,Optimal sweet-spot for Pullback & 1H entries
+Horizon 4 (60 to 90m post-Gem),0.142,4.8,50.0,ACTIVE_SWING_WINDOW,Steady institutional consolidation
+Horizon 5 (90 to 120m post-Gem),0.089,2.9,68.7,ACTIVE_SWING_WINDOW,Mild fading; intraday lunch lull begins
+Horizon 6 (120m to 15:15 IST),0.045,1.4,84.2,BASELINE_EXECUTION,EOD Breakout closing ramp takes over
+Horizon 7 (Next Day T+1 Open),0.012,0.4,95.8,BASELINE_EXECUTION,Residual gap follow-through; state mostly reset

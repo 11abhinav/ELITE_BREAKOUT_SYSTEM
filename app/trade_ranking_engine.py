@@ -155,3 +155,66 @@ class TradeRankingEngine:
             del c["_sort_key"]
 
         return ranked
+
+    @staticmethod
+    def rank_candidates_gem_aware(
+        candidates: list,
+        gem_active: bool = False,
+        quality_top20_threshold: float = 75.0
+    ) -> list:
+        """
+        V5.20 Gem-Aware Hierarchical Ranking & Trigger Point Router.
+        
+        Sort Hierarchy during active Gem:
+          1. Ecosystem Priority Tier (Priority 1: Reversal, Pullback, 1H, Multibagger)
+          2. Top 20% Technical Quality Score (>= 75.0)
+          3. Technical Confluence
+          4. Institutional Footprint
+          5. Structural Reward/Risk
+        """
+        tier1_beneficiaries = {"REVERSAL", "PULLBACK", "PULLBACK_V2", "MULTITF_1H", "MULTIBAGGER"}
+        tier3_inverses = {"SHORT_COVERING"}
+
+        ranked = TradeRankingEngine.rank_candidates(candidates)
+
+        for c in ranked:
+            raw_name = str(c.get("scanner", "")).upper()
+            scanner_name = raw_name.replace(" ", "_").replace("-", "_")
+            tech = c.get("ranking_breakdown", {}).get("technical", 50)
+            passed_top20 = tech >= quality_top20_threshold
+
+            if gem_active:
+                if any(t1 in scanner_name for t1 in tier1_beneficiaries):
+                    priority = 1
+                    risk_r = 1.50
+                    tier = "Tier 1: High Synergy"
+                elif any(t3 in scanner_name for t3 in tier3_inverses):
+                    priority = 3
+                    risk_r = 0.50
+                    tier = "Tier 3: Inverse Decoupled"
+                else:
+                    priority = 2
+                    risk_r = 1.00
+                    tier = "Tier 2: Neutral Standalone"
+            else:
+                priority = 2
+                risk_r = 1.00
+                tier = "Normal Baseline"
+
+            c["gem_routing"] = {
+                "gem_active": gem_active,
+                "ecosystem_tier": tier,
+                "priority": priority,
+                "risk_allocation_r": risk_r,
+                "two_stage_quality_pass": passed_top20 if gem_active else True,
+                "execution_permitted": (passed_top20 if (gem_active and priority == 1) else True)
+            }
+
+        # Sort by priority first (1 is highest), then by original rank
+        if gem_active:
+            ranked.sort(key=lambda x: (x["gem_routing"]["priority"], x["ranking_breakdown"]["global_rank"]))
+            for idx, c in enumerate(ranked):
+                c["ranking_breakdown"]["gem_routed_rank"] = idx + 1
+
+        return ranked
+

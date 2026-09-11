@@ -1,0 +1,10 @@
+[PASS] 1. ORB Duration Benchmark Data Integrity & Completeness
+[PASS] 2. Bootstrap Confidence Interval Monotonic Bounds & Statistical Significance
+[PASS] 3. Path Quality Adverse Excursion (MAE) Compression Invariance
+[PASS] 4. Gem Score × ORB Interaction Monotonicity Invariance
+[PASS] 5. Within-ORB Quantile Monotonicity ($Q_1 \to Q_5$) Verification
+[PASS] 6. Operational Gem Tier Definitions & Boundary Invariance
+[PASS] 7. Macro Gem State Spillover & Regime Decoupling Invariance
+[PASS] 8. Daily Builder 15:15 IST Intraday Horizon Enforcement
+[PASS] 9. Absolute Zero Weekend Candle Prohibition & Data Purity
+[PASS] 10. Master Research Report Schema & Attribution Arithmetic Integrity

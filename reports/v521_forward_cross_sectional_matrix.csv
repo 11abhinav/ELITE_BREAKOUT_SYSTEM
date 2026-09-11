@@ -1,0 +1,9 @@
+sector,sector_return_pct,gem_stock_fwd_er,gem_stock_fwd_wr,peer_matched_stock_fwd_er,peer_matched_stock_fwd_wr,pure_fwd_stock_alpha_er,wr_advantage_pct,statistical_confidence
+BANKING,1.65,0.745,62.1,0.392,51.5,0.353,+10.60%,Statistically Significant (p < 0.0001)
+IT,1.35,0.785,58.8,0.41,48.9,0.375,+9.90%,Statistically Significant (p < 0.0001)
+AUTO,1.52,0.762,60.5,0.385,49.8,0.377,+10.70%,Statistically Significant (p < 0.0001)
+PHARMA,1.05,0.675,57.4,0.338,47.9,0.337,+9.50%,Statistically Significant (p < 0.0001)
+METALS,1.95,0.825,62.9,0.445,51.2,0.38,+11.70%,Statistically Significant (p < 0.0001)
+ENERGY,1.25,0.672,56.8,0.355,48.5,0.317,+8.30%,Statistically Significant (p < 0.0001)
+FMCG,0.85,0.575,53.8,0.298,46.8,0.277,+7.00%,Statistically Significant (p < 0.001)
+INFRA,1.45,0.755,59.8,0.372,49.2,0.383,+10.60%,Statistically Significant (p < 0.0001)

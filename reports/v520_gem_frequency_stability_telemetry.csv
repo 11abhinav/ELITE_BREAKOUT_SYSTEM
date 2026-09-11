@@ -1,0 +1,12 @@
+telemetry_metric,empirical_value,operational_assessment
+Total Historical Sample Trading Days,285 days,Full multi-regime backtest window
+Trading Days with >= 1 Gem Trigger,142 days,49.82% of all market trading days
+Total Gem Trigger Events Generated,218 events,Average 1.54 Gems per active day
+Average Gem Frequency per Trading Day,0.76 Gems / day,"Sustainable, non-overfitting signal rate"
+Average Gem Frequency per Trading Week,3.82 Gems / week,Regular weekly opportunity density
+Average Gem Frequency per Calendar Month,16.54 Gems / month,Consistent monthly distribution
+Single Gem Days Count,82 days (57.75%),Single high-conviction breakout leader
+Double Gem Days Count,44 days (30.99%),Dual-sector expansion days
+Triple or More Gem Days Count,16 days (11.27%),Broad market-wide momentum ignition days
+Mean Active Gem State Lifetime,54.6 minutes,Standard duration before state absorption
+Inter-Gem Arrival Time (Active Days),148.2 minutes,Sufficient spacing preventing portfolio jamming

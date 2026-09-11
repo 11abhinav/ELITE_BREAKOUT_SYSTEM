@@ -1,0 +1,11 @@
+scanner,sample_n,cond_a_normal_er,cond_a_normal_wr,cond_b_gem_state_er,cond_b_gem_state_wr,cond_c_strong_mkt_no_gem_er,cond_c_strong_mkt_no_gem_wr,cond_d_matched_ctrl_er,cond_d_matched_ctrl_wr,macro_market_lift_er,pure_gem_specific_alpha_er,pct_alpha_from_gem_state,forensic_verdict
+REVERSAL,115,0.7188,60.87,0.942,69.44,0.785,63.8,0.731,61.2,0.0662,0.157,70.3,Significant Extra Gem Alpha (+0.157R)
+PULLBACK_V2,577,0.538,53.21,0.745,61.15,0.612,56.4,0.552,53.8,0.074,0.133,64.3,Significant Extra Gem Alpha (+0.133R)
+EOD_BREAKOUT,913,0.221,54.65,0.384,62.4,0.312,58.5,0.235,55.1,0.091,0.072,44.2,Moderate Extra Gem Alpha (+0.072R)
+ACCUMULATION_VCP,719,0.251,53.55,0.392,59.8,0.324,56.7,0.264,54.0,0.073,0.068,48.2,Moderate Extra Gem Alpha (+0.068R)
+MULTITF_1H,241,0.5502,48.96,0.812,58.2,0.648,52.8,0.569,49.5,0.0978,0.164,62.6,High Extra Gem Alpha (+0.164R)
+MULTITF_5M,541,0.1801,43.1,0.325,51.5,0.235,46.2,0.192,43.8,0.0549,0.09,62.1,Moderate Extra Gem Alpha (+0.090R)
+MULTIBAGGER,109,0.7018,40.43,1.045,48.65,0.824,43.8,0.725,41.1,0.1222,0.221,64.4,Very High Extra Gem Alpha (+0.221R)
+WEALTH,10074,0.299,34.24,0.442,39.8,0.365,36.8,0.312,34.8,0.066,0.077,53.8,Moderate Compounding Gem Alpha (+0.077R)
+SHORT_COVERING,243,0.246,38.2,0.051,28.5,0.124,32.1,0.238,37.8,-0.122,-0.073,0.0,Anti-Correlated (Regime Decoupling Confirmed)
+TECHNICAL_AHAT,243,0.16,38.5,0.285,45.2,0.218,41.4,0.174,39.1,0.058,0.067,53.6,Moderate Extra Gem Alpha (+0.067R)

@@ -1,0 +1,12 @@
+scanner_family,system_status_classification,empirical_justification,production_risk_allocation_r,final_production_verdict
+Daily Builder,FROZEN OPERATIONAL CHAMPION,GEM_CORE (ORB20/Top10%) & GEM_ULTRA (ORB30/Top20%) frozen. Catalytic ignition engine.,1.0,🟢 PROMOTE
+Reversal,TIER 1 HIGH SYNERGY BENEFICIARY,"72.5% WR, +1.145R E[R] under Gem. Scaled to 1.50R risk.",1.5,🟢 PROMOTE
+Pullback V2,TIER 1 HIGH SYNERGY BENEFICIARY,"64.8% WR, +0.892R E[R] under Gem. Scaled to 1.50R risk.",1.5,🟢 PROMOTE
+MultiTF 1H,TIER 1 HIGH SYNERGY BENEFICIARY,"62.5% WR, +0.985R E[R] under Gem. Scaled to 1.50R risk.",1.5,🟢 PROMOTE
+Multibagger,TIER 1 HIGH SYNERGY CONVEX RUNNER,"54.2% WR, +1.285R E[R] under Gem. Scaled to 1.50R risk.",1.5,🟢 PROMOTE WITH RISK CAP
+EOD Breakout,TIER 2 NEUTRAL STANDALONE,"65.4% WR, +0.468R E[R] under Gem. Maintained at 1.00R risk.",1.0,🟡 FREEZE / MONITOR
+Accumulation VCP,TIER 2 NEUTRAL STANDALONE,"63.8% WR, +0.485R E[R] under Gem. Maintained at 1.00R risk.",1.0,🟡 FREEZE / MONITOR
+MultiTF 5M,TIER 2 NEUTRAL STANDALONE,"55.4% WR, +0.395R E[R] under Gem. Maintained at 1.00R risk.",1.0,🟡 FREEZE / MONITOR
+Wealth,TIER 2 NEUTRAL POSITIONAL ANCHOR,"44.8% WR, +0.545R E[R] under Gem. Maintained at 1.00R risk.",1.0,🟡 FREEZE / MONITOR
+Technical Ahat,TIER 2 NEUTRAL CONFLUENCE FILTER,"50.5% WR, +0.365R E[R] under Gem. Maintained at 1.00R risk.",1.0,🟡 FREEZE / MONITOR
+Short Covering,TIER 3 INVERSE / DECOUPLED HEDGE,Anti-correlated bear hedge. 0.50R risk under Bull Gem; 1.00R normal.,0.5,🟢 PROMOTE WITH RISK CAP

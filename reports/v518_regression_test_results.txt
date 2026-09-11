@@ -1,0 +1,10 @@
+[PASS] 1. 3x3 Operating Frontier Schema & Invariance
+[PASS] 2. Walk-Forward Monotonic Consistency & OOS Stability
+[PASS] 3. Matched-Control Attribution Pure Gem Alpha Proof
+[PASS] 4. Short Covering Anti-Correlation & Regime Decoupling
+[PASS] 5. Temporal Persistence Decay Monotonicity Invariance
+[PASS] 6. False-Positive Failure Veto Classification Completeness
+[PASS] 7. Portfolio Gem Scaling Optimization & Convexity Invariance
+[PASS] 8. Daily Builder 15:15 IST Intraday Horizon Contract
+[PASS] 9. Absolute Zero Weekend Candle Prohibition & Pipeline Integrity
+[PASS] 10. Master Research Report Schema & Data Consistency

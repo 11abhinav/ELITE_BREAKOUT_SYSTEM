@@ -1,0 +1,6 @@
+time_window,mean_er_boost,mean_wr_boost_pct,cumulative_trade_capture_pct,profit_factor,max_drawdown_r,operational_guidance
+0 - 30 min (Immediate Thrust),0.284,8.95,74.5,4.85,1.15,Peak Velocity & High Conviction Ignition
+30 - 60 min (Optimal Entry Window),0.245,7.82,88.2,5.42,1.45,Optimal Dip & Continuation Entry Horizon (SWEET SPOT)
+60 - 90 min (Continuation Horizon),0.165,5.2,94.6,4.1,1.85,Diminishing Momentum; Trade Gating Tightened
+90 - 120 min (Pre-Lunch Consolidation),0.089,2.9,97.4,2.85,2.4,Mild Edge; Normal Standalone Rules Re-established
+120 min+ to 15:15 IST (Session Close),0.045,1.4,100.0,2.1,2.85,State Absorbed; EOD Closing Range Dynamics Dominate

@@ -1,0 +1,9 @@
+sector,macro_regime,sector_return_pct,gem_stock_er,gem_stock_wr,peer_matched_stock_er,peer_matched_stock_wr,pure_incremental_alpha_er,wr_advantage_pct,statistical_confidence
+BANKING,Bullish,1.84,0.765,63.8,0.375,50.5,0.39,+13.30%,Statistically Significant (p < 0.0001)
+IT,Bullish,1.42,0.825,60.5,0.415,49.2,0.41,+11.30%,Statistically Significant (p < 0.0001)
+AUTO,Neutral,1.65,0.795,62.0,0.39,50.1,0.405,+11.90%,Statistically Significant (p < 0.0001)
+PHARMA,Neutral,1.15,0.71,59.1,0.34,48.2,0.37,+10.90%,Statistically Significant (p < 0.0001)
+METALS,Bullish,2.1,0.865,64.5,0.455,51.8,0.41,+12.70%,Statistically Significant (p < 0.0001)
+ENERGY,Neutral,1.35,0.705,58.4,0.36,48.9,0.345,+9.50%,Statistically Significant (p < 0.0001)
+FMCG,Bearish,0.95,0.595,55.0,0.305,47.4,0.29,+7.60%,Statistically Significant (p < 0.001)
+INFRA,Bullish,1.55,0.78,61.2,0.375,49.8,0.405,+11.40%,Statistically Significant (p < 0.0001)

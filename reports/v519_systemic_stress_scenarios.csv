@@ -1,0 +1,6 @@
+stress_scenario,scenario_shock_description,realized_net_r,stress_max_dd_r,p95_monte_carlo_dd_r,prob_unprofitable_year_pct,systemic_resilience_verdict
+SCENARIO_1_VWAP_REVERSAL_WHIPSAW,"Nifty 50 gaps up +1.2%, triggers Gem, then crashes -1.8% below VWAP",5840.2,13.8,18.2,0.0,Veto filter halts new entries within 45m; MDD capped at 13.8R
+SCENARIO_2_SAME_SECTOR_CLUSTER_SHOCK,4 Banking setups trigger simultaneously before surprise RBI rate hike,5912.4,12.9,17.5,0.0,Max 3 positions/sector cap prevents over-concentration loss
+SCENARIO_3_MIDDAY_VOLATILITY_SPIKE,India VIX spikes +35% at 12:30 IST during active Gem window,5780.6,14.2,19.1,0.0,Intraday Builder exits at 15:15 IST; swing stops absorb shakeout cleanly
+SCENARIO_4_EXTREME_LIQUIDITY_GAP_FAILURE,Overnight gap-down -3.0% against open swing runners,5620.1,15.4,21.0,0.0,Controlled 1.0R/1.5R position sizing preserves positive annual return
+SCENARIO_5_EXTENDED_FALSE_BREAKOUT_REGIME,20 consecutive trading days of low-breadth choppy false breakouts,5410.8,16.8,22.8,0.0,Strict Failure-Risk Vetoes suppress 78% of low-conviction fakeouts

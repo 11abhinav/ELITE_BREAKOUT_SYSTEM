@@ -1,0 +1,10 @@
+[PASS] 1. V5.16 Master Production Registry Schema & Invariance
+[PASS] 2. MultiTF Decision-Time & State Invariance
+[PASS] 3. Daily Builder 15:15 IST Forced Exit Contract
+[PASS] 4. Reversal Structural Support Source Precedence
+[PASS] 5. Pullback Canonical ATR Stop Geometry
+[PASS] 6. Indian Equity Realistic Friction Multi-Tier Integrity
+[PASS] 7. Portfolio Sector Attribution & Map Completeness
+[PASS] 8. Absolute Zero Weekend Candle Prohibition & Pipeline Integrity
+[PASS] 9. Daily Builder BE 1.0R Boundary Transition & Target 2.5R Geometry
+[PASS] 10. Quality-Score Out-of-Sample Monotonicity Invariance

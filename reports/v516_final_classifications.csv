@@ -1,0 +1,12 @@
+scanner,v515_er,v516_er,v516_pf,sample_n,evidence_strength,classification,rationale
+REVERSAL,0.5915,0.7188,4.22,115,STRONG,🟢 PROMOTE,High-WR Bull Specialist confirmed on broad plateau; Target 3.0R extends E[R] safely.
+PULLBACK_V2,0.4244,0.538,3.01,577,HIGH,🟢 PROMOTE,Strong N=577 sample; Target 2.5R + BE 1.0R eliminates premature truncation.
+DAILY_BUILDER,0.0839,0.471,3.82,972,HIGH,🟢 PROMOTE,Forensic proof: BE 1.0R + ORB15 precision gating repairs exit capture (+26.3% MFE capture).
+EOD_BREAKOUT,0.142,0.221,1.95,913,HIGH,🟢 PROMOTE,Large N=913; Target 2.2R increases expectancy without degrading win rate.
+ACCUMULATION_VCP,0.175,0.251,2.08,719,HIGH,🟢 PROMOTE,Large N=719; Target 2.5R captures squeeze expansion efficiently.
+MULTITF_1H,0.455,0.5502,2.45,241,STRONG,🟢 PROMOTE,Fast T0 ignition with BE 1.0R prevents premature stop-outs.
+MULTITF_5M,0.086,0.1801,1.62,541,HIGH,🟢 PROMOTE,Solid sample N=541; CLV80 + Target 2.5R overcomes intraday friction.
+MULTIBAGGER,0.507,0.7018,2.41,109,MODERATE,🟡 PROMOTE WITH RISK LIMIT,"Authentic right-tail convexity (14.8% 5R+), but higher variance justifies standard 1.0R allocation cap."
+WEALTH,0.215,0.299,1.58,10074,MASSIVE,🟢 PROMOTE,"Anchor compounding engine; Target 3.5R improves compounding at huge N=10,074."
+SHORT_COVERING,0.151,0.246,1.54,243,STRONG,🟢 PROMOTE,Bear regime specialist hedge; Target 2.8R captures short squeeze velocity.
+TECHNICAL_AHAT,0.033,0.16,1.39,243,STRONG,🟢 PROMOTE,Confluence confirmation gates lift marginal baseline into clear profitability.

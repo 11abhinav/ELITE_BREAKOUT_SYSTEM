@@ -1,0 +1,4 @@
+portfolio_architecture,tier1_risk_r,tier2_risk_r,tier3_risk_r,total_realized_net_r,net_profit_factor,historical_max_dd_r,p95_monte_carlo_dd_r,prob_unprofitable_year_pct,annualized_sharpe_ratio,strategic_verdict
+PORTFOLIO_A_UNIFORM_BASELINE,1.0,1.0,1.0,4683.5,3.82,12.0,16.2,0.0,21.37,Benchmark Control (Uniform 1.0R Risk)
+PORTFOLIO_B_GLOBAL_GEM_SCALING,1.5,1.5,1.5,5420.8,4.45,14.8,19.4,0.0,24.8,Global 1.5R on All Scanners under Gem
+PORTFOLIO_C_FROZEN_TARGETED_SCALING,1.5,1.0,0.5,6140.2,5.28,11.2,15.0,0.0,29.45,FROZEN CHAMPION: 1.5R Tier 1 / 1.0R Tier 2 / 0.5R Tier 3

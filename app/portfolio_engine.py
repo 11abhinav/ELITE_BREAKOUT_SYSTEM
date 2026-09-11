@@ -61,28 +61,31 @@ class PortfolioEngine:
         for c in ranked_candidates:
             symbol = c.get("symbol", "?")
             rank   = c.get("ranking_breakdown", {}).get("global_rank", "?")
+            cand_mult = float(c.get("risk_multiplier", 1.0))
+            trade_risk = base_risk_trade * cand_mult
 
             if funded_count >= max_new_pos:
                 logger.info(f"⏭️  {symbol} (Rank {rank}) — max new positions reached ({max_new_pos})")
                 continue
 
-            if remaining_risk < base_risk_trade:
+            if remaining_risk < trade_risk:
                 logger.info(
                     f"⏭️  {symbol} (Rank {rank}) — "
-                    f"insufficient risk capacity ({remaining_risk:.2f}% < {base_risk_trade:.2f}%)"
+                    f"insufficient risk capacity ({remaining_risk:.2f}% < {trade_risk:.2f}%)"
                 )
                 continue
 
             # ── Fund this trade ─────────────────────────────────────────────
-            remaining_risk -= base_risk_trade
+            remaining_risk -= trade_risk
             funded_count   += 1
 
             allocation = {
                 "status":         "FUNDED",
-                "risk_used":      round(base_risk_trade, 4),
+                "risk_used":      round(trade_risk, 4),
                 "remaining_risk": round(remaining_risk, 4),
+                "risk_multiplier": round(cand_mult, 2),
                 # allocation in currency requires account size — placeholder for V2
-                "allocation_pct": round(base_risk_trade, 4),
+                "allocation_pct": round(trade_risk, 4),
             }
 
             c["status"]     = "FUNDED"
@@ -91,7 +94,7 @@ class PortfolioEngine:
 
             logger.info(
                 f"✅ {symbol} FUNDED (Rank {rank}) | "
-                f"risk_used={base_risk_trade:.2f}% | remaining={remaining_risk:.2f}%"
+                f"risk_used={trade_risk:.2f}% (mult={cand_mult:.2f}x) | remaining={remaining_risk:.2f}%"
             )
 
         logger.info(

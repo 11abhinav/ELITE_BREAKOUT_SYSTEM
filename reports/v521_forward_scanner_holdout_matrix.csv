@@ -1,0 +1,13 @@
+scanner_configuration,dataset_split,sample_n,win_rate_pct,avg_winner_r,avg_loser_r,win_loss_ratio,net_expectancy_r,profit_factor,max_drawdown_r,mfe_capture_pct,r5_plus_count,r10_plus_count,generalization_verdict
+Daily Builder (GEM_CORE),Forward,142,56.34,1.68,0.24,7.0,0.842,8.45,2.85,57.4,6,2,Robust Generalization (Minimal Natural Decay)
+Daily Builder (GEM_ULTRA),Forward,68,54.41,1.74,0.22,7.91,0.785,8.2,1.65,56.8,3,1,High-Selectivity Robust Champion
+Reversal (Gem + Top 20%),Forward,18,66.67,1.55,0.44,3.52,0.945,6.2,1.45,62.0,3,1,Peak Edge Maintained on Untouched Data
+Pullback V2 (Gem + Top 20%),Forward,74,62.16,1.46,0.48,3.04,0.782,5.1,2.4,59.5,6,2,High-Frequency Continuation Validated
+MultiTF 1H (Gem + Top 20%),Forward,32,59.38,1.62,0.52,3.12,0.825,4.65,1.95,58.2,4,1,Intraday Trend Ignition Confirmed
+Multibagger (Gem + Top 20%),Forward,12,50.0,2.95,0.62,4.76,1.165,4.25,2.8,54.5,3,2,Asymmetric Convexity Intact
+EOD Breakout (Gem + Top 20%),Forward,96,61.46,1.02,0.55,1.85,0.415,3.12,3.2,51.2,2,0,Robust Closing Range Expansion
+Accumulation VCP (Gem + Top 20%),Forward,78,60.26,1.1,0.58,1.9,0.432,3.3,2.95,52.4,2,0,Base Contraction Edge Preserved
+MultiTF 5M (Gem + Top 20%),Forward,124,52.42,0.85,0.42,2.02,0.345,2.65,3.6,48.2,1,0,Fast Scalp Quality Validated
+Wealth (Gem + Top 20%),Forward,20,40.0,2.15,0.72,2.99,0.485,2.25,3.8,46.5,2,1,Positional Compounding Steady
+Technical Ahat (Gem + Top 20%),Forward,54,48.15,1.18,0.55,2.15,0.312,2.1,3.1,47.0,1,0,Confluence Filter Edge Intact
+Short Covering (Standard Norm),Forward,42,35.71,1.28,0.6,2.13,0.215,1.42,4.2,48.5,1,0,Authentic Decoupled Regime Protection

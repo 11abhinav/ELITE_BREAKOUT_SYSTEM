@@ -1,0 +1,8 @@
+failure_mode,forward_losing_events_count,pct_of_forward_losses,mean_loss_r,root_cause_diagnosis
+OVERHEAD_RESISTANCE_TRAP,12,33.3,-1.0,Approached daily 200 SMA; rejected within 0.8R.
+MARKET_INDEX_REVERSAL_WHIPSAW,9,25.0,-1.0,Nifty morning spike failed; dipped below VWAP.
+VOLUME_EXHAUSTION_CLIMAX,5,13.9,-1.0,Institutional block absorbed in candle 1 with no follow-through.
+SECTOR_DIVERGENCE_ROTATION,4,11.1,-1.0,Single-stock breakout failed as peer sector basket sold off.
+OPENING_GAP_FADE,3,8.3,-1.0,Gap-up >3.2% faded instantly on profit-taking.
+INTRADAY_LUNCH_LULL_DRIFT,2,5.6,-0.5,Triggered at 11:45 IST; chopped during lunch lull.
+FRICTION_SLIPPAGE,1,2.8,-0.4,Fast morning quote fill slippage on smaller cap.

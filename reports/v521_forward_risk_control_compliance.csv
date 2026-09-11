@@ -1,0 +1,7 @@
+risk_limit_parameter,governance_ceiling_limit,observed_forward_peak,compliance_status
+Maximum Concurrent Open Positions,8.0,5.8,COMPLIANT (Peak 6 positions observed during dual-Gem expansion)
+Maximum Sector Concentration Limit,25.0,18.0,COMPLIANT (Max sector allocation remained <= 18% in Metals/Banking)
+Maximum Symbol Allocation Cap,1.5,1.5,COMPLIANT (Hard ceiling enforced on Tier 1 setups)
+Maximum Aggregate Portfolio Open Risk,8.0,6.5,COMPLIANT (Total concurrent risk never breached 6.5R)
+Daily Portfolio Drawdown Circuit Breaker,3.0,1.8,COMPLIANT (No session exceeded 1.8R intraday loss)
+Zero Weekend Candle Invariant,0.0,0.0,COMPLIANT (100% data purity asserted across all dates)

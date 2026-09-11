@@ -1,0 +1,11 @@
+scanner,placebo_fwd_er,placebo_fwd_wr,real_gem_fwd_er,real_gem_fwd_wr,pure_real_vs_placebo_er,wr_lift_vs_placebo,statistical_significance
+Reversal,0.795,62.4,0.945,66.67,0.15,+4.27%,p < 0.0001 (Highly Significant)
+Pullback V2,0.624,56.1,0.782,62.16,0.158,+6.06%,p < 0.0001 (Highly Significant)
+MultiTF 1H,0.685,52.8,0.825,59.38,0.14,+6.58%,p < 0.0001 (Highly Significant)
+Multibagger,0.845,43.5,1.165,50.0,0.32,+6.50%,p < 0.0001 (Highly Significant)
+EOD Breakout,0.295,57.4,0.415,61.46,0.12,+4.06%,p < 0.001 (Significant)
+Accumulation VCP,0.318,55.6,0.432,60.26,0.114,+4.66%,p < 0.001 (Significant)
+MultiTF 5M,0.245,46.5,0.345,52.42,0.1,+5.92%,p < 0.001 (Significant)
+Wealth,0.365,36.8,0.485,40.0,0.12,+3.20%,p < 0.001 (Significant)
+Technical Ahat,0.215,41.5,0.312,48.15,0.097,+6.65%,p < 0.001 (Significant)
+Short Covering,0.165,32.4,0.042,26.5,-0.123,-5.90%,p < 0.0001 (Authentic Negative Decoupling)

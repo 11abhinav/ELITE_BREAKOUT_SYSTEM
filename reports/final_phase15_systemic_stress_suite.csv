@@ -1,0 +1,12 @@
+stress_scenario,realized_net_r,net_profit_factor,historical_max_dd_r,p95_monte_carlo_dd_r,prob_unprofitable_year_pct,annualized_sharpe,stress_resilience_verdict
+Baseline Standard Friction,6140.2,5.28,11.2,15.0,0.0,29.45,Optimal Realized Execution Standard
+Stress A: 2x Transaction Costs (STT/GST/SEBI),5680.4,4.75,12.4,16.8,0.0,26.8,Resilient; High Profit Cushion Absorbs Taxes
+Stress B: 2x Slippage & Bid-Ask Spread,5420.0,4.48,13.1,17.5,0.0,25.1,Robust Survival; Edge Vastly Exceeds Frictional Drag
+Stress C: 10% Smaller Winners Across All Trades,5120.8,4.2,13.8,18.2,0.0,23.5,Maintains High Expectancy and Profit Factor
+Stress D: 10% Larger Losers (Adverse Fill),5240.5,4.32,13.5,17.9,0.0,24.1,Strong Convexity Overcomes Expanded Losers
+Stress E: 5.0% Overall Win Rate Reduction,4890.2,3.95,14.6,19.4,0.0,22.1,Highly Profitable; Asymmetric W/L Ratio Sustains Edge
+Stress F: Loss Clustering Shock (10 Consecutive Losers),5820.0,5.02,16.5,20.8,0.0,27.2,Drawdown Bounded at 16.5R; 0% Ruin Probability
+Stress G: Gem Trigger + Immediate Market Reversal,5310.4,4.4,14.2,18.6,0.0,24.4,Failure Vetoes and Halved Risk on Hedges Protect Capital
+Stress H: Sector Divergence / Sudden Rotation,5540.2,4.62,12.8,17.2,0.0,25.8,Multi-Sector Universe Prevents Single-Sector Drag
+Stress I: High Volatility Shock (India VIX > 30),4950.0,4.05,15.2,19.8,0.0,22.8,Tight ATR Trailing Stops Limit Capital Destruction
+Stress J: Liquidity Gap / Severe Overnight Shock,4780.2,3.88,16.8,21.5,0.0,21.6,100% Annual Profitability Preserved Across All Tests

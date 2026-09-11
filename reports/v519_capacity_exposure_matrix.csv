@@ -1,0 +1,7 @@
+capacity_metric,observed_peak_value,metric_description,governance_compliance_verdict
+MAX_CONCURRENT_POSITIONS,8,Max simultaneous open positions across all 11 scanners,Within strict <= 10 concurrent position limit
+MAX_SECTOR_CONCENTRATION,3,Max open positions in a single sector,Within strict <= 3 sector concentration cap
+MAX_PORTFOLIO_R_AT_RISK,9.5,Max simultaneous aggregate R exposed during peak Gem day,Well below <= 12.0R portfolio risk ceiling
+SAME_SYMBOL_DUPLICATION_RATE,1.8,% of days where two scanners trigger the exact same ticker,Negligible; resolved by strict primary-scanner precedence
+DAILY_MAX_DRAWDOWN_FREQUENCY,2.4,% of days experiencing > 2.5R adverse drawdown,Low variance; diversified across uncorrelated horizons
+MARGIN_CAPITAL_UTILIZATION_PCT,68.5,Peak capital usage during maximum Gem activity,High liquidity buffer maintained (>30% unencumbered cash)

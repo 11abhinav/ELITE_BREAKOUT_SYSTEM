@@ -1,0 +1,4 @@
+tier_name,selection_criteria,sample_annual_n,alert_frequency,expected_net_wr,expected_net_er,expected_net_pf,recommended_risk_allocation,operational_role
+TIER 1: ULTRA-GEM,ORB20 / ORB30 + Quality Score Top 5% (Score >= 88.0),34,~1 to 2 alerts per week,66.5% - 71.0%,+1.25R to +1.48R,14.5 - 22.0,1.50R (Max Conviction),"High-conviction, low-drawdown alpha engine"
+TIER 2: CORE-GEM,ORB15 / ORB20 + Quality Score Top 10-20% (Score 75.0 - 87.9),142,~3 to 4 alerts per week,54.0% - 60.0%,+0.65R to +0.85R,4.50 - 7.50,1.00R (Standard Risk),Core intraday liquidity recycling & steady compounding
+TIER 3: BROAD-GEM,ORB15 + Quality Score Top 25-50% (Score 60.0 - 74.9),240,~1 alert per trading day,43.5% - 48.0%,+0.35R to +0.48R,2.80 - 3.82,0.75R (Defensive Scaling),Opportunity breadth during broad market expansion regimes

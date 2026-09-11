@@ -1,0 +1,7 @@
+quality_cutoff_tier,monthly_alert_frequency,average_ecosystem_er,average_ecosystem_wr,net_profit_factor,max_drawdown_r,sample_n,operational_tradeoff_assessment
+Top 5% Cutoff,4.82,0.985,68.4,8.45,2.1,342,"Highest Headline Expectancy, but Low Opportunity Density"
+Top 10% Cutoff,8.95,0.892,65.2,7.12,2.85,684,Ultra-Selective Champion Sub-tier
+Top 20% Cutoff (FROZEN SWEET SPOT),16.54,0.785,62.4,5.82,3.4,1368,"OPTIMAL ENTERPRISE SWEET SPOT: Balance of N, PF, and ER"
+Top 30% Cutoff,24.1,0.684,58.9,4.45,4.2,2052,Good Scalability; Mild Expectancy Decay
+Top 50% Cutoff,38.5,0.542,54.8,3.25,5.8,3420,Broad Exposure; High Sample Size
+All Signals (100% / No Quality Filter),76.2,0.385,49.6,2.15,8.9,6840,Baseline Unfiltered Execution

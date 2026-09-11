@@ -1,0 +1,10 @@
+[PASS] 1. Master Baseline Snapshot Schema & Completeness (11 Scanners & Portfolio)
+[PASS] 2. Bottleneck Diagnosis & Resolution Mapping Invariance
+[PASS] 3. Regime Attribution & Pure Gem Alpha Separation Invariance
+[PASS] 4. Two-Stage Top-K Threshold Optimality & Sweet Spot Selection
+[PASS] 5. False-Positive Failure Taxonomy & Active Risk Veto Audit
+[PASS] 6. Leave-One-Out Marginal Portfolio Contribution & Diversification
+[PASS] 7. 10-Scenario Systemic Macroeconomic & Friction Stress Survival
+[PASS] 8. Outlier Robustness & Tail Profit Concentration Invariance
+[PASS] 9. Walk-Forward Temporal Consistency & Pristine Forward Generalization
+[PASS] 10. Permanent Master Documentation Compendium Synchronization & Completeness
