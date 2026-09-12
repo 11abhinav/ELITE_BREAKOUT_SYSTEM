@@ -4294,7 +4294,8 @@ def _start_wrapper(debug_limit: int = None, is_test_mode: bool = False, session=
         contract = ScannerExecutionContract("MULTIBAGGER", total_symbols=len(symbols))
         # Identify symbols requested but not successfully resolved into price_data_map
         missing_syms = [s for s in symbols if s not in price_data_map or price_data_map[s] is None]
-        contract.complete(missing_symbols=missing_syms, processed_count=resolved_price_count)
+        stale_syms = [getattr(r, 'symbol', '') for r in results if getattr(r, 'status', None) == "STALE_DATA"]
+        contract.complete(missing_symbols=missing_syms, stale_symbols=stale_syms, processed_count=resolved_price_count)
     except Exception as contract_err:
         logger.warning(f"ScannerExecutionContract completion warning: {contract_err}")
         missing_syms = [s for s in symbols if s not in price_data_map or price_data_map[s] is None]

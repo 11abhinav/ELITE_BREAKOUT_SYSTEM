@@ -1,0 +1,6 @@
+candidate_id,name,window_min,model_g_type,regime_veto,dynamic_capacity,n_trades,total_r,er,wr,pf,max_dd,sharpe,worst_day_r,best_day_r,traps_avoided,runners_missed
+CAND_A_V529_BENCHMARK,"Candidate A (Current V5.29 Baseline)",30,CERTIFIED,True,False,402,496.59,1.235,78.9,6.57,3.86,14.85,-2.80,14.09,30,73
+CAND_B_45M_BASELINE,"Candidate B (45m Baseline)",45,CERTIFIED,False,False,415,674.66,1.626,93.3,26.97,2.56,27.70,-1.17,13.97,90,0
+CAND_C_MINIMAL_45M,"Candidate C (Minimal 45m)",45,CERTIFIED,True,False,415,674.66,1.626,93.3,26.97,2.56,27.70,-1.17,13.97,90,0
+CAND_D_FOCUSED_MODEL_G,"Candidate D (Focused Model G)",45,FOCUSED_CORE,True,False,456,736.52,1.615,93.2,26.62,2.57,27.61,-1.16,13.97,109,0
+CAND_E_FULL_V530_PROPOSED,"Candidate E (Full Proposed V5.30)",45,FOCUSED_CORE,True,True,347,573.99,1.654,94.8,35.60,1.18,30.55,-1.17,13.97,60,0

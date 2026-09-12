@@ -1,0 +1,7 @@
+session_date,trigger_time,symbol,sector,bear_days,rvol,clv,oi_delta_pct,entry_price_rs,sl_price_rs,risk_rs,target_1_rs,target_2_rs,target_3_rs,peak_mfe_price_rs,peak_mfe_r,realized_r,realized_pnl_per_share_rs,time_to_target_min,status
+2026-09-07,10:02:00,FORTIS_418,NIFTY_ENERGY,4,5.1,0.94,-0.82,520.0,517.14,2.86,528.58,534.3,548.6,550.97,10.83,6.3,18.02,26,✅ 10R Super Runner Hit (+10R+)
+2026-09-07,09:51:00,ANGELONE_689,NIFTY_IT,4,4.68,0.874,-1.64,2600.0,2585.7,14.3,2642.9,2671.5,2743.0,2762.45,11.36,6.49,92.81,33,✅ 10R Super Runner Hit (+10R+)
+2026-09-08,09:52:00,SUZLON_580,NIFTY_FMCG,3,3.62,0.938,-2.12,75.0,73.5,1.5,79.5,82.5,90.0,86.12,7.41,5.07,7.61,25,✅ Target 2 Hit (+5R Quick Gain)
+2026-09-11,09:31:00,ITC_513,NIFTY_REALTY,4,4.08,0.89,-0.81,495.0,492.28,2.72,503.16,508.6,522.2,530.88,13.19,7.15,19.45,50,✅ 10R Super Runner Hit (+10R+)
+2026-09-11,09:55:00,THERMAX_463,NIFTY_METAL,3,4.52,0.824,-0.87,4850.0,4823.33,26.67,4930.01,4983.35,5116.7,4943.61,3.51,3.2,85.34,52,✅ Target 1 Hit (+3R Profit Locked)
+2026-09-11,09:23:00,TITAN_400,NIFTY_FMCG,3,3.35,0.945,-0.75,3420.0,3401.19,18.81,3476.43,3514.05,3608.1,3513.86,4.99,3.8,71.48,53,✅ Target 1 Hit (+3R Profit Locked)

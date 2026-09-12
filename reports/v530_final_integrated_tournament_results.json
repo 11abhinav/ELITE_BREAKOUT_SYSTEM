@@ -1,0 +1,869 @@
+{
+  "tournament_metadata": {
+    "title": "FINAL_INTEGRATED_ARCHITECTURE_TOURNAMENT_V530_VS_V529",
+    "scanner": "DAILY_BUILDER",
+    "timestamp": "2026-09-11T14:57:43.966015+00:00",
+    "source_commit": "bf4da25fd10028cc034d6f9fa610cefb9dd62a0e",
+    "decision": "V5.30 SUPERIOR \u2014 CERTIFICATION PASSED",
+    "dataset_splits": {
+      "dev_sessions": 8663,
+      "val_sessions": 4288,
+      "exploratory_sessions": 4363,
+      "new_final_holdout_sessions": 4320
+    },
+    "calendar_audit": {
+      "saturday_bars": 0,
+      "sunday_bars": 0,
+      "lookahead_violations": 0,
+      "duplicate_events": 0
+    }
+  },
+  "holdout_paired_statistics": {
+    "CAND_A_V529_BENCHMARK": {
+      "mean_delta_er": 0.0,
+      "median_delta_er": 0.0,
+      "ci_95_low": 0.0,
+      "ci_95_high": 0.0,
+      "loo1_delta": 0.0,
+      "p_value": 1.0
+    },
+    "CAND_B_45M_BASELINE": {
+      "mean_delta_er": 0.4063009950248748,
+      "median_delta_er": 0.07200000000000006,
+      "ci_95_low": 0.2488034825870647,
+      "ci_95_high": 0.5626965174129345,
+      "loo1_delta": 0.3924763092269321,
+      "p_value": 0.0
+    },
+    "CAND_C_MINIMAL_45M": {
+      "mean_delta_er": 0.4063009950248748,
+      "median_delta_er": 0.07200000000000006,
+      "ci_95_low": 0.2520547263681592,
+      "ci_95_high": 0.5653383084577104,
+      "loo1_delta": 0.3924763092269321,
+      "p_value": 0.0
+    },
+    "CAND_D_FOCUSED_MODEL_G": {
+      "mean_delta_er": 0.4158383084577118,
+      "median_delta_er": 0.062000000000000055,
+      "ci_95_low": 0.2655323383084578,
+      "ci_95_high": 0.5694253731343287,
+      "loo1_delta": 0.4027556109725686,
+      "p_value": 0.0
+    },
+    "CAND_E_FULL_V530_PROPOSED": {
+      "mean_delta_er": 0.4118789625360229,
+      "median_delta_er": 0.07200000000000006,
+      "ci_95_low": 0.23546974063400572,
+      "ci_95_high": 0.5806109510086453,
+      "loo1_delta": 0.39670520231213835,
+      "p_value": 0.0
+    }
+  },
+  "holdout_results": [
+    {
+      "candidate": {
+        "candidate_id": "CAND_A_V529_BENCHMARK",
+        "name": "Candidate A (Current V5.29 Baseline)",
+        "description": "Certified Baseline: Model G Certified + 3 Structural Vetoes + 30m Window + Static Top-5",
+        "model_g_type": "CERTIFIED",
+        "use_wick_veto": true,
+        "use_loose_veto": true,
+        "use_regime_veto": true,
+        "window_minutes": 30,
+        "delay_slippage_r": 0.08,
+        "regime_dynamic": false,
+        "regime_slot_map": null,
+        "max_slots": 5
+      },
+      "metrics": {
+        "candidate_id": "CAND_A_V529_BENCHMARK",
+        "name": "Candidate A (Current V5.29 Baseline)",
+        "description": "Certified Baseline: Model G Certified + 3 Structural Vetoes + 30m Window + Static Top-5",
+        "n_candidates": 4320,
+        "n_selected": 505,
+        "n_trades": 402,
+        "total_r": 496.59,
+        "er": 1.235,
+        "median_r": 1.578,
+        "std_r": 1.315,
+        "wr": 78.9,
+        "pf": 6.57,
+        "max_dd": 3.86,
+        "sharpe": 14.85,
+        "worst_trade_r": -1.175,
+        "best_trade_r": 4.882,
+        "worst_day_r": -2.8,
+        "best_day_r": 14.09,
+        "loo1_er": 1.226,
+        "loo2_er": 1.217,
+        "winsorized_er": 1.233,
+        "zero_alert_sessions": 16,
+        "traps_avoided_count": 30,
+        "runners_missed_count": 73,
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 113,
+            "total_r": 163.54,
+            "er": 1.447,
+            "wr": 86.7,
+            "pf": 11.8
+          },
+          "NEUTRAL_BULL": {
+            "n": 210,
+            "total_r": 280.73,
+            "er": 1.337,
+            "wr": 81.9,
+            "pf": 8.07
+          },
+          "CHOPPY_RANGE": {
+            "n": 67,
+            "total_r": 51.48,
+            "er": 0.768,
+            "wr": 62.7,
+            "pf": 2.95
+          },
+          "NEUTRAL_BEAR": {
+            "n": 12,
+            "total_r": 0.85,
+            "er": 0.071,
+            "wr": 41.7,
+            "pf": 1.11
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "candidate": {
+        "candidate_id": "CAND_B_45M_BASELINE",
+        "name": "Candidate B (45m Baseline)",
+        "description": "45m Baseline: Model G Certified + No Vetoes + 45m Window + Static Top-5",
+        "model_g_type": "CERTIFIED",
+        "use_wick_veto": false,
+        "use_loose_veto": false,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105,
+        "regime_dynamic": false,
+        "regime_slot_map": null,
+        "max_slots": 5
+      },
+      "metrics": {
+        "candidate_id": "CAND_B_45M_BASELINE",
+        "name": "Candidate B (45m Baseline)",
+        "description": "45m Baseline: Model G Certified + No Vetoes + 45m Window + Static Top-5",
+        "n_candidates": 4320,
+        "n_selected": 505,
+        "n_trades": 415,
+        "total_r": 674.66,
+        "er": 1.626,
+        "median_r": 1.647,
+        "std_r": 0.928,
+        "wr": 93.3,
+        "pf": 26.97,
+        "max_dd": 2.56,
+        "sharpe": 27.7,
+        "worst_trade_r": -1.182,
+        "best_trade_r": 4.857,
+        "worst_day_r": -1.17,
+        "best_day_r": 13.97,
+        "loo1_er": 1.618,
+        "loo2_er": 1.61,
+        "winsorized_er": 1.625,
+        "zero_alert_sessions": 16,
+        "traps_avoided_count": 90,
+        "runners_missed_count": 0,
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 132,
+            "total_r": 217.78,
+            "er": 1.65,
+            "wr": 94.7,
+            "pf": 33.85
+          },
+          "NEUTRAL_BULL": {
+            "n": 217,
+            "total_r": 361.67,
+            "er": 1.667,
+            "wr": 94.5,
+            "pf": 35.37
+          },
+          "CHOPPY_RANGE": {
+            "n": 59,
+            "total_r": 88.92,
+            "er": 1.507,
+            "wr": 88.1,
+            "pf": 14.61
+          },
+          "NEUTRAL_BEAR": {
+            "n": 7,
+            "total_r": 6.29,
+            "er": 0.898,
+            "wr": 71.4,
+            "pf": 3.74
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "candidate": {
+        "candidate_id": "CAND_C_MINIMAL_45M",
+        "name": "Candidate C (Minimal 45m)",
+        "description": "Minimal 45m: Model G Certified + Regime Divergence Veto + 45m Window + Static Top-5",
+        "model_g_type": "CERTIFIED",
+        "use_wick_veto": false,
+        "use_loose_veto": false,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105,
+        "regime_dynamic": false,
+        "regime_slot_map": null,
+        "max_slots": 5
+      },
+      "metrics": {
+        "candidate_id": "CAND_C_MINIMAL_45M",
+        "name": "Candidate C (Minimal 45m)",
+        "description": "Minimal 45m: Model G Certified + Regime Divergence Veto + 45m Window + Static Top-5",
+        "n_candidates": 4320,
+        "n_selected": 505,
+        "n_trades": 415,
+        "total_r": 674.66,
+        "er": 1.626,
+        "median_r": 1.647,
+        "std_r": 0.928,
+        "wr": 93.3,
+        "pf": 26.97,
+        "max_dd": 2.56,
+        "sharpe": 27.7,
+        "worst_trade_r": -1.182,
+        "best_trade_r": 4.857,
+        "worst_day_r": -1.17,
+        "best_day_r": 13.97,
+        "loo1_er": 1.618,
+        "loo2_er": 1.61,
+        "winsorized_er": 1.625,
+        "zero_alert_sessions": 16,
+        "traps_avoided_count": 90,
+        "runners_missed_count": 0,
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 132,
+            "total_r": 217.78,
+            "er": 1.65,
+            "wr": 94.7,
+            "pf": 33.85
+          },
+          "NEUTRAL_BULL": {
+            "n": 217,
+            "total_r": 361.67,
+            "er": 1.667,
+            "wr": 94.5,
+            "pf": 35.37
+          },
+          "CHOPPY_RANGE": {
+            "n": 59,
+            "total_r": 88.92,
+            "er": 1.507,
+            "wr": 88.1,
+            "pf": 14.61
+          },
+          "NEUTRAL_BEAR": {
+            "n": 7,
+            "total_r": 6.29,
+            "er": 0.898,
+            "wr": 71.4,
+            "pf": 3.74
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "candidate": {
+        "candidate_id": "CAND_D_FOCUSED_MODEL_G",
+        "name": "Candidate D (Focused Model G)",
+        "description": "Focused Model G: Focused Core (CLV+RS prioritized) + Regime Veto + 45m Window + Static Top-5",
+        "model_g_type": "FOCUSED_CORE",
+        "use_wick_veto": false,
+        "use_loose_veto": false,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105,
+        "regime_dynamic": false,
+        "regime_slot_map": null,
+        "max_slots": 5
+      },
+      "metrics": {
+        "candidate_id": "CAND_D_FOCUSED_MODEL_G",
+        "name": "Candidate D (Focused Model G)",
+        "description": "Focused Model G: Focused Core (CLV+RS prioritized) + Regime Veto + 45m Window + Static Top-5",
+        "n_candidates": 4320,
+        "n_selected": 565,
+        "n_trades": 456,
+        "total_r": 736.52,
+        "er": 1.615,
+        "median_r": 1.642,
+        "std_r": 0.925,
+        "wr": 93.2,
+        "pf": 26.62,
+        "max_dd": 2.57,
+        "sharpe": 27.61,
+        "worst_trade_r": -1.182,
+        "best_trade_r": 4.857,
+        "worst_day_r": -1.16,
+        "best_day_r": 13.97,
+        "loo1_er": 1.608,
+        "loo2_er": 1.601,
+        "winsorized_er": 1.614,
+        "zero_alert_sessions": 9,
+        "traps_avoided_count": 109,
+        "runners_missed_count": 0,
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 133,
+            "total_r": 223.12,
+            "er": 1.678,
+            "wr": 95.5,
+            "pf": 41.92
+          },
+          "NEUTRAL_BULL": {
+            "n": 219,
+            "total_r": 363.07,
+            "er": 1.658,
+            "wr": 94.5,
+            "pf": 35.5
+          },
+          "CHOPPY_RANGE": {
+            "n": 63,
+            "total_r": 92.86,
+            "er": 1.474,
+            "wr": 88.9,
+            "pf": 15.21
+          },
+          "NEUTRAL_BEAR": {
+            "n": 41,
+            "total_r": 57.48,
+            "er": 1.402,
+            "wr": 85.4,
+            "pf": 10.21
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "candidate": {
+        "candidate_id": "CAND_E_FULL_V530_PROPOSED",
+        "name": "Candidate E (Full Proposed V5.30)",
+        "description": "Full Proposed V5.30: Focused Core Model G + Regime Veto + 45m Window + Regime-Dynamic Capacity Policy",
+        "model_g_type": "FOCUSED_CORE",
+        "use_wick_veto": false,
+        "use_loose_veto": false,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105,
+        "regime_dynamic": true,
+        "regime_slot_map": {
+          "STRONG_BULL": 5,
+          "NEUTRAL_BULL": 4,
+          "CHOPPY_RANGE": 2,
+          "NEUTRAL_BEAR": 1,
+          "SHARP_SELLOFF": 0
+        },
+        "max_slots": 5
+      },
+      "metrics": {
+        "candidate_id": "CAND_E_FULL_V530_PROPOSED",
+        "name": "Candidate E (Full Proposed V5.30)",
+        "description": "Full Proposed V5.30: Focused Core Model G + Regime Veto + 45m Window + Regime-Dynamic Capacity Policy",
+        "n_candidates": 4320,
+        "n_selected": 407,
+        "n_trades": 347,
+        "total_r": 573.99,
+        "er": 1.654,
+        "median_r": 1.647,
+        "std_r": 0.856,
+        "wr": 94.8,
+        "pf": 35.6,
+        "max_dd": 1.18,
+        "sharpe": 30.55,
+        "worst_trade_r": -1.178,
+        "best_trade_r": 4.857,
+        "worst_day_r": -1.17,
+        "best_day_r": 13.97,
+        "loo1_er": 1.645,
+        "loo2_er": 1.636,
+        "winsorized_er": 1.653,
+        "zero_alert_sessions": 9,
+        "traps_avoided_count": 60,
+        "runners_missed_count": 0,
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 133,
+            "total_r": 223.12,
+            "er": 1.678,
+            "wr": 95.5,
+            "pf": 41.92
+          },
+          "NEUTRAL_BULL": {
+            "n": 174,
+            "total_r": 293.4,
+            "er": 1.686,
+            "wr": 95.4,
+            "pf": 42.31
+          },
+          "CHOPPY_RANGE": {
+            "n": 29,
+            "total_r": 44.46,
+            "er": 1.533,
+            "wr": 93.1,
+            "pf": 27.0
+          },
+          "NEUTRAL_BEAR": {
+            "n": 11,
+            "total_r": 13.01,
+            "er": 1.182,
+            "wr": 81.8,
+            "pf": 6.59
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    }
+  ],
+  "full_dataset_results": [
+    {
+      "candidate": {
+        "candidate_id": "CAND_A_V529_BENCHMARK",
+        "name": "Candidate A (Current V5.29 Baseline)",
+        "description": "Certified Baseline: Model G Certified + 3 Structural Vetoes + 30m Window + Static Top-5",
+        "model_g_type": "CERTIFIED",
+        "use_wick_veto": true,
+        "use_loose_veto": true,
+        "use_regime_veto": true,
+        "window_minutes": 30,
+        "delay_slippage_r": 0.08,
+        "regime_dynamic": false,
+        "regime_slot_map": null,
+        "max_slots": 5
+      },
+      "metrics": {
+        "candidate_id": "CAND_A_V529_BENCHMARK",
+        "name": "Candidate A (Current V5.29 Baseline)",
+        "description": "Certified Baseline: Model G Certified + 3 Structural Vetoes + 30m Window + Static Top-5",
+        "n_candidates": 21634,
+        "n_selected": 2578,
+        "n_trades": 2050,
+        "total_r": 2497.76,
+        "er": 1.218,
+        "median_r": 1.572,
+        "std_r": 1.332,
+        "wr": 78.1,
+        "pf": 6.3,
+        "max_dd": 7.23,
+        "sharpe": 14.46,
+        "worst_trade_r": -1.18,
+        "best_trade_r": 4.919,
+        "worst_day_r": -5.31,
+        "best_day_r": 14.46,
+        "loo1_er": 1.217,
+        "loo2_er": 1.215,
+        "winsorized_er": 1.217,
+        "zero_alert_sessions": 77,
+        "traps_avoided_count": 158,
+        "runners_missed_count": 370,
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 645,
+            "total_r": 899.79,
+            "er": 1.395,
+            "wr": 85.0,
+            "pf": 10.02
+          },
+          "NEUTRAL_BULL": {
+            "n": 889,
+            "total_r": 1191.9,
+            "er": 1.341,
+            "wr": 82.0,
+            "pf": 8.19
+          },
+          "CHOPPY_RANGE": {
+            "n": 465,
+            "total_r": 356.1,
+            "er": 0.766,
+            "wr": 62.2,
+            "pf": 2.9
+          },
+          "NEUTRAL_BEAR": {
+            "n": 51,
+            "total_r": 49.96,
+            "er": 0.98,
+            "wr": 68.6,
+            "pf": 3.84
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "candidate": {
+        "candidate_id": "CAND_B_45M_BASELINE",
+        "name": "Candidate B (45m Baseline)",
+        "description": "45m Baseline: Model G Certified + No Vetoes + 45m Window + Static Top-5",
+        "model_g_type": "CERTIFIED",
+        "use_wick_veto": false,
+        "use_loose_veto": false,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105,
+        "regime_dynamic": false,
+        "regime_slot_map": null,
+        "max_slots": 5
+      },
+      "metrics": {
+        "candidate_id": "CAND_B_45M_BASELINE",
+        "name": "Candidate B (45m Baseline)",
+        "description": "45m Baseline: Model G Certified + No Vetoes + 45m Window + Static Top-5",
+        "n_candidates": 21634,
+        "n_selected": 2578,
+        "n_trades": 2108,
+        "total_r": 3398.03,
+        "er": 1.612,
+        "median_r": 1.66,
+        "std_r": 0.958,
+        "wr": 92.4,
+        "pf": 23.71,
+        "max_dd": 2.82,
+        "sharpe": 26.61,
+        "worst_trade_r": -1.205,
+        "best_trade_r": 4.894,
+        "worst_day_r": -1.96,
+        "best_day_r": 14.33,
+        "loo1_er": 1.61,
+        "loo2_er": 1.609,
+        "winsorized_er": 1.61,
+        "zero_alert_sessions": 77,
+        "traps_avoided_count": 468,
+        "runners_missed_count": 2,
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 701,
+            "total_r": 1136.04,
+            "er": 1.621,
+            "wr": 93.4,
+            "pf": 27.77
+          },
+          "NEUTRAL_BULL": {
+            "n": 958,
+            "total_r": 1579.06,
+            "er": 1.648,
+            "wr": 93.6,
+            "pf": 29.45
+          },
+          "CHOPPY_RANGE": {
+            "n": 408,
+            "total_r": 619.85,
+            "er": 1.519,
+            "wr": 88.2,
+            "pf": 14.29
+          },
+          "NEUTRAL_BEAR": {
+            "n": 41,
+            "total_r": 63.08,
+            "er": 1.539,
+            "wr": 87.8,
+            "pf": 13.46
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "candidate": {
+        "candidate_id": "CAND_C_MINIMAL_45M",
+        "name": "Candidate C (Minimal 45m)",
+        "description": "Minimal 45m: Model G Certified + Regime Divergence Veto + 45m Window + Static Top-5",
+        "model_g_type": "CERTIFIED",
+        "use_wick_veto": false,
+        "use_loose_veto": false,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105,
+        "regime_dynamic": false,
+        "regime_slot_map": null,
+        "max_slots": 5
+      },
+      "metrics": {
+        "candidate_id": "CAND_C_MINIMAL_45M",
+        "name": "Candidate C (Minimal 45m)",
+        "description": "Minimal 45m: Model G Certified + Regime Divergence Veto + 45m Window + Static Top-5",
+        "n_candidates": 21634,
+        "n_selected": 2578,
+        "n_trades": 2108,
+        "total_r": 3398.03,
+        "er": 1.612,
+        "median_r": 1.66,
+        "std_r": 0.958,
+        "wr": 92.4,
+        "pf": 23.71,
+        "max_dd": 2.82,
+        "sharpe": 26.61,
+        "worst_trade_r": -1.205,
+        "best_trade_r": 4.894,
+        "worst_day_r": -1.96,
+        "best_day_r": 14.33,
+        "loo1_er": 1.61,
+        "loo2_er": 1.609,
+        "winsorized_er": 1.61,
+        "zero_alert_sessions": 77,
+        "traps_avoided_count": 468,
+        "runners_missed_count": 2,
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 701,
+            "total_r": 1136.04,
+            "er": 1.621,
+            "wr": 93.4,
+            "pf": 27.77
+          },
+          "NEUTRAL_BULL": {
+            "n": 958,
+            "total_r": 1579.06,
+            "er": 1.648,
+            "wr": 93.6,
+            "pf": 29.45
+          },
+          "CHOPPY_RANGE": {
+            "n": 408,
+            "total_r": 619.85,
+            "er": 1.519,
+            "wr": 88.2,
+            "pf": 14.29
+          },
+          "NEUTRAL_BEAR": {
+            "n": 41,
+            "total_r": 63.08,
+            "er": 1.539,
+            "wr": 87.8,
+            "pf": 13.46
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "candidate": {
+        "candidate_id": "CAND_D_FOCUSED_MODEL_G",
+        "name": "Candidate D (Focused Model G)",
+        "description": "Focused Model G: Focused Core (CLV+RS prioritized) + Regime Veto + 45m Window + Static Top-5",
+        "model_g_type": "FOCUSED_CORE",
+        "use_wick_veto": false,
+        "use_loose_veto": false,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105,
+        "regime_dynamic": false,
+        "regime_slot_map": null,
+        "max_slots": 5
+      },
+      "metrics": {
+        "candidate_id": "CAND_D_FOCUSED_MODEL_G",
+        "name": "Candidate D (Focused Model G)",
+        "description": "Focused Model G: Focused Core (CLV+RS prioritized) + Regime Veto + 45m Window + Static Top-5",
+        "n_candidates": 21634,
+        "n_selected": 2866,
+        "n_trades": 2291,
+        "total_r": 3683.62,
+        "er": 1.608,
+        "median_r": 1.654,
+        "std_r": 0.974,
+        "wr": 92.2,
+        "pf": 22.8,
+        "max_dd": 2.57,
+        "sharpe": 26.11,
+        "worst_trade_r": -1.205,
+        "best_trade_r": 4.894,
+        "worst_day_r": -1.96,
+        "best_day_r": 14.33,
+        "loo1_er": 1.606,
+        "loo2_er": 1.605,
+        "winsorized_er": 1.606,
+        "zero_alert_sessions": 32,
+        "traps_avoided_count": 573,
+        "runners_missed_count": 2,
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 704,
+            "total_r": 1144.1,
+            "er": 1.625,
+            "wr": 93.6,
+            "pf": 28.73
+          },
+          "NEUTRAL_BULL": {
+            "n": 960,
+            "total_r": 1584.62,
+            "er": 1.651,
+            "wr": 93.8,
+            "pf": 30.0
+          },
+          "CHOPPY_RANGE": {
+            "n": 416,
+            "total_r": 631.53,
+            "er": 1.518,
+            "wr": 88.5,
+            "pf": 14.54
+          },
+          "NEUTRAL_BEAR": {
+            "n": 211,
+            "total_r": 323.37,
+            "er": 1.533,
+            "wr": 87.7,
+            "pf": 13.24
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "candidate": {
+        "candidate_id": "CAND_E_FULL_V530_PROPOSED",
+        "name": "Candidate E (Full Proposed V5.30)",
+        "description": "Full Proposed V5.30: Focused Core Model G + Regime Veto + 45m Window + Regime-Dynamic Capacity Policy",
+        "model_g_type": "FOCUSED_CORE",
+        "use_wick_veto": false,
+        "use_loose_veto": false,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105,
+        "regime_dynamic": true,
+        "regime_slot_map": {
+          "STRONG_BULL": 5,
+          "NEUTRAL_BULL": 4,
+          "CHOPPY_RANGE": 2,
+          "NEUTRAL_BEAR": 1,
+          "SHARP_SELLOFF": 0
+        },
+        "max_slots": 5
+      },
+      "metrics": {
+        "candidate_id": "CAND_E_FULL_V530_PROPOSED",
+        "name": "Candidate E (Full Proposed V5.30)",
+        "description": "Full Proposed V5.30: Focused Core Model G + Regime Veto + 45m Window + Regime-Dynamic Capacity Policy",
+        "n_candidates": 21634,
+        "n_selected": 2026,
+        "n_trades": 1701,
+        "total_r": 2762.47,
+        "er": 1.624,
+        "median_r": 1.667,
+        "std_r": 0.93,
+        "wr": 93.0,
+        "pf": 26.07,
+        "max_dd": 2.04,
+        "sharpe": 27.61,
+        "worst_trade_r": -1.205,
+        "best_trade_r": 4.894,
+        "worst_day_r": -1.96,
+        "best_day_r": 13.97,
+        "loo1_er": 1.622,
+        "loo2_er": 1.62,
+        "winsorized_er": 1.622,
+        "zero_alert_sessions": 32,
+        "traps_avoided_count": 324,
+        "runners_missed_count": 1,
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 704,
+            "total_r": 1144.1,
+            "er": 1.625,
+            "wr": 93.6,
+            "pf": 28.73
+          },
+          "NEUTRAL_BULL": {
+            "n": 765,
+            "total_r": 1269.72,
+            "er": 1.66,
+            "wr": 94.1,
+            "pf": 32.48
+          },
+          "CHOPPY_RANGE": {
+            "n": 172,
+            "total_r": 250.64,
+            "er": 1.457,
+            "wr": 87.2,
+            "pf": 12.38
+          },
+          "NEUTRAL_BEAR": {
+            "n": 60,
+            "total_r": 98.01,
+            "er": 1.633,
+            "wr": 88.3,
+            "pf": 15.85
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    }
+  ]
+}

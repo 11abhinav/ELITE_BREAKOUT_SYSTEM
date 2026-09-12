@@ -1,0 +1,398 @@
+# SQLite Database Schema Export for data/shadow_telemetry.db
+# SHA-256: d9326bb2345738d4e8b0a3e793f15f1fd2441a820a4f2ad8d66c801ad2a24fb7
+# Timestamp: 2026-09-11T22:48:25.803521
+
+============================================================
+TABLE: shadow_alert_telemetry
+============================================================
+CREATE TABLE shadow_alert_telemetry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    config_version_id TEXT NOT NULL,
+    scanner_name TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    decision_timestamp TEXT NOT NULL,
+    gem_timestamp TEXT,
+    gem_age_minutes REAL,
+    catalyst_state TEXT NOT NULL,
+    clv REAL NOT NULL,
+    extension_r REAL NOT NULL,
+    volume_retention_ratio REAL NOT NULL,
+    vwap_relationship TEXT NOT NULL,
+    orb_relationship TEXT NOT NULL,
+    runway_atr REAL NOT NULL,
+    old_rank INTEGER,
+    new_rank INTEGER,
+    old_status TEXT NOT NULL,
+    new_status TEXT NOT NULL,
+    allocated_r REAL NOT NULL,
+    entry_price REAL NOT NULL,
+    stop_loss REAL NOT NULL,
+    target_price REAL NOT NULL,
+    decision_rationale TEXT NOT NULL,
+    actual_r REAL,
+    mfe_r REAL,
+    mae_r REAL,
+    exit_reason TEXT,
+    holding_period_bars INTEGER,
+    outcome_classification TEXT CHECK(outcome_classification IN ('CORRECT_AVOID', 'FALSE_AVOID', 'CORRECT_PROMOTE', 'BAD_PROMOTE', 'CONCURRING_WIN', 'CONCURRING_LOSS', 'PENDING'))
+)
+
+-- PRAGMA table_info:
+  cid=0, name=id, type=INTEGER, notnull=0, dflt_value=None, pk=1
+  cid=1, name=config_version_id, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=2, name=scanner_name, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=3, name=symbol, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=4, name=decision_timestamp, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=5, name=gem_timestamp, type=TEXT, notnull=0, dflt_value=None, pk=0
+  cid=6, name=gem_age_minutes, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=7, name=catalyst_state, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=8, name=clv, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=9, name=extension_r, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=10, name=volume_retention_ratio, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=11, name=vwap_relationship, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=12, name=orb_relationship, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=13, name=runway_atr, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=14, name=old_rank, type=INTEGER, notnull=0, dflt_value=None, pk=0
+  cid=15, name=new_rank, type=INTEGER, notnull=0, dflt_value=None, pk=0
+  cid=16, name=old_status, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=17, name=new_status, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=18, name=allocated_r, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=19, name=entry_price, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=20, name=stop_loss, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=21, name=target_price, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=22, name=decision_rationale, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=23, name=actual_r, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=24, name=mfe_r, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=25, name=mae_r, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=26, name=exit_reason, type=TEXT, notnull=0, dflt_value=None, pk=0
+  cid=27, name=holding_period_bars, type=INTEGER, notnull=0, dflt_value=None, pk=0
+  cid=28, name=outcome_classification, type=TEXT, notnull=0, dflt_value=None, pk=0
+
+
+============================================================
+TABLE: v529_shadow_alert_telemetry
+============================================================
+CREATE TABLE v529_shadow_alert_telemetry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    config_version_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    decision_timestamp TEXT NOT NULL,
+    exchange_session_date TEXT NOT NULL,
+    source_commit TEXT NOT NULL,
+    nifty_regime TEXT NOT NULL,
+    sector TEXT NOT NULL,
+    archetype TEXT NOT NULL,
+    clv REAL NOT NULL,
+    extension_r REAL NOT NULL,
+    volume_retention_ratio REAL NOT NULL,
+    runway_atr REAL NOT NULL,
+    vwap_relationship TEXT NOT NULL,
+    compression_days INTEGER NOT NULL,
+    days_since_impulse INTEGER NOT NULL,
+    base_tightness REAL NOT NULL,
+    wick_pct REAL NOT NULL,
+    rs_3d_momentum REAL NOT NULL,
+    rs_vs_sector REAL NOT NULL,
+    rs_vs_nifty REAL NOT NULL,
+    fresh_score_exp REAL NOT NULL,
+    exhaustion_penalty REAL NOT NULL,
+    structure_score REAL NOT NULL,
+    timing_score REAL NOT NULL,
+    model_g_score REAL NOT NULL,
+    veto_wick_drain INTEGER NOT NULL,
+    veto_loose_base INTEGER NOT NULL,
+    veto_regime_divergence INTEGER NOT NULL,
+    is_vetoed INTEGER NOT NULL,
+    qualification_status TEXT NOT NULL,
+    shadow_rank INTEGER,
+    allocated_r REAL NOT NULL,
+    trigger_status TEXT NOT NULL,
+    trigger_confirmed_timestamp TEXT,
+    entry_price REAL,
+    stop_loss REAL,
+    target_price REAL,
+    decision_rationale TEXT NOT NULL,
+    realized_r REAL,
+    mfe_r REAL,
+    mae_r REAL,
+    exit_reason TEXT,
+    holding_period_bars INTEGER,
+    outcome_classification TEXT CHECK(outcome_classification IN ('CORRECT_AVOID', 'FALSE_AVOID', 'CORRECT_PROMOTE', 'BAD_PROMOTE', 'CONCURRING_WIN', 'CONCURRING_LOSS', 'UNCONFIRMED_TRAP_AVOIDED', 'PENDING'))
+)
+
+-- PRAGMA table_info:
+  cid=0, name=id, type=INTEGER, notnull=0, dflt_value=None, pk=1
+  cid=1, name=config_version_id, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=2, name=symbol, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=3, name=decision_timestamp, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=4, name=exchange_session_date, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=5, name=source_commit, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=6, name=nifty_regime, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=7, name=sector, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=8, name=archetype, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=9, name=clv, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=10, name=extension_r, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=11, name=volume_retention_ratio, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=12, name=runway_atr, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=13, name=vwap_relationship, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=14, name=compression_days, type=INTEGER, notnull=1, dflt_value=None, pk=0
+  cid=15, name=days_since_impulse, type=INTEGER, notnull=1, dflt_value=None, pk=0
+  cid=16, name=base_tightness, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=17, name=wick_pct, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=18, name=rs_3d_momentum, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=19, name=rs_vs_sector, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=20, name=rs_vs_nifty, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=21, name=fresh_score_exp, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=22, name=exhaustion_penalty, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=23, name=structure_score, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=24, name=timing_score, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=25, name=model_g_score, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=26, name=veto_wick_drain, type=INTEGER, notnull=1, dflt_value=None, pk=0
+  cid=27, name=veto_loose_base, type=INTEGER, notnull=1, dflt_value=None, pk=0
+  cid=28, name=veto_regime_divergence, type=INTEGER, notnull=1, dflt_value=None, pk=0
+  cid=29, name=is_vetoed, type=INTEGER, notnull=1, dflt_value=None, pk=0
+  cid=30, name=qualification_status, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=31, name=shadow_rank, type=INTEGER, notnull=0, dflt_value=None, pk=0
+  cid=32, name=allocated_r, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=33, name=trigger_status, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=34, name=trigger_confirmed_timestamp, type=TEXT, notnull=0, dflt_value=None, pk=0
+  cid=35, name=entry_price, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=36, name=stop_loss, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=37, name=target_price, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=38, name=decision_rationale, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=39, name=realized_r, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=40, name=mfe_r, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=41, name=mae_r, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=42, name=exit_reason, type=TEXT, notnull=0, dflt_value=None, pk=0
+  cid=43, name=holding_period_bars, type=INTEGER, notnull=0, dflt_value=None, pk=0
+  cid=44, name=outcome_classification, type=TEXT, notnull=0, dflt_value=None, pk=0
+
+
+============================================================
+TABLE: v529_shadow_trigger_telemetry
+============================================================
+CREATE TABLE v529_shadow_trigger_telemetry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    decision_timestamp TEXT NOT NULL,
+    monitoring_start_timestamp TEXT NOT NULL,
+    eligibility_30m_timestamp TEXT NOT NULL,
+    point_in_time_hod REAL NOT NULL,
+    point_in_time_vwap REAL NOT NULL,
+    intraday_price_at_30m REAL NOT NULL,
+    vwap_support_confirmed INTEGER NOT NULL,
+    hod_breakout_confirmed INTEGER NOT NULL,
+    final_trigger_state TEXT NOT NULL,
+    trigger_price REAL,
+    execution_slippage_r REAL
+)
+
+-- PRAGMA table_info:
+  cid=0, name=id, type=INTEGER, notnull=0, dflt_value=None, pk=1
+  cid=1, name=candidate_id, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=2, name=symbol, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=3, name=decision_timestamp, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=4, name=monitoring_start_timestamp, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=5, name=eligibility_30m_timestamp, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=6, name=point_in_time_hod, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=7, name=point_in_time_vwap, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=8, name=intraday_price_at_30m, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=9, name=vwap_support_confirmed, type=INTEGER, notnull=1, dflt_value=None, pk=0
+  cid=10, name=hod_breakout_confirmed, type=INTEGER, notnull=1, dflt_value=None, pk=0
+  cid=11, name=final_trigger_state, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=12, name=trigger_price, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=13, name=execution_slippage_r, type=REAL, notnull=0, dflt_value=None, pk=0
+
+
+============================================================
+TABLE: v530_shadow_alert_telemetry
+============================================================
+CREATE TABLE v530_shadow_alert_telemetry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    config_version_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    decision_timestamp TEXT NOT NULL,
+    exchange_session_date TEXT NOT NULL,
+    source_commit TEXT NOT NULL,
+    nifty_regime TEXT NOT NULL,
+    sector TEXT NOT NULL,
+    archetype TEXT NOT NULL,
+    clv REAL NOT NULL,
+    extension_r REAL NOT NULL,
+    volume_retention_ratio REAL NOT NULL,
+    runway_atr REAL NOT NULL,
+    vwap_relationship TEXT NOT NULL,
+    compression_days INTEGER NOT NULL,
+    days_since_impulse INTEGER NOT NULL,
+    base_tightness REAL NOT NULL,
+    wick_pct REAL NOT NULL,
+    rs_3d_momentum REAL NOT NULL,
+    rs_vs_sector REAL NOT NULL,
+    rs_vs_nifty REAL NOT NULL,
+    fresh_score_exp REAL NOT NULL,
+    exhaustion_penalty REAL NOT NULL,
+    structure_score REAL NOT NULL,
+    timing_score REAL NOT NULL,
+    model_g_score REAL NOT NULL,
+    veto_regime_divergence INTEGER NOT NULL,
+    is_vetoed INTEGER NOT NULL,
+    qualification_status TEXT NOT NULL,
+    regime_capacity_limit INTEGER NOT NULL,
+    shadow_rank INTEGER,
+    allocated_r REAL NOT NULL,
+    trigger_status TEXT NOT NULL,
+    trigger_confirmed_timestamp TEXT,
+    entry_price REAL,
+    stop_loss REAL,
+    target_price REAL,
+    decision_rationale TEXT NOT NULL,
+    realized_r REAL,
+    mfe_r REAL,
+    mae_r REAL,
+    exit_reason TEXT,
+    holding_period_bars INTEGER,
+    outcome_classification TEXT CHECK(outcome_classification IN (
+        'CORRECT_AVOID', 'FALSE_AVOID', 'CORRECT_PROMOTE', 'BAD_PROMOTE',
+        'CONCURRING_WIN', 'CONCURRING_LOSS', 'UNCONFIRMED_TRAP_AVOIDED',
+        'CAPACITY_THROTTLED_AVOID', 'PENDING'
+    ))
+)
+
+-- PRAGMA table_info:
+  cid=0, name=id, type=INTEGER, notnull=0, dflt_value=None, pk=1
+  cid=1, name=config_version_id, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=2, name=symbol, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=3, name=decision_timestamp, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=4, name=exchange_session_date, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=5, name=source_commit, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=6, name=nifty_regime, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=7, name=sector, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=8, name=archetype, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=9, name=clv, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=10, name=extension_r, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=11, name=volume_retention_ratio, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=12, name=runway_atr, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=13, name=vwap_relationship, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=14, name=compression_days, type=INTEGER, notnull=1, dflt_value=None, pk=0
+  cid=15, name=days_since_impulse, type=INTEGER, notnull=1, dflt_value=None, pk=0
+  cid=16, name=base_tightness, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=17, name=wick_pct, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=18, name=rs_3d_momentum, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=19, name=rs_vs_sector, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=20, name=rs_vs_nifty, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=21, name=fresh_score_exp, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=22, name=exhaustion_penalty, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=23, name=structure_score, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=24, name=timing_score, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=25, name=model_g_score, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=26, name=veto_regime_divergence, type=INTEGER, notnull=1, dflt_value=None, pk=0
+  cid=27, name=is_vetoed, type=INTEGER, notnull=1, dflt_value=None, pk=0
+  cid=28, name=qualification_status, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=29, name=regime_capacity_limit, type=INTEGER, notnull=1, dflt_value=None, pk=0
+  cid=30, name=shadow_rank, type=INTEGER, notnull=0, dflt_value=None, pk=0
+  cid=31, name=allocated_r, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=32, name=trigger_status, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=33, name=trigger_confirmed_timestamp, type=TEXT, notnull=0, dflt_value=None, pk=0
+  cid=34, name=entry_price, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=35, name=stop_loss, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=36, name=target_price, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=37, name=decision_rationale, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=38, name=realized_r, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=39, name=mfe_r, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=40, name=mae_r, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=41, name=exit_reason, type=TEXT, notnull=0, dflt_value=None, pk=0
+  cid=42, name=holding_period_bars, type=INTEGER, notnull=0, dflt_value=None, pk=0
+  cid=43, name=outcome_classification, type=TEXT, notnull=0, dflt_value=None, pk=0
+
+
+============================================================
+TABLE: v530_shadow_trigger_telemetry
+============================================================
+CREATE TABLE v530_shadow_trigger_telemetry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    decision_timestamp TEXT NOT NULL,
+    monitoring_start_timestamp TEXT NOT NULL,
+    eligibility_45m_timestamp TEXT NOT NULL,
+    point_in_time_hod REAL NOT NULL,
+    point_in_time_vwap REAL NOT NULL,
+    intraday_price_at_45m REAL NOT NULL,
+    vwap_support_confirmed INTEGER NOT NULL,
+    hod_breakout_confirmed INTEGER NOT NULL,
+    final_trigger_state TEXT NOT NULL,
+    trigger_price REAL,
+    execution_slippage_r REAL
+)
+
+-- PRAGMA table_info:
+  cid=0, name=id, type=INTEGER, notnull=0, dflt_value=None, pk=1
+  cid=1, name=candidate_id, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=2, name=symbol, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=3, name=decision_timestamp, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=4, name=monitoring_start_timestamp, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=5, name=eligibility_45m_timestamp, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=6, name=point_in_time_hod, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=7, name=point_in_time_vwap, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=8, name=intraday_price_at_45m, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=9, name=vwap_support_confirmed, type=INTEGER, notnull=1, dflt_value=None, pk=0
+  cid=10, name=hod_breakout_confirmed, type=INTEGER, notnull=1, dflt_value=None, pk=0
+  cid=11, name=final_trigger_state, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=12, name=trigger_price, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=13, name=execution_slippage_r, type=REAL, notnull=0, dflt_value=None, pk=0
+
+
+============================================================
+TABLE: v530_vs_v529_disagreement_telemetry
+============================================================
+CREATE TABLE v530_vs_v529_disagreement_telemetry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    candidate_id TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    session_date TEXT NOT NULL,
+    decision_timestamp TEXT NOT NULL,
+    nifty_regime TEXT NOT NULL,
+    v529_decision_status TEXT NOT NULL,
+    v529_rank INTEGER,
+    v529_allocated_r REAL NOT NULL,
+    v529_trigger_state TEXT,
+    v529_realized_r REAL,
+    v530_decision_status TEXT NOT NULL,
+    v530_rank INTEGER,
+    v530_allocated_r REAL NOT NULL,
+    v530_trigger_state TEXT,
+    v530_realized_r REAL,
+    is_disagreement INTEGER NOT NULL,
+    disagreement_root_cause TEXT CHECK(disagreement_root_cause IN (
+        'NONE', '45M_CONFIRMATION', 'FOCUSED_MODEL_G', 'REGIME_VETO',
+        'DYNAMIC_CAPACITY', 'COMBINED'
+    )),
+    paired_delta_r REAL,
+    attribution_notes TEXT NOT NULL,
+    recorded_at TEXT NOT NULL
+)
+
+-- PRAGMA table_info:
+  cid=0, name=id, type=INTEGER, notnull=0, dflt_value=None, pk=1
+  cid=1, name=candidate_id, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=2, name=symbol, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=3, name=session_date, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=4, name=decision_timestamp, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=5, name=nifty_regime, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=6, name=v529_decision_status, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=7, name=v529_rank, type=INTEGER, notnull=0, dflt_value=None, pk=0
+  cid=8, name=v529_allocated_r, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=9, name=v529_trigger_state, type=TEXT, notnull=0, dflt_value=None, pk=0
+  cid=10, name=v529_realized_r, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=11, name=v530_decision_status, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=12, name=v530_rank, type=INTEGER, notnull=0, dflt_value=None, pk=0
+  cid=13, name=v530_allocated_r, type=REAL, notnull=1, dflt_value=None, pk=0
+  cid=14, name=v530_trigger_state, type=TEXT, notnull=0, dflt_value=None, pk=0
+  cid=15, name=v530_realized_r, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=16, name=is_disagreement, type=INTEGER, notnull=1, dflt_value=None, pk=0
+  cid=17, name=disagreement_root_cause, type=TEXT, notnull=0, dflt_value=None, pk=0
+  cid=18, name=paired_delta_r, type=REAL, notnull=0, dflt_value=None, pk=0
+  cid=19, name=attribution_notes, type=TEXT, notnull=1, dflt_value=None, pk=0
+  cid=20, name=recorded_at, type=TEXT, notnull=1, dflt_value=None, pk=0
+

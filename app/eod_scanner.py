@@ -2499,14 +2499,29 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
             except Exception as e:
                 logger.error(f"Failed to record {len(scan_failures)} scan failures: {e}")
 
-        # Map overall outcome & status guard — Missing/unfetched data is a CRITICAL BLOCKER
+        # Map overall outcome & status guard — Missing/unfetched or Stale data is a CRITICAL BLOCKER
         outcome = "SUCCESS"
         no_data_count = rejection_counts.get("no_data", 0)
+        stale_count = rejection_counts.get("stale_data", 0)
 
-        if no_data_count >= len(watchlist) * 0.25:
+        from app.market_utils import validate_batch_staleness
+        staleness_res = validate_batch_staleness(stale_count, len(watchlist), "EOD", max_stale_pct=25.0, run_ctx=run_ctx)
+
+        if staleness_res["is_blocked"]:
             status = "DOWN"
             outcome = "FAILED"
-            error_msg = f"🚫 CRITICAL BLOCKER: {no_data_count}/{len(watchlist)} symbols unfetched (missing data)"
+            error_msg = f"🚫 CRITICAL BLOCKER: {stale_count}/{len(watchlist)} symbols ({staleness_res['stale_pct']:.1f}%) stale data (≥25%)"
+            logger.error(f"🚨 {error_msg}")
+            try:
+                from telegram_engine import send_telegram_message
+                send_telegram_message(f"🚨 <b>CRITICAL BLOCKER: EOD SCANNER FAILED</b>\n{stale_count}/{len(watchlist)} symbols ({staleness_res['stale_pct']:.1f}%) had stale market data.")
+            except Exception:
+                pass
+
+        elif no_data_count >= len(watchlist) * 0.25:
+            status = "DOWN"
+            outcome = "FAILED"
+            error_msg = f"🚫 CRITICAL BLOCKER: {no_data_count}/{len(watchlist)} symbols unfetched (missing data ≥25%)"
             logger.error(f"🚨 {error_msg}")
             try:
                 from telegram_engine import send_telegram_message

@@ -1,0 +1,13 @@
+Database: /Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/shadow_telemetry.db
+SHA-256: d9326bb2345738d4e8b0a3e793f15f1fd2441a820a4f2ad8d66c801ad2a24fb7
+Timestamp: 2026-09-11T22:48:25.805475
+------------------------------------------------------------
+TABLE NAME                                | ROW COUNT
+------------------------------------------------------------
+shadow_alert_telemetry                    |       616
+v529_shadow_alert_telemetry               |         7
+v529_shadow_trigger_telemetry             |         5
+v530_shadow_alert_telemetry               |         7
+v530_shadow_trigger_telemetry             |         5
+v530_vs_v529_disagreement_telemetry       |         7
+------------------------------------------------------------

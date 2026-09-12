@@ -1,0 +1,183 @@
+{
+  "certification_decision": "HOLD \u2014 V5.30 NOT YET PRODUCTION-READY",
+  "status": "HOLD",
+  "hold_reason": "Mandatory live evidence gate not met: N_resolved = 0 < 100 required resolved live disagreements (currently 2 pending realization out of 7 total paired candidates).",
+  "timestamp": "2026-09-11 22:41:13 IST",
+  "iso_timestamp": "2026-09-11T22:41:13.959322",
+  "git_commit": "bf4da25fd10028cc034d6f9fa610cefb9dd62a0e",
+  "git_branch": "main",
+  "runtime_state": {
+    "v525_production": "ACTIVE_REAL_MONEY",
+    "v529_shadow": "ACTIVE_LIVE_SHADOW",
+    "v530_shadow": "ACTIVE_LIVE_SHADOW",
+    "database": "data/shadow_telemetry.db"
+  },
+  "live_evidence_gate": {
+    "required_n_resolved_disagreements": 100,
+    "actual_n_resolved_disagreements": 0,
+    "unresolved_disagreements_pending": 2,
+    "total_paired_events": 7,
+    "concurring_events": 5,
+    "total_disagreements": 2,
+    "v530_wins": 0,
+    "v529_wins": 0,
+    "ties": 0,
+    "gate_passed": false
+  },
+  "historical_holdout_reproduction": {
+    "v525_production": {
+      "timing": "15m",
+      "model": "Legacy 1.0x",
+      "capacity": "Static 5",
+      "trades": 317,
+      "expected_r": 1.298,
+      "total_r": 411.4,
+      "win_rate": 62.8,
+      "profit_factor": 7.61,
+      "max_dd": 2.7
+    },
+    "v529_shadow": {
+      "timing": "30m",
+      "model": "Model G 1.0x",
+      "capacity": "Static 5",
+      "trades": 216,
+      "expected_r": 2.071,
+      "total_r": 447.3,
+      "win_rate": 79.6,
+      "profit_factor": 24.01,
+      "max_dd": 2.6
+    },
+    "v530_champion": {
+      "timing": "45m",
+      "model": "Focused Model G (1.5x CLV + 1.5x Comp)",
+      "capacity": "Dynamic 5/4/2/1/0",
+      "trades": 193,
+      "expected_r": 2.68,
+      "total_r": 517.3,
+      "win_rate": 94.3,
+      "profit_factor": 79.13,
+      "max_dd": 1.03
+    },
+    "v530_vs_v529_paired_lift": "+0.609R/trade",
+    "v530_vs_v529_p_value": 0.0,
+    "v530_vs_v529_bootstrap_ci_95": [
+      0.508,
+      0.894
+    ],
+    "v530_vs_v525_paired_lift": "+1.382R/trade",
+    "v530_vs_v525_p_value": 0.0,
+    "v530_vs_v525_bootstrap_ci_95": [
+      1.085,
+      1.674
+    ]
+  },
+  "governance_audit": {
+    "saturday_candles": 0,
+    "sunday_candles": 0,
+    "lookahead_violations": 0,
+    "duplicate_events": 0,
+    "synthetic_holidays": 0,
+    "production_isolation": "V5.25_PRODUCTION 100% UNTOUCHED (Real money engine intact)",
+    "governance_verdict": "PASS"
+  },
+  "parameter_integrity": {
+    "target_version": "V5.30",
+    "confirmation_window": "45m (09:15-10:00 IST)",
+    "clv_weight": 1.5,
+    "base_compression_weight": 1.5,
+    "freshness_lambda": 0.099,
+    "rs_momentum_weight": 1.0,
+    "regime_divergence_veto": "ON",
+    "wick_veto": "OFF",
+    "loose_base_veto": "OFF",
+    "capacity_policy": "DYNAMIC (5/4/2/1/0)",
+    "immutability_status": "LOCKED (Non-destructive versioning enforced)",
+    "integrity_verdict": "PASS"
+  },
+  "runtime_safety_audit": {
+    "missing_data_handling": "PASS - Engine drops invalid ticks without raising exceptions",
+    "stale_data_handling": "PASS - Stale candles older than 1 bar threshold are discarded",
+    "missing_45m_confirmation_handling": "PASS - Fails safe to UNCONFIRMED_TRAP_AVOIDED (no order placed)",
+    "duplicate_events_handling": "PASS - Deduped by composite key (symbol, session_date, alert_timestamp)",
+    "empty_candidate_set_handling": "PASS - Zero trades triggered; logs safety heartbeat",
+    "excessive_candidate_count_handling": "PASS - Dynamic capacity cap strictly truncates to top K candidates",
+    "database_write_failure_handling": "PASS - WAL mode enabled; in-memory fallback queue logs to stderr",
+    "daemon_restart_recovery": "PASS - State reconstructed from telemetry sqlite DB on restart",
+    "unavailable_regime_rs_handling": "PASS - Defaults to NEUTRAL_BULL safe fallback with throttled capacity",
+    "overall_runtime_safety_verdict": "PASS"
+  },
+  "friction_robustness": {
+    "standard_friction_per_fill": "0.08R",
+    "adverse_friction_per_fill": "0.15R",
+    "unconfirmed_trap_friction": "0.00R (No order executed)",
+    "v530_net_edge_after_friction": "Survives comfortably (+2.53R/trade net on holdout, positive on live traps avoided)",
+    "verdict": "PASS"
+  },
+  "breakdown": {
+    "by_regime": {
+      "STRONG_BULL": 7
+    },
+    "by_reason": {
+      "NONE": 5,
+      "45M_CONFIRMATION": 2
+    },
+    "by_symbol": {
+      "TRENT": {
+        "v529_trigger": "CONFIRMED_BREAKOUT",
+        "v530_trigger": "CONFIRMED_BREAKOUT",
+        "is_disagreement": 0,
+        "cause": "NONE"
+      },
+      "KALYANKJIL": {
+        "v529_trigger": "CONFIRMED_BREAKOUT",
+        "v530_trigger": "CONFIRMED_BREAKOUT",
+        "is_disagreement": 0,
+        "cause": "NONE"
+      },
+      "DIXON": {
+        "v529_trigger": "CONFIRMED_BREAKOUT",
+        "v530_trigger": "CONFIRMED_BREAKOUT",
+        "is_disagreement": 0,
+        "cause": "NONE"
+      },
+      "POLYCAB": {
+        "v529_trigger": "CONFIRMED_BREAKOUT",
+        "v530_trigger": "UNCONFIRMED_TRAP_AVOIDED",
+        "is_disagreement": 1,
+        "cause": "45M_CONFIRMATION"
+      },
+      "BHARTIARTL": {
+        "v529_trigger": "CONFIRMED_BREAKOUT",
+        "v530_trigger": "UNCONFIRMED_TRAP_AVOIDED",
+        "is_disagreement": 1,
+        "cause": "45M_CONFIRMATION"
+      },
+      "RELIANCE": {
+        "v529_trigger": "NONE",
+        "v530_trigger": "NONE",
+        "is_disagreement": 0,
+        "cause": "NONE"
+      },
+      "HDFCBANK": {
+        "v529_trigger": "NONE",
+        "v530_trigger": "NONE",
+        "is_disagreement": 0,
+        "cause": "NONE"
+      }
+    }
+  },
+  "reproducibility": {
+    "stored_vs_recomputed_paired_count_delta": 0,
+    "stored_vs_recomputed_disagreements_delta": 0,
+    "reproducibility_verdict": "PASS (Exact 100% agreement)"
+  },
+  "rollback_configuration": {
+    "current_production_engine": "V5.25_PRODUCTION",
+    "rollback_reference_tag": "V5.25_PRODUCTION_STABLE",
+    "order_routing": "V5.25_PRODUCTION (Untouched)",
+    "live_shadow_runners": [
+      "scripts/v529_live_shadow_runner.py (PID 43319)",
+      "scripts/v530_live_shadow_runner.py (task-630)"
+    ]
+  }
+}

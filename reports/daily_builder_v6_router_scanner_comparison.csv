@@ -1,0 +1,6 @@
+scanner_id,name,source_file,arch_a_n,arch_a_wr,arch_a_total_r,arch_a_pf,arch_b_n,arch_b_wr,arch_b_total_r,arch_b_pf,arch_c_n,arch_c_wr,arch_c_total_r,arch_c_pf,delta_c_vs_a_r
+SCAN_VCP_1H,VCP / Multi-TF 1H Specialist,app/multitf_v3_engine.py,2664,66.4,2381.164,6.889,1686,72.3,2183.133,10.42,2664,66.4,2209.667,8.083,-171.497
+SCAN_MULTIBAGGER_EOD,Long Base / Multibagger EOD Engine,app/multibagger_engine.py,3708,76.89,5493.86,14.368,2724,85.46,5340.191,27.088,3708,76.89,5294.666,18.679,-199.194
+SCAN_REVERSAL_KEYLEVEL,Pullback / Key Level Reversal,app/reversal_scanner.py,1855,62.91,1326.227,5.348,1052,69.01,1188.713,8.525,1855,62.91,1198.523,6.418,-127.704
+SCAN_SHORT_COVERING,Squeeze / Short Covering Specialist,app/short_covering/short_covering_scanner.py,3650,68.27,4017.146,8.277,2766,72.05,3792.959,10.747,3650,68.27,3777.343,9.192,-239.803
+SCAN_DAILY_BUILDER_45M,Daily Builder Clean Momentum 45m (V5.30 Base),engine/production/v530_shadow_execution_engine.py,3998,56.93,1790.587,3.299,1823,61.49,1423.344,5.158,3998,56.93,1542.992,3.748,-247.595

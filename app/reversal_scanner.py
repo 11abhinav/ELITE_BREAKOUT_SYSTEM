@@ -2378,15 +2378,17 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
             )
             return 0
 
-        if stale_ratio > STALE_DEGRADED_RATIO:
-            logger.warning(f"⚠️ [REVERSAL] High stale data ratio ({stale_ratio*100:.1f}% > {STALE_DEGRADED_RATIO*100:.0f}%). Blocking persistence and preserving existing alerts.")
+        from app.market_utils import validate_batch_staleness
+        staleness_res = validate_batch_staleness(stale_count, max(date_checkable, 1), "REVERSAL", max_stale_pct=25.0, run_ctx=run_ctx)
+        if staleness_res["is_blocked"] or stale_ratio > STALE_DEGRADED_RATIO:
+            logger.warning(f"⚠️ [REVERSAL] High stale data ratio ({stale_ratio*100:.1f}% > 25%). Blocking persistence to prevent bad trades.")
             upsert_scanner_health(
                 "REVERSAL", 
-                "DEGRADED", 
+                "DOWN" if staleness_res["is_blocked"] else "DEGRADED", 
                 error_msg=f"High stale data ratio: {stale_count}/{date_checkable} fetched symbols stale ({stale_ratio*100:.1f}%)",
                 processed_count=len(shortlisted_alerts),
                 total_count=total_symbols,
-                outcome="PARTIAL"
+                outcome="FAILED" if staleness_res["is_blocked"] else "PARTIAL"
             )
             return 0
 

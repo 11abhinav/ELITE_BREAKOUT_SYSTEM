@@ -129,3 +129,78 @@ def evaluate_data_staleness(latest_bar_dt, now_dt: datetime = None) -> dict:
         "message": message
     }
 
+
+def validate_batch_staleness(
+    stale_count: int,
+    total_count: int,
+    scanner_name: str,
+    max_stale_pct: float = 25.0,
+    run_ctx = None
+) -> dict:
+    """
+    Evaluates batch-level data staleness against a strict hard blocker threshold (default 25.0%).
+    If stale_pct >= max_stale_pct:
+    - Sets is_blocked = True (Hard Blocker)
+    - Logs critical error
+    - Dispatches high-priority Admin Notification via insert_notification("error", ...)
+    - Updates scanner_health with status='DEGRADED' and descriptive error
+    """
+    if total_count <= 0:
+        return {"is_blocked": False, "stale_pct": 0.0, "stale_count": 0, "total_count": 0}
+
+    stale_pct = (stale_count / total_count) * 100.0
+    if stale_pct >= max_stale_pct:
+        err_msg = (
+            f"🚨 [{scanner_name}] STALE DATA CRITICAL BLOCKER: {stale_count}/{total_count} "
+            f"({stale_pct:.1f}%) symbols are stale (Threshold: {max_stale_pct:.0f}%). "
+            f"Scanner execution halted to prevent false trades on corrupted data."
+        )
+        try:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.critical(err_msg)
+        except Exception:
+            pass
+
+        # 1. Dispatch High-Priority Admin Notification
+        try:
+            try:
+                from app.database import insert_notification, upsert_scanner_health
+            except ImportError:
+                from database import insert_notification, upsert_scanner_health
+
+            insert_notification(
+                notif_type="error",
+                title=f"🚨 {scanner_name} Data Staleness Blocker",
+                message=f"{stale_count}/{total_count} symbols ({stale_pct:.1f}%) stale. Execution halted.",
+                symbol=None
+            )
+            upsert_scanner_health(
+                scanner_name=scanner_name,
+                status="DEGRADED",
+                outcome="STALE_DATA_BLOCKED",
+                error_msg=f"{stale_pct:.1f}% stale data exceeded {max_stale_pct:.0f}% threshold",
+                total_count=total_count,
+                processed_count=total_count - stale_count,
+                run_id=run_ctx.run_id if run_ctx else None
+            )
+        except Exception as _e:
+            pass
+
+        return {
+            "is_blocked": True,
+            "stale_pct": stale_pct,
+            "stale_count": stale_count,
+            "total_count": total_count,
+            "error_msg": err_msg
+        }
+
+    return {
+        "is_blocked": False,
+        "stale_pct": stale_pct,
+        "stale_count": stale_count,
+        "total_count": total_count,
+        "error_msg": ""
+    }
+
+

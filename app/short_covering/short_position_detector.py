@@ -1,12 +1,12 @@
 """
 app/short_covering/short_position_detector.py
 
-Layer 1: EOD Positioning Engine for Short-Covering Scanner.
+Daily Active F&O Universe Builder & EOD Positioning Engine for Short-Covering Scanner.
 Objective:
-- Analyzes daily price action and open interest over the prior 5-10 trading sessions.
-- Detects heavy short positioning buildup (SBR >= 0.60, OI expansion >= +8%, falling price into support).
-- Identifies early stabilization / divergence (RSI oversold rebound, bottom wicks).
-- Generates the Next-Day Short-Covering Candidate Watchlist and persists to DB.
+- Determines ALL ACTIVE F&O equities eligible for the current/next trading session.
+- Performs mandatory data and instrument validity checks.
+- Prepares and freezes TODAY_FNO_UNIVERSE before 09:05 IST.
+- Calculates background open interest and short accumulation context (for analytics & legacy V1 mode).
 """
 
 import os
@@ -37,8 +37,8 @@ _eod_lock = ProcessLock("short_covering_eod_lock")
 
 class ShortPositionDetector:
     """
-    Layer 1 EOD Engine: Identifies stocks with accumulated short positions.
-    Scans the F&O universe at 19:15 IST daily.
+    Daily Active F&O Universe Builder & EOD Positioning Engine.
+    Builds the active F&O universe and provides background positioning analytics.
     """
 
     def __init__(
@@ -46,8 +46,8 @@ class ShortPositionDetector:
         min_oi_buildup_5d_pct: float = 6.0,
         min_short_buildup_ratio: float = 0.55,
         max_rsi: float = 50.0,
-        min_quality_score: float = 50.0,
-        max_watchlist_size: int = 35
+        min_quality_score: float = 0.0,  # C5 Default: No minimum score rejection
+        max_watchlist_size: Optional[int] = None  # C5 Default: Uncapped universe
     ):
         self.min_oi_buildup_5d_pct = min_oi_buildup_5d_pct
         self.min_short_buildup_ratio = min_short_buildup_ratio
@@ -76,7 +76,16 @@ class ShortPositionDetector:
             logger.warning("🛑 [SHORT_COVERING_EOD] Lock 'short_covering_eod_lock' held by another instance. Skipping duplicate run.")
             return []
 
-        symbols = custom_symbols or fno_universe_manager.get_fno_symbols()
+        if custom_symbols:
+            symbols = custom_symbols
+        else:
+            fno_syms = fno_universe_manager.get_fno_symbols()
+            import glob
+            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            hist_files = glob.glob(os.path.join(repo_root, "data", "history", "1d", "*.parquet"))
+            extra_syms = [os.path.basename(f).replace(".parquet", "") for f in hist_files]
+            symbols = sorted(list(set(fno_syms + extra_syms)))
+
         run_ctx = None
         try:
             run_ctx = start_scanner_execution_run(
@@ -103,8 +112,9 @@ class ShortPositionDetector:
             )
 
             candidates: List[EODShortPositionCandidate] = []
+            stale_count = 0
 
-            logger.info("🔍 [SHORT_COVERING_EOD] Scanning %d F&O symbols for trading date: %s", len(symbols), valid_trading_date)
+            logger.info("🔍 [SHORT_COVERING_EOD] Scanning %d universe symbols for trading date: %s", len(symbols), valid_trading_date)
 
             for symbol in symbols:
                 try:
@@ -113,6 +123,15 @@ class ShortPositionDetector:
                         candidates.append(candidate)
                 except Exception as e:
                     logger.debug("Error evaluating EOD candidate for %s: %s", symbol, e)
+                    stale_count += 1
+
+            # 25% Stale Data Hard Blocker validation
+            from app.market_utils import validate_batch_staleness
+            staleness_check = validate_batch_staleness(stale_count, len(symbols), "SHORT_COVERING_EOD", max_stale_pct=25.0, run_ctx=run_ctx)
+            if staleness_check["is_blocked"]:
+                if run_ctx:
+                    complete_scanner_execution_run(run_ctx, status_override="FAILED", stop_reason=staleness_check["error_msg"])
+                return []
 
             # Sort descending by buildup quality score
             candidates.sort(key=lambda c: c.buildup_quality_score, reverse=True)
@@ -131,7 +150,7 @@ class ShortPositionDetector:
             upsert_scanner_health(
                 scanner_name="SHORT_COVERING_EOD",
                 status="OK",
-                outcome="SUCCESS",
+                outcome="SUCCESS" if len(candidates) > 0 else "ZERO_CANDIDATES",
                 total_count=len(symbols),
                 processed_count=len(candidates),
                 duration_seconds=dur,
@@ -142,6 +161,16 @@ class ShortPositionDetector:
         except Exception as exc:
             dur = round(time.monotonic() - start_t, 2)
             logger.exception("❌ [SHORT_COVERING_EOD] Scan failed: %s", exc)
+            try:
+                from app.database import insert_notification
+                insert_notification(
+                    notif_type="error",
+                    title="🚨 Short Covering EOD Scan Failed",
+                    message=f"Exception during 19:15 IST EOD scan: {exc}",
+                    symbol=None
+                )
+            except Exception:
+                pass
             if run_ctx:
                 complete_scanner_execution_run(run_ctx, exception=exc)
             upsert_scanner_health(
@@ -156,6 +185,7 @@ class ShortPositionDetector:
             return []
         finally:
             _eod_lock.release()
+
 
 
     def evaluate_symbol(

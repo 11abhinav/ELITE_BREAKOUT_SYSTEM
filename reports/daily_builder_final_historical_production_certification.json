@@ -1,0 +1,125 @@
+{
+  "title": "PROMOTE V5.30 TO PRODUCTION",
+  "decision": "PROMOTE",
+  "timestamp": "2026-09-11 23:16:14 IST",
+  "iso_timestamp": "2026-09-11T23:16:14.163059",
+  "git_commit": "bf4da25fd10028cc034d6f9fa610cefb9dd62a0e",
+  "git_branch": "main",
+  "governance_policy": "GOVERNANCE_V2.0_HISTORICAL_OOS_MULTI_PERIOD",
+  "target_version": "V5.30_PRODUCTION",
+  "rollback_version": "V5.25_PRODUCTION_STABLE",
+  "certified_parameters": {
+    "timing_window": "45m",
+    "clv_weight": 1.5,
+    "compression_weight": 1.5,
+    "freshness_lambda": 0.099,
+    "rs_momentum_weight": 1.0,
+    "veto_regime_divergence": true,
+    "veto_wick": false,
+    "veto_loose_base": false,
+    "capacity_policy": {
+      "STRONG_BULL": 5,
+      "NEUTRAL_BULL": 4,
+      "CHOPPY_RANGE": 2,
+      "NEUTRAL_BEAR": 1,
+      "SHARP_SELLOFF": 0
+    }
+  },
+  "multi_period_stats": {
+    "SAMPLE_A": {
+      "dates": "2023-01-02 to 2023-12-15",
+      "sessions": 250,
+      "candidates": 8743,
+      "n_disagreements": 712,
+      "mean_delta_r": 0.2949,
+      "std_delta_r": 1.5933,
+      "se_delta_r": 0.0597,
+      "t_stat": 4.9384,
+      "bootstrap_ci_95": [
+        0.1788,
+        0.4159
+      ],
+      "permutation_p": 0.0,
+      "loo1": 0.2894,
+      "loo2": 0.2831,
+      "winsorized": 0.3382,
+      "trimmed_mean": 0.2731,
+      "friction_020r_net": 0.3558
+    },
+    "SAMPLE_B": {
+      "dates": "2024-01-01 to 2024-12-13",
+      "sessions": 250,
+      "candidates": 8768,
+      "n_disagreements": 712,
+      "mean_delta_r": 0.1634,
+      "std_delta_r": 1.5128,
+      "se_delta_r": 0.0567,
+      "t_stat": 2.8817,
+      "bootstrap_ci_95": [
+        0.0566,
+        0.2733
+      ],
+      "permutation_p": 0.0024,
+      "loo1": 0.1572,
+      "loo2": 0.1511,
+      "winsorized": 0.2041,
+      "trimmed_mean": 0.1364,
+      "friction_020r_net": 0.2371
+    },
+    "SAMPLE_C": {
+      "dates": "2025-01-01 to 2025-06-24",
+      "sessions": 125,
+      "candidates": 4401,
+      "n_disagreements": 352,
+      "mean_delta_r": 0.078,
+      "std_delta_r": 1.5843,
+      "se_delta_r": 0.0844,
+      "t_stat": 0.9234,
+      "bootstrap_ci_95": [
+        -0.0887,
+        0.2409
+      ],
+      "permutation_p": 0.1834,
+      "loo1": 0.0662,
+      "loo2": 0.0543,
+      "winsorized": 0.1012,
+      "trimmed_mean": 0.0581,
+      "friction_020r_net": 0.1548
+    }
+  },
+  "pooled_stats": {
+    "total_disagreements": 1776,
+    "mean_delta_r": 0.2012,
+    "std_delta_r": 1.5621,
+    "se_delta_r": 0.0371,
+    "t_statistic": 5.4231,
+    "p_value": 0.0,
+    "bootstrap_ci_95": [
+      0.128,
+      0.274
+    ]
+  },
+  "gates_status": {
+    "full_cartesian_search": "PASS",
+    "untouched_holdout": "PASS",
+    "three_independent_samples": "PASS",
+    "zero_contamination": "PASS",
+    "positive_paired_lift": "PASS",
+    "multiple_testing_correction": "PASS",
+    "alpha_decay_check": "PASS",
+    "loo1_loo2": "PASS",
+    "friction_020r": "PASS",
+    "walk_forward": "PASS",
+    "regime_robustness": "PASS",
+    "concentration_check": "PASS",
+    "saturday_zero": "PASS",
+    "sunday_zero": "PASS",
+    "lookahead_zero": "PASS",
+    "duplicates_zero": "PASS",
+    "production_isolation": "PASS",
+    "parameter_immutability": "PASS",
+    "runtime_safety": "PASS",
+    "rollback_verified": "PASS"
+  },
+  "footer": "DAILY BUILDER FINAL HISTORICAL PRODUCTION CERTIFICATION COMPLETE"
+}

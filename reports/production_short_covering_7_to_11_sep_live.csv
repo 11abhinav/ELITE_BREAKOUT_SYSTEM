@@ -1,0 +1,3 @@
+date,symbol,regime,entry_price,sl_price,risk_rs,risk_pct,target_price,peak_price,rsi,vol_ratio,cpos,realized_r,pnl_per_share_rs,outcome
+2026-09-11,DRREDDY,BEAR,1165.5,1124.35,41.15,3.53,1268.38,1165.5,40.2,2.04,0.68,0.0,0.0,OPEN / PENDING
+2026-09-10,KEC,BEAR,413.45,387.2,26.25,6.35,479.07,411.0,37.9,2.33,0.89,-0.27,-7.09,Holding (-0.27R)

@@ -35,7 +35,10 @@ class ScannerExecutionContract:
     - Missing or invalid required data marks the scanner as DOWN with detailed failure traces.
     """
     def __init__(self, scanner_name: str, total_symbols: int = 0):
-        from database import normalize_scanner_name, upsert_scanner_health
+        try:
+            from app.database import normalize_scanner_name, upsert_scanner_health
+        except ImportError:
+            from database import normalize_scanner_name, upsert_scanner_health
         self.scanner_name = normalize_scanner_name(scanner_name)
         self.total_symbols = total_symbols
         self.start_time = time.monotonic()
@@ -69,22 +72,32 @@ class ScannerExecutionContract:
     def complete(
         self,
         missing_symbols: Optional[List[str]] = None,
+        stale_symbols: Optional[List[str]] = None,
         error: Optional[Exception] = None,
         processed_count: Optional[int] = None
     ) -> ScannerResult:
         """
         Evaluates the final execution contract and updates scanner_health DB table.
         """
-        from database import upsert_scanner_health, get_connection
+        try:
+            from app.database import upsert_scanner_health, get_connection, insert_notification
+        except ImportError:
+            from database import upsert_scanner_health, get_connection, insert_notification
         duration = round(time.monotonic() - self.start_time, 2)
         missing = missing_symbols or []
+        stale = stale_symbols or []
         proc_cnt = processed_count if processed_count is not None else (self.total_symbols - len(missing))
         coverage_pct = (proc_cnt / self.total_symbols * 100.0) if self.total_symbols > 0 else 100.0
+        stale_pct = (len(stale) / self.total_symbols * 100.0) if self.total_symbols > 0 else 0.0
 
         if error:
             success = False
             status = "DOWN"
             err_text = f"Unhandled Exception: {str(error)[:400]}"
+        elif self.total_symbols > 0 and stale_pct >= 25.0:
+            success = False
+            status = "DOWN"
+            err_text = f"🚨 STALE DATA BLOCKER: {len(stale)}/{self.total_symbols} symbols ({stale_pct:.1f}%) stale (exceeded 25% threshold). Scan halted."
         elif coverage_pct < 85.0:
             success = False
             status = "DOWN"
@@ -126,8 +139,18 @@ class ScannerExecutionContract:
         except Exception as db_err:
             logger.warning(f"Failed to update upsert_scanner_health for {self.scanner_name}: {db_err}")
 
-        # If scan failed, write failure record into scan_failures table for UI error trace
+        # If scan failed, dispatch high-priority admin notification and record scan_failures
         if not success:
+            try:
+                insert_notification(
+                    notif_type="error",
+                    title=f"🚨 {self.scanner_name} Execution Contract Failed",
+                    message=err_text or f"Scanner {self.scanner_name} completed with DOWN status",
+                    symbol=missing[0] if missing else None
+                )
+            except Exception as notif_err:
+                logger.warning(f"Failed to insert notification: {notif_err}")
+
             try:
                 with get_connection() as conn:
                     with conn.cursor() as cur:

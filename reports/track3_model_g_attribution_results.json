@@ -1,0 +1,1678 @@
+{
+  "tournament_metadata": {
+    "track": "TRACK_3_MODEL_G_FACTOR_ATTRIBUTION_AND_RANK_CORRELATION",
+    "scanner": "DAILY_BUILDER",
+    "base_foundation": "Model G + 45m Confirmation Window",
+    "timestamp": "2026-09-11T14:48:50.397196+00:00",
+    "source_commit": "bf4da25fd10028cc034d6f9fa610cefb9dd62a0e",
+    "configurations_tested": 18,
+    "calendar_audit": {
+      "saturday_bars": 0,
+      "sunday_bars": 0,
+      "lookahead_violations": 0,
+      "duplicate_events": 0
+    }
+  },
+  "holdout_paired_statistics": {
+    "M_G_45M_BENCHMARK": {
+      "delta_er": 0.0,
+      "ci_low": 0.0,
+      "ci_high": 0.0,
+      "p_val": 1.0
+    },
+    "M_G_45M_REGIME_VETO": {
+      "delta_er": -0.002628361858190717,
+      "ci_low": -0.10176528117359417,
+      "ci_high": 0.10250122249388743,
+      "p_val": 0.524
+    },
+    "M_G_ABLATE_FRESHNESS": {
+      "delta_er": 0.006635678391959825,
+      "ci_low": -0.12179899497487444,
+      "ci_high": 0.13002261306532656,
+      "p_val": 0.463
+    },
+    "M_G_ABLATE_RS_MOM": {
+      "delta_er": -0.03777377892030848,
+      "ci_low": -0.16199228791773768,
+      "ci_high": 0.087305912596401,
+      "p_val": 0.719
+    },
+    "M_G_ABLATE_CLV": {
+      "delta_er": 0.01790641711229944,
+      "ci_low": -0.11924064171123001,
+      "ci_high": 0.15371657754010692,
+      "p_val": 0.4125
+    },
+    "M_G_ABLATE_COMPRESSION": {
+      "delta_er": 0.005263565891472875,
+      "ci_low": -0.12140568475452189,
+      "ci_high": 0.13689147286821707,
+      "p_val": 0.47
+    },
+    "M_G_ABLATE_RUNWAY": {
+      "delta_er": 0.02173474801061009,
+      "ci_low": -0.10966312997347485,
+      "ci_high": 0.15297877984084882,
+      "p_val": 0.369
+    },
+    "M_G_ABLATE_VWAP": {
+      "delta_er": 0.005463730569948195,
+      "ci_low": -0.12753367875647675,
+      "ci_high": 0.1459844559585492,
+      "p_val": 0.4565
+    },
+    "M_G_ABLATE_VOL_RET": {
+      "delta_er": 0.01742328042328042,
+      "ci_low": -0.12284126984126989,
+      "ci_high": 0.16047354497354507,
+      "p_val": 0.4135
+    },
+    "M_G_FRESHNESS_HIGH": {
+      "delta_er": -0.019762836185819074,
+      "ci_low": -0.1226552567237163,
+      "ci_high": 0.09396821515892424,
+      "p_val": 0.6085
+    },
+    "M_G_CLV_HIGH": {
+      "delta_er": -0.018674816625916878,
+      "ci_low": -0.1487163814180928,
+      "ci_high": 0.11182151589242055,
+      "p_val": 0.6035
+    },
+    "M_G_COMPRESSION_HIGH": {
+      "delta_er": -0.01644987775061126,
+      "ci_low": -0.14588264058679712,
+      "ci_high": 0.11559657701711493,
+      "p_val": 0.6015
+    },
+    "M_G_RUNWAY_HIGH": {
+      "delta_er": -0.016019559902200487,
+      "ci_low": -0.14389242053789736,
+      "ci_high": 0.10834229828850864,
+      "p_val": 0.598
+    },
+    "M_G_INTER_CLV_COMP_HIGH": {
+      "delta_er": -0.040919315403422994,
+      "ci_low": -0.17213202933985336,
+      "ci_high": 0.08084352078239615,
+      "p_val": 0.7135
+    },
+    "M_G_INTER_CLV_FRESH_HIGH": {
+      "delta_er": -0.02781907090464548,
+      "ci_low": -0.14894865525672374,
+      "ci_high": 0.10445721271393639,
+      "p_val": 0.6795
+    },
+    "M_G_INTER_CLV_COMP_RUNWAY_HIGH": {
+      "delta_er": -0.029381418092909548,
+      "ci_low": -0.15526405867970655,
+      "ci_high": 0.09646210268948655,
+      "p_val": 0.684
+    },
+    "M_G_INTER_SIMPLIFIED_PURE_CORE": {
+      "delta_er": -0.036317848410757955,
+      "ci_low": -0.1509046454767725,
+      "ci_high": 0.07634718826405872,
+      "p_val": 0.7285
+    },
+    "M_G_INTER_SIMPLIFIED_CORE_REGIME": {
+      "delta_er": -0.038432762836185796,
+      "ci_low": -0.15697799511002453,
+      "ci_high": 0.08252567237163813,
+      "p_val": 0.733
+    }
+  },
+  "holdout_results": [
+    {
+      "config": {
+        "config_id": "M_G_45M_BENCHMARK",
+        "description": "Model G Certified Baseline + 45m (No Veto)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_45M_BENCHMARK",
+        "description": "Model G Certified Baseline + 45m (No Veto)",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 1364,
+        "n_top5_selected": 500,
+        "n_trades": 409,
+        "total_r": 631.94,
+        "er": 1.545,
+        "median_r": 1.635,
+        "std_r": 0.936,
+        "wr": 91.9,
+        "pf": 20.19,
+        "max_dd": 1.96,
+        "loo1_er": 1.537,
+        "winsorized_er": 1.543,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2306,
+          "kendall_tau_all": 0.1556,
+          "spearman_rho_top10": 0.1519,
+          "kendall_tau_top10": 0.0973,
+          "spearman_rho_top5": 0.1142,
+          "kendall_tau_top5": 0.0767,
+          "spearman_rho_exec": 0.0343,
+          "kendall_tau_exec": 0.024
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_45M_REGIME_VETO",
+        "description": "Model G Certified Baseline + 45m + Regime Veto",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_45M_REGIME_VETO",
+        "description": "Model G Certified Baseline + 45m + Regime Veto",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 1331,
+        "n_top5_selected": 500,
+        "n_trades": 411,
+        "total_r": 634.51,
+        "er": 1.544,
+        "median_r": 1.633,
+        "std_r": 0.915,
+        "wr": 92.2,
+        "pf": 20.93,
+        "max_dd": 1.96,
+        "loo1_er": 1.536,
+        "winsorized_er": 1.541,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2306,
+          "kendall_tau_all": 0.1543,
+          "spearman_rho_top10": 0.1346,
+          "kendall_tau_top10": 0.0847,
+          "spearman_rho_top5": 0.1111,
+          "kendall_tau_top5": 0.0746,
+          "spearman_rho_exec": 0.045,
+          "kendall_tau_exec": 0.0312
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_ABLATE_FRESHNESS",
+        "description": "Ablation: Freshness OFF (weight=0.0)",
+        "weight_freshness": 0.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_ABLATE_FRESHNESS",
+        "description": "Ablation: Freshness OFF (weight=0.0)",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 1021,
+        "n_top5_selected": 481,
+        "n_trades": 398,
+        "total_r": 615.75,
+        "er": 1.547,
+        "median_r": 1.633,
+        "std_r": 0.947,
+        "wr": 91.7,
+        "pf": 19.44,
+        "max_dd": 1.2,
+        "loo1_er": 1.539,
+        "winsorized_er": 1.545,
+        "rank_correlations": {
+          "spearman_rho_all": 0.134,
+          "kendall_tau_all": 0.0828,
+          "spearman_rho_top10": 0.1025,
+          "kendall_tau_top10": 0.0684,
+          "spearman_rho_top5": 0.1013,
+          "kendall_tau_top5": 0.0681,
+          "spearman_rho_exec": 0.0222,
+          "kendall_tau_exec": 0.015
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_ABLATE_RS_MOM",
+        "description": "Ablation: RS 3D Momentum OFF (weight=0.0)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 0.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_ABLATE_RS_MOM",
+        "description": "Ablation: RS 3D Momentum OFF (weight=0.0)",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 1147,
+        "n_top5_selected": 470,
+        "n_trades": 389,
+        "total_r": 583.04,
+        "er": 1.499,
+        "median_r": 1.621,
+        "std_r": 0.963,
+        "wr": 90.7,
+        "pf": 17.3,
+        "max_dd": 2.32,
+        "loo1_er": 1.491,
+        "winsorized_er": 1.498,
+        "rank_correlations": {
+          "spearman_rho_all": 0.1548,
+          "kendall_tau_all": 0.108,
+          "spearman_rho_top10": 0.1115,
+          "kendall_tau_top10": 0.0769,
+          "spearman_rho_top5": 0.0817,
+          "kendall_tau_top5": 0.0544,
+          "spearman_rho_exec": 0.0182,
+          "kendall_tau_exec": 0.012
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_ABLATE_CLV",
+        "description": "Ablation: CLV Weight OFF (weight=0.0)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 0.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_ABLATE_CLV",
+        "description": "Ablation: CLV Weight OFF (weight=0.0)",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 860,
+        "n_top5_selected": 453,
+        "n_trades": 374,
+        "total_r": 577.36,
+        "er": 1.544,
+        "median_r": 1.633,
+        "std_r": 0.925,
+        "wr": 92.0,
+        "pf": 20.21,
+        "max_dd": 1.2,
+        "loo1_er": 1.535,
+        "winsorized_er": 1.542,
+        "rank_correlations": {
+          "spearman_rho_all": 0.0844,
+          "kendall_tau_all": 0.0544,
+          "spearman_rho_top10": 0.0736,
+          "kendall_tau_top10": 0.0498,
+          "spearman_rho_top5": 0.089,
+          "kendall_tau_top5": 0.0609,
+          "spearman_rho_exec": 0.0083,
+          "kendall_tau_exec": 0.0073
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_ABLATE_COMPRESSION",
+        "description": "Ablation: Base Compression OFF (weight=0.0)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 0.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_ABLATE_COMPRESSION",
+        "description": "Ablation: Base Compression OFF (weight=0.0)",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 1026,
+        "n_top5_selected": 471,
+        "n_trades": 387,
+        "total_r": 596.06,
+        "er": 1.54,
+        "median_r": 1.649,
+        "std_r": 0.965,
+        "wr": 91.2,
+        "pf": 18.68,
+        "max_dd": 1.96,
+        "loo1_er": 1.532,
+        "winsorized_er": 1.539,
+        "rank_correlations": {
+          "spearman_rho_all": 0.1571,
+          "kendall_tau_all": 0.0948,
+          "spearman_rho_top10": 0.1239,
+          "kendall_tau_top10": 0.0817,
+          "spearman_rho_top5": 0.1102,
+          "kendall_tau_top5": 0.0756,
+          "spearman_rho_exec": 0.0265,
+          "kendall_tau_exec": 0.0191
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_ABLATE_RUNWAY",
+        "description": "Ablation: Overhead Runway OFF (weight=0.0)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 0.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_ABLATE_RUNWAY",
+        "description": "Ablation: Overhead Runway OFF (weight=0.0)",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 909,
+        "n_top5_selected": 462,
+        "n_trades": 377,
+        "total_r": 583.69,
+        "er": 1.548,
+        "median_r": 1.646,
+        "std_r": 0.958,
+        "wr": 91.5,
+        "pf": 19.37,
+        "max_dd": 1.2,
+        "loo1_er": 1.54,
+        "winsorized_er": 1.547,
+        "rank_correlations": {
+          "spearman_rho_all": 0.1086,
+          "kendall_tau_all": 0.0721,
+          "spearman_rho_top10": 0.0969,
+          "kendall_tau_top10": 0.0649,
+          "spearman_rho_top5": 0.1064,
+          "kendall_tau_top5": 0.0732,
+          "spearman_rho_exec": 0.0173,
+          "kendall_tau_exec": 0.0138
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_ABLATE_VWAP",
+        "description": "Ablation: VWAP Proximity OFF (weight=0.0)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 0.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_ABLATE_VWAP",
+        "description": "Ablation: VWAP Proximity OFF (weight=0.0)",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 957,
+        "n_top5_selected": 470,
+        "n_trades": 386,
+        "total_r": 594.8,
+        "er": 1.541,
+        "median_r": 1.649,
+        "std_r": 0.966,
+        "wr": 91.2,
+        "pf": 18.64,
+        "max_dd": 1.96,
+        "loo1_er": 1.533,
+        "winsorized_er": 1.54,
+        "rank_correlations": {
+          "spearman_rho_all": 0.1028,
+          "kendall_tau_all": 0.0669,
+          "spearman_rho_top10": 0.0996,
+          "kendall_tau_top10": 0.0677,
+          "spearman_rho_top5": 0.1061,
+          "kendall_tau_top5": 0.0731,
+          "spearman_rho_exec": 0.0182,
+          "kendall_tau_exec": 0.0136
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_ABLATE_VOL_RET",
+        "description": "Ablation: Volume Retention OFF (weight=0.0)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 0.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_ABLATE_VOL_RET",
+        "description": "Ablation: Volume Retention OFF (weight=0.0)",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 894,
+        "n_top5_selected": 460,
+        "n_trades": 378,
+        "total_r": 583.18,
+        "er": 1.543,
+        "median_r": 1.646,
+        "std_r": 0.946,
+        "wr": 91.5,
+        "pf": 19.36,
+        "max_dd": 1.96,
+        "loo1_er": 1.534,
+        "winsorized_er": 1.541,
+        "rank_correlations": {
+          "spearman_rho_all": 0.1021,
+          "kendall_tau_all": 0.069,
+          "spearman_rho_top10": 0.0927,
+          "kendall_tau_top10": 0.0623,
+          "spearman_rho_top5": 0.0941,
+          "kendall_tau_top5": 0.0637,
+          "spearman_rho_exec": 0.0183,
+          "kendall_tau_exec": 0.0132
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_FRESHNESS_HIGH",
+        "description": "Freshness HIGH (weight=1.5)",
+        "weight_freshness": 1.5,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_FRESHNESS_HIGH",
+        "description": "Freshness HIGH (weight=1.5)",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 1516,
+        "n_top5_selected": 507,
+        "n_trades": 413,
+        "total_r": 630.65,
+        "er": 1.527,
+        "median_r": 1.633,
+        "std_r": 0.942,
+        "wr": 91.5,
+        "pf": 19.07,
+        "max_dd": 2.24,
+        "loo1_er": 1.519,
+        "winsorized_er": 1.524,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2336,
+          "kendall_tau_all": 0.1664,
+          "spearman_rho_top10": 0.1358,
+          "kendall_tau_top10": 0.0817,
+          "spearman_rho_top5": 0.1233,
+          "kendall_tau_top5": 0.0821,
+          "spearman_rho_exec": 0.0511,
+          "kendall_tau_exec": 0.0348
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_CLV_HIGH",
+        "description": "CLV Weight HIGH (weight=1.5)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.5,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_CLV_HIGH",
+        "description": "CLV Weight HIGH (weight=1.5)",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 1567,
+        "n_top5_selected": 525,
+        "n_trades": 424,
+        "total_r": 650.56,
+        "er": 1.534,
+        "median_r": 1.639,
+        "std_r": 0.948,
+        "wr": 91.5,
+        "pf": 19.06,
+        "max_dd": 1.96,
+        "loo1_er": 1.527,
+        "winsorized_er": 1.532,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2511,
+          "kendall_tau_all": 0.1761,
+          "spearman_rho_top10": 0.1521,
+          "kendall_tau_top10": 0.0862,
+          "spearman_rho_top5": 0.1279,
+          "kendall_tau_top5": 0.0862,
+          "spearman_rho_exec": 0.0379,
+          "kendall_tau_exec": 0.0266
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_COMPRESSION_HIGH",
+        "description": "Base Compression HIGH (weight=1.5)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.5,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_COMPRESSION_HIGH",
+        "description": "Base Compression HIGH (weight=1.5)",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 1498,
+        "n_top5_selected": 515,
+        "n_trades": 419,
+        "total_r": 642.75,
+        "er": 1.534,
+        "median_r": 1.635,
+        "std_r": 0.942,
+        "wr": 91.6,
+        "pf": 19.41,
+        "max_dd": 1.96,
+        "loo1_er": 1.526,
+        "winsorized_er": 1.532,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2463,
+          "kendall_tau_all": 0.1726,
+          "spearman_rho_top10": 0.1554,
+          "kendall_tau_top10": 0.0907,
+          "spearman_rho_top5": 0.1239,
+          "kendall_tau_top5": 0.0828,
+          "spearman_rho_exec": 0.0427,
+          "kendall_tau_exec": 0.0291
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_RUNWAY_HIGH",
+        "description": "Overhead Runway HIGH (weight=1.5)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.5,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_RUNWAY_HIGH",
+        "description": "Overhead Runway HIGH (weight=1.5)",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 1549,
+        "n_top5_selected": 521,
+        "n_trades": 422,
+        "total_r": 647.96,
+        "er": 1.535,
+        "median_r": 1.639,
+        "std_r": 0.953,
+        "wr": 91.5,
+        "pf": 18.99,
+        "max_dd": 1.96,
+        "loo1_er": 1.528,
+        "winsorized_er": 1.533,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2495,
+          "kendall_tau_all": 0.1767,
+          "spearman_rho_top10": 0.1538,
+          "kendall_tau_top10": 0.0836,
+          "spearman_rho_top5": 0.1251,
+          "kendall_tau_top5": 0.0838,
+          "spearman_rho_exec": 0.0327,
+          "kendall_tau_exec": 0.0227
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_INTER_CLV_COMP_HIGH",
+        "description": "Interaction: CLV(1.5) + Compression(1.5)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.5,
+        "weight_compression": 1.5,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_INTER_CLV_COMP_HIGH",
+        "description": "Interaction: CLV(1.5) + Compression(1.5)",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 1683,
+        "n_top5_selected": 552,
+        "n_trades": 440,
+        "total_r": 670.4,
+        "er": 1.524,
+        "median_r": 1.635,
+        "std_r": 0.949,
+        "wr": 91.4,
+        "pf": 18.5,
+        "max_dd": 2.28,
+        "loo1_er": 1.516,
+        "winsorized_er": 1.521,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2569,
+          "kendall_tau_all": 0.1641,
+          "spearman_rho_top10": 0.1678,
+          "kendall_tau_top10": 0.0993,
+          "spearman_rho_top5": 0.1451,
+          "kendall_tau_top5": 0.097,
+          "spearman_rho_exec": 0.0503,
+          "kendall_tau_exec": 0.0343
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_INTER_CLV_FRESH_HIGH",
+        "description": "Interaction: CLV(1.5) + Freshness(1.5)",
+        "weight_freshness": 1.5,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.5,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_INTER_CLV_FRESH_HIGH",
+        "description": "Interaction: CLV(1.5) + Freshness(1.5)",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 1705,
+        "n_top5_selected": 542,
+        "n_trades": 434,
+        "total_r": 663.28,
+        "er": 1.528,
+        "median_r": 1.631,
+        "std_r": 0.948,
+        "wr": 91.5,
+        "pf": 19.0,
+        "max_dd": 2.24,
+        "loo1_er": 1.521,
+        "winsorized_er": 1.526,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2415,
+          "kendall_tau_all": 0.1367,
+          "spearman_rho_top10": 0.1702,
+          "kendall_tau_top10": 0.1008,
+          "spearman_rho_top5": 0.1503,
+          "kendall_tau_top5": 0.1003,
+          "spearman_rho_exec": 0.0561,
+          "kendall_tau_exec": 0.0381
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_INTER_CLV_COMP_RUNWAY_HIGH",
+        "description": "Interaction: CLV(1.5) + Comp(1.5) + Runway(1.5)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.5,
+        "weight_compression": 1.5,
+        "weight_runway": 1.5,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_INTER_CLV_COMP_RUNWAY_HIGH",
+        "description": "Interaction: CLV(1.5) + Comp(1.5) + Runway(1.5)",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 1819,
+        "n_top5_selected": 569,
+        "n_trades": 452,
+        "total_r": 690.93,
+        "er": 1.529,
+        "median_r": 1.628,
+        "std_r": 0.931,
+        "wr": 91.8,
+        "pf": 19.45,
+        "max_dd": 2.28,
+        "loo1_er": 1.522,
+        "winsorized_er": 1.526,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2553,
+          "kendall_tau_all": 0.1604,
+          "spearman_rho_top10": 0.1789,
+          "kendall_tau_top10": 0.1063,
+          "spearman_rho_top5": 0.1555,
+          "kendall_tau_top5": 0.1033,
+          "spearman_rho_exec": 0.0522,
+          "kendall_tau_exec": 0.0353
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_INTER_SIMPLIFIED_PURE_CORE",
+        "description": "Simplified Core: CLV(1.5) + Comp(1.5) + Fresh(1.2) + RS(0.0)",
+        "weight_freshness": 1.2,
+        "weight_rs_momentum": 0.0,
+        "weight_clv": 1.5,
+        "weight_compression": 1.5,
+        "weight_runway": 1.2,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_INTER_SIMPLIFIED_PURE_CORE",
+        "description": "Simplified Core: CLV(1.5) + Comp(1.5) + Fresh(1.2) + RS(0.0)",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 1660,
+        "n_top5_selected": 506,
+        "n_trades": 413,
+        "total_r": 623.19,
+        "er": 1.509,
+        "median_r": 1.613,
+        "std_r": 0.95,
+        "wr": 91.3,
+        "pf": 18.45,
+        "max_dd": 2.32,
+        "loo1_er": 1.501,
+        "winsorized_er": 1.508,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2106,
+          "kendall_tau_all": 0.1309,
+          "spearman_rho_top10": 0.1328,
+          "kendall_tau_top10": 0.0815,
+          "spearman_rho_top5": 0.1115,
+          "kendall_tau_top5": 0.0733,
+          "spearman_rho_exec": 0.0397,
+          "kendall_tau_exec": 0.0255
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_INTER_SIMPLIFIED_CORE_REGIME",
+        "description": "Simplified Core + Regime Veto: CLV(1.5) + Comp(1.5) + RS(0.0)",
+        "weight_freshness": 1.2,
+        "weight_rs_momentum": 0.0,
+        "weight_clv": 1.5,
+        "weight_compression": 1.5,
+        "weight_runway": 1.2,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_INTER_SIMPLIFIED_CORE_REGIME",
+        "description": "Simplified Core + Regime Veto: CLV(1.5) + Comp(1.5) + RS(0.0)",
+        "n_candidates_evaluated": 4420,
+        "n_scored_qualified": 1599,
+        "n_top5_selected": 505,
+        "n_trades": 411,
+        "total_r": 619.47,
+        "er": 1.507,
+        "median_r": 1.612,
+        "std_r": 0.95,
+        "wr": 91.2,
+        "pf": 18.46,
+        "max_dd": 2.32,
+        "loo1_er": 1.499,
+        "winsorized_er": 1.506,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2218,
+          "kendall_tau_all": 0.1601,
+          "spearman_rho_top10": 0.1257,
+          "kendall_tau_top10": 0.0794,
+          "spearman_rho_top5": 0.1224,
+          "kendall_tau_top5": 0.0805,
+          "spearman_rho_exec": 0.0486,
+          "kendall_tau_exec": 0.0316
+        }
+      }
+    }
+  ],
+  "full_dataset_results": [
+    {
+      "config": {
+        "config_id": "M_G_45M_BENCHMARK",
+        "description": "Model G Certified Baseline + 45m (No Veto)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_45M_BENCHMARK",
+        "description": "Model G Certified Baseline + 45m (No Veto)",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 5321,
+        "n_top5_selected": 2009,
+        "n_trades": 1641,
+        "total_r": 2606.87,
+        "er": 1.589,
+        "median_r": 1.651,
+        "std_r": 0.931,
+        "wr": 92.6,
+        "pf": 23.26,
+        "max_dd": 2.01,
+        "loo1_er": 1.587,
+        "winsorized_er": 1.587,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2498,
+          "kendall_tau_all": 0.2122,
+          "spearman_rho_top10": 0.1612,
+          "kendall_tau_top10": 0.1403,
+          "spearman_rho_top5": 0.1479,
+          "kendall_tau_top5": 0.1408,
+          "spearman_rho_exec": 0.072,
+          "kendall_tau_exec": 0.0294
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_45M_REGIME_VETO",
+        "description": "Model G Certified Baseline + 45m + Regime Veto",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_45M_REGIME_VETO",
+        "description": "Model G Certified Baseline + 45m + Regime Veto",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 5158,
+        "n_top5_selected": 1990,
+        "n_trades": 1628,
+        "total_r": 2574.88,
+        "er": 1.582,
+        "median_r": 1.643,
+        "std_r": 0.916,
+        "wr": 92.8,
+        "pf": 23.7,
+        "max_dd": 2.01,
+        "loo1_er": 1.58,
+        "winsorized_er": 1.58,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2582,
+          "kendall_tau_all": 0.1917,
+          "spearman_rho_top10": 0.1625,
+          "kendall_tau_top10": 0.0832,
+          "spearman_rho_top5": 0.1622,
+          "kendall_tau_top5": 0.1251,
+          "spearman_rho_exec": 0.0974,
+          "kendall_tau_exec": 0.0679
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_ABLATE_FRESHNESS",
+        "description": "Ablation: Freshness OFF (weight=0.0)",
+        "weight_freshness": 0.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_ABLATE_FRESHNESS",
+        "description": "Ablation: Freshness OFF (weight=0.0)",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 3995,
+        "n_top5_selected": 1945,
+        "n_trades": 1598,
+        "total_r": 2568.85,
+        "er": 1.608,
+        "median_r": 1.661,
+        "std_r": 0.915,
+        "wr": 93.1,
+        "pf": 24.92,
+        "max_dd": 2.17,
+        "loo1_er": 1.605,
+        "winsorized_er": 1.605,
+        "rank_correlations": {
+          "spearman_rho_all": 0.1547,
+          "kendall_tau_all": 0.0839,
+          "spearman_rho_top10": 0.1217,
+          "kendall_tau_top10": 0.1128,
+          "spearman_rho_top5": 0.1327,
+          "kendall_tau_top5": 0.0832,
+          "spearman_rho_exec": 0.0622,
+          "kendall_tau_exec": 0.0674
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_ABLATE_RS_MOM",
+        "description": "Ablation: RS 3D Momentum OFF (weight=0.0)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 0.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_ABLATE_RS_MOM",
+        "description": "Ablation: RS 3D Momentum OFF (weight=0.0)",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 4493,
+        "n_top5_selected": 1878,
+        "n_trades": 1548,
+        "total_r": 2429.52,
+        "er": 1.569,
+        "median_r": 1.641,
+        "std_r": 0.907,
+        "wr": 92.6,
+        "pf": 23.34,
+        "max_dd": 2.32,
+        "loo1_er": 1.567,
+        "winsorized_er": 1.567,
+        "rank_correlations": {
+          "spearman_rho_all": 0.1848,
+          "kendall_tau_all": 0.1427,
+          "spearman_rho_top10": 0.1326,
+          "kendall_tau_top10": 0.0764,
+          "spearman_rho_top5": 0.127,
+          "kendall_tau_top5": 0.0846,
+          "spearman_rho_exec": 0.0655,
+          "kendall_tau_exec": 0.0554
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_ABLATE_CLV",
+        "description": "Ablation: CLV Weight OFF (weight=0.0)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 0.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_ABLATE_CLV",
+        "description": "Ablation: CLV Weight OFF (weight=0.0)",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 3388,
+        "n_top5_selected": 1794,
+        "n_trades": 1492,
+        "total_r": 2386.21,
+        "er": 1.599,
+        "median_r": 1.652,
+        "std_r": 0.908,
+        "wr": 93.0,
+        "pf": 24.98,
+        "max_dd": 2.01,
+        "loo1_er": 1.597,
+        "winsorized_er": 1.597,
+        "rank_correlations": {
+          "spearman_rho_all": 0.1316,
+          "kendall_tau_all": 0.0914,
+          "spearman_rho_top10": 0.1081,
+          "kendall_tau_top10": 0.0914,
+          "spearman_rho_top5": 0.1265,
+          "kendall_tau_top5": 0.1016,
+          "spearman_rho_exec": 0.0712,
+          "kendall_tau_exec": 0.057
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_ABLATE_COMPRESSION",
+        "description": "Ablation: Base Compression OFF (weight=0.0)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 0.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_ABLATE_COMPRESSION",
+        "description": "Ablation: Base Compression OFF (weight=0.0)",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 3987,
+        "n_top5_selected": 1883,
+        "n_trades": 1554,
+        "total_r": 2481.47,
+        "er": 1.597,
+        "median_r": 1.656,
+        "std_r": 0.917,
+        "wr": 92.8,
+        "pf": 24.14,
+        "max_dd": 2.29,
+        "loo1_er": 1.595,
+        "winsorized_er": 1.595,
+        "rank_correlations": {
+          "spearman_rho_all": 0.1703,
+          "kendall_tau_all": 0.1268,
+          "spearman_rho_top10": 0.1238,
+          "kendall_tau_top10": 0.0744,
+          "spearman_rho_top5": 0.132,
+          "kendall_tau_top5": 0.1153,
+          "spearman_rho_exec": 0.0698,
+          "kendall_tau_exec": 0.0585
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_ABLATE_RUNWAY",
+        "description": "Ablation: Overhead Runway OFF (weight=0.0)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 0.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_ABLATE_RUNWAY",
+        "description": "Ablation: Overhead Runway OFF (weight=0.0)",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 3544,
+        "n_top5_selected": 1826,
+        "n_trades": 1509,
+        "total_r": 2433.52,
+        "er": 1.613,
+        "median_r": 1.655,
+        "std_r": 0.914,
+        "wr": 93.2,
+        "pf": 25.79,
+        "max_dd": 2.01,
+        "loo1_er": 1.61,
+        "winsorized_er": 1.611,
+        "rank_correlations": {
+          "spearman_rho_all": 0.1444,
+          "kendall_tau_all": 0.114,
+          "spearman_rho_top10": 0.1137,
+          "kendall_tau_top10": 0.0525,
+          "spearman_rho_top5": 0.1244,
+          "kendall_tau_top5": 0.1064,
+          "spearman_rho_exec": 0.0652,
+          "kendall_tau_exec": 0.049
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_ABLATE_VWAP",
+        "description": "Ablation: VWAP Proximity OFF (weight=0.0)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 0.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_ABLATE_VWAP",
+        "description": "Ablation: VWAP Proximity OFF (weight=0.0)",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 3733,
+        "n_top5_selected": 1879,
+        "n_trades": 1552,
+        "total_r": 2487.46,
+        "er": 1.603,
+        "median_r": 1.658,
+        "std_r": 0.915,
+        "wr": 92.9,
+        "pf": 24.7,
+        "max_dd": 2.29,
+        "loo1_er": 1.601,
+        "winsorized_er": 1.601,
+        "rank_correlations": {
+          "spearman_rho_all": 0.137,
+          "kendall_tau_all": 0.0895,
+          "spearman_rho_top10": 0.1065,
+          "kendall_tau_top10": 0.0662,
+          "spearman_rho_top5": 0.1269,
+          "kendall_tau_top5": 0.1127,
+          "spearman_rho_exec": 0.0629,
+          "kendall_tau_exec": 0.0564
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_ABLATE_VOL_RET",
+        "description": "Ablation: Volume Retention OFF (weight=0.0)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 0.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_ABLATE_VOL_RET",
+        "description": "Ablation: Volume Retention OFF (weight=0.0)",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 3486,
+        "n_top5_selected": 1816,
+        "n_trades": 1504,
+        "total_r": 2404.28,
+        "er": 1.599,
+        "median_r": 1.658,
+        "std_r": 0.915,
+        "wr": 92.8,
+        "pf": 24.35,
+        "max_dd": 2.01,
+        "loo1_er": 1.596,
+        "winsorized_er": 1.597,
+        "rank_correlations": {
+          "spearman_rho_all": 0.1435,
+          "kendall_tau_all": 0.122,
+          "spearman_rho_top10": 0.1166,
+          "kendall_tau_top10": 0.0802,
+          "spearman_rho_top5": 0.1249,
+          "kendall_tau_top5": 0.0675,
+          "spearman_rho_exec": 0.0668,
+          "kendall_tau_exec": 0.0494
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_FRESHNESS_HIGH",
+        "description": "Freshness HIGH (weight=1.5)",
+        "weight_freshness": 1.5,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_FRESHNESS_HIGH",
+        "description": "Freshness HIGH (weight=1.5)",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 5947,
+        "n_top5_selected": 2041,
+        "n_trades": 1666,
+        "total_r": 2620.39,
+        "er": 1.573,
+        "median_r": 1.643,
+        "std_r": 0.936,
+        "wr": 92.3,
+        "pf": 22.11,
+        "max_dd": 2.29,
+        "loo1_er": 1.571,
+        "winsorized_er": 1.571,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2575,
+          "kendall_tau_all": 0.1854,
+          "spearman_rho_top10": 0.1598,
+          "kendall_tau_top10": 0.1032,
+          "spearman_rho_top5": 0.1523,
+          "kendall_tau_top5": 0.1123,
+          "spearman_rho_exec": 0.0834,
+          "kendall_tau_exec": 0.0764
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_CLV_HIGH",
+        "description": "CLV Weight HIGH (weight=1.5)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.5,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_CLV_HIGH",
+        "description": "CLV Weight HIGH (weight=1.5)",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 6126,
+        "n_top5_selected": 2092,
+        "n_trades": 1696,
+        "total_r": 2678.23,
+        "er": 1.579,
+        "median_r": 1.653,
+        "std_r": 0.939,
+        "wr": 92.3,
+        "pf": 22.09,
+        "max_dd": 2.01,
+        "loo1_er": 1.577,
+        "winsorized_er": 1.577,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2695,
+          "kendall_tau_all": 0.1732,
+          "spearman_rho_top10": 0.1686,
+          "kendall_tau_top10": 0.1101,
+          "spearman_rho_top5": 0.1516,
+          "kendall_tau_top5": 0.0957,
+          "spearman_rho_exec": 0.0658,
+          "kendall_tau_exec": 0.0506
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_COMPRESSION_HIGH",
+        "description": "Base Compression HIGH (weight=1.5)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.5,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_COMPRESSION_HIGH",
+        "description": "Base Compression HIGH (weight=1.5)",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 5862,
+        "n_top5_selected": 2065,
+        "n_trades": 1676,
+        "total_r": 2640.7,
+        "er": 1.576,
+        "median_r": 1.65,
+        "std_r": 0.938,
+        "wr": 92.2,
+        "pf": 21.98,
+        "max_dd": 2.01,
+        "loo1_er": 1.574,
+        "winsorized_er": 1.574,
+        "rank_correlations": {
+          "spearman_rho_all": 0.263,
+          "kendall_tau_all": 0.166,
+          "spearman_rho_top10": 0.1655,
+          "kendall_tau_top10": 0.1162,
+          "spearman_rho_top5": 0.1534,
+          "kendall_tau_top5": 0.0763,
+          "spearman_rho_exec": 0.0717,
+          "kendall_tau_exec": 0.0282
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_RUNWAY_HIGH",
+        "description": "Overhead Runway HIGH (weight=1.5)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.0,
+        "weight_compression": 1.0,
+        "weight_runway": 1.5,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_RUNWAY_HIGH",
+        "description": "Overhead Runway HIGH (weight=1.5)",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 6049,
+        "n_top5_selected": 2083,
+        "n_trades": 1687,
+        "total_r": 2665.05,
+        "er": 1.58,
+        "median_r": 1.653,
+        "std_r": 0.942,
+        "wr": 92.2,
+        "pf": 21.99,
+        "max_dd": 2.17,
+        "loo1_er": 1.578,
+        "winsorized_er": 1.578,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2681,
+          "kendall_tau_all": 0.1906,
+          "spearman_rho_top10": 0.1656,
+          "kendall_tau_top10": 0.0917,
+          "spearman_rho_top5": 0.1523,
+          "kendall_tau_top5": 0.1103,
+          "spearman_rho_exec": 0.0633,
+          "kendall_tau_exec": 0.0516
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_INTER_CLV_COMP_HIGH",
+        "description": "Interaction: CLV(1.5) + Compression(1.5)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.5,
+        "weight_compression": 1.5,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_INTER_CLV_COMP_HIGH",
+        "description": "Interaction: CLV(1.5) + Compression(1.5)",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 6553,
+        "n_top5_selected": 2186,
+        "n_trades": 1746,
+        "total_r": 2756.98,
+        "er": 1.579,
+        "median_r": 1.651,
+        "std_r": 0.951,
+        "wr": 92.2,
+        "pf": 21.66,
+        "max_dd": 2.28,
+        "loo1_er": 1.577,
+        "winsorized_er": 1.577,
+        "rank_correlations": {
+          "spearman_rho_all": 0.279,
+          "kendall_tau_all": 0.1949,
+          "spearman_rho_top10": 0.1798,
+          "kendall_tau_top10": 0.0754,
+          "spearman_rho_top5": 0.165,
+          "kendall_tau_top5": 0.0844,
+          "spearman_rho_exec": 0.0611,
+          "kendall_tau_exec": 0.0413
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_INTER_CLV_FRESH_HIGH",
+        "description": "Interaction: CLV(1.5) + Freshness(1.5)",
+        "weight_freshness": 1.5,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.5,
+        "weight_compression": 1.0,
+        "weight_runway": 1.0,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_INTER_CLV_FRESH_HIGH",
+        "description": "Interaction: CLV(1.5) + Freshness(1.5)",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 6647,
+        "n_top5_selected": 2153,
+        "n_trades": 1725,
+        "total_r": 2709.61,
+        "er": 1.571,
+        "median_r": 1.648,
+        "std_r": 0.941,
+        "wr": 92.1,
+        "pf": 21.62,
+        "max_dd": 2.24,
+        "loo1_er": 1.569,
+        "winsorized_er": 1.569,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2673,
+          "kendall_tau_all": 0.1663,
+          "spearman_rho_top10": 0.1823,
+          "kendall_tau_top10": 0.1269,
+          "spearman_rho_top5": 0.1669,
+          "kendall_tau_top5": 0.0986,
+          "spearman_rho_exec": 0.0716,
+          "kendall_tau_exec": 0.0657
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_INTER_CLV_COMP_RUNWAY_HIGH",
+        "description": "Interaction: CLV(1.5) + Comp(1.5) + Runway(1.5)",
+        "weight_freshness": 1.0,
+        "weight_rs_momentum": 1.0,
+        "weight_clv": 1.5,
+        "weight_compression": 1.5,
+        "weight_runway": 1.5,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_INTER_CLV_COMP_RUNWAY_HIGH",
+        "description": "Interaction: CLV(1.5) + Comp(1.5) + Runway(1.5)",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 7101,
+        "n_top5_selected": 2277,
+        "n_trades": 1795,
+        "total_r": 2826.88,
+        "er": 1.575,
+        "median_r": 1.651,
+        "std_r": 0.955,
+        "wr": 92.0,
+        "pf": 21.21,
+        "max_dd": 2.28,
+        "loo1_er": 1.573,
+        "winsorized_er": 1.573,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2927,
+          "kendall_tau_all": 0.1919,
+          "spearman_rho_top10": 0.2007,
+          "kendall_tau_top10": 0.0959,
+          "spearman_rho_top5": 0.1796,
+          "kendall_tau_top5": 0.1344,
+          "spearman_rho_exec": 0.0576,
+          "kendall_tau_exec": 0.0396
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_INTER_SIMPLIFIED_PURE_CORE",
+        "description": "Simplified Core: CLV(1.5) + Comp(1.5) + Fresh(1.2) + RS(0.0)",
+        "weight_freshness": 1.2,
+        "weight_rs_momentum": 0.0,
+        "weight_clv": 1.5,
+        "weight_compression": 1.5,
+        "weight_runway": 1.2,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_INTER_SIMPLIFIED_PURE_CORE",
+        "description": "Simplified Core: CLV(1.5) + Comp(1.5) + Fresh(1.2) + RS(0.0)",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 6469,
+        "n_top5_selected": 2040,
+        "n_trades": 1660,
+        "total_r": 2579.98,
+        "er": 1.554,
+        "median_r": 1.624,
+        "std_r": 0.924,
+        "wr": 92.2,
+        "pf": 21.94,
+        "max_dd": 2.32,
+        "loo1_er": 1.552,
+        "winsorized_er": 1.552,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2422,
+          "kendall_tau_all": 0.142,
+          "spearman_rho_top10": 0.1651,
+          "kendall_tau_top10": 0.1094,
+          "spearman_rho_top5": 0.1515,
+          "kendall_tau_top5": 0.1076,
+          "spearman_rho_exec": 0.0824,
+          "kendall_tau_exec": 0.047
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "M_G_INTER_SIMPLIFIED_CORE_REGIME",
+        "description": "Simplified Core + Regime Veto: CLV(1.5) + Comp(1.5) + RS(0.0)",
+        "weight_freshness": 1.2,
+        "weight_rs_momentum": 0.0,
+        "weight_clv": 1.5,
+        "weight_compression": 1.5,
+        "weight_runway": 1.2,
+        "weight_vwap_timing": 1.0,
+        "weight_volume_ret": 1.0,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "M_G_INTER_SIMPLIFIED_CORE_REGIME",
+        "description": "Simplified Core + Regime Veto: CLV(1.5) + Comp(1.5) + RS(0.0)",
+        "n_candidates_evaluated": 17794,
+        "n_scored_qualified": 6188,
+        "n_top5_selected": 2028,
+        "n_trades": 1647,
+        "total_r": 2566.3,
+        "er": 1.558,
+        "median_r": 1.62,
+        "std_r": 0.913,
+        "wr": 92.5,
+        "pf": 22.93,
+        "max_dd": 2.32,
+        "loo1_er": 1.556,
+        "winsorized_er": 1.556,
+        "rank_correlations": {
+          "spearman_rho_all": 0.2627,
+          "kendall_tau_all": 0.2178,
+          "spearman_rho_top10": 0.182,
+          "kendall_tau_top10": 0.1417,
+          "spearman_rho_top5": 0.1605,
+          "kendall_tau_top5": 0.0812,
+          "spearman_rho_exec": 0.0927,
+          "kendall_tau_exec": 0.0456
+        }
+      }
+    }
+  ]
+}

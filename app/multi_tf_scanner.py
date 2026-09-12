@@ -1976,7 +1976,20 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
                 run_ctx.fresh_count = total_fetched
                 run_ctx.stale_count = total_stale
                 
-            if total_symbols > 0 and total_stale / total_symbols > 0.05:
+            from app.market_utils import validate_batch_staleness
+            staleness_res = validate_batch_staleness(total_stale, total_symbols, "MULTI_TF", max_stale_pct=25.0, run_ctx=run_ctx)
+
+            if staleness_res["is_blocked"]:
+                status = "DOWN"
+                outcome = "FAILED"
+                error_msg = f"🚫 CRITICAL BLOCKER: {total_stale}/{total_symbols} symbols ({staleness_res['stale_pct']:.1f}%) stale data (≥25%)"
+                logger.error(f"🚨 {error_msg}")
+                try:
+                    from telegram_engine import send_telegram_message
+                    send_telegram_message(f"🚨 <b>CRITICAL BLOCKER: MULTI-TF SCANNER FAILED</b>\n{total_stale}/{total_symbols} symbols had stale market data.")
+                except Exception:
+                    pass
+            elif total_symbols > 0 and total_stale / total_symbols > 0.05:
                 status = "DEGRADED"
                 error_msg = f"Stale Data: {total_stale}/{total_symbols} symbols"
                 

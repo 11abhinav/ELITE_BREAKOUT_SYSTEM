@@ -1,0 +1,4083 @@
+{
+  "tournament_metadata": {
+    "track": "TRACK_4_SLOT_ECONOMICS_AND_CAPACITY",
+    "scanner": "DAILY_BUILDER",
+    "base_foundation": "Model G + 45m Confirmation Window",
+    "timestamp": "2026-09-11T14:54:07.892405+00:00",
+    "source_commit": "bf4da25fd10028cc034d6f9fa610cefb9dd62a0e",
+    "policies_tested": 6,
+    "calendar_audit": {
+      "saturday_bars": 0,
+      "sunday_bars": 0,
+      "lookahead_violations": 0,
+      "duplicate_events": 0
+    }
+  },
+  "marginal_slot_matrix": [
+    {
+      "slot_level": "Top 1",
+      "slot_idx": 1,
+      "portfolio_n": 91,
+      "portfolio_total_r": 147.57,
+      "portfolio_er": 1.622,
+      "portfolio_pf": 48.76,
+      "portfolio_max_dd": 1.16,
+      "marginal_trades_n": 91,
+      "marginal_total_r": 147.57,
+      "marginal_er": 1.622,
+      "worst_day_r": -1.17
+    },
+    {
+      "slot_level": "Top 2",
+      "slot_idx": 2,
+      "portfolio_n": 166,
+      "portfolio_total_r": 264.66,
+      "portfolio_er": 1.594,
+      "portfolio_pf": 27.11,
+      "portfolio_max_dd": 1.91,
+      "marginal_trades_n": 75,
+      "marginal_total_r": 117.09,
+      "marginal_er": 1.561,
+      "worst_day_r": 0.0
+    },
+    {
+      "slot_level": "Top 3",
+      "slot_idx": 3,
+      "portfolio_n": 251,
+      "portfolio_total_r": 383.92,
+      "portfolio_er": 1.53,
+      "portfolio_pf": 18.82,
+      "portfolio_max_dd": 1.2,
+      "marginal_trades_n": 85,
+      "marginal_total_r": 119.26,
+      "marginal_er": 1.403,
+      "worst_day_r": 0.0
+    },
+    {
+      "slot_level": "Top 4",
+      "slot_idx": 4,
+      "portfolio_n": 334,
+      "portfolio_total_r": 520.93,
+      "portfolio_er": 1.56,
+      "portfolio_pf": 21.38,
+      "portfolio_max_dd": 1.2,
+      "marginal_trades_n": 83,
+      "marginal_total_r": 137.01,
+      "marginal_er": 1.651,
+      "worst_day_r": 0.0
+    },
+    {
+      "slot_level": "Top 5",
+      "slot_idx": 5,
+      "portfolio_n": 409,
+      "portfolio_total_r": 631.94,
+      "portfolio_er": 1.545,
+      "portfolio_pf": 20.19,
+      "portfolio_max_dd": 1.96,
+      "marginal_trades_n": 75,
+      "marginal_total_r": 111.01,
+      "marginal_er": 1.48,
+      "worst_day_r": 0.0
+    }
+  ],
+  "holdout_results": [
+    {
+      "policy": {
+        "policy_id": "CAP_TOP_1",
+        "max_slots": 1,
+        "description": "Top 1 Slot Allocation (Conservative Pure Focus)",
+        "regime_dynamic": false,
+        "regime_slot_map": null
+      },
+      "metrics": {
+        "policy_id": "CAP_TOP_1",
+        "max_slots": 1,
+        "description": "Top 1 Slot Allocation (Conservative Pure Focus)",
+        "n_sessions": 125,
+        "zero_alert_sessions": 17,
+        "avg_daily_trades": 0.73,
+        "avg_sector_concentration": 0.0,
+        "worst_day_r": -1.17,
+        "best_day_r": 4.07,
+        "portfolio_metrics": {
+          "n": 91,
+          "total_r": 147.57,
+          "er": 1.622,
+          "wr": 96.7,
+          "pf": 48.76,
+          "max_dd": 1.16
+        },
+        "isolated_slot_metrics": {
+          "slot_1": {
+            "n": 91,
+            "total_r": 147.57,
+            "er": 1.622,
+            "wr": 96.7,
+            "pf": 48.76,
+            "max_dd": 1.16
+          },
+          "slot_2": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          },
+          "slot_3": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          },
+          "slot_4": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          },
+          "slot_5": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          }
+        },
+        "regime_slot_breakdown": {
+          "STRONG_BULL": {
+            "portfolio": {
+              "n": 23,
+              "total_r": 37.61,
+              "er": 1.635,
+              "wr": 100.0,
+              "pf": 37610000.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 23,
+                "total_r": 37.61,
+                "er": 1.635,
+                "wr": 100.0,
+                "pf": 37610000.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BULL": {
+            "portfolio": {
+              "n": 42,
+              "total_r": 70.34,
+              "er": 1.675,
+              "wr": 95.2,
+              "pf": 32.47,
+              "max_dd": 1.17
+            },
+            "slots": {
+              "slot_1": {
+                "n": 42,
+                "total_r": 70.34,
+                "er": 1.675,
+                "wr": 95.2,
+                "pf": 32.47,
+                "max_dd": 1.17
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "CHOPPY_RANGE": {
+            "portfolio": {
+              "n": 21,
+              "total_r": 31.5,
+              "er": 1.5,
+              "wr": 95.2,
+              "pf": 37.84,
+              "max_dd": 0.86
+            },
+            "slots": {
+              "slot_1": {
+                "n": 21,
+                "total_r": 31.5,
+                "er": 1.5,
+                "wr": 95.2,
+                "pf": 37.84,
+                "max_dd": 0.86
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BEAR": {
+            "portfolio": {
+              "n": 5,
+              "total_r": 8.13,
+              "er": 1.626,
+              "wr": 100.0,
+              "pf": 8129000.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 5,
+                "total_r": 8.13,
+                "er": 1.626,
+                "wr": 100.0,
+                "pf": 8129000.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "SHARP_SELLOFF": {
+            "portfolio": {
+              "n": 0,
+              "total_r": 0.0,
+              "er": 0.0,
+              "wr": 0.0,
+              "pf": 0.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "policy": {
+        "policy_id": "CAP_TOP_2",
+        "max_slots": 2,
+        "description": "Top 2 Slots Allocation",
+        "regime_dynamic": false,
+        "regime_slot_map": null
+      },
+      "metrics": {
+        "policy_id": "CAP_TOP_2",
+        "max_slots": 2,
+        "description": "Top 2 Slots Allocation",
+        "n_sessions": 125,
+        "zero_alert_sessions": 17,
+        "avg_daily_trades": 1.33,
+        "avg_sector_concentration": 0.072,
+        "worst_day_r": 0.0,
+        "best_day_r": 6.12,
+        "portfolio_metrics": {
+          "n": 166,
+          "total_r": 264.66,
+          "er": 1.594,
+          "wr": 94.0,
+          "pf": 27.11,
+          "max_dd": 1.91
+        },
+        "isolated_slot_metrics": {
+          "slot_1": {
+            "n": 91,
+            "total_r": 147.57,
+            "er": 1.622,
+            "wr": 96.7,
+            "pf": 48.76,
+            "max_dd": 1.16
+          },
+          "slot_2": {
+            "n": 75,
+            "total_r": 117.09,
+            "er": 1.561,
+            "wr": 90.7,
+            "pf": 17.62,
+            "max_dd": 1.17
+          },
+          "slot_3": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          },
+          "slot_4": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          },
+          "slot_5": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          }
+        },
+        "regime_slot_breakdown": {
+          "STRONG_BULL": {
+            "portfolio": {
+              "n": 45,
+              "total_r": 73.24,
+              "er": 1.628,
+              "wr": 93.3,
+              "pf": 23.04,
+              "max_dd": 1.17
+            },
+            "slots": {
+              "slot_1": {
+                "n": 23,
+                "total_r": 37.61,
+                "er": 1.635,
+                "wr": 100.0,
+                "pf": 37610000.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 22,
+                "total_r": 35.63,
+                "er": 1.62,
+                "wr": 86.4,
+                "pf": 11.72,
+                "max_dd": 1.17
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BULL": {
+            "portfolio": {
+              "n": 81,
+              "total_r": 126.07,
+              "er": 1.556,
+              "wr": 92.6,
+              "pf": 22.16,
+              "max_dd": 1.16
+            },
+            "slots": {
+              "slot_1": {
+                "n": 42,
+                "total_r": 70.34,
+                "er": 1.675,
+                "wr": 95.2,
+                "pf": 32.47,
+                "max_dd": 1.17
+              },
+              "slot_2": {
+                "n": 39,
+                "total_r": 55.73,
+                "er": 1.429,
+                "wr": 89.7,
+                "pf": 15.97,
+                "max_dd": 1.16
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "CHOPPY_RANGE": {
+            "portfolio": {
+              "n": 34,
+              "total_r": 55.2,
+              "er": 1.624,
+              "wr": 97.1,
+              "pf": 65.56,
+              "max_dd": 0.86
+            },
+            "slots": {
+              "slot_1": {
+                "n": 21,
+                "total_r": 31.5,
+                "er": 1.5,
+                "wr": 95.2,
+                "pf": 37.84,
+                "max_dd": 0.86
+              },
+              "slot_2": {
+                "n": 13,
+                "total_r": 23.71,
+                "er": 1.824,
+                "wr": 100.0,
+                "pf": 23706000.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BEAR": {
+            "portfolio": {
+              "n": 6,
+              "total_r": 10.14,
+              "er": 1.69,
+              "wr": 100.0,
+              "pf": 10142000.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 5,
+                "total_r": 8.13,
+                "er": 1.626,
+                "wr": 100.0,
+                "pf": 8129000.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 1,
+                "total_r": 2.01,
+                "er": 2.013,
+                "wr": 100.0,
+                "pf": 2013000.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "SHARP_SELLOFF": {
+            "portfolio": {
+              "n": 0,
+              "total_r": 0.0,
+              "er": 0.0,
+              "wr": 0.0,
+              "pf": 0.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "policy": {
+        "policy_id": "CAP_TOP_3",
+        "max_slots": 3,
+        "description": "Top 3 Slots Allocation (High-Conviction Core)",
+        "regime_dynamic": false,
+        "regime_slot_map": null
+      },
+      "metrics": {
+        "policy_id": "CAP_TOP_3",
+        "max_slots": 3,
+        "description": "Top 3 Slots Allocation (High-Conviction Core)",
+        "n_sessions": 125,
+        "zero_alert_sessions": 17,
+        "avg_daily_trades": 2.01,
+        "avg_sector_concentration": 0.107,
+        "worst_day_r": 0.0,
+        "best_day_r": 7.72,
+        "portfolio_metrics": {
+          "n": 251,
+          "total_r": 383.92,
+          "er": 1.53,
+          "wr": 91.6,
+          "pf": 18.82,
+          "max_dd": 1.2
+        },
+        "isolated_slot_metrics": {
+          "slot_1": {
+            "n": 91,
+            "total_r": 147.57,
+            "er": 1.622,
+            "wr": 96.7,
+            "pf": 48.76,
+            "max_dd": 1.16
+          },
+          "slot_2": {
+            "n": 75,
+            "total_r": 117.09,
+            "er": 1.561,
+            "wr": 90.7,
+            "pf": 17.62,
+            "max_dd": 1.17
+          },
+          "slot_3": {
+            "n": 85,
+            "total_r": 119.26,
+            "er": 1.403,
+            "wr": 87.1,
+            "pf": 11.46,
+            "max_dd": 1.71
+          },
+          "slot_4": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          },
+          "slot_5": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          }
+        },
+        "regime_slot_breakdown": {
+          "STRONG_BULL": {
+            "portfolio": {
+              "n": 69,
+              "total_r": 107.62,
+              "er": 1.56,
+              "wr": 92.8,
+              "pf": 21.28,
+              "max_dd": 1.17
+            },
+            "slots": {
+              "slot_1": {
+                "n": 23,
+                "total_r": 37.61,
+                "er": 1.635,
+                "wr": 100.0,
+                "pf": 37610000.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 22,
+                "total_r": 35.63,
+                "er": 1.62,
+                "wr": 86.4,
+                "pf": 11.72,
+                "max_dd": 1.17
+              },
+              "slot_3": {
+                "n": 24,
+                "total_r": 34.38,
+                "er": 1.433,
+                "wr": 91.7,
+                "pf": 18.32,
+                "max_dd": 1.13
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BULL": {
+            "portfolio": {
+              "n": 124,
+              "total_r": 190.71,
+              "er": 1.538,
+              "wr": 91.1,
+              "pf": 18.18,
+              "max_dd": 2.02
+            },
+            "slots": {
+              "slot_1": {
+                "n": 42,
+                "total_r": 70.34,
+                "er": 1.675,
+                "wr": 95.2,
+                "pf": 32.47,
+                "max_dd": 1.17
+              },
+              "slot_2": {
+                "n": 39,
+                "total_r": 55.73,
+                "er": 1.429,
+                "wr": 89.7,
+                "pf": 15.97,
+                "max_dd": 1.16
+              },
+              "slot_3": {
+                "n": 43,
+                "total_r": 64.64,
+                "er": 1.503,
+                "wr": 88.4,
+                "pf": 13.57,
+                "max_dd": 2.37
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "CHOPPY_RANGE": {
+            "portfolio": {
+              "n": 51,
+              "total_r": 74.25,
+              "er": 1.456,
+              "wr": 90.2,
+              "pf": 15.47,
+              "max_dd": 2.03
+            },
+            "slots": {
+              "slot_1": {
+                "n": 21,
+                "total_r": 31.5,
+                "er": 1.5,
+                "wr": 95.2,
+                "pf": 37.84,
+                "max_dd": 0.86
+              },
+              "slot_2": {
+                "n": 13,
+                "total_r": 23.71,
+                "er": 1.824,
+                "wr": 100.0,
+                "pf": 23706000.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 17,
+                "total_r": 19.05,
+                "er": 1.12,
+                "wr": 76.5,
+                "pf": 5.45,
+                "max_dd": 1.18
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BEAR": {
+            "portfolio": {
+              "n": 7,
+              "total_r": 11.34,
+              "er": 1.62,
+              "wr": 100.0,
+              "pf": 11337000.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 5,
+                "total_r": 8.13,
+                "er": 1.626,
+                "wr": 100.0,
+                "pf": 8129000.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 1,
+                "total_r": 2.01,
+                "er": 2.013,
+                "wr": 100.0,
+                "pf": 2013000.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 1,
+                "total_r": 1.2,
+                "er": 1.195,
+                "wr": 100.0,
+                "pf": 1195000.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "SHARP_SELLOFF": {
+            "portfolio": {
+              "n": 0,
+              "total_r": 0.0,
+              "er": 0.0,
+              "wr": 0.0,
+              "pf": 0.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "policy": {
+        "policy_id": "CAP_TOP_4",
+        "max_slots": 4,
+        "description": "Top 4 Slots Allocation",
+        "regime_dynamic": false,
+        "regime_slot_map": null
+      },
+      "metrics": {
+        "policy_id": "CAP_TOP_4",
+        "max_slots": 4,
+        "description": "Top 4 Slots Allocation",
+        "n_sessions": 125,
+        "zero_alert_sessions": 17,
+        "avg_daily_trades": 2.67,
+        "avg_sector_concentration": 0.14,
+        "worst_day_r": 0.0,
+        "best_day_r": 9.78,
+        "portfolio_metrics": {
+          "n": 334,
+          "total_r": 520.93,
+          "er": 1.56,
+          "wr": 92.5,
+          "pf": 21.38,
+          "max_dd": 1.2
+        },
+        "isolated_slot_metrics": {
+          "slot_1": {
+            "n": 91,
+            "total_r": 147.57,
+            "er": 1.622,
+            "wr": 96.7,
+            "pf": 48.76,
+            "max_dd": 1.16
+          },
+          "slot_2": {
+            "n": 75,
+            "total_r": 117.09,
+            "er": 1.561,
+            "wr": 90.7,
+            "pf": 17.62,
+            "max_dd": 1.17
+          },
+          "slot_3": {
+            "n": 85,
+            "total_r": 119.26,
+            "er": 1.403,
+            "wr": 87.1,
+            "pf": 11.46,
+            "max_dd": 1.71
+          },
+          "slot_4": {
+            "n": 83,
+            "total_r": 137.01,
+            "er": 1.651,
+            "wr": 95.2,
+            "pf": 35.06,
+            "max_dd": 1.16
+          },
+          "slot_5": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          }
+        },
+        "regime_slot_breakdown": {
+          "STRONG_BULL": {
+            "portfolio": {
+              "n": 94,
+              "total_r": 146.15,
+              "er": 1.555,
+              "wr": 93.6,
+              "pf": 23.59,
+              "max_dd": 1.17
+            },
+            "slots": {
+              "slot_1": {
+                "n": 23,
+                "total_r": 37.61,
+                "er": 1.635,
+                "wr": 100.0,
+                "pf": 37610000.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 22,
+                "total_r": 35.63,
+                "er": 1.62,
+                "wr": 86.4,
+                "pf": 11.72,
+                "max_dd": 1.17
+              },
+              "slot_3": {
+                "n": 24,
+                "total_r": 34.38,
+                "er": 1.433,
+                "wr": 91.7,
+                "pf": 18.32,
+                "max_dd": 1.13
+              },
+              "slot_4": {
+                "n": 25,
+                "total_r": 38.52,
+                "er": 1.541,
+                "wr": 96.0,
+                "pf": 34.18,
+                "max_dd": 1.16
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BULL": {
+            "portfolio": {
+              "n": 168,
+              "total_r": 264.0,
+              "er": 1.571,
+              "wr": 92.3,
+              "pf": 21.14,
+              "max_dd": 1.2
+            },
+            "slots": {
+              "slot_1": {
+                "n": 42,
+                "total_r": 70.34,
+                "er": 1.675,
+                "wr": 95.2,
+                "pf": 32.47,
+                "max_dd": 1.17
+              },
+              "slot_2": {
+                "n": 39,
+                "total_r": 55.73,
+                "er": 1.429,
+                "wr": 89.7,
+                "pf": 15.97,
+                "max_dd": 1.16
+              },
+              "slot_3": {
+                "n": 43,
+                "total_r": 64.64,
+                "er": 1.503,
+                "wr": 88.4,
+                "pf": 13.57,
+                "max_dd": 2.37
+              },
+              "slot_4": {
+                "n": 44,
+                "total_r": 73.29,
+                "er": 1.666,
+                "wr": 95.5,
+                "pf": 37.52,
+                "max_dd": 1.15
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "CHOPPY_RANGE": {
+            "portfolio": {
+              "n": 65,
+              "total_r": 99.45,
+              "er": 1.53,
+              "wr": 90.8,
+              "pf": 17.61,
+              "max_dd": 1.17
+            },
+            "slots": {
+              "slot_1": {
+                "n": 21,
+                "total_r": 31.5,
+                "er": 1.5,
+                "wr": 95.2,
+                "pf": 37.84,
+                "max_dd": 0.86
+              },
+              "slot_2": {
+                "n": 13,
+                "total_r": 23.71,
+                "er": 1.824,
+                "wr": 100.0,
+                "pf": 23706000.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 17,
+                "total_r": 19.05,
+                "er": 1.12,
+                "wr": 76.5,
+                "pf": 5.45,
+                "max_dd": 1.18
+              },
+              "slot_4": {
+                "n": 14,
+                "total_r": 25.2,
+                "er": 1.8,
+                "wr": 92.9,
+                "pf": 30.47,
+                "max_dd": 0.86
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BEAR": {
+            "portfolio": {
+              "n": 7,
+              "total_r": 11.34,
+              "er": 1.62,
+              "wr": 100.0,
+              "pf": 11337000.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 5,
+                "total_r": 8.13,
+                "er": 1.626,
+                "wr": 100.0,
+                "pf": 8129000.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 1,
+                "total_r": 2.01,
+                "er": 2.013,
+                "wr": 100.0,
+                "pf": 2013000.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 1,
+                "total_r": 1.2,
+                "er": 1.195,
+                "wr": 100.0,
+                "pf": 1195000.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "SHARP_SELLOFF": {
+            "portfolio": {
+              "n": 0,
+              "total_r": 0.0,
+              "er": 0.0,
+              "wr": 0.0,
+              "pf": 0.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "policy": {
+        "policy_id": "CAP_TOP_5",
+        "max_slots": 5,
+        "description": "Top 5 Slots Allocation (Certified Baseline Default)",
+        "regime_dynamic": false,
+        "regime_slot_map": null
+      },
+      "metrics": {
+        "policy_id": "CAP_TOP_5",
+        "max_slots": 5,
+        "description": "Top 5 Slots Allocation (Certified Baseline Default)",
+        "n_sessions": 125,
+        "zero_alert_sessions": 17,
+        "avg_daily_trades": 3.27,
+        "avg_sector_concentration": 0.163,
+        "worst_day_r": 0.0,
+        "best_day_r": 11.55,
+        "portfolio_metrics": {
+          "n": 409,
+          "total_r": 631.94,
+          "er": 1.545,
+          "wr": 91.9,
+          "pf": 20.19,
+          "max_dd": 1.96
+        },
+        "isolated_slot_metrics": {
+          "slot_1": {
+            "n": 91,
+            "total_r": 147.57,
+            "er": 1.622,
+            "wr": 96.7,
+            "pf": 48.76,
+            "max_dd": 1.16
+          },
+          "slot_2": {
+            "n": 75,
+            "total_r": 117.09,
+            "er": 1.561,
+            "wr": 90.7,
+            "pf": 17.62,
+            "max_dd": 1.17
+          },
+          "slot_3": {
+            "n": 85,
+            "total_r": 119.26,
+            "er": 1.403,
+            "wr": 87.1,
+            "pf": 11.46,
+            "max_dd": 1.71
+          },
+          "slot_4": {
+            "n": 83,
+            "total_r": 137.01,
+            "er": 1.651,
+            "wr": 95.2,
+            "pf": 35.06,
+            "max_dd": 1.16
+          },
+          "slot_5": {
+            "n": 75,
+            "total_r": 111.01,
+            "er": 1.48,
+            "wr": 89.3,
+            "pf": 16.05,
+            "max_dd": 1.71
+          }
+        },
+        "regime_slot_breakdown": {
+          "STRONG_BULL": {
+            "portfolio": {
+              "n": 113,
+              "total_r": 165.64,
+              "er": 1.466,
+              "wr": 91.2,
+              "pf": 16.89,
+              "max_dd": 1.17
+            },
+            "slots": {
+              "slot_1": {
+                "n": 23,
+                "total_r": 37.61,
+                "er": 1.635,
+                "wr": 100.0,
+                "pf": 37610000.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 22,
+                "total_r": 35.63,
+                "er": 1.62,
+                "wr": 86.4,
+                "pf": 11.72,
+                "max_dd": 1.17
+              },
+              "slot_3": {
+                "n": 24,
+                "total_r": 34.38,
+                "er": 1.433,
+                "wr": 91.7,
+                "pf": 18.32,
+                "max_dd": 1.13
+              },
+              "slot_4": {
+                "n": 25,
+                "total_r": 38.52,
+                "er": 1.541,
+                "wr": 96.0,
+                "pf": 34.18,
+                "max_dd": 1.16
+              },
+              "slot_5": {
+                "n": 19,
+                "total_r": 19.49,
+                "er": 1.026,
+                "wr": 78.9,
+                "pf": 5.93,
+                "max_dd": 2.0
+              }
+            }
+          },
+          "NEUTRAL_BULL": {
+            "portfolio": {
+              "n": 208,
+              "total_r": 332.19,
+              "er": 1.597,
+              "wr": 92.3,
+              "pf": 22.2,
+              "max_dd": 1.2
+            },
+            "slots": {
+              "slot_1": {
+                "n": 42,
+                "total_r": 70.34,
+                "er": 1.675,
+                "wr": 95.2,
+                "pf": 32.47,
+                "max_dd": 1.17
+              },
+              "slot_2": {
+                "n": 39,
+                "total_r": 55.73,
+                "er": 1.429,
+                "wr": 89.7,
+                "pf": 15.97,
+                "max_dd": 1.16
+              },
+              "slot_3": {
+                "n": 43,
+                "total_r": 64.64,
+                "er": 1.503,
+                "wr": 88.4,
+                "pf": 13.57,
+                "max_dd": 2.37
+              },
+              "slot_4": {
+                "n": 44,
+                "total_r": 73.29,
+                "er": 1.666,
+                "wr": 95.5,
+                "pf": 37.52,
+                "max_dd": 1.15
+              },
+              "slot_5": {
+                "n": 40,
+                "total_r": 68.2,
+                "er": 1.705,
+                "wr": 92.5,
+                "pf": 27.59,
+                "max_dd": 0.86
+              }
+            }
+          },
+          "CHOPPY_RANGE": {
+            "portfolio": {
+              "n": 81,
+              "total_r": 122.77,
+              "er": 1.516,
+              "wr": 91.4,
+              "pf": 18.94,
+              "max_dd": 1.17
+            },
+            "slots": {
+              "slot_1": {
+                "n": 21,
+                "total_r": 31.5,
+                "er": 1.5,
+                "wr": 95.2,
+                "pf": 37.84,
+                "max_dd": 0.86
+              },
+              "slot_2": {
+                "n": 13,
+                "total_r": 23.71,
+                "er": 1.824,
+                "wr": 100.0,
+                "pf": 23706000.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 17,
+                "total_r": 19.05,
+                "er": 1.12,
+                "wr": 76.5,
+                "pf": 5.45,
+                "max_dd": 1.18
+              },
+              "slot_4": {
+                "n": 14,
+                "total_r": 25.2,
+                "er": 1.8,
+                "wr": 92.9,
+                "pf": 30.47,
+                "max_dd": 0.86
+              },
+              "slot_5": {
+                "n": 16,
+                "total_r": 23.33,
+                "er": 1.458,
+                "wr": 93.8,
+                "pf": 28.28,
+                "max_dd": 0.86
+              }
+            }
+          },
+          "NEUTRAL_BEAR": {
+            "portfolio": {
+              "n": 7,
+              "total_r": 11.34,
+              "er": 1.62,
+              "wr": 100.0,
+              "pf": 11337000.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 5,
+                "total_r": 8.13,
+                "er": 1.626,
+                "wr": 100.0,
+                "pf": 8129000.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 1,
+                "total_r": 2.01,
+                "er": 2.013,
+                "wr": 100.0,
+                "pf": 2013000.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 1,
+                "total_r": 1.2,
+                "er": 1.195,
+                "wr": 100.0,
+                "pf": 1195000.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "SHARP_SELLOFF": {
+            "portfolio": {
+              "n": 0,
+              "total_r": 0.0,
+              "er": 0.0,
+              "wr": 0.0,
+              "pf": 0.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "policy": {
+        "policy_id": "CAP_REGIME_DYNAMIC_OPTIMAL",
+        "max_slots": 5,
+        "description": "Regime-Dynamic Capacity Policy (Strong Bull=5, Neutral Bull=4, Choppy=2, Bear=1)",
+        "regime_dynamic": true,
+        "regime_slot_map": {
+          "STRONG_BULL": 5,
+          "NEUTRAL_BULL": 4,
+          "CHOPPY_RANGE": 2,
+          "NEUTRAL_BEAR": 1,
+          "SHARP_SELLOFF": 0
+        }
+      },
+      "metrics": {
+        "policy_id": "CAP_REGIME_DYNAMIC_OPTIMAL",
+        "max_slots": 5,
+        "description": "Regime-Dynamic Capacity Policy (Strong Bull=5, Neutral Bull=4, Choppy=2, Bear=1)",
+        "n_sessions": 125,
+        "zero_alert_sessions": 17,
+        "avg_daily_trades": 2.56,
+        "avg_sector_concentration": 0.123,
+        "worst_day_r": 0.0,
+        "best_day_r": 11.17,
+        "portfolio_metrics": {
+          "n": 320,
+          "total_r": 492.97,
+          "er": 1.541,
+          "wr": 92.5,
+          "pf": 21.22,
+          "max_dd": 1.96
+        },
+        "isolated_slot_metrics": {
+          "slot_1": {
+            "n": 91,
+            "total_r": 147.57,
+            "er": 1.622,
+            "wr": 96.7,
+            "pf": 48.76,
+            "max_dd": 1.16
+          },
+          "slot_2": {
+            "n": 74,
+            "total_r": 115.07,
+            "er": 1.555,
+            "wr": 90.5,
+            "pf": 17.33,
+            "max_dd": 1.17
+          },
+          "slot_3": {
+            "n": 67,
+            "total_r": 99.02,
+            "er": 1.478,
+            "wr": 89.6,
+            "pf": 14.89,
+            "max_dd": 1.71
+          },
+          "slot_4": {
+            "n": 69,
+            "total_r": 111.81,
+            "er": 1.62,
+            "wr": 95.7,
+            "pf": 36.29,
+            "max_dd": 1.16
+          },
+          "slot_5": {
+            "n": 19,
+            "total_r": 19.49,
+            "er": 1.026,
+            "wr": 78.9,
+            "pf": 5.93,
+            "max_dd": 2.0
+          }
+        },
+        "regime_slot_breakdown": {
+          "STRONG_BULL": {
+            "portfolio": {
+              "n": 113,
+              "total_r": 165.64,
+              "er": 1.466,
+              "wr": 91.2,
+              "pf": 16.89,
+              "max_dd": 1.17
+            },
+            "slots": {
+              "slot_1": {
+                "n": 23,
+                "total_r": 37.61,
+                "er": 1.635,
+                "wr": 100.0,
+                "pf": 37610000.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 22,
+                "total_r": 35.63,
+                "er": 1.62,
+                "wr": 86.4,
+                "pf": 11.72,
+                "max_dd": 1.17
+              },
+              "slot_3": {
+                "n": 24,
+                "total_r": 34.38,
+                "er": 1.433,
+                "wr": 91.7,
+                "pf": 18.32,
+                "max_dd": 1.13
+              },
+              "slot_4": {
+                "n": 25,
+                "total_r": 38.52,
+                "er": 1.541,
+                "wr": 96.0,
+                "pf": 34.18,
+                "max_dd": 1.16
+              },
+              "slot_5": {
+                "n": 19,
+                "total_r": 19.49,
+                "er": 1.026,
+                "wr": 78.9,
+                "pf": 5.93,
+                "max_dd": 2.0
+              }
+            }
+          },
+          "NEUTRAL_BULL": {
+            "portfolio": {
+              "n": 168,
+              "total_r": 264.0,
+              "er": 1.571,
+              "wr": 92.3,
+              "pf": 21.14,
+              "max_dd": 1.2
+            },
+            "slots": {
+              "slot_1": {
+                "n": 42,
+                "total_r": 70.34,
+                "er": 1.675,
+                "wr": 95.2,
+                "pf": 32.47,
+                "max_dd": 1.17
+              },
+              "slot_2": {
+                "n": 39,
+                "total_r": 55.73,
+                "er": 1.429,
+                "wr": 89.7,
+                "pf": 15.97,
+                "max_dd": 1.16
+              },
+              "slot_3": {
+                "n": 43,
+                "total_r": 64.64,
+                "er": 1.503,
+                "wr": 88.4,
+                "pf": 13.57,
+                "max_dd": 2.37
+              },
+              "slot_4": {
+                "n": 44,
+                "total_r": 73.29,
+                "er": 1.666,
+                "wr": 95.5,
+                "pf": 37.52,
+                "max_dd": 1.15
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "CHOPPY_RANGE": {
+            "portfolio": {
+              "n": 34,
+              "total_r": 55.2,
+              "er": 1.624,
+              "wr": 97.1,
+              "pf": 65.56,
+              "max_dd": 0.86
+            },
+            "slots": {
+              "slot_1": {
+                "n": 21,
+                "total_r": 31.5,
+                "er": 1.5,
+                "wr": 95.2,
+                "pf": 37.84,
+                "max_dd": 0.86
+              },
+              "slot_2": {
+                "n": 13,
+                "total_r": 23.71,
+                "er": 1.824,
+                "wr": 100.0,
+                "pf": 23706000.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BEAR": {
+            "portfolio": {
+              "n": 5,
+              "total_r": 8.13,
+              "er": 1.626,
+              "wr": 100.0,
+              "pf": 8129000.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 5,
+                "total_r": 8.13,
+                "er": 1.626,
+                "wr": 100.0,
+                "pf": 8129000.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "SHARP_SELLOFF": {
+            "portfolio": {
+              "n": 0,
+              "total_r": 0.0,
+              "er": 0.0,
+              "wr": 0.0,
+              "pf": 0.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "full_dataset_results": [
+    {
+      "policy": {
+        "policy_id": "CAP_TOP_1",
+        "max_slots": 1,
+        "description": "Top 1 Slot Allocation (Conservative Pure Focus)",
+        "regime_dynamic": false,
+        "regime_slot_map": null
+      },
+      "metrics": {
+        "policy_id": "CAP_TOP_1",
+        "max_slots": 1,
+        "description": "Top 1 Slot Allocation (Conservative Pure Focus)",
+        "n_sessions": 500,
+        "zero_alert_sessions": 73,
+        "avg_daily_trades": 0.68,
+        "avg_sector_concentration": 0.0,
+        "worst_day_r": -1.17,
+        "best_day_r": 4.89,
+        "portfolio_metrics": {
+          "n": 342,
+          "total_r": 567.7,
+          "er": 1.66,
+          "wr": 94.7,
+          "pf": 33.72,
+          "max_dd": 1.17
+        },
+        "isolated_slot_metrics": {
+          "slot_1": {
+            "n": 342,
+            "total_r": 567.7,
+            "er": 1.66,
+            "wr": 94.7,
+            "pf": 33.72,
+            "max_dd": 1.17
+          },
+          "slot_2": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          },
+          "slot_3": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          },
+          "slot_4": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          },
+          "slot_5": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          }
+        },
+        "regime_slot_breakdown": {
+          "STRONG_BULL": {
+            "portfolio": {
+              "n": 96,
+              "total_r": 164.2,
+              "er": 1.71,
+              "wr": 97.9,
+              "pf": 97.03,
+              "max_dd": 0.86
+            },
+            "slots": {
+              "slot_1": {
+                "n": 96,
+                "total_r": 164.2,
+                "er": 1.71,
+                "wr": 97.9,
+                "pf": 97.03,
+                "max_dd": 0.86
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BULL": {
+            "portfolio": {
+              "n": 147,
+              "total_r": 262.3,
+              "er": 1.784,
+              "wr": 96.6,
+              "pf": 53.29,
+              "max_dd": 1.16
+            },
+            "slots": {
+              "slot_1": {
+                "n": 147,
+                "total_r": 262.3,
+                "er": 1.784,
+                "wr": 96.6,
+                "pf": 53.29,
+                "max_dd": 1.16
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "CHOPPY_RANGE": {
+            "portfolio": {
+              "n": 82,
+              "total_r": 115.1,
+              "er": 1.404,
+              "wr": 89.0,
+              "pf": 14.25,
+              "max_dd": 1.14
+            },
+            "slots": {
+              "slot_1": {
+                "n": 82,
+                "total_r": 115.1,
+                "er": 1.404,
+                "wr": 89.0,
+                "pf": 14.25,
+                "max_dd": 1.14
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BEAR": {
+            "portfolio": {
+              "n": 17,
+              "total_r": 26.09,
+              "er": 1.535,
+              "wr": 88.2,
+              "pf": 14.48,
+              "max_dd": 1.08
+            },
+            "slots": {
+              "slot_1": {
+                "n": 17,
+                "total_r": 26.09,
+                "er": 1.535,
+                "wr": 88.2,
+                "pf": 14.48,
+                "max_dd": 1.08
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "SHARP_SELLOFF": {
+            "portfolio": {
+              "n": 0,
+              "total_r": 0.0,
+              "er": 0.0,
+              "wr": 0.0,
+              "pf": 0.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "policy": {
+        "policy_id": "CAP_TOP_2",
+        "max_slots": 2,
+        "description": "Top 2 Slots Allocation",
+        "regime_dynamic": false,
+        "regime_slot_map": null
+      },
+      "metrics": {
+        "policy_id": "CAP_TOP_2",
+        "max_slots": 2,
+        "description": "Top 2 Slots Allocation",
+        "n_sessions": 500,
+        "zero_alert_sessions": 73,
+        "avg_daily_trades": 1.33,
+        "avg_sector_concentration": 0.047,
+        "worst_day_r": -1.14,
+        "best_day_r": 6.39,
+        "portfolio_metrics": {
+          "n": 664,
+          "total_r": 1089.9,
+          "er": 1.641,
+          "wr": 94.0,
+          "pf": 29.1,
+          "max_dd": 1.91
+        },
+        "isolated_slot_metrics": {
+          "slot_1": {
+            "n": 342,
+            "total_r": 567.7,
+            "er": 1.66,
+            "wr": 94.7,
+            "pf": 33.72,
+            "max_dd": 1.17
+          },
+          "slot_2": {
+            "n": 322,
+            "total_r": 522.2,
+            "er": 1.622,
+            "wr": 93.2,
+            "pf": 25.35,
+            "max_dd": 1.17
+          },
+          "slot_3": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          },
+          "slot_4": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          },
+          "slot_5": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          }
+        },
+        "regime_slot_breakdown": {
+          "STRONG_BULL": {
+            "portfolio": {
+              "n": 193,
+              "total_r": 326.91,
+              "er": 1.694,
+              "wr": 95.9,
+              "pf": 42.37,
+              "max_dd": 1.17
+            },
+            "slots": {
+              "slot_1": {
+                "n": 96,
+                "total_r": 164.2,
+                "er": 1.71,
+                "wr": 97.9,
+                "pf": 97.03,
+                "max_dd": 0.86
+              },
+              "slot_2": {
+                "n": 97,
+                "total_r": 162.71,
+                "er": 1.677,
+                "wr": 93.8,
+                "pf": 27.27,
+                "max_dd": 1.17
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BULL": {
+            "portfolio": {
+              "n": 303,
+              "total_r": 508.16,
+              "er": 1.677,
+              "wr": 94.4,
+              "pf": 32.12,
+              "max_dd": 1.17
+            },
+            "slots": {
+              "slot_1": {
+                "n": 147,
+                "total_r": 262.3,
+                "er": 1.784,
+                "wr": 96.6,
+                "pf": 53.29,
+                "max_dd": 1.16
+              },
+              "slot_2": {
+                "n": 156,
+                "total_r": 245.86,
+                "er": 1.576,
+                "wr": 92.3,
+                "pf": 22.73,
+                "max_dd": 1.71
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "CHOPPY_RANGE": {
+            "portfolio": {
+              "n": 149,
+              "total_r": 225.4,
+              "er": 1.513,
+              "wr": 91.3,
+              "pf": 18.85,
+              "max_dd": 1.93
+            },
+            "slots": {
+              "slot_1": {
+                "n": 82,
+                "total_r": 115.1,
+                "er": 1.404,
+                "wr": 89.0,
+                "pf": 14.25,
+                "max_dd": 1.14
+              },
+              "slot_2": {
+                "n": 67,
+                "total_r": 110.29,
+                "er": 1.646,
+                "wr": 94.0,
+                "pf": 29.0,
+                "max_dd": 1.13
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BEAR": {
+            "portfolio": {
+              "n": 19,
+              "total_r": 29.44,
+              "er": 1.549,
+              "wr": 89.5,
+              "pf": 16.21,
+              "max_dd": 1.08
+            },
+            "slots": {
+              "slot_1": {
+                "n": 17,
+                "total_r": 26.09,
+                "er": 1.535,
+                "wr": 88.2,
+                "pf": 14.48,
+                "max_dd": 1.08
+              },
+              "slot_2": {
+                "n": 2,
+                "total_r": 3.34,
+                "er": 1.671,
+                "wr": 100.0,
+                "pf": 3342000.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "SHARP_SELLOFF": {
+            "portfolio": {
+              "n": 0,
+              "total_r": 0.0,
+              "er": 0.0,
+              "wr": 0.0,
+              "pf": 0.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "policy": {
+        "policy_id": "CAP_TOP_3",
+        "max_slots": 3,
+        "description": "Top 3 Slots Allocation (High-Conviction Core)",
+        "regime_dynamic": false,
+        "regime_slot_map": null
+      },
+      "metrics": {
+        "policy_id": "CAP_TOP_3",
+        "max_slots": 3,
+        "description": "Top 3 Slots Allocation (High-Conviction Core)",
+        "n_sessions": 500,
+        "zero_alert_sessions": 73,
+        "avg_daily_trades": 2.01,
+        "avg_sector_concentration": 0.084,
+        "worst_day_r": -1.08,
+        "best_day_r": 9.0,
+        "portfolio_metrics": {
+          "n": 1006,
+          "total_r": 1609.33,
+          "er": 1.6,
+          "wr": 93.0,
+          "pf": 24.71,
+          "max_dd": 1.71
+        },
+        "isolated_slot_metrics": {
+          "slot_1": {
+            "n": 342,
+            "total_r": 567.7,
+            "er": 1.66,
+            "wr": 94.7,
+            "pf": 33.72,
+            "max_dd": 1.17
+          },
+          "slot_2": {
+            "n": 322,
+            "total_r": 522.2,
+            "er": 1.622,
+            "wr": 93.2,
+            "pf": 25.35,
+            "max_dd": 1.17
+          },
+          "slot_3": {
+            "n": 342,
+            "total_r": 519.43,
+            "er": 1.519,
+            "wr": 91.2,
+            "pf": 18.86,
+            "max_dd": 2.01
+          },
+          "slot_4": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          },
+          "slot_5": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          }
+        },
+        "regime_slot_breakdown": {
+          "STRONG_BULL": {
+            "portfolio": {
+              "n": 290,
+              "total_r": 470.13,
+              "er": 1.621,
+              "wr": 94.8,
+              "pf": 32.97,
+              "max_dd": 1.19
+            },
+            "slots": {
+              "slot_1": {
+                "n": 96,
+                "total_r": 164.2,
+                "er": 1.71,
+                "wr": 97.9,
+                "pf": 97.03,
+                "max_dd": 0.86
+              },
+              "slot_2": {
+                "n": 97,
+                "total_r": 162.71,
+                "er": 1.677,
+                "wr": 93.8,
+                "pf": 27.27,
+                "max_dd": 1.17
+              },
+              "slot_3": {
+                "n": 97,
+                "total_r": 143.22,
+                "er": 1.476,
+                "wr": 92.8,
+                "pf": 22.05,
+                "max_dd": 1.19
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BULL": {
+            "portfolio": {
+              "n": 463,
+              "total_r": 757.84,
+              "er": 1.637,
+              "wr": 93.5,
+              "pf": 26.96,
+              "max_dd": 2.02
+            },
+            "slots": {
+              "slot_1": {
+                "n": 147,
+                "total_r": 262.3,
+                "er": 1.784,
+                "wr": 96.6,
+                "pf": 53.29,
+                "max_dd": 1.16
+              },
+              "slot_2": {
+                "n": 156,
+                "total_r": 245.86,
+                "er": 1.576,
+                "wr": 92.3,
+                "pf": 22.73,
+                "max_dd": 1.71
+              },
+              "slot_3": {
+                "n": 160,
+                "total_r": 249.68,
+                "er": 1.561,
+                "wr": 91.9,
+                "pf": 20.4,
+                "max_dd": 2.37
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "CHOPPY_RANGE": {
+            "portfolio": {
+              "n": 232,
+              "total_r": 348.62,
+              "er": 1.503,
+              "wr": 90.1,
+              "pf": 16.82,
+              "max_dd": 2.03
+            },
+            "slots": {
+              "slot_1": {
+                "n": 82,
+                "total_r": 115.1,
+                "er": 1.404,
+                "wr": 89.0,
+                "pf": 14.25,
+                "max_dd": 1.14
+              },
+              "slot_2": {
+                "n": 67,
+                "total_r": 110.29,
+                "er": 1.646,
+                "wr": 94.0,
+                "pf": 29.0,
+                "max_dd": 1.13
+              },
+              "slot_3": {
+                "n": 83,
+                "total_r": 123.22,
+                "er": 1.485,
+                "wr": 88.0,
+                "pf": 14.1,
+                "max_dd": 1.18
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BEAR": {
+            "portfolio": {
+              "n": 21,
+              "total_r": 32.75,
+              "er": 1.559,
+              "wr": 90.5,
+              "pf": 17.91,
+              "max_dd": 1.08
+            },
+            "slots": {
+              "slot_1": {
+                "n": 17,
+                "total_r": 26.09,
+                "er": 1.535,
+                "wr": 88.2,
+                "pf": 14.48,
+                "max_dd": 1.08
+              },
+              "slot_2": {
+                "n": 2,
+                "total_r": 3.34,
+                "er": 1.671,
+                "wr": 100.0,
+                "pf": 3342000.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 2,
+                "total_r": 3.31,
+                "er": 1.655,
+                "wr": 100.0,
+                "pf": 3310000.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "SHARP_SELLOFF": {
+            "portfolio": {
+              "n": 0,
+              "total_r": 0.0,
+              "er": 0.0,
+              "wr": 0.0,
+              "pf": 0.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "policy": {
+        "policy_id": "CAP_TOP_4",
+        "max_slots": 4,
+        "description": "Top 4 Slots Allocation",
+        "regime_dynamic": false,
+        "regime_slot_map": null
+      },
+      "metrics": {
+        "policy_id": "CAP_TOP_4",
+        "max_slots": 4,
+        "description": "Top 4 Slots Allocation",
+        "n_sessions": 500,
+        "zero_alert_sessions": 73,
+        "avg_daily_trades": 2.67,
+        "avg_sector_concentration": 0.12,
+        "worst_day_r": -1.08,
+        "best_day_r": 12.97,
+        "portfolio_metrics": {
+          "n": 1335,
+          "total_r": 2127.28,
+          "er": 1.593,
+          "wr": 92.5,
+          "pf": 23.02,
+          "max_dd": 2.01
+        },
+        "isolated_slot_metrics": {
+          "slot_1": {
+            "n": 342,
+            "total_r": 567.7,
+            "er": 1.66,
+            "wr": 94.7,
+            "pf": 33.72,
+            "max_dd": 1.17
+          },
+          "slot_2": {
+            "n": 322,
+            "total_r": 522.2,
+            "er": 1.622,
+            "wr": 93.2,
+            "pf": 25.35,
+            "max_dd": 1.17
+          },
+          "slot_3": {
+            "n": 342,
+            "total_r": 519.43,
+            "er": 1.519,
+            "wr": 91.2,
+            "pf": 18.86,
+            "max_dd": 2.01
+          },
+          "slot_4": {
+            "n": 329,
+            "total_r": 517.94,
+            "er": 1.574,
+            "wr": 90.9,
+            "pf": 19.04,
+            "max_dd": 2.01
+          },
+          "slot_5": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0,
+            "max_dd": 0.0
+          }
+        },
+        "regime_slot_breakdown": {
+          "STRONG_BULL": {
+            "portfolio": {
+              "n": 389,
+              "total_r": 634.66,
+              "er": 1.632,
+              "wr": 94.6,
+              "pf": 32.51,
+              "max_dd": 1.19
+            },
+            "slots": {
+              "slot_1": {
+                "n": 96,
+                "total_r": 164.2,
+                "er": 1.71,
+                "wr": 97.9,
+                "pf": 97.03,
+                "max_dd": 0.86
+              },
+              "slot_2": {
+                "n": 97,
+                "total_r": 162.71,
+                "er": 1.677,
+                "wr": 93.8,
+                "pf": 27.27,
+                "max_dd": 1.17
+              },
+              "slot_3": {
+                "n": 97,
+                "total_r": 143.22,
+                "er": 1.476,
+                "wr": 92.8,
+                "pf": 22.05,
+                "max_dd": 1.19
+              },
+              "slot_4": {
+                "n": 99,
+                "total_r": 164.54,
+                "er": 1.662,
+                "wr": 93.9,
+                "pf": 31.27,
+                "max_dd": 1.16
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BULL": {
+            "portfolio": {
+              "n": 621,
+              "total_r": 1007.06,
+              "er": 1.622,
+              "wr": 92.9,
+              "pf": 24.65,
+              "max_dd": 2.78
+            },
+            "slots": {
+              "slot_1": {
+                "n": 147,
+                "total_r": 262.3,
+                "er": 1.784,
+                "wr": 96.6,
+                "pf": 53.29,
+                "max_dd": 1.16
+              },
+              "slot_2": {
+                "n": 156,
+                "total_r": 245.86,
+                "er": 1.576,
+                "wr": 92.3,
+                "pf": 22.73,
+                "max_dd": 1.71
+              },
+              "slot_3": {
+                "n": 160,
+                "total_r": 249.68,
+                "er": 1.561,
+                "wr": 91.9,
+                "pf": 20.4,
+                "max_dd": 2.37
+              },
+              "slot_4": {
+                "n": 158,
+                "total_r": 249.22,
+                "er": 1.577,
+                "wr": 91.1,
+                "pf": 19.61,
+                "max_dd": 2.02
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "CHOPPY_RANGE": {
+            "portfolio": {
+              "n": 304,
+              "total_r": 452.81,
+              "er": 1.489,
+              "wr": 89.1,
+              "pf": 15.18,
+              "max_dd": 1.18
+            },
+            "slots": {
+              "slot_1": {
+                "n": 82,
+                "total_r": 115.1,
+                "er": 1.404,
+                "wr": 89.0,
+                "pf": 14.25,
+                "max_dd": 1.14
+              },
+              "slot_2": {
+                "n": 67,
+                "total_r": 110.29,
+                "er": 1.646,
+                "wr": 94.0,
+                "pf": 29.0,
+                "max_dd": 1.13
+              },
+              "slot_3": {
+                "n": 83,
+                "total_r": 123.22,
+                "er": 1.485,
+                "wr": 88.0,
+                "pf": 14.1,
+                "max_dd": 1.18
+              },
+              "slot_4": {
+                "n": 72,
+                "total_r": 104.19,
+                "er": 1.447,
+                "wr": 86.1,
+                "pf": 11.54,
+                "max_dd": 1.71
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BEAR": {
+            "portfolio": {
+              "n": 21,
+              "total_r": 32.75,
+              "er": 1.559,
+              "wr": 90.5,
+              "pf": 17.91,
+              "max_dd": 1.08
+            },
+            "slots": {
+              "slot_1": {
+                "n": 17,
+                "total_r": 26.09,
+                "er": 1.535,
+                "wr": 88.2,
+                "pf": 14.48,
+                "max_dd": 1.08
+              },
+              "slot_2": {
+                "n": 2,
+                "total_r": 3.34,
+                "er": 1.671,
+                "wr": 100.0,
+                "pf": 3342000.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 2,
+                "total_r": 3.31,
+                "er": 1.655,
+                "wr": 100.0,
+                "pf": 3310000.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "SHARP_SELLOFF": {
+            "portfolio": {
+              "n": 0,
+              "total_r": 0.0,
+              "er": 0.0,
+              "wr": 0.0,
+              "pf": 0.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "policy": {
+        "policy_id": "CAP_TOP_5",
+        "max_slots": 5,
+        "description": "Top 5 Slots Allocation (Certified Baseline Default)",
+        "regime_dynamic": false,
+        "regime_slot_map": null
+      },
+      "metrics": {
+        "policy_id": "CAP_TOP_5",
+        "max_slots": 5,
+        "description": "Top 5 Slots Allocation (Certified Baseline Default)",
+        "n_sessions": 500,
+        "zero_alert_sessions": 73,
+        "avg_daily_trades": 3.28,
+        "avg_sector_concentration": 0.15,
+        "worst_day_r": -1.08,
+        "best_day_r": 14.78,
+        "portfolio_metrics": {
+          "n": 1641,
+          "total_r": 2606.87,
+          "er": 1.589,
+          "wr": 92.6,
+          "pf": 23.26,
+          "max_dd": 2.01
+        },
+        "isolated_slot_metrics": {
+          "slot_1": {
+            "n": 342,
+            "total_r": 567.7,
+            "er": 1.66,
+            "wr": 94.7,
+            "pf": 33.72,
+            "max_dd": 1.17
+          },
+          "slot_2": {
+            "n": 322,
+            "total_r": 522.2,
+            "er": 1.622,
+            "wr": 93.2,
+            "pf": 25.35,
+            "max_dd": 1.17
+          },
+          "slot_3": {
+            "n": 342,
+            "total_r": 519.43,
+            "er": 1.519,
+            "wr": 91.2,
+            "pf": 18.86,
+            "max_dd": 2.01
+          },
+          "slot_4": {
+            "n": 329,
+            "total_r": 517.94,
+            "er": 1.574,
+            "wr": 90.9,
+            "pf": 19.04,
+            "max_dd": 2.01
+          },
+          "slot_5": {
+            "n": 306,
+            "total_r": 479.59,
+            "er": 1.567,
+            "wr": 93.1,
+            "pf": 24.36,
+            "max_dd": 1.71
+          }
+        },
+        "regime_slot_breakdown": {
+          "STRONG_BULL": {
+            "portfolio": {
+              "n": 476,
+              "total_r": 769.35,
+              "er": 1.616,
+              "wr": 94.5,
+              "pf": 31.53,
+              "max_dd": 1.19
+            },
+            "slots": {
+              "slot_1": {
+                "n": 96,
+                "total_r": 164.2,
+                "er": 1.71,
+                "wr": 97.9,
+                "pf": 97.03,
+                "max_dd": 0.86
+              },
+              "slot_2": {
+                "n": 97,
+                "total_r": 162.71,
+                "er": 1.677,
+                "wr": 93.8,
+                "pf": 27.27,
+                "max_dd": 1.17
+              },
+              "slot_3": {
+                "n": 97,
+                "total_r": 143.22,
+                "er": 1.476,
+                "wr": 92.8,
+                "pf": 22.05,
+                "max_dd": 1.19
+              },
+              "slot_4": {
+                "n": 99,
+                "total_r": 164.54,
+                "er": 1.662,
+                "wr": 93.9,
+                "pf": 31.27,
+                "max_dd": 1.16
+              },
+              "slot_5": {
+                "n": 87,
+                "total_r": 134.69,
+                "er": 1.548,
+                "wr": 94.3,
+                "pf": 27.62,
+                "max_dd": 2.0
+              }
+            }
+          },
+          "NEUTRAL_BULL": {
+            "portfolio": {
+              "n": 773,
+              "total_r": 1244.36,
+              "er": 1.61,
+              "wr": 92.8,
+              "pf": 24.19,
+              "max_dd": 2.02
+            },
+            "slots": {
+              "slot_1": {
+                "n": 147,
+                "total_r": 262.3,
+                "er": 1.784,
+                "wr": 96.6,
+                "pf": 53.29,
+                "max_dd": 1.16
+              },
+              "slot_2": {
+                "n": 156,
+                "total_r": 245.86,
+                "er": 1.576,
+                "wr": 92.3,
+                "pf": 22.73,
+                "max_dd": 1.71
+              },
+              "slot_3": {
+                "n": 160,
+                "total_r": 249.68,
+                "er": 1.561,
+                "wr": 91.9,
+                "pf": 20.4,
+                "max_dd": 2.37
+              },
+              "slot_4": {
+                "n": 158,
+                "total_r": 249.22,
+                "er": 1.577,
+                "wr": 91.1,
+                "pf": 19.61,
+                "max_dd": 2.02
+              },
+              "slot_5": {
+                "n": 152,
+                "total_r": 237.3,
+                "er": 1.561,
+                "wr": 92.1,
+                "pf": 22.42,
+                "max_dd": 1.17
+              }
+            }
+          },
+          "CHOPPY_RANGE": {
+            "portfolio": {
+              "n": 371,
+              "total_r": 560.42,
+              "er": 1.511,
+              "wr": 90.0,
+              "pf": 16.43,
+              "max_dd": 1.2
+            },
+            "slots": {
+              "slot_1": {
+                "n": 82,
+                "total_r": 115.1,
+                "er": 1.404,
+                "wr": 89.0,
+                "pf": 14.25,
+                "max_dd": 1.14
+              },
+              "slot_2": {
+                "n": 67,
+                "total_r": 110.29,
+                "er": 1.646,
+                "wr": 94.0,
+                "pf": 29.0,
+                "max_dd": 1.13
+              },
+              "slot_3": {
+                "n": 83,
+                "total_r": 123.22,
+                "er": 1.485,
+                "wr": 88.0,
+                "pf": 14.1,
+                "max_dd": 1.18
+              },
+              "slot_4": {
+                "n": 72,
+                "total_r": 104.19,
+                "er": 1.447,
+                "wr": 86.1,
+                "pf": 11.54,
+                "max_dd": 1.71
+              },
+              "slot_5": {
+                "n": 67,
+                "total_r": 107.61,
+                "er": 1.606,
+                "wr": 94.0,
+                "pf": 25.51,
+                "max_dd": 1.2
+              }
+            }
+          },
+          "NEUTRAL_BEAR": {
+            "portfolio": {
+              "n": 21,
+              "total_r": 32.75,
+              "er": 1.559,
+              "wr": 90.5,
+              "pf": 17.91,
+              "max_dd": 1.08
+            },
+            "slots": {
+              "slot_1": {
+                "n": 17,
+                "total_r": 26.09,
+                "er": 1.535,
+                "wr": 88.2,
+                "pf": 14.48,
+                "max_dd": 1.08
+              },
+              "slot_2": {
+                "n": 2,
+                "total_r": 3.34,
+                "er": 1.671,
+                "wr": 100.0,
+                "pf": 3342000.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 2,
+                "total_r": 3.31,
+                "er": 1.655,
+                "wr": 100.0,
+                "pf": 3310000.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "SHARP_SELLOFF": {
+            "portfolio": {
+              "n": 0,
+              "total_r": 0.0,
+              "er": 0.0,
+              "wr": 0.0,
+              "pf": 0.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "policy": {
+        "policy_id": "CAP_REGIME_DYNAMIC_OPTIMAL",
+        "max_slots": 5,
+        "description": "Regime-Dynamic Capacity Policy (Strong Bull=5, Neutral Bull=4, Choppy=2, Bear=1)",
+        "regime_dynamic": true,
+        "regime_slot_map": {
+          "STRONG_BULL": 5,
+          "NEUTRAL_BULL": 4,
+          "CHOPPY_RANGE": 2,
+          "NEUTRAL_BEAR": 1,
+          "SHARP_SELLOFF": 0
+        }
+      },
+      "metrics": {
+        "policy_id": "CAP_REGIME_DYNAMIC_OPTIMAL",
+        "max_slots": 5,
+        "description": "Regime-Dynamic Capacity Policy (Strong Bull=5, Neutral Bull=4, Choppy=2, Bear=1)",
+        "n_sessions": 500,
+        "zero_alert_sessions": 73,
+        "avg_daily_trades": 2.53,
+        "avg_sector_concentration": 0.107,
+        "worst_day_r": -1.14,
+        "best_day_r": 13.83,
+        "portfolio_metrics": {
+          "n": 1263,
+          "total_r": 2027.9,
+          "er": 1.606,
+          "wr": 93.3,
+          "pf": 25.63,
+          "max_dd": 2.01
+        },
+        "isolated_slot_metrics": {
+          "slot_1": {
+            "n": 342,
+            "total_r": 567.7,
+            "er": 1.66,
+            "wr": 94.7,
+            "pf": 33.72,
+            "max_dd": 1.17
+          },
+          "slot_2": {
+            "n": 320,
+            "total_r": 518.86,
+            "er": 1.621,
+            "wr": 93.1,
+            "pf": 25.2,
+            "max_dd": 1.17
+          },
+          "slot_3": {
+            "n": 257,
+            "total_r": 392.9,
+            "er": 1.529,
+            "wr": 92.2,
+            "pf": 20.97,
+            "max_dd": 2.01
+          },
+          "slot_4": {
+            "n": 257,
+            "total_r": 413.76,
+            "er": 1.61,
+            "wr": 92.2,
+            "pf": 22.98,
+            "max_dd": 2.02
+          },
+          "slot_5": {
+            "n": 87,
+            "total_r": 134.69,
+            "er": 1.548,
+            "wr": 94.3,
+            "pf": 27.62,
+            "max_dd": 2.0
+          }
+        },
+        "regime_slot_breakdown": {
+          "STRONG_BULL": {
+            "portfolio": {
+              "n": 476,
+              "total_r": 769.35,
+              "er": 1.616,
+              "wr": 94.5,
+              "pf": 31.53,
+              "max_dd": 1.19
+            },
+            "slots": {
+              "slot_1": {
+                "n": 96,
+                "total_r": 164.2,
+                "er": 1.71,
+                "wr": 97.9,
+                "pf": 97.03,
+                "max_dd": 0.86
+              },
+              "slot_2": {
+                "n": 97,
+                "total_r": 162.71,
+                "er": 1.677,
+                "wr": 93.8,
+                "pf": 27.27,
+                "max_dd": 1.17
+              },
+              "slot_3": {
+                "n": 97,
+                "total_r": 143.22,
+                "er": 1.476,
+                "wr": 92.8,
+                "pf": 22.05,
+                "max_dd": 1.19
+              },
+              "slot_4": {
+                "n": 99,
+                "total_r": 164.54,
+                "er": 1.662,
+                "wr": 93.9,
+                "pf": 31.27,
+                "max_dd": 1.16
+              },
+              "slot_5": {
+                "n": 87,
+                "total_r": 134.69,
+                "er": 1.548,
+                "wr": 94.3,
+                "pf": 27.62,
+                "max_dd": 2.0
+              }
+            }
+          },
+          "NEUTRAL_BULL": {
+            "portfolio": {
+              "n": 621,
+              "total_r": 1007.06,
+              "er": 1.622,
+              "wr": 92.9,
+              "pf": 24.65,
+              "max_dd": 2.78
+            },
+            "slots": {
+              "slot_1": {
+                "n": 147,
+                "total_r": 262.3,
+                "er": 1.784,
+                "wr": 96.6,
+                "pf": 53.29,
+                "max_dd": 1.16
+              },
+              "slot_2": {
+                "n": 156,
+                "total_r": 245.86,
+                "er": 1.576,
+                "wr": 92.3,
+                "pf": 22.73,
+                "max_dd": 1.71
+              },
+              "slot_3": {
+                "n": 160,
+                "total_r": 249.68,
+                "er": 1.561,
+                "wr": 91.9,
+                "pf": 20.4,
+                "max_dd": 2.37
+              },
+              "slot_4": {
+                "n": 158,
+                "total_r": 249.22,
+                "er": 1.577,
+                "wr": 91.1,
+                "pf": 19.61,
+                "max_dd": 2.02
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "CHOPPY_RANGE": {
+            "portfolio": {
+              "n": 149,
+              "total_r": 225.4,
+              "er": 1.513,
+              "wr": 91.3,
+              "pf": 18.85,
+              "max_dd": 1.93
+            },
+            "slots": {
+              "slot_1": {
+                "n": 82,
+                "total_r": 115.1,
+                "er": 1.404,
+                "wr": 89.0,
+                "pf": 14.25,
+                "max_dd": 1.14
+              },
+              "slot_2": {
+                "n": 67,
+                "total_r": 110.29,
+                "er": 1.646,
+                "wr": 94.0,
+                "pf": 29.0,
+                "max_dd": 1.13
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "NEUTRAL_BEAR": {
+            "portfolio": {
+              "n": 17,
+              "total_r": 26.09,
+              "er": 1.535,
+              "wr": 88.2,
+              "pf": 14.48,
+              "max_dd": 1.08
+            },
+            "slots": {
+              "slot_1": {
+                "n": 17,
+                "total_r": 26.09,
+                "er": 1.535,
+                "wr": 88.2,
+                "pf": 14.48,
+                "max_dd": 1.08
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          },
+          "SHARP_SELLOFF": {
+            "portfolio": {
+              "n": 0,
+              "total_r": 0.0,
+              "er": 0.0,
+              "wr": 0.0,
+              "pf": 0.0,
+              "max_dd": 0.0
+            },
+            "slots": {
+              "slot_1": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_2": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_3": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_4": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              },
+              "slot_5": {
+                "n": 0,
+                "total_r": 0.0,
+                "er": 0.0,
+                "wr": 0.0,
+                "pf": 0.0,
+                "max_dd": 0.0
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

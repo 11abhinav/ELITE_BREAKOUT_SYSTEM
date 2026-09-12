@@ -68,6 +68,7 @@ class ShortCoveringEarlyIgnitionScanner:
         # Stateful candidate tracker across 5m cycles:
         # Maps symbol -> {'state': ShortCoveringState, 'true_ignition_time': datetime, 'count': int}
         self._tracked_states: Dict[str, Dict] = {}
+        self._last_alert_time: Dict[str, datetime] = {}
         self._last_scan_date: Optional[date] = None
 
     def check_watchlist_freshness(self, target_date: date) -> Tuple[bool, Optional[date], date]:
@@ -119,6 +120,7 @@ class ShortCoveringEarlyIgnitionScanner:
         today = current_time.date()
         if self._last_scan_date != today:
             self._tracked_states.clear()
+            self._last_alert_time.clear()
             self._last_scan_date = today
 
         logger.info("[SHORT_COVERING_5M] Acquiring lock: short_covering_5m_lock")
@@ -143,63 +145,77 @@ class ShortCoveringEarlyIgnitionScanner:
 
         start_t = time.monotonic()
         _SCHEDULE_STR = "Every 5m (09:20 - 15:25 IST Market Days)"
+        engine_mode = os.getenv("SHORT_COVERING_ENGINE", "C5_INTRADAY_ONLY").upper()
 
         # [RULE 67 CHANGE-RATIONALE] Notify health monitor immediately that 5M scanner is actively RUNNING
         upsert_scanner_health(
             scanner_name="SHORT_COVERING_5M",
             status="RUNNING",
-            error_msg="5m short-covering ignition scan in progress...",
+            error_msg=f"5m short-covering scan in progress [{engine_mode}]...",
             scheduled_for=_SCHEDULE_STR,
             run_id=run_ctx.run_id if run_ctx else None
         )
 
         try:
-            # 1. Check Watchlist Freshness Guard
-            is_fresh, max_date, expected_date = self.check_watchlist_freshness(today)
-            if not is_fresh and candidate_watchlist is None:
-                logger.warning(
-                    "⚠️ [SHORT_COVERING_5M] Stale watchlist detected (Latest: %s, Expected: %s). Refusing to scan obsolete candidates.",
-                    max_date, expected_date
-                )
-                if run_ctx:
-                    complete_scanner_execution_run(run_ctx, status_override="SKIPPED", stop_reason=f"STALE_WATCHLIST (Latest: {max_date}, Expected: {expected_date})")
-                upsert_scanner_health(
-                    scanner_name="SHORT_COVERING_5M",
-                    status="OK",
-                    outcome="STALE_WATCHLIST",
-                    error_msg=f"STALE_WATCHLIST (Latest: {max_date}, Expected: {expected_date})",
-                    duration_seconds=round(time.monotonic() - start_t, 2),
-                    scheduled_for=_SCHEDULE_STR,
-                    run_id=run_ctx.run_id if run_ctx else None
-                )
-                return []
+            # 1. Universe Selection: C5 Intraday-Only (All Active F&O) vs Legacy V1
+            candidate_map: Dict[str, Optional[EODShortPositionCandidate]] = {}
+            if engine_mode == "C5_INTRADAY_ONLY":
+                # Certified C5 Production: Direct Active F&O Universe (Zero EOD alpha threshold)
+                symbols_to_scan = fno_universe_manager.get_fno_symbols()
+                candidate_map = {sym: None for sym in symbols_to_scan}
+                logger.info("🚀 [SHORT_COVERING_5M] Operating in C5_INTRADAY_ONLY Mode across %d active F&O symbols", len(symbols_to_scan))
+            else:
+                # Legacy V1 Rollback Mode (EOD Score >= 50, Top 35 Watchlist)
+                logger.info("🔄 [SHORT_COVERING_5M] Operating in Legacy V1 Rollback Mode")
+                is_fresh, max_date, expected_date = self.check_watchlist_freshness(today)
+                if candidate_watchlist is None:
+                    candidate_watchlist = self._load_eod_watchlist(today) if persist_db else None
 
-            if candidate_watchlist is None:
-                candidate_watchlist = self._load_eod_watchlist(today) if persist_db else None
+                # Dynamic self-healing: if watchlist is missing or stale, dynamically generate from EOD scanner
+                if (not is_fresh or not candidate_watchlist) and candidate_watchlist is None:
+                    logger.info(
+                        "⚡ [SHORT_COVERING_5M] Missing or stale watchlist (Latest: %s, Expected: %s). Attempting dynamic self-healing...",
+                        max_date, expected_date
+                    )
+                    try:
+                        from app.short_covering.short_position_detector import short_position_detector
+                        healed_candidates = short_position_detector.scan_eod_universe(as_of_date=expected_date, persist_db=persist_db)
+                        if healed_candidates:
+                            candidate_watchlist = healed_candidates
+                            logger.info("✅ [SHORT_COVERING_5M] Self-healed watchlist with %d candidates for %s", len(candidate_watchlist), expected_date)
+                    except Exception as _heal_err:
+                        logger.warning("Failed dynamic self-healing for SHORT_COVERING_5M: %s", _heal_err)
 
-            if candidate_watchlist:
+                if not candidate_watchlist:
+                    err_msg = f"No active short-covering candidates found for {expected_date} (Latest: {max_date})."
+                    logger.warning("⚠️ [SHORT_COVERING_5M] %s", err_msg)
+                    if run_ctx:
+                        complete_scanner_execution_run(run_ctx, status_override="DEGRADED", stop_reason=err_msg)
+                    
+                    try:
+                        from app.database import insert_notification
+                        insert_notification(
+                            notif_type="error",
+                            title="🚨 SHORT_COVERING_5M Watchlist Missing/Stale",
+                            message=f"{err_msg} Check EOD Short Position Detector.",
+                            symbol=None
+                        )
+                    except Exception:
+                        pass
+
+                    upsert_scanner_health(
+                        scanner_name="SHORT_COVERING_5M",
+                        status="DEGRADED",
+                        outcome="MISSING_WATCHLIST",
+                        error_msg=err_msg,
+                        duration_seconds=round(time.monotonic() - start_t, 2),
+                        scheduled_for=_SCHEDULE_STR,
+                        run_id=run_ctx.run_id if run_ctx else None
+                    )
+                    return []
+
                 candidate_map = {c.symbol: c for c in candidate_watchlist}
                 symbols_to_scan = list(candidate_map.keys())
-            else:
-                candidate_map = {}
-                symbols_to_scan = []
-
-            if not symbols_to_scan:
-                logger.info("ℹ️ [SHORT_COVERING_5M] No active short-covering candidates in watchlist. Cycle complete.")
-                if run_ctx:
-                    run_ctx.set_total_stocks(0)
-                    complete_scanner_execution_run(run_ctx)
-                upsert_scanner_health(
-                    scanner_name="SHORT_COVERING_5M",
-                    status="OK",
-                    outcome="SUCCESS",
-                    total_count=0,
-                    processed_count=0,
-                    duration_seconds=round(time.monotonic() - start_t, 2),
-                    scheduled_for=_SCHEDULE_STR,
-                    run_id=run_ctx.run_id if run_ctx else None
-                )
-                return []
 
             if run_ctx:
                 run_ctx.set_total_stocks(len(symbols_to_scan))
@@ -208,9 +224,19 @@ class ShortCoveringEarlyIgnitionScanner:
 
             new_alerts: List[ShortCoveringSignal] = []
             nifty_oi_5m_delta = self._get_index_5m_oi_delta(current_time)
+            stale_count = 0
+
+            # Certified signal window enforcement (09:20 - 15:25 IST)
+            current_t = current_time.time()
+            is_valid_signal_window = (time(9, 20) <= current_t <= time(15, 25))
 
             for symbol in symbols_to_scan:
                 try:
+                    df_5m = oi_data_service.get_intraday_5m_data(symbol, current_time.date())
+                    if df_5m is None or len(df_5m) < 2:
+                        stale_count += 1
+                        continue
+
                     signal = self.evaluate_symbol_5m(
                         symbol=symbol,
                         current_time=current_time,
@@ -218,18 +244,37 @@ class ShortCoveringEarlyIgnitionScanner:
                         nifty_oi_5m_delta=nifty_oi_5m_delta
                     )
                     if signal is not None and signal.state == ShortCoveringState.CONFIRMED_IGNITION:
-                        new_alerts.append(signal)
-                        logger.info("🚨 [SHORT COVERING ALERT] %s | Price=%.2f | Latency=%.0fm | Score=%.1f (%s)",
-                                    symbol, signal.ignition_price, signal.alert_latency_minutes, signal.ignition_score, signal.grade)
+                        if is_valid_signal_window:
+                            new_alerts.append(signal)
+                            logger.info("🚨 [SHORT COVERING ALERT] %s | Price=%.2f | Latency=%.0fm | Score=%.1f (%s)",
+                                        symbol, signal.ignition_price, signal.alert_latency_minutes, signal.ignition_score, signal.grade)
+                        else:
+                            logger.debug("Signal detected for %s outside certified 09:20-15:25 window at %s (suppressed)", symbol, current_t)
                 except Exception as e:
                     logger.debug("Error in 5m evaluation for %s: %s", symbol, e)
+
+            # Enforce 25% staleness hard blocker
+            from app.market_utils import validate_batch_staleness
+            staleness_check = validate_batch_staleness(
+                stale_count=stale_count,
+                total_count=len(symbols_to_scan),
+                scanner_name="SHORT_COVERING_5M",
+                max_stale_pct=25.0,
+                run_ctx=run_ctx
+            )
+            if staleness_check["is_blocked"]:
+                err_block = f"SHORT_COVERING_5M halted due to {staleness_check['stale_pct']:.1f}% stale intraday data ({stale_count}/{len(symbols_to_scan)} symbols)."
+                if run_ctx:
+                    complete_scanner_execution_run(run_ctx, status_override="DEGRADED", stop_reason=err_block)
+                return []
 
             if new_alerts and persist_db:
                 self._persist_alerts(new_alerts)
 
             dur = round(time.monotonic() - start_t, 2)
             if run_ctx:
-                run_ctx.record_fresh_data(len(symbols_to_scan))
+                run_ctx.record_fresh_data(len(symbols_to_scan) - stale_count)
+                run_ctx.record_stale_data(stale_count)
                 if new_alerts:
                     run_ctx.increment_alerts(len(new_alerts))
                 complete_scanner_execution_run(run_ctx)
@@ -239,7 +284,7 @@ class ShortCoveringEarlyIgnitionScanner:
                 status="OK",
                 outcome="SUCCESS",
                 total_count=len(symbols_to_scan),
-                processed_count=len(new_alerts),
+                processed_count=len(symbols_to_scan) - stale_count,
                 today_alerts=len(new_alerts),
                 duration_seconds=dur,
                 scheduled_for=_SCHEDULE_STR,
@@ -251,6 +296,18 @@ class ShortCoveringEarlyIgnitionScanner:
             logger.exception("❌ [SHORT_COVERING_5M] Cycle failed: %s", exc)
             if run_ctx:
                 complete_scanner_execution_run(run_ctx, exception=exc)
+            
+            try:
+                from app.database import insert_notification
+                insert_notification(
+                    notif_type="error",
+                    title="❌ SHORT_COVERING_5M Scanner Error",
+                    message=f"Execution failed: {exc}",
+                    symbol=None
+                )
+            except Exception:
+                pass
+
             upsert_scanner_health(
                 scanner_name="SHORT_COVERING_5M",
                 status="DOWN",
@@ -260,7 +317,7 @@ class ShortCoveringEarlyIgnitionScanner:
                 scheduled_for=_SCHEDULE_STR,
                 run_id=run_ctx.run_id if run_ctx else None
             )
-            return []
+            raise exc
         finally:
             _scan_lock_5m.release()
 
@@ -290,14 +347,23 @@ class ShortCoveringEarlyIgnitionScanner:
 
         cur_close = float(cur_bar["close"])
         cur_open = float(cur_bar["open"])
+        cur_high = float(cur_bar["high"])
+        cur_low = float(cur_bar["low"])
         cur_vwap = float(cur_bar["vwap"])
         cur_vol = int(cur_bar["volume"])
         cur_oi = int(cur_bar["oi"])
 
-        # 1. Primary 5m Ignition Evidence
+        # 30-Minute Symbol Cooldown Guard (Deduplication)
+        last_alert = self._last_alert_time.get(symbol)
+        if last_alert is not None and (current_time - last_alert).total_seconds() < 1800:
+            logger.debug("Suppressing alert for %s: 30m cooldown active (last: %s)", symbol, last_alert.strftime('%H:%M'))
+            return None
+
+        # 1. Primary 5m Ignition Evidence & CLV
         is_green_candle = cur_close >= cur_open
         is_above_vwap = cur_close >= cur_vwap * 0.999
         price_change_5m_pct = ((cur_close - float(prev_bar["close"])) / float(prev_bar["close"])) * 100.0
+        clv = (cur_close - cur_low) / max(cur_high - cur_low, 1e-4)
 
         oi_change_5m_pct = float(cur_bar["oi_change_5m_pct"])
         oi_change_session_pct = float(cur_bar["oi_change_session_pct"])
@@ -324,7 +390,6 @@ class ShortCoveringEarlyIgnitionScanner:
             logger.debug(f"Rejecting {symbol}: Move already extended (+{extension_from_open_pct:.1f}% from open)")
             return None
 
-
         # 2. Tiered Multi-Timeframe Structural Context
         tf_confirmations = self._check_multitf_context(past_bars)
 
@@ -332,13 +397,21 @@ class ShortCoveringEarlyIgnitionScanner:
         score = 0.0
         reasons = []
 
-        # A. Prior Short Buildup Quality (25 pts)
+        # A. Prior Short Buildup Quality / CLV Strong Close (25 pts)
         if eod_candidate:
             prior_pts = (eod_candidate.buildup_quality_score / 100.0) * 25.0
             score += prior_pts
             reasons.append(f"Prior Short Score: {eod_candidate.buildup_quality_score:.0f}")
         else:
-            score += 15.0
+            # C5 Intraday-Only: CLV and Close Velocity (25 pts)
+            if clv >= 0.80:
+                score += 25.0
+                reasons.append(f"High CLV Top Close ({clv:.2f})")
+            elif clv >= 0.60:
+                score += 18.0
+                reasons.append(f"Moderate CLV Close ({clv:.2f})")
+            else:
+                score += 12.0
 
         # B. Excess OI Contraction Speed (25 pts)
         if excess_oi_contraction <= -1.2:
@@ -392,10 +465,9 @@ class ShortCoveringEarlyIgnitionScanner:
             return None
 
         # Evidence evaluation:
-        # High Conviction (Score >= 76 or exceptionally clean surge) -> Confirm immediately on same candle!
-        # Moderate Conviction (Score 68-76) -> Transition to candidate and confirm on next confirming pulse.
+        # High Conviction (Score >= 76 or exceptionally clean surge + CLV) -> Confirm immediately on same candle!
         is_high_conviction = (score >= 76.0) or (
-            vol_surge_ratio >= 1.8 and excess_oi_contraction <= -0.8 and (eod_candidate is not None and eod_candidate.buildup_quality_score >= 70)
+            vol_surge_ratio >= 1.8 and excess_oi_contraction <= -0.5 and clv >= 0.75
         )
 
         true_ignition_time = tracking.get("true_ignition_time", current_time)
@@ -428,6 +500,9 @@ class ShortCoveringEarlyIgnitionScanner:
 
         elif current_state in (ShortCoveringState.CONTINUATION, ShortCoveringState.EXHAUSTED):
             return None
+
+        # Record alert timestamp for 30m cooldown guard
+        self._last_alert_time[symbol] = current_time
 
         # Calculate Alert Latency
         latency_minutes = max(0.0, (current_time - true_ignition_time).total_seconds() / 60.0)
@@ -635,6 +710,16 @@ class ShortCoveringEarlyIgnitionScanner:
             # RULE 67 RATIONALE: Re-raise DB persistence error when database is configured so that
             # scanner_health accurately reflects FAILURE / DOWN status rather than fake success.
             logger.error(f"❌ Could not persist alerts to DB: {e}")
+            try:
+                from app.database import insert_notification
+                insert_notification(
+                    notif_type="error",
+                    title="🚨 SHORT_COVERING Alert Save Failed",
+                    message=f"Failed to persist {len(alerts)} alerts to database: {e}",
+                    symbol=None
+                )
+            except Exception:
+                pass
             if os.getenv("DATABASE_URL") and not os.getenv("DISABLE_DB_OI_LOOKUP"):
                 raise
 

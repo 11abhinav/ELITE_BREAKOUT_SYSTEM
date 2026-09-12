@@ -1,0 +1,1086 @@
+{
+  "tournament_metadata": {
+    "track": "TRACK_1_CONFIRMATION_TIMING_TOURNAMENT",
+    "scanner": "DAILY_BUILDER",
+    "base_version": "V5.29_DB_SHADOW",
+    "timestamp": "2026-09-11T14:38:30.005100+00:00",
+    "source_commit": "bf4da25fd10028cc034d6f9fa610cefb9dd62a0e",
+    "variants_tested": 7,
+    "calendar_audit": {
+      "saturday_bars": 0,
+      "sunday_bars": 0,
+      "lookahead_violations": 0,
+      "duplicate_events": 0
+    }
+  },
+  "holdout_paired_statistics": {
+    "DB_TIMING_15M": {
+      "obs_delta_er": -2.2696095890410946,
+      "ci_95_low": -2.7485890410958893,
+      "ci_95_high": -1.813739726027397,
+      "p_value": 1.0
+    },
+    "DB_TIMING_20M": {
+      "obs_delta_er": -0.809037878787879,
+      "ci_95_low": -1.169193181818181,
+      "ci_95_high": -0.4560492424242423,
+      "p_value": 1.0
+    },
+    "DB_TIMING_25M": {
+      "obs_delta_er": -0.3183440233236149,
+      "ci_95_low": -0.6094664723032067,
+      "ci_95_high": -0.01147521865889217,
+      "p_value": 0.9845
+    },
+    "DB_TIMING_30M_BENCHMARK": {
+      "obs_delta_er": 0.0,
+      "ci_95_low": 0.0,
+      "ci_95_high": 0.0,
+      "p_value": 1.0
+    },
+    "DB_TIMING_35M": {
+      "obs_delta_er": 0.2582821158690177,
+      "ci_95_low": 0.030443324937027616,
+      "ci_95_high": 0.5090277078085635,
+      "p_value": 0.017
+    },
+    "DB_TIMING_45M": {
+      "obs_delta_er": 0.45965239294710386,
+      "ci_95_low": 0.23321662468513862,
+      "ci_95_high": 0.6964785894206551,
+      "p_value": 0.0
+    },
+    "DB_TIMING_60M": {
+      "obs_delta_er": 0.4957204030226703,
+      "ci_95_low": 0.27110579345088176,
+      "ci_95_high": 0.7288287153652387,
+      "p_value": 0.0
+    }
+  },
+  "holdout_results": [
+    {
+      "variant": {
+        "variant_id": "DB_TIMING_15M",
+        "window_minutes": 15,
+        "description": "15-Minute Confirmation Window",
+        "delay_slippage_r": 0.055
+      },
+      "metrics": {
+        "variant_id": "DB_TIMING_15M",
+        "window_minutes": 15,
+        "n_candidates_evaluated": 4352,
+        "n_top5_selected": 502,
+        "n_trades": 146,
+        "total_r": 56.31,
+        "er": 0.386,
+        "median_r": -1.014,
+        "std_r": 2.139,
+        "wr": 34.9,
+        "pf": 1.55,
+        "max_dd": 11.5,
+        "loo1_er": 0.337,
+        "winsorized_er": 0.384,
+        "mfe_avg": 1.535,
+        "mae_avg": -0.774,
+        "causal_accounting": {
+          "traps_avoided_count": 0,
+          "traps_admitted_count": 95,
+          "runners_captured_count": 51,
+          "runners_missed_count": 356,
+          "avoided_trap_r": 0,
+          "missed_runner_cost_r": 1108.76,
+          "delay_slippage_cost_r": 8.03,
+          "net_causal_r": -1116.79
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 63,
+            "total_r": 41.8,
+            "er": 0.663,
+            "wr": 39.7,
+            "pf": 2.01
+          },
+          "NEUTRAL_BULL": {
+            "n": 55,
+            "total_r": 21.36,
+            "er": 0.388,
+            "wr": 36.4,
+            "pf": 1.57
+          },
+          "CHOPPY_RANGE": {
+            "n": 25,
+            "total_r": -3.84,
+            "er": -0.154,
+            "wr": 24.0,
+            "pf": 0.81
+          },
+          "NEUTRAL_BEAR": {
+            "n": 3,
+            "total_r": -3.01,
+            "er": -1.003,
+            "wr": 0.0,
+            "pf": 0.0
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "variant": {
+        "variant_id": "DB_TIMING_20M",
+        "window_minutes": 20,
+        "description": "20-Minute Confirmation Window",
+        "delay_slippage_r": 0.065
+      },
+      "metrics": {
+        "variant_id": "DB_TIMING_20M",
+        "window_minutes": 20,
+        "n_candidates_evaluated": 4352,
+        "n_top5_selected": 502,
+        "n_trades": 264,
+        "total_r": 462.57,
+        "er": 1.752,
+        "median_r": 2.25,
+        "std_r": 2.41,
+        "wr": 65.9,
+        "pf": 5.71,
+        "max_dd": 7.82,
+        "loo1_er": 1.723,
+        "winsorized_er": 1.749,
+        "mfe_avg": 2.756,
+        "mae_avg": -0.532,
+        "causal_accounting": {
+          "traps_avoided_count": 5,
+          "traps_admitted_count": 90,
+          "runners_captured_count": 174,
+          "runners_missed_count": 233,
+          "avoided_trap_r": 5.04,
+          "missed_runner_cost_r": 698.41,
+          "delay_slippage_cost_r": 17.16,
+          "net_causal_r": -710.53
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 105,
+            "total_r": 191.12,
+            "er": 1.82,
+            "wr": 65.7,
+            "pf": 5.82
+          },
+          "NEUTRAL_BULL": {
+            "n": 116,
+            "total_r": 234.42,
+            "er": 2.021,
+            "wr": 71.6,
+            "pf": 7.57
+          },
+          "CHOPPY_RANGE": {
+            "n": 38,
+            "total_r": 37.59,
+            "er": 0.989,
+            "wr": 52.6,
+            "pf": 2.9
+          },
+          "NEUTRAL_BEAR": {
+            "n": 5,
+            "total_r": -0.56,
+            "er": -0.111,
+            "wr": 40.0,
+            "pf": 0.82
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "variant": {
+        "variant_id": "DB_TIMING_25M",
+        "window_minutes": 25,
+        "description": "25-Minute Confirmation Window",
+        "delay_slippage_r": 0.072
+      },
+      "metrics": {
+        "variant_id": "DB_TIMING_25M",
+        "window_minutes": 25,
+        "n_candidates_evaluated": 4352,
+        "n_top5_selected": 502,
+        "n_trades": 343,
+        "total_r": 760.63,
+        "er": 2.218,
+        "median_r": 2.555,
+        "std_r": 2.201,
+        "wr": 78.4,
+        "pf": 10.32,
+        "max_dd": 5.64,
+        "loo1_er": 2.197,
+        "winsorized_er": 2.215,
+        "mfe_avg": 3.158,
+        "mae_avg": -0.44,
+        "causal_accounting": {
+          "traps_avoided_count": 21,
+          "traps_admitted_count": 74,
+          "runners_captured_count": 269,
+          "runners_missed_count": 138,
+          "avoided_trap_r": 21.07,
+          "missed_runner_cost_r": 408.84,
+          "delay_slippage_cost_r": 24.7,
+          "net_causal_r": -412.47
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 130,
+            "total_r": 290.04,
+            "er": 2.231,
+            "wr": 77.7,
+            "pf": 10.04
+          },
+          "NEUTRAL_BULL": {
+            "n": 150,
+            "total_r": 374.37,
+            "er": 2.496,
+            "wr": 82.7,
+            "pf": 14.09
+          },
+          "CHOPPY_RANGE": {
+            "n": 58,
+            "total_r": 90.6,
+            "er": 1.562,
+            "wr": 69.0,
+            "pf": 5.55
+          },
+          "NEUTRAL_BEAR": {
+            "n": 5,
+            "total_r": 5.62,
+            "er": 1.124,
+            "wr": 80.0,
+            "pf": 6.32
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "variant": {
+        "variant_id": "DB_TIMING_30M_BENCHMARK",
+        "window_minutes": 30,
+        "description": "30-Minute Confirmation Window (Certified V5.29 Benchmark)",
+        "delay_slippage_r": 0.08
+      },
+      "metrics": {
+        "variant_id": "DB_TIMING_30M_BENCHMARK",
+        "window_minutes": 30,
+        "n_candidates_evaluated": 4352,
+        "n_top5_selected": 502,
+        "n_trades": 397,
+        "total_r": 989.6,
+        "er": 2.493,
+        "median_r": 2.708,
+        "std_r": 1.954,
+        "wr": 86.9,
+        "pf": 18.2,
+        "max_dd": 2.39,
+        "loo1_er": 2.475,
+        "winsorized_er": 2.49,
+        "mfe_avg": 3.393,
+        "mae_avg": -0.373,
+        "causal_accounting": {
+          "traps_avoided_count": 43,
+          "traps_admitted_count": 52,
+          "runners_captured_count": 345,
+          "runners_missed_count": 62,
+          "avoided_trap_r": 43.98,
+          "missed_runner_cost_r": 195.72,
+          "delay_slippage_cost_r": 31.76,
+          "net_causal_r": -183.5
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 149,
+            "total_r": 365.11,
+            "er": 2.45,
+            "wr": 84.6,
+            "pf": 15.18
+          },
+          "NEUTRAL_BULL": {
+            "n": 185,
+            "total_r": 494.54,
+            "er": 2.673,
+            "wr": 89.7,
+            "pf": 24.59
+          },
+          "CHOPPY_RANGE": {
+            "n": 58,
+            "total_r": 124.37,
+            "er": 2.144,
+            "wr": 84.5,
+            "pf": 13.73
+          },
+          "NEUTRAL_BEAR": {
+            "n": 5,
+            "total_r": 5.58,
+            "er": 1.116,
+            "wr": 80.0,
+            "pf": 6.24
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "variant": {
+        "variant_id": "DB_TIMING_35M",
+        "window_minutes": 35,
+        "description": "35-Minute Confirmation Window",
+        "delay_slippage_r": 0.088
+      },
+      "metrics": {
+        "variant_id": "DB_TIMING_35M",
+        "window_minutes": 35,
+        "n_candidates_evaluated": 4352,
+        "n_top5_selected": 502,
+        "n_trades": 414,
+        "total_r": 1142.42,
+        "er": 2.759,
+        "median_r": 2.759,
+        "std_r": 1.808,
+        "wr": 92.8,
+        "pf": 35.05,
+        "max_dd": 2.2,
+        "loo1_er": 2.743,
+        "winsorized_er": 2.757,
+        "mfe_avg": 3.633,
+        "mae_avg": -0.33,
+        "causal_accounting": {
+          "traps_avoided_count": 65,
+          "traps_admitted_count": 30,
+          "runners_captured_count": 384,
+          "runners_missed_count": 23,
+          "avoided_trap_r": 66.45,
+          "missed_runner_cost_r": 60.7,
+          "delay_slippage_cost_r": 36.43,
+          "net_causal_r": -30.68
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 159,
+            "total_r": 434.64,
+            "er": 2.734,
+            "wr": 90.6,
+            "pf": 26.75
+          },
+          "NEUTRAL_BULL": {
+            "n": 193,
+            "total_r": 560.09,
+            "er": 2.902,
+            "wr": 94.8,
+            "pf": 51.0
+          },
+          "CHOPPY_RANGE": {
+            "n": 58,
+            "total_r": 141.09,
+            "er": 2.433,
+            "wr": 91.4,
+            "pf": 26.81
+          },
+          "NEUTRAL_BEAR": {
+            "n": 4,
+            "total_r": 6.61,
+            "er": 1.653,
+            "wr": 100.0,
+            "pf": 6612000.0
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "variant": {
+        "variant_id": "DB_TIMING_45M",
+        "window_minutes": 45,
+        "description": "45-Minute Confirmation Window",
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "variant_id": "DB_TIMING_45M",
+        "window_minutes": 45,
+        "n_candidates_evaluated": 4352,
+        "n_top5_selected": 502,
+        "n_trades": 413,
+        "total_r": 1220.84,
+        "er": 2.956,
+        "median_r": 2.801,
+        "std_r": 1.604,
+        "wr": 98.5,
+        "pf": 178.24,
+        "max_dd": 1.2,
+        "loo1_er": 2.94,
+        "winsorized_er": 2.954,
+        "mfe_avg": 3.811,
+        "mae_avg": -0.289,
+        "causal_accounting": {
+          "traps_avoided_count": 89,
+          "traps_admitted_count": 6,
+          "runners_captured_count": 407,
+          "runners_missed_count": 0,
+          "avoided_trap_r": 91.1,
+          "missed_runner_cost_r": 0,
+          "delay_slippage_cost_r": 43.36,
+          "net_causal_r": 47.74
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 155,
+            "total_r": 462.0,
+            "er": 2.981,
+            "wr": 98.1,
+            "pf": 138.87
+          },
+          "NEUTRAL_BULL": {
+            "n": 198,
+            "total_r": 600.02,
+            "er": 3.03,
+            "wr": 98.5,
+            "pf": 170.64
+          },
+          "CHOPPY_RANGE": {
+            "n": 56,
+            "total_r": 152.27,
+            "er": 2.719,
+            "wr": 100.0,
+            "pf": 152273000.0
+          },
+          "NEUTRAL_BEAR": {
+            "n": 4,
+            "total_r": 6.54,
+            "er": 1.636,
+            "wr": 100.0,
+            "pf": 6544000.0
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "variant": {
+        "variant_id": "DB_TIMING_60M",
+        "window_minutes": 60,
+        "description": "60-Minute Confirmation Window",
+        "delay_slippage_r": 0.13
+      },
+      "metrics": {
+        "variant_id": "DB_TIMING_60M",
+        "window_minutes": 60,
+        "n_candidates_evaluated": 4352,
+        "n_top5_selected": 502,
+        "n_trades": 407,
+        "total_r": 1217.55,
+        "er": 2.992,
+        "median_r": 2.783,
+        "std_r": 1.536,
+        "wr": 100.0,
+        "pf": 1217555000.0,
+        "max_dd": 0.0,
+        "loo1_er": 2.976,
+        "winsorized_er": 2.99,
+        "mfe_avg": 3.863,
+        "mae_avg": -0.278,
+        "causal_accounting": {
+          "traps_avoided_count": 95,
+          "traps_admitted_count": 0,
+          "runners_captured_count": 407,
+          "runners_missed_count": 0,
+          "avoided_trap_r": 97.36,
+          "missed_runner_cost_r": 0,
+          "delay_slippage_cost_r": 52.91,
+          "net_causal_r": 44.45
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 152,
+            "total_r": 461.56,
+            "er": 3.037,
+            "wr": 100.0,
+            "pf": 461556000.0
+          },
+          "NEUTRAL_BULL": {
+            "n": 195,
+            "total_r": 598.68,
+            "er": 3.07,
+            "wr": 100.0,
+            "pf": 598682000.0
+          },
+          "CHOPPY_RANGE": {
+            "n": 56,
+            "total_r": 150.87,
+            "er": 2.694,
+            "wr": 100.0,
+            "pf": 150873000.0
+          },
+          "NEUTRAL_BEAR": {
+            "n": 4,
+            "total_r": 6.44,
+            "er": 1.611,
+            "wr": 100.0,
+            "pf": 6444000.0
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    }
+  ],
+  "full_dataset_results": [
+    {
+      "variant": {
+        "variant_id": "DB_TIMING_15M",
+        "window_minutes": 15,
+        "description": "15-Minute Confirmation Window",
+        "delay_slippage_r": 0.055
+      },
+      "metrics": {
+        "variant_id": "DB_TIMING_15M",
+        "window_minutes": 15,
+        "n_candidates_evaluated": 17509,
+        "n_top5_selected": 1989,
+        "n_trades": 592,
+        "total_r": 187.35,
+        "er": 0.316,
+        "median_r": -1.009,
+        "std_r": 2.088,
+        "wr": 34.0,
+        "pf": 1.44,
+        "max_dd": 28.27,
+        "loo1_er": 0.302,
+        "winsorized_er": 0.31,
+        "mfe_avg": 1.49,
+        "mae_avg": -0.772,
+        "causal_accounting": {
+          "traps_avoided_count": 0,
+          "traps_admitted_count": 391,
+          "runners_captured_count": 201,
+          "runners_missed_count": 1397,
+          "avoided_trap_r": 0,
+          "missed_runner_cost_r": 4412.81,
+          "delay_slippage_cost_r": 32.56,
+          "net_causal_r": -4445.37
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 180,
+            "total_r": 151.4,
+            "er": 0.841,
+            "wr": 45.0,
+            "pf": 2.41
+          },
+          "NEUTRAL_BULL": {
+            "n": 232,
+            "total_r": 71.37,
+            "er": 0.308,
+            "wr": 35.3,
+            "pf": 1.44
+          },
+          "CHOPPY_RANGE": {
+            "n": 165,
+            "total_r": -26.37,
+            "er": -0.16,
+            "wr": 21.8,
+            "pf": 0.81
+          },
+          "NEUTRAL_BEAR": {
+            "n": 15,
+            "total_r": -9.05,
+            "er": -0.603,
+            "wr": 13.3,
+            "pf": 0.35
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "variant": {
+        "variant_id": "DB_TIMING_20M",
+        "window_minutes": 20,
+        "description": "20-Minute Confirmation Window",
+        "delay_slippage_r": 0.065
+      },
+      "metrics": {
+        "variant_id": "DB_TIMING_20M",
+        "window_minutes": 20,
+        "n_candidates_evaluated": 17509,
+        "n_top5_selected": 1989,
+        "n_trades": 1008,
+        "total_r": 1620.38,
+        "er": 1.608,
+        "median_r": 1.904,
+        "std_r": 2.367,
+        "wr": 63.9,
+        "pf": 5.09,
+        "max_dd": 7.82,
+        "loo1_er": 1.6,
+        "winsorized_er": 1.604,
+        "mfe_avg": 2.627,
+        "mae_avg": -0.544,
+        "causal_accounting": {
+          "traps_avoided_count": 27,
+          "traps_admitted_count": 364,
+          "runners_captured_count": 644,
+          "runners_missed_count": 954,
+          "avoided_trap_r": 27.19,
+          "missed_runner_cost_r": 2974.01,
+          "delay_slippage_cost_r": 65.52,
+          "net_causal_r": -3012.34
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 328,
+            "total_r": 668.94,
+            "er": 2.039,
+            "wr": 71.0,
+            "pf": 7.43
+          },
+          "NEUTRAL_BULL": {
+            "n": 432,
+            "total_r": 767.07,
+            "er": 1.776,
+            "wr": 68.3,
+            "pf": 6.14
+          },
+          "CHOPPY_RANGE": {
+            "n": 224,
+            "total_r": 174.13,
+            "er": 0.777,
+            "wr": 46.9,
+            "pf": 2.35
+          },
+          "NEUTRAL_BEAR": {
+            "n": 24,
+            "total_r": 10.24,
+            "er": 0.427,
+            "wr": 45.8,
+            "pf": 1.73
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "variant": {
+        "variant_id": "DB_TIMING_25M",
+        "window_minutes": 25,
+        "description": "25-Minute Confirmation Window",
+        "delay_slippage_r": 0.072
+      },
+      "metrics": {
+        "variant_id": "DB_TIMING_25M",
+        "window_minutes": 25,
+        "n_candidates_evaluated": 17509,
+        "n_top5_selected": 1989,
+        "n_trades": 1390,
+        "total_r": 2981.4,
+        "er": 2.145,
+        "median_r": 2.37,
+        "std_r": 2.205,
+        "wr": 77.8,
+        "pf": 9.82,
+        "max_dd": 5.64,
+        "loo1_er": 2.14,
+        "winsorized_er": 2.142,
+        "mfe_avg": 3.094,
+        "mae_avg": -0.44,
+        "causal_accounting": {
+          "traps_avoided_count": 83,
+          "traps_admitted_count": 308,
+          "runners_captured_count": 1082,
+          "runners_missed_count": 516,
+          "avoided_trap_r": 83.75,
+          "missed_runner_cost_r": 1634.99,
+          "delay_slippage_cost_r": 100.08,
+          "net_causal_r": -1651.32
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 466,
+            "total_r": 1127.56,
+            "er": 2.42,
+            "wr": 82.2,
+            "pf": 13.36
+          },
+          "NEUTRAL_BULL": {
+            "n": 611,
+            "total_r": 1395.67,
+            "er": 2.284,
+            "wr": 81.2,
+            "pf": 12.02
+          },
+          "CHOPPY_RANGE": {
+            "n": 284,
+            "total_r": 426.34,
+            "er": 1.501,
+            "wr": 64.8,
+            "pf": 4.9
+          },
+          "NEUTRAL_BEAR": {
+            "n": 29,
+            "total_r": 31.83,
+            "er": 1.098,
+            "wr": 65.5,
+            "pf": 3.9
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "variant": {
+        "variant_id": "DB_TIMING_30M_BENCHMARK",
+        "window_minutes": 30,
+        "description": "30-Minute Confirmation Window (Certified V5.29 Benchmark)",
+        "delay_slippage_r": 0.08
+      },
+      "metrics": {
+        "variant_id": "DB_TIMING_30M_BENCHMARK",
+        "window_minutes": 30,
+        "n_candidates_evaluated": 17509,
+        "n_top5_selected": 1989,
+        "n_trades": 1589,
+        "total_r": 3967.61,
+        "er": 2.497,
+        "median_r": 2.579,
+        "std_r": 2.005,
+        "wr": 86.8,
+        "pf": 18.1,
+        "max_dd": 3.38,
+        "loo1_er": 2.493,
+        "winsorized_er": 2.495,
+        "mfe_avg": 3.401,
+        "mae_avg": -0.373,
+        "causal_accounting": {
+          "traps_avoided_count": 181,
+          "traps_admitted_count": 210,
+          "runners_captured_count": 1379,
+          "runners_missed_count": 219,
+          "avoided_trap_r": 184.42,
+          "missed_runner_cost_r": 722.41,
+          "delay_slippage_cost_r": 127.12,
+          "net_causal_r": -665.11
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 540,
+            "total_r": 1445.63,
+            "er": 2.677,
+            "wr": 89.4,
+            "pf": 23.85
+          },
+          "NEUTRAL_BULL": {
+            "n": 723,
+            "total_r": 1870.26,
+            "er": 2.587,
+            "wr": 88.8,
+            "pf": 21.79
+          },
+          "CHOPPY_RANGE": {
+            "n": 292,
+            "total_r": 603.97,
+            "er": 2.068,
+            "wr": 78.8,
+            "pf": 9.91
+          },
+          "NEUTRAL_BEAR": {
+            "n": 34,
+            "total_r": 47.75,
+            "er": 1.404,
+            "wr": 70.6,
+            "pf": 5.31
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "variant": {
+        "variant_id": "DB_TIMING_35M",
+        "window_minutes": 35,
+        "description": "35-Minute Confirmation Window",
+        "delay_slippage_r": 0.088
+      },
+      "metrics": {
+        "variant_id": "DB_TIMING_35M",
+        "window_minutes": 35,
+        "n_candidates_evaluated": 17509,
+        "n_top5_selected": 1989,
+        "n_trades": 1635,
+        "total_r": 4444.19,
+        "er": 2.718,
+        "median_r": 2.695,
+        "std_r": 1.873,
+        "wr": 91.9,
+        "pf": 31.24,
+        "max_dd": 2.4,
+        "loo1_er": 2.714,
+        "winsorized_er": 2.716,
+        "mfe_avg": 3.601,
+        "mae_avg": -0.334,
+        "causal_accounting": {
+          "traps_avoided_count": 259,
+          "traps_admitted_count": 132,
+          "runners_captured_count": 1503,
+          "runners_missed_count": 95,
+          "avoided_trap_r": 264.33,
+          "missed_runner_cost_r": 308.98,
+          "delay_slippage_cost_r": 143.88,
+          "net_causal_r": -188.53
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 565,
+            "total_r": 1635.14,
+            "er": 2.894,
+            "wr": 94.2,
+            "pf": 44.84
+          },
+          "NEUTRAL_BULL": {
+            "n": 747,
+            "total_r": 2055.84,
+            "er": 2.752,
+            "wr": 92.8,
+            "pf": 35.11
+          },
+          "CHOPPY_RANGE": {
+            "n": 293,
+            "total_r": 698.94,
+            "er": 2.385,
+            "wr": 86.3,
+            "pf": 16.94
+          },
+          "NEUTRAL_BEAR": {
+            "n": 30,
+            "total_r": 54.27,
+            "er": 1.809,
+            "wr": 83.3,
+            "pf": 10.77
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "variant": {
+        "variant_id": "DB_TIMING_45M",
+        "window_minutes": 45,
+        "description": "45-Minute Confirmation Window",
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "variant_id": "DB_TIMING_45M",
+        "window_minutes": 45,
+        "n_candidates_evaluated": 17509,
+        "n_top5_selected": 1989,
+        "n_trades": 1622,
+        "total_r": 4827.97,
+        "er": 2.977,
+        "median_r": 2.805,
+        "std_r": 1.637,
+        "wr": 98.5,
+        "pf": 171.28,
+        "max_dd": 2.1,
+        "loo1_er": 2.973,
+        "winsorized_er": 2.975,
+        "mfe_avg": 3.839,
+        "mae_avg": -0.287,
+        "causal_accounting": {
+          "traps_avoided_count": 366,
+          "traps_admitted_count": 25,
+          "runners_captured_count": 1597,
+          "runners_missed_count": 1,
+          "avoided_trap_r": 373.97,
+          "missed_runner_cost_r": 8.41,
+          "delay_slippage_cost_r": 170.31,
+          "net_causal_r": 195.25
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 573,
+            "total_r": 1766.99,
+            "er": 3.084,
+            "wr": 98.8,
+            "pf": 223.15
+          },
+          "NEUTRAL_BULL": {
+            "n": 745,
+            "total_r": 2220.97,
+            "er": 2.981,
+            "wr": 98.7,
+            "pf": 193.18
+          },
+          "CHOPPY_RANGE": {
+            "n": 277,
+            "total_r": 782.84,
+            "er": 2.826,
+            "wr": 97.8,
+            "pf": 119.24
+          },
+          "NEUTRAL_BEAR": {
+            "n": 27,
+            "total_r": 57.18,
+            "er": 2.118,
+            "wr": 92.6,
+            "pf": 26.74
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "variant": {
+        "variant_id": "DB_TIMING_60M",
+        "window_minutes": 60,
+        "description": "60-Minute Confirmation Window",
+        "delay_slippage_r": 0.13
+      },
+      "metrics": {
+        "variant_id": "DB_TIMING_60M",
+        "window_minutes": 60,
+        "n_candidates_evaluated": 17509,
+        "n_top5_selected": 1989,
+        "n_trades": 1598,
+        "total_r": 4824.68,
+        "er": 3.019,
+        "median_r": 2.817,
+        "std_r": 1.571,
+        "wr": 100.0,
+        "pf": 4824680000.0,
+        "max_dd": 0.0,
+        "loo1_er": 3.015,
+        "winsorized_er": 3.018,
+        "mfe_avg": 3.898,
+        "mae_avg": -0.275,
+        "causal_accounting": {
+          "traps_avoided_count": 391,
+          "traps_admitted_count": 0,
+          "runners_captured_count": 1598,
+          "runners_missed_count": 0,
+          "avoided_trap_r": 399.7,
+          "missed_runner_cost_r": 0,
+          "delay_slippage_cost_r": 207.74,
+          "net_causal_r": 191.96
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 566,
+            "total_r": 1760.79,
+            "er": 3.111,
+            "wr": 100.0,
+            "pf": 1760791000.0
+          },
+          "NEUTRAL_BULL": {
+            "n": 735,
+            "total_r": 2214.15,
+            "er": 3.012,
+            "wr": 100.0,
+            "pf": 2214154000.0
+          },
+          "CHOPPY_RANGE": {
+            "n": 272,
+            "total_r": 790.96,
+            "er": 2.908,
+            "wr": 100.0,
+            "pf": 790962000.0
+          },
+          "NEUTRAL_BEAR": {
+            "n": 25,
+            "total_r": 58.77,
+            "er": 2.351,
+            "wr": 100.0,
+            "pf": 58773000.0
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    }
+  ]
+}

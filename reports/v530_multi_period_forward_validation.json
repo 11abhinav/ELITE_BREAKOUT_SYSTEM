@@ -1,0 +1,523 @@
+{
+  "title": "HISTORICAL MULTI-PERIOD FORWARD VALIDATION COMPLETE",
+  "timestamp": "2026-09-11 22:58:18 IST",
+  "database": "data/v530_multi_period_live_gate_test.db",
+  "csv_disagreements": "reports/v530_multi_period_disagreements.csv",
+  "samples": {
+    "SAMPLE_A": {
+      "dates": [
+        "2023-01-02",
+        "2023-12-15"
+      ],
+      "sessions": 250,
+      "total_candidates": 8689,
+      "agreements": 203,
+      "disagreements": 702,
+      "v529_trades": 692,
+      "v530_trades": 416,
+      "v529_er": 0.738,
+      "v530_er": 1.4643,
+      "paired_delta_r": 0.1402,
+      "median_delta_r": 0.143,
+      "cumulative_delta_r": 98.45,
+      "v530_wr": 78.85,
+      "v530_pf": 14.4,
+      "v530_max_dd": 2.33,
+      "bootstrap_ci_95": [
+        0.0261,
+        0.2526
+      ],
+      "permutation_p": 0.0072,
+      "loo1": 0.1341,
+      "loo2": 0.1279,
+      "winsorized_delta": 0.1816,
+      "trimmed_mean": 0.1075,
+      "frictions": {
+        "0.00R": 0.1402,
+        "0.02R": 0.1481,
+        "0.05R": 0.1599,
+        "0.10R": 0.1796,
+        "0.15R": 0.1992,
+        "0.20R": 0.2189
+      },
+      "sequential_n": {
+        "N_25": {
+          "mean_delta": -0.3582,
+          "ci_95": [
+            -0.9539,
+            0.2656
+          ],
+          "p_value": 0.866,
+          "loo1": -0.5479,
+          "verdict": "FAIL"
+        },
+        "N_50": {
+          "mean_delta": -0.0598,
+          "ci_95": [
+            -0.5347,
+            0.4299
+          ],
+          "p_value": 0.5972,
+          "loo1": -0.1466,
+          "verdict": "FAIL"
+        },
+        "N_75": {
+          "mean_delta": -0.0647,
+          "ci_95": [
+            -0.4133,
+            0.3008
+          ],
+          "p_value": 0.653,
+          "loo1": -0.1222,
+          "verdict": "FAIL"
+        },
+        "N_100": {
+          "mean_delta": -0.0319,
+          "ci_95": [
+            -0.3402,
+            0.2815
+          ],
+          "p_value": 0.5836,
+          "loo1": -0.0746,
+          "verdict": "FAIL"
+        },
+        "N_125": {
+          "mean_delta": -0.042,
+          "ci_95": [
+            -0.3365,
+            0.237
+          ],
+          "p_value": 0.6174,
+          "loo1": -0.0777,
+          "verdict": "FAIL"
+        },
+        "N_150": {
+          "mean_delta": -0.0401,
+          "ci_95": [
+            -0.2854,
+            0.2064
+          ],
+          "p_value": 0.6342,
+          "loo1": -0.0698,
+          "verdict": "FAIL"
+        }
+      },
+      "regimes": {
+        "STRONG_BULL": {
+          "candidates": 2659,
+          "v530_selected": 189,
+          "disagreements": 225,
+          "paired_delta_r": 0.3682
+        },
+        "NEUTRAL_BULL": {
+          "candidates": 2627,
+          "v530_selected": 162,
+          "disagreements": 217,
+          "paired_delta_r": 0.2545
+        },
+        "CHOPPY_RANGE": {
+          "candidates": 1824,
+          "v530_selected": 55,
+          "disagreements": 158,
+          "paired_delta_r": 0.0092
+        },
+        "NEUTRAL_BEAR": {
+          "candidates": 886,
+          "v530_selected": 10,
+          "disagreements": 59,
+          "paired_delta_r": -0.3149
+        },
+        "SHARP_SELLOFF": {
+          "candidates": 693,
+          "v530_selected": 0,
+          "disagreements": 43,
+          "paired_delta_r": -0.5234
+        }
+      },
+      "taxonomy": {
+        "45M_CONFIRMATION": {
+          "count": 80,
+          "total_r": 49.32,
+          "mean_delta_r": 0.6165
+        },
+        "VETO_PRUNING": {
+          "count": 213,
+          "total_r": 311.29,
+          "mean_delta_r": 1.4614
+        },
+        "REGIME_VETO": {
+          "count": 0,
+          "total_r": 0.0,
+          "mean_delta_r": 0.0
+        },
+        "DYNAMIC_CAPACITY": {
+          "count": 307,
+          "total_r": -208.57,
+          "mean_delta_r": -0.6794
+        },
+        "FOCUSED_MODEL_G": {
+          "count": 102,
+          "total_r": -53.59,
+          "mean_delta_r": -0.5254
+        }
+      },
+      "concentration": {
+        "top_1_pct_share": 2.97,
+        "top_5_pct_share": 17.14,
+        "top_10_pct_share": 32.84
+      },
+      "rate": {
+        "disagreements_per_session": 2.808,
+        "sessions_for_n25": 9,
+        "sessions_for_n50": 18,
+        "sessions_for_n100": 36
+      }
+    },
+    "SAMPLE_B": {
+      "dates": [
+        "2024-01-01",
+        "2024-12-13"
+      ],
+      "sessions": 250,
+      "total_candidates": 8766,
+      "agreements": 187,
+      "disagreements": 707,
+      "v529_trades": 671,
+      "v530_trades": 410,
+      "v529_er": 0.7581,
+      "v530_er": 1.675,
+      "paired_delta_r": 0.2518,
+      "median_delta_r": 0.265,
+      "cumulative_delta_r": 178.05,
+      "v530_wr": 84.63,
+      "v530_pf": 23.17,
+      "v530_max_dd": 2.25,
+      "bootstrap_ci_95": [
+        0.1394,
+        0.3734
+      ],
+      "permutation_p": 0.0,
+      "loo1": 0.246,
+      "loo2": 0.2401,
+      "winsorized_delta": 0.2984,
+      "trimmed_mean": 0.2281,
+      "frictions": {
+        "0.00R": 0.2518,
+        "0.02R": 0.2592,
+        "0.05R": 0.2703,
+        "0.10R": 0.2888,
+        "0.15R": 0.3072,
+        "0.20R": 0.3257
+      },
+      "sequential_n": {
+        "N_25": {
+          "mean_delta": 0.3377,
+          "ci_95": [
+            -0.403,
+            1.0364
+          ],
+          "p_value": 0.1988,
+          "loo1": 0.2134,
+          "verdict": "FAIL"
+        },
+        "N_50": {
+          "mean_delta": 0.0897,
+          "ci_95": [
+            -0.4196,
+            0.5995
+          ],
+          "p_value": 0.3714,
+          "loo1": 0.0118,
+          "verdict": "FAIL"
+        },
+        "N_75": {
+          "mean_delta": 0.0971,
+          "ci_95": [
+            -0.2996,
+            0.4852
+          ],
+          "p_value": 0.3184,
+          "loo1": 0.0444,
+          "verdict": "FAIL"
+        },
+        "N_100": {
+          "mean_delta": 0.227,
+          "ci_95": [
+            -0.1073,
+            0.5542
+          ],
+          "p_value": 0.0912,
+          "loo1": 0.1882,
+          "verdict": "FAIL"
+        },
+        "N_125": {
+          "mean_delta": 0.3007,
+          "ci_95": [
+            -0.0052,
+            0.6193
+          ],
+          "p_value": 0.0212,
+          "loo1": 0.2703,
+          "verdict": "FAIL"
+        },
+        "N_150": {
+          "mean_delta": 0.3572,
+          "ci_95": [
+            0.0768,
+            0.6286
+          ],
+          "p_value": 0.0052,
+          "loo1": 0.3307,
+          "verdict": "PASS"
+        }
+      },
+      "regimes": {
+        "STRONG_BULL": {
+          "candidates": 2830,
+          "v530_selected": 198,
+          "disagreements": 250,
+          "paired_delta_r": 0.4742
+        },
+        "NEUTRAL_BULL": {
+          "candidates": 2681,
+          "v530_selected": 154,
+          "disagreements": 221,
+          "paired_delta_r": 0.343
+        },
+        "CHOPPY_RANGE": {
+          "candidates": 1821,
+          "v530_selected": 48,
+          "disagreements": 138,
+          "paired_delta_r": -0.0295
+        },
+        "NEUTRAL_BEAR": {
+          "candidates": 937,
+          "v530_selected": 10,
+          "disagreements": 63,
+          "paired_delta_r": -0.0727
+        },
+        "SHARP_SELLOFF": {
+          "candidates": 497,
+          "v530_selected": 0,
+          "disagreements": 35,
+          "paired_delta_r": -0.219
+        }
+      },
+      "taxonomy": {
+        "45M_CONFIRMATION": {
+          "count": 92,
+          "total_r": 54.65,
+          "mean_delta_r": 0.5941
+        },
+        "VETO_PRUNING": {
+          "count": 220,
+          "total_r": 377.33,
+          "mean_delta_r": 1.7151
+        },
+        "REGIME_VETO": {
+          "count": 0,
+          "total_r": 0.0,
+          "mean_delta_r": 0.0
+        },
+        "DYNAMIC_CAPACITY": {
+          "count": 291,
+          "total_r": -179.61,
+          "mean_delta_r": -0.6172
+        },
+        "FOCUSED_MODEL_G": {
+          "count": 104,
+          "total_r": -74.32,
+          "mean_delta_r": -0.7147
+        }
+      },
+      "concentration": {
+        "top_1_pct_share": 3.35,
+        "top_5_pct_share": 15.95,
+        "top_10_pct_share": 30.31
+      },
+      "rate": {
+        "disagreements_per_session": 2.828,
+        "sessions_for_n25": 9,
+        "sessions_for_n50": 18,
+        "sessions_for_n100": 36
+      }
+    },
+    "SAMPLE_C": {
+      "dates": [
+        "2025-01-01",
+        "2025-06-24"
+      ],
+      "sessions": 125,
+      "total_candidates": 4400,
+      "agreements": 80,
+      "disagreements": 382,
+      "v529_trades": 353,
+      "v530_trades": 189,
+      "v529_er": 0.673,
+      "v530_er": 1.575,
+      "paired_delta_r": 0.1574,
+      "median_delta_r": 0.261,
+      "cumulative_delta_r": 60.12,
+      "v530_wr": 85.19,
+      "v530_pf": 22.46,
+      "v530_max_dd": 2.28,
+      "bootstrap_ci_95": [
+        0.0093,
+        0.3045
+      ],
+      "permutation_p": 0.0202,
+      "loo1": 0.1462,
+      "loo2": 0.135,
+      "winsorized_delta": 0.1906,
+      "trimmed_mean": 0.1308,
+      "frictions": {
+        "0.00R": 0.1574,
+        "0.02R": 0.166,
+        "0.05R": 0.1789,
+        "0.10R": 0.2003,
+        "0.15R": 0.2218,
+        "0.20R": 0.2432
+      },
+      "sequential_n": {
+        "N_25": {
+          "mean_delta": 0.3591,
+          "ci_95": [
+            -0.3586,
+            0.9812
+          ],
+          "p_value": 0.1578,
+          "loo1": 0.2458,
+          "verdict": "FAIL"
+        },
+        "N_50": {
+          "mean_delta": -0.1586,
+          "ci_95": [
+            -0.5838,
+            0.2763
+          ],
+          "p_value": 0.7388,
+          "loo1": -0.2247,
+          "verdict": "FAIL"
+        },
+        "N_75": {
+          "mean_delta": -0.1807,
+          "ci_95": [
+            -0.5426,
+            0.1607
+          ],
+          "p_value": 0.8382,
+          "loo1": -0.2247,
+          "verdict": "FAIL"
+        },
+        "N_100": {
+          "mean_delta": 0.0304,
+          "ci_95": [
+            -0.268,
+            0.3248
+          ],
+          "p_value": 0.432,
+          "loo1": -0.0137,
+          "verdict": "FAIL"
+        },
+        "N_125": {
+          "mean_delta": -0.0404,
+          "ci_95": [
+            -0.2974,
+            0.2274
+          ],
+          "p_value": 0.6098,
+          "loo1": -0.0762,
+          "verdict": "FAIL"
+        },
+        "N_150": {
+          "mean_delta": 0.0191,
+          "ci_95": [
+            -0.2086,
+            0.2593
+          ],
+          "p_value": 0.4486,
+          "loo1": -0.0103,
+          "verdict": "FAIL"
+        }
+      },
+      "regimes": {
+        "STRONG_BULL": {
+          "candidates": 1356,
+          "v530_selected": 79,
+          "disagreements": 109,
+          "paired_delta_r": 0.4065
+        },
+        "NEUTRAL_BULL": {
+          "candidates": 1307,
+          "v530_selected": 69,
+          "disagreements": 125,
+          "paired_delta_r": 0.2784
+        },
+        "CHOPPY_RANGE": {
+          "candidates": 1013,
+          "v530_selected": 34,
+          "disagreements": 87,
+          "paired_delta_r": -0.1169
+        },
+        "NEUTRAL_BEAR": {
+          "candidates": 656,
+          "v530_selected": 7,
+          "disagreements": 55,
+          "paired_delta_r": -0.1035
+        },
+        "SHARP_SELLOFF": {
+          "candidates": 68,
+          "v530_selected": 0,
+          "disagreements": 6,
+          "paired_delta_r": -0.5208
+        }
+      },
+      "taxonomy": {
+        "45M_CONFIRMATION": {
+          "count": 56,
+          "total_r": 36.13,
+          "mean_delta_r": 0.6452
+        },
+        "VETO_PRUNING": {
+          "count": 109,
+          "total_r": 168.56,
+          "mean_delta_r": 1.5464
+        },
+        "REGIME_VETO": {
+          "count": 0,
+          "total_r": 0.0,
+          "mean_delta_r": 0.0
+        },
+        "DYNAMIC_CAPACITY": {
+          "count": 168,
+          "total_r": -102.13,
+          "mean_delta_r": -0.6079
+        },
+        "FOCUSED_MODEL_G": {
+          "count": 49,
+          "total_r": -42.43,
+          "mean_delta_r": -0.866
+        }
+      },
+      "concentration": {
+        "top_1_pct_share": 3.5,
+        "top_5_pct_share": 16.43,
+        "top_10_pct_share": 31.07
+      },
+      "rate": {
+        "disagreements_per_session": 3.056,
+        "sessions_for_n25": 9,
+        "sessions_for_n50": 17,
+        "sessions_for_n100": 33
+      }
+    }
+  },
+  "governance_answers": {
+    "A_advantage_historically_robust": "YES",
+    "B_pipeline_technically_correct": "YES",
+    "C_enough_evidence_to_trust_gate_methodology": "YES",
+    "D_can_historical_replace_live_n100_gate": "NO (Live N >= 100 gate is mandatory before real-money promotion)"
+  },
+  "production_recommendation": "V5.30 IS PREPARED FOR LIVE PROMOTION PENDING THE FORMAL LIVE EVIDENCE GATE",
+  "footer": "V5.30 MULTI-PERIOD LIVE-GATE SIMULATION COMPLETE"
+}

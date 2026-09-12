@@ -1,0 +1,3355 @@
+{
+  "tournament_metadata": {
+    "scanner": "DAILY_BUILDER",
+    "base_version": "V5.29",
+    "timestamp": "2026-09-11T14:35:55.161996+00:00",
+    "source_commit": "bf4da25fd10028cc034d6f9fa610cefb9dd62a0e",
+    "total_configurations_tested": 34,
+    "calendar_audit": {
+      "saturday_bars": 0,
+      "sunday_bars": 0,
+      "lookahead_violations": 0,
+      "duplicate_events": 0
+    }
+  },
+  "champion_configuration": {
+    "config_id": "DB_TOURN_SWEEP_RS_OFF",
+    "category": "SWEEP_RS_WEIGHT",
+    "description": "RS Acceleration Weight = OFF (0.0)",
+    "score_floor": 60.0,
+    "exhaustion_cliff": 22.0,
+    "freshness_lambda": 0.099,
+    "rs_momentum_weight": 0.0,
+    "veto_wick_thresh": 0.25,
+    "veto_ext_thresh": 2.5,
+    "veto_vol_thresh": 1.2,
+    "veto_loose_base_thresh": 2.0,
+    "veto_min_comp_days": 7,
+    "trigger_30m_active": true
+  },
+  "holdout_comparison": {
+    "v525": {
+      "config_id": "V5.25_PRODUCTION_BASELINE",
+      "n_candidates": 4331,
+      "n_trades": 559,
+      "total_r": 651.56,
+      "er": 1.166,
+      "median_r": 1.488,
+      "std_r": 1.046,
+      "wr": 81.2,
+      "pf": 8.97,
+      "max_dd": 3.12,
+      "avg_winner": 1.62,
+      "avg_loser": 0.78,
+      "payoff": 2.07,
+      "loo1_er": 1.162,
+      "loo2_er": 1.159,
+      "winsorized_er": 1.164,
+      "veto_acc": {
+        "total_vetoed": 495,
+        "losers_vetoed": 275,
+        "winners_vetoed": 220,
+        "avoided_loss_r": 195.37,
+        "opp_cost_r": 372.45,
+        "net_veto_r": -177.08
+      },
+      "trigger_acc": {
+        "total_unconfirmed": 0,
+        "traps_avoided": 0,
+        "missed_runners": 0,
+        "avoided_trap_r": 0,
+        "missed_runner_r": 0,
+        "total_slippage_r": 22.36,
+        "net_30m_causal_r": -22.36
+      },
+      "regime_metrics": {
+        "STRONG_BULL": {
+          "n": 195,
+          "total_r": 253.71,
+          "er": 1.301,
+          "wr": 87.2,
+          "pf": 12.75
+        },
+        "NEUTRAL_BULL": {
+          "n": 188,
+          "total_r": 257.75,
+          "er": 1.371,
+          "wr": 89.4,
+          "pf": 17.73
+        },
+        "CHOPPY_RANGE": {
+          "n": 107,
+          "total_r": 92.44,
+          "er": 0.864,
+          "wr": 69.2,
+          "pf": 4.97
+        },
+        "NEUTRAL_BEAR": {
+          "n": 69,
+          "total_r": 47.67,
+          "er": 0.691,
+          "wr": 60.9,
+          "pf": 3.22
+        },
+        "SHARP_SELLOFF": {
+          "n": 0,
+          "total_r": 0.0,
+          "er": 0.0,
+          "wr": 0.0,
+          "pf": 0.0
+        }
+      }
+    },
+    "v528": {
+      "config_id": "V5.28_SHADOW_BASELINE",
+      "n_candidates": 4331,
+      "n_trades": 495,
+      "total_r": 610.4,
+      "er": 1.233,
+      "median_r": 1.519,
+      "std_r": 0.996,
+      "wr": 84.0,
+      "pf": 10.96,
+      "max_dd": 3.12,
+      "avg_winner": 1.61,
+      "avg_loser": 0.78,
+      "payoff": 2.08,
+      "loo1_er": 1.229,
+      "loo2_er": 1.226,
+      "winsorized_er": 1.232,
+      "veto_acc": {
+        "total_vetoed": 495,
+        "losers_vetoed": 275,
+        "winners_vetoed": 220,
+        "avoided_loss_r": 195.37,
+        "opp_cost_r": 372.45,
+        "net_veto_r": -177.08
+      },
+      "trigger_acc": {
+        "total_unconfirmed": 0,
+        "traps_avoided": 0,
+        "missed_runners": 0,
+        "avoided_trap_r": 0,
+        "missed_runner_r": 0,
+        "total_slippage_r": 19.8,
+        "net_30m_causal_r": -19.8
+      },
+      "regime_metrics": {
+        "STRONG_BULL": {
+          "n": 194,
+          "total_r": 252.07,
+          "er": 1.299,
+          "wr": 87.1,
+          "pf": 12.68
+        },
+        "NEUTRAL_BULL": {
+          "n": 188,
+          "total_r": 257.75,
+          "er": 1.371,
+          "wr": 89.4,
+          "pf": 17.73
+        },
+        "CHOPPY_RANGE": {
+          "n": 106,
+          "total_r": 93.12,
+          "er": 0.878,
+          "wr": 69.8,
+          "pf": 5.12
+        },
+        "NEUTRAL_BEAR": {
+          "n": 7,
+          "total_r": 7.46,
+          "er": 1.066,
+          "wr": 71.4,
+          "pf": 5.39
+        },
+        "SHARP_SELLOFF": {
+          "n": 0,
+          "total_r": 0.0,
+          "er": 0.0,
+          "wr": 0.0,
+          "pf": 0.0
+        }
+      }
+    },
+    "v529": {
+      "config_id": "DB_TOURN_000_V529_BENCHMARK",
+      "n_candidates": 4331,
+      "n_trades": 452,
+      "total_r": 580.09,
+      "er": 1.283,
+      "median_r": 1.523,
+      "std_r": 0.918,
+      "wr": 87.6,
+      "pf": 13.85,
+      "max_dd": 3.0,
+      "avg_winner": 1.58,
+      "avg_loser": 0.81,
+      "payoff": 1.96,
+      "loo1_er": 1.279,
+      "loo2_er": 1.276,
+      "winsorized_er": 1.282,
+      "veto_acc": {
+        "total_vetoed": 1967,
+        "losers_vetoed": 1045,
+        "winners_vetoed": 922,
+        "avoided_loss_r": 756.16,
+        "opp_cost_r": 1537.48,
+        "net_veto_r": -781.32
+      },
+      "trigger_acc": {
+        "total_unconfirmed": 43,
+        "traps_avoided": 23,
+        "missed_runners": 20,
+        "avoided_trap_r": 14.68,
+        "missed_runner_r": 31.41,
+        "total_slippage_r": 36.16,
+        "net_30m_causal_r": -52.89
+      },
+      "regime_metrics": {
+        "STRONG_BULL": {
+          "n": 180,
+          "total_r": 240.09,
+          "er": 1.334,
+          "wr": 90.0,
+          "pf": 16.5
+        },
+        "NEUTRAL_BULL": {
+          "n": 173,
+          "total_r": 242.43,
+          "er": 1.401,
+          "wr": 91.9,
+          "pf": 23.15
+        },
+        "CHOPPY_RANGE": {
+          "n": 93,
+          "total_r": 89.57,
+          "er": 0.963,
+          "wr": 75.3,
+          "pf": 6.05
+        },
+        "NEUTRAL_BEAR": {
+          "n": 6,
+          "total_r": 8.0,
+          "er": 1.334,
+          "wr": 83.3,
+          "pf": 9.3
+        },
+        "SHARP_SELLOFF": {
+          "n": 0,
+          "total_r": 0.0,
+          "er": 0.0,
+          "wr": 0.0,
+          "pf": 0.0
+        }
+      }
+    },
+    "champion": {
+      "config_id": "DB_TOURN_SWEEP_RS_OFF",
+      "n_candidates": 4331,
+      "n_trades": 422,
+      "total_r": 556.08,
+      "er": 1.318,
+      "median_r": 1.548,
+      "std_r": 0.867,
+      "wr": 89.3,
+      "pf": 16.5,
+      "max_dd": 3.0,
+      "avg_winner": 1.57,
+      "avg_loser": 0.8,
+      "payoff": 1.97,
+      "loo1_er": 1.313,
+      "loo2_er": 1.31,
+      "winsorized_er": 1.315,
+      "veto_acc": {
+        "total_vetoed": 1967,
+        "losers_vetoed": 1045,
+        "winners_vetoed": 922,
+        "avoided_loss_r": 756.16,
+        "opp_cost_r": 1537.48,
+        "net_veto_r": -781.32
+      },
+      "trigger_acc": {
+        "total_unconfirmed": 38,
+        "traps_avoided": 21,
+        "missed_runners": 17,
+        "avoided_trap_r": 13.49,
+        "missed_runner_r": 26.63,
+        "total_slippage_r": 33.76,
+        "net_30m_causal_r": -46.89
+      },
+      "regime_metrics": {
+        "STRONG_BULL": {
+          "n": 181,
+          "total_r": 239.69,
+          "er": 1.324,
+          "wr": 90.1,
+          "pf": 16.22
+        },
+        "NEUTRAL_BULL": {
+          "n": 175,
+          "total_r": 249.9,
+          "er": 1.428,
+          "wr": 92.6,
+          "pf": 26.12
+        },
+        "CHOPPY_RANGE": {
+          "n": 66,
+          "total_r": 66.49,
+          "er": 1.007,
+          "wr": 78.8,
+          "pf": 7.54
+        },
+        "NEUTRAL_BEAR": {
+          "n": 0,
+          "total_r": 0.0,
+          "er": 0.0,
+          "wr": 0.0,
+          "pf": 0.0
+        },
+        "SHARP_SELLOFF": {
+          "n": 0,
+          "total_r": 0.0,
+          "er": 0.0,
+          "wr": 0.0,
+          "pf": 0.0
+        }
+      }
+    },
+    "paired_stats": {
+      "delta_er": 0.03500000000000014,
+      "delta_total_r": -24.00999999999999,
+      "ci_95_low": -0.06308293838862561,
+      "ci_95_high": 0.1776398104265403,
+      "permutation_p_value": 0.193
+    }
+  },
+  "all_configurations": [
+    {
+      "config": {
+        "config_id": "DB_TOURN_000_V529_BENCHMARK",
+        "category": "BENCHMARK",
+        "description": "Certified V5.29 Baseline (Floor 60.0, Exh 22.0, Lambda 0.099, RS 10.0, Wick 25%, Ext 2.50R, Vol 1.20x)",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_000_V529_BENCHMARK",
+        "n_candidates": 17540,
+        "n_trades": 1820,
+        "total_r": 2251.51,
+        "er": 1.237,
+        "median_r": 1.468,
+        "std_r": 0.976,
+        "wr": 84.9,
+        "pf": 11.92,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.11,
+        "loo1_er": 1.236,
+        "loo2_er": 1.235,
+        "winsorized_er": 1.235,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 178,
+          "traps_avoided": 105,
+          "missed_runners": 73,
+          "avoided_trap_r": 73.3,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 145.6,
+          "net_30m_causal_r": -190.41
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 412,
+            "total_r": 414.02,
+            "er": 1.005,
+            "wr": 74.3,
+            "pf": 6.43
+          },
+          "NEUTRAL_BEAR": {
+            "n": 26,
+            "total_r": 19.6,
+            "er": 0.754,
+            "wr": 69.2,
+            "pf": 4.21
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_FLOOR_58",
+        "category": "SWEEP_SCORE_FLOOR",
+        "description": "Model G Score Floor = 58.0",
+        "score_floor": 58.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_FLOOR_58",
+        "n_candidates": 17540,
+        "n_trades": 1858,
+        "total_r": 2275.95,
+        "er": 1.225,
+        "median_r": 1.458,
+        "std_r": 0.986,
+        "wr": 84.5,
+        "pf": 11.48,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.11,
+        "loo1_er": 1.224,
+        "loo2_er": 1.223,
+        "winsorized_er": 1.223,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 188,
+          "traps_avoided": 114,
+          "missed_runners": 74,
+          "avoided_trap_r": 81.3,
+          "missed_runner_r": 120.12,
+          "total_slippage_r": 148.64,
+          "net_30m_causal_r": -187.46
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 418,
+            "total_r": 415.66,
+            "er": 0.994,
+            "wr": 73.9,
+            "pf": 6.28
+          },
+          "NEUTRAL_BEAR": {
+            "n": 58,
+            "total_r": 42.39,
+            "er": 0.731,
+            "wr": 67.2,
+            "pf": 3.88
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_FLOOR_59",
+        "category": "SWEEP_SCORE_FLOOR",
+        "description": "Model G Score Floor = 59.0",
+        "score_floor": 59.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_FLOOR_59",
+        "n_candidates": 17540,
+        "n_trades": 1838,
+        "total_r": 2262.67,
+        "er": 1.231,
+        "median_r": 1.462,
+        "std_r": 0.981,
+        "wr": 84.7,
+        "pf": 11.71,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.11,
+        "loo1_er": 1.23,
+        "loo2_er": 1.229,
+        "winsorized_er": 1.229,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 181,
+          "traps_avoided": 107,
+          "missed_runners": 74,
+          "avoided_trap_r": 75.3,
+          "missed_runner_r": 120.12,
+          "total_slippage_r": 147.04,
+          "net_30m_causal_r": -191.86
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 416,
+            "total_r": 413.43,
+            "er": 0.994,
+            "wr": 73.8,
+            "pf": 6.25
+          },
+          "NEUTRAL_BEAR": {
+            "n": 40,
+            "total_r": 31.35,
+            "er": 0.784,
+            "wr": 70.0,
+            "pf": 4.56
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_FLOOR_61",
+        "category": "SWEEP_SCORE_FLOOR",
+        "description": "Model G Score Floor = 61.0",
+        "score_floor": 61.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_FLOOR_61",
+        "n_candidates": 17540,
+        "n_trades": 1799,
+        "total_r": 2236.4,
+        "er": 1.243,
+        "median_r": 1.471,
+        "std_r": 0.972,
+        "wr": 85.2,
+        "pf": 12.19,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.12,
+        "loo1_er": 1.242,
+        "loo2_er": 1.241,
+        "winsorized_er": 1.241,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 178,
+          "traps_avoided": 105,
+          "missed_runners": 73,
+          "avoided_trap_r": 73.3,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 143.92,
+          "net_30m_causal_r": -188.73
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 406,
+            "total_r": 412.61,
+            "er": 1.016,
+            "wr": 74.6,
+            "pf": 6.62
+          },
+          "NEUTRAL_BEAR": {
+            "n": 11,
+            "total_r": 5.9,
+            "er": 0.536,
+            "wr": 63.6,
+            "pf": 3.11
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_FLOOR_62",
+        "category": "SWEEP_SCORE_FLOOR",
+        "description": "Model G Score Floor = 62.0",
+        "score_floor": 62.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_FLOOR_62",
+        "n_candidates": 17540,
+        "n_trades": 1784,
+        "total_r": 2218.79,
+        "er": 1.244,
+        "median_r": 1.471,
+        "std_r": 0.973,
+        "wr": 85.1,
+        "pf": 12.16,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.12,
+        "loo1_er": 1.243,
+        "loo2_er": 1.241,
+        "winsorized_er": 1.241,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 177,
+          "traps_avoided": 104,
+          "missed_runners": 73,
+          "avoided_trap_r": 72.59,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 142.72,
+          "net_30m_causal_r": -188.24
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 394,
+            "total_r": 396.86,
+            "er": 1.007,
+            "wr": 74.1,
+            "pf": 6.47
+          },
+          "NEUTRAL_BEAR": {
+            "n": 8,
+            "total_r": 4.04,
+            "er": 0.506,
+            "wr": 62.5,
+            "pf": 2.59
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_FLOOR_63",
+        "category": "SWEEP_SCORE_FLOOR",
+        "description": "Model G Score Floor = 63.0",
+        "score_floor": 63.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_FLOOR_63",
+        "n_candidates": 17540,
+        "n_trades": 1765,
+        "total_r": 2203.89,
+        "er": 1.249,
+        "median_r": 1.473,
+        "std_r": 0.969,
+        "wr": 85.3,
+        "pf": 12.37,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.13,
+        "loo1_er": 1.247,
+        "loo2_er": 1.246,
+        "winsorized_er": 1.246,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 177,
+          "traps_avoided": 104,
+          "missed_runners": 73,
+          "avoided_trap_r": 72.59,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 141.2,
+          "net_30m_causal_r": -186.72
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 380,
+            "total_r": 386.32,
+            "er": 1.017,
+            "wr": 74.5,
+            "pf": 6.66
+          },
+          "NEUTRAL_BEAR": {
+            "n": 3,
+            "total_r": -0.32,
+            "er": -0.107,
+            "wr": 33.3,
+            "pf": 0.83
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_FLOOR_64",
+        "category": "SWEEP_SCORE_FLOOR",
+        "description": "Model G Score Floor = 64.0",
+        "score_floor": 64.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_FLOOR_64",
+        "n_candidates": 17540,
+        "n_trades": 1743,
+        "total_r": 2182.17,
+        "er": 1.252,
+        "median_r": 1.473,
+        "std_r": 0.962,
+        "wr": 85.5,
+        "pf": 12.61,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.13,
+        "loo1_er": 1.251,
+        "loo2_er": 1.25,
+        "winsorized_er": 1.25,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 177,
+          "traps_avoided": 104,
+          "missed_runners": 73,
+          "avoided_trap_r": 72.59,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 139.44,
+          "net_30m_causal_r": -184.96
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 360,
+            "total_r": 362.77,
+            "er": 1.008,
+            "wr": 74.4,
+            "pf": 6.65
+          },
+          "NEUTRAL_BEAR": {
+            "n": 1,
+            "total_r": 1.51,
+            "er": 1.514,
+            "wr": 100.0,
+            "pf": 1514000.0
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_EXHAUST_18",
+        "category": "SWEEP_EXHAUSTION",
+        "description": "Exhaustion Ceiling = 18.0",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 18.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_EXHAUST_18",
+        "n_candidates": 17540,
+        "n_trades": 1820,
+        "total_r": 2251.51,
+        "er": 1.237,
+        "median_r": 1.468,
+        "std_r": 0.976,
+        "wr": 84.9,
+        "pf": 11.92,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.11,
+        "loo1_er": 1.236,
+        "loo2_er": 1.235,
+        "winsorized_er": 1.235,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 178,
+          "traps_avoided": 105,
+          "missed_runners": 73,
+          "avoided_trap_r": 73.3,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 145.6,
+          "net_30m_causal_r": -190.41
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 412,
+            "total_r": 414.02,
+            "er": 1.005,
+            "wr": 74.3,
+            "pf": 6.43
+          },
+          "NEUTRAL_BEAR": {
+            "n": 26,
+            "total_r": 19.6,
+            "er": 0.754,
+            "wr": 69.2,
+            "pf": 4.21
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_EXHAUST_20",
+        "category": "SWEEP_EXHAUSTION",
+        "description": "Exhaustion Ceiling = 20.0",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 20.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_EXHAUST_20",
+        "n_candidates": 17540,
+        "n_trades": 1820,
+        "total_r": 2251.51,
+        "er": 1.237,
+        "median_r": 1.468,
+        "std_r": 0.976,
+        "wr": 84.9,
+        "pf": 11.92,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.11,
+        "loo1_er": 1.236,
+        "loo2_er": 1.235,
+        "winsorized_er": 1.235,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 178,
+          "traps_avoided": 105,
+          "missed_runners": 73,
+          "avoided_trap_r": 73.3,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 145.6,
+          "net_30m_causal_r": -190.41
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 412,
+            "total_r": 414.02,
+            "er": 1.005,
+            "wr": 74.3,
+            "pf": 6.43
+          },
+          "NEUTRAL_BEAR": {
+            "n": 26,
+            "total_r": 19.6,
+            "er": 0.754,
+            "wr": 69.2,
+            "pf": 4.21
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_EXHAUST_24",
+        "category": "SWEEP_EXHAUSTION",
+        "description": "Exhaustion Ceiling = 24.0",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 24.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_EXHAUST_24",
+        "n_candidates": 17540,
+        "n_trades": 1820,
+        "total_r": 2251.51,
+        "er": 1.237,
+        "median_r": 1.468,
+        "std_r": 0.976,
+        "wr": 84.9,
+        "pf": 11.92,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.11,
+        "loo1_er": 1.236,
+        "loo2_er": 1.235,
+        "winsorized_er": 1.235,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 178,
+          "traps_avoided": 105,
+          "missed_runners": 73,
+          "avoided_trap_r": 73.3,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 145.6,
+          "net_30m_causal_r": -190.41
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 412,
+            "total_r": 414.02,
+            "er": 1.005,
+            "wr": 74.3,
+            "pf": 6.43
+          },
+          "NEUTRAL_BEAR": {
+            "n": 26,
+            "total_r": 19.6,
+            "er": 0.754,
+            "wr": 69.2,
+            "pf": 4.21
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_EXHAUST_26",
+        "category": "SWEEP_EXHAUSTION",
+        "description": "Exhaustion Ceiling = 26.0",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 26.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_EXHAUST_26",
+        "n_candidates": 17540,
+        "n_trades": 1820,
+        "total_r": 2251.51,
+        "er": 1.237,
+        "median_r": 1.468,
+        "std_r": 0.976,
+        "wr": 84.9,
+        "pf": 11.92,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.11,
+        "loo1_er": 1.236,
+        "loo2_er": 1.235,
+        "winsorized_er": 1.235,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 178,
+          "traps_avoided": 105,
+          "missed_runners": 73,
+          "avoided_trap_r": 73.3,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 145.6,
+          "net_30m_causal_r": -190.41
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 412,
+            "total_r": 414.02,
+            "er": 1.005,
+            "wr": 74.3,
+            "pf": 6.43
+          },
+          "NEUTRAL_BEAR": {
+            "n": 26,
+            "total_r": 19.6,
+            "er": 0.754,
+            "wr": 69.2,
+            "pf": 4.21
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_FRESH_3D",
+        "category": "SWEEP_FRESHNESS",
+        "description": "Freshness Half-Life = 3D (Lambda=0.2310)",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.231,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_FRESH_3D",
+        "n_candidates": 17540,
+        "n_trades": 1804,
+        "total_r": 2234.16,
+        "er": 1.238,
+        "median_r": 1.459,
+        "std_r": 0.969,
+        "wr": 85.2,
+        "pf": 12.15,
+        "max_dd": 3.0,
+        "avg_winner": 1.58,
+        "avg_loser": 0.75,
+        "payoff": 2.11,
+        "loo1_er": 1.237,
+        "loo2_er": 1.236,
+        "winsorized_er": 1.236,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 178,
+          "traps_avoided": 105,
+          "missed_runners": 73,
+          "avoided_trap_r": 73.39,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 144.32,
+          "net_30m_causal_r": -189.04
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 604,
+            "total_r": 821.26,
+            "er": 1.36,
+            "wr": 90.6,
+            "pf": 18.99
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 993.12,
+            "er": 1.278,
+            "wr": 87.0,
+            "pf": 14.04
+          },
+          "CHOPPY_RANGE": {
+            "n": 407,
+            "total_r": 409.18,
+            "er": 1.005,
+            "wr": 74.4,
+            "pf": 6.46
+          },
+          "NEUTRAL_BEAR": {
+            "n": 16,
+            "total_r": 10.61,
+            "er": 0.663,
+            "wr": 68.8,
+            "pf": 3.85
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_FRESH_5D",
+        "category": "SWEEP_FRESHNESS",
+        "description": "Freshness Half-Life = 5D (Lambda=0.1386)",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.1386,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_FRESH_5D",
+        "n_candidates": 17540,
+        "n_trades": 1809,
+        "total_r": 2238.84,
+        "er": 1.238,
+        "median_r": 1.466,
+        "std_r": 0.974,
+        "wr": 85.0,
+        "pf": 12.0,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.11,
+        "loo1_er": 1.236,
+        "loo2_er": 1.235,
+        "winsorized_er": 1.235,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 179,
+          "traps_avoided": 106,
+          "missed_runners": 73,
+          "avoided_trap_r": 74.06,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 144.72,
+          "net_30m_causal_r": -188.77
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 604,
+            "total_r": 818.06,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.27
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 995.69,
+            "er": 1.281,
+            "wr": 87.0,
+            "pf": 14.04
+          },
+          "CHOPPY_RANGE": {
+            "n": 410,
+            "total_r": 413.31,
+            "er": 1.008,
+            "wr": 74.4,
+            "pf": 6.48
+          },
+          "NEUTRAL_BEAR": {
+            "n": 18,
+            "total_r": 11.77,
+            "er": 0.654,
+            "wr": 66.7,
+            "pf": 3.66
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_FRESH_9D",
+        "category": "SWEEP_FRESHNESS",
+        "description": "Freshness Half-Life = 9D (Lambda=0.0770)",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.077,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_FRESH_9D",
+        "n_candidates": 17540,
+        "n_trades": 1827,
+        "total_r": 2255.75,
+        "er": 1.235,
+        "median_r": 1.466,
+        "std_r": 0.979,
+        "wr": 84.8,
+        "pf": 11.79,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.11,
+        "loo1_er": 1.234,
+        "loo2_er": 1.232,
+        "winsorized_er": 1.232,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 177,
+          "traps_avoided": 104,
+          "missed_runners": 73,
+          "avoided_trap_r": 72.76,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 146.16,
+          "net_30m_causal_r": -191.51
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 778,
+            "total_r": 999.71,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.09
+          },
+          "CHOPPY_RANGE": {
+            "n": 414,
+            "total_r": 412.99,
+            "er": 0.998,
+            "wr": 73.9,
+            "pf": 6.28
+          },
+          "NEUTRAL_BEAR": {
+            "n": 30,
+            "total_r": 23.67,
+            "er": 0.789,
+            "wr": 70.0,
+            "pf": 4.33
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_FRESH_12D",
+        "category": "SWEEP_FRESHNESS",
+        "description": "Freshness Half-Life = 12D (Lambda=0.0578)",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.0578,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_FRESH_12D",
+        "n_candidates": 17540,
+        "n_trades": 1831,
+        "total_r": 2257.52,
+        "er": 1.233,
+        "median_r": 1.462,
+        "std_r": 0.978,
+        "wr": 84.8,
+        "pf": 11.76,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.1,
+        "loo1_er": 1.232,
+        "loo2_er": 1.231,
+        "winsorized_er": 1.231,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 177,
+          "traps_avoided": 104,
+          "missed_runners": 73,
+          "avoided_trap_r": 72.76,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 146.48,
+          "net_30m_causal_r": -191.83
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 820.11,
+            "er": 1.356,
+            "wr": 90.2,
+            "pf": 18.31
+          },
+          "NEUTRAL_BULL": {
+            "n": 778,
+            "total_r": 997.94,
+            "er": 1.283,
+            "wr": 87.0,
+            "pf": 14.07
+          },
+          "CHOPPY_RANGE": {
+            "n": 416,
+            "total_r": 414.05,
+            "er": 0.995,
+            "wr": 73.8,
+            "pf": 6.24
+          },
+          "NEUTRAL_BEAR": {
+            "n": 32,
+            "total_r": 25.42,
+            "er": 0.794,
+            "wr": 71.9,
+            "pf": 4.58
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_RS_OFF",
+        "category": "SWEEP_RS_WEIGHT",
+        "description": "RS Acceleration Weight = OFF (0.0)",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 0.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_RS_OFF",
+        "n_candidates": 17540,
+        "n_trades": 1700,
+        "total_r": 2131.55,
+        "er": 1.254,
+        "median_r": 1.464,
+        "std_r": 0.947,
+        "wr": 86.1,
+        "pf": 13.02,
+        "max_dd": 3.0,
+        "avg_winner": 1.58,
+        "avg_loser": 0.75,
+        "payoff": 2.1,
+        "loo1_er": 1.253,
+        "loo2_er": 1.251,
+        "winsorized_er": 1.251,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 172,
+          "traps_avoided": 99,
+          "missed_runners": 73,
+          "avoided_trap_r": 68.53,
+          "missed_runner_r": 119.97,
+          "total_slippage_r": 136.0,
+          "net_30m_causal_r": -187.44
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 603,
+            "total_r": 800.71,
+            "er": 1.328,
+            "wr": 89.6,
+            "pf": 16.75
+          },
+          "NEUTRAL_BULL": {
+            "n": 781,
+            "total_r": 998.91,
+            "er": 1.279,
+            "wr": 87.3,
+            "pf": 14.26
+          },
+          "CHOPPY_RANGE": {
+            "n": 316,
+            "total_r": 331.92,
+            "er": 1.05,
+            "wr": 76.6,
+            "pf": 7.48
+          },
+          "NEUTRAL_BEAR": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_RS_LOW",
+        "category": "SWEEP_RS_WEIGHT",
+        "description": "RS Acceleration Weight = LOW (5.0)",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 5.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_RS_LOW",
+        "n_candidates": 17540,
+        "n_trades": 1771,
+        "total_r": 2192.48,
+        "er": 1.238,
+        "median_r": 1.454,
+        "std_r": 0.96,
+        "wr": 85.4,
+        "pf": 12.32,
+        "max_dd": 3.0,
+        "avg_winner": 1.58,
+        "avg_loser": 0.75,
+        "payoff": 2.1,
+        "loo1_er": 1.237,
+        "loo2_er": 1.236,
+        "winsorized_er": 1.236,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 171,
+          "traps_avoided": 99,
+          "missed_runners": 72,
+          "avoided_trap_r": 69.17,
+          "missed_runner_r": 120.04,
+          "total_slippage_r": 141.68,
+          "net_30m_causal_r": -192.55
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 604,
+            "total_r": 817.19,
+            "er": 1.353,
+            "wr": 90.6,
+            "pf": 19.17
+          },
+          "NEUTRAL_BULL": {
+            "n": 785,
+            "total_r": 997.67,
+            "er": 1.271,
+            "wr": 87.0,
+            "pf": 13.79
+          },
+          "CHOPPY_RANGE": {
+            "n": 382,
+            "total_r": 377.62,
+            "er": 0.989,
+            "wr": 74.1,
+            "pf": 6.34
+          },
+          "NEUTRAL_BEAR": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_RS_HIGH",
+        "category": "SWEEP_RS_WEIGHT",
+        "description": "RS Acceleration Weight = HIGH (15.0)",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 15.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_RS_HIGH",
+        "n_candidates": 17540,
+        "n_trades": 1859,
+        "total_r": 2255.22,
+        "er": 1.213,
+        "median_r": 1.448,
+        "std_r": 0.987,
+        "wr": 84.3,
+        "pf": 11.2,
+        "max_dd": 3.13,
+        "avg_winner": 1.58,
+        "avg_loser": 0.76,
+        "payoff": 2.09,
+        "loo1_er": 1.212,
+        "loo2_er": 1.211,
+        "winsorized_er": 1.211,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 180,
+          "traps_avoided": 107,
+          "missed_runners": 73,
+          "avoided_trap_r": 76.67,
+          "missed_runner_r": 120.85,
+          "total_slippage_r": 148.72,
+          "net_30m_causal_r": -192.9
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 607,
+            "total_r": 803.95,
+            "er": 1.324,
+            "wr": 89.5,
+            "pf": 16.76
+          },
+          "NEUTRAL_BULL": {
+            "n": 783,
+            "total_r": 996.67,
+            "er": 1.273,
+            "wr": 87.0,
+            "pf": 13.9
+          },
+          "CHOPPY_RANGE": {
+            "n": 418,
+            "total_r": 416.55,
+            "er": 0.997,
+            "wr": 73.9,
+            "pf": 6.21
+          },
+          "NEUTRAL_BEAR": {
+            "n": 51,
+            "total_r": 38.05,
+            "er": 0.746,
+            "wr": 66.7,
+            "pf": 3.96
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_VETO_WICK_200",
+        "category": "SWEEP_VETO_WICK",
+        "description": "Veto Wick Threshold = 20.0%",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.2,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_VETO_WICK_200",
+        "n_candidates": 17540,
+        "n_trades": 1820,
+        "total_r": 2251.51,
+        "er": 1.237,
+        "median_r": 1.468,
+        "std_r": 0.976,
+        "wr": 84.9,
+        "pf": 11.92,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.11,
+        "loo1_er": 1.236,
+        "loo2_er": 1.235,
+        "winsorized_er": 1.235,
+        "veto_acc": {
+          "total_vetoed": 8139,
+          "losers_vetoed": 4213,
+          "winners_vetoed": 3926,
+          "avoided_loss_r": 3035.58,
+          "opp_cost_r": 6529.02,
+          "net_veto_r": -3493.44
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 178,
+          "traps_avoided": 105,
+          "missed_runners": 73,
+          "avoided_trap_r": 73.3,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 145.6,
+          "net_30m_causal_r": -190.41
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 412,
+            "total_r": 414.02,
+            "er": 1.005,
+            "wr": 74.3,
+            "pf": 6.43
+          },
+          "NEUTRAL_BEAR": {
+            "n": 26,
+            "total_r": 19.6,
+            "er": 0.754,
+            "wr": 69.2,
+            "pf": 4.21
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_VETO_WICK_225",
+        "category": "SWEEP_VETO_WICK",
+        "description": "Veto Wick Threshold = 22.5%",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.225,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_VETO_WICK_225",
+        "n_candidates": 17540,
+        "n_trades": 1820,
+        "total_r": 2251.51,
+        "er": 1.237,
+        "median_r": 1.468,
+        "std_r": 0.976,
+        "wr": 84.9,
+        "pf": 11.92,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.11,
+        "loo1_er": 1.236,
+        "loo2_er": 1.235,
+        "winsorized_er": 1.235,
+        "veto_acc": {
+          "total_vetoed": 7997,
+          "losers_vetoed": 4159,
+          "winners_vetoed": 3838,
+          "avoided_loss_r": 2996.97,
+          "opp_cost_r": 6386.64,
+          "net_veto_r": -3389.67
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 178,
+          "traps_avoided": 105,
+          "missed_runners": 73,
+          "avoided_trap_r": 73.3,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 145.6,
+          "net_30m_causal_r": -190.41
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 412,
+            "total_r": 414.02,
+            "er": 1.005,
+            "wr": 74.3,
+            "pf": 6.43
+          },
+          "NEUTRAL_BEAR": {
+            "n": 26,
+            "total_r": 19.6,
+            "er": 0.754,
+            "wr": 69.2,
+            "pf": 4.21
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_VETO_WICK_275",
+        "category": "SWEEP_VETO_WICK",
+        "description": "Veto Wick Threshold = 27.5%",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.275,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_VETO_WICK_275",
+        "n_candidates": 17540,
+        "n_trades": 1820,
+        "total_r": 2251.51,
+        "er": 1.237,
+        "median_r": 1.468,
+        "std_r": 0.976,
+        "wr": 84.9,
+        "pf": 11.92,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.11,
+        "loo1_er": 1.236,
+        "loo2_er": 1.235,
+        "winsorized_er": 1.235,
+        "veto_acc": {
+          "total_vetoed": 7695,
+          "losers_vetoed": 4032,
+          "winners_vetoed": 3663,
+          "avoided_loss_r": 2906.24,
+          "opp_cost_r": 6095.97,
+          "net_veto_r": -3189.73
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 178,
+          "traps_avoided": 105,
+          "missed_runners": 73,
+          "avoided_trap_r": 73.3,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 145.6,
+          "net_30m_causal_r": -190.41
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 412,
+            "total_r": 414.02,
+            "er": 1.005,
+            "wr": 74.3,
+            "pf": 6.43
+          },
+          "NEUTRAL_BEAR": {
+            "n": 26,
+            "total_r": 19.6,
+            "er": 0.754,
+            "wr": 69.2,
+            "pf": 4.21
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_VETO_WICK_300",
+        "category": "SWEEP_VETO_WICK",
+        "description": "Veto Wick Threshold = 30.0%",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.3,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_VETO_WICK_300",
+        "n_candidates": 17540,
+        "n_trades": 1820,
+        "total_r": 2251.51,
+        "er": 1.237,
+        "median_r": 1.468,
+        "std_r": 0.976,
+        "wr": 84.9,
+        "pf": 11.92,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.11,
+        "loo1_er": 1.236,
+        "loo2_er": 1.235,
+        "winsorized_er": 1.235,
+        "veto_acc": {
+          "total_vetoed": 7630,
+          "losers_vetoed": 3997,
+          "winners_vetoed": 3633,
+          "avoided_loss_r": 2882.47,
+          "opp_cost_r": 6045.96,
+          "net_veto_r": -3163.49
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 178,
+          "traps_avoided": 105,
+          "missed_runners": 73,
+          "avoided_trap_r": 73.3,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 145.6,
+          "net_30m_causal_r": -190.41
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 412,
+            "total_r": 414.02,
+            "er": 1.005,
+            "wr": 74.3,
+            "pf": 6.43
+          },
+          "NEUTRAL_BEAR": {
+            "n": 26,
+            "total_r": 19.6,
+            "er": 0.754,
+            "wr": 69.2,
+            "pf": 4.21
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_VETO_EXT_225",
+        "category": "SWEEP_VETO_EXT",
+        "description": "Veto Extension Threshold = 2.25 ATR",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.25,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_VETO_EXT_225",
+        "n_candidates": 17540,
+        "n_trades": 1820,
+        "total_r": 2251.51,
+        "er": 1.237,
+        "median_r": 1.468,
+        "std_r": 0.976,
+        "wr": 84.9,
+        "pf": 11.92,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.11,
+        "loo1_er": 1.236,
+        "loo2_er": 1.235,
+        "winsorized_er": 1.235,
+        "veto_acc": {
+          "total_vetoed": 8069,
+          "losers_vetoed": 4194,
+          "winners_vetoed": 3875,
+          "avoided_loss_r": 3017.89,
+          "opp_cost_r": 6454.99,
+          "net_veto_r": -3437.1
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 178,
+          "traps_avoided": 105,
+          "missed_runners": 73,
+          "avoided_trap_r": 73.3,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 145.6,
+          "net_30m_causal_r": -190.41
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 412,
+            "total_r": 414.02,
+            "er": 1.005,
+            "wr": 74.3,
+            "pf": 6.43
+          },
+          "NEUTRAL_BEAR": {
+            "n": 26,
+            "total_r": 19.6,
+            "er": 0.754,
+            "wr": 69.2,
+            "pf": 4.21
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_VETO_EXT_275",
+        "category": "SWEEP_VETO_EXT",
+        "description": "Veto Extension Threshold = 2.75 ATR",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.75,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_VETO_EXT_275",
+        "n_candidates": 17540,
+        "n_trades": 1820,
+        "total_r": 2251.51,
+        "er": 1.237,
+        "median_r": 1.468,
+        "std_r": 0.976,
+        "wr": 84.9,
+        "pf": 11.92,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.11,
+        "loo1_er": 1.236,
+        "loo2_er": 1.235,
+        "winsorized_er": 1.235,
+        "veto_acc": {
+          "total_vetoed": 7642,
+          "losers_vetoed": 4000,
+          "winners_vetoed": 3642,
+          "avoided_loss_r": 2883.63,
+          "opp_cost_r": 6059.07,
+          "net_veto_r": -3175.44
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 178,
+          "traps_avoided": 105,
+          "missed_runners": 73,
+          "avoided_trap_r": 73.3,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 145.6,
+          "net_30m_causal_r": -190.41
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 412,
+            "total_r": 414.02,
+            "er": 1.005,
+            "wr": 74.3,
+            "pf": 6.43
+          },
+          "NEUTRAL_BEAR": {
+            "n": 26,
+            "total_r": 19.6,
+            "er": 0.754,
+            "wr": 69.2,
+            "pf": 4.21
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_SWEEP_VETO_EXT_300",
+        "category": "SWEEP_VETO_EXT",
+        "description": "Veto Extension Threshold = 3.00 ATR",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 3.0,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_SWEEP_VETO_EXT_300",
+        "n_candidates": 17540,
+        "n_trades": 1820,
+        "total_r": 2251.51,
+        "er": 1.237,
+        "median_r": 1.468,
+        "std_r": 0.976,
+        "wr": 84.9,
+        "pf": 11.92,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.11,
+        "loo1_er": 1.236,
+        "loo2_er": 1.235,
+        "winsorized_er": 1.235,
+        "veto_acc": {
+          "total_vetoed": 7468,
+          "losers_vetoed": 3912,
+          "winners_vetoed": 3556,
+          "avoided_loss_r": 2821.67,
+          "opp_cost_r": 5910.17,
+          "net_veto_r": -3088.5
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 178,
+          "traps_avoided": 105,
+          "missed_runners": 73,
+          "avoided_trap_r": 73.3,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 145.6,
+          "net_30m_causal_r": -190.41
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 412,
+            "total_r": 414.02,
+            "er": 1.005,
+            "wr": 74.3,
+            "pf": 6.43
+          },
+          "NEUTRAL_BEAR": {
+            "n": 26,
+            "total_r": 19.6,
+            "er": 0.754,
+            "wr": 69.2,
+            "pf": 4.21
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_ABLATION_NO_30M",
+        "category": "ABLATION_30M",
+        "description": "Ablation: Immediate EOD Market On Open Entry (Zero 30m Confirmation)",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": false
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_ABLATION_NO_30M",
+        "n_candidates": 17540,
+        "n_trades": 1998,
+        "total_r": 2350.59,
+        "er": 1.176,
+        "median_r": 1.46,
+        "std_r": 1.054,
+        "wr": 81.0,
+        "pf": 9.27,
+        "max_dd": 3.7,
+        "avg_winner": 1.63,
+        "avg_loser": 0.75,
+        "payoff": 2.17,
+        "loo1_er": 1.175,
+        "loo2_er": 1.174,
+        "winsorized_er": 1.174,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 0,
+          "traps_avoided": 0,
+          "missed_runners": 0,
+          "avoided_trap_r": 0,
+          "missed_runner_r": 0,
+          "total_slippage_r": 79.92,
+          "net_30m_causal_r": -79.92
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 649,
+            "total_r": 857.0,
+            "er": 1.32,
+            "wr": 87.5,
+            "pf": 13.91
+          },
+          "NEUTRAL_BULL": {
+            "n": 853,
+            "total_r": 1051.88,
+            "er": 1.233,
+            "wr": 83.4,
+            "pf": 10.92
+          },
+          "CHOPPY_RANGE": {
+            "n": 469,
+            "total_r": 422.06,
+            "er": 0.9,
+            "wr": 68.7,
+            "pf": 5.03
+          },
+          "NEUTRAL_BEAR": {
+            "n": 27,
+            "total_r": 19.65,
+            "er": 0.728,
+            "wr": 66.7,
+            "pf": 3.9
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_INTER_61_EX20_F7D",
+        "category": "INTERACTION_GRID",
+        "description": "Interaction: Floor=61, Exh=20, Lambda=0.099, RS=10, Wick=25.0%",
+        "score_floor": 61.0,
+        "exhaustion_cliff": 20.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_INTER_61_EX20_F7D",
+        "n_candidates": 17540,
+        "n_trades": 1799,
+        "total_r": 2236.4,
+        "er": 1.243,
+        "median_r": 1.471,
+        "std_r": 0.972,
+        "wr": 85.2,
+        "pf": 12.19,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.12,
+        "loo1_er": 1.242,
+        "loo2_er": 1.241,
+        "winsorized_er": 1.241,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 178,
+          "traps_avoided": 105,
+          "missed_runners": 73,
+          "avoided_trap_r": 73.3,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 143.92,
+          "net_30m_causal_r": -188.73
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 406,
+            "total_r": 412.61,
+            "er": 1.016,
+            "wr": 74.6,
+            "pf": 6.62
+          },
+          "NEUTRAL_BEAR": {
+            "n": 11,
+            "total_r": 5.9,
+            "er": 0.536,
+            "wr": 63.6,
+            "pf": 3.11
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_INTER_61_EX22_F9D",
+        "category": "INTERACTION_GRID",
+        "description": "Interaction: Floor=61, Exh=22, Lambda=0.077, RS=10, Wick=25.0%",
+        "score_floor": 61.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.077,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_INTER_61_EX22_F9D",
+        "n_candidates": 17540,
+        "n_trades": 1804,
+        "total_r": 2241.01,
+        "er": 1.242,
+        "median_r": 1.469,
+        "std_r": 0.972,
+        "wr": 85.1,
+        "pf": 12.14,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.12,
+        "loo1_er": 1.241,
+        "loo2_er": 1.24,
+        "winsorized_er": 1.24,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 177,
+          "traps_avoided": 104,
+          "missed_runners": 73,
+          "avoided_trap_r": 72.76,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 144.32,
+          "net_30m_causal_r": -189.67
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 778,
+            "total_r": 999.71,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.09
+          },
+          "CHOPPY_RANGE": {
+            "n": 407,
+            "total_r": 412.24,
+            "er": 1.013,
+            "wr": 74.4,
+            "pf": 6.52
+          },
+          "NEUTRAL_BEAR": {
+            "n": 14,
+            "total_r": 9.68,
+            "er": 0.691,
+            "wr": 71.4,
+            "pf": 4.47
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_INTER_61_EX22_F7D_RS15",
+        "category": "INTERACTION_GRID",
+        "description": "Interaction: Floor=61, Exh=22, Lambda=0.099, RS=15, Wick=25.0%",
+        "score_floor": 61.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 15.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_INTER_61_EX22_F7D_RS15",
+        "n_candidates": 17540,
+        "n_trades": 1845,
+        "total_r": 2244.82,
+        "er": 1.217,
+        "median_r": 1.452,
+        "std_r": 0.984,
+        "wr": 84.4,
+        "pf": 11.34,
+        "max_dd": 3.13,
+        "avg_winner": 1.58,
+        "avg_loser": 0.76,
+        "payoff": 2.09,
+        "loo1_er": 1.216,
+        "loo2_er": 1.214,
+        "winsorized_er": 1.214,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 173,
+          "traps_avoided": 101,
+          "missed_runners": 72,
+          "avoided_trap_r": 72.53,
+          "missed_runner_r": 118.84,
+          "total_slippage_r": 147.6,
+          "net_30m_causal_r": -193.92
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 607,
+            "total_r": 803.95,
+            "er": 1.324,
+            "wr": 89.5,
+            "pf": 16.76
+          },
+          "NEUTRAL_BULL": {
+            "n": 783,
+            "total_r": 996.67,
+            "er": 1.273,
+            "wr": 87.0,
+            "pf": 13.9
+          },
+          "CHOPPY_RANGE": {
+            "n": 418,
+            "total_r": 416.55,
+            "er": 0.997,
+            "wr": 73.9,
+            "pf": 6.21
+          },
+          "NEUTRAL_BEAR": {
+            "n": 37,
+            "total_r": 27.64,
+            "er": 0.747,
+            "wr": 67.6,
+            "pf": 4.16
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_INTER_62_EX20_F7D_RS15",
+        "category": "INTERACTION_GRID",
+        "description": "Interaction: Floor=62, Exh=20, Lambda=0.099, RS=15, Wick=25.0%",
+        "score_floor": 62.0,
+        "exhaustion_cliff": 20.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 15.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_INTER_62_EX20_F7D_RS15",
+        "n_candidates": 17540,
+        "n_trades": 1827,
+        "total_r": 2230.82,
+        "er": 1.221,
+        "median_r": 1.452,
+        "std_r": 0.981,
+        "wr": 84.6,
+        "pf": 11.48,
+        "max_dd": 3.13,
+        "avg_winner": 1.58,
+        "avg_loser": 0.75,
+        "payoff": 2.1,
+        "loo1_er": 1.22,
+        "loo2_er": 1.219,
+        "winsorized_er": 1.219,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 171,
+          "traps_avoided": 99,
+          "missed_runners": 72,
+          "avoided_trap_r": 70.82,
+          "missed_runner_r": 118.84,
+          "total_slippage_r": 146.16,
+          "net_30m_causal_r": -194.18
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 607,
+            "total_r": 803.95,
+            "er": 1.324,
+            "wr": 89.5,
+            "pf": 16.76
+          },
+          "NEUTRAL_BULL": {
+            "n": 783,
+            "total_r": 996.67,
+            "er": 1.273,
+            "wr": 87.0,
+            "pf": 13.9
+          },
+          "CHOPPY_RANGE": {
+            "n": 413,
+            "total_r": 416.59,
+            "er": 1.009,
+            "wr": 74.3,
+            "pf": 6.39
+          },
+          "NEUTRAL_BEAR": {
+            "n": 24,
+            "total_r": 13.6,
+            "er": 0.567,
+            "wr": 58.3,
+            "pf": 2.91
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_INTER_61_EX20_W225",
+        "category": "INTERACTION_GRID",
+        "description": "Interaction: Floor=61, Exh=20, Lambda=0.099, RS=10, Wick=22.5%",
+        "score_floor": 61.0,
+        "exhaustion_cliff": 20.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.225,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_INTER_61_EX20_W225",
+        "n_candidates": 17540,
+        "n_trades": 1799,
+        "total_r": 2236.4,
+        "er": 1.243,
+        "median_r": 1.471,
+        "std_r": 0.972,
+        "wr": 85.2,
+        "pf": 12.19,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.12,
+        "loo1_er": 1.242,
+        "loo2_er": 1.241,
+        "winsorized_er": 1.241,
+        "veto_acc": {
+          "total_vetoed": 7997,
+          "losers_vetoed": 4159,
+          "winners_vetoed": 3838,
+          "avoided_loss_r": 2996.97,
+          "opp_cost_r": 6386.64,
+          "net_veto_r": -3389.67
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 178,
+          "traps_avoided": 105,
+          "missed_runners": 73,
+          "avoided_trap_r": 73.3,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 143.92,
+          "net_30m_causal_r": -188.73
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 406,
+            "total_r": 412.61,
+            "er": 1.016,
+            "wr": 74.6,
+            "pf": 6.62
+          },
+          "NEUTRAL_BEAR": {
+            "n": 11,
+            "total_r": 5.9,
+            "er": 0.536,
+            "wr": 63.6,
+            "pf": 3.11
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_INTER_61_EX22_W275",
+        "category": "INTERACTION_GRID",
+        "description": "Interaction: Floor=61, Exh=22, Lambda=0.099, RS=10, Wick=27.5%",
+        "score_floor": 61.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.275,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_INTER_61_EX22_W275",
+        "n_candidates": 17540,
+        "n_trades": 1799,
+        "total_r": 2236.4,
+        "er": 1.243,
+        "median_r": 1.471,
+        "std_r": 0.972,
+        "wr": 85.2,
+        "pf": 12.19,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.12,
+        "loo1_er": 1.242,
+        "loo2_er": 1.241,
+        "winsorized_er": 1.241,
+        "veto_acc": {
+          "total_vetoed": 7695,
+          "losers_vetoed": 4032,
+          "winners_vetoed": 3663,
+          "avoided_loss_r": 2906.24,
+          "opp_cost_r": 6095.97,
+          "net_veto_r": -3189.73
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 178,
+          "traps_avoided": 105,
+          "missed_runners": 73,
+          "avoided_trap_r": 73.3,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 143.92,
+          "net_30m_causal_r": -188.73
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 406,
+            "total_r": 412.61,
+            "er": 1.016,
+            "wr": 74.6,
+            "pf": 6.62
+          },
+          "NEUTRAL_BEAR": {
+            "n": 11,
+            "total_r": 5.9,
+            "er": 0.536,
+            "wr": 63.6,
+            "pf": 3.11
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_INTER_60_EX20_RS15",
+        "category": "INTERACTION_GRID",
+        "description": "Interaction: Floor=60, Exh=20, Lambda=0.099, RS=15, Wick=25.0%",
+        "score_floor": 60.0,
+        "exhaustion_cliff": 20.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 15.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_INTER_60_EX20_RS15",
+        "n_candidates": 17540,
+        "n_trades": 1859,
+        "total_r": 2255.22,
+        "er": 1.213,
+        "median_r": 1.448,
+        "std_r": 0.987,
+        "wr": 84.3,
+        "pf": 11.2,
+        "max_dd": 3.13,
+        "avg_winner": 1.58,
+        "avg_loser": 0.76,
+        "payoff": 2.09,
+        "loo1_er": 1.212,
+        "loo2_er": 1.211,
+        "winsorized_er": 1.211,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 180,
+          "traps_avoided": 107,
+          "missed_runners": 73,
+          "avoided_trap_r": 76.67,
+          "missed_runner_r": 120.85,
+          "total_slippage_r": 148.72,
+          "net_30m_causal_r": -192.9
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 607,
+            "total_r": 803.95,
+            "er": 1.324,
+            "wr": 89.5,
+            "pf": 16.76
+          },
+          "NEUTRAL_BULL": {
+            "n": 783,
+            "total_r": 996.67,
+            "er": 1.273,
+            "wr": 87.0,
+            "pf": 13.9
+          },
+          "CHOPPY_RANGE": {
+            "n": 418,
+            "total_r": 416.55,
+            "er": 0.997,
+            "wr": 73.9,
+            "pf": 6.21
+          },
+          "NEUTRAL_BEAR": {
+            "n": 51,
+            "total_r": 38.05,
+            "er": 0.746,
+            "wr": 66.7,
+            "pf": 3.96
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_TOURN_INTER_62_EX22_F7D",
+        "category": "INTERACTION_GRID",
+        "description": "Interaction: Floor=62, Exh=22, Lambda=0.099, RS=10, Wick=25.0%",
+        "score_floor": 62.0,
+        "exhaustion_cliff": 22.0,
+        "freshness_lambda": 0.099,
+        "rs_momentum_weight": 10.0,
+        "veto_wick_thresh": 0.25,
+        "veto_ext_thresh": 2.5,
+        "veto_vol_thresh": 1.2,
+        "veto_loose_base_thresh": 2.0,
+        "veto_min_comp_days": 7,
+        "trigger_30m_active": true
+      },
+      "metrics": {
+        "config_id": "DB_TOURN_INTER_62_EX22_F7D",
+        "n_candidates": 17540,
+        "n_trades": 1784,
+        "total_r": 2218.79,
+        "er": 1.244,
+        "median_r": 1.471,
+        "std_r": 0.973,
+        "wr": 85.1,
+        "pf": 12.16,
+        "max_dd": 3.0,
+        "avg_winner": 1.59,
+        "avg_loser": 0.75,
+        "payoff": 2.12,
+        "loo1_er": 1.243,
+        "loo2_er": 1.241,
+        "winsorized_er": 1.241,
+        "veto_acc": {
+          "total_vetoed": 7852,
+          "losers_vetoed": 4098,
+          "winners_vetoed": 3754,
+          "avoided_loss_r": 2953.27,
+          "opp_cost_r": 6249.93,
+          "net_veto_r": -3296.66
+        },
+        "trigger_acc": {
+          "total_unconfirmed": 177,
+          "traps_avoided": 104,
+          "missed_runners": 73,
+          "avoided_trap_r": 72.59,
+          "missed_runner_r": 118.11,
+          "total_slippage_r": 142.72,
+          "net_30m_causal_r": -188.24
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 605,
+            "total_r": 819.39,
+            "er": 1.354,
+            "wr": 90.2,
+            "pf": 18.29
+          },
+          "NEUTRAL_BULL": {
+            "n": 777,
+            "total_r": 998.5,
+            "er": 1.285,
+            "wr": 87.0,
+            "pf": 14.08
+          },
+          "CHOPPY_RANGE": {
+            "n": 394,
+            "total_r": 396.86,
+            "er": 1.007,
+            "wr": 74.1,
+            "pf": 6.47
+          },
+          "NEUTRAL_BEAR": {
+            "n": 8,
+            "total_r": 4.04,
+            "er": 0.506,
+            "wr": 62.5,
+            "pf": 2.59
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    }
+  ]
+}

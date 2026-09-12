@@ -1,0 +1,1608 @@
+{
+  "tournament_metadata": {
+    "track": "TRACK_2_VETO_ARCHITECTURE_COMBINATORIAL_TOURNAMENT",
+    "scanner": "DAILY_BUILDER",
+    "base_version": "V5.29_DB_SHADOW",
+    "timestamp": "2026-09-11T14:41:16.464064+00:00",
+    "source_commit": "bf4da25fd10028cc034d6f9fa610cefb9dd62a0e",
+    "configurations_tested": 9,
+    "calendar_audit": {
+      "saturday_bars": 0,
+      "sunday_bars": 0,
+      "lookahead_violations": 0,
+      "duplicate_events": 0
+    }
+  },
+  "holdout_paired_vs_v529": {
+    "DB_45M_VETO_NONE": {
+      "delta_er": 0.3249974999999997,
+      "ci_low": 0.17407499999999998,
+      "ci_high": 0.4711575000000001,
+      "p_val": 0.0
+    },
+    "DB_45M_VETO_WICK_ONLY": {
+      "delta_er": 0.3249974999999997,
+      "ci_low": 0.18231999999999995,
+      "ci_high": 0.47333999999999976,
+      "p_val": 0.0
+    },
+    "DB_45M_VETO_LOOSE_ONLY": {
+      "delta_er": 0.3249974999999997,
+      "ci_low": 0.17981999999999992,
+      "ci_high": 0.4670775000000002,
+      "p_val": 0.0
+    },
+    "DB_45M_VETO_REGIME_ONLY": {
+      "delta_er": 0.32354,
+      "ci_low": 0.1749725000000001,
+      "ci_high": 0.4721574999999998,
+      "p_val": 0.0
+    },
+    "DB_45M_VETO_WICK_LOOSE": {
+      "delta_er": 0.3249974999999997,
+      "ci_low": 0.1719550000000001,
+      "ci_high": 0.47516999999999976,
+      "p_val": 0.0
+    },
+    "DB_45M_VETO_WICK_REGIME": {
+      "delta_er": 0.32354,
+      "ci_low": 0.17088250000000002,
+      "ci_high": 0.47082499999999977,
+      "p_val": 0.0
+    },
+    "DB_45M_VETO_LOOSE_REGIME": {
+      "delta_er": 0.32354,
+      "ci_low": 0.17210500000000017,
+      "ci_high": 0.4692799999999994,
+      "p_val": 0.0
+    },
+    "DB_45M_VETO_ALL_THREE": {
+      "delta_er": 0.32354,
+      "ci_low": 0.17326999999999987,
+      "ci_high": 0.4713549999999999,
+      "p_val": 0.0
+    },
+    "DB_30M_V529_CERTIFIED": {
+      "delta_er": 0.0,
+      "ci_low": 0.0,
+      "ci_high": 0.0,
+      "p_val": 1.0
+    }
+  },
+  "holdout_paired_vs_no_veto": {
+    "DB_45M_VETO_NONE": {
+      "delta_er": 0.0,
+      "ci_low": 0.0,
+      "ci_high": 0.0,
+      "p_val": 1.0
+    },
+    "DB_45M_VETO_WICK_ONLY": {
+      "delta_er": 0.0,
+      "ci_low": 0.0,
+      "ci_high": 0.0,
+      "p_val": 1.0
+    },
+    "DB_45M_VETO_LOOSE_ONLY": {
+      "delta_er": 0.0,
+      "ci_low": 0.0,
+      "ci_high": 0.0,
+      "p_val": 1.0
+    },
+    "DB_45M_VETO_REGIME_ONLY": {
+      "delta_er": -0.002628361858190717,
+      "ci_low": -0.10636185819070912,
+      "ci_high": 0.09803422982885086,
+      "p_val": 0.5215
+    },
+    "DB_45M_VETO_WICK_LOOSE": {
+      "delta_er": 0.0,
+      "ci_low": 0.0,
+      "ci_high": 0.0,
+      "p_val": 1.0
+    },
+    "DB_45M_VETO_WICK_REGIME": {
+      "delta_er": -0.002628361858190717,
+      "ci_low": -0.10544254278728606,
+      "ci_high": 0.10306845965770169,
+      "p_val": 0.521
+    },
+    "DB_45M_VETO_LOOSE_REGIME": {
+      "delta_er": -0.002628361858190717,
+      "ci_low": -0.10188264058679702,
+      "ci_high": 0.0974621026894865,
+      "p_val": 0.54
+    },
+    "DB_45M_VETO_ALL_THREE": {
+      "delta_er": -0.002628361858190717,
+      "ci_low": -0.10405867970660149,
+      "ci_high": 0.10270660146699262,
+      "p_val": 0.523
+    },
+    "DB_30M_V529_CERTIFIED": {
+      "delta_er": -0.3249974999999997,
+      "ci_low": -0.46861249999999993,
+      "ci_high": -0.1803725000000001,
+      "p_val": 1.0
+    }
+  },
+  "holdout_results": [
+    {
+      "config": {
+        "config_id": "DB_45M_VETO_NONE",
+        "description": "45m + Zero Vetoes (Pure Model G)",
+        "use_wick_veto": false,
+        "use_loose_veto": false,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "DB_45M_VETO_NONE",
+        "description": "45m + Zero Vetoes (Pure Model G)",
+        "window_minutes": 45,
+        "n_candidates": 4420,
+        "n_selected_top5": 500,
+        "n_trades": 409,
+        "total_r": 631.94,
+        "er": 1.545,
+        "median_r": 1.635,
+        "std_r": 0.936,
+        "wr": 91.9,
+        "pf": 20.19,
+        "max_dd": 1.96,
+        "payoff": 1.77,
+        "loo1_er": 1.537,
+        "loo2_er": 1.53,
+        "winsorized_er": 1.543,
+        "mfe_avg": 2.182,
+        "mae_avg": -0.275,
+        "zero_alert_sessions": 17,
+        "veto_accounting": {
+          "total_vetoed": 0,
+          "veto_rate_pct": 0.0,
+          "avoided_loss_count": 0,
+          "avoided_loss_r": 0,
+          "ordinary_winners_vetoed_count": 0,
+          "ordinary_winner_cost_r": 0,
+          "major_runners_destroyed_count": 0,
+          "major_runner_cost_r": 0,
+          "total_opp_cost_r": 0,
+          "net_veto_r": 0
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 113,
+            "total_r": 165.64,
+            "er": 1.466,
+            "wr": 91.2,
+            "pf": 16.89
+          },
+          "NEUTRAL_BULL": {
+            "n": 208,
+            "total_r": 332.19,
+            "er": 1.597,
+            "wr": 92.3,
+            "pf": 22.2
+          },
+          "CHOPPY_RANGE": {
+            "n": 81,
+            "total_r": 122.77,
+            "er": 1.516,
+            "wr": 91.4,
+            "pf": 18.94
+          },
+          "NEUTRAL_BEAR": {
+            "n": 7,
+            "total_r": 11.34,
+            "er": 1.62,
+            "wr": 100.0,
+            "pf": 11337000.0
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_45M_VETO_WICK_ONLY",
+        "description": "45m + Wick Exhaustion Veto Only",
+        "use_wick_veto": true,
+        "use_loose_veto": false,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "DB_45M_VETO_WICK_ONLY",
+        "description": "45m + Wick Exhaustion Veto Only",
+        "window_minutes": 45,
+        "n_candidates": 4420,
+        "n_selected_top5": 500,
+        "n_trades": 409,
+        "total_r": 631.94,
+        "er": 1.545,
+        "median_r": 1.635,
+        "std_r": 0.936,
+        "wr": 91.9,
+        "pf": 20.19,
+        "max_dd": 1.96,
+        "payoff": 1.77,
+        "loo1_er": 1.537,
+        "loo2_er": 1.53,
+        "winsorized_er": 1.543,
+        "mfe_avg": 2.182,
+        "mae_avg": -0.275,
+        "zero_alert_sessions": 17,
+        "veto_accounting": {
+          "total_vetoed": 330,
+          "veto_rate_pct": 7.5,
+          "avoided_loss_count": 179,
+          "avoided_loss_r": 183.9,
+          "ordinary_winners_vetoed_count": 90,
+          "ordinary_winner_cost_r": 107.08,
+          "major_runners_destroyed_count": 61,
+          "major_runner_cost_r": 119.18,
+          "total_opp_cost_r": 226.27,
+          "net_veto_r": -42.36
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 113,
+            "total_r": 165.64,
+            "er": 1.466,
+            "wr": 91.2,
+            "pf": 16.89
+          },
+          "NEUTRAL_BULL": {
+            "n": 208,
+            "total_r": 332.19,
+            "er": 1.597,
+            "wr": 92.3,
+            "pf": 22.2
+          },
+          "CHOPPY_RANGE": {
+            "n": 81,
+            "total_r": 122.77,
+            "er": 1.516,
+            "wr": 91.4,
+            "pf": 18.94
+          },
+          "NEUTRAL_BEAR": {
+            "n": 7,
+            "total_r": 11.34,
+            "er": 1.62,
+            "wr": 100.0,
+            "pf": 11337000.0
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_45M_VETO_LOOSE_ONLY",
+        "description": "45m + Loose Base Veto Only",
+        "use_wick_veto": false,
+        "use_loose_veto": true,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "DB_45M_VETO_LOOSE_ONLY",
+        "description": "45m + Loose Base Veto Only",
+        "window_minutes": 45,
+        "n_candidates": 4420,
+        "n_selected_top5": 500,
+        "n_trades": 409,
+        "total_r": 631.94,
+        "er": 1.545,
+        "median_r": 1.635,
+        "std_r": 0.936,
+        "wr": 91.9,
+        "pf": 20.19,
+        "max_dd": 1.96,
+        "payoff": 1.77,
+        "loo1_er": 1.537,
+        "loo2_er": 1.53,
+        "winsorized_er": 1.543,
+        "mfe_avg": 2.182,
+        "mae_avg": -0.275,
+        "zero_alert_sessions": 17,
+        "veto_accounting": {
+          "total_vetoed": 1487,
+          "veto_rate_pct": 33.6,
+          "avoided_loss_count": 789,
+          "avoided_loss_r": 807.5,
+          "ordinary_winners_vetoed_count": 442,
+          "ordinary_winner_cost_r": 533.08,
+          "major_runners_destroyed_count": 256,
+          "major_runner_cost_r": 521.83,
+          "total_opp_cost_r": 1054.91,
+          "net_veto_r": -247.41
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 113,
+            "total_r": 165.64,
+            "er": 1.466,
+            "wr": 91.2,
+            "pf": 16.89
+          },
+          "NEUTRAL_BULL": {
+            "n": 208,
+            "total_r": 332.19,
+            "er": 1.597,
+            "wr": 92.3,
+            "pf": 22.2
+          },
+          "CHOPPY_RANGE": {
+            "n": 81,
+            "total_r": 122.77,
+            "er": 1.516,
+            "wr": 91.4,
+            "pf": 18.94
+          },
+          "NEUTRAL_BEAR": {
+            "n": 7,
+            "total_r": 11.34,
+            "er": 1.62,
+            "wr": 100.0,
+            "pf": 11337000.0
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_45M_VETO_REGIME_ONLY",
+        "description": "45m + Regime Divergence Veto Only",
+        "use_wick_veto": false,
+        "use_loose_veto": false,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "DB_45M_VETO_REGIME_ONLY",
+        "description": "45m + Regime Divergence Veto Only",
+        "window_minutes": 45,
+        "n_candidates": 4420,
+        "n_selected_top5": 500,
+        "n_trades": 411,
+        "total_r": 634.51,
+        "er": 1.544,
+        "median_r": 1.633,
+        "std_r": 0.915,
+        "wr": 92.2,
+        "pf": 20.93,
+        "max_dd": 1.96,
+        "payoff": 1.77,
+        "loo1_er": 1.536,
+        "loo2_er": 1.529,
+        "winsorized_er": 1.541,
+        "mfe_avg": 2.179,
+        "mae_avg": -0.272,
+        "zero_alert_sessions": 17,
+        "veto_accounting": {
+          "total_vetoed": 468,
+          "veto_rate_pct": 10.6,
+          "avoided_loss_count": 244,
+          "avoided_loss_r": 249.1,
+          "ordinary_winners_vetoed_count": 116,
+          "ordinary_winner_cost_r": 143.08,
+          "major_runners_destroyed_count": 108,
+          "major_runner_cost_r": 236.06,
+          "total_opp_cost_r": 379.14,
+          "net_veto_r": -130.04
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 113,
+            "total_r": 165.64,
+            "er": 1.466,
+            "wr": 91.2,
+            "pf": 16.89
+          },
+          "NEUTRAL_BULL": {
+            "n": 208,
+            "total_r": 332.19,
+            "er": 1.597,
+            "wr": 92.3,
+            "pf": 22.2
+          },
+          "CHOPPY_RANGE": {
+            "n": 83,
+            "total_r": 125.34,
+            "er": 1.51,
+            "wr": 92.8,
+            "pf": 22.82
+          },
+          "NEUTRAL_BEAR": {
+            "n": 7,
+            "total_r": 11.34,
+            "er": 1.62,
+            "wr": 100.0,
+            "pf": 11337000.0
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_45M_VETO_WICK_LOOSE",
+        "description": "45m + Wick + Loose Base Vetoes",
+        "use_wick_veto": true,
+        "use_loose_veto": true,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "DB_45M_VETO_WICK_LOOSE",
+        "description": "45m + Wick + Loose Base Vetoes",
+        "window_minutes": 45,
+        "n_candidates": 4420,
+        "n_selected_top5": 500,
+        "n_trades": 409,
+        "total_r": 631.94,
+        "er": 1.545,
+        "median_r": 1.635,
+        "std_r": 0.936,
+        "wr": 91.9,
+        "pf": 20.19,
+        "max_dd": 1.96,
+        "payoff": 1.77,
+        "loo1_er": 1.537,
+        "loo2_er": 1.53,
+        "winsorized_er": 1.543,
+        "mfe_avg": 2.182,
+        "mae_avg": -0.275,
+        "zero_alert_sessions": 17,
+        "veto_accounting": {
+          "total_vetoed": 1651,
+          "veto_rate_pct": 37.4,
+          "avoided_loss_count": 871,
+          "avoided_loss_r": 891.67,
+          "ordinary_winners_vetoed_count": 484,
+          "ordinary_winner_cost_r": 581.86,
+          "major_runners_destroyed_count": 296,
+          "major_runner_cost_r": 597.3,
+          "total_opp_cost_r": 1179.16,
+          "net_veto_r": -287.48
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 113,
+            "total_r": 165.64,
+            "er": 1.466,
+            "wr": 91.2,
+            "pf": 16.89
+          },
+          "NEUTRAL_BULL": {
+            "n": 208,
+            "total_r": 332.19,
+            "er": 1.597,
+            "wr": 92.3,
+            "pf": 22.2
+          },
+          "CHOPPY_RANGE": {
+            "n": 81,
+            "total_r": 122.77,
+            "er": 1.516,
+            "wr": 91.4,
+            "pf": 18.94
+          },
+          "NEUTRAL_BEAR": {
+            "n": 7,
+            "total_r": 11.34,
+            "er": 1.62,
+            "wr": 100.0,
+            "pf": 11337000.0
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_45M_VETO_WICK_REGIME",
+        "description": "45m + Wick + Regime Divergence Vetoes",
+        "use_wick_veto": true,
+        "use_loose_veto": false,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "DB_45M_VETO_WICK_REGIME",
+        "description": "45m + Wick + Regime Divergence Vetoes",
+        "window_minutes": 45,
+        "n_candidates": 4420,
+        "n_selected_top5": 500,
+        "n_trades": 411,
+        "total_r": 634.51,
+        "er": 1.544,
+        "median_r": 1.633,
+        "std_r": 0.915,
+        "wr": 92.2,
+        "pf": 20.93,
+        "max_dd": 1.96,
+        "payoff": 1.77,
+        "loo1_er": 1.536,
+        "loo2_er": 1.529,
+        "winsorized_er": 1.541,
+        "mfe_avg": 2.179,
+        "mae_avg": -0.272,
+        "zero_alert_sessions": 17,
+        "veto_accounting": {
+          "total_vetoed": 770,
+          "veto_rate_pct": 17.4,
+          "avoided_loss_count": 403,
+          "avoided_loss_r": 412.58,
+          "ordinary_winners_vetoed_count": 199,
+          "ordinary_winner_cost_r": 242.27,
+          "major_runners_destroyed_count": 168,
+          "major_runner_cost_r": 353.65,
+          "total_opp_cost_r": 595.92,
+          "net_veto_r": -183.34
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 113,
+            "total_r": 165.64,
+            "er": 1.466,
+            "wr": 91.2,
+            "pf": 16.89
+          },
+          "NEUTRAL_BULL": {
+            "n": 208,
+            "total_r": 332.19,
+            "er": 1.597,
+            "wr": 92.3,
+            "pf": 22.2
+          },
+          "CHOPPY_RANGE": {
+            "n": 83,
+            "total_r": 125.34,
+            "er": 1.51,
+            "wr": 92.8,
+            "pf": 22.82
+          },
+          "NEUTRAL_BEAR": {
+            "n": 7,
+            "total_r": 11.34,
+            "er": 1.62,
+            "wr": 100.0,
+            "pf": 11337000.0
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_45M_VETO_LOOSE_REGIME",
+        "description": "45m + Loose Base + Regime Divergence Vetoes",
+        "use_wick_veto": false,
+        "use_loose_veto": true,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "DB_45M_VETO_LOOSE_REGIME",
+        "description": "45m + Loose Base + Regime Divergence Vetoes",
+        "window_minutes": 45,
+        "n_candidates": 4420,
+        "n_selected_top5": 500,
+        "n_trades": 411,
+        "total_r": 634.51,
+        "er": 1.544,
+        "median_r": 1.633,
+        "std_r": 0.915,
+        "wr": 92.2,
+        "pf": 20.93,
+        "max_dd": 1.96,
+        "payoff": 1.77,
+        "loo1_er": 1.536,
+        "loo2_er": 1.529,
+        "winsorized_er": 1.541,
+        "mfe_avg": 2.179,
+        "mae_avg": -0.272,
+        "zero_alert_sessions": 17,
+        "veto_accounting": {
+          "total_vetoed": 1789,
+          "veto_rate_pct": 40.5,
+          "avoided_loss_count": 921,
+          "avoided_loss_r": 942.13,
+          "ordinary_winners_vetoed_count": 524,
+          "ordinary_winner_cost_r": 635.2,
+          "major_runners_destroyed_count": 344,
+          "major_runner_cost_r": 718.32,
+          "total_opp_cost_r": 1353.53,
+          "net_veto_r": -411.4
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 113,
+            "total_r": 165.64,
+            "er": 1.466,
+            "wr": 91.2,
+            "pf": 16.89
+          },
+          "NEUTRAL_BULL": {
+            "n": 208,
+            "total_r": 332.19,
+            "er": 1.597,
+            "wr": 92.3,
+            "pf": 22.2
+          },
+          "CHOPPY_RANGE": {
+            "n": 83,
+            "total_r": 125.34,
+            "er": 1.51,
+            "wr": 92.8,
+            "pf": 22.82
+          },
+          "NEUTRAL_BEAR": {
+            "n": 7,
+            "total_r": 11.34,
+            "er": 1.62,
+            "wr": 100.0,
+            "pf": 11337000.0
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_45M_VETO_ALL_THREE",
+        "description": "45m + All Three Vetoes (Certified Architecture)",
+        "use_wick_veto": true,
+        "use_loose_veto": true,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "DB_45M_VETO_ALL_THREE",
+        "description": "45m + All Three Vetoes (Certified Architecture)",
+        "window_minutes": 45,
+        "n_candidates": 4420,
+        "n_selected_top5": 500,
+        "n_trades": 411,
+        "total_r": 634.51,
+        "er": 1.544,
+        "median_r": 1.633,
+        "std_r": 0.915,
+        "wr": 92.2,
+        "pf": 20.93,
+        "max_dd": 1.96,
+        "payoff": 1.77,
+        "loo1_er": 1.536,
+        "loo2_er": 1.529,
+        "winsorized_er": 1.541,
+        "mfe_avg": 2.179,
+        "mae_avg": -0.272,
+        "zero_alert_sessions": 17,
+        "veto_accounting": {
+          "total_vetoed": 1936,
+          "veto_rate_pct": 43.8,
+          "avoided_loss_count": 991,
+          "avoided_loss_r": 1013.97,
+          "ordinary_winners_vetoed_count": 562,
+          "ordinary_winner_cost_r": 679.49,
+          "major_runners_destroyed_count": 383,
+          "major_runner_cost_r": 792.2,
+          "total_opp_cost_r": 1471.69,
+          "net_veto_r": -457.71
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 113,
+            "total_r": 165.64,
+            "er": 1.466,
+            "wr": 91.2,
+            "pf": 16.89
+          },
+          "NEUTRAL_BULL": {
+            "n": 208,
+            "total_r": 332.19,
+            "er": 1.597,
+            "wr": 92.3,
+            "pf": 22.2
+          },
+          "CHOPPY_RANGE": {
+            "n": 83,
+            "total_r": 125.34,
+            "er": 1.51,
+            "wr": 92.8,
+            "pf": 22.82
+          },
+          "NEUTRAL_BEAR": {
+            "n": 7,
+            "total_r": 11.34,
+            "er": 1.62,
+            "wr": 100.0,
+            "pf": 11337000.0
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_30M_V529_CERTIFIED",
+        "description": "Current V5.29 Baseline (30m + All Three Vetoes)",
+        "use_wick_veto": true,
+        "use_loose_veto": true,
+        "use_regime_veto": true,
+        "window_minutes": 30,
+        "delay_slippage_r": 0.08
+      },
+      "metrics": {
+        "config_id": "DB_30M_V529_CERTIFIED",
+        "description": "Current V5.29 Baseline (30m + All Three Vetoes)",
+        "window_minutes": 30,
+        "n_candidates": 4420,
+        "n_selected_top5": 500,
+        "n_trades": 400,
+        "total_r": 486.25,
+        "er": 1.216,
+        "median_r": 1.579,
+        "std_r": 1.251,
+        "wr": 79.8,
+        "pf": 6.67,
+        "max_dd": 3.47,
+        "payoff": 1.69,
+        "loo1_er": 1.207,
+        "loo2_er": 1.198,
+        "winsorized_er": 1.213,
+        "mfe_avg": 1.917,
+        "mae_avg": -0.374,
+        "zero_alert_sessions": 17,
+        "veto_accounting": {
+          "total_vetoed": 1936,
+          "veto_rate_pct": 43.8,
+          "avoided_loss_count": 991,
+          "avoided_loss_r": 1013.97,
+          "ordinary_winners_vetoed_count": 562,
+          "ordinary_winner_cost_r": 679.49,
+          "major_runners_destroyed_count": 383,
+          "major_runner_cost_r": 792.2,
+          "total_opp_cost_r": 1471.69,
+          "net_veto_r": -457.71
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 108,
+            "total_r": 133.44,
+            "er": 1.236,
+            "wr": 82.4,
+            "pf": 7.59
+          },
+          "NEUTRAL_BULL": {
+            "n": 191,
+            "total_r": 256.6,
+            "er": 1.343,
+            "wr": 82.2,
+            "pf": 8.16
+          },
+          "CHOPPY_RANGE": {
+            "n": 92,
+            "total_r": 86.9,
+            "er": 0.945,
+            "wr": 71.7,
+            "pf": 4.17
+          },
+          "NEUTRAL_BEAR": {
+            "n": 9,
+            "total_r": 9.31,
+            "er": 1.034,
+            "wr": 77.8,
+            "pf": 5.22
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    }
+  ],
+  "full_dataset_results": [
+    {
+      "config": {
+        "config_id": "DB_45M_VETO_NONE",
+        "description": "45m + Zero Vetoes (Pure Model G)",
+        "use_wick_veto": false,
+        "use_loose_veto": false,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "DB_45M_VETO_NONE",
+        "description": "45m + Zero Vetoes (Pure Model G)",
+        "window_minutes": 45,
+        "n_candidates": 17794,
+        "n_selected_top5": 2009,
+        "n_trades": 1641,
+        "total_r": 2606.87,
+        "er": 1.589,
+        "median_r": 1.651,
+        "std_r": 0.931,
+        "wr": 92.6,
+        "pf": 23.26,
+        "max_dd": 2.01,
+        "payoff": 1.85,
+        "loo1_er": 1.587,
+        "loo2_er": 1.585,
+        "winsorized_er": 1.587,
+        "mfe_avg": 2.234,
+        "mae_avg": -0.269,
+        "zero_alert_sessions": 73,
+        "veto_accounting": {
+          "total_vetoed": 0,
+          "veto_rate_pct": 0.0,
+          "avoided_loss_count": 0,
+          "avoided_loss_r": 0,
+          "ordinary_winners_vetoed_count": 0,
+          "ordinary_winner_cost_r": 0,
+          "major_runners_destroyed_count": 0,
+          "major_runner_cost_r": 0,
+          "total_opp_cost_r": 0,
+          "net_veto_r": 0
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 476,
+            "total_r": 769.35,
+            "er": 1.616,
+            "wr": 94.5,
+            "pf": 31.53
+          },
+          "NEUTRAL_BULL": {
+            "n": 773,
+            "total_r": 1244.36,
+            "er": 1.61,
+            "wr": 92.8,
+            "pf": 24.19
+          },
+          "CHOPPY_RANGE": {
+            "n": 371,
+            "total_r": 560.42,
+            "er": 1.511,
+            "wr": 90.0,
+            "pf": 16.43
+          },
+          "NEUTRAL_BEAR": {
+            "n": 21,
+            "total_r": 32.75,
+            "er": 1.559,
+            "wr": 90.5,
+            "pf": 17.91
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_45M_VETO_WICK_ONLY",
+        "description": "45m + Wick Exhaustion Veto Only",
+        "use_wick_veto": true,
+        "use_loose_veto": false,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "DB_45M_VETO_WICK_ONLY",
+        "description": "45m + Wick Exhaustion Veto Only",
+        "window_minutes": 45,
+        "n_candidates": 17794,
+        "n_selected_top5": 2009,
+        "n_trades": 1641,
+        "total_r": 2606.87,
+        "er": 1.589,
+        "median_r": 1.651,
+        "std_r": 0.931,
+        "wr": 92.6,
+        "pf": 23.26,
+        "max_dd": 2.01,
+        "payoff": 1.85,
+        "loo1_er": 1.587,
+        "loo2_er": 1.585,
+        "winsorized_er": 1.587,
+        "mfe_avg": 2.234,
+        "mae_avg": -0.269,
+        "zero_alert_sessions": 73,
+        "veto_accounting": {
+          "total_vetoed": 1195,
+          "veto_rate_pct": 6.7,
+          "avoided_loss_count": 669,
+          "avoided_loss_r": 686.05,
+          "ordinary_winners_vetoed_count": 343,
+          "ordinary_winner_cost_r": 408.55,
+          "major_runners_destroyed_count": 183,
+          "major_runner_cost_r": 380.28,
+          "total_opp_cost_r": 788.83,
+          "net_veto_r": -102.78
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 476,
+            "total_r": 769.35,
+            "er": 1.616,
+            "wr": 94.5,
+            "pf": 31.53
+          },
+          "NEUTRAL_BULL": {
+            "n": 773,
+            "total_r": 1244.36,
+            "er": 1.61,
+            "wr": 92.8,
+            "pf": 24.19
+          },
+          "CHOPPY_RANGE": {
+            "n": 371,
+            "total_r": 560.42,
+            "er": 1.511,
+            "wr": 90.0,
+            "pf": 16.43
+          },
+          "NEUTRAL_BEAR": {
+            "n": 21,
+            "total_r": 32.75,
+            "er": 1.559,
+            "wr": 90.5,
+            "pf": 17.91
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_45M_VETO_LOOSE_ONLY",
+        "description": "45m + Loose Base Veto Only",
+        "use_wick_veto": false,
+        "use_loose_veto": true,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "DB_45M_VETO_LOOSE_ONLY",
+        "description": "45m + Loose Base Veto Only",
+        "window_minutes": 45,
+        "n_candidates": 17794,
+        "n_selected_top5": 2009,
+        "n_trades": 1641,
+        "total_r": 2606.87,
+        "er": 1.589,
+        "median_r": 1.651,
+        "std_r": 0.931,
+        "wr": 92.6,
+        "pf": 23.26,
+        "max_dd": 2.01,
+        "payoff": 1.85,
+        "loo1_er": 1.587,
+        "loo2_er": 1.585,
+        "winsorized_er": 1.587,
+        "mfe_avg": 2.234,
+        "mae_avg": -0.269,
+        "zero_alert_sessions": 73,
+        "veto_accounting": {
+          "total_vetoed": 6057,
+          "veto_rate_pct": 34.0,
+          "avoided_loss_count": 3249,
+          "avoided_loss_r": 3329.04,
+          "ordinary_winners_vetoed_count": 1753,
+          "ordinary_winner_cost_r": 2106.73,
+          "major_runners_destroyed_count": 1055,
+          "major_runner_cost_r": 2116.93,
+          "total_opp_cost_r": 4223.66,
+          "net_veto_r": -894.62
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 476,
+            "total_r": 769.35,
+            "er": 1.616,
+            "wr": 94.5,
+            "pf": 31.53
+          },
+          "NEUTRAL_BULL": {
+            "n": 773,
+            "total_r": 1244.36,
+            "er": 1.61,
+            "wr": 92.8,
+            "pf": 24.19
+          },
+          "CHOPPY_RANGE": {
+            "n": 371,
+            "total_r": 560.42,
+            "er": 1.511,
+            "wr": 90.0,
+            "pf": 16.43
+          },
+          "NEUTRAL_BEAR": {
+            "n": 21,
+            "total_r": 32.75,
+            "er": 1.559,
+            "wr": 90.5,
+            "pf": 17.91
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_45M_VETO_REGIME_ONLY",
+        "description": "45m + Regime Divergence Veto Only",
+        "use_wick_veto": false,
+        "use_loose_veto": false,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "DB_45M_VETO_REGIME_ONLY",
+        "description": "45m + Regime Divergence Veto Only",
+        "window_minutes": 45,
+        "n_candidates": 17794,
+        "n_selected_top5": 1990,
+        "n_trades": 1628,
+        "total_r": 2574.88,
+        "er": 1.582,
+        "median_r": 1.643,
+        "std_r": 0.916,
+        "wr": 92.8,
+        "pf": 23.7,
+        "max_dd": 2.01,
+        "payoff": 1.85,
+        "loo1_er": 1.58,
+        "loo2_er": 1.578,
+        "winsorized_er": 1.58,
+        "mfe_avg": 2.229,
+        "mae_avg": -0.268,
+        "zero_alert_sessions": 74,
+        "veto_accounting": {
+          "total_vetoed": 2105,
+          "veto_rate_pct": 11.8,
+          "avoided_loss_count": 1107,
+          "avoided_loss_r": 1133.32,
+          "ordinary_winners_vetoed_count": 483,
+          "ordinary_winner_cost_r": 592.15,
+          "major_runners_destroyed_count": 515,
+          "major_runner_cost_r": 1073.31,
+          "total_opp_cost_r": 1665.45,
+          "net_veto_r": -532.13
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 476,
+            "total_r": 769.35,
+            "er": 1.616,
+            "wr": 94.5,
+            "pf": 31.53
+          },
+          "NEUTRAL_BULL": {
+            "n": 773,
+            "total_r": 1244.36,
+            "er": 1.61,
+            "wr": 92.8,
+            "pf": 24.19
+          },
+          "CHOPPY_RANGE": {
+            "n": 358,
+            "total_r": 528.43,
+            "er": 1.476,
+            "wr": 90.5,
+            "pf": 17.19
+          },
+          "NEUTRAL_BEAR": {
+            "n": 21,
+            "total_r": 32.75,
+            "er": 1.559,
+            "wr": 90.5,
+            "pf": 17.91
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_45M_VETO_WICK_LOOSE",
+        "description": "45m + Wick + Loose Base Vetoes",
+        "use_wick_veto": true,
+        "use_loose_veto": true,
+        "use_regime_veto": false,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "DB_45M_VETO_WICK_LOOSE",
+        "description": "45m + Wick + Loose Base Vetoes",
+        "window_minutes": 45,
+        "n_candidates": 17794,
+        "n_selected_top5": 2009,
+        "n_trades": 1641,
+        "total_r": 2606.87,
+        "er": 1.589,
+        "median_r": 1.651,
+        "std_r": 0.931,
+        "wr": 92.6,
+        "pf": 23.26,
+        "max_dd": 2.01,
+        "payoff": 1.85,
+        "loo1_er": 1.587,
+        "loo2_er": 1.585,
+        "winsorized_er": 1.587,
+        "mfe_avg": 2.234,
+        "mae_avg": -0.269,
+        "zero_alert_sessions": 73,
+        "veto_accounting": {
+          "total_vetoed": 6630,
+          "veto_rate_pct": 37.3,
+          "avoided_loss_count": 3560,
+          "avoided_loss_r": 3647.82,
+          "ordinary_winners_vetoed_count": 1916,
+          "ordinary_winner_cost_r": 2300.91,
+          "major_runners_destroyed_count": 1154,
+          "major_runner_cost_r": 2308.27,
+          "total_opp_cost_r": 4609.18,
+          "net_veto_r": -961.36
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 476,
+            "total_r": 769.35,
+            "er": 1.616,
+            "wr": 94.5,
+            "pf": 31.53
+          },
+          "NEUTRAL_BULL": {
+            "n": 773,
+            "total_r": 1244.36,
+            "er": 1.61,
+            "wr": 92.8,
+            "pf": 24.19
+          },
+          "CHOPPY_RANGE": {
+            "n": 371,
+            "total_r": 560.42,
+            "er": 1.511,
+            "wr": 90.0,
+            "pf": 16.43
+          },
+          "NEUTRAL_BEAR": {
+            "n": 21,
+            "total_r": 32.75,
+            "er": 1.559,
+            "wr": 90.5,
+            "pf": 17.91
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_45M_VETO_WICK_REGIME",
+        "description": "45m + Wick + Regime Divergence Vetoes",
+        "use_wick_veto": true,
+        "use_loose_veto": false,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "DB_45M_VETO_WICK_REGIME",
+        "description": "45m + Wick + Regime Divergence Vetoes",
+        "window_minutes": 45,
+        "n_candidates": 17794,
+        "n_selected_top5": 1990,
+        "n_trades": 1628,
+        "total_r": 2574.88,
+        "er": 1.582,
+        "median_r": 1.643,
+        "std_r": 0.916,
+        "wr": 92.8,
+        "pf": 23.7,
+        "max_dd": 2.01,
+        "payoff": 1.85,
+        "loo1_er": 1.58,
+        "loo2_er": 1.578,
+        "winsorized_er": 1.58,
+        "mfe_avg": 2.229,
+        "mae_avg": -0.268,
+        "zero_alert_sessions": 74,
+        "veto_accounting": {
+          "total_vetoed": 3167,
+          "veto_rate_pct": 17.8,
+          "avoided_loss_count": 1689,
+          "avoided_loss_r": 1730.51,
+          "ordinary_winners_vetoed_count": 791,
+          "ordinary_winner_cost_r": 959.77,
+          "major_runners_destroyed_count": 687,
+          "major_runner_cost_r": 1434.13,
+          "total_opp_cost_r": 2393.91,
+          "net_veto_r": -663.4
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 476,
+            "total_r": 769.35,
+            "er": 1.616,
+            "wr": 94.5,
+            "pf": 31.53
+          },
+          "NEUTRAL_BULL": {
+            "n": 773,
+            "total_r": 1244.36,
+            "er": 1.61,
+            "wr": 92.8,
+            "pf": 24.19
+          },
+          "CHOPPY_RANGE": {
+            "n": 358,
+            "total_r": 528.43,
+            "er": 1.476,
+            "wr": 90.5,
+            "pf": 17.19
+          },
+          "NEUTRAL_BEAR": {
+            "n": 21,
+            "total_r": 32.75,
+            "er": 1.559,
+            "wr": 90.5,
+            "pf": 17.91
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_45M_VETO_LOOSE_REGIME",
+        "description": "45m + Loose Base + Regime Divergence Vetoes",
+        "use_wick_veto": false,
+        "use_loose_veto": true,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "DB_45M_VETO_LOOSE_REGIME",
+        "description": "45m + Loose Base + Regime Divergence Vetoes",
+        "window_minutes": 45,
+        "n_candidates": 17794,
+        "n_selected_top5": 1990,
+        "n_trades": 1628,
+        "total_r": 2574.88,
+        "er": 1.582,
+        "median_r": 1.643,
+        "std_r": 0.916,
+        "wr": 92.8,
+        "pf": 23.7,
+        "max_dd": 2.01,
+        "payoff": 1.85,
+        "loo1_er": 1.58,
+        "loo2_er": 1.578,
+        "winsorized_er": 1.58,
+        "mfe_avg": 2.229,
+        "mae_avg": -0.268,
+        "zero_alert_sessions": 74,
+        "veto_accounting": {
+          "total_vetoed": 7418,
+          "veto_rate_pct": 41.7,
+          "avoided_loss_count": 3866,
+          "avoided_loss_r": 3959.99,
+          "ordinary_winners_vetoed_count": 2075,
+          "ordinary_winner_cost_r": 2506.59,
+          "major_runners_destroyed_count": 1477,
+          "major_runner_cost_r": 3012.0,
+          "total_opp_cost_r": 5518.59,
+          "net_veto_r": -1558.6
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 476,
+            "total_r": 769.35,
+            "er": 1.616,
+            "wr": 94.5,
+            "pf": 31.53
+          },
+          "NEUTRAL_BULL": {
+            "n": 773,
+            "total_r": 1244.36,
+            "er": 1.61,
+            "wr": 92.8,
+            "pf": 24.19
+          },
+          "CHOPPY_RANGE": {
+            "n": 358,
+            "total_r": 528.43,
+            "er": 1.476,
+            "wr": 90.5,
+            "pf": 17.19
+          },
+          "NEUTRAL_BEAR": {
+            "n": 21,
+            "total_r": 32.75,
+            "er": 1.559,
+            "wr": 90.5,
+            "pf": 17.91
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_45M_VETO_ALL_THREE",
+        "description": "45m + All Three Vetoes (Certified Architecture)",
+        "use_wick_veto": true,
+        "use_loose_veto": true,
+        "use_regime_veto": true,
+        "window_minutes": 45,
+        "delay_slippage_r": 0.105
+      },
+      "metrics": {
+        "config_id": "DB_45M_VETO_ALL_THREE",
+        "description": "45m + All Three Vetoes (Certified Architecture)",
+        "window_minutes": 45,
+        "n_candidates": 17794,
+        "n_selected_top5": 1990,
+        "n_trades": 1628,
+        "total_r": 2574.88,
+        "er": 1.582,
+        "median_r": 1.643,
+        "std_r": 0.916,
+        "wr": 92.8,
+        "pf": 23.7,
+        "max_dd": 2.01,
+        "payoff": 1.85,
+        "loo1_er": 1.58,
+        "loo2_er": 1.578,
+        "winsorized_er": 1.58,
+        "mfe_avg": 2.229,
+        "mae_avg": -0.268,
+        "zero_alert_sessions": 74,
+        "veto_accounting": {
+          "total_vetoed": 7929,
+          "veto_rate_pct": 44.6,
+          "avoided_loss_count": 4139,
+          "avoided_loss_r": 4239.92,
+          "ordinary_winners_vetoed_count": 2221,
+          "ordinary_winner_cost_r": 2681.13,
+          "major_runners_destroyed_count": 1569,
+          "major_runner_cost_r": 3192.05,
+          "total_opp_cost_r": 5873.18,
+          "net_veto_r": -1633.27
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 476,
+            "total_r": 769.35,
+            "er": 1.616,
+            "wr": 94.5,
+            "pf": 31.53
+          },
+          "NEUTRAL_BULL": {
+            "n": 773,
+            "total_r": 1244.36,
+            "er": 1.61,
+            "wr": 92.8,
+            "pf": 24.19
+          },
+          "CHOPPY_RANGE": {
+            "n": 358,
+            "total_r": 528.43,
+            "er": 1.476,
+            "wr": 90.5,
+            "pf": 17.19
+          },
+          "NEUTRAL_BEAR": {
+            "n": 21,
+            "total_r": 32.75,
+            "er": 1.559,
+            "wr": 90.5,
+            "pf": 17.91
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    },
+    {
+      "config": {
+        "config_id": "DB_30M_V529_CERTIFIED",
+        "description": "Current V5.29 Baseline (30m + All Three Vetoes)",
+        "use_wick_veto": true,
+        "use_loose_veto": true,
+        "use_regime_veto": true,
+        "window_minutes": 30,
+        "delay_slippage_r": 0.08
+      },
+      "metrics": {
+        "config_id": "DB_30M_V529_CERTIFIED",
+        "description": "Current V5.29 Baseline (30m + All Three Vetoes)",
+        "window_minutes": 30,
+        "n_candidates": 17794,
+        "n_selected_top5": 1990,
+        "n_trades": 1542,
+        "total_r": 1874.92,
+        "er": 1.216,
+        "median_r": 1.574,
+        "std_r": 1.275,
+        "wr": 79.3,
+        "pf": 6.56,
+        "max_dd": 4.63,
+        "payoff": 1.71,
+        "loo1_er": 1.213,
+        "loo2_er": 1.211,
+        "winsorized_er": 1.214,
+        "mfe_avg": 1.931,
+        "mae_avg": -0.379,
+        "zero_alert_sessions": 74,
+        "veto_accounting": {
+          "total_vetoed": 7929,
+          "veto_rate_pct": 44.6,
+          "avoided_loss_count": 4139,
+          "avoided_loss_r": 4239.92,
+          "ordinary_winners_vetoed_count": 2221,
+          "ordinary_winner_cost_r": 2681.13,
+          "major_runners_destroyed_count": 1569,
+          "major_runner_cost_r": 3192.05,
+          "total_opp_cost_r": 5873.18,
+          "net_veto_r": -1633.27
+        },
+        "regime_metrics": {
+          "STRONG_BULL": {
+            "n": 433,
+            "total_r": 590.86,
+            "er": 1.365,
+            "wr": 85.2,
+            "pf": 9.72
+          },
+          "NEUTRAL_BULL": {
+            "n": 712,
+            "total_r": 940.21,
+            "er": 1.321,
+            "wr": 81.6,
+            "pf": 7.82
+          },
+          "CHOPPY_RANGE": {
+            "n": 370,
+            "total_r": 319.96,
+            "er": 0.865,
+            "wr": 68.9,
+            "pf": 3.62
+          },
+          "NEUTRAL_BEAR": {
+            "n": 27,
+            "total_r": 23.89,
+            "er": 0.885,
+            "wr": 66.7,
+            "pf": 3.48
+          },
+          "SHARP_SELLOFF": {
+            "n": 0,
+            "total_r": 0.0,
+            "er": 0.0,
+            "wr": 0.0,
+            "pf": 0.0
+          }
+        }
+      }
+    }
+  ]
+}
