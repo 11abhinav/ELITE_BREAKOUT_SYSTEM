@@ -1,0 +1,582 @@
+{
+  "timestamp": "2026-09-12T18:55:23+05:30",
+  "scanned_stocks": 871,
+  "total_trades_simulated": 19027,
+  "duration_seconds": 106.68,
+  "leaderboard": [
+    {
+      "pattern": "WYCKOFF_SPRING_TYPE_2",
+      "cmpr_score": 83.22,
+      "tier": "TIER_1_CORE_ALPHA",
+      "total_trades": 4596,
+      "win_rate_pct": 49.33,
+      "expectancy_r": 0.3399,
+      "profit_factor": 1.73,
+      "max_drawdown_r": 21.82,
+      "bootstrap_95ci": [
+        0.2947,
+        0.3826
+      ],
+      "positive_regimes_count": "5/6",
+      "regime_breakdown": {
+        "W1_2025_Q3_BULL_RALLY": {
+          "n": 899,
+          "exp_r": 0.4404
+        },
+        "W2_2025_Q4_SIDEWAYS_CHOP": {
+          "n": 815,
+          "exp_r": 0.2488
+        },
+        "W3_2026_Q1_MIDCAP_RALLY": {
+          "n": 1172,
+          "exp_r": 0.1888
+        },
+        "W4_2026_Q2_EVENT_VOLATILITY": {
+          "n": 868,
+          "exp_r": 0.5423
+        },
+        "W5_2026_Q3_ATH_MOMENTUM": {
+          "n": 806,
+          "exp_r": 0.3391
+        },
+        "W6_2026_MONSOON_CORRECTION": {
+          "n": 36,
+          "exp_r": -0.0551
+        }
+      }
+    },
+    {
+      "pattern": "BULL_FLAG",
+      "cmpr_score": 83.12,
+      "tier": "TIER_1_CORE_ALPHA",
+      "total_trades": 2581,
+      "win_rate_pct": 48.47,
+      "expectancy_r": 0.3254,
+      "profit_factor": 1.672,
+      "max_drawdown_r": 30.79,
+      "bootstrap_95ci": [
+        0.2697,
+        0.3753
+      ],
+      "positive_regimes_count": "6/6",
+      "regime_breakdown": {
+        "W1_2025_Q3_BULL_RALLY": {
+          "n": 526,
+          "exp_r": 0.6414
+        },
+        "W2_2025_Q4_SIDEWAYS_CHOP": {
+          "n": 332,
+          "exp_r": 0.3277
+        },
+        "W3_2026_Q1_MIDCAP_RALLY": {
+          "n": 523,
+          "exp_r": 0.1939
+        },
+        "W4_2026_Q2_EVENT_VOLATILITY": {
+          "n": 702,
+          "exp_r": 0.2538
+        },
+        "W5_2026_Q3_ATH_MOMENTUM": {
+          "n": 485,
+          "exp_r": 0.2338
+        },
+        "W6_2026_MONSOON_CORRECTION": {
+          "n": 13,
+          "exp_r": 0.0484
+        }
+      }
+    },
+    {
+      "pattern": "MULTI_MONTH_BASE_BREAKOUT",
+      "cmpr_score": 78.26,
+      "tier": "TIER_1_CORE_ALPHA",
+      "total_trades": 662,
+      "win_rate_pct": 46.68,
+      "expectancy_r": 0.3013,
+      "profit_factor": 1.603,
+      "max_drawdown_r": 10.84,
+      "bootstrap_95ci": [
+        0.1824,
+        0.4118
+      ],
+      "positive_regimes_count": "5/6",
+      "regime_breakdown": {
+        "W1_2025_Q3_BULL_RALLY": {
+          "n": 109,
+          "exp_r": 0.4452
+        },
+        "W2_2025_Q4_SIDEWAYS_CHOP": {
+          "n": 108,
+          "exp_r": 0.2179
+        },
+        "W3_2026_Q1_MIDCAP_RALLY": {
+          "n": 175,
+          "exp_r": 0.0504
+        },
+        "W4_2026_Q2_EVENT_VOLATILITY": {
+          "n": 117,
+          "exp_r": 0.3679
+        },
+        "W5_2026_Q3_ATH_MOMENTUM": {
+          "n": 148,
+          "exp_r": 0.5219
+        },
+        "W6_2026_MONSOON_CORRECTION": {
+          "n": 5,
+          "exp_r": -0.3456
+        }
+      }
+    },
+    {
+      "pattern": "FLAT_BASE_BREAKOUT",
+      "cmpr_score": 78.15,
+      "tier": "TIER_1_CORE_ALPHA",
+      "total_trades": 1498,
+      "win_rate_pct": 47.2,
+      "expectancy_r": 0.3068,
+      "profit_factor": 1.626,
+      "max_drawdown_r": 21.74,
+      "bootstrap_95ci": [
+        0.2375,
+        0.3767
+      ],
+      "positive_regimes_count": "5/6",
+      "regime_breakdown": {
+        "W1_2025_Q3_BULL_RALLY": {
+          "n": 371,
+          "exp_r": 0.4605
+        },
+        "W2_2025_Q4_SIDEWAYS_CHOP": {
+          "n": 257,
+          "exp_r": 0.2784
+        },
+        "W3_2026_Q1_MIDCAP_RALLY": {
+          "n": 349,
+          "exp_r": 0.1877
+        },
+        "W4_2026_Q2_EVENT_VOLATILITY": {
+          "n": 209,
+          "exp_r": 0.2676
+        },
+        "W5_2026_Q3_ATH_MOMENTUM": {
+          "n": 299,
+          "exp_r": 0.3312
+        },
+        "W6_2026_MONSOON_CORRECTION": {
+          "n": 13,
+          "exp_r": -0.252
+        }
+      }
+    },
+    {
+      "pattern": "ASCENDING_TRIANGLE",
+      "cmpr_score": 71.16,
+      "tier": "TIER_1_CORE_ALPHA",
+      "total_trades": 502,
+      "win_rate_pct": 44.62,
+      "expectancy_r": 0.2503,
+      "profit_factor": 1.489,
+      "max_drawdown_r": 14.98,
+      "bootstrap_95ci": [
+        0.1331,
+        0.3714
+      ],
+      "positive_regimes_count": "5/6",
+      "regime_breakdown": {
+        "W1_2025_Q3_BULL_RALLY": {
+          "n": 94,
+          "exp_r": 0.3857
+        },
+        "W2_2025_Q4_SIDEWAYS_CHOP": {
+          "n": 85,
+          "exp_r": 0.297
+        },
+        "W3_2026_Q1_MIDCAP_RALLY": {
+          "n": 97,
+          "exp_r": 0.1135
+        },
+        "W4_2026_Q2_EVENT_VOLATILITY": {
+          "n": 110,
+          "exp_r": 0.3114
+        },
+        "W5_2026_Q3_ATH_MOMENTUM": {
+          "n": 113,
+          "exp_r": 0.1938
+        },
+        "W6_2026_MONSOON_CORRECTION": {
+          "n": 3,
+          "exp_r": -1.0
+        }
+      }
+    },
+    {
+      "pattern": "UNDERCUT_AND_RALLY",
+      "cmpr_score": 67.92,
+      "tier": "TIER_2_CONFLUENCE_BONUS",
+      "total_trades": 2649,
+      "win_rate_pct": 44.32,
+      "expectancy_r": 0.2257,
+      "profit_factor": 1.44,
+      "max_drawdown_r": 16.85,
+      "bootstrap_95ci": [
+        0.1708,
+        0.2799
+      ],
+      "positive_regimes_count": "5/6",
+      "regime_breakdown": {
+        "W1_2025_Q3_BULL_RALLY": {
+          "n": 416,
+          "exp_r": 0.3954
+        },
+        "W2_2025_Q4_SIDEWAYS_CHOP": {
+          "n": 474,
+          "exp_r": -0.0784
+        },
+        "W3_2026_Q1_MIDCAP_RALLY": {
+          "n": 863,
+          "exp_r": 0.1308
+        },
+        "W4_2026_Q2_EVENT_VOLATILITY": {
+          "n": 413,
+          "exp_r": 0.4757
+        },
+        "W5_2026_Q3_ATH_MOMENTUM": {
+          "n": 468,
+          "exp_r": 0.3434
+        },
+        "W6_2026_MONSOON_CORRECTION": {
+          "n": 15,
+          "exp_r": 0.0313
+        }
+      }
+    },
+    {
+      "pattern": "PULLBACK_EMA_BOUNCE",
+      "cmpr_score": 64.31,
+      "tier": "TIER_2_CONFLUENCE_BONUS",
+      "total_trades": 2846,
+      "win_rate_pct": 44.34,
+      "expectancy_r": 0.2299,
+      "profit_factor": 1.446,
+      "max_drawdown_r": 24.19,
+      "bootstrap_95ci": [
+        0.1816,
+        0.2824
+      ],
+      "positive_regimes_count": "4/6",
+      "regime_breakdown": {
+        "W1_2025_Q3_BULL_RALLY": {
+          "n": 511,
+          "exp_r": 0.4589
+        },
+        "W2_2025_Q4_SIDEWAYS_CHOP": {
+          "n": 514,
+          "exp_r": 0.0982
+        },
+        "W3_2026_Q1_MIDCAP_RALLY": {
+          "n": 711,
+          "exp_r": -0.0298
+        },
+        "W4_2026_Q2_EVENT_VOLATILITY": {
+          "n": 519,
+          "exp_r": 0.4434
+        },
+        "W5_2026_Q3_ATH_MOMENTUM": {
+          "n": 572,
+          "exp_r": 0.3057
+        },
+        "W6_2026_MONSOON_CORRECTION": {
+          "n": 19,
+          "exp_r": -0.761
+        }
+      }
+    },
+    {
+      "pattern": "FALLING_WEDGE_REVERSAL",
+      "cmpr_score": 54.01,
+      "tier": "TIER_3_OBSERVATIONAL_TAG",
+      "total_trades": 748,
+      "win_rate_pct": 41.71,
+      "expectancy_r": 0.1506,
+      "profit_factor": 1.277,
+      "max_drawdown_r": 25.43,
+      "bootstrap_95ci": [
+        0.051,
+        0.2443
+      ],
+      "positive_regimes_count": "4/6",
+      "regime_breakdown": {
+        "W1_2025_Q3_BULL_RALLY": {
+          "n": 127,
+          "exp_r": 0.445
+        },
+        "W2_2025_Q4_SIDEWAYS_CHOP": {
+          "n": 134,
+          "exp_r": -0.1355
+        },
+        "W3_2026_Q1_MIDCAP_RALLY": {
+          "n": 185,
+          "exp_r": -0.1321
+        },
+        "W4_2026_Q2_EVENT_VOLATILITY": {
+          "n": 167,
+          "exp_r": 0.4683
+        },
+        "W5_2026_Q3_ATH_MOMENTUM": {
+          "n": 128,
+          "exp_r": 0.1448
+        },
+        "W6_2026_MONSOON_CORRECTION": {
+          "n": 7,
+          "exp_r": 0.2845
+        }
+      }
+    },
+    {
+      "pattern": "DOUBLE_BOTTOM_SHAKEOUT",
+      "cmpr_score": 44.99,
+      "tier": "TIER_3_OBSERVATIONAL_TAG",
+      "total_trades": 1208,
+      "win_rate_pct": 39.49,
+      "expectancy_r": 0.0973,
+      "profit_factor": 1.171,
+      "max_drawdown_r": 49.22,
+      "bootstrap_95ci": [
+        0.0226,
+        0.1784
+      ],
+      "positive_regimes_count": "4/6",
+      "regime_breakdown": {
+        "W1_2025_Q3_BULL_RALLY": {
+          "n": 176,
+          "exp_r": 0.3329
+        },
+        "W2_2025_Q4_SIDEWAYS_CHOP": {
+          "n": 234,
+          "exp_r": -0.3227
+        },
+        "W3_2026_Q1_MIDCAP_RALLY": {
+          "n": 418,
+          "exp_r": 0.0228
+        },
+        "W4_2026_Q2_EVENT_VOLATILITY": {
+          "n": 167,
+          "exp_r": 0.5716
+        },
+        "W5_2026_Q3_ATH_MOMENTUM": {
+          "n": 200,
+          "exp_r": 0.1913
+        },
+        "W6_2026_MONSOON_CORRECTION": {
+          "n": 13,
+          "exp_r": -0.6753
+        }
+      }
+    },
+    {
+      "pattern": "INVERSE_HEAD_AND_SHOULDERS",
+      "cmpr_score": 44.18,
+      "tier": "TIER_3_OBSERVATIONAL_TAG",
+      "total_trades": 378,
+      "win_rate_pct": 41.27,
+      "expectancy_r": 0.1373,
+      "profit_factor": 1.25,
+      "max_drawdown_r": 33.72,
+      "bootstrap_95ci": [
+        -0.0051,
+        0.2886
+      ],
+      "positive_regimes_count": "3/6",
+      "regime_breakdown": {
+        "W1_2025_Q3_BULL_RALLY": {
+          "n": 64,
+          "exp_r": 0.3938
+        },
+        "W2_2025_Q4_SIDEWAYS_CHOP": {
+          "n": 43,
+          "exp_r": -0.0055
+        },
+        "W3_2026_Q1_MIDCAP_RALLY": {
+          "n": 79,
+          "exp_r": -0.0046
+        },
+        "W4_2026_Q2_EVENT_VOLATILITY": {
+          "n": 130,
+          "exp_r": 0.1517
+        },
+        "W5_2026_Q3_ATH_MOMENTUM": {
+          "n": 60,
+          "exp_r": 0.1001
+        },
+        "W6_2026_MONSOON_CORRECTION": {
+          "n": 2,
+          "exp_r": 0.0
+        }
+      }
+    },
+    {
+      "pattern": "PENNANT_CONVERGENCE",
+      "cmpr_score": 41.3,
+      "tier": "TIER_3_OBSERVATIONAL_TAG",
+      "total_trades": 227,
+      "win_rate_pct": 39.65,
+      "expectancy_r": 0.114,
+      "profit_factor": 1.196,
+      "max_drawdown_r": 16.93,
+      "bootstrap_95ci": [
+        -0.071,
+        0.2989
+      ],
+      "positive_regimes_count": "3/6",
+      "regime_breakdown": {
+        "W1_2025_Q3_BULL_RALLY": {
+          "n": 17,
+          "exp_r": 0.5175
+        },
+        "W2_2025_Q4_SIDEWAYS_CHOP": {
+          "n": 32,
+          "exp_r": -0.6921
+        },
+        "W3_2026_Q1_MIDCAP_RALLY": {
+          "n": 55,
+          "exp_r": -0.0505
+        },
+        "W4_2026_Q2_EVENT_VOLATILITY": {
+          "n": 68,
+          "exp_r": 0.4932
+        },
+        "W5_2026_Q3_ATH_MOMENTUM": {
+          "n": 54,
+          "exp_r": 0.1754
+        },
+        "W6_2026_MONSOON_CORRECTION": {
+          "n": 1,
+          "exp_r": 0.0
+        }
+      }
+    },
+    {
+      "pattern": "VCP_CONTRACTION",
+      "cmpr_score": 35.98,
+      "tier": "TIER_4_RESEARCH_REJECTED",
+      "total_trades": 476,
+      "win_rate_pct": 35.71,
+      "expectancy_r": 0.0574,
+      "profit_factor": 1.095,
+      "max_drawdown_r": 16.97,
+      "bootstrap_95ci": [
+        -0.0628,
+        0.1869
+      ],
+      "positive_regimes_count": "3/6",
+      "regime_breakdown": {
+        "W1_2025_Q3_BULL_RALLY": {
+          "n": 62,
+          "exp_r": 0.5063
+        },
+        "W2_2025_Q4_SIDEWAYS_CHOP": {
+          "n": 82,
+          "exp_r": -0.0001
+        },
+        "W3_2026_Q1_MIDCAP_RALLY": {
+          "n": 76,
+          "exp_r": -0.3067
+        },
+        "W4_2026_Q2_EVENT_VOLATILITY": {
+          "n": 121,
+          "exp_r": -0.174
+        },
+        "W5_2026_Q3_ATH_MOMENTUM": {
+          "n": 129,
+          "exp_r": 0.2739
+        },
+        "W6_2026_MONSOON_CORRECTION": {
+          "n": 6,
+          "exp_r": 0.8257
+        }
+      }
+    },
+    {
+      "pattern": "HIGH_TIGHT_FLAG",
+      "cmpr_score": 26.17,
+      "tier": "TIER_4_RESEARCH_REJECTED",
+      "total_trades": 15,
+      "win_rate_pct": 40.0,
+      "expectancy_r": 0.068,
+      "profit_factor": 1.113,
+      "max_drawdown_r": 4.0,
+      "bootstrap_95ci": [
+        -0.6,
+        0.8062
+      ],
+      "positive_regimes_count": "1/6",
+      "regime_breakdown": {
+        "W1_2025_Q3_BULL_RALLY": {
+          "n": 0,
+          "exp_r": 0.0
+        },
+        "W2_2025_Q4_SIDEWAYS_CHOP": {
+          "n": 1,
+          "exp_r": 0.0
+        },
+        "W3_2026_Q1_MIDCAP_RALLY": {
+          "n": 2,
+          "exp_r": 0.0
+        },
+        "W4_2026_Q2_EVENT_VOLATILITY": {
+          "n": 9,
+          "exp_r": 0.4467
+        },
+        "W5_2026_Q3_ATH_MOMENTUM": {
+          "n": 3,
+          "exp_r": 0.0
+        },
+        "W6_2026_MONSOON_CORRECTION": {
+          "n": 0,
+          "exp_r": 0.0
+        }
+      }
+    },
+    {
+      "pattern": "CUP_AND_HANDLE",
+      "cmpr_score": 25.23,
+      "tier": "TIER_4_RESEARCH_REJECTED",
+      "total_trades": 641,
+      "win_rate_pct": 35.26,
+      "expectancy_r": 0.0229,
+      "profit_factor": 1.037,
+      "max_drawdown_r": 84.1,
+      "bootstrap_95ci": [
+        -0.091,
+        0.1308
+      ],
+      "positive_regimes_count": "3/6",
+      "regime_breakdown": {
+        "W1_2025_Q3_BULL_RALLY": {
+          "n": 32,
+          "exp_r": 0.6261
+        },
+        "W2_2025_Q4_SIDEWAYS_CHOP": {
+          "n": 64,
+          "exp_r": -0.5176
+        },
+        "W3_2026_Q1_MIDCAP_RALLY": {
+          "n": 114,
+          "exp_r": -0.4174
+        },
+        "W4_2026_Q2_EVENT_VOLATILITY": {
+          "n": 284,
+          "exp_r": 0.1822
+        },
+        "W5_2026_Q3_ATH_MOMENTUM": {
+          "n": 143,
+          "exp_r": 0.1928
+        },
+        "W6_2026_MONSOON_CORRECTION": {
+          "n": 4,
+          "exp_r": -1.0
+        }
+      }
+    }
+  ]
+}

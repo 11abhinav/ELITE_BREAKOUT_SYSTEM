@@ -1,0 +1,1846 @@
+{
+  "timestamp": "2026-09-12T20:17:19+05:30",
+  "scanned_stocks": 871,
+  "duration_seconds": 154.09,
+  "regime_summaries": {
+    "W1_BULL_RALLY": {
+      "regime_type": "STRONG_BULL",
+      "description": "Broad Market Bull Expansion",
+      "ranked_entities": [
+        {
+          "entity": "BULL_FLAG + EMA_BOUNCE",
+          "metrics": {
+            "n": 7,
+            "exp_r": 1.5441,
+            "pf": 9.99,
+            "win_rate": 100.0,
+            "max_dd": 0.0,
+            "ci_95": [
+              0.86,
+              2.176
+            ]
+          }
+        },
+        {
+          "entity": "DB_SHAKEOUT + WYCKOFF_2",
+          "metrics": {
+            "n": 24,
+            "exp_r": 0.8551,
+            "pf": 3.379,
+            "win_rate": 62.5,
+            "max_dd": 2.1,
+            "ci_95": [
+              0.246,
+              1.426
+            ]
+          }
+        },
+        {
+          "entity": "FLAT_BASE + BULL_FLAG",
+          "metrics": {
+            "n": 53,
+            "exp_r": 0.8059,
+            "pf": 3.542,
+            "win_rate": 66.04,
+            "max_dd": 3.0,
+            "ci_95": [
+              0.431,
+              1.145
+            ]
+          }
+        },
+        {
+          "entity": "BULL_FLAG + MULTI_MONTH_BASE",
+          "metrics": {
+            "n": 28,
+            "exp_r": 0.7494,
+            "pf": 3.317,
+            "win_rate": 64.29,
+            "max_dd": 2.79,
+            "ci_95": [
+              0.225,
+              1.234
+            ]
+          }
+        },
+        {
+          "entity": "BULL_FLAG",
+          "metrics": {
+            "n": 526,
+            "exp_r": 0.6414,
+            "pf": 2.724,
+            "win_rate": 59.89,
+            "max_dd": 8.0,
+            "ci_95": [
+              0.523,
+              0.757
+            ]
+          }
+        },
+        {
+          "entity": "CUP_AND_HANDLE",
+          "metrics": {
+            "n": 32,
+            "exp_r": 0.6261,
+            "pf": 2.759,
+            "win_rate": 62.5,
+            "max_dd": 1.39,
+            "ci_95": [
+              0.163,
+              1.099
+            ]
+          }
+        },
+        {
+          "entity": "WYCKOFF_2 + EMA_BOUNCE",
+          "metrics": {
+            "n": 109,
+            "exp_r": 0.5355,
+            "pf": 2.463,
+            "win_rate": 56.88,
+            "max_dd": 7.63,
+            "ci_95": [
+              0.295,
+              0.788
+            ]
+          }
+        },
+        {
+          "entity": "PENNANT_CONVERGENCE",
+          "metrics": {
+            "n": 17,
+            "exp_r": 0.5175,
+            "pf": 2.1,
+            "win_rate": 52.94,
+            "max_dd": 2.0,
+            "ci_95": [
+              -0.175,
+              1.212
+            ]
+          }
+        },
+        {
+          "entity": "VCP_CONTRACTION",
+          "metrics": {
+            "n": 62,
+            "exp_r": 0.5063,
+            "pf": 2.031,
+            "win_rate": 46.77,
+            "max_dd": 6.0,
+            "ci_95": [
+              0.132,
+              0.88
+            ]
+          }
+        },
+        {
+          "entity": "FLAT_BASE_BREAKOUT",
+          "metrics": {
+            "n": 371,
+            "exp_r": 0.4605,
+            "pf": 2.058,
+            "win_rate": 51.75,
+            "max_dd": 11.0,
+            "ci_95": [
+              0.317,
+              0.601
+            ]
+          }
+        },
+        {
+          "entity": "PULLBACK_EMA_BOUNCE",
+          "metrics": {
+            "n": 511,
+            "exp_r": 0.4589,
+            "pf": 2.067,
+            "win_rate": 53.03,
+            "max_dd": 13.51,
+            "ci_95": [
+              0.337,
+              0.575
+            ]
+          }
+        },
+        {
+          "entity": "MULTI_MONTH_BASE_BREAKOUT",
+          "metrics": {
+            "n": 109,
+            "exp_r": 0.4452,
+            "pf": 2.076,
+            "win_rate": 51.38,
+            "max_dd": 8.9,
+            "ci_95": [
+              0.198,
+              0.715
+            ]
+          }
+        },
+        {
+          "entity": "FALLING_WEDGE_REVERSAL",
+          "metrics": {
+            "n": 127,
+            "exp_r": 0.445,
+            "pf": 1.972,
+            "win_rate": 52.76,
+            "max_dd": 4.5,
+            "ci_95": [
+              0.197,
+              0.702
+            ]
+          }
+        },
+        {
+          "entity": "WYCKOFF_SPRING_TYPE_2",
+          "metrics": {
+            "n": 899,
+            "exp_r": 0.4404,
+            "pf": 2.019,
+            "win_rate": 52.84,
+            "max_dd": 29.59,
+            "ci_95": [
+              0.352,
+              0.531
+            ]
+          }
+        },
+        {
+          "entity": "UNDERCUT_AND_RALLY",
+          "metrics": {
+            "n": 416,
+            "exp_r": 0.3954,
+            "pf": 1.901,
+            "win_rate": 51.2,
+            "max_dd": 8.49,
+            "ci_95": [
+              0.264,
+              0.531
+            ]
+          }
+        },
+        {
+          "entity": "INVERSE_HEAD_AND_SHOULDERS",
+          "metrics": {
+            "n": 64,
+            "exp_r": 0.3938,
+            "pf": 1.869,
+            "win_rate": 50.0,
+            "max_dd": 7.11,
+            "ci_95": [
+              0.053,
+              0.752
+            ]
+          }
+        },
+        {
+          "entity": "ASCENDING_TRIANGLE",
+          "metrics": {
+            "n": 94,
+            "exp_r": 0.3857,
+            "pf": 1.879,
+            "win_rate": 48.94,
+            "max_dd": 6.53,
+            "ci_95": [
+              0.105,
+              0.665
+            ]
+          }
+        },
+        {
+          "entity": "DOUBLE_BOTTOM_SHAKEOUT",
+          "metrics": {
+            "n": 176,
+            "exp_r": 0.3329,
+            "pf": 1.685,
+            "win_rate": 47.16,
+            "max_dd": 9.48,
+            "ci_95": [
+              0.117,
+              0.547
+            ]
+          }
+        },
+        {
+          "entity": "ASC_TRIANGLE + BULL_FLAG",
+          "metrics": {
+            "n": 8,
+            "exp_r": 0.3241,
+            "pf": 1.648,
+            "win_rate": 50.0,
+            "max_dd": 2.0,
+            "ci_95": [
+              -0.625,
+              1.26
+            ]
+          }
+        },
+        {
+          "entity": "FALLING_WEDGE + UNDERCUT_RALLY",
+          "metrics": {
+            "n": 11,
+            "exp_r": -0.4271,
+            "pf": 0.284,
+            "win_rate": 27.27,
+            "max_dd": 3.7,
+            "ci_95": [
+              -0.812,
+              0.021
+            ]
+          }
+        }
+      ]
+    },
+    "W2_SIDEWAYS_CHOP": {
+      "regime_type": "SIDEWAYS",
+      "description": "Consolidation & Rangebound Chop",
+      "ranked_entities": [
+        {
+          "entity": "ASC_TRIANGLE + BULL_FLAG",
+          "metrics": {
+            "n": 7,
+            "exp_r": 1.1737,
+            "pf": 5.108,
+            "win_rate": 71.43,
+            "max_dd": 1.0,
+            "ci_95": [
+              0.286,
+              2.062
+            ]
+          }
+        },
+        {
+          "entity": "BULL_FLAG",
+          "metrics": {
+            "n": 332,
+            "exp_r": 0.3277,
+            "pf": 1.72,
+            "win_rate": 51.2,
+            "max_dd": 13.64,
+            "ci_95": [
+              0.187,
+              0.475
+            ]
+          }
+        },
+        {
+          "entity": "ASCENDING_TRIANGLE",
+          "metrics": {
+            "n": 85,
+            "exp_r": 0.297,
+            "pf": 1.609,
+            "win_rate": 48.24,
+            "max_dd": 8.57,
+            "ci_95": [
+              0.006,
+              0.592
+            ]
+          }
+        },
+        {
+          "entity": "FLAT_BASE_BREAKOUT",
+          "metrics": {
+            "n": 257,
+            "exp_r": 0.2784,
+            "pf": 1.587,
+            "win_rate": 48.25,
+            "max_dd": 20.54,
+            "ci_95": [
+              0.116,
+              0.446
+            ]
+          }
+        },
+        {
+          "entity": "WYCKOFF_SPRING_TYPE_2",
+          "metrics": {
+            "n": 815,
+            "exp_r": 0.2488,
+            "pf": 1.502,
+            "win_rate": 46.63,
+            "max_dd": 20.01,
+            "ci_95": [
+              0.156,
+              0.345
+            ]
+          }
+        },
+        {
+          "entity": "MULTI_MONTH_BASE_BREAKOUT",
+          "metrics": {
+            "n": 108,
+            "exp_r": 0.2179,
+            "pf": 1.446,
+            "win_rate": 48.15,
+            "max_dd": 8.76,
+            "ci_95": [
+              -0.031,
+              0.469
+            ]
+          }
+        },
+        {
+          "entity": "FLAT_BASE + BULL_FLAG",
+          "metrics": {
+            "n": 38,
+            "exp_r": 0.2142,
+            "pf": 1.46,
+            "win_rate": 47.37,
+            "max_dd": 5.51,
+            "ci_95": [
+              -0.208,
+              0.646
+            ]
+          }
+        },
+        {
+          "entity": "PULLBACK_EMA_BOUNCE",
+          "metrics": {
+            "n": 514,
+            "exp_r": 0.0982,
+            "pf": 1.176,
+            "win_rate": 40.47,
+            "max_dd": 27.78,
+            "ci_95": [
+              -0.021,
+              0.212
+            ]
+          }
+        },
+        {
+          "entity": "WYCKOFF_2 + EMA_BOUNCE",
+          "metrics": {
+            "n": 124,
+            "exp_r": 0.0409,
+            "pf": 1.075,
+            "win_rate": 41.13,
+            "max_dd": 13.76,
+            "ci_95": [
+              -0.176,
+              0.271
+            ]
+          }
+        },
+        {
+          "entity": "BULL_FLAG + MULTI_MONTH_BASE",
+          "metrics": {
+            "n": 23,
+            "exp_r": 0.0175,
+            "pf": 1.033,
+            "win_rate": 43.48,
+            "max_dd": 6.18,
+            "ci_95": [
+              -0.474,
+              0.539
+            ]
+          }
+        },
+        {
+          "entity": "VCP_CONTRACTION",
+          "metrics": {
+            "n": 82,
+            "exp_r": -0.0001,
+            "pf": 1.0,
+            "win_rate": 32.93,
+            "max_dd": 10.0,
+            "ci_95": [
+              -0.304,
+              0.316
+            ]
+          }
+        },
+        {
+          "entity": "INVERSE_HEAD_AND_SHOULDERS",
+          "metrics": {
+            "n": 43,
+            "exp_r": -0.0055,
+            "pf": 0.991,
+            "win_rate": 37.21,
+            "max_dd": 7.88,
+            "ci_95": [
+              -0.368,
+              0.408
+            ]
+          }
+        },
+        {
+          "entity": "UNDERCUT_AND_RALLY",
+          "metrics": {
+            "n": 474,
+            "exp_r": -0.0784,
+            "pf": 0.876,
+            "win_rate": 32.7,
+            "max_dd": 58.67,
+            "ci_95": [
+              -0.2,
+              0.039
+            ]
+          }
+        },
+        {
+          "entity": "FALLING_WEDGE_REVERSAL",
+          "metrics": {
+            "n": 134,
+            "exp_r": -0.1355,
+            "pf": 0.8,
+            "win_rate": 29.85,
+            "max_dd": 25.97,
+            "ci_95": [
+              -0.358,
+              0.089
+            ]
+          }
+        },
+        {
+          "entity": "FALLING_WEDGE + UNDERCUT_RALLY",
+          "metrics": {
+            "n": 21,
+            "exp_r": -0.1651,
+            "pf": 0.75,
+            "win_rate": 33.33,
+            "max_dd": 7.68,
+            "ci_95": [
+              -0.666,
+              0.376
+            ]
+          }
+        },
+        {
+          "entity": "DOUBLE_BOTTOM_SHAKEOUT",
+          "metrics": {
+            "n": 234,
+            "exp_r": -0.3227,
+            "pf": 0.56,
+            "win_rate": 23.93,
+            "max_dd": 78.42,
+            "ci_95": [
+              -0.479,
+              -0.166
+            ]
+          }
+        },
+        {
+          "entity": "DB_SHAKEOUT + WYCKOFF_2",
+          "metrics": {
+            "n": 27,
+            "exp_r": -0.3504,
+            "pf": 0.527,
+            "win_rate": 25.93,
+            "max_dd": 11.46,
+            "ci_95": [
+              -0.745,
+              0.1
+            ]
+          }
+        },
+        {
+          "entity": "CUP_AND_HANDLE",
+          "metrics": {
+            "n": 64,
+            "exp_r": -0.5176,
+            "pf": 0.355,
+            "win_rate": 18.75,
+            "max_dd": 32.62,
+            "ci_95": [
+              -0.757,
+              -0.25
+            ]
+          }
+        },
+        {
+          "entity": "PENNANT_CONVERGENCE",
+          "metrics": {
+            "n": 32,
+            "exp_r": -0.6921,
+            "pf": 0.152,
+            "win_rate": 12.5,
+            "max_dd": 21.15,
+            "ci_95": [
+              -0.921,
+              -0.38
+            ]
+          }
+        }
+      ]
+    },
+    "W3_MIDCAP_RALLY": {
+      "regime_type": "BULL",
+      "description": "Institutional Midcap Expansion",
+      "ranked_entities": [
+        {
+          "entity": "BULL_FLAG",
+          "metrics": {
+            "n": 523,
+            "exp_r": 0.1939,
+            "pf": 1.361,
+            "win_rate": 43.79,
+            "max_dd": 18.86,
+            "ci_95": [
+              0.073,
+              0.316
+            ]
+          }
+        },
+        {
+          "entity": "WYCKOFF_SPRING_TYPE_2",
+          "metrics": {
+            "n": 1172,
+            "exp_r": 0.1888,
+            "pf": 1.364,
+            "win_rate": 44.03,
+            "max_dd": 25.97,
+            "ci_95": [
+              0.113,
+              0.265
+            ]
+          }
+        },
+        {
+          "entity": "FLAT_BASE_BREAKOUT",
+          "metrics": {
+            "n": 349,
+            "exp_r": 0.1877,
+            "pf": 1.344,
+            "win_rate": 41.26,
+            "max_dd": 21.45,
+            "ci_95": [
+              0.053,
+              0.332
+            ]
+          }
+        },
+        {
+          "entity": "BULL_FLAG + MULTI_MONTH_BASE",
+          "metrics": {
+            "n": 39,
+            "exp_r": 0.1847,
+            "pf": 1.334,
+            "win_rate": 41.03,
+            "max_dd": 4.95,
+            "ci_95": [
+              -0.248,
+              0.624
+            ]
+          }
+        },
+        {
+          "entity": "UNDERCUT_AND_RALLY",
+          "metrics": {
+            "n": 863,
+            "exp_r": 0.1308,
+            "pf": 1.233,
+            "win_rate": 40.09,
+            "max_dd": 20.99,
+            "ci_95": [
+              0.035,
+              0.224
+            ]
+          }
+        },
+        {
+          "entity": "ASCENDING_TRIANGLE",
+          "metrics": {
+            "n": 97,
+            "exp_r": 0.1135,
+            "pf": 1.196,
+            "win_rate": 40.21,
+            "max_dd": 19.69,
+            "ci_95": [
+              -0.162,
+              0.376
+            ]
+          }
+        },
+        {
+          "entity": "MULTI_MONTH_BASE_BREAKOUT",
+          "metrics": {
+            "n": 175,
+            "exp_r": 0.0504,
+            "pf": 1.083,
+            "win_rate": 37.14,
+            "max_dd": 18.71,
+            "ci_95": [
+              -0.144,
+              0.254
+            ]
+          }
+        },
+        {
+          "entity": "DOUBLE_BOTTOM_SHAKEOUT",
+          "metrics": {
+            "n": 418,
+            "exp_r": 0.0228,
+            "pf": 1.038,
+            "win_rate": 36.36,
+            "max_dd": 35.83,
+            "ci_95": [
+              -0.107,
+              0.152
+            ]
+          }
+        },
+        {
+          "entity": "INVERSE_HEAD_AND_SHOULDERS",
+          "metrics": {
+            "n": 79,
+            "exp_r": -0.0046,
+            "pf": 0.992,
+            "win_rate": 37.97,
+            "max_dd": 17.64,
+            "ci_95": [
+              -0.304,
+              0.309
+            ]
+          }
+        },
+        {
+          "entity": "PULLBACK_EMA_BOUNCE",
+          "metrics": {
+            "n": 711,
+            "exp_r": -0.0298,
+            "pf": 0.952,
+            "win_rate": 35.3,
+            "max_dd": 50.58,
+            "ci_95": [
+              -0.123,
+              0.064
+            ]
+          }
+        },
+        {
+          "entity": "PENNANT_CONVERGENCE",
+          "metrics": {
+            "n": 55,
+            "exp_r": -0.0505,
+            "pf": 0.927,
+            "win_rate": 30.91,
+            "max_dd": 13.9,
+            "ci_95": [
+              -0.42,
+              0.359
+            ]
+          }
+        },
+        {
+          "entity": "FLAT_BASE + BULL_FLAG",
+          "metrics": {
+            "n": 50,
+            "exp_r": -0.0983,
+            "pf": 0.845,
+            "win_rate": 36.0,
+            "max_dd": 12.35,
+            "ci_95": [
+              -0.465,
+              0.261
+            ]
+          }
+        },
+        {
+          "entity": "FALLING_WEDGE_REVERSAL",
+          "metrics": {
+            "n": 185,
+            "exp_r": -0.1321,
+            "pf": 0.798,
+            "win_rate": 30.81,
+            "max_dd": 34.73,
+            "ci_95": [
+              -0.318,
+              0.07
+            ]
+          }
+        },
+        {
+          "entity": "WYCKOFF_2 + EMA_BOUNCE",
+          "metrics": {
+            "n": 172,
+            "exp_r": -0.1592,
+            "pf": 0.749,
+            "win_rate": 31.4,
+            "max_dd": 29.81,
+            "ci_95": [
+              -0.333,
+              0.032
+            ]
+          }
+        },
+        {
+          "entity": "FALLING_WEDGE + UNDERCUT_RALLY",
+          "metrics": {
+            "n": 15,
+            "exp_r": -0.1807,
+            "pf": 0.704,
+            "win_rate": 33.33,
+            "max_dd": 5.79,
+            "ci_95": [
+              -0.728,
+              0.456
+            ]
+          }
+        },
+        {
+          "entity": "DB_SHAKEOUT + WYCKOFF_2",
+          "metrics": {
+            "n": 34,
+            "exp_r": -0.1927,
+            "pf": 0.718,
+            "win_rate": 29.41,
+            "max_dd": 13.33,
+            "ci_95": [
+              -0.603,
+              0.284
+            ]
+          }
+        },
+        {
+          "entity": "VCP_CONTRACTION",
+          "metrics": {
+            "n": 76,
+            "exp_r": -0.3067,
+            "pf": 0.582,
+            "win_rate": 22.37,
+            "max_dd": 27.74,
+            "ci_95": [
+              -0.581,
+              -0.027
+            ]
+          }
+        },
+        {
+          "entity": "ASC_TRIANGLE + BULL_FLAG",
+          "metrics": {
+            "n": 9,
+            "exp_r": -0.3232,
+            "pf": 0.584,
+            "win_rate": 22.22,
+            "max_dd": 3.0,
+            "ci_95": [
+              -1.0,
+              0.677
+            ]
+          }
+        },
+        {
+          "entity": "CUP_AND_HANDLE",
+          "metrics": {
+            "n": 114,
+            "exp_r": -0.4174,
+            "pf": 0.466,
+            "win_rate": 20.18,
+            "max_dd": 56.98,
+            "ci_95": [
+              -0.623,
+              -0.192
+            ]
+          }
+        },
+        {
+          "entity": "BULL_FLAG + EMA_BOUNCE",
+          "metrics": {
+            "n": 10,
+            "exp_r": -0.6364,
+            "pf": 0.205,
+            "win_rate": 20.0,
+            "max_dd": 6.78,
+            "ci_95": [
+              -1.0,
+              -0.034
+            ]
+          }
+        }
+      ]
+    },
+    "W4_EVENT_VOLATILITY": {
+      "regime_type": "HIGH_VOLATILITY",
+      "description": "Event & High VIX Spikes",
+      "ranked_entities": [
+        {
+          "entity": "DB_SHAKEOUT + WYCKOFF_2",
+          "metrics": {
+            "n": 11,
+            "exp_r": 0.8972,
+            "pf": 4.091,
+            "win_rate": 63.64,
+            "max_dd": 2.0,
+            "ci_95": [
+              0.076,
+              1.748
+            ]
+          }
+        },
+        {
+          "entity": "WYCKOFF_2 + EMA_BOUNCE",
+          "metrics": {
+            "n": 102,
+            "exp_r": 0.695,
+            "pf": 3.103,
+            "win_rate": 61.76,
+            "max_dd": 3.14,
+            "ci_95": [
+              0.427,
+              0.949
+            ]
+          }
+        },
+        {
+          "entity": "DOUBLE_BOTTOM_SHAKEOUT",
+          "metrics": {
+            "n": 167,
+            "exp_r": 0.5716,
+            "pf": 2.496,
+            "win_rate": 57.49,
+            "max_dd": 4.51,
+            "ci_95": [
+              0.355,
+              0.783
+            ]
+          }
+        },
+        {
+          "entity": "WYCKOFF_SPRING_TYPE_2",
+          "metrics": {
+            "n": 868,
+            "exp_r": 0.5423,
+            "pf": 2.373,
+            "win_rate": 56.68,
+            "max_dd": 15.85,
+            "ci_95": [
+              0.447,
+              0.638
+            ]
+          }
+        },
+        {
+          "entity": "BULL_FLAG + EMA_BOUNCE",
+          "metrics": {
+            "n": 23,
+            "exp_r": 0.5262,
+            "pf": 2.484,
+            "win_rate": 56.52,
+            "max_dd": 1.85,
+            "ci_95": [
+              -0.034,
+              1.109
+            ]
+          }
+        },
+        {
+          "entity": "PENNANT_CONVERGENCE",
+          "metrics": {
+            "n": 68,
+            "exp_r": 0.4932,
+            "pf": 2.158,
+            "win_rate": 54.41,
+            "max_dd": 6.34,
+            "ci_95": [
+              0.152,
+              0.829
+            ]
+          }
+        },
+        {
+          "entity": "UNDERCUT_AND_RALLY",
+          "metrics": {
+            "n": 413,
+            "exp_r": 0.4757,
+            "pf": 2.204,
+            "win_rate": 55.21,
+            "max_dd": 8.65,
+            "ci_95": [
+              0.348,
+              0.602
+            ]
+          }
+        },
+        {
+          "entity": "FALLING_WEDGE_REVERSAL",
+          "metrics": {
+            "n": 167,
+            "exp_r": 0.4683,
+            "pf": 2.221,
+            "win_rate": 56.29,
+            "max_dd": 6.47,
+            "ci_95": [
+              0.264,
+              0.679
+            ]
+          }
+        },
+        {
+          "entity": "HIGH_TIGHT_FLAG",
+          "metrics": {
+            "n": 9,
+            "exp_r": 0.4467,
+            "pf": 2.005,
+            "win_rate": 55.56,
+            "max_dd": 2.0,
+            "ci_95": [
+              -0.416,
+              1.331
+            ]
+          }
+        },
+        {
+          "entity": "PULLBACK_EMA_BOUNCE",
+          "metrics": {
+            "n": 519,
+            "exp_r": 0.4434,
+            "pf": 2.018,
+            "win_rate": 52.02,
+            "max_dd": 9.17,
+            "ci_95": [
+              0.329,
+              0.568
+            ]
+          }
+        },
+        {
+          "entity": "MULTI_MONTH_BASE_BREAKOUT",
+          "metrics": {
+            "n": 117,
+            "exp_r": 0.3679,
+            "pf": 1.791,
+            "win_rate": 50.43,
+            "max_dd": 6.93,
+            "ci_95": [
+              0.116,
+              0.626
+            ]
+          }
+        },
+        {
+          "entity": "ASCENDING_TRIANGLE",
+          "metrics": {
+            "n": 110,
+            "exp_r": 0.3114,
+            "pf": 1.624,
+            "win_rate": 47.27,
+            "max_dd": 7.0,
+            "ci_95": [
+              0.047,
+              0.571
+            ]
+          }
+        },
+        {
+          "entity": "BULL_FLAG + MULTI_MONTH_BASE",
+          "metrics": {
+            "n": 44,
+            "exp_r": 0.3024,
+            "pf": 1.604,
+            "win_rate": 47.73,
+            "max_dd": 5.0,
+            "ci_95": [
+              -0.112,
+              0.735
+            ]
+          }
+        },
+        {
+          "entity": "FLAT_BASE_BREAKOUT",
+          "metrics": {
+            "n": 209,
+            "exp_r": 0.2676,
+            "pf": 1.552,
+            "win_rate": 48.33,
+            "max_dd": 9.43,
+            "ci_95": [
+              0.084,
+              0.442
+            ]
+          }
+        },
+        {
+          "entity": "BULL_FLAG",
+          "metrics": {
+            "n": 702,
+            "exp_r": 0.2538,
+            "pf": 1.491,
+            "win_rate": 45.16,
+            "max_dd": 32.03,
+            "ci_95": [
+              0.154,
+              0.36
+            ]
+          }
+        },
+        {
+          "entity": "CUP_AND_HANDLE",
+          "metrics": {
+            "n": 284,
+            "exp_r": 0.1822,
+            "pf": 1.321,
+            "win_rate": 39.79,
+            "max_dd": 41.83,
+            "ci_95": [
+              0.014,
+              0.358
+            ]
+          }
+        },
+        {
+          "entity": "INVERSE_HEAD_AND_SHOULDERS",
+          "metrics": {
+            "n": 130,
+            "exp_r": 0.1517,
+            "pf": 1.284,
+            "win_rate": 42.31,
+            "max_dd": 19.62,
+            "ci_95": [
+              -0.089,
+              0.389
+            ]
+          }
+        },
+        {
+          "entity": "FLAT_BASE + BULL_FLAG",
+          "metrics": {
+            "n": 21,
+            "exp_r": 0.1491,
+            "pf": 1.261,
+            "win_rate": 42.86,
+            "max_dd": 4.92,
+            "ci_95": [
+              -0.488,
+              0.769
+            ]
+          }
+        },
+        {
+          "entity": "FALLING_WEDGE + UNDERCUT_RALLY",
+          "metrics": {
+            "n": 24,
+            "exp_r": 0.1461,
+            "pf": 1.503,
+            "win_rate": 58.33,
+            "max_dd": 3.08,
+            "ci_95": [
+              -0.22,
+              0.54
+            ]
+          }
+        },
+        {
+          "entity": "VCP_CONTRACTION",
+          "metrics": {
+            "n": 121,
+            "exp_r": -0.174,
+            "pf": 0.729,
+            "win_rate": 32.23,
+            "max_dd": 25.19,
+            "ci_95": [
+              -0.385,
+              0.044
+            ]
+          }
+        },
+        {
+          "entity": "ASC_TRIANGLE + BULL_FLAG",
+          "metrics": {
+            "n": 6,
+            "exp_r": -1.0,
+            "pf": 0.0,
+            "win_rate": 0.0,
+            "max_dd": 5.0,
+            "ci_95": [
+              -1.0,
+              -1.0
+            ]
+          }
+        }
+      ]
+    },
+    "W5_ATH_MOMENTUM": {
+      "regime_type": "STRONG_BULL",
+      "description": "Summer All-Time High Momentum",
+      "ranked_entities": [
+        {
+          "entity": "MULTI_MONTH_BASE_BREAKOUT",
+          "metrics": {
+            "n": 148,
+            "exp_r": 0.5219,
+            "pf": 2.129,
+            "win_rate": 51.35,
+            "max_dd": 5.0,
+            "ci_95": [
+              0.277,
+              0.769
+            ]
+          }
+        },
+        {
+          "entity": "WYCKOFF_2 + EMA_BOUNCE",
+          "metrics": {
+            "n": 122,
+            "exp_r": 0.4087,
+            "pf": 1.931,
+            "win_rate": 49.18,
+            "max_dd": 7.52,
+            "ci_95": [
+              0.163,
+              0.662
+            ]
+          }
+        },
+        {
+          "entity": "BULL_FLAG + MULTI_MONTH_BASE",
+          "metrics": {
+            "n": 40,
+            "exp_r": 0.3589,
+            "pf": 1.704,
+            "win_rate": 45.0,
+            "max_dd": 5.04,
+            "ci_95": [
+              -0.114,
+              0.831
+            ]
+          }
+        },
+        {
+          "entity": "UNDERCUT_AND_RALLY",
+          "metrics": {
+            "n": 468,
+            "exp_r": 0.3434,
+            "pf": 1.731,
+            "win_rate": 48.5,
+            "max_dd": 11.21,
+            "ci_95": [
+              0.212,
+              0.48
+            ]
+          }
+        },
+        {
+          "entity": "WYCKOFF_SPRING_TYPE_2",
+          "metrics": {
+            "n": 806,
+            "exp_r": 0.3391,
+            "pf": 1.732,
+            "win_rate": 48.76,
+            "max_dd": 17.52,
+            "ci_95": [
+              0.244,
+              0.441
+            ]
+          }
+        },
+        {
+          "entity": "FLAT_BASE_BREAKOUT",
+          "metrics": {
+            "n": 299,
+            "exp_r": 0.3312,
+            "pf": 1.665,
+            "win_rate": 47.83,
+            "max_dd": 11.24,
+            "ci_95": [
+              0.176,
+              0.495
+            ]
+          }
+        },
+        {
+          "entity": "PULLBACK_EMA_BOUNCE",
+          "metrics": {
+            "n": 572,
+            "exp_r": 0.3057,
+            "pf": 1.627,
+            "win_rate": 45.45,
+            "max_dd": 12.11,
+            "ci_95": [
+              0.189,
+              0.427
+            ]
+          }
+        },
+        {
+          "entity": "FLAT_BASE + BULL_FLAG",
+          "metrics": {
+            "n": 35,
+            "exp_r": 0.3054,
+            "pf": 1.616,
+            "win_rate": 48.57,
+            "max_dd": 5.82,
+            "ci_95": [
+              -0.172,
+              0.773
+            ]
+          }
+        },
+        {
+          "entity": "VCP_CONTRACTION",
+          "metrics": {
+            "n": 129,
+            "exp_r": 0.2739,
+            "pf": 1.525,
+            "win_rate": 42.64,
+            "max_dd": 11.0,
+            "ci_95": [
+              0.013,
+              0.542
+            ]
+          }
+        },
+        {
+          "entity": "FALLING_WEDGE + UNDERCUT_RALLY",
+          "metrics": {
+            "n": 21,
+            "exp_r": 0.2451,
+            "pf": 1.589,
+            "win_rate": 42.86,
+            "max_dd": 3.0,
+            "ci_95": [
+              -0.245,
+              0.772
+            ]
+          }
+        },
+        {
+          "entity": "BULL_FLAG",
+          "metrics": {
+            "n": 485,
+            "exp_r": 0.2338,
+            "pf": 1.454,
+            "win_rate": 44.54,
+            "max_dd": 21.22,
+            "ci_95": [
+              0.115,
+              0.359
+            ]
+          }
+        },
+        {
+          "entity": "ASCENDING_TRIANGLE",
+          "metrics": {
+            "n": 113,
+            "exp_r": 0.1938,
+            "pf": 1.362,
+            "win_rate": 40.71,
+            "max_dd": 7.93,
+            "ci_95": [
+              -0.082,
+              0.46
+            ]
+          }
+        },
+        {
+          "entity": "CUP_AND_HANDLE",
+          "metrics": {
+            "n": 143,
+            "exp_r": 0.1928,
+            "pf": 1.344,
+            "win_rate": 40.56,
+            "max_dd": 25.49,
+            "ci_95": [
+              -0.04,
+              0.437
+            ]
+          }
+        },
+        {
+          "entity": "DOUBLE_BOTTOM_SHAKEOUT",
+          "metrics": {
+            "n": 200,
+            "exp_r": 0.1913,
+            "pf": 1.383,
+            "win_rate": 44.5,
+            "max_dd": 15.15,
+            "ci_95": [
+              0.003,
+              0.377
+            ]
+          }
+        },
+        {
+          "entity": "PENNANT_CONVERGENCE",
+          "metrics": {
+            "n": 54,
+            "exp_r": 0.1754,
+            "pf": 1.317,
+            "win_rate": 42.59,
+            "max_dd": 6.0,
+            "ci_95": [
+              -0.217,
+              0.562
+            ]
+          }
+        },
+        {
+          "entity": "FALLING_WEDGE_REVERSAL",
+          "metrics": {
+            "n": 128,
+            "exp_r": 0.1448,
+            "pf": 1.271,
+            "win_rate": 39.84,
+            "max_dd": 8.73,
+            "ci_95": [
+              -0.093,
+              0.385
+            ]
+          }
+        },
+        {
+          "entity": "BULL_FLAG + EMA_BOUNCE",
+          "metrics": {
+            "n": 4,
+            "exp_r": 0.1109,
+            "pf": 1.222,
+            "win_rate": 50.0,
+            "max_dd": 2.0,
+            "ci_95": [
+              0.111,
+              0.111
+            ]
+          }
+        },
+        {
+          "entity": "INVERSE_HEAD_AND_SHOULDERS",
+          "metrics": {
+            "n": 60,
+            "exp_r": 0.1001,
+            "pf": 1.176,
+            "win_rate": 36.67,
+            "max_dd": 13.81,
+            "ci_95": [
+              -0.248,
+              0.476
+            ]
+          }
+        },
+        {
+          "entity": "HIGH_TIGHT_FLAG",
+          "metrics": {
+            "n": 3,
+            "exp_r": 0.0,
+            "pf": 1.0,
+            "win_rate": 33.33,
+            "max_dd": 2.0,
+            "ci_95": [
+              0.0,
+              0.0
+            ]
+          }
+        },
+        {
+          "entity": "DB_SHAKEOUT + WYCKOFF_2",
+          "metrics": {
+            "n": 18,
+            "exp_r": -0.0143,
+            "pf": 0.974,
+            "win_rate": 38.89,
+            "max_dd": 4.1,
+            "ci_95": [
+              -0.588,
+              0.586
+            ]
+          }
+        },
+        {
+          "entity": "ASC_TRIANGLE + BULL_FLAG",
+          "metrics": {
+            "n": 3,
+            "exp_r": -0.7869,
+            "pf": 0.0,
+            "win_rate": 0.0,
+            "max_dd": 1.36,
+            "ci_95": [
+              -0.787,
+              -0.787
+            ]
+          }
+        }
+      ]
+    },
+    "W6_CORRECTION": {
+      "regime_type": "WEAK_BEAR",
+      "description": "Correction & Defensive Rotation",
+      "ranked_entities": [
+        {
+          "entity": "VCP_CONTRACTION",
+          "metrics": {
+            "n": 6,
+            "exp_r": 0.8257,
+            "pf": 3.421,
+            "win_rate": 50.0,
+            "max_dd": 2.05,
+            "ci_95": [
+              -0.341,
+              2.159
+            ]
+          }
+        },
+        {
+          "entity": "FALLING_WEDGE_REVERSAL",
+          "metrics": {
+            "n": 7,
+            "exp_r": 0.2845,
+            "pf": 1.498,
+            "win_rate": 42.86,
+            "max_dd": 2.46,
+            "ci_95": [
+              -1.0,
+              1.622
+            ]
+          }
+        },
+        {
+          "entity": "BULL_FLAG",
+          "metrics": {
+            "n": 13,
+            "exp_r": 0.0484,
+            "pf": 1.07,
+            "win_rate": 30.77,
+            "max_dd": 8.0,
+            "ci_95": [
+              -0.763,
+              0.937
+            ]
+          }
+        },
+        {
+          "entity": "UNDERCUT_AND_RALLY",
+          "metrics": {
+            "n": 15,
+            "exp_r": 0.0313,
+            "pf": 1.056,
+            "win_rate": 33.33,
+            "max_dd": 4.38,
+            "ci_95": [
+              -0.63,
+              0.792
+            ]
+          }
+        },
+        {
+          "entity": "WYCKOFF_SPRING_TYPE_2",
+          "metrics": {
+            "n": 36,
+            "exp_r": -0.0551,
+            "pf": 0.919,
+            "win_rate": 30.56,
+            "max_dd": 13.69,
+            "ci_95": [
+              -0.503,
+              0.471
+            ]
+          }
+        },
+        {
+          "entity": "FLAT_BASE_BREAKOUT",
+          "metrics": {
+            "n": 13,
+            "exp_r": -0.252,
+            "pf": 0.672,
+            "win_rate": 23.08,
+            "max_dd": 8.0,
+            "ci_95": [
+              -1.0,
+              0.517
+            ]
+          }
+        },
+        {
+          "entity": "MULTI_MONTH_BASE_BREAKOUT",
+          "metrics": {
+            "n": 5,
+            "exp_r": -0.3456,
+            "pf": 0.568,
+            "win_rate": 20.0,
+            "max_dd": 3.0,
+            "ci_95": [
+              -1.0,
+              0.963
+            ]
+          }
+        },
+        {
+          "entity": "DOUBLE_BOTTOM_SHAKEOUT",
+          "metrics": {
+            "n": 13,
+            "exp_r": -0.6753,
+            "pf": 0.188,
+            "win_rate": 7.69,
+            "max_dd": 7.78,
+            "ci_95": [
+              -1.0,
+              -0.19
+            ]
+          }
+        },
+        {
+          "entity": "WYCKOFF_2 + EMA_BOUNCE",
+          "metrics": {
+            "n": 5,
+            "exp_r": -0.7183,
+            "pf": 0.102,
+            "win_rate": 20.0,
+            "max_dd": 2.59,
+            "ci_95": [
+              -1.0,
+              -0.155
+            ]
+          }
+        },
+        {
+          "entity": "PULLBACK_EMA_BOUNCE",
+          "metrics": {
+            "n": 19,
+            "exp_r": -0.761,
+            "pf": 0.149,
+            "win_rate": 10.53,
+            "max_dd": 13.46,
+            "ci_95": [
+              -1.0,
+              -0.368
+            ]
+          }
+        },
+        {
+          "entity": "ASCENDING_TRIANGLE",
+          "metrics": {
+            "n": 3,
+            "exp_r": -1.0,
+            "pf": 0.0,
+            "win_rate": 0.0,
+            "max_dd": 2.0,
+            "ci_95": [
+              -1.0,
+              -1.0
+            ]
+          }
+        },
+        {
+          "entity": "CUP_AND_HANDLE",
+          "metrics": {
+            "n": 4,
+            "exp_r": -1.0,
+            "pf": 0.0,
+            "win_rate": 0.0,
+            "max_dd": 3.0,
+            "ci_95": [
+              -1.0,
+              -1.0
+            ]
+          }
+        },
+        {
+          "entity": "FLAT_BASE + BULL_FLAG",
+          "metrics": {
+            "n": 3,
+            "exp_r": -1.0,
+            "pf": 0.0,
+            "win_rate": 0.0,
+            "max_dd": 2.0,
+            "ci_95": [
+              -1.0,
+              -1.0
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "regime_policy_matrix": {
+    "STRONG_BULL": {
+      "window_name": "W5_ATH_MOMENTUM",
+      "description": "Summer All-Time High Momentum",
+      "primary_pattern": "MULTI_MONTH_BASE_BREAKOUT",
+      "secondary_pattern": "WYCKOFF_2 + EMA_BOUNCE",
+      "allowed_patterns": [
+        "MULTI_MONTH_BASE_BREAKOUT",
+        "WYCKOFF_2 + EMA_BOUNCE",
+        "BULL_FLAG + MULTI_MONTH_BASE",
+        "UNDERCUT_AND_RALLY",
+        "WYCKOFF_SPRING_TYPE_2",
+        "FLAT_BASE_BREAKOUT"
+      ],
+      "prohibited_patterns": [
+        "DB_SHAKEOUT + WYCKOFF_2",
+        "ASC_TRIANGLE + BULL_FLAG"
+      ],
+      "top_performance": {
+        "primary": {
+          "n": 148,
+          "exp_r": 0.5219,
+          "pf": 2.129,
+          "win_rate": 51.35,
+          "max_dd": 5.0,
+          "ci_95": [
+            0.277,
+            0.769
+          ]
+        },
+        "secondary": {
+          "n": 122,
+          "exp_r": 0.4087,
+          "pf": 1.931,
+          "win_rate": 49.18,
+          "max_dd": 7.52,
+          "ci_95": [
+            0.163,
+            0.662
+          ]
+        }
+      }
+    },
+    "SIDEWAYS": {
+      "window_name": "W2_SIDEWAYS_CHOP",
+      "description": "Consolidation & Rangebound Chop",
+      "primary_pattern": "BULL_FLAG",
+      "secondary_pattern": "ASCENDING_TRIANGLE",
+      "allowed_patterns": [
+        "BULL_FLAG",
+        "ASCENDING_TRIANGLE",
+        "FLAT_BASE_BREAKOUT",
+        "WYCKOFF_SPRING_TYPE_2",
+        "MULTI_MONTH_BASE_BREAKOUT",
+        "FLAT_BASE + BULL_FLAG"
+      ],
+      "prohibited_patterns": [
+        "VCP_CONTRACTION",
+        "INVERSE_HEAD_AND_SHOULDERS",
+        "UNDERCUT_AND_RALLY",
+        "FALLING_WEDGE_REVERSAL",
+        "FALLING_WEDGE + UNDERCUT_RALLY",
+        "DOUBLE_BOTTOM_SHAKEOUT",
+        "DB_SHAKEOUT + WYCKOFF_2",
+        "CUP_AND_HANDLE",
+        "PENNANT_CONVERGENCE"
+      ],
+      "top_performance": {
+        "primary": {
+          "n": 332,
+          "exp_r": 0.3277,
+          "pf": 1.72,
+          "win_rate": 51.2,
+          "max_dd": 13.64,
+          "ci_95": [
+            0.187,
+            0.475
+          ]
+        },
+        "secondary": {
+          "n": 85,
+          "exp_r": 0.297,
+          "pf": 1.609,
+          "win_rate": 48.24,
+          "max_dd": 8.57,
+          "ci_95": [
+            0.006,
+            0.592
+          ]
+        }
+      }
+    },
+    "BULL": {
+      "window_name": "W3_MIDCAP_RALLY",
+      "description": "Institutional Midcap Expansion",
+      "primary_pattern": "BULL_FLAG",
+      "secondary_pattern": "WYCKOFF_SPRING_TYPE_2",
+      "allowed_patterns": [
+        "BULL_FLAG",
+        "WYCKOFF_SPRING_TYPE_2",
+        "FLAT_BASE_BREAKOUT",
+        "BULL_FLAG + MULTI_MONTH_BASE"
+      ],
+      "prohibited_patterns": [
+        "INVERSE_HEAD_AND_SHOULDERS",
+        "PULLBACK_EMA_BOUNCE",
+        "PENNANT_CONVERGENCE",
+        "FLAT_BASE + BULL_FLAG",
+        "FALLING_WEDGE_REVERSAL",
+        "WYCKOFF_2 + EMA_BOUNCE",
+        "FALLING_WEDGE + UNDERCUT_RALLY",
+        "DB_SHAKEOUT + WYCKOFF_2",
+        "VCP_CONTRACTION",
+        "ASC_TRIANGLE + BULL_FLAG",
+        "CUP_AND_HANDLE",
+        "BULL_FLAG + EMA_BOUNCE"
+      ],
+      "top_performance": {
+        "primary": {
+          "n": 523,
+          "exp_r": 0.1939,
+          "pf": 1.361,
+          "win_rate": 43.79,
+          "max_dd": 18.86,
+          "ci_95": [
+            0.073,
+            0.316
+          ]
+        },
+        "secondary": {
+          "n": 1172,
+          "exp_r": 0.1888,
+          "pf": 1.364,
+          "win_rate": 44.03,
+          "max_dd": 25.97,
+          "ci_95": [
+            0.113,
+            0.265
+          ]
+        }
+      }
+    },
+    "HIGH_VOLATILITY": {
+      "window_name": "W4_EVENT_VOLATILITY",
+      "description": "Event & High VIX Spikes",
+      "primary_pattern": "DB_SHAKEOUT + WYCKOFF_2",
+      "secondary_pattern": "WYCKOFF_2 + EMA_BOUNCE",
+      "allowed_patterns": [
+        "DB_SHAKEOUT + WYCKOFF_2",
+        "WYCKOFF_2 + EMA_BOUNCE",
+        "DOUBLE_BOTTOM_SHAKEOUT",
+        "WYCKOFF_SPRING_TYPE_2",
+        "BULL_FLAG + EMA_BOUNCE",
+        "PENNANT_CONVERGENCE"
+      ],
+      "prohibited_patterns": [
+        "VCP_CONTRACTION",
+        "ASC_TRIANGLE + BULL_FLAG"
+      ],
+      "top_performance": {
+        "primary": {
+          "n": 11,
+          "exp_r": 0.8972,
+          "pf": 4.091,
+          "win_rate": 63.64,
+          "max_dd": 2.0,
+          "ci_95": [
+            0.076,
+            1.748
+          ]
+        },
+        "secondary": {
+          "n": 102,
+          "exp_r": 0.695,
+          "pf": 3.103,
+          "win_rate": 61.76,
+          "max_dd": 3.14,
+          "ci_95": [
+            0.427,
+            0.949
+          ]
+        }
+      }
+    },
+    "WEAK_BEAR": {
+      "window_name": "W6_CORRECTION",
+      "description": "Correction & Defensive Rotation",
+      "primary_pattern": "VCP_CONTRACTION",
+      "secondary_pattern": "NONE",
+      "allowed_patterns": [],
+      "prohibited_patterns": [
+        "WYCKOFF_SPRING_TYPE_2",
+        "FLAT_BASE_BREAKOUT",
+        "MULTI_MONTH_BASE_BREAKOUT",
+        "DOUBLE_BOTTOM_SHAKEOUT",
+        "WYCKOFF_2 + EMA_BOUNCE",
+        "PULLBACK_EMA_BOUNCE",
+        "ASCENDING_TRIANGLE",
+        "CUP_AND_HANDLE",
+        "FLAT_BASE + BULL_FLAG"
+      ],
+      "top_performance": {
+        "primary": {},
+        "secondary": {}
+      }
+    }
+  }
+}

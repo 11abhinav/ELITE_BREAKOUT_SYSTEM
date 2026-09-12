@@ -52,9 +52,19 @@ from database import (
 )
 from lock_utils import ProcessLock
 from price_cache import fetch_watchlist_data
-from technical_indicators import apply_indicators
 from telemetry_manager import telemetry
 from watchlist_cache import get_watchlist
+try:
+    from regime_pattern_policy import APPROVED_TECHNICAL_PATTERNS, evaluate_pattern_for_regime
+except ImportError:
+    APPROVED_TECHNICAL_PATTERNS = {
+        "WYCKOFF_SPRING_TYPE_2",
+        "BULL_FLAG",
+        "MULTI_MONTH_BASE_BREAKOUT",
+        "UNDERCUT_AND_RALLY",
+    }
+    def evaluate_pattern_for_regime(pat, reg=None):
+        return {"allowed": pat in APPROVED_TECHNICAL_PATTERNS, "bonus_points": 5.0 if pat in APPROVED_TECHNICAL_PATTERNS else 0.0}
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
@@ -209,8 +219,128 @@ def _find_swing_pivots(highs: np.ndarray, lows: np.ndarray, lookback: int = 2) -
 
 
 # =====================================================================================
-# 1. PERMISSIVE PATTERN DISCOVERY SUB-DETECTORS (8 CORE STRUCTURES)
+# 1. PERMISSIVE PATTERN DISCOVERY SUB-DETECTORS (PROVEN TOP 4 PRODUCTION CORE)
 # =====================================================================================
+
+def _detect_wyckoff_spring_type_2(df: pd.DataFrame, atr14: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    """
+    Tier 1 Proven Pattern: Wyckoff Spring Type 2 (Spring + Retest Confirmation)
+    - Prior Support: Established swing low in [t-30 : t-15].
+    - Spring: Undercuts support in [t-15 : t-5] within [0.95 * prior_support, prior_support).
+    - Secondary Test: Holds above spring low in [t-3 : t].
+    - Reclaim: Decisive bullish close today above prior support on positive volume.
+    """
+    n = len(df)
+    if n < 35:
+        return None
+
+    opens, highs, lows, closes, volumes = _extract_ohlcv(df)
+    today_idx = n - 1
+    c_today = _safe_float(closes[today_idx])
+    o_today = _safe_float(opens[today_idx])
+
+    if c_today <= o_today:
+        return None
+
+    if atr14 is None or atr14 <= 0:
+        atr14 = _coalesce_indicator_val(df, ["ATR", "ATR_14", "ATR20", "atr"], default=c_today * 0.02)
+
+    prior_support = float(np.min(lows[today_idx - 30 : today_idx - 15]))
+    spring_slice = lows[today_idx - 15 : today_idx - 5]
+    if len(spring_slice) == 0:
+        return None
+    spring_low = float(np.min(spring_slice))
+    if not (spring_low < prior_support and spring_low >= prior_support * 0.95):
+        return None
+
+    spring_idx = today_idx - 15 + int(np.argmin(spring_slice))
+    spring_vol = float(volumes[spring_idx])
+
+    test_slice = lows[today_idx - 3 : today_idx + 1]
+    test_low = float(np.min(test_slice))
+    if test_low < spring_low:
+        return None
+
+    if c_today <= prior_support:
+        return None
+
+    vol_sma20 = float(np.mean(volumes[today_idx - 20 : today_idx]))
+    if vol_sma20 > 0 and volumes[today_idx] < vol_sma20 * 1.10:
+        return None
+
+    range_high = float(np.max(highs[today_idx - 30 : today_idx]))
+    range_height = range_high - spring_low
+    target_res = range_high + (0.5 * range_height)
+
+    return {
+        "pattern": "WYCKOFF_SPRING_TYPE_2",
+        "tier": "TIER_A",
+        "prior_support": round(prior_support, 2),
+        "spring_low": round(spring_low, 2),
+        "test_low": round(test_low, 2),
+        "invalidation_level": round(spring_low * 0.995, 2),
+        "target_resistance": round(target_res, 2),
+        "pattern_quality_score": 25,
+        "description": f"Wyckoff Spring Type 2 (Support ₹{prior_support:.2f}, Spring ₹{spring_low:.2f}, Test ₹{test_low:.2f})",
+    }
+
+
+def _detect_multi_month_base_breakout(df: pd.DataFrame, atr14: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    """
+    Tier 1 Proven Pattern: Multi-Month Base Breakout (Stage 2 Expansion)
+    - Tight base consolidation over >= 50 daily bars (depth 5% to 22%).
+    - Fresh breakout today closing above base resistance on volume >= 1.50x SMA20.
+    """
+    n = len(df)
+    if n < 55:
+        return None
+
+    opens, highs, lows, closes, volumes = _extract_ohlcv(df)
+    today_idx = n - 1
+    c_today = _safe_float(closes[today_idx])
+    o_today = _safe_float(opens[today_idx])
+
+    if c_today <= o_today:
+        return None
+
+    base_high = float(np.max(highs[today_idx - 50 : today_idx]))
+    base_low = float(np.min(lows[today_idx - 50 : today_idx]))
+    depth = (base_high - base_low) / max(base_high, 1.0)
+    if depth > 0.22 or depth < 0.05:
+        return None
+
+    if c_today <= base_high:
+        return None
+
+    vol_sma20 = float(np.mean(volumes[today_idx - 20 : today_idx]))
+    if vol_sma20 > 0 and volumes[today_idx] < vol_sma20 * 1.50:
+        return None
+
+    target_res = base_high + (base_high - base_low)
+
+    return {
+        "pattern": "MULTI_MONTH_BASE_BREAKOUT",
+        "tier": "TIER_A",
+        "base_high": round(base_high, 2),
+        "base_low": round(base_low, 2),
+        "base_depth_pct": round(depth * 100.0, 1),
+        "invalidation_level": round(base_high * 0.97, 2),
+        "target_resistance": round(target_res, 2),
+        "pattern_quality_score": 25,
+        "description": f"Multi-Month Base Breakout (Base 50b, Depth {depth*100:.1f}%, Resistance ₹{base_high:.2f})",
+    }
+
+
+def _detect_undercut_and_rally(df: pd.DataFrame, atr14: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    """
+    Tier 1 Proven Pattern: Undercut & Rally (Structural Reclaim)
+    """
+    res = _detect_shakeout_reclaim(df, atr14)
+    if res:
+        res["pattern"] = "UNDERCUT_AND_RALLY"
+        res["description"] = res["description"].replace("Shakeout Reclaim", "Undercut & Rally")
+    return res
+
 
 def _detect_bull_flag(df: pd.DataFrame, atr14: Optional[float] = None) -> Optional[Dict[str, Any]]:
     """
@@ -1112,11 +1242,19 @@ def detect_technical_setup(
     trace["02_COMMON_GATES"]["atr_source"] = atr_source
     trace["02_COMMON_GATES"]["is_degraded_atr"] = (atr_source == "DEFAULT_2PCT")
 
-    # ── PERMISSIVE PATTERN DISCOVERY (8 PRIMARY STRUCTURES) ─────────────────────────
+    # ── PERMISSIVE PATTERN DISCOVERY (TOP 4 CERTIFIED PRODUCTION PATTERNS ONLY) ────
     df_window = df.tail(120).copy() if len(df) > 120 else df
     candidate_patterns = []
 
-    # 1. Bull Flag
+    # 1. Wyckoff Spring Type 2 (Structural Alpha Champion)
+    ws = _detect_wyckoff_spring_type_2(df_window, atr14)
+    if ws:
+        candidate_patterns.append(ws)
+        trace["04_PATTERN_VALIDATION"]["WYCKOFF_SPRING_TYPE_2"] = {"candidate_found": True, "details": ws, "status": "PASS"}
+    else:
+        trace["04_PATTERN_VALIDATION"]["WYCKOFF_SPRING_TYPE_2"] = {"candidate_found": False, "status": "REJECT"}
+
+    # 2. Bull Flag (Momentum Continuation Champion)
     bf = _detect_bull_flag(df_window, atr14)
     if bf:
         candidate_patterns.append(bf)
@@ -1124,61 +1262,21 @@ def detect_technical_setup(
     else:
         trace["04_PATTERN_VALIDATION"]["BULL_FLAG"] = {"candidate_found": False, "status": "REJECT"}
 
-    # 2. Shakeout Reclaim
-    sr = _detect_shakeout_reclaim(df_window, atr14)
-    if sr:
-        candidate_patterns.append(sr)
-        trace["04_PATTERN_VALIDATION"]["SHAKEOUT_RECLAIM"] = {"candidate_found": True, "details": sr, "status": "PASS"}
+    # 3. Multi-Month Base Breakout (Low-Drawdown Base Expansion Champion)
+    mm = _detect_multi_month_base_breakout(df_window, atr14)
+    if mm:
+        candidate_patterns.append(mm)
+        trace["04_PATTERN_VALIDATION"]["MULTI_MONTH_BASE_BREAKOUT"] = {"candidate_found": True, "details": mm, "status": "PASS"}
     else:
-        trace["04_PATTERN_VALIDATION"]["SHAKEOUT_RECLAIM"] = {"candidate_found": False, "status": "REJECT"}
+        trace["04_PATTERN_VALIDATION"]["MULTI_MONTH_BASE_BREAKOUT"] = {"candidate_found": False, "status": "REJECT"}
 
-    # 3. Double Bottom
-    db = _detect_double_bottom(df_window, atr14)
-    if db:
-        candidate_patterns.append(db)
-        trace["04_PATTERN_VALIDATION"]["DOUBLE_BOTTOM"] = {"candidate_found": True, "details": db, "status": "PASS"}
+    # 4. Undercut & Rally (Structural Reclaim Champion)
+    ur = _detect_undercut_and_rally(df_window, atr14)
+    if ur:
+        candidate_patterns.append(ur)
+        trace["04_PATTERN_VALIDATION"]["UNDERCUT_AND_RALLY"] = {"candidate_found": True, "details": ur, "status": "PASS"}
     else:
-        trace["04_PATTERN_VALIDATION"]["DOUBLE_BOTTOM"] = {"candidate_found": False, "status": "REJECT"}
-
-    # 4. V-Reversal
-    vr = _detect_v_reversal(df_window, atr14)
-    if vr:
-        candidate_patterns.append(vr)
-        trace["04_PATTERN_VALIDATION"]["V_REVERSAL"] = {"candidate_found": True, "details": vr, "status": "PASS"}
-    else:
-        trace["04_PATTERN_VALIDATION"]["V_REVERSAL"] = {"candidate_found": False, "status": "REJECT"}
-
-    # 5. Cup & Handle
-    ch = _detect_cup_and_handle(df_window, atr14)
-    if ch:
-        candidate_patterns.append(ch)
-        trace["04_PATTERN_VALIDATION"]["CUP_HANDLE"] = {"candidate_found": True, "details": ch, "status": "PASS"}
-    else:
-        trace["04_PATTERN_VALIDATION"]["CUP_HANDLE"] = {"candidate_found": False, "status": "REJECT"}
-
-    # 6. Ascending Triangle
-    at = _detect_ascending_triangle(df_window, atr14)
-    if at:
-        candidate_patterns.append(at)
-        trace["04_PATTERN_VALIDATION"]["ASCENDING_TRIANGLE"] = {"candidate_found": True, "details": at, "status": "PASS"}
-    else:
-        trace["04_PATTERN_VALIDATION"]["ASCENDING_TRIANGLE"] = {"candidate_found": False, "status": "REJECT"}
-
-    # 7. Bull Pennant
-    bp = _detect_bull_pennant(df_window, atr14)
-    if bp:
-        candidate_patterns.append(bp)
-        trace["04_PATTERN_VALIDATION"]["BULL_PENNANT"] = {"candidate_found": True, "details": bp, "status": "PASS"}
-    else:
-        trace["04_PATTERN_VALIDATION"]["BULL_PENNANT"] = {"candidate_found": False, "status": "REJECT"}
-
-    # 8. Higher Low Reversal
-    hl = _detect_higher_low_reversal(df_window, atr14)
-    if hl:
-        candidate_patterns.append(hl)
-        trace["04_PATTERN_VALIDATION"]["HIGHER_LOW_REVERSAL"] = {"candidate_found": True, "details": hl, "status": "PASS"}
-    else:
-        trace["04_PATTERN_VALIDATION"]["HIGHER_LOW_REVERSAL"] = {"candidate_found": False, "status": "REJECT"}
+        trace["04_PATTERN_VALIDATION"]["UNDERCUT_AND_RALLY"] = {"candidate_found": False, "status": "REJECT"}
 
     trace["03_PATTERN_DISCOVERY"]["detected_patterns"] = [p["pattern"] for p in candidate_patterns]
 
@@ -1187,16 +1285,13 @@ def detect_technical_setup(
         trace["FINAL"]["terminal_reason"] = "NO_VALID_PATTERN"
         return _finish(None)
 
-    # Primary pattern ranking hierarchy
+    # Primary pattern ranking hierarchy (Proven Production Champions)
     PATTERN_PRIORITY_RANK = {
-        "BULL_FLAG": 1,
-        "DOUBLE_BOTTOM": 2,
-        "ASCENDING_TRIANGLE": 3,
-        "BULL_PENNANT": 4,
-        "CUP_HANDLE": 5,
-        "HIGHER_LOW_REVERSAL": 6,
-        "SHAKEOUT_RECLAIM": 7,
-        "V_REVERSAL": 8,
+        "WYCKOFF_SPRING_TYPE_2": 1,
+        "BULL_FLAG": 2,
+        "MULTI_MONTH_BASE_BREAKOUT": 3,
+        "UNDERCUT_AND_RALLY": 4,
+        "SHAKEOUT_RECLAIM": 4,
     }
 
     candidate_patterns.sort(key=lambda p: (
@@ -1590,6 +1685,11 @@ def run_technical_scan(
             classification = cand["classification"]
             rvol = cand["rvol"]
             desc = cand["description"]
+
+            # HARD PRODUCTION INVARIANT: Only Approved Proven Patterns May Generate Live Alerts
+            if pat not in APPROVED_TECHNICAL_PATTERNS and pat != "SHAKEOUT_RECLAIM":
+                logger.error(f"🛑 [INVARIANT VIOLATION BLOCKED] Attempted to dispatch unapproved pattern alert: {pat} for {sym}")
+                continue
 
             logger.info(
                 f"{classification} [TECHNICAL TRIGGERED] {sym} | Pattern: {pat} | CMP: ₹{cmp_price:.2f} | "

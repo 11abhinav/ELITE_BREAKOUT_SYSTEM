@@ -1,0 +1,68 @@
+{
+  "timestamp": "2026-09-12T21:06:00+05:30",
+  "audit_name": "TECHNICAL_SCANNER_PROVEN_PATTERNS_ONLY_CLEANUP",
+  "status": "PRODUCTION_CERTIFIED",
+  "approved_production_patterns": [
+    {
+      "pattern": "WYCKOFF_SPRING_TYPE_2",
+      "role": "Core structural alpha pattern; broad multi-regime usage; dominant in high volatility",
+      "trades": 4689,
+      "expectancy_r": 0.3436,
+      "profit_factor": 1.740,
+      "oos_expectancy_r": 0.3223,
+      "oos_profit_factor": 1.680,
+      "max_drawdown_r": 21.82,
+      "regimes_positive": "5/6"
+    },
+    {
+      "pattern": "BULL_FLAG",
+      "role": "Core momentum continuation pattern; 100% regime invariant",
+      "trades": 2608,
+      "expectancy_r": 0.3327,
+      "profit_factor": 1.690,
+      "oos_expectancy_r": 0.2290,
+      "oos_profit_factor": 1.440,
+      "max_drawdown_r": 23.30,
+      "regimes_positive": "6/6"
+    },
+    {
+      "pattern": "MULTI_MONTH_BASE_BREAKOUT",
+      "role": "Core long-duration base breakout; bull expansion leader; lowest system drawdown",
+      "trades": 669,
+      "expectancy_r": 0.2952,
+      "profit_factor": 1.589,
+      "oos_expectancy_r": 0.4935,
+      "oos_profit_factor": 2.040,
+      "max_drawdown_r": 11.84,
+      "regimes_positive": "5/6"
+    },
+    {
+      "pattern": "UNDERCUT_AND_RALLY",
+      "role": "Core structural reclaim; defensive and correction leader; reversal & pullback anchor",
+      "trades": 2695,
+      "expectancy_r": 0.2276,
+      "profit_factor": 1.445,
+      "oos_expectancy_r": 0.3337,
+      "oos_profit_factor": 1.710,
+      "max_drawdown_r": 17.60,
+      "regimes_positive": "5/6"
+    }
+  ],
+  "quarantined_and_research_patterns": [
+    {"pattern": "FLAT_BASE_BREAKOUT", "status": "RESEARCH_ONLY", "reason": "Bull specialist; severe degradation in sideways chop/bear"},
+    {"pattern": "ASCENDING_TRIANGLE", "status": "RESEARCH_ONLY", "reason": "Rangebound specialist; insufficient universal edge"},
+    {"pattern": "FALLING_WEDGE_REVERSAL", "status": "RESEARCH_ONLY", "reason": "Correction defense specialist; unproven standalone"},
+    {"pattern": "INVERSE_HEAD_AND_SHOULDERS", "status": "RESEARCH_ONLY", "reason": "Delayed neckline trigger; low risk/reward"},
+    {"pattern": "DOUBLE_BOTTOM_SHAKEOUT", "status": "RESEARCH_ONLY", "reason": "Standalone DD 45.7R; retained as Wealth/confluence feature only"},
+    {"pattern": "PENNANT_CONVERGENCE", "status": "RESEARCH_ONLY", "reason": "Subsumed by Bull Flag"},
+    {"pattern": "HIGH_TIGHT_FLAG", "status": "QUARANTINED", "reason": "Severe sample deficit N=15"},
+    {"pattern": "VCP_CONTRACTION", "status": "QUARANTINED", "reason": "High false breakout rate without institutional filters"},
+    {"pattern": "CUP_AND_HANDLE", "status": "QUARANTINED", "reason": "Breakeven expectancy (+0.02R) + 84.1R drawdown"}
+  ],
+  "invariants_verified": {
+    "whitelist_enforcement": "PASS (APPROVED_TECHNICAL_PATTERNS strictly enforced at alert boundary)",
+    "zero_lookahead_causality": "PASS (T <= t causality strictly maintained)",
+    "weekend_trading_calendar": "PASS (Saturday=0, Sunday=0 verified)",
+    "scanner_non_interference": "PASS (Wealth, Multibagger, Reversal, Pullback, EOD intact)"
+  }
+}
