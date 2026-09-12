@@ -33,6 +33,7 @@ ENV/
 # ── Data, Parquet & Database Files ──
 data/*
 !data/v515_production_frozen_registry.json
+!data/pattern_confluence_golden_dataset.json
 *.parquet
 *.feather
 *.pkl

@@ -138,8 +138,15 @@ def compute_pullback_score(
     elif impulse_pct >= 8.0:
         impulse_bonus = 1.0
 
+    # 8. Pattern Confluence: UNDERCUT_AND_RALLY Quality Tag & Bonus
+    undercut_bonus = 0.0
+    if is_undercut_and_rally:
+        from config import PATTERN_CONFLUENCE_CONFIG
+        if PATTERN_CONFLUENCE_CONFIG.get("PULLBACK_UNDERCUT_RALLY_TAG_ENABLED", True):
+            undercut_bonus = PATTERN_CONFLUENCE_CONFIG.get("PULLBACK_UNDERCUT_RALLY_BONUS", 3.0)
+
     eod_bonus = 3.0 if has_prior_eod else 0.0
-    final_score = base_score + rs_bonus + sector_bonus + vol_bonus + trigger_bonus + maturity_penalties.get(pullback_count_in_trend, -10) + depth_bonus + impulse_bonus + eod_bonus
+    final_score = base_score + rs_bonus + sector_bonus + vol_bonus + trigger_bonus + maturity_penalties.get(pullback_count_in_trend, -10) + depth_bonus + impulse_bonus + undercut_bonus + eod_bonus
     final_score = min(100.0, max(0.0, final_score))
     
     return {
@@ -150,6 +157,8 @@ def compute_pullback_score(
         "trigger_bonus": trigger_bonus,
         "depth_bonus": depth_bonus,
         "impulse_bonus": impulse_bonus,
+        "undercut_bonus": undercut_bonus,
+        "is_undercut_and_rally": is_undercut_and_rally,
         "maturity_penalty": maturity_penalties.get(pullback_count_in_trend, -10),
         "catalyst_bonus": eod_bonus,
         "final_score": final_score
@@ -280,6 +289,19 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
         has_prior_eod = bool(fund_data.get("prior_eod_alert") or fund_data.get("has_prior_eod"))
         has_prior_multi = bool(fund_data.get("prior_multi_alert") or fund_data.get("has_prior_multi"))
 
+    # Pattern Confluence Overlay: UNDERCUT_AND_RALLY structural quality tag
+    is_undercut_rally = False
+    if len(historical_view) >= 30:
+        try:
+            from pattern_detector_engine import detect_undercut_and_rally
+            h_vals = pd.to_numeric(historical_view["High"], errors="coerce").values
+            l_vals = pd.to_numeric(historical_view["Low"], errors="coerce").values
+            c_vals = pd.to_numeric(historical_view["Close"], errors="coerce").values
+            v_vals = pd.to_numeric(historical_view.get("Volume", 0), errors="coerce").values
+            is_undercut_rally = detect_undercut_and_rally(h_vals, l_vals, c_vals, v_vals, t=len(historical_view)-1)
+        except Exception:
+            is_undercut_rally = False
+
     score_breakdown = compute_pullback_score(
         pullback_count_in_trend=ps.pullback_count_in_trend,
         volume_ratio=vol_ratio,
@@ -291,6 +313,7 @@ def evaluate_pullback_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = No
         has_prior_multi=has_prior_multi,
         is_full_high_takeover=getattr(trig, "is_full_high_takeover", False),
         is_bullish_engulfing=getattr(trig, "is_bullish_engulfing", False),
+        is_undercut_and_rally=is_undercut_rally,
         depth_pct=ps.depth_pct,
         impulse_pct=ps.impulse.gain_pct
     )

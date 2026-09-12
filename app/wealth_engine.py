@@ -177,14 +177,25 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
         elif sma200_val and close_price < (sma200_val * 0.8):
             gradient_score -= 10.0 # Penalty for being far below 200DMA
 
-    if "Growth Multiplier" in buckets:
-        if is_growth_trend_ok:
-            gradient_score += 5.0 # Preferred trend > 50DMA
-        if peg_num is not None:
-            if peg_num > 4.0:
-                gradient_score -= 10.0 # Progressive penalty
-            elif peg_num > 3.0:
-                gradient_score -= 5.0
+    # Pattern Confluence Overlay: DOUBLE_BOTTOM_SHAKEOUT Conviction Pattern
+    has_db_shakeout = False
+    db_bonus = 0.0
+    if len(ticker) >= 40:
+        try:
+            from pattern_detector_engine import detect_double_bottom_shakeout
+            from config import PATTERN_CONFLUENCE_CONFIG
+            h_vals = pd.to_numeric(ticker["High"], errors="coerce").values
+            l_vals = pd.to_numeric(ticker["Low"], errors="coerce").values
+            c_vals = pd.to_numeric(ticker["Close"], errors="coerce").values
+            v_vals = pd.to_numeric(ticker.get("Volume", 0), errors="coerce").values
+            has_db_shakeout = detect_double_bottom_shakeout(h_vals, l_vals, c_vals, v_vals, t=len(ticker)-1)
+            if has_db_shakeout and PATTERN_CONFLUENCE_CONFIG.get("WEALTH_DB_SHAKEOUT_ENABLED", True):
+                db_bonus = PATTERN_CONFLUENCE_CONFIG.get("WEALTH_DB_SHAKEOUT_BONUS", 15.0)
+                if is_qualified:
+                    reasons.append(f"DOUBLE_BOTTOM_SHAKEOUT Conviction Confirmed (+{db_bonus:.0f} pts)")
+                    gradient_score += db_bonus
+        except Exception as _pde_err:
+            logging.getLogger(__name__).debug(f"Pattern detection error in Wealth: {_pde_err}")
 
     gradient_score = min(100.0, max(50.0, float(gradient_score)))
 
@@ -194,6 +205,8 @@ def evaluate_wealth_symbol(symbol: str, df: pd.DataFrame, fund_data: dict = None
         "buckets": buckets,
         "score": gradient_score if is_qualified else 50.0,
         "qualified": is_qualified,
+        "has_double_bottom_shakeout": has_db_shakeout,
+        "db_shakeout_bonus": db_bonus,
         "entry_price": close_price,
         "stop_loss": sl_result.get("stop_loss"),
         "target_1": sl_result.get("target_1"),

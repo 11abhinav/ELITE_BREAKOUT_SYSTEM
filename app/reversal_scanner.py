@@ -78,6 +78,7 @@ from config import (
 )
 from sl_target_helper import compute_sl_and_target
 from surveillance import get_live_blacklist, force_refresh_blacklist
+from pattern_detector_engine import detect_undercut_and_rally, detect_double_bottom_shakeout
 
 # [VERSION: PERF_PROFILER_v2.0] Stage timing + filter rejection observability
 # profile_timing logs wall-clock duration + RSS delta for each reversal scan run.
@@ -447,14 +448,37 @@ def _check_swing_structure(df: pd.DataFrame, lookback: int = 25) -> dict:
     trough_idx = prior_window["Low"].idxmin()
     bars_since_trough = len(df) - 1 - df.index.get_loc(trough_idx)
     
-    # 1. Hard Falling-Knife Block: If current low touches/breaks below the trough
+    # 0. Check Certified Undercut & Rally Structural Reclaim (Respect ARCHITECTURE_MODE / Rollback)
+    arch_mode = REVERSAL_CONFIG.get("ARCHITECTURE_MODE", "REV_UNDERCUT_RALLY")
+    is_undercut_rally = False
+    if arch_mode == "REV_UNDERCUT_RALLY":
+        highs_arr = pd.to_numeric(df["High"], errors="coerce").values
+        lows_arr = pd.to_numeric(df["Low"], errors="coerce").values
+        closes_arr = pd.to_numeric(df["Close"], errors="coerce").values
+        vols_arr = pd.to_numeric(df.get("Volume", 0), errors="coerce").values
+        is_undercut_rally = detect_undercut_and_rally(highs_arr, lows_arr, closes_arr, vols_arr, t=len(df)-1, lookback_window=lookback)
+    
+    # 1. Hard Falling-Knife Block: If current low touches/breaks below the trough (unless confirmed Undercut & Rally reclaim)
     if current_low < trough_price * 0.999:
+        if is_undercut_rally:
+            return {
+                "passed": True,
+                "is_falling_knife": False,
+                "has_higher_low": True,
+                "has_higher_high": True,
+                "is_strong_structure": True,
+                "is_undercut_and_rally": True,
+                "arch_mode": arch_mode,
+                "reason": f"UNDERCUT_AND_RALLY_RECLAIM: Prior trough ₹{trough_price:.2f} swept and reclaimed with positive close ₹{current_close:.2f}"
+            }
         return {
             "passed": False,
             "is_falling_knife": True,
             "has_higher_low": False,
             "has_higher_high": False,
             "is_strong_structure": False,
+            "is_undercut_and_rally": False,
+            "arch_mode": arch_mode,
             "reason": f"NEW_LOWER_LOW: Current low ₹{current_low:.2f} <= prior trough ₹{trough_price:.2f} (Falling Knife Block)"
         }
     
@@ -479,18 +503,19 @@ def _check_swing_structure(df: pd.DataFrame, lookback: int = 25) -> dict:
         if l1 >= l2 >= l3:
             last3_rising = True
             
-    passed = (has_higher_low or has_pivot_hl or last3_rising) and not (current_low < trough_price * 0.999)
+    passed = (has_higher_low or has_pivot_hl or last3_rising or is_undercut_rally)
     
     # Strong structure criteria: Clear HL pivot + price well above trough (> 1.5%) + expanding highs/lows
-    is_strong_structure = (current_low >= trough_price * 1.015) and (has_pivot_hl or last3_rising or has_higher_high)
+    is_strong_structure = (current_low >= trough_price * 1.015 and (has_pivot_hl or last3_rising or has_higher_high)) or is_undercut_rally
     
     reason = "Swing structure confirmed" if passed else f"No Higher Low structure: low ₹{current_low:.2f} vs trough ₹{trough_price:.2f}"
     return {
         "passed": passed,
         "is_falling_knife": False,
-        "has_higher_low": has_higher_low,
+        "has_higher_low": has_higher_low or is_undercut_rally,
         "has_higher_high": has_higher_high,
         "is_strong_structure": is_strong_structure,
+        "is_undercut_and_rally": is_undercut_rally,
         "reason": reason
     }
 

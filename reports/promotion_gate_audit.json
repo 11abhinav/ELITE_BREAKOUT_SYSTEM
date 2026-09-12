@@ -1,0 +1,453 @@
+{
+  "metadata": {
+    "title": "Authoritative Promotion Gate Audit",
+    "date": "2026-09-12 16:20 IST",
+    "regimes": {
+      "BULL_1_EXPANSION": {
+        "regime_group": "BULL",
+        "sample_type": "IS",
+        "description": "H1 2025 Broad Bull Expansion",
+        "start_date": "2025-01-02",
+        "end_date": "2025-06-30"
+      },
+      "BULL_2_MOMENTUM": {
+        "regime_group": "BULL",
+        "sample_type": "IS",
+        "description": "Spring/Summer 2026 Momentum Rally",
+        "start_date": "2026-04-01",
+        "end_date": "2026-07-31"
+      },
+      "BEAR_1_CORRECTION": {
+        "regime_group": "BEAR",
+        "sample_type": "IS",
+        "description": "Late Summer/Fall 2025 Correction",
+        "start_date": "2025-07-01",
+        "end_date": "2025-10-31"
+      },
+      "BEAR_2_SELLOFF": {
+        "regime_group": "BEAR",
+        "sample_type": "IS",
+        "description": "Late Winter 2026 Correction",
+        "start_date": "2026-02-15",
+        "end_date": "2026-03-31"
+      },
+      "SIDEWAYS_1_CHOP": {
+        "regime_group": "SIDEWAYS",
+        "sample_type": "IS",
+        "description": "Late 2024 Initial Range",
+        "start_date": "2024-11-29",
+        "end_date": "2024-12-31"
+      },
+      "SIDEWAYS_2_ROTATION": {
+        "regime_group": "SIDEWAYS",
+        "sample_type": "IS",
+        "description": "Winter 2025 Range Consolidation",
+        "start_date": "2025-11-01",
+        "end_date": "2025-12-31"
+      },
+      "TRUE_OOS": {
+        "regime_group": "OOS",
+        "sample_type": "OOS",
+        "description": "Aug-Sep 2026 Untouched Out-Of-Sample",
+        "start_date": "2026-08-01",
+        "end_date": "2026-09-11"
+      }
+    }
+  },
+  "EOD_BREAKOUT_AUDIT": {
+    "decomposition": {
+      "1_Baseline_Prod": {
+        "n": 929,
+        "win_rate": 55.65,
+        "expectancy": 0.0704,
+        "total_r": 65.41,
+        "pf": 1.154,
+        "max_dd": 41.87,
+        "worst": -18.1766
+      },
+      "2_Stop_Only": {
+        "n": 929,
+        "win_rate": 57.7,
+        "expectancy": 0.0786,
+        "total_r": 72.99,
+        "pf": 1.166,
+        "max_dd": 43.24,
+        "worst": -25.9675
+      },
+      "3_Filter_Only": {
+        "n": 503,
+        "win_rate": 57.85,
+        "expectancy": 0.1653,
+        "total_r": 83.15,
+        "pf": 1.406,
+        "max_dd": 17.15,
+        "worst": -1.9766
+      },
+      "4_Combined_Challenger": {
+        "n": 503,
+        "win_rate": 60.04,
+        "expectancy": 0.2147,
+        "total_r": 108.0,
+        "pf": 1.584,
+        "max_dd": 14.37,
+        "worst": -2.6841
+      },
+      "5_Removed_Trades_BaseStop": {
+        "n": 426,
+        "win_rate": 53.05,
+        "expectancy": -0.0417,
+        "total_r": -17.74,
+        "pf": 0.919,
+        "max_dd": 46.7,
+        "worst": -18.1766
+      },
+      "5_Removed_Trades_ChampStop": {
+        "n": 426,
+        "win_rate": 54.93,
+        "expectancy": -0.0822,
+        "total_r": -35.01,
+        "pf": 0.863,
+        "max_dd": 63.6,
+        "worst": -25.9675
+      }
+    },
+    "paired_bootstrap_all_signals": {
+      "n_paired_trades": 929,
+      "mean_delta_r": 0.0082,
+      "median_delta_r": 0.0,
+      "ci_95": [
+        -0.0419,
+        0.056
+      ],
+      "p_delta_greater_zero": 63.64,
+      "p_value": 0.3636
+    },
+    "paired_bootstrap_curated_signals": {
+      "n_paired_trades": 503,
+      "mean_delta_r": 0.0494,
+      "median_delta_r": 0.0,
+      "ci_95": [
+        -0.0031,
+        0.1043
+      ],
+      "p_delta_greater_zero": 96.77,
+      "p_value": 0.0323
+    },
+    "portfolio_strategy_difference_bootstrap": {
+      "mean_expectancy_diff": 0.1445,
+      "ci_95": [
+        0.0158,
+        0.2794
+      ],
+      "p_challenger_superior": 98.71,
+      "p_value": 0.0129
+    },
+    "oos_decomposition": {
+      "1_Baseline_Prod": {
+        "n": 108,
+        "win_rate": 50.93,
+        "expectancy": -0.353,
+        "total_r": -38.13,
+        "pf": 0.609,
+        "max_dd": 46.85,
+        "worst": -18.1766
+      },
+      "2_Stop_Only": {
+        "n": 108,
+        "win_rate": 50.0,
+        "expectancy": -0.5685,
+        "total_r": -61.4,
+        "pf": 0.463,
+        "max_dd": 69.69,
+        "worst": -25.9675
+      },
+      "3_Filter_Only": {
+        "n": 71,
+        "win_rate": 52.11,
+        "expectancy": 0.1328,
+        "total_r": 9.43,
+        "pf": 1.306,
+        "max_dd": 6.92,
+        "worst": -1.9766
+      },
+      "4_Combined_Challenger": {
+        "n": 71,
+        "win_rate": 47.89,
+        "expectancy": 0.0959,
+        "total_r": 6.81,
+        "pf": 1.25,
+        "max_dd": 6.81,
+        "worst": -1.0
+      },
+      "5_Removed_Trades": {
+        "n": 37,
+        "win_rate": 48.65,
+        "expectancy": -1.2853,
+        "total_r": -47.56,
+        "pf": 0.288,
+        "max_dd": 49.42,
+        "worst": -18.1766
+      }
+    },
+    "worst_outliers": [
+      {
+        "symbol": "URBANCO",
+        "date": "2026-08-05",
+        "entry": 1665.9229146170683,
+        "stop_base": 1582.63,
+        "risk_base": 83.2929,
+        "stop_champ": 1607.62,
+        "risk_champ": 58.3029,
+        "r_base_stop": -18.1766,
+        "r_champ_stop": -25.9675,
+        "pass_chall_filter": false
+      },
+      {
+        "symbol": "MANYAVAR",
+        "date": "2026-08-18",
+        "entry": 5126.285182668147,
+        "stop_base": 4869.97,
+        "risk_base": 256.3152,
+        "stop_champ": 4946.87,
+        "risk_champ": 179.4152,
+        "r_base_stop": -17.8658,
+        "r_champ_stop": -25.5234,
+        "pass_chall_filter": false
+      },
+      {
+        "symbol": "BANKINDIA",
+        "date": "2026-08-17",
+        "entry": 948.1814957951789,
+        "stop_base": 900.77,
+        "risk_base": 47.4115,
+        "stop_champ": 915.0,
+        "risk_champ": 33.1815,
+        "r_base_stop": -16.987,
+        "r_champ_stop": -24.272,
+        "pass_chall_filter": false
+      },
+      {
+        "symbol": "TARIL",
+        "date": "2026-04-21",
+        "entry": 333.29998779296875,
+        "stop_base": 316.63,
+        "risk_base": 16.67,
+        "stop_champ": 306.64,
+        "risk_champ": 26.66,
+        "r_base_stop": -2.1176,
+        "r_champ_stop": -1.3241,
+        "pass_chall_filter": false
+      },
+      {
+        "symbol": "COFORGE",
+        "date": "2026-08-28",
+        "entry": 2014.5999755859375,
+        "stop_base": 1913.87,
+        "risk_base": 100.73,
+        "stop_champ": 1923.19,
+        "risk_champ": 91.41,
+        "r_base_stop": -1.9766,
+        "r_champ_stop": -1.0,
+        "pass_chall_filter": true
+      }
+    ]
+  },
+  "ACCUMULATION_AUDIT": {
+    "decomposition": {
+      "1_Baseline_Prod": {
+        "n": 1118,
+        "win_rate": 56.53,
+        "expectancy": 0.0497,
+        "total_r": 55.55,
+        "pf": 1.151,
+        "max_dd": 42.38,
+        "worst": -18.0962
+      },
+      "2_Stop_Only": {
+        "n": 1118,
+        "win_rate": 56.26,
+        "expectancy": 0.0083,
+        "total_r": 9.29,
+        "pf": 1.016,
+        "max_dd": 68.41,
+        "worst": -27.8098
+      },
+      "3_Filter_Only": {
+        "n": 249,
+        "win_rate": 61.45,
+        "expectancy": 0.1557,
+        "total_r": 38.77,
+        "pf": 1.578,
+        "max_dd": 13.88,
+        "worst": -12.678
+      },
+      "4_Combined_Challenger": {
+        "n": 249,
+        "win_rate": 58.63,
+        "expectancy": 0.1142,
+        "total_r": 28.43,
+        "pf": 1.261,
+        "max_dd": 14.91,
+        "worst": -12.6067
+      },
+      "5_Removed_Trades_BaseStop": {
+        "n": 869,
+        "win_rate": 55.12,
+        "expectancy": 0.0193,
+        "total_r": 16.78,
+        "pf": 1.056,
+        "max_dd": 34.87,
+        "worst": -18.0962
+      },
+      "5_Removed_Trades_ChampStop": {
+        "n": 869,
+        "win_rate": 55.58,
+        "expectancy": -0.022,
+        "total_r": -19.14,
+        "pf": 0.961,
+        "max_dd": 66.95,
+        "worst": -27.8098
+      }
+    },
+    "paired_bootstrap_all_signals": {
+      "n_paired_trades": 1118,
+      "mean_delta_r": -0.0414,
+      "median_delta_r": 0.0171,
+      "ci_95": [
+        -0.1077,
+        0.0191
+      ],
+      "p_delta_greater_zero": 9.64,
+      "p_value": 0.9036
+    },
+    "paired_bootstrap_curated_signals": {
+      "n_paired_trades": 249,
+      "mean_delta_r": -0.0415,
+      "median_delta_r": 0.0389,
+      "ci_95": [
+        -0.1297,
+        0.0447
+      ],
+      "p_delta_greater_zero": 17.35,
+      "p_value": 0.8265
+    },
+    "portfolio_strategy_difference_bootstrap": {
+      "mean_expectancy_diff": 0.0654,
+      "ci_95": [
+        -0.1246,
+        0.2392
+      ],
+      "p_challenger_superior": 76.9,
+      "p_value": 0.231
+    },
+    "oos_decomposition": {
+      "1_Baseline_Prod": {
+        "n": 86,
+        "win_rate": 45.35,
+        "expectancy": -1.0601,
+        "total_r": -91.17,
+        "pf": 0.247,
+        "max_dd": 92.77,
+        "worst": -18.0962
+      },
+      "2_Stop_Only": {
+        "n": 86,
+        "win_rate": 46.51,
+        "expectancy": -1.5384,
+        "total_r": -132.3,
+        "pf": 0.242,
+        "max_dd": 135.0,
+        "worst": -27.8098
+      },
+      "3_Filter_Only": {
+        "n": 18,
+        "win_rate": 33.33,
+        "expectancy": -0.5594,
+        "total_r": -10.07,
+        "pf": 0.389,
+        "max_dd": 13.09,
+        "worst": -12.678
+      },
+      "4_Combined_Challenger": {
+        "n": 18,
+        "win_rate": 33.33,
+        "expectancy": -0.8998,
+        "total_r": -16.2,
+        "pf": 0.227,
+        "max_dd": 16.27,
+        "worst": -12.6067
+      },
+      "5_Removed_Trades": {
+        "n": 68,
+        "win_rate": 48.53,
+        "expectancy": -1.1926,
+        "total_r": -81.1,
+        "pf": 0.225,
+        "max_dd": 83.14,
+        "worst": -18.0962
+      }
+    },
+    "worst_outliers": [
+      {
+        "symbol": "URBANCO",
+        "date": "2026-08-05",
+        "entry": 1665.9229146170683,
+        "stop_base": 1582.26,
+        "risk_base": 83.6629,
+        "stop_champ": 1607.62,
+        "risk_champ": 58.3029,
+        "r_base_stop": -18.0962,
+        "r_champ_stop": -25.9675,
+        "pass_chall_filter": false
+      },
+      {
+        "symbol": "IDBI",
+        "date": "2026-08-11",
+        "entry": 3067.2960464228113,
+        "stop_base": 2880.54,
+        "risk_base": 186.756,
+        "stop_champ": 2959.94,
+        "risk_champ": 107.356,
+        "r_base_stop": -15.9863,
+        "r_champ_stop": -27.8098,
+        "pass_chall_filter": false
+      },
+      {
+        "symbol": "SKIPPER",
+        "date": "2026-08-17",
+        "entry": 1428.9375780198693,
+        "stop_base": 1369.17,
+        "risk_base": 59.7676,
+        "stop_champ": 1378.92,
+        "risk_champ": 50.0176,
+        "r_base_stop": -14.6055,
+        "r_champ_stop": -8.2263,
+        "pass_chall_filter": false
+      },
+      {
+        "symbol": "PFOCUS",
+        "date": "2026-08-19",
+        "entry": 1257.1320137703385,
+        "stop_base": 1188.62,
+        "risk_base": 68.512,
+        "stop_champ": 1213.13,
+        "risk_champ": 44.002,
+        "r_base_stop": -14.2235,
+        "r_champ_stop": -22.1463,
+        "pass_chall_filter": false
+      },
+      {
+        "symbol": "PRSMJOHNSN",
+        "date": "2026-08-03",
+        "entry": 1320.7629334088683,
+        "stop_base": 1274.79,
+        "risk_base": 45.9729,
+        "stop_champ": 1274.54,
+        "risk_champ": 46.2229,
+        "r_base_stop": -12.678,
+        "r_champ_stop": -12.6067,
+        "pass_chall_filter": true
+      }
+    ]
+  }
+}

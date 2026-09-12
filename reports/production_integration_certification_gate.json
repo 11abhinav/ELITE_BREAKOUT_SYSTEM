@@ -1,0 +1,47 @@
+{
+  "timestamp": "2026-09-12T17:49:45+05:30",
+  "all_passed": true,
+  "duration_seconds": 282.58,
+  "gate_results": {
+    "gate_1": {
+      "status": "PASS",
+      "total_golden_signals": 12946,
+      "passed_signals": 12946,
+      "mismatches": 0,
+      "parity_pct": 100.0
+    },
+    "gate_2": {
+      "status": "PASS",
+      "cases_tested": [
+        "short_array",
+        "negative_index",
+        "nan_array",
+        "zero_volume"
+      ]
+    },
+    "gate_3": {
+      "status": "PASS",
+      "rally_signals": 15525,
+      "rollback_signals": 15501,
+      "rollback_operational": true
+    },
+    "gate_4": {
+      "status": "PASS",
+      "total_evaluated": 200,
+      "db_shakeout_detected": 188,
+      "avg_score_delta": 8.803191489361701,
+      "score_shifts_count": 188
+    },
+    "gate_5": {
+      "status": "PASS",
+      "pb_undercut_tags": 0,
+      "mb_bull_flag_tags": 0
+    },
+    "gate_6": {
+      "status": "PASS",
+      "weekend_bars_purged": 203,
+      "timezone": "Asia/Kolkata",
+      "causality": "Strict T <= t"
+    }
+  }
+}

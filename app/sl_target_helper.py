@@ -1306,13 +1306,36 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
         "is_rejected": False
     }
 
+def _compute_eod_adaptive_stop(entry: float, eff_atr: float, atr_pct: float, supports: list, ctx: dict) -> dict:
+    """
+    Certified EOD_VAR_I Volatility-Adaptive Stop Geometry:
+    - Tiered ATR-based percentage stop: 1.4x ATR if ATR% < 2.5%, 1.8x ATR if 2.5-4.0%, 2.2x ATR if > 4.0%
+    - Bounded within [3.5%, 8.0%] structural corridor
+    - Eliminates static base stop tail-gap risk while maintaining break-even compatibility
+    """
+    atr_p = atr_pct or ((eff_atr / entry) * 100.0 if entry > 0 else 3.0)
+    mult = 1.4 if atr_p < 2.5 else (1.8 if atr_p <= 4.0 else 2.2)
+    c_pct = max(min((mult * eff_atr) / entry, 0.080), 0.035) if entry > 0 else 0.05
+    raw_sl = round(entry * (1.0 - c_pct), 2)
+    sl_pct = round((entry - raw_sl) / entry * 100.0, 2) if entry > 0 else 5.0
+    return {
+        "is_valid": True,
+        "raw_sl": raw_sl,
+        "sl_method": f"VOL_ADAPTIVE_EOD ({mult:.1f}x ATR, {sl_pct:.2f}%)",
+        "anchor_price": entry,
+        "anchor_type": "VOL_ADAPTIVE",
+        "anchor_score": 90,
+        "buffer_value": round(entry - raw_sl, 2),
+        "sl_pct": sl_pct
+    }
+
 def _compute_eod(entry: float, eff_atr: float, atr_pct: float, adx: float, rsi: float, macd_hist: float, swing_low: float, swing_high: float, s1: float, s2: float, r1: float, r2: float, swing_low_raw: float, swing_high_raw: float, ticker=None, **kwargs) -> dict:
     mode = kwargs.get("mode", "EOD")
     supports = [
         (swing_low, "True Swing Low", 40), (s1, "S1 Pivot", 20), (s2, "S2 Pivot", 15),
         (swing_low_raw, "Rolling Low", 20), (kwargs.get("sma50"), "SMA50", 15), (kwargs.get("sma200"), "SMA200", 30)
     ]
-    sl_data = _compute_structural_stop(entry, eff_atr, atr_pct, supports, {"mode": mode})
+    sl_data = _compute_eod_adaptive_stop(entry, eff_atr, atr_pct, supports, {"mode": mode})
     if not sl_data.get("is_valid", True):
         return {
             "engine_version": "SL_ENGINE_V7", "is_rejected": True, "rejection_reason": "NO_VALID_STRUCTURAL_STOP",

@@ -221,12 +221,30 @@ def evaluate_multibagger_symbol(symbol: str, df: pd.DataFrame, fund_data: dict =
     except Exception as telemetry_err:
         logger.debug(f"Telemetry recording skipped: {telemetry_err}")
 
+    # Pattern Confluence Overlay: BULL_FLAG Momentum Continuation Tag
+    has_bull_flag = False
+    if len(ticker) >= 30:
+        try:
+            from pattern_detector_engine import detect_bull_flag
+            from config import PATTERN_CONFLUENCE_CONFIG
+            if PATTERN_CONFLUENCE_CONFIG.get("MULTIBAGGER_BULL_FLAG_TAG_ENABLED", True):
+                h_vals = pd.to_numeric(ticker["High"], errors="coerce").values
+                l_vals = pd.to_numeric(ticker["Low"], errors="coerce").values
+                c_vals = pd.to_numeric(ticker["Close"], errors="coerce").values
+                v_vals = pd.to_numeric(ticker.get("Volume", 0), errors="coerce").values
+                has_bull_flag = detect_bull_flag(h_vals, l_vals, c_vals, v_vals, t=len(ticker)-1)
+                if has_bull_flag:
+                    reasons.append("BULL_FLAG Momentum Continuation Pattern Confirmed")
+        except Exception:
+            has_bull_flag = False
+
     return {
         "status": status_str,
         "reasons": reasons,
         "score": composite_score,
         "qualified": is_qualified,
         "conviction_tier": "Prime" if is_prime else ("High Quality" if is_high_quality else "Watchlist"),
+        "is_bull_flag": has_bull_flag,
         "entry_price": close_price,
         "stop_loss": sl_result.get("stop_loss"),
         "target_1": sl_result.get("target_1"),

@@ -287,6 +287,8 @@ def _check_eod_conditions(
     # ── Shared hard gates ──────────────────────────────────────────────────
     if volume_ratio < MIN_VOLUME_RATIO:
         return {"passed": False, "reason": f"Volume ratio {volume_ratio:.2f}x < {MIN_VOLUME_RATIO:.1f}x"}
+    if wick_ratio > MAX_UPPER_WICK_RATIO:
+        return {"passed": False, "reason": f"Upper wick ratio {wick_ratio:.2f} > {MAX_UPPER_WICK_RATIO:.2f} max ceiling"}
     if avg_volume < MIN_AVG_VOLUME_SHARES:
         return {"passed": False, "reason": f"Avg volume {avg_volume:.0f} < {MIN_AVG_VOLUME_SHARES:.0f}"}
     if candle_close < MIN_STOCK_PRICE:

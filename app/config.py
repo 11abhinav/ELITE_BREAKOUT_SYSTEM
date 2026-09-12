@@ -357,8 +357,8 @@ EOD_CONFIG = {
     "MIN_SIGNALS":        1,
     "MIN_BODY_RATIO":     0.40,
     "MIN_CLOSE_POSITION": 0.55,
-    "MAX_UPPER_WICK":     0.35,
-    "MIN_VOLUME_RATIO":   1.5,   # [v5.3.0 UPGRADE]: Breakout Volume >= 1.5x SMA20
+    "MAX_UPPER_WICK":     0.20,  # [CERTIFIED EOD_VAR_I]: Upper wick <= 20% to prevent false rejection breakouts
+    "MIN_VOLUME_RATIO":   1.75,  # [CERTIFIED EOD_VAR_I]: Breakout Volume >= 1.75x SMA20 conviction threshold
     "MIN_VOLUME_AVG":     50_000,
     "MIN_RSI":            50,
     "MAX_RSI":            92,    # [FIX: RSI_CEILING_TO_PENALTY] Raised from 88→92. RSI 88-92 is now a graduated scoring penalty (-2.5 pts/unit), not a hard reject. Genuine breakout stocks routinely hit RSI 88-95 on the ignition day.
@@ -405,6 +405,7 @@ EOD_ADVANCED_CONFIG = {
 # 2. DEEP_VALUE_MIN_ROE: Set to 12.0% for Deep Value reversals (stocks below SMA200) to ensure fundamental solvency while allowing Quality reversals (above SMA200) at 5.0%.
 # 3. REVERSAL_RSI_LOOKBACK & REVERSAL_MAX_TROUGH_AGE: Calibrated from 15 to 25 trading bars to allow legitimate consolidation bases to mature without premature trough expiry.
 REVERSAL_CONFIG = {
+    "ARCHITECTURE_MODE": os.environ.get("REVERSAL_ARCHITECTURE_MODE", "REV_UNDERCUT_RALLY"), # "REV_UNDERCUT_RALLY" (Certified Core) or "REV_PROD_V1" (Rollback Baseline)
     "MIN_DROP_FROM_52W_HIGH": 20.0,
     "MAX_DROP_FROM_52W_HIGH": 45.0,
     "RSI_CURL_MIN": 38.0,
@@ -420,6 +421,15 @@ REVERSAL_CONFIG = {
     "MAX_DROP_BELOW_SMA200": 20.0,
     "REVERSAL_COOLDOWN_TRADING_DAYS": 40,
     "QUALITY_CAT_MIN_DROP": 15.0,
+}
+
+PATTERN_CONFLUENCE_CONFIG = {
+    "WEALTH_DB_SHAKEOUT_BONUS": 15.0,
+    "WEALTH_DB_SHAKEOUT_ENABLED": True,
+    "PULLBACK_UNDERCUT_RALLY_TAG_ENABLED": True,
+    "PULLBACK_UNDERCUT_RALLY_BONUS": 3.0,
+    "MULTIBAGGER_BULL_FLAG_TAG_ENABLED": True,
+    "REVERSAL_UNDERCUT_RALLY_ENABLED": True,
 }
 
 ALERT_COOLDOWN_MINUTES = {

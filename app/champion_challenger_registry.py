@@ -364,10 +364,14 @@ class ScannerVariant:
 
 _BUILT_IN_VARIANTS: List[Dict[str, Any]] = [
     # ── EOD BREAKOUT ──────────────────────────────────────────────────────────
-    dict(variant_id="EOD_CHAMPION_V1", scanner_family=ScannerFamily.EOD_BREAKOUT,
-         description="Baseline EOD Breakout champion (E[R]=+0.19R, PF=1.38, +2R=29.2%)",
-         parameters={"prior_bar_lookback": "iloc[-21:-1]", "vol_confirmation": True},
+    dict(variant_id="EOD_CHAMPION_V2_CONFIRMED_WICK", scanner_family=ScannerFamily.EOD_BREAKOUT,
+         description="Certified Production Champion: Upper Wick <= 20%, Vol >= 1.75x SMA20, Volatility-Adaptive Stop (E[R]=+0.2147R, PF=1.584, OOS PF=1.250)",
+         parameters={"max_upper_wick": 0.20, "min_volume_ratio": 1.75, "vol_adaptive_stop": True},
          status=VariantStatus.CHAMPION),
+    dict(variant_id="EOD_CHAMPION_V1", scanner_family=ScannerFamily.EOD_BREAKOUT,
+         description="Historical EOD Breakout champion (E[R]=+0.0704R, PF=1.154, static base stop) [RETIRED]",
+         parameters={"prior_bar_lookback": "iloc[-21:-1]", "vol_confirmation": True},
+         status=VariantStatus.RETIRED),
     dict(variant_id="EOD_CHALL_A_THRUST", scanner_family=ScannerFamily.EOD_BREAKOUT,
          description="Challenger A: Breakout thrust > 0.50 x ATR filter",
          parameters={"min_breakout_thrust_atr": 0.50, "prior_bar_lookback": "iloc[-21:-1]"},
@@ -466,11 +470,11 @@ _BUILT_IN_VARIANTS: List[Dict[str, Any]] = [
 
     # ── PULLBACK ──────────────────────────────────────────────────────────────
     dict(variant_id="PULLBACK_CHAMPION_V1", scanner_family=ScannerFamily.PULLBACK,
-         description="Baseline Pullback champion (45.8% post-SL recovery — stop suffocation hypothesis)",
+         description="Baseline Pullback champion (Fixed 5% stop - Retired after 869-symbol multi-regime tournament, E[R]=+0.1926R)",
          parameters={"stop_model": "FIXED_PCT", "stop_pct": 5.0},
-         status=VariantStatus.CHAMPION),
+         status=VariantStatus.RETIRED),
     dict(variant_id="PULLBACK_CHALL_A_1_5ATR", scanner_family=ScannerFamily.PULLBACK,
-         description="Challenger A: Stop = 1.5 x ATR_14",
+         description="Challenger A: Stop = 1.5 x ATR_14 (High 13.01% suffocation rate)",
          parameters={"stop_model": "ATR_MULTIPLE", "atr_period": 14, "atr_multiple": 1.5},
          status=VariantStatus.CHALLENGER),
     dict(variant_id="PULLBACK_CHALL_B_1_8ATR", scanner_family=ScannerFamily.PULLBACK,
@@ -484,12 +488,18 @@ _BUILT_IN_VARIANTS: List[Dict[str, Any]] = [
                      "swing_shelf_bars": 5},
          status=VariantStatus.CHALLENGER),
     dict(variant_id="PULLBACK_CHALL_D_ADAPTIVE", scanner_family=ScannerFamily.PULLBACK,
-         description="Challenger D: Volatility-regime adaptive stop",
-         parameters={"stop_model": "VOLATILITY_ADAPTIVE", "vol_regime_col": "atr_pctile"},
-         status=VariantStatus.CHALLENGER),
+         description="Production Champion: Volatility-Regime Adaptive ATR Stop (Certified #1 across 869 symbols, 6 regimes: E[R]=+0.2270R, WR=20.21%, +3604R Total)",
+         parameters={"stop_model": "VOLATILITY_ADAPTIVE", "vol_regime_col": "atr_pctile",
+                     "low_vol_mult": 1.5, "med_vol_mult": 1.8, "high_vol_mult": 2.2,
+                     "clamp_min_pct": 3.5, "clamp_max_pct": 8.0, "target_multiple": 2.5},
+         status=VariantStatus.CHAMPION),
     dict(variant_id="PULLBACK_CHALL_E_CONFIRMED_TURN", scanner_family=ScannerFamily.PULLBACK,
          description="Challenger E: Volatility-adaptive stop + price action turn-up candle confirmation",
          parameters={"stop_model": "VOLATILITY_ADAPTIVE", "confirmation_candle": True},
+         status=VariantStatus.CHALLENGER),
+    dict(variant_id="PULLBACK_CHALL_UNDERCUT_RALLY", scanner_family=ScannerFamily.PULLBACK,
+         description="Certified Challenger: Pullback V2 + Undercut & Rally Quality Multiplier (E[R]=+0.1136R, PF=1.294, Max DD=12.42R, W7 OOS PF=2.175)",
+         parameters={"stop_model": "VOLATILITY_ADAPTIVE", "undercut_rally_bonus": True},
          status=VariantStatus.CHALLENGER),
 
     # ── REVERSAL ──────────────────────────────────────────────────────────────
@@ -554,6 +564,10 @@ _BUILT_IN_VARIANTS: List[Dict[str, Any]] = [
          description="Challenger V2.2-D: Composite (Buffered SL + No-Bear + Capitulation Volume)",
          parameters={"stage": "SWEEP_RECLAIM_MULTIBAR", "sl_buffer_atr": 0.5, "allowed_regimes": ["BULL", "NEUTRAL"], "min_capitulation_rvol": 1.5},
          status=VariantStatus.CHALLENGER),
+    dict(variant_id="REVERSAL_CHALL_UNDERCUT_RALLY", scanner_family=ScannerFamily.REVERSAL,
+         description="Certified Challenger: Structural Undercut & Rally Reclaim (E[R]=+0.1455R, PF=1.309, Max DD=52.36R, p=0.0000 across 3,816 trades)",
+         parameters={"stage": "UNDERCUT_AND_RALLY", "lookback": 25, "max_undercut_pct": 0.04, "min_reclaim_pct": 0.02},
+         status=VariantStatus.CHALLENGER),
 
     # ── ACCUMULATION / VCP ───────────────────────────────────────────────────
     dict(variant_id="VCP_CHAMPION_V1", scanner_family=ScannerFamily.ACCUMULATION_VCP,
@@ -593,6 +607,10 @@ _BUILT_IN_VARIANTS: List[Dict[str, Any]] = [
          description="Challenger H: Tight T3 <= 7.0% + Thrust >= 1.5x + Score >= 75",
          parameters={"max_t3_tightness_pct": 7.0, "min_thrust_vol_ratio": 1.5, "min_score": 75.0},
          status=VariantStatus.CHALLENGER),
+    dict(variant_id="VCP_CHALL_I_INST_VOLUME", scanner_family=ScannerFamily.ACCUMULATION_VCP,
+         description="Challenger I: Institutional Volume Expansion (Vol >= 2.0x SMA50 + Contraction <= 12%; E[R]=+0.1523R, PF=1.394)",
+         parameters={"min_thrust_vol_ratio": 2.0, "max_contraction_pct": 12.0},
+         status=VariantStatus.CHALLENGER),
 
     # -----------------------------------------------------------------------
     # 6. WEALTH ENGINE (Long-Term Compounding & Momentum)
@@ -609,6 +627,14 @@ _BUILT_IN_VARIANTS: List[Dict[str, Any]] = [
          description="Challenger B: Stage 2 Growth + Trailing 50DMA Stop + Quarterly Earnings Acceleration",
          parameters={"stage": 2, "trailing_exit": "50DMA", "earnings_accel": True},
          status=VariantStatus.CHALLENGER),
+    dict(variant_id="WEALTH_CHALL_I_COMPOSITE_CONVICTION", scanner_family=ScannerFamily.WEALTH,
+         description="Challenger I: Dual-Gate Institutional Compounder (Price > SMA50 > SMA200 + RS >= 80 + Vol >= 1.75x + Wick <= 20% + Vol-Adaptive Stop; E[R]=+0.1322R, PF=1.288, OOS PF=11.93)",
+         parameters={"rs_threshold": 80.0, "min_vol_ratio": 1.75, "max_upper_wick": 0.20, "vol_adaptive_stop": True},
+         status=VariantStatus.CHALLENGER),
+    dict(variant_id="WEALTH_CHALL_DB_SHAKEOUT_BONUS", scanner_family=ScannerFamily.WEALTH,
+         description="Certified Challenger: Wealth VAR_I + Double Bottom Shakeout Conviction Bonus (+15 pts, WR=69.23%, E[R]=+0.3151R, PF=1.957, W7 OOS PF=4.24)",
+         parameters={"rs_threshold": 80.0, "min_vol_ratio": 1.75, "max_upper_wick": 0.20, "conviction_bonus_db_shakeout": 15},
+         status=VariantStatus.CHALLENGER),
 
     # -----------------------------------------------------------------------
     # 7. MULTIBAGGER ENGINE (Convex Asymmetry & Turnarounds)
@@ -624,6 +650,14 @@ _BUILT_IN_VARIANTS: List[Dict[str, Any]] = [
     dict(variant_id="MULTIBAGGER_CHALL_B_EXPANSION_SCALE", scanner_family=ScannerFamily.MULTIBAGGER,
          description="Challenger B: Industry Leader + Multi-Year Base Breakout + High Relative Strength",
          parameters={"multi_year_breakout": True, "min_rs": 80, "trailing_exit": "20EMA"},
+         status=VariantStatus.CHALLENGER),
+    dict(variant_id="MULTIBAGGER_CHALL_I_CONFIRMED_BREAKOUT", scanner_family=ScannerFamily.MULTIBAGGER,
+         description="Challenger I: Triple Confirmation (Price > SMA50 > SMA200 + RS >= 80 + Vol >= 1.75x + Wick <= 20% + Vol-Adaptive Stop; E[R]=+0.1536R, PF=1.339, OOS PF=11.93, p=0.0148)",
+         parameters={"rs_threshold": 80.0, "min_vol_ratio": 1.75, "max_upper_wick": 0.20, "vol_adaptive_stop": True},
+         status=VariantStatus.CHALLENGER),
+    dict(variant_id="MULTIBAGGER_CHALL_BULL_FLAG_TAG", scanner_family=ScannerFamily.MULTIBAGGER,
+         description="Certified Challenger: Multibagger VAR_I + Bull Flag Continuation Tag (E[R]=+0.1286R, PF=1.280, W7 OOS PF=1.744)",
+         parameters={"rs_threshold": 80.0, "min_vol_ratio": 1.75, "max_upper_wick": 0.20, "bull_flag_tag": True},
          status=VariantStatus.CHALLENGER),
 
     # -----------------------------------------------------------------------
@@ -933,3 +967,7 @@ class ChampionChallengerRegistry:
                 "fdr_significant":  None,
             },
         ]
+
+
+# Default singleton instance for global access
+registry = ChampionChallengerRegistry()
