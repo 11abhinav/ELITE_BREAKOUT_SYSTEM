@@ -1091,13 +1091,15 @@ def run_all_seven_scanners_non_market_boot():
       4. EOD (EOD Scanner)
       5. REVERSAL (Reversal Scanner)
       6. PULLBACK (Pullback Pipeline)
-      7. Wealth Engine (Wealth Engine)
-      8. MULTIBAGGER (Multibagger Scanner)
+      7. TECHNICAL (Technical Scanner)
+      8. Wealth Engine (Wealth Engine)
+      9. MULTIBAGGER (Multibagger Scanner)
+      10. SHORT_COVERING_EOD (Short Covering EOD Positioning Engine)
     """
     def _run_batch():
         logger.info("======================================================================")
         logger.info("🌙 [NON-MARKET HOURS BOOT] Server restarted outside market hours.")
-        logger.info("🚀 Triggering 1-pass catchup execution for ALL 8 SCANNERS in Health Dashboard sequence...")
+        logger.info("🚀 Triggering 1-pass catchup execution for ALL PRIMARY SCANNERS in Health Dashboard sequence...")
         logger.info("======================================================================")
         
         try:
@@ -1119,6 +1121,7 @@ def run_all_seven_scanners_non_market_boot():
             ("TECHNICAL", _trigger_technical),
             ("Wealth Engine", _trigger_wealth_engine),
             ("MULTIBAGGER", _trigger_multibagger),
+            ("SHORT_COVERING_EOD", _trigger_short_covering_eod),
         ]
 
         from database import is_scanner_stopped, upsert_scanner_health
@@ -1131,7 +1134,7 @@ def run_all_seven_scanners_non_market_boot():
         # 2. Ensure watchlist file exists for scanners (no infinite sleep lock!)
         ensure_watchlist_exists_for_scanners()
 
-        # 3. Execute all 8 scanners sequentially one-by-one
+        # 3. Execute all primary scanners sequentially one-by-one
         # [VERSION: BOOT_SEQUENCE_FIX_v1.0] [RULE 67 CHANGE-RATIONALE]
         # Wrap sequence execution in try/finally to clear stale QUEUED statuses on boot batch completion.
         # Inside the exception block, explicitly upsert health status as DOWN so exceptions do not result in stale QUEUED states.
@@ -1176,7 +1179,7 @@ def run_all_seven_scanners_non_market_boot():
                                 error_msg = 'Boot sequence completed — status reset from QUEUED',
                                 updated_at = NOW()
                             WHERE (status = 'QUEUED' OR status LIKE 'QUEUED%%')
-                              AND scanner_name = ANY(%s);
+                                AND scanner_name = ANY(%s);
                         """, (scanner_names,))
                     conn.commit()
                 logger.info("🧹 Cleaned up any remaining QUEUED statuses from boot sequence.")
@@ -1184,7 +1187,7 @@ def run_all_seven_scanners_non_market_boot():
                 logger.warning(f"⚠️ Failed to clean up QUEUED statuses after boot sequence: {cleanup_err}")
 
         logger.info("======================================================================")
-        logger.info("✅ [NON-MARKET HOURS BOOT] Completed single catch-up pass of all 8 scanners.")
+        logger.info(f"✅ [NON-MARKET HOURS BOOT] Completed single catch-up pass of all {len(all_scanners)} scanners.")
         logger.info("======================================================================")
 
     import threading
