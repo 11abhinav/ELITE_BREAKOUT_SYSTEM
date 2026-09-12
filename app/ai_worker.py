@@ -222,7 +222,7 @@ def run_ai_worker_scan_once() -> dict:
     except Exception as outer_err:
         try:
             complete_scanner_execution_run(run_ctx, exception=outer_err)
-        except:
+        except Exception:
             pass
         raise outer_err
         
