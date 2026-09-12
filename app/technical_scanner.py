@@ -52,6 +52,7 @@ from database import (
 )
 from lock_utils import ProcessLock
 from price_cache import fetch_watchlist_data
+from technical_indicators import apply_indicators
 from telemetry_manager import telemetry
 from watchlist_cache import get_watchlist
 try:
