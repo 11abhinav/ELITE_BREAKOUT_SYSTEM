@@ -1639,6 +1639,25 @@ def run_system_scheduler():
                 verify_scans()
             elif now.hour != 8:
                 verify_scans_ran = False
+
+            # 09:05 AM - Short Covering Layer 1 EOD Positioning Detector / Active F&O Universe Builder (Trading Days Only)
+            if (now.hour > 9 or (now.hour == 9 and now.minute >= 5)) and last_short_covering_eod_date != now.date():
+                last_short_covering_eod_date = now.date()
+                if not is_scanner_stopped("SHORT_COVERING_EOD") and not is_scanner_stopped("SHORT_COVERING"):
+                    from trading_calendar import is_trading_day
+                    if is_trading_day(now.date()):
+                        logger.info("🕒 SCHEDULER | [09:05 IST] Triggering SHORT COVERING EOD Positioning Detector / Active F&O Universe Builder...")
+                        import threading
+                        threading.Thread(
+                            target=_trigger_short_covering_eod,
+                            kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"},
+                            name="ShortCovering-EOD",
+                            daemon=True
+                        ).start()
+                    else:
+                        logger.info("⏭️ Non-trading day. Skipping Short Covering EOD.")
+                else:
+                    logger.info("⏭️ SHORT_COVERING_EOD is STOPPED by Admin. Skipping 09:05 IST run.")
                 
             # 09:14:30 - Precision Warmup for Intraday Scanners
             if now.hour == 9 and now.minute == 14 and now.second >= 30 and not warmup_ran:
@@ -1897,25 +1916,6 @@ def run_system_scheduler():
                 else:
                     logger.info("⏭️ MULTIBAGGER is STOPPED by Admin. Skipping 17:30 IST run.")
 
-            # 19:15 - Short Covering Layer 1 EOD Positioning Detector (Trading Days Only)
-            if (now.hour > 19 or (now.hour == 19 and now.minute >= 15)) and last_short_covering_eod_date != now.date():
-                last_short_covering_eod_date = now.date()
-                if not is_scanner_stopped("SHORT_COVERING_EOD") and not is_scanner_stopped("SHORT_COVERING"):
-                    from trading_calendar import is_trading_day
-                    if is_trading_day(now.date()):
-                        logger.info("🕒 SCHEDULER | [19:15 IST] Triggering SHORT COVERING EOD Positioning Detector...")
-                        import threading
-                        threading.Thread(
-                            target=_trigger_short_covering_eod,
-                            kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"},
-                            name="ShortCovering-EOD",
-                            daemon=True
-                        ).start()
-                    else:
-                        logger.info("⏭️ Non-trading day. Skipping Short Covering EOD.")
-                else:
-                    logger.info("⏭️ SHORT_COVERING_EOD is STOPPED by Admin. Skipping 19:15 IST run.")
-
             # Earnings Calendar removed — earnings data was unused and added latency.
 
             # Midnight session rotation — triggered once on date boundary
@@ -1965,7 +1965,7 @@ def check_scanner_staleness(now):
         "PULLBACK":            "DAILY",
         "ACCUMULATION":        "DAILY",
         "MULTIBAGGER":         "DAILY",
-        "SHORT_COVERING_EOD":  "DAILY",  # runs daily at 19:15 IST
+        "SHORT_COVERING_EOD":  "DAILY",  # runs daily at 09:05 IST
     }
     
     # Throttle: only run this check every 15 minutes

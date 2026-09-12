@@ -107,7 +107,7 @@ class ShortPositionDetector:
                 scanner_name="SHORT_COVERING_EOD",
                 status="RUNNING",
                 error_msg="EOD positioning analysis in progress...",
-                scheduled_for="Daily 19:15 IST (Market Days)",
+                scheduled_for="Daily 09:05 IST (Market Days)",
                 run_id=run_ctx.run_id if run_ctx else None
             )
 
@@ -154,7 +154,7 @@ class ShortPositionDetector:
                 total_count=len(symbols),
                 processed_count=len(candidates),
                 duration_seconds=dur,
-                scheduled_for="Daily 19:15 IST (Market Days)",
+                scheduled_for="Daily 09:05 IST (Market Days)",
                 run_id=run_ctx.run_id if run_ctx else None
             )
             return candidates
@@ -166,7 +166,7 @@ class ShortPositionDetector:
                 insert_notification(
                     notif_type="error",
                     title="🚨 Short Covering EOD Scan Failed",
-                    message=f"Exception during 19:15 IST EOD scan: {exc}",
+                    message=f"Exception during 09:05 IST EOD scan: {exc}",
                     symbol=None
                 )
             except Exception:
@@ -179,7 +179,7 @@ class ShortPositionDetector:
                 outcome="FAILURE",
                 error_msg=str(exc),
                 duration_seconds=dur,
-                scheduled_for="Daily 19:15 IST (Market Days)",
+                scheduled_for="Daily 09:05 IST (Market Days)",
                 run_id=run_ctx.run_id if run_ctx else None
             )
             return []

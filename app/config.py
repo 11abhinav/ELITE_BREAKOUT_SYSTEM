@@ -942,6 +942,9 @@ SCANNER_EXIT_PROFILE = {
     "MULTI_TF": "AGGRESSIVE",
     "REVERSAL": "CONSERVATIVE",
     "PULLBACK": "BALANCED",
+    "SHORT_COVERING": "BALANCED",
+    "SHORT_COVERING_5M": "BALANCED",
+    "SHORT_COVERING_EOD": "BALANCED",
 }
 
 FIB_EXTENSIONS   = [1.272, 1.618, 2.0]
@@ -962,6 +965,9 @@ _MODE_CONFIG = {
     "REVERSAL": (2.00,    1.00,       0.0100,     3.5),
     "PULLBACK": (2.00,    0.75,       0.0075,     3.0),   # Pullback Continuation
     "MULTIBAGGER": (2.00, 1.00,       0.0100,     3.5),
+    "SHORT_COVERING": (1.50, 0.50,    0.0050,     3.0),
+    "SHORT_COVERING_5M": (1.50, 0.50, 0.0050,     3.0),
+    "SHORT_COVERING_EOD": (2.00, 0.80, 0.0075,    3.0),
 }
 
 

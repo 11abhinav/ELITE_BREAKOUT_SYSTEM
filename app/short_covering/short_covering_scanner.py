@@ -688,22 +688,40 @@ class ShortCoveringEarlyIgnitionScanner:
 
             # Canonical alerts table sync for trade dashboard, health, and exit tracking
             try:
-                from database import save_alert_if_new
+                try:
+                    from app.database import save_alert_if_new
+                except ImportError:
+                    from database import save_alert_if_new
                 for a in alerts:
-                    save_alert_if_new({
-                        "symbol": a.symbol,
-                        "scanner": "SHORT_COVERING_5M",
-                        "category": "SHORT_COVERING",
-                        "signals": f"Short Covering Ignition [{a.grade}] (OI: {a.excess_oi_contraction}%, Surge: {a.volume_surge_ratio}x)",
-                        "entry_price": float(a.ignition_price) if a.ignition_price else None,
-                        "alert_time": a.timestamp.isoformat() if hasattr(a.timestamp, "isoformat") else str(a.timestamp),
-                        "alert_date": a.timestamp.date().isoformat() if hasattr(a.timestamp, "date") else str(a.timestamp)[:10],
-                        "stop_loss": float(a.stop_loss) if a.stop_loss else None,
-                        "target_price": float(a.initial_target) if a.initial_target else None,
-                        "target_1": float(a.initial_target) if a.initial_target else None,
-                        "score": float(a.ignition_score) if a.ignition_score else None,
-                        "status": "OPEN",
-                    })
+                    alert_time_str = a.timestamp.strftime("%Y-%m-%d %H:%M:%S") if hasattr(a.timestamp, "strftime") else str(a.timestamp)[:19]
+                    signals_str = (
+                        f"Short Covering Ignition [{a.grade}] (OI: {a.excess_oi_contraction}%, Surge: {a.volume_surge_ratio}x)"
+                        if a.excess_oi_contraction is not None
+                        else f"Short Covering Ignition [{a.grade}]"
+                    )
+                    save_alert_if_new(
+                        symbol=a.symbol,
+                        breakout_type=f"SHORT_COVERING_IGNITION_{a.grade}",
+                        alert_time=alert_time_str,
+                        scanner="SHORT_COVERING_5M",
+                        category="SHORT_COVERING",
+                        entry_price=float(a.ignition_price) if a.ignition_price else None,
+                        stop_loss=float(a.stop_loss) if a.stop_loss else None,
+                        target_1=float(a.initial_target) if a.initial_target else None,
+                        target_2=float(a.initial_target * 1.05) if a.initial_target else None,
+                        target_price=float(a.initial_target) if a.initial_target else None,
+                        signals=signals_str,
+                        score=int(round(float(a.ignition_score))) if a.ignition_score else 70,
+                        volume_ratio=float(a.volume_surge_ratio) if a.volume_surge_ratio else 1.0,
+                        context={
+                            "vwap": float(a.vwap) if a.vwap else None,
+                            "excess_oi_contraction": float(a.excess_oi_contraction) if a.excess_oi_contraction else None,
+                            "volume_surge_ratio": float(a.volume_surge_ratio) if a.volume_surge_ratio else None,
+                            "grade": str(a.grade),
+                            "reasons": a.reasons,
+                            "state": a.state.value if hasattr(a.state, "value") else str(a.state)
+                        }
+                    )
             except Exception as _al_err:
                 logger.warning(f"Could not save short covering alert to canonical alerts table: {_al_err}")
         except Exception as e:
