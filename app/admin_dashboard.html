@@ -4659,6 +4659,13 @@ function getEarningsBadgeHtml(item) {
       document.getElementById('drill-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
+    function closeDrill() {
+      const panel = document.getElementById('drill-panel');
+      if (panel) {
+        panel.classList.remove('open');
+      }
+    }
+
     // ── TRADE TABLE helpers
     let expandedIds = new Set();
     let sortCol = 'status', sortDir = 1;
