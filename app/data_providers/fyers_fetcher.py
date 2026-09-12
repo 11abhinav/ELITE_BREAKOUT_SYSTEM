@@ -680,8 +680,8 @@ class FyersFetcher(DataFetcher):
             dataframe=None,
             source="Fyers",
             quality_report=None,
-            is_fallback=False,
-            is_stale=False,
+            stale=False,
+            used_fallback=False,
             error=f"Invalid symbol: All Fyers series candidates failed for {orig_sym} ({candidates})"
         )
 

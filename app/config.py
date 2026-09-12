@@ -938,14 +938,24 @@ EXIT_PROFILES = {
 }
 
 SCANNER_EXIT_PROFILE = {
-    "EOD":      "BALANCED",
-    "MULTI_TF": "AGGRESSIVE",
-    "REVERSAL": "CONSERVATIVE",
-    "PULLBACK": "BALANCED",
-    "SHORT_COVERING": "BALANCED",
-    "SHORT_COVERING_5M": "BALANCED",
+    "DAILY_BUILDER":      "BALANCED",
+    "BREAKOUT":           "BALANCED",
+    "BREAKOUT_5M":        "BALANCED",
+    "EOD":                "BALANCED",
+    "MULTI_TF":           "AGGRESSIVE",
+    "MULTI_TF_5M":        "AGGRESSIVE",
+    "TECHNICAL":          "BALANCED",
+    "ACCUMULATION":       "BALANCED",
+    "REVERSAL":           "CONSERVATIVE",
+    "PULLBACK":           "BALANCED",
+    "Wealth Engine":      "BALANCED",
+    "WEALTH_ENGINE":      "BALANCED",
+    "MULTIBAGGER":        "AGGRESSIVE",
+    "SHORT_COVERING":     "BALANCED",
+    "SHORT_COVERING_5M":  "BALANCED",
     "SHORT_COVERING_EOD": "BALANCED",
 }
+SCANNER_EXIT_PROFILES = SCANNER_EXIT_PROFILE
 
 FIB_EXTENSIONS   = [1.272, 1.618, 2.0]
 FIB_RETRACEMENTS = [0.382, 0.500, 0.618]
@@ -960,14 +970,21 @@ TARGET_CLUSTER_WINDOW_PCT      = 0.0075
 
 #           atr_base  sl_atr_buf  sl_pct_buf  max_sl_atr
 _MODE_CONFIG = {
-    "EOD":      (2.00,    0.80,       0.0075,     3.0),
-    "MULTI_TF": (1.50,    0.50,       0.0050,     3.0),
-    "REVERSAL": (2.00,    1.00,       0.0100,     3.5),
-    "PULLBACK": (2.00,    0.75,       0.0075,     3.0),   # Pullback Continuation
-    "MULTIBAGGER": (2.00, 1.00,       0.0100,     3.5),
-    "SHORT_COVERING": (1.50, 0.50,    0.0050,     3.0),
-    "SHORT_COVERING_5M": (1.50, 0.50, 0.0050,     3.0),
-    "SHORT_COVERING_EOD": (2.00, 0.80, 0.0075,    3.0),
+    "BREAKOUT":           (2.00,    0.80,       0.0075,     3.0),
+    "BREAKOUT_5M":        (1.50,    0.50,       0.0050,     3.0),
+    "EOD":                (2.00,    0.80,       0.0075,     3.0),
+    "MULTI_TF":           (1.50,    0.50,       0.0050,     3.0),
+    "MULTI_TF_5M":        (1.50,    0.50,       0.0050,     3.0),
+    "TECHNICAL":          (2.00,    0.80,       0.0075,     3.0),
+    "ACCUMULATION":       (2.00,    0.80,       0.0075,     3.0),
+    "REVERSAL":           (2.00,    1.00,       0.0100,     3.5),
+    "PULLBACK":           (2.00,    0.75,       0.0075,     3.0),   # Pullback Continuation
+    "Wealth Engine":      (2.00,    0.80,       0.0075,     3.0),
+    "WEALTH_ENGINE":      (2.00,    0.80,       0.0075,     3.0),
+    "MULTIBAGGER":        (2.00,    1.00,       0.0100,     3.5),
+    "SHORT_COVERING":     (1.50,    0.50,       0.0050,     3.0),
+    "SHORT_COVERING_5M":  (1.50,    0.50,       0.0050,     3.0),
+    "SHORT_COVERING_EOD": (2.00,    0.80,       0.0075,     3.0),
 }
 
 
