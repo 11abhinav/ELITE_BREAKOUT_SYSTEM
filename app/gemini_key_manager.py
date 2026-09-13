@@ -3,6 +3,7 @@ import json
 import logging
 import threading
 from datetime import datetime, timedelta
+from typing import Optional, List, Dict, Any
 from zoneinfo import ZoneInfo
 from config import DATA_DIR
 
@@ -149,6 +150,71 @@ def _is_gemini_key_exhausted(key: str) -> bool:
     except Exception:
         return False
 
+def revalidate_single_key_live(key: str) -> bool:
+    """
+    [RULE 67 - LIVE PRE-FLIGHT PROBE]:
+    Directly queries Google's /v1beta/models endpoint to test whether the key has valid quota right now.
+    Returns True if Google responds with HTTP 200 (quota available / key active), False otherwise.
+    """
+    if not key:
+        return False
+    try:
+        import requests
+        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
+        headers = {
+            "x-goog-api-key": key,
+            "Content-Type": "application/json"
+        }
+        resp = requests.get(url, headers=headers, timeout=6)
+        if resp.status_code == 200:
+            return True
+        elif resp.status_code == 429:
+            logger.debug(f"Live key probe returned HTTP 429 (Resource Exhausted) for key: {key[:4]}...{key[-4:]}")
+            return False
+        else:
+            logger.debug(f"Live key probe returned HTTP {resp.status_code} for key: {key[:4]}...{key[-4:]}")
+            return False
+    except Exception as e:
+        logger.debug(f"Live key probe network exception for key {key[:4]}...{key[-4:]}: {e}")
+        return False
+
+def unblacklist_gemini_key(key: str, reason: str = "Live pre-flight probe succeeded (HTTP 200)"):
+    """
+    Removes a Gemini API key from the blacklist across RAM, local disk, and PostgreSQL DB.
+    Restores the key to active status immediately.
+    """
+    if not key:
+        return
+    try:
+        global _active_gemini_key_ram
+        _init_gemini_key_state()
+        with _cache_lock:
+            if key in _blacklisted_gemini_keys_ram:
+                _blacklisted_gemini_keys_ram.pop(key, None)
+            _active_gemini_key_ram = key
+            ram_copy = dict(_blacklisted_gemini_keys_ram)
+
+        # 1. Update disk
+        try:
+            fpath = _get_exhausted_gemini_keys_file()
+            with open(fpath, 'w') as f:
+                json.dump(ram_copy, f, indent=2)
+        except Exception:
+            pass
+
+        # 2. Update PostgreSQL DB
+        try:
+            from database import save_system_state
+            save_system_state("exhausted_gemini_keys_v1", json.dumps(ram_copy, indent=2))
+            save_system_state("active_gemini_key_v1", key)
+        except Exception as db_err:
+            logger.debug(f"Failed to persist unblacklisted key in DB: {db_err}")
+
+        masked_key = f"{key[:4]}...{key[-4:]}" if len(key) > 8 else key
+        logger.info(f"✨ [GEMINI AUTO-RECOVERY] Key [{masked_key}] REMOVED FROM BLACKLIST and restored to ACTIVE ({reason})!")
+    except Exception as e:
+        logger.error(f"Failed to unblacklist Gemini key {key}: {e}")
+
 def mark_gemini_key_exhausted(key: str, reason: str = "Exhausted / Quota Limit Exceeded (1-day blacklist)"):
     """Blacklists a Gemini API key for 1 DAY (24h) persistently in PostgreSQL DB & local disk."""
     if not key:
@@ -156,8 +222,6 @@ def mark_gemini_key_exhausted(key: str, reason: str = "Exhausted / Quota Limit E
     try:
         global _active_gemini_key_ram
         _init_gemini_key_state()
-        # [RULE 67 - FIX RATIONALE]: Set blacklist duration to 1 day (24 hours) since Google Gemini
-        # free tier and quota pools reset on a daily cycle.
         now_dt = datetime.now(ZoneInfo('Asia/Kolkata'))
         expires_dt = now_dt + timedelta(days=1)
         now_iso = now_dt.isoformat()
@@ -219,8 +283,15 @@ def set_active_gemini_key(key: str):
 def get_active_gemini_key() -> str:
     """
     Parse comma-separated GEMINI_API_KEY env var and return the active working key.
-    Reuses the single active key sticky until it gets exhausted, then switches to next key.
-    Persists active key in PostgreSQL DB across server restarts.
+    
+    PRE-FLIGHT LIVE REVALIDATION PROTOCOL:
+    1. Reuses sticky active working key if present and not blacklisted.
+    2. Searches for any configured key that is not in the blacklist.
+    3. PRE-FLIGHT PROBE: If all keys are currently blacklisted in cache/DB,
+       actively probes Google's API for EVERY configured key.
+       If any key succeeds (quota reset early, 24h passed, or temporary glitch resolved),
+       it is instantly unblacklisted, saved to DB, and returned for usage.
+    4. Only returns "" (triggering admin exhaustion alert) if ALL keys fail the live probe.
     """
     _init_gemini_key_state()
     keys_str = os.getenv("GEMINI_API_KEY", "")
@@ -233,11 +304,23 @@ def get_active_gemini_key() -> str:
     if _active_gemini_key_ram and _active_gemini_key_ram in keys and not _is_gemini_key_exhausted(_active_gemini_key_ram):
         return _active_gemini_key_ram
 
-    # 2. Find next non-exhausted key
+    # 2. Find next non-exhausted key in RAM/DB state
     for k in keys:
         if not _is_gemini_key_exhausted(k):
             set_active_gemini_key(k)
             return k
 
-    logger.warning("⚠️ [GEMINI] All provided GEMINI_API_KEY(s) are marked EXHAUSTED for the next 7 days!")
+    # 3. PRE-FLIGHT LIVE REVALIDATION:
+    # All keys are currently marked blacklisted. Before giving up and alerting admin,
+    # actively test all keys against Google's API to see if any key has recovered.
+    logger.info(f"🔍 [GEMINI PRE-FLIGHT PROBE] All {len(keys)} key(s) are blacklisted in cache. Probing Google API live before throwing admin alert...")
+    for k in keys:
+        masked = f"{k[:4]}...{k[-4:]}" if len(k) > 8 else k
+        if revalidate_single_key_live(k):
+            unblacklist_gemini_key(k, reason="Pre-flight live probe succeeded (HTTP 200)")
+            return k
+        else:
+            logger.debug(f"Probe failed for key [{masked}]. Still exhausted.")
+
+    logger.warning("⚠️ [GEMINI] All provided GEMINI_API_KEY(s) were live-tested and genuinely failed (all exhausted).")
     return ""
