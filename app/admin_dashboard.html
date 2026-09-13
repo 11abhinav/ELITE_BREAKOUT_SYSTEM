@@ -3503,7 +3503,7 @@ function changeAdminPage(type, delta) {
                   </tr>
                 </thead>
                 <tbody id="seh-table-body">
-                  <tr><td colspan="10" style="text-align:center; padding:24px; color:var(--muted);">Loading scanner execution history...</td></tr>
+                  <tr><td colspan="9" style="text-align:center; padding:24px; color:var(--muted);">Loading scanner execution history...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -6664,7 +6664,7 @@ async function fetchScannerExecutionHistory(page = 1) {
     renderScannerExecutionHistory(data);
   } catch (e) {
     console.error("Failed to fetch scanner execution history", e);
-    if (tbody) tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:24px; color:var(--warn);">Failed to load execution history: ${escapeHTML(e.message)}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--warn);">Failed to load execution history: ${escapeHTML(e.message)}</td></tr>`;
   }
 }
 
@@ -6704,7 +6704,7 @@ function renderScannerExecutionHistory(data) {
   if (staleRatioEl) staleRatioEl.innerText = `${stats.avg_stale_ratio_pct || 0.0}%`;
 
   if (!records.length) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding:24px; color:var(--muted);">No scanner execution history records matching filter criteria.</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--muted);">No scanner execution history records matching filter criteria.</td></tr>`;
     updateSehPagination(0, 0, 0);
     return;
   }
