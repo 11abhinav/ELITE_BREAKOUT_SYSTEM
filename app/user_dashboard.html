@@ -144,7 +144,7 @@ var USER_PAGE_SIZE = 10;
   .refresh-btn:hover{border-color:var(--border2);color:var(--text);background:var(--card3);box-shadow:var(--shadow);}
   .refresh-btn.spinning svg{animation:spin .65s linear infinite;}
   @keyframes spin{to{transform:rotate(360deg);}}
-  .container{max-width:1600px;margin:0 auto;padding:12px 16px;}
+  .container{max-width:100%;width:100%;margin:0;padding:10px 18px;box-sizing:border-box;}
   .kpi-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;}
   .kpi{flex:1 1 130px;background:linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:var(--radius);padding:10px 14px;cursor:pointer;transition:all .2s cubic-bezier(0.16, 1, 0.3, 1);position:relative;overflow:hidden;box-shadow:var(--shadow);}
   .kpi:hover{border-color:var(--border2);border-left-color:var(--accent-hover);box-shadow:0 8px 24px rgba(15,23,42,0.1);transform:translateY(-2px);}
@@ -1028,16 +1028,14 @@ function playDing() {
               <th data-col="entry_date">Date &amp; Time</th>
               <th data-col="scanner">Scanner</th>
               <th data-col="status" class="sort-asc">Status</th>
-              <th data-col="category" class="col-opt">Category</th>
               <th style="text-align:center;">🧠 AI Dossier</th>
-              <th data-col="entry_price" style="cursor:pointer">Trigger/Entry ₹</th>
-              <th data-col="current_price" style="cursor:pointer">CMP/Exit ₹</th>
+              <th data-col="current_price" style="cursor:pointer">Price / Entry ₹</th>
+              <th data-col="pnl_pct" style="cursor:pointer" class="desc">P&amp;L</th>
+              <th data-col="score" style="cursor:pointer">Score</th>
+              <th data-col="category" class="col-opt">Category</th>
               <th data-col="capital_allocated" style="cursor:pointer" class="col-opt">Capital ₹</th>
               <th data-col="shares_bought" style="cursor:pointer" class="col-opt">Shares</th>
-              <th data-col="pnl_pct" style="cursor:pointer" class="desc">P&amp;L %</th>
-              <th data-col="pnl_rs" style="cursor:pointer">P&amp;L ₹</th>
-              <th data-col="score" style="cursor:pointer">Score</th>
-              <th data-col="days_held">Days</th>
+              <th data-col="days_held" class="col-opt">Days</th>
             </tr>
           </thead>
           <tbody id="tradeBody"></tbody>
@@ -1809,29 +1807,28 @@ function buildTradeRows(trades, maxAbs, prefix) {
         ${t.scanner === 'TECHNICAL' && t.signals ? `<div style="font-size:9px; color:var(--accent); font-weight:600; margin-top:2px;">${(t.signals).replace(/_/g, ' ')}</div>` : ''}
       </td>
       <td>${badgeHtml(t.status, t)}</td>
-      <td class="col-opt" style="color:var(--muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-body)">${t.category||'—'}</td>
       <td style="text-align:center;">
         <button onclick="openStockIntelligenceDossier('${cleanSym}'); event.stopPropagation();" style="background:linear-gradient(135deg,rgba(99,102,241,0.2),rgba(168,85,247,0.2)); border:1px solid rgba(168,85,247,0.4); color:#c084fc; padding:4px 9px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px; box-shadow:0 0 10px rgba(168,85,247,0.15); transition:all 0.2s;" onmouseover="this.style.transform='scale(1.04)'" onmouseout="this.style.transform='scale(1)'" title="Open AI Corporate & Analyst Intelligence Dossier for ${cleanSym}">🧠 AI Analyser</button>
       </td>
-      <td>
-        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">Trig: ${fmt(t.entry_price)}</div>
-        <div style="font-size: 13px;">${t.actual_entry_price ? fmt(t.actual_entry_price) : (t.execution_state === 'PENDING_ENTRY' ? '—' : fmt(t.entry_price))}</div>
-      </td>
       <td title="${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') ? (t.closed_at ? 'Closed: ' + fmtDetailTime(t.closed_at) : '') : ((t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) ? 'Updated: ' + fmtDetailTime(t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) : '')}">
-        <div style="font-weight:700;">${fmt(t.exit_price || t.current_price)}</div>
-        ${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') 
-          ? (t.closed_at ? `<div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">Closed: ${fmtDetailTime(t.closed_at)}</div>` : '') 
-          : ((t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) ? `<div style="font-size:9px; color:var(--muted); font-weight:normal; white-space:nowrap; margin-top:2px;">${fmtTs(t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT)}</div>` : '')}
+        <div style="font-weight:800; font-size:12px; color:var(--text);">${fmt(t.exit_price || t.current_price)}</div>
+        <div style="font-size:9.5px; color:var(--muted); margin-top:2px;">Entry: ${fmt(t.actual_entry_price || t.entry_price)}</div>
       </td>
-      <td class="col-opt">${fmt(t.capital_allocated)}</td>
-      <td class="col-opt">${t.shares_bought||'\u2014'}</td>
-      <td><div class="pnl-wrap"><div class="pnl-bar-track"><div class="pnl-bar-fill" style="width:${barW}%;background:${barColor}"></div></div><span class="pnl-text ${pctClass(t.pnl_pct)}">${pct(t.pnl_pct)}</span></div></td>
-      <td class="${pctClass(pnlRsVal)}">${pnlRsVal !== 0 ? fmt(pnlRsVal) : (t.pnl_rs != null && t.pnl_rs !== 0 ? fmt(t.pnl_rs) : '—')}</td>
+      <td>
+        <div class="pnl-wrap" style="gap:4px;">
+          <div class="pnl-bar-track"><div class="pnl-bar-fill" style="width:${barW}%;background:${barColor}"></div></div>
+          <span class="pnl-text ${pctClass(t.pnl_pct)}" style="font-size:11.5px; min-width:auto;">${pct(t.pnl_pct)}</span>
+        </div>
+        <div style="font-size:9.5px; margin-top:2px;" class="${pctClass(pnlRsVal)}">${pnlRsVal !== 0 ? fmt(pnlRsVal) : (t.pnl_rs != null && t.pnl_rs !== 0 ? fmt(t.pnl_rs) : '—')}</div>
+      </td>
       <td title="Calculated: ${fmtDetailTime(t.alert_time || t.entry_date)}">
         ${sc}
         <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${t.alert_time || t.entry_date ? fmtDetailTime(t.alert_time || t.entry_date) : ''}</div>
       </td>
-      <td style="color:var(--muted)">${t.days_held!=null?t.days_held+'d':'—'}</td>
+      <td class="col-opt" style="color:var(--muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-body)">${t.category||'—'}</td>
+      <td class="col-opt">${fmt(t.capital_allocated)}</td>
+      <td class="col-opt">${t.shares_bought||'\u2014'}</td>
+      <td class="col-opt" style="color:var(--muted)">${t.days_held!=null?t.days_held+'d':'—'}</td>
     </tr>
     <tr class="detail-row">
       <td colspan="15">
