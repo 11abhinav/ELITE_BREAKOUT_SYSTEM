@@ -4916,22 +4916,39 @@ def api_stock_intelligence(symbol):
                 "executive_summary": "Historical snapshot baseline."
             })
 
-    # Live Query: Use Materialized Current View or Build Fresh
-    curr = get_current_company_intelligence(symbol)
-    if curr and curr.get("summary_payload"):
-        payload = curr["summary_payload"]
-        # Attach fresh timeline and analyst reports
-        events = get_corporate_events_for_symbol(symbol, limit=30)
-        payload["timeline_events"] = events
-        return jsonify(payload)
+    force_refresh = request.args.get("refresh", "").lower() in ("true", "1", "yes") or request.args.get("force_refresh", "").lower() in ("true", "1", "yes")
 
-    # Build fresh if not yet materialized
+    # Live Query: Use Materialized Current View or Build Fresh
+    if not force_refresh:
+        curr = get_current_company_intelligence(symbol)
+        if curr and curr.get("summary_payload"):
+            payload = curr["summary_payload"]
+            # Attach fresh timeline and analyst reports
+            events = get_corporate_events_for_symbol(symbol, limit=30)
+            payload["timeline_events"] = events
+            return jsonify(payload)
+
+    # Build fresh if forced or not yet materialized
     try:
         fresh_dossier = fetch_and_build_stock_intelligence_dossier(symbol)
         fresh_dossier["timeline_events"] = get_corporate_events_for_symbol(symbol, limit=30)
         return jsonify(fresh_dossier)
     except Exception as e:
         logger.exception(f"Failed to generate intelligence dossier for {symbol}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/stock/<symbol>/intelligence/refresh", methods=["POST"])
+@login_required
+def api_stock_intelligence_refresh(symbol):
+    """Triggers manual re-ingestion and full AI analysis for a stock symbol."""
+    from database import get_corporate_events_for_symbol
+    try:
+        fresh_dossier = fetch_and_build_stock_intelligence_dossier(symbol)
+        fresh_dossier["timeline_events"] = get_corporate_events_for_symbol(symbol, limit=30)
+        return jsonify(fresh_dossier)
+    except Exception as e:
+        logger.exception(f"Failed to refresh intelligence dossier for {symbol}: {e}")
         return jsonify({"error": str(e)}), 500
 
 
