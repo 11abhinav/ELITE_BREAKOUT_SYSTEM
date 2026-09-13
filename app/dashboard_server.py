@@ -4517,6 +4517,50 @@ def api_all_tickers():
         logger.exception(f"Failed to fetch tickers: {e}")
         return jsonify([])
 
+def check_has_concall_in_past_4_quarters(announcements: list) -> bool:
+    """
+    Checks if the company has published any concall transcript, investor presentation,
+    or earnings call announcement in the past 4 quarters (approx. last 365 days).
+    """
+    if not announcements or not isinstance(announcements, list):
+        return False
+        
+    concall_keywords = ["transcript", "presentation", "earnings", "con. call", "concall", "investor meet", "conference call"]
+    
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+    cutoff_dt = now_ist - timedelta(days=365)
+    
+    for n in announcements:
+        if not isinstance(n, dict):
+            continue
+        desc = str(n.get("desc", "")).lower()
+        att_text = str(n.get("attchmntText", "")).lower()
+        combined_text = f"{desc} {att_text}"
+        
+        if any(kw in combined_text for kw in concall_keywords):
+            an_dt_str = n.get("an_dt") or n.get("anDate") or n.get("date") or ""
+            if an_dt_str:
+                parsed_dt = None
+                for fmt in ("%d-%b-%Y %H:%M:%S", "%d-%b-%Y", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y"):
+                    try:
+                        parsed_dt = datetime.strptime(str(an_dt_str).split(".")[0].strip(), fmt)
+                        break
+                    except Exception:
+                        pass
+                if parsed_dt:
+                    if parsed_dt.tzinfo is None:
+                        parsed_dt = parsed_dt.replace(tzinfo=ZoneInfo("Asia/Kolkata"))
+                    if parsed_dt >= cutoff_dt:
+                        return True
+                    else:
+                        continue
+            # If date format is unknown but item is in recent announcement feed
+            return True
+            
+    return False
+
 def fetch_and_analyze_concall(symbol):
     """
     Internal function to fetch and analyze concall, returning a dict instead of a Response.
@@ -4616,7 +4660,19 @@ def fetch_and_analyze_concall(symbol):
                 if len(target_pdfs) == 2: break
                 
         if not target_pdfs:
-            return {"error": "No recent concall transcripts or investor presentations found on NSE."}
+            has_4q_concall = check_has_concall_in_past_4_quarters(data)
+            if has_4q_concall:
+                return {
+                    "error": "No recent concall transcripts or investor presentations found on NSE.",
+                    "has_concall_history": True,
+                    "retry_after_days": 7
+                }
+            else:
+                return {
+                    "error": "No concall transcripts or investor presentations found in last 4 quarters on NSE.",
+                    "has_concall_history": False,
+                    "retry_after_days": 30
+                }
             
         target_pdf = target_pdfs[0]
         target_pdf_2 = target_pdfs[1] if len(target_pdfs) > 1 else None
@@ -4684,6 +4740,209 @@ def api_concall_ai(symbol):
     if "error" in res:
         return jsonify(res), 500 if "extract text" in res.get("error", "") else 404
     return jsonify(res)
+
+
+# =====================================================================================
+# UNIVERSAL STOCK INTELLIGENCE DOSSIER API & INGESTION PIPELINE
+# =====================================================================================
+
+def fetch_and_build_stock_intelligence_dossier(symbol: str) -> dict:
+    """
+    Ingests live exchange filings, classifies events across all 6 streams,
+    persists raw documents and structured events, computes analyst consensus,
+    and runs multi-stream dossier reasoning.
+    """
+    import time
+    t0 = time.time()
+    yf_symbol = symbol.replace('.NS', '').strip()
+    url = f"https://www.nseindia.com/api/corporate-announcements?index=equities&symbol={yf_symbol}"
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': '*/*'
+    }
+
+    from database import (
+        save_raw_source_document, save_corporate_event, get_corporate_events_for_symbol,
+        get_analyst_research_for_symbol, upsert_intelligence_ingestion_health,
+        get_current_company_intelligence
+    )
+    from corporate_event_classifier import classify_announcement_text, compute_document_hash
+    from analyst_consensus_engine import calculate_analyst_consensus
+    from ai_analyzer import analyze_full_corporate_dossier
+
+    records_fetched = 0
+    records_new = 0
+
+    try:
+        try:
+            from curl_cffi import requests as cffi_requests
+            s = cffi_requests.Session(impersonate="chrome120")
+        except ImportError:
+            import requests
+            s = requests.Session()
+
+        # Fetch live announcements
+        r = s.get(url, headers=headers, timeout=25)
+        if r.status_code == 200:
+            data = r.json()
+            if isinstance(data, list):
+                records_fetched = len(data)
+                for n in data:
+                    if not isinstance(n, dict):
+                        continue
+                    headline = str(n.get("desc", "")).strip()
+                    att_url = str(n.get("attchmntFile", "")).strip()
+                    pub_dt = str(n.get("an_dt", "")).strip()
+                    if not headline:
+                        continue
+
+                    doc_hash = compute_document_hash(att_url, headline, pub_dt)
+                    classification = classify_announcement_text(headline, "", source_name="NSE")
+
+                    # 1. Save Raw Source Document
+                    doc_id = save_raw_source_document(
+                        document_hash=doc_hash,
+                        source_type="EXCHANGE_FILING",
+                        source_name="NSE",
+                        source_tier=classification["source_tier"],
+                        evidence_class=classification["evidence_class"],
+                        publication_date=pub_dt if pub_dt else datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
+                        source_url=att_url if att_url else url,
+                        headline=headline,
+                        metadata=n
+                    )
+
+                    if doc_id > 0:
+                        records_new += 1
+                        # 2. Save Structured Event with Version Lineage
+                        event_grp_id = f"GRP_{symbol}_{doc_id}"
+                        save_corporate_event(
+                            symbol=symbol,
+                            document_id=doc_id,
+                            event_group_id=event_grp_id,
+                            event_version=1,
+                            supersedes_event_id=None,
+                            revision_type="INITIAL",
+                            evidence_class=classification["evidence_class"],
+                            category=classification["category"],
+                            event_date=pub_dt if pub_dt else datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
+                            headline=headline,
+                            description=headline,
+                            materiality_score=classification["materiality_score"],
+                            order_value_inr_cr=classification.get("order_value_inr_cr"),
+                            order_quality=classification.get("order_quality"),
+                            severity_score=classification.get("severity_score", 0.0),
+                            status="OPEN",
+                            decay_half_life_days=classification.get("decay_half_life_days", 90)
+                        )
+
+            upsert_intelligence_ingestion_health(
+                feed_name="NSE_CORPORATE_ANNOUNCEMENTS",
+                is_success=True,
+                records_fetched=records_fetched,
+                records_new=records_new,
+                latency_ms=int((time.time() - t0) * 1000)
+            )
+        else:
+            upsert_intelligence_ingestion_health(
+                feed_name="NSE_CORPORATE_ANNOUNCEMENTS",
+                is_success=False,
+                error_msg=f"HTTP {r.status_code}"
+            )
+    except Exception as fetch_err:
+        logger.debug(f"NSE corporate announcement fetch warning for {symbol}: {fetch_err}")
+        upsert_intelligence_ingestion_health(
+            feed_name="NSE_CORPORATE_ANNOUNCEMENTS",
+            is_success=False,
+            error_msg=str(fetch_err)
+        )
+
+    # 3. Retrieve historical structured events & analyst research
+    events = get_corporate_events_for_symbol(symbol, limit=30)
+    reports = get_analyst_research_for_symbol(symbol, limit=30)
+
+    # 4. Calculate Analyst Consensus
+    analyst_consensus = calculate_analyst_consensus(reports)
+
+    # 5. Execute Full Dossier Synthesis
+    dossier = analyze_full_corporate_dossier(
+        symbol=symbol,
+        timeline_events=events,
+        analyst_consensus=analyst_consensus,
+        concall_text=""
+    )
+
+    return dossier
+
+
+@app.route("/api/stock/<symbol>/intelligence", methods=["GET"])
+@login_required
+def api_stock_intelligence(symbol):
+    """
+    Universal Stock Intelligence Dossier Endpoint.
+    Reused across Watchlist, Alert Cards, Technical Scanners, Wealth, Multibagger, and Search.
+    Supports point-in-time historical reconstruction via ?as_of=<iso_timestamp>.
+    """
+    from database import (
+        get_current_company_intelligence, get_intelligence_snapshot_at_time,
+        get_corporate_events_for_symbol, get_analyst_research_for_symbol
+    )
+    from analyst_consensus_engine import calculate_analyst_consensus
+
+    as_of = request.args.get("as_of", None)
+
+    # Historical Point-in-Time Query
+    if as_of:
+        snap = get_intelligence_snapshot_at_time(symbol, as_of_time=as_of)
+        events = get_corporate_events_for_symbol(symbol, as_of=as_of, limit=30)
+        reports = get_analyst_research_for_symbol(symbol, as_of=as_of, limit=30)
+        consensus = calculate_analyst_consensus(reports)
+
+        if snap:
+            payload = dict(snap)
+            payload["timeline_events"] = events
+            payload["analyst_consensus"] = consensus
+            return jsonify(payload)
+        else:
+            return jsonify({
+                "symbol": symbol,
+                "as_of_time": as_of,
+                "net_verdict": "NEUTRAL",
+                "hard_gate_status": "PASS",
+                "scores": {"catalyst_score": 50, "risk_score": 0, "governance_score": 7.0, "analyst_revision_score": 50, "net_corporate_score": 50},
+                "timeline_events": events,
+                "analyst_consensus": consensus,
+                "executive_summary": "Historical snapshot baseline."
+            })
+
+    # Live Query: Use Materialized Current View or Build Fresh
+    curr = get_current_company_intelligence(symbol)
+    if curr and curr.get("summary_payload"):
+        payload = curr["summary_payload"]
+        # Attach fresh timeline and analyst reports
+        events = get_corporate_events_for_symbol(symbol, limit=30)
+        payload["timeline_events"] = events
+        return jsonify(payload)
+
+    # Build fresh if not yet materialized
+    try:
+        fresh_dossier = fetch_and_build_stock_intelligence_dossier(symbol)
+        fresh_dossier["timeline_events"] = get_corporate_events_for_symbol(symbol, limit=30)
+        return jsonify(fresh_dossier)
+    except Exception as e:
+        logger.exception(f"Failed to generate intelligence dossier for {symbol}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/admin/intelligence/health", methods=["GET"])
+@login_required
+def api_admin_intelligence_health():
+    """Returns ingestion feed status and health telemetry."""
+    from database import get_all_intelligence_ingestion_health
+    feeds = get_all_intelligence_ingestion_health()
+    return jsonify({"feeds": feeds, "timestamp": datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()})
+
 
 # ── Multibagger Watchlist API ───────────────────────────────────────────────────────────
 

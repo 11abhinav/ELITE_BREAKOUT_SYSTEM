@@ -1958,6 +1958,137 @@ def init_db():
                 except Exception as _sc_err:
                     logger.debug(f"Short covering tables init notice: {_sc_err}")
 
+                # 45. Universal Corporate & Analyst Intelligence Dossier Engine
+                try:
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS intelligence_ingestion_health_v1 (
+                            feed_name TEXT PRIMARY KEY,
+                            last_attempt TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            last_successful_fetch TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            records_fetched_today INTEGER NOT NULL DEFAULT 0,
+                            records_new_today INTEGER NOT NULL DEFAULT 0,
+                            records_duplicate_today INTEGER NOT NULL DEFAULT 0,
+                            records_failed_today INTEGER NOT NULL DEFAULT 0,
+                            latency_ms INTEGER NOT NULL DEFAULT 0,
+                            is_stale BOOLEAN NOT NULL DEFAULT FALSE,
+                            error_msg TEXT
+                        );
+
+                        CREATE TABLE IF NOT EXISTS event_raw_sources_v1 (
+                            document_id SERIAL PRIMARY KEY,
+                            document_hash TEXT NOT NULL UNIQUE,
+                            source_type TEXT NOT NULL,
+                            source_name TEXT NOT NULL,
+                            source_tier TEXT NOT NULL DEFAULT 'SOURCE_TIER_1',
+                            evidence_class TEXT NOT NULL DEFAULT 'FACT',
+                            publication_date TIMESTAMPTZ NOT NULL,
+                            fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            source_url TEXT NOT NULL,
+                            headline TEXT NOT NULL,
+                            raw_content TEXT,
+                            attachment_storage_path TEXT,
+                            metadata JSONB NOT NULL DEFAULT '{}'::JSONB
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_raw_src_pub_dt ON event_raw_sources_v1 (publication_date DESC);
+                        CREATE INDEX IF NOT EXISTS idx_raw_src_type ON event_raw_sources_v1 (source_type);
+
+                        CREATE TABLE IF NOT EXISTS corporate_events_v1 (
+                            event_id SERIAL PRIMARY KEY,
+                            symbol TEXT NOT NULL,
+                            document_id INTEGER REFERENCES event_raw_sources_v1(document_id),
+                            event_group_id TEXT NOT NULL,
+                            event_version INTEGER NOT NULL DEFAULT 1,
+                            supersedes_event_id INTEGER REFERENCES corporate_events_v1(event_id),
+                            revision_type TEXT NOT NULL DEFAULT 'INITIAL',
+                            evidence_class TEXT NOT NULL DEFAULT 'FACT',
+                            category TEXT NOT NULL,
+                            event_date TIMESTAMPTZ NOT NULL,
+                            headline TEXT NOT NULL,
+                            description TEXT,
+                            materiality_score REAL NOT NULL DEFAULT 5.0,
+                            order_value_inr_cr REAL,
+                            order_pct_of_rev REAL,
+                            order_pct_of_mcap REAL,
+                            order_quality TEXT,
+                            severity_score REAL NOT NULL DEFAULT 0.0,
+                            status TEXT NOT NULL DEFAULT 'OPEN',
+                            resolved_at TIMESTAMPTZ,
+                            resolution_notes TEXT,
+                            decay_half_life_days INTEGER NOT NULL DEFAULT 90,
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            CONSTRAINT corp_event_sym_doc_cat_uniq UNIQUE (symbol, document_id, category, event_version)
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_corp_events_sym_dt ON corporate_events_v1 (symbol, event_date DESC);
+                        CREATE INDEX IF NOT EXISTS idx_corp_events_status ON corporate_events_v1 (status);
+                        CREATE INDEX IF NOT EXISTS idx_corp_events_grp ON corporate_events_v1 (event_group_id);
+
+                        CREATE TABLE IF NOT EXISTS analyst_research_reports_v1 (
+                            report_id SERIAL PRIMARY KEY,
+                            symbol TEXT NOT NULL,
+                            document_id INTEGER REFERENCES event_raw_sources_v1(document_id),
+                            broker_firm TEXT NOT NULL,
+                            analyst_name TEXT,
+                            evidence_class TEXT NOT NULL DEFAULT 'ANALYST_OPINION',
+                            report_date TIMESTAMPTZ NOT NULL,
+                            report_type TEXT NOT NULL,
+                            rating TEXT NOT NULL,
+                            previous_rating TEXT,
+                            target_price REAL NOT NULL,
+                            previous_target_price REAL,
+                            target_change_pct REAL,
+                            fy1_eps_revision_pct REAL,
+                            fy2_eps_revision_pct REAL,
+                            revenue_revision_pct REAL,
+                            thesis TEXT,
+                            valuation_method TEXT,
+                            source_tier TEXT NOT NULL DEFAULT 'SOURCE_TIER_2',
+                            sebi_conflict_disclosed BOOLEAN NOT NULL DEFAULT FALSE,
+                            raw_payload JSONB NOT NULL DEFAULT '{}'::JSONB,
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_analyst_rep_sym_dt ON analyst_research_reports_v1 (symbol, report_date DESC);
+
+                        CREATE TABLE IF NOT EXISTS company_intelligence_snapshots_v1 (
+                            snapshot_id SERIAL PRIMARY KEY,
+                            symbol TEXT NOT NULL,
+                            as_of_time TIMESTAMPTZ NOT NULL,
+                            catalyst_score INTEGER NOT NULL,
+                            risk_score INTEGER NOT NULL,
+                            governance_score REAL NOT NULL,
+                            management_credibility_score REAL NOT NULL,
+                            analyst_revision_score INTEGER NOT NULL,
+                            analyst_dispersion_pct REAL,
+                            net_score INTEGER NOT NULL,
+                            net_verdict TEXT NOT NULL,
+                            hard_gate_status TEXT NOT NULL DEFAULT 'PASS',
+                            active_open_hazards_count INTEGER NOT NULL DEFAULT 0,
+                            contradiction_detected BOOLEAN NOT NULL DEFAULT FALSE,
+                            executive_summary TEXT NOT NULL,
+                            evidence_chain JSONB NOT NULL DEFAULT '[]'::JSONB,
+                            consensus_summary JSONB NOT NULL DEFAULT '{}'::JSONB,
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_intel_snap_sym_asof ON company_intelligence_snapshots_v1 (symbol, as_of_time DESC);
+
+                        CREATE TABLE IF NOT EXISTS company_intelligence_current_v1 (
+                            symbol TEXT PRIMARY KEY,
+                            latest_snapshot_id INTEGER REFERENCES company_intelligence_snapshots_v1(snapshot_id),
+                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            net_verdict TEXT NOT NULL,
+                            hard_gate_status TEXT NOT NULL,
+                            catalyst_score INTEGER NOT NULL,
+                            risk_score INTEGER NOT NULL,
+                            governance_score REAL NOT NULL,
+                            management_credibility_score REAL NOT NULL,
+                            analyst_revision_score INTEGER NOT NULL,
+                            summary_payload JSONB NOT NULL
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_intel_curr_verdict ON company_intelligence_current_v1 (net_verdict);
+                        CREATE INDEX IF NOT EXISTS idx_intel_curr_hardgate ON company_intelligence_current_v1 (hard_gate_status);
+                    """)
+                except Exception as _dossier_err:
+                    logger.debug(f"Universal corporate intelligence tables init notice: {_dossier_err}")
+
 
                 # 39. Trade analytics view — wrapped in own try/except with lock_timeout
                 # to prevent this DDL from blocking on AccessExclusiveLock when other workers
@@ -5059,26 +5190,38 @@ def has_valid_concall_cache(symbol: str) -> bool:
 
 def has_error_concall_cache_within_24h(symbol: str) -> bool:
     """
-    Returns True if an error cache entry was saved for this symbol within the last 7 days.
-    [VERSION: AI_WORKER_ERROR_TTL_v1.1] Extended from 24h to 7 days — persistent NSE errors
-    (timeout, no PDF) don't self-resolve overnight; daily retries waste API quota.
-    Uses a SAFE TRY_CAST approach to handle old/broken created_at TEXT formats.
+    Returns True if an error cache entry was saved for this symbol within its active backoff period:
+    - 30 days (1 month) for companies with NO concall history in past 4 quarters
+    - 7 days for active concall companies
+    Uses a safe parse approach to handle timestamps and dynamic retry_after_days.
     """
     init_db()
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # Use a safe cast with a fallback — if created_at cannot be parsed as a timestamp,
-                # the row is treated as old (excluded). This prevents a single bad row from crashing the query.
                 cur.execute("""
-                    SELECT 1
+                    SELECT analysis_data, created_at
                     FROM ai_concall_cache_v3
                     WHERE symbol = %s
                       AND (analysis_data->>'error') IS NOT NULL
-                      AND created_at >= NOW() - INTERVAL '7 days'
+                    ORDER BY id DESC
                     LIMIT 1
                 """, (symbol,))
-                return cur.fetchone() is not None
+                row = cur.fetchone()
+                if row:
+                    analysis_data, created_at = row
+                    from datetime import datetime
+                    from zoneinfo import ZoneInfo
+                    now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+                    if created_at:
+                        if created_at.tzinfo is None:
+                            created_at = created_at.replace(tzinfo=ZoneInfo("UTC"))
+                        days_diff = (now_ist - created_at).total_seconds() / 86400
+                        retry_days = 7
+                        if isinstance(analysis_data, dict):
+                            retry_days = int(analysis_data.get('retry_after_days', 7))
+                        return days_diff <= retry_days
+                return False
     except Exception:
         logger.exception(f"Failed to check error concall cache for {symbol}")
         return False
@@ -5114,6 +5257,7 @@ def get_bulk_concall_cache_status(symbols: list) -> dict:
     """
     Bulk fetches the concall cache status for a list of symbols.
     Returns dict: {'valid': set(), 'recent_error': set()}
+    Respects dynamic retry_after_days (7 days for active concall companies, 30 days / 1 month for non-concall companies).
     """
     init_db()
     res = {'valid': set(), 'recent_error': set()}
@@ -5125,7 +5269,7 @@ def get_bulk_concall_cache_status(symbols: list) -> dict:
             with conn.cursor() as cur:
                 # ANY() is much faster for large arrays than IN (...)
                 cur.execute("""
-                    SELECT symbol, (analysis_data->>'error') IS NULL as is_valid, created_at
+                    SELECT symbol, (analysis_data->>'error') IS NULL as is_valid, created_at, analysis_data
                     FROM ai_concall_cache_v3
                     WHERE symbol = ANY(%s)
                 """, (symbols,))
@@ -5135,17 +5279,19 @@ def get_bulk_concall_cache_status(symbols: list) -> dict:
                 from zoneinfo import ZoneInfo
                 now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
 
-                for sym, is_valid, created_at in rows:
+                for sym, is_valid, created_at, analysis_data in rows:
                     if is_valid:
                         res['valid'].add(sym)
                     else:
-                        # Error case. Check if within 7 days.
+                        # Error case. Check if within dynamic retry_after_days (7 days vs 30 days / 1 month)
                         if created_at:
-                            # created_at is TIMESTAMPTZ, but might be naive depending on psycopg2 parsing
                             if created_at.tzinfo is None:
                                 created_at = created_at.replace(tzinfo=ZoneInfo("UTC"))
                             days_diff = (now_ist - created_at).total_seconds() / 86400
-                            if days_diff <= 7:
+                            retry_days = 7
+                            if isinstance(analysis_data, dict):
+                                retry_days = int(analysis_data.get('retry_after_days', 7))
+                            if days_diff <= retry_days:
                                 res['recent_error'].add(sym)
     except Exception:
         logger.exception("Failed to fetch bulk concall cache status")
@@ -10555,3 +10701,538 @@ def invalidate_performance_cache():
             conn.commit()
     except Exception:
         pass
+
+
+# =====================================================================================
+# UNIVERSAL CORPORATE & ANALYST INTELLIGENCE DOSSIER DATABASE HELPERS
+# =====================================================================================
+
+# ─────────────────────────────────────────────────────────────────────────────────────
+# UNIVERSAL CORPORATE & ANALYST INTELLIGENCE DOSSIER IN-MEMORY TEST / FALLBACK CACHE
+# ─────────────────────────────────────────────────────────────────────────────────────
+_IN_MEM_INTEL_HEALTH = {}
+_IN_MEM_INTEL_DOCS = {}
+_IN_MEM_INTEL_EVENTS = []
+_IN_MEM_INTEL_ANALYSTS = []
+_IN_MEM_INTEL_SNAPSHOTS = []
+_IN_MEM_INTEL_CURRENT = {}
+
+
+def upsert_intelligence_ingestion_health(
+    feed_name: str,
+    is_success: bool,
+    records_fetched: int = 0,
+    records_new: int = 0,
+    records_duplicate: int = 0,
+    records_failed: int = 0,
+    latency_ms: int = 0,
+    error_msg: str = None
+) -> bool:
+    """Upsert feed ingestion health and telemetry."""
+    init_db()
+    try:
+        with get_connection() as conn:
+            if isinstance(conn, DummyConnection):
+                _IN_MEM_INTEL_HEALTH[feed_name] = {
+                    "feed_name": feed_name,
+                    "last_attempt": datetime.now(ZoneInfo("Asia/Kolkata")).isoformat(),
+                    "last_successful_fetch": datetime.now(ZoneInfo("Asia/Kolkata")).isoformat() if is_success else None,
+                    "records_fetched_today": records_fetched,
+                    "records_new_today": records_new,
+                    "records_duplicate_today": records_duplicate,
+                    "records_failed_today": records_failed,
+                    "latency_ms": latency_ms,
+                    "is_stale": not is_success,
+                    "error_msg": error_msg
+                }
+                return True
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO intelligence_ingestion_health_v1 (
+                        feed_name, last_attempt, last_successful_fetch,
+                        records_fetched_today, records_new_today, records_duplicate_today, records_failed_today,
+                        latency_ms, is_stale, error_msg
+                    ) VALUES (
+                        %s, NOW(), CASE WHEN %s THEN NOW() ELSE NOW() - INTERVAL '1 hour' END,
+                        %s, %s, %s, %s, %s, %s, %s
+                    )
+                    ON CONFLICT (feed_name) DO UPDATE SET
+                        last_attempt = NOW(),
+                        last_successful_fetch = CASE WHEN %s THEN NOW() ELSE intelligence_ingestion_health_v1.last_successful_fetch END,
+                        records_fetched_today = intelligence_ingestion_health_v1.records_fetched_today + EXCLUDED.records_fetched_today,
+                        records_new_today = intelligence_ingestion_health_v1.records_new_today + EXCLUDED.records_new_today,
+                        records_duplicate_today = intelligence_ingestion_health_v1.records_duplicate_today + EXCLUDED.records_duplicate_today,
+                        records_failed_today = intelligence_ingestion_health_v1.records_failed_today + EXCLUDED.records_failed_today,
+                        latency_ms = EXCLUDED.latency_ms,
+                        is_stale = CASE WHEN %s THEN FALSE ELSE intelligence_ingestion_health_v1.is_stale END,
+                        error_msg = EXCLUDED.error_msg;
+                """, (
+                    feed_name, is_success, records_fetched, records_new, records_duplicate, records_failed,
+                    latency_ms, not is_success, error_msg, is_success, is_success
+                ))
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.debug(f"Failed to upsert intelligence ingestion health for {feed_name}: {e}")
+        return False
+
+
+def get_all_intelligence_ingestion_health() -> list:
+    """Returns list of ingestion health records across all feeds."""
+    init_db()
+    try:
+        with get_connection() as conn:
+            if isinstance(conn, DummyConnection):
+                return list(_IN_MEM_INTEL_HEALTH.values())
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT feed_name, last_attempt, last_successful_fetch,
+                           records_fetched_today, records_new_today, records_duplicate_today, records_failed_today,
+                           latency_ms, is_stale, error_msg
+                    FROM intelligence_ingestion_health_v1
+                    ORDER BY feed_name;
+                """)
+                return [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.debug(f"Failed to get intelligence ingestion health: {e}")
+        return []
+
+
+def save_raw_source_document(
+    document_hash: str,
+    source_type: str,
+    source_name: str,
+    source_tier: str,
+    evidence_class: str,
+    publication_date: str,
+    source_url: str,
+    headline: str,
+    raw_content: str = "",
+    attachment_storage_path: str = None,
+    metadata: dict = None
+) -> int:
+    """Saves raw document to event_raw_sources_v1 and returns document_id."""
+    init_db()
+    from psycopg2.extras import Json as PgJson
+    try:
+        with get_connection() as conn:
+            if isinstance(conn, DummyConnection):
+                doc_id = len(_IN_MEM_INTEL_DOCS) + 1
+                _IN_MEM_INTEL_DOCS[document_hash] = {
+                    "document_id": doc_id, "document_hash": document_hash, "source_type": source_type,
+                    "source_name": source_name, "source_tier": source_tier, "evidence_class": evidence_class,
+                    "publication_date": publication_date, "source_url": source_url, "headline": headline,
+                    "raw_content": raw_content, "attachment_storage_path": attachment_storage_path,
+                    "metadata": metadata or {}
+                }
+                return doc_id
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO event_raw_sources_v1 (
+                        document_hash, source_type, source_name, source_tier, evidence_class,
+                        publication_date, source_url, headline, raw_content, attachment_storage_path, metadata
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (document_hash) DO UPDATE SET
+                        source_tier = EXCLUDED.source_tier,
+                        evidence_class = EXCLUDED.evidence_class,
+                        headline = EXCLUDED.headline,
+                        metadata = EXCLUDED.metadata
+                    RETURNING document_id;
+                """, (
+                    document_hash, source_type, source_name, source_tier, evidence_class,
+                    publication_date, source_url, headline, raw_content, attachment_storage_path,
+                    PgJson(metadata or {})
+                ))
+                doc_id = cur.fetchone()[0]
+            conn.commit()
+            return doc_id
+    except Exception as e:
+        logger.debug(f"Failed to save raw source document: {e}")
+        return 0
+
+
+def get_raw_source_by_hash(document_hash: str) -> dict:
+    """Returns raw source document by hash or None."""
+    init_db()
+    try:
+        with get_connection() as conn:
+            if isinstance(conn, DummyConnection):
+                return _IN_MEM_INTEL_DOCS.get(document_hash)
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM event_raw_sources_v1 WHERE document_hash = %s LIMIT 1", (document_hash,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def save_corporate_event(
+    symbol: str,
+    document_id: int,
+    event_group_id: str,
+    event_version: int,
+    supersedes_event_id: int,
+    revision_type: str,
+    evidence_class: str,
+    category: str,
+    event_date: str,
+    headline: str,
+    description: str = "",
+    materiality_score: float = 5.0,
+    order_value_inr_cr: float = None,
+    order_pct_of_rev: float = None,
+    order_pct_of_mcap: float = None,
+    order_quality: str = None,
+    severity_score: float = 0.0,
+    status: str = "OPEN",
+    resolved_at: str = None,
+    resolution_notes: str = None,
+    decay_half_life_days: int = 90
+) -> int:
+    """Saves structured corporate event with version lineage to corporate_events_v1."""
+    init_db()
+    try:
+        with get_connection() as conn:
+            if isinstance(conn, DummyConnection):
+                ev_id = len(_IN_MEM_INTEL_EVENTS) + 1
+                ev_dict = {
+                    "event_id": ev_id, "symbol": symbol, "document_id": document_id, "event_group_id": event_group_id,
+                    "event_version": event_version, "supersedes_event_id": supersedes_event_id, "revision_type": revision_type,
+                    "evidence_class": evidence_class, "category": category, "event_date": event_date, "headline": headline,
+                    "description": description, "materiality_score": materiality_score, "order_value_inr_cr": order_value_inr_cr,
+                    "order_pct_of_rev": order_pct_of_rev, "order_pct_of_mcap": order_pct_of_mcap, "order_quality": order_quality,
+                    "severity_score": severity_score, "status": status, "resolved_at": resolved_at,
+                    "resolution_notes": resolution_notes, "decay_half_life_days": decay_half_life_days
+                }
+                _IN_MEM_INTEL_EVENTS.append(ev_dict)
+                return ev_id
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO corporate_events_v1 (
+                        symbol, document_id, event_group_id, event_version, supersedes_event_id,
+                        revision_type, evidence_class, category, event_date, headline, description,
+                        materiality_score, order_value_inr_cr, order_pct_of_rev, order_pct_of_mcap, order_quality,
+                        severity_score, status, resolved_at, resolution_notes, decay_half_life_days
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (symbol, document_id, category, event_version) DO UPDATE SET
+                        status = EXCLUDED.status,
+                        resolved_at = EXCLUDED.resolved_at,
+                        resolution_notes = EXCLUDED.resolution_notes,
+                        materiality_score = EXCLUDED.materiality_score,
+                        order_quality = EXCLUDED.order_quality,
+                        severity_score = EXCLUDED.severity_score
+                    RETURNING event_id;
+                """, (
+                    symbol, document_id, event_group_id, event_version, supersedes_event_id,
+                    revision_type, evidence_class, category, event_date, headline, description,
+                    materiality_score, order_value_inr_cr, order_pct_of_rev, order_pct_of_mcap, order_quality,
+                    severity_score, status, resolved_at, resolution_notes, decay_half_life_days
+                ))
+                ev_id = cur.fetchone()[0]
+            conn.commit()
+            return ev_id
+    except Exception as e:
+        logger.debug(f"Failed to save corporate event for {symbol}: {e}")
+        return 0
+
+
+def get_corporate_events_for_symbol(symbol: str, as_of: str = None, limit: int = 50) -> list:
+    """Fetches chronological corporate events for symbol respecting point-in-time as_of."""
+    init_db()
+    try:
+        with get_connection() as conn:
+            if isinstance(conn, DummyConnection):
+                matches = [e for e in _IN_MEM_INTEL_EVENTS if e["symbol"] == symbol]
+                if as_of:
+                    matches = [e for e in matches if str(e.get("event_date", "")) <= str(as_of)]
+                matches.sort(key=lambda x: (str(x.get("event_date", "")), int(x.get("event_version", 1))), reverse=True)
+                return matches[:limit]
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if as_of:
+                    cur.execute("""
+                        SELECT e.*, s.source_name, s.source_url, s.source_tier
+                        FROM corporate_events_v1 e
+                        LEFT JOIN event_raw_sources_v1 s ON e.document_id = s.document_id
+                        WHERE e.symbol = %s AND e.event_date <= %s
+                        ORDER BY e.event_date DESC, e.event_version DESC
+                        LIMIT %s;
+                    """, (symbol, as_of, limit))
+                else:
+                    cur.execute("""
+                        SELECT e.*, s.source_name, s.source_url, s.source_tier
+                        FROM corporate_events_v1 e
+                        LEFT JOIN event_raw_sources_v1 s ON e.document_id = s.document_id
+                        WHERE e.symbol = %s
+                        ORDER BY e.event_date DESC, e.event_version DESC
+                        LIMIT %s;
+                    """, (symbol, limit))
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+    except Exception as e:
+        logger.debug(f"Failed to get corporate events for {symbol}: {e}")
+        return []
+
+
+def save_analyst_research_report(
+    symbol: str,
+    document_id: int,
+    broker_firm: str,
+    analyst_name: str,
+    evidence_class: str,
+    report_date: str,
+    report_type: str,
+    rating: str,
+    previous_rating: str = None,
+    target_price: float = 0.0,
+    previous_target_price: float = None,
+    target_change_pct: float = None,
+    time_horizon_months: int = 12,
+    fy_eps_current: float = None,
+    fy_eps_next: float = None,
+    eps_revision_pct: float = None,
+    key_assumptions: list = None,
+    summary_note: str = ""
+) -> int:
+    """Saves structured broker research report to analyst_research_reports_v1."""
+    init_db()
+    from psycopg2.extras import Json as PgJson
+    try:
+        with get_connection() as conn:
+            if isinstance(conn, DummyConnection):
+                rep_id = len(_IN_MEM_INTEL_ANALYSTS) + 1
+                rep_dict = {
+                    "report_id": rep_id, "symbol": symbol, "document_id": document_id, "broker_firm": broker_firm,
+                    "analyst_name": analyst_name, "evidence_class": evidence_class, "report_date": report_date,
+                    "report_type": report_type, "rating": rating, "previous_rating": previous_rating,
+                    "target_price": target_price, "previous_target_price": previous_target_price,
+                    "target_change_pct": target_change_pct, "time_horizon_months": time_horizon_months,
+                    "fy_eps_current": fy_eps_current, "fy_eps_next": fy_eps_next, "eps_revision_pct": eps_revision_pct,
+                    "key_assumptions": key_assumptions or [], "summary_note": summary_note
+                }
+                _IN_MEM_INTEL_ANALYSTS.append(rep_dict)
+                return rep_id
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO analyst_research_reports_v1 (
+                        symbol, document_id, broker_firm, analyst_name, evidence_class,
+                        report_date, report_type, rating, previous_rating, target_price,
+                        previous_target_price, target_change_pct, time_horizon_months,
+                        fy_eps_current, fy_eps_next, eps_revision_pct, key_assumptions, summary_note
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (symbol, broker_firm, report_date) DO UPDATE SET
+                        rating = EXCLUDED.rating,
+                        target_price = EXCLUDED.target_price,
+                        target_change_pct = EXCLUDED.target_change_pct,
+                        summary_note = EXCLUDED.summary_note
+                    RETURNING report_id;
+                """, (
+                    symbol, document_id, broker_firm, analyst_name, evidence_class,
+                    report_date, report_type, rating, previous_rating, target_price,
+                    previous_target_price, target_change_pct, time_horizon_months,
+                    fy_eps_current, fy_eps_next, eps_revision_pct, PgJson(key_assumptions or []), summary_note
+                ))
+                rep_id = cur.fetchone()[0]
+            conn.commit()
+            return rep_id
+    except Exception as e:
+        logger.debug(f"Failed to save analyst research report for {symbol}: {e}")
+        return 0
+
+
+def get_analyst_research_for_symbol(symbol: str, as_of: str = None, limit: int = 50) -> list:
+    """Fetches analyst research reports for symbol respecting point-in-time as_of."""
+    init_db()
+    try:
+        with get_connection() as conn:
+            if isinstance(conn, DummyConnection):
+                matches = [r for r in _IN_MEM_INTEL_ANALYSTS if r["symbol"] == symbol]
+                if as_of:
+                    matches = [r for r in matches if str(r.get("report_date", "")) <= str(as_of)]
+                matches.sort(key=lambda x: str(x.get("report_date", "")), reverse=True)
+                return matches[:limit]
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if as_of:
+                    cur.execute("""
+                        SELECT * FROM analyst_research_reports_v1
+                        WHERE symbol = %s AND report_date <= %s
+                        ORDER BY report_date DESC
+                        LIMIT %s;
+                    """, (symbol, as_of, limit))
+                else:
+                    cur.execute("""
+                        SELECT * FROM analyst_research_reports_v1
+                        WHERE symbol = %s
+                        ORDER BY report_date DESC
+                        LIMIT %s;
+                    """, (symbol, limit))
+                rows = cur.fetchall()
+                return [dict(r) for r in rows]
+    except Exception as e:
+        logger.debug(f"Failed to get analyst research reports for {symbol}: {e}")
+        return []
+
+
+def save_company_intelligence_snapshot(
+    symbol: str,
+    as_of_time: str,
+    catalyst_score: int,
+    risk_score: int,
+    governance_score: float,
+    management_credibility_score: float,
+    analyst_revision_score: int,
+    analyst_dispersion_pct: float,
+    net_score: int,
+    net_verdict: str,
+    hard_gate_status: str,
+    active_open_hazards_count: int,
+    contradiction_detected: bool,
+    executive_summary: str,
+    evidence_chain: list,
+    consensus_summary: dict
+) -> int:
+    """Saves immutable point-in-time intelligence snapshot."""
+    init_db()
+    from psycopg2.extras import Json as PgJson
+    try:
+        with get_connection() as conn:
+            if isinstance(conn, DummyConnection):
+                snap_id = len(_IN_MEM_INTEL_SNAPSHOTS) + 1
+                snap_dict = {
+                    "snapshot_id": snap_id, "symbol": symbol, "as_of_time": as_of_time, "catalyst_score": catalyst_score,
+                    "risk_score": risk_score, "governance_score": governance_score,
+                    "management_credibility_score": management_credibility_score,
+                    "analyst_revision_score": analyst_revision_score, "analyst_dispersion_pct": analyst_dispersion_pct,
+                    "net_score": net_score, "net_verdict": net_verdict, "hard_gate_status": hard_gate_status,
+                    "active_open_hazards_count": active_open_hazards_count, "contradiction_detected": contradiction_detected,
+                    "executive_summary": executive_summary, "evidence_chain": evidence_chain or [],
+                    "consensus_summary": consensus_summary or {}
+                }
+                _IN_MEM_INTEL_SNAPSHOTS.append(snap_dict)
+                return snap_id
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO company_intelligence_snapshots_v1 (
+                        symbol, as_of_time, catalyst_score, risk_score, governance_score,
+                        management_credibility_score, analyst_revision_score, analyst_dispersion_pct,
+                        net_score, net_verdict, hard_gate_status, active_open_hazards_count,
+                        contradiction_detected, executive_summary, evidence_chain, consensus_summary
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING snapshot_id;
+                """, (
+                    symbol, as_of_time, catalyst_score, risk_score, governance_score,
+                    management_credibility_score, analyst_revision_score, analyst_dispersion_pct,
+                    net_score, net_verdict, hard_gate_status, active_open_hazards_count,
+                    contradiction_detected, executive_summary, PgJson(evidence_chain or []),
+                    PgJson(consensus_summary or {})
+                ))
+                snap_id = cur.fetchone()[0]
+            conn.commit()
+            return snap_id
+    except Exception as e:
+        logger.debug(f"Failed to save intelligence snapshot for {symbol}: {e}")
+        return 0
+
+
+def get_intelligence_snapshot_at_time(symbol: str, as_of_time: str = None) -> dict:
+    """Reconstructs exact intelligence snapshot for symbol as of a specific point-in-time."""
+    init_db()
+    try:
+        with get_connection() as conn:
+            if isinstance(conn, DummyConnection):
+                matches = [s for s in _IN_MEM_INTEL_SNAPSHOTS if s["symbol"] == symbol]
+                if as_of_time:
+                    matches = [s for s in matches if str(s.get("as_of_time", "")) <= str(as_of_time)]
+                matches.sort(key=lambda x: str(x.get("as_of_time", "")), reverse=True)
+                return matches[0] if matches else None
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if as_of_time:
+                    cur.execute("""
+                        SELECT * FROM company_intelligence_snapshots_v1
+                        WHERE symbol = %s AND as_of_time <= %s
+                        ORDER BY as_of_time DESC
+                        LIMIT 1;
+                    """, (symbol, as_of_time))
+                else:
+                    cur.execute("""
+                        SELECT * FROM company_intelligence_snapshots_v1
+                        WHERE symbol = %s
+                        ORDER BY as_of_time DESC
+                        LIMIT 1;
+                    """, (symbol,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+    except Exception as e:
+        logger.debug(f"Failed to get intelligence snapshot at time for {symbol}: {e}")
+        return None
+
+
+def save_company_intelligence_current(
+    symbol: str,
+    latest_snapshot_id: int,
+    net_verdict: str,
+    hard_gate_status: str,
+    catalyst_score: int,
+    risk_score: int,
+    governance_score: float,
+    management_credibility_score: float,
+    analyst_revision_score: int,
+    summary_payload: dict
+) -> bool:
+    """Updates materialized current-state intelligence for fast UI queries."""
+    init_db()
+    from psycopg2.extras import Json as PgJson
+    try:
+        with get_connection() as conn:
+            if isinstance(conn, DummyConnection):
+                _IN_MEM_INTEL_CURRENT[symbol] = {
+                    "symbol": symbol, "latest_snapshot_id": latest_snapshot_id, "net_verdict": net_verdict,
+                    "hard_gate_status": hard_gate_status, "catalyst_score": catalyst_score, "risk_score": risk_score,
+                    "governance_score": governance_score, "management_credibility_score": management_credibility_score,
+                    "analyst_revision_score": analyst_revision_score, "summary_payload": summary_payload or {}
+                }
+                return True
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO company_intelligence_current_v1 (
+                        symbol, latest_snapshot_id, updated_at, net_verdict, hard_gate_status,
+                        catalyst_score, risk_score, governance_score, management_credibility_score,
+                        analyst_revision_score, summary_payload
+                    ) VALUES (%s, %s, NOW(), %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (symbol) DO UPDATE SET
+                        latest_snapshot_id = EXCLUDED.latest_snapshot_id,
+                        updated_at = NOW(),
+                        net_verdict = EXCLUDED.net_verdict,
+                        hard_gate_status = EXCLUDED.hard_gate_status,
+                        catalyst_score = EXCLUDED.catalyst_score,
+                        risk_score = EXCLUDED.risk_score,
+                        governance_score = EXCLUDED.governance_score,
+                        management_credibility_score = EXCLUDED.management_credibility_score,
+                        analyst_revision_score = EXCLUDED.analyst_revision_score,
+                        summary_payload = EXCLUDED.summary_payload;
+                """, (
+                    symbol, latest_snapshot_id, net_verdict, hard_gate_status,
+                    catalyst_score, risk_score, governance_score, management_credibility_score,
+                    analyst_revision_score, PgJson(summary_payload or {})
+                ))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.debug(f"Failed to save current intelligence for {symbol}: {e}")
+        return False
+
+
+def get_current_company_intelligence(symbol: str) -> dict:
+    """Fetches materialized current-state intelligence for symbol."""
+    init_db()
+    try:
+        with get_connection() as conn:
+            if isinstance(conn, DummyConnection):
+                return _IN_MEM_INTEL_CURRENT.get(symbol)
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM company_intelligence_current_v1 WHERE symbol = %s LIMIT 1;", (symbol,))
+                row = cur.fetchone()
+                return dict(row) if row else None
+    except Exception as e:
+        logger.debug(f"Failed to get current company intelligence for {symbol}: {e}")
+        return None
+

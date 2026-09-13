@@ -70,16 +70,19 @@ def _discover_supported_models(gemini_key: str) -> list:
                     if clean_name:
                         models.append(clean_name)
             if models:
-                # Rank priority: fast/flash frontier models first, followed by pro models
+                # Rank priority: Next-gen 3.x/frontier models first, followed by 2.5 and 2.0 SOTA reasoning
                 def _priority(m_name: str) -> int:
                     m = m_name.lower()
-                    if "2.5-flash" in m: return 1
-                    if "2.0-flash" in m and "lite" not in m: return 2
-                    if "2.0-flash-lite" in m: return 3
-                    if "1.5-flash" in m and "8b" not in m: return 4
-                    if "1.5-pro" in m: return 5
-                    if "flash" in m: return 6
-                    if "pro" in m: return 7
+                    if "3.8" in m or "3.7" in m or "3.5" in m or "3.0" in m or "gemini-3" in m: return 0
+                    if "2.5-pro" in m: return 1
+                    if "2.5-flash" in m: return 2
+                    if "2.0-pro" in m: return 3
+                    if "2.0-flash" in m and "lite" not in m: return 4
+                    if "2.0-flash-lite" in m: return 5
+                    if "1.5-pro" in m: return 6
+                    if "1.5-flash" in m and "8b" not in m: return 7
+                    if "flash" in m: return 8
+                    if "pro" in m: return 9
                     return 20
                 models.sort(key=_priority)
                 _discovered_models_cache[gemini_key] = models
@@ -186,11 +189,15 @@ def analyze_concall_text(text: str) -> dict:
         masked_key = f"{curr_key[:4]}...{curr_key[-4:]}" if len(curr_key) > 8 else "GEMINI_KEY"
         discovered = _discover_supported_models(curr_key)
         gemini_models = discovered if discovered else [
+            "gemini-3.0-pro",
+            "gemini-3.0-flash",
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "gemini-2.0-pro-exp-02-05",
             "gemini-2.0-flash",
             "gemini-2.0-flash-lite",
-            "gemini-1.5-flash",
             "gemini-1.5-pro",
-            "gemini-2.5-flash",
+            "gemini-1.5-flash",
             "gemini-2.5-flash-lite"
         ]
 
@@ -249,3 +256,256 @@ def analyze_concall_text(text: str) -> dict:
     final_error = errors[-1] if errors else "All AI models failed or all Gemini keys are 1-day blacklisted."
     mark_failure('gemini', final_error)
     return {"error": "All AI models in the fallback chain failed.", "details": errors}
+
+
+# =====================================================================================
+# UNIVERSAL MULTI-STREAM CORPORATE DOSSIER REASONING ENGINE
+# =====================================================================================
+
+DOSSIER_SYSTEM_PROMPT = """You are a senior institutional equity research analyst and corporate governance forensic auditor.
+You will be provided with:
+1. Chronological timeline of structured corporate events (Order wins, capex, M&A, regulatory filings, defaults, rating actions).
+2. Institutional analyst research reports and consensus target revisions.
+3. Earnings call transcripts (if available).
+
+CRITICAL EPISTEMIC SEPARATION:
+- Level 1 FACT: Exchange filings and regulatory orders are established facts.
+- Level 2 VERIFIED ASSESSMENT: Credit rating actions and statutory audit communications are verified assessments.
+- Level 3 ANALYST OPINION: Broker target prices and recommendations are market opinions.
+- Level 4 MODEL INFERENCE: Your synthesis.
+
+CRITICAL INVARIANT:
+- An analyst target price, upgrade, or optimistic guidance can NEVER override or neutralize an active debt default, NCLT insolvency, or statutory auditor resignation.
+
+EVALUATION RUBRIC:
+1. Contradiction Detection: Explicitly detect any discrepancy between management optimistic claims and regulatory/credit filings.
+2. Management Credibility: Score 1-10 based on whether past promises/guidance matched actual execution.
+3. Corporate Catalyst Score (0 to 100): Quantify growth momentum (material order wins, capacity expansion, M&A).
+4. Corporate Risk Score (0 to 100): Quantify structural, governance, debt, and litigation hazards.
+5. Governance Score: 1-10 scale.
+
+Return a strict JSON object with EXACTLY this schema:
+{
+    "catalyst_score": (integer 0-100),
+    "risk_score": (integer 0-100),
+    "governance_score": (float 1.0-10.0),
+    "management_credibility_score": (float 1.0-10.0),
+    "contradiction_detected": (boolean),
+    "contradiction_details": (array of strings, empty if none),
+    "net_verdict": ("STRONG_TAILWIND" | "MODERATE_POSITIVE" | "NEUTRAL" | "ELEVATED_RISK" | "SEVERE_RED_FLAG_AVOID"),
+    "executive_summary": (string thorough research synthesis),
+    "positive_catalysts": (array of strings),
+    "severe_hazards_and_red_flags": (array of strings),
+    "evidence_chain": (array of objects with "fact", "source", "evidence_class", "materiality")
+}"""
+
+
+def _try_gemini_dossier(model_name: str, gemini_key: str, prompt_text: str) -> dict:
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": gemini_key
+    }
+    payload = {
+        "contents": [
+            {"role": "user", "parts": [{"text": DOSSIER_SYSTEM_PROMPT + "\n\nCORPORATE DOSSIER INPUTS:\n" + prompt_text}]}
+        ],
+        "generationConfig": {
+            "responseMimeType": "application/json"
+        }
+    }
+    res = requests.post(url, headers=headers, json=payload, timeout=90)
+    if res.status_code == 200:
+        data = res.json()
+        try:
+            content_str = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            if content_str.startswith("```json"):
+                content_str = content_str[7:]
+            if content_str.startswith("```"):
+                content_str = content_str[3:]
+            if content_str.endswith("```"):
+                content_str = content_str[:-3]
+            content_str = content_str.strip()
+            result = json.loads(content_str)
+            result["model_used"] = model_name
+            return result
+        except Exception as e:
+            raise Exception(f"Failed to parse dossier response: {e}")
+    else:
+        raise Exception(f"API Error ({res.status_code}): {res.text}")
+
+
+def analyze_full_corporate_dossier(
+    symbol: str,
+    timeline_events: list,
+    analyst_consensus: dict,
+    concall_text: str = ""
+) -> dict:
+    """
+    Synthesizes the complete longitudinal corporate dossier for a stock.
+    Enforces deterministic safety gating, calculates dual-stream catalyst vs risk scores,
+    generates immutable point-in-time snapshots, and updates materialized current state.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from corporate_event_classifier import evaluate_deterministic_hard_risk_gate
+    from database import save_company_intelligence_snapshot, save_company_intelligence_current
+
+    now_iso = datetime.now(ZoneInfo("Asia/Kolkata")).isoformat()
+
+    # 1. DETERMINISTIC HARD-RISK SAFETY GATE (Precedes LLM)
+    hard_gate_status, active_hazards = evaluate_deterministic_hard_risk_gate(timeline_events)
+
+    # 2. Build synthesis prompt payload
+    events_str = ""
+    for ev in timeline_events[:15]:
+        dt = str(ev.get("event_date", ""))[:10]
+        cat = ev.get("category", "")
+        hl = ev.get("headline", "")
+        tier = ev.get("source_tier", "")
+        ev_class = ev.get("evidence_class", "FACT")
+        mat = ev.get("materiality_score", 5.0)
+        events_str += f"- [{dt}] ({cat} | {tier} | {ev_class} | Materiality: {mat}): {hl}\n"
+
+    analyst_str = f"""Total Covering Analysts: {analyst_consensus.get('total_covering_analysts', 0)}
+Buy: {analyst_consensus.get('buy_count', 0)} | Hold: {analyst_consensus.get('hold_count', 0)} | Sell: {analyst_consensus.get('sell_count', 0)}
+Median Target: ₹{analyst_consensus.get('median_target_price')} (Upside: {analyst_consensus.get('upside_pct')}%)
+Target Dispersion: {analyst_consensus.get('target_dispersion_pct')}%
+30-Day Target Revision: {analyst_consensus.get('target_revision_30d_pct')}% | 90-Day: {analyst_consensus.get('target_revision_90d_pct')}%
+Analyst Revision Score: {analyst_consensus.get('analyst_revision_score', 50)}/100
+"""
+
+    prompt_payload = f"""SYMBOL: {symbol}
+
+--- CHRONOLOGICAL CORPORATE EVENTS (PAST 12 MONTHS) ---
+{events_str if events_str else 'No major non-routine announcements filed.'}
+
+--- INSTITUTIONAL ANALYST RESEARCH CONSENSUS ---
+{analyst_str}
+
+--- EARNINGS CALL GUIDANCE & COMMENTARY ---
+{concall_text[:30000] if concall_text else 'No earnings call transcript available.'}
+"""
+
+    # 3. LLM Reasoning via Gemini Multi-Key & Model Cascade
+    ai_result = None
+    from gemini_key_manager import get_active_gemini_key, mark_gemini_key_exhausted
+
+    while True:
+        curr_key = get_active_gemini_key()
+        if not curr_key:
+            break
+
+        masked_key = f"{curr_key[:4]}...{curr_key[-4:]}" if len(curr_key) > 8 else "GEMINI_KEY"
+        discovered = _discover_supported_models(curr_key)
+        gemini_models = discovered if discovered else [
+            "gemini-3.0-pro", "gemini-3.0-flash", "gemini-2.5-pro", "gemini-2.5-flash",
+            "gemini-2.0-pro-exp-02-05", "gemini-2.0-flash", "gemini-2.0-flash-lite"
+        ]
+
+        key_hit_limit = False
+        for model in gemini_models:
+            try:
+                ai_result = _try_gemini_dossier(model, curr_key, prompt_payload)
+                break
+            except Exception as e:
+                err_str = str(e)
+                if any(t in err_str.upper() for t in ("429", "RESOURCE_EXHAUSTED", "QUOTA_EXCEEDED")):
+                    mark_gemini_key_exhausted(curr_key, f"Verified 429 on {model}")
+                    key_hit_limit = True
+                    break
+                continue
+
+        if ai_result or not key_hit_limit:
+            break
+
+    # Fallback default values if LLM unavailable
+    if not ai_result:
+        catalyst_score = 60 if any(e.get("category") == "ORDER_WIN" for e in timeline_events) else 50
+        risk_score = 85 if hard_gate_status == "QUARANTINE" else 15
+        governance_score = 4.0 if hard_gate_status == "QUARANTINE" else 7.5
+        mgmt_cred = 7.0
+        contra = False
+        net_verdict = "SEVERE_RED_FLAG_AVOID" if hard_gate_status == "QUARANTINE" else "NEUTRAL"
+        exec_summary = f"Longitudinal dossier compiled with {len(timeline_events)} event(s)."
+        pos_cats = [e.get("headline", "") for e in timeline_events if e.get("category") in ("ORDER_WIN", "CAPEX_EXPANSION")][:3]
+        hazards = [e.get("headline", "") for e in active_hazards]
+        ev_chain = [{"fact": e.get("headline"), "source": e.get("source_name", "NSE"), "evidence_class": e.get("evidence_class", "FACT"), "materiality": e.get("materiality_score", 5.0)} for e in timeline_events[:5]]
+    else:
+        catalyst_score = int(ai_result.get("catalyst_score", 50))
+        risk_score = int(ai_result.get("risk_score", 10))
+        governance_score = float(ai_result.get("governance_score", 7.0))
+        mgmt_cred = float(ai_result.get("management_credibility_score", 7.0))
+        contra = bool(ai_result.get("contradiction_detected", False))
+        net_verdict = ai_result.get("net_verdict", "NEUTRAL")
+        exec_summary = ai_result.get("executive_summary", "")
+        pos_cats = ai_result.get("positive_catalysts", [])
+        hazards = ai_result.get("severe_hazards_and_red_flags", [])
+        ev_chain = ai_result.get("evidence_chain", [])
+
+    # Override verdict if hard-risk gate quarantined
+    if hard_gate_status == "QUARANTINE":
+        net_verdict = "SEVERE_RED_FLAG_AVOID"
+        risk_score = max(risk_score, 85)
+
+    # Net corporate score: Catalyst - (1.5 * Risk) + Analyst_Boost
+    analyst_rev_score = analyst_consensus.get("analyst_revision_score", 50)
+    analyst_adj = (analyst_rev_score - 50) * 0.4
+    net_score = int(max(-100, min(100, round(catalyst_score - (1.5 * risk_score) + analyst_adj))))
+
+    # 4. Save Immutable Point-in-Time Snapshot
+    snap_id = save_company_intelligence_snapshot(
+        symbol=symbol,
+        as_of_time=now_iso,
+        catalyst_score=catalyst_score,
+        risk_score=risk_score,
+        governance_score=governance_score,
+        management_credibility_score=mgmt_cred,
+        analyst_revision_score=analyst_rev_score,
+        analyst_dispersion_pct=analyst_consensus.get("target_dispersion_pct", 0.0),
+        net_score=net_score,
+        net_verdict=net_verdict,
+        hard_gate_status=hard_gate_status,
+        active_open_hazards_count=len(active_hazards),
+        contradiction_detected=contra,
+        executive_summary=exec_summary,
+        evidence_chain=ev_chain,
+        consensus_summary=analyst_consensus
+    )
+
+    # 5. Materialize into Current View
+    summary_payload = {
+        "symbol": symbol,
+        "as_of_time": now_iso,
+        "net_verdict": net_verdict,
+        "hard_gate_status": hard_gate_status,
+        "catalyst_score": catalyst_score,
+        "risk_score": risk_score,
+        "governance_score": governance_score,
+        "management_credibility_score": mgmt_cred,
+        "analyst_revision_score": analyst_rev_score,
+        "net_score": net_score,
+        "contradiction_detected": contra,
+        "active_open_hazards_count": len(active_hazards),
+        "positive_catalysts": pos_cats,
+        "severe_hazards": hazards,
+        "executive_summary": exec_summary,
+        "analyst_consensus": analyst_consensus,
+        "evidence_chain": ev_chain
+    }
+
+    save_company_intelligence_current(
+        symbol=symbol,
+        latest_snapshot_id=snap_id,
+        net_verdict=net_verdict,
+        hard_gate_status=hard_gate_status,
+        catalyst_score=catalyst_score,
+        risk_score=risk_score,
+        governance_score=governance_score,
+        management_credibility_score=mgmt_cred,
+        analyst_revision_score=analyst_rev_score,
+        summary_payload=summary_payload
+    )
+
+    return summary_payload
+

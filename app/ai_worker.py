@@ -181,8 +181,17 @@ def run_ai_worker_scan_once() -> dict:
                                 failed_stocks.append(sym)
                                 logger.warning(f"⚠️ [AI WORKER] Transient/rate-limit error for {sym}. Adding to retry queue...")
                             else:
-                                logger.warning(f"⚠️ [AI WORKER] Persistent/no-data result for {sym}: {error_msg}. Saving 24h negative cache to skip for today.")
-                                save_concall_analysis(sym, f"NONE_{sym}", {"error": error_msg})
+                                retry_days = result.get('retry_after_days', 7 if result.get('has_concall_history', True) else 30) if isinstance(result, dict) else 7
+                                has_hist = result.get('has_concall_history', False) if isinstance(result, dict) else False
+                                if not has_hist:
+                                    logger.warning(f"⚠️ [AI WORKER] Stock {sym}: No concalls in last 4 quarters. Blocklisted for {retry_days} days (1 month).")
+                                else:
+                                    logger.warning(f"⚠️ [AI WORKER] Stock {sym}: Active concall company with no new transcript. Retrying in {retry_days} days.")
+                                save_concall_analysis(sym, f"NONE_{sym}", {
+                                    "error": error_msg,
+                                    "has_concall_history": has_hist,
+                                    "retry_after_days": retry_days
+                                })
                                 
                     except Exception as e:
                         logger.exception(f"❌ [AI WORKER] Error processing {sym}")
