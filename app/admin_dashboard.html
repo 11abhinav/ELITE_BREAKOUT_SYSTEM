@@ -2494,6 +2494,35 @@ function changeAdminPage(type, delta) {
               </table>
             </div>
           </div>
+
+          <!-- CORPORATE INTELLIGENCE & INGESTION FEEDS TELEMETRY -->
+          <div id="intelligence-health-card" style="margin-top: 24px; background: var(--card2); border: 1px solid var(--border); border-radius: 12px; padding: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+              <h3 style="font-size: 15px; font-weight: 700; color: var(--text); margin: 0; display: flex; align-items: center; gap: 8px;">
+                <span>🧠</span> 6-Stream Corporate & Analyst Intelligence Feed Telemetry
+              </h3>
+              <button class="refresh-btn" onclick="refreshIntelligenceHealth()" style="padding: 5px 12px; font-weight: 600;">🔄 Refresh Feed Telemetry</button>
+            </div>
+            
+            <div class="tbl-wrap">
+              <table id="tbl-intelligence-health">
+                <thead>
+                  <tr>
+                    <th>Feed / Source Stream</th>
+                    <th>Status</th>
+                    <th>Latency</th>
+                    <th>Records Fetched</th>
+                    <th>New Documents</th>
+                    <th>Last Ingested (IST)</th>
+                    <th>Health Message</th>
+                  </tr>
+                </thead>
+                <tbody id="intelligence-health-tbody">
+                  <tr><td colspan="7" style="text-align:center; padding:16px; color:var(--muted);">Loading feed health telemetry...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -10648,6 +10677,44 @@ function refreshUniverseHealth() {
       // Auto-load ELITE tier inline details on load
       loadInlineUniverseData('ELITE');
     }).catch(e => console.warn('Failed to load universe health:', e));
+
+  refreshIntelligenceHealth();
+}
+
+function refreshIntelligenceHealth() {
+  fetch('/api/admin/intelligence/health')
+    .then(r => r.json())
+    .then(data => {
+      const tbody = document.getElementById('intelligence-health-tbody');
+      if (!tbody) return;
+      const feeds = (data && data.feeds) ? data.feeds : (Array.isArray(data) ? data : []);
+      if (feeds.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:16px; color:var(--muted);">No intelligence feed health records logged yet. Ingesting on demand when stocks are queried.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = feeds.map(f => {
+        const isHealthy = f.is_healthy ?? (f.error_count === 0);
+        const statusBadge = isHealthy 
+          ? `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.35); padding:2px 8px; border-radius:12px; font-weight:800; font-size:11px;">🟢 HEALTHY</span>`
+          : `<span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.35); padding:2px 8px; border-radius:12px; font-weight:800; font-size:11px;">🔴 ERROR</span>`;
+        return `
+          <tr>
+            <td style="font-weight:700; color:var(--accent); font-family:var(--font-mono);">${formatText(f.feed_name)}</td>
+            <td style="text-align:center;">${statusBadge}</td>
+            <td style="font-family:var(--font-mono);">${f.latency_ms ? f.latency_ms + 'ms' : '—'}</td>
+            <td style="font-family:var(--font-mono); font-weight:700;">${f.records_fetched ?? 0}</td>
+            <td style="font-family:var(--font-mono); font-weight:700; color:var(--win);">${f.records_new ?? 0}</td>
+            <td style="font-family:var(--font-mono); font-size:11px; color:var(--muted);">${f.last_success_at ? formatISTDate(f.last_success_at) : (f.last_error_at ? formatISTDate(f.last_error_at) : '—')}</td>
+            <td style="font-size:11px; color:${isHealthy ? 'var(--muted)' : 'var(--loss)'};">${formatText(f.last_error_message || 'Operating normally')}</td>
+          </tr>
+        `;
+      }).join('');
+    })
+    .catch(e => {
+      console.warn('Failed to load intelligence health:', e);
+      const tbody = document.getElementById('intelligence-health-tbody');
+      if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:16px; color:var(--loss);">Failed to load feed telemetry: ${e.message}</td></tr>`;
+    });
 }
 
 let _lastWealthFetchTs = 0;
