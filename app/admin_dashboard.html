@@ -5037,15 +5037,15 @@ function getEarningsBadgeHtml(item) {
       const ord = formatOrdinal(evCount);
 
       if (state === 'PYRAMID_READY') {
-        return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(16,185,129,0.18); color:#10b981; border:1px solid rgba(16,185,129,0.4); font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; cursor:pointer; margin-left:4px;" title="Pyramid Candidate (${ord} confirmation, Quality: ${quality}). Click to view Trade Journey.">🔥 PYRAMID · ${ord.toUpperCase()} CONFIRMATION</span>`;
+        return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(16,185,129,0.18); color:#10b981; border:1px solid rgba(16,185,129,0.4); font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:4px; cursor:pointer; margin-left:4px;" title="Pyramid Candidate (${ord} confirmation, Quality: ${quality}). Click to view Trade Journey.">🔥 ${ord.toUpperCase()} PYR</span>`;
       } else if (state === 'RECONFIRMED') {
-        return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(245,158,11,0.18); color:#f59e0b; border:1px solid rgba(245,158,11,0.4); font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; cursor:pointer; margin-left:4px;" title="Thesis Re-Confirmed (${ord} confirmation). Click to view Trade Journey.">🔁 RECONFIRMED · ${ord.toUpperCase()}</span>`;
+        return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(245,158,11,0.18); color:#f59e0b; border:1px solid rgba(245,158,11,0.4); font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:4px; cursor:pointer; margin-left:4px;" title="Thesis Re-Confirmed (${ord} confirmation). Click to view Trade Journey.">🔁 ${ord.toUpperCase()}</span>`;
       } else if (state === 'ADD_BLOCKED' || state === 'LOSING') {
-        return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(239,68,68,0.18); color:#ef4444; border:1px solid rgba(239,68,68,0.4); font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; cursor:pointer; margin-left:4px;" title="Add Blocked (${ord} trigger). Click to view Trade Journey.">⚠️ ADD BLOCKED · ${ord.toUpperCase()}</span>`;
+        return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(239,68,68,0.18); color:#ef4444; border:1px solid rgba(239,68,68,0.4); font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:4px; cursor:pointer; margin-left:4px;" title="Add Blocked (${ord} trigger). Click to view Trade Journey.">⚠️ ${ord.toUpperCase()}</span>`;
       } else if (state === 'EXTENDED') {
-        return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(139,92,246,0.18); color:#a78bfa; border:1px solid rgba(139,92,246,0.4); font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; cursor:pointer; margin-left:4px;" title="Extended from EMA20 (${ord} trigger). Click to view Trade Journey.">⚡ EXTENDED · ${ord.toUpperCase()}</span>`;
+        return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(139,92,246,0.18); color:#a78bfa; border:1px solid rgba(139,92,246,0.4); font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:4px; cursor:pointer; margin-left:4px;" title="Extended from EMA20 (${ord} trigger). Click to view Trade Journey.">⚡ ${ord.toUpperCase()}</span>`;
       } else if (evCount > 1) {
-        return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(59,130,246,0.18); color:#60a5fa; border:1px solid rgba(59,130,246,0.4); font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; cursor:pointer; margin-left:4px;" title="${ord} confirmed. Click to view Trade Journey.">⭐ ${ord.toUpperCase()} CONFIRMED</span>`;
+        return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(59,130,246,0.18); color:#60a5fa; border:1px solid rgba(59,130,246,0.4); font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:4px; cursor:pointer; margin-left:4px;" title="${ord} confirmed. Click to view Trade Journey.">⭐ ${ord.toUpperCase()}</span>`;
       }
       return '';
     }
@@ -5177,9 +5177,8 @@ function getEarningsBadgeHtml(item) {
       <td>
         <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
           <span class="badge badge-scanner">${t.scanner || '—'}</span>
-          ${t.signals && t.signals.includes('GEM') ? `<span style="display:inline-flex; align-items:center; gap:2px; padding:1px 6px; border-radius:4px; font-size:10px; font-weight:800; background:rgba(0,212,161,0.18); color:#00d4a1; border:1px solid rgba(0,212,161,0.5); box-shadow:0 0 6px rgba(0,212,161,0.2);">💎 GEM PICK</span>` : ''}
+          ${t.signals && t.signals.includes('GEM') ? `<span style="display:inline-flex; align-items:center; gap:2px; padding:1px 6px; border-radius:4px; font-size:10px; font-weight:800; background:rgba(0,212,161,0.18); color:#00d4a1; border:1px solid rgba(0,212,161,0.5); box-shadow:0 0 6px rgba(0,212,161,0.2);">💎 GEM</span>` : ''}
         </div>
-        ${t.signals ? `<div style="font-size:9px; color:var(--accent); font-weight:600; margin-top:2px;">${(t.signals).replace(/_/g, ' ')}</div>` : ''}
       </td>
       <td>${badgeHtml(t.status, t)}</td>
       <td style="text-align:center;">
@@ -5207,11 +5206,10 @@ function getEarningsBadgeHtml(item) {
     <tr class="detail-row">
       <td colspan="15">
         <div class="detail-panel ${isOpen ? 'open' : 'closed'}" id="dp-${id}">
-          ${t.scanner === 'TECHNICAL' ? `
           <div class="detail-item">
-            <div class="detail-label">Pattern Passed</div>
-            <div class="detail-val" style="color:var(--accent);font-weight:700;font-size:11px;">${(t.signals || t.category || 'TECHNICAL').replace(/_/g, ' ')}</div>
-          </div>` : ''}
+            <div class="detail-label">Strategy / Pattern</div>
+            <div class="detail-val" style="color:var(--accent);font-weight:700;font-size:11px;">${(t.signals || t.category || t.scanner || 'TECHNICAL').replace(/_/g, ' ')}</div>
+          </div>
           <div class="detail-item">
             <div class="detail-label">Stop Loss</div>
             <div class="detail-val neg" style="font-size:11px;">

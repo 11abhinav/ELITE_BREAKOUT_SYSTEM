@@ -1804,7 +1804,6 @@ function buildTradeRows(trades, maxAbs, prefix) {
       <td style="color:var(--muted);font-family:var(--font-mono);font-size:11px">${fmtAlertTime(t.alert_time||t.entry_date)}</td>
       <td>
         <span class="badge badge-scanner">${t.scanner||'—'}</span>
-        ${t.scanner === 'TECHNICAL' && t.signals ? `<div style="font-size:9px; color:var(--accent); font-weight:600; margin-top:2px;">${(t.signals).replace(/_/g, ' ')}</div>` : ''}
       </td>
       <td>${badgeHtml(t.status, t)}</td>
       <td style="text-align:center;">
@@ -1833,11 +1832,10 @@ function buildTradeRows(trades, maxAbs, prefix) {
     <tr class="detail-row">
       <td colspan="15">
         <div class="detail-panel ${isOpen?'open':'closed'}" id="dp-${id}">
-          ${t.scanner === 'TECHNICAL' ? `
           <div class="detail-item">
-            <div class="detail-label">Pattern Passed</div>
-            <div class="detail-val" style="color:var(--accent);font-weight:700;">${(t.signals || t.category || 'TECHNICAL').replace(/_/g, ' ')}</div>
-          </div>` : ''}
+            <div class="detail-label">Strategy / Pattern</div>
+            <div class="detail-val" style="color:var(--accent);font-weight:700;">${(t.signals || t.category || t.scanner || 'TECHNICAL').replace(/_/g, ' ')}</div>
+          </div>
           <div class="detail-item">
             <div class="detail-label">Stop Loss</div>
             <div class="detail-val neg">${fmt(t.stop_loss)}</div>
