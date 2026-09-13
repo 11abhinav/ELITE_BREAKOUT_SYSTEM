@@ -8,20 +8,18 @@ import sys
 import unittest
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "app")))
 
-from corporate_event_classifier import classify_announcement_text, evaluate_deterministic_hard_risk_gate, extract_inr_amount_cr
+from corporate_event_classifier import classify_announcement_text, evaluate_deterministic_hard_risk_gate
 from analyst_consensus_engine import calculate_analyst_consensus
 from ai_analyzer import analyze_full_corporate_dossier
 from database import (
     init_db,
-    save_raw_source_document, save_corporate_event, get_corporate_events_for_symbol,
-    save_analyst_research_report, get_analyst_research_for_symbol,
+    save_raw_source_document, save_corporate_event,
     save_company_intelligence_snapshot, get_intelligence_snapshot_at_time,
-    save_company_intelligence_current, get_current_company_intelligence,
-    upsert_intelligence_ingestion_health, get_all_intelligence_ingestion_health
+    save_company_intelligence_current, get_current_company_intelligence
 )
 
 

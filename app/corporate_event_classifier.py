@@ -51,9 +51,12 @@ HARD_RISK_PATTERNS = {
 # 2. Bullish Growth Catalysts
 CATALYST_PATTERNS = {
     "ORDER_WIN": [
-        r"\bbagged order\b", r"\breceipt of order\b", r"\bawarded contract\b",
-        r"\bwon contract\b", r"\bwork order\b", r"\bletter of intent\b",
-        r"\bloi received\b", r"\bmajor contract\b", r"\border book\b"
+        r"\b(?:bagged|won|secured|awarded|received)\s+(?:an?\s+)?(?:order|contract|project|mandate|package)\b",
+        r"\bawarded\b", r"\breceipt of order\b", r"\breceipt of contract\b",
+        r"\bwon contract\b", r"\bwork order\b", r"\bletter of (?:intent|award|acceptance)\b",
+        r"\bloi received\b", r"\bmajor contract\b", r"\border book\b",
+        r"\bepc (?:order|contract|project)\b", r"\bnew order\b", r"\border win\b",
+        r"\bsupply order\b", r"\bpurchase order\b"
     ],
     "CAPEX_EXPANSION": [
         r"\bcommercial production\b", r"\bcapacity expansion\b",

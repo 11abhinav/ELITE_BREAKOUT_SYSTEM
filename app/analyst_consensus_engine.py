@@ -43,8 +43,14 @@ def calculate_analyst_consensus(
 
     # Group by broker to keep only latest report per firm
     latest_by_firm: Dict[str, Dict[str, Any]] = {}
+    fallback_cmp = None
     for r in reports:
-        firm = r.get("broker_firm", "UNKNOWN").strip().upper()
+        firm = str(r.get("broker_firm") or r.get("analyst_firm") or r.get("firm") or f"ANALYST_{id(r)}").strip().upper()
+        if fallback_cmp is None:
+            raw_cmp = r.get("current_market_price") or r.get("cmp") or r.get("price")
+            if raw_cmp and isinstance(raw_cmp, (int, float)) and raw_cmp > 0:
+                fallback_cmp = float(raw_cmp)
+
         r_date_str = str(r.get("report_date", ""))
         try:
             r_dt = datetime.fromisoformat(r_date_str) if "T" in r_date_str else datetime.strptime(r_date_str[:10], "%Y-%m-%d")
@@ -81,9 +87,10 @@ def calculate_analyst_consensus(
     median_tp = statistics.median(targets) if targets else None
     
     # Calculate Upside
+    eff_cmp = current_price if (current_price and current_price > 0) else fallback_cmp
     upside_pct = None
-    if median_tp and current_price and current_price > 0:
-        upside_pct = round(((median_tp - current_price) / current_price) * 100.0, 2)
+    if median_tp and eff_cmp and eff_cmp > 0:
+        upside_pct = round(((median_tp - eff_cmp) / eff_cmp) * 100.0, 2)
 
     # Calculate Dispersion: (Max - Min) / Median
     dispersion_pct = 0.0

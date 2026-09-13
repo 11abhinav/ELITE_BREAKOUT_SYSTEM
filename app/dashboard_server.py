@@ -4764,8 +4764,7 @@ def fetch_and_build_stock_intelligence_dossier(symbol: str) -> dict:
 
     from database import (
         save_raw_source_document, save_corporate_event, get_corporate_events_for_symbol,
-        get_analyst_research_for_symbol, upsert_intelligence_ingestion_health,
-        get_current_company_intelligence
+        get_analyst_research_for_symbol, upsert_intelligence_ingestion_health
     )
     from corporate_event_classifier import classify_announcement_text, compute_document_hash
     from analyst_consensus_engine import calculate_analyst_consensus
