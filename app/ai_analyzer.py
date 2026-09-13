@@ -407,9 +407,11 @@ Analyst Revision Score: {analyst_consensus.get('analyst_revision_score', 50)}/10
         for model in gemini_models:
             try:
                 ai_result = _try_gemini_dossier(model, curr_key, prompt_payload)
+                logger.info(f"✅ [INTELLIGENCE DOSSIER] Successfully synthesized {symbol} with Gemini model '{model}'")
                 break
             except Exception as e:
                 err_str = str(e)
+                logger.warning(f"⚠️ [INTELLIGENCE DOSSIER MODEL ATTEMPT FAILED] Symbol={symbol} | Model={model} | Error={err_str}")
                 if any(t in err_str.upper() for t in ("429", "RESOURCE_EXHAUSTED", "QUOTA_EXCEEDED")):
                     mark_gemini_key_exhausted(curr_key, f"Verified 429 on {model}")
                     key_hit_limit = True
@@ -421,6 +423,7 @@ Analyst Revision Score: {analyst_consensus.get('analyst_revision_score', 50)}/10
 
     # Fallback default values if LLM unavailable
     if not ai_result:
+        logger.warning(f"⚠️ [INTELLIGENCE DOSSIER LLM OFFLINE] AI models offline/exhausted for {symbol}. Proceeding with deterministic rule-based synthesis.")
         catalyst_score = 60 if any(e.get("category") == "ORDER_WIN" for e in timeline_events) else 50
         risk_score = 85 if hard_gate_status == "QUARANTINE" else 15
         governance_score = 4.0 if hard_gate_status == "QUARANTINE" else 7.5

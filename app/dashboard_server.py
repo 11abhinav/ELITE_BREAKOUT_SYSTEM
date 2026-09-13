@@ -4851,7 +4851,7 @@ def fetch_and_build_stock_intelligence_dossier(symbol: str) -> dict:
                 error_msg=f"HTTP {r.status_code}"
             )
     except Exception as fetch_err:
-        logger.debug(f"NSE corporate announcement fetch warning for {symbol}: {fetch_err}")
+        logger.error(f"🚨 [INTELLIGENCE FETCH ERROR] NSE corporate announcement fetch failed for {symbol}: {fetch_err}", exc_info=True)
         upsert_intelligence_ingestion_health(
             feed_name="NSE_CORPORATE_ANNOUNCEMENTS",
             is_success=False,
@@ -4884,6 +4884,7 @@ def api_stock_intelligence(symbol):
     Reused across Watchlist, Alert Cards, Technical Scanners, Wealth, Multibagger, and Search.
     Supports point-in-time historical reconstruction via ?as_of=<iso_timestamp>.
     """
+    import traceback
     from database import (
         get_current_company_intelligence, get_intelligence_snapshot_at_time,
         get_corporate_events_for_symbol, get_analyst_research_for_symbol
@@ -4934,22 +4935,33 @@ def api_stock_intelligence(symbol):
         fresh_dossier["timeline_events"] = get_corporate_events_for_symbol(symbol, limit=30)
         return jsonify(fresh_dossier)
     except Exception as e:
-        logger.exception(f"Failed to generate intelligence dossier for {symbol}: {e}")
-        return jsonify({"error": str(e)}), 500
+        tb_str = traceback.format_exc()
+        logger.error(f"🚨 [INTELLIGENCE DOSSIER ERROR] Failed to generate intelligence dossier for {symbol}: {e}\n{tb_str}")
+        return jsonify({
+            "error": f"Failed to generate intelligence dossier for {symbol}: {str(e)}",
+            "traceback": tb_str,
+            "symbol": symbol
+        }), 500
 
 
 @app.route("/api/stock/<symbol>/intelligence/refresh", methods=["POST"])
 @login_required
 def api_stock_intelligence_refresh(symbol):
     """Triggers manual re-ingestion and full AI analysis for a stock symbol."""
+    import traceback
     from database import get_corporate_events_for_symbol
     try:
         fresh_dossier = fetch_and_build_stock_intelligence_dossier(symbol)
         fresh_dossier["timeline_events"] = get_corporate_events_for_symbol(symbol, limit=30)
         return jsonify(fresh_dossier)
     except Exception as e:
-        logger.exception(f"Failed to refresh intelligence dossier for {symbol}: {e}")
-        return jsonify({"error": str(e)}), 500
+        tb_str = traceback.format_exc()
+        logger.error(f"🚨 [INTELLIGENCE DOSSIER REFRESH ERROR] Failed to refresh intelligence dossier for {symbol}: {e}\n{tb_str}")
+        return jsonify({
+            "error": f"Failed to refresh intelligence dossier for {symbol}: {str(e)}",
+            "traceback": tb_str,
+            "symbol": symbol
+        }), 500
 
 
 @app.route("/api/admin/intelligence/health", methods=["GET"])
