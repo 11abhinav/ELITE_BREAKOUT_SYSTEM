@@ -4864,12 +4864,22 @@ def fetch_and_build_stock_intelligence_dossier(symbol: str) -> dict:
     # 4. Calculate Analyst Consensus
     analyst_consensus = calculate_analyst_consensus(reports)
 
-    # 5. Execute Full Dossier Synthesis
+    # 4.5. Check if recent concall transcript or earnings analysis exists in cache
+    concall_text = ""
+    try:
+        from database import get_recent_concall_analysis
+        cached_cc = get_recent_concall_analysis(symbol, max_age_days=90)
+        if cached_cc and isinstance(cached_cc, dict) and not cached_cc.get("error"):
+            concall_text = json.dumps(cached_cc)
+    except Exception as cc_err:
+        logger.debug(f"Concall cache lookup skipped for {symbol}: {cc_err}")
+
+    # 5. Execute Full Dossier Synthesis (Analyzes corporate actions, orders, deals, ratings + concalls)
     dossier = analyze_full_corporate_dossier(
         symbol=symbol,
         timeline_events=events,
         analyst_consensus=analyst_consensus,
-        concall_text=""
+        concall_text=concall_text
     )
 
     return dossier
