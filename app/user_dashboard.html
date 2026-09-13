@@ -209,19 +209,19 @@ var USER_PAGE_SIZE = 10;
   .filter-bar select,.filter-bar input{background:var(--card2);border:1px solid var(--border);color:var(--text);padding:7px 11px;border-radius:var(--radius);font-size:12px;font-family:var(--font-mono);outline:none;transition:border-color .15s,box-shadow .15s;}
   .filter-bar select:focus,.filter-bar input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-dim);}
   .filter-bar select option{background:var(--card);color:var(--text);}
-  /* [RULE 67 CHANGE-RATIONALE]: Set table min-width to 100% and optimize padding to fit alert table cleanly on screen without horizontal cut-off */
-  .tbl-wrap{overflow-x:auto;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border2) var(--card2);width:100%;}
-  table{width:100%;min-width:100%;border-collapse:collapse;font-size:12px;}
-  thead th{background:var(--card2);color:var(--muted);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:6px 6px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;transition:color .15s;}
+  /* Table styling: Auto-proportional layout with comfortable padding */
+  .tbl-wrap{overflow-x:auto;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border2) var(--card2);width:100%;box-sizing:border-box;}
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+  thead th{background:var(--card2);color:var(--muted);font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:8px 10px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;transition:color .15s;}
   thead th:hover{color:var(--text);}
   thead th.sort-asc::after{content:' ▲';color:var(--accent);font-size:8px;}
   thead th.sort-desc::after{content:' ▼';color:var(--accent);font-size:8px;}
   tbody tr{border-bottom:1px solid var(--border);transition:background .08s;}
   tbody tr:last-child{border-bottom:none;}
   tbody tr:hover{background:var(--card2);}
-  tbody td{padding:5px 6px;white-space:nowrap;font-family:var(--font-mono);font-size:11.5px;color:var(--text);}
-  @media(max-width: 1400px) {
-    thead th, tbody td { padding: 4px 4px !important; font-size: 11px !important; }
+  tbody td{padding:8px 10px;white-space:nowrap;font-family:var(--font-mono);font-size:12px;color:var(--text);vertical-align:middle;}
+  @media(max-width: 992px) {
+    thead th, tbody td { padding: 5px 6px !important; font-size: 11px !important; }
     .col-opt { display: none !important; }
     .pnl-wrap { gap: 4px !important; }
     .pnl-bar-track { width: 30px !important; }
@@ -1023,19 +1023,19 @@ function playDing() {
         <table>
           <thead>
             <tr>
-              <th style="width:20px"></th>
-              <th data-col="symbol">Symbol</th>
-              <th data-col="entry_date">Date &amp; Time</th>
-              <th data-col="scanner">Scanner</th>
-              <th data-col="status" class="sort-asc">Status</th>
+              <th style="width:28px; text-align:center;"></th>
+              <th data-col="symbol" style="text-align:left;">Symbol</th>
+              <th data-col="entry_date" style="text-align:left;">Date &amp; Time</th>
+              <th data-col="scanner" style="text-align:left;">Scanner</th>
+              <th data-col="status" class="sort-asc" style="text-align:left;">Status</th>
               <th style="text-align:center;">🧠 AI Dossier</th>
-              <th data-col="current_price" style="cursor:pointer">Price / Entry ₹</th>
-              <th data-col="pnl_pct" style="cursor:pointer" class="desc">P&amp;L</th>
-              <th data-col="score" style="cursor:pointer">Score</th>
-              <th data-col="category" class="col-opt">Category</th>
-              <th data-col="capital_allocated" style="cursor:pointer" class="col-opt">Capital ₹</th>
-              <th data-col="shares_bought" style="cursor:pointer" class="col-opt">Shares</th>
-              <th data-col="days_held" class="col-opt">Days</th>
+              <th data-col="current_price" style="cursor:pointer; text-align:right;">Price / Entry ₹</th>
+              <th data-col="pnl_pct" style="cursor:pointer; text-align:right;" class="desc">P&amp;L</th>
+              <th data-col="score" style="cursor:pointer; text-align:center;">Score</th>
+              <th data-col="category" class="col-opt" style="text-align:left;">Category</th>
+              <th data-col="capital_allocated" style="cursor:pointer; text-align:right;" class="col-opt">Capital ₹</th>
+              <th data-col="shares_bought" style="cursor:pointer; text-align:right;" class="col-opt">Shares</th>
+              <th data-col="days_held" class="col-opt" style="text-align:center;">Days</th>
             </tr>
           </thead>
           <tbody id="tradeBody"></tbody>
@@ -1797,7 +1797,7 @@ function buildTradeRows(trades, maxAbs, prefix) {
     const tvLink = `https://in.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(cleanSym)}`;
     return `
     <tr class="main-row${isOpen?' open':''}" id="mr-${id}" onclick="toggleDetail('${id}', '${t.symbol}')" style="${rowHighlightStyle}">
-      <td>${isOpen?'\u25bc':'\u25b6'}</td>
+      <td style="text-align:center; width:28px;">${isOpen?'\u25bc':'\u25b6'}</td>
       <td style="font-weight:700;color:var(--text);letter-spacing:-.3px">
         <a href="${tvLink}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="color:var(--accent); font-weight:800; text-decoration:none;" title="Open ${cleanSym} Chart on TradingView">${cleanSym} 📈</a>${eventMarkHtml}
       </td>
@@ -1810,25 +1810,25 @@ function buildTradeRows(trades, maxAbs, prefix) {
       <td style="text-align:center;">
         <button onclick="openStockIntelligenceDossier('${cleanSym}'); event.stopPropagation();" style="background:linear-gradient(135deg,rgba(99,102,241,0.2),rgba(168,85,247,0.2)); border:1px solid rgba(168,85,247,0.4); color:#c084fc; padding:4px 9px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px; box-shadow:0 0 10px rgba(168,85,247,0.15); transition:all 0.2s;" onmouseover="this.style.transform='scale(1.04)'" onmouseout="this.style.transform='scale(1)'" title="Open AI Corporate & Analyst Intelligence Dossier for ${cleanSym}">🧠 AI Analyser</button>
       </td>
-      <td title="${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') ? (t.closed_at ? 'Closed: ' + fmtDetailTime(t.closed_at) : '') : ((t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) ? 'Updated: ' + fmtDetailTime(t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) : '')}">
+      <td style="text-align:right;" title="${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') ? (t.closed_at ? 'Closed: ' + fmtDetailTime(t.closed_at) : '') : ((t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) ? 'Updated: ' + fmtDetailTime(t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) : '')}">
         <div style="font-weight:800; font-size:12px; color:var(--text);">${fmt(t.exit_price || t.current_price)}</div>
         <div style="font-size:9.5px; color:var(--muted); margin-top:2px;">Entry: ${fmt(t.actual_entry_price || t.entry_price)}</div>
       </td>
-      <td>
-        <div class="pnl-wrap" style="gap:4px;">
+      <td style="text-align:right;">
+        <div class="pnl-wrap" style="justify-content:flex-end; gap:5px;">
           <div class="pnl-bar-track"><div class="pnl-bar-fill" style="width:${barW}%;background:${barColor}"></div></div>
           <span class="pnl-text ${pctClass(t.pnl_pct)}" style="font-size:11.5px; min-width:auto;">${pct(t.pnl_pct)}</span>
         </div>
         <div style="font-size:9.5px; margin-top:2px;" class="${pctClass(pnlRsVal)}">${pnlRsVal !== 0 ? fmt(pnlRsVal) : (t.pnl_rs != null && t.pnl_rs !== 0 ? fmt(t.pnl_rs) : '—')}</div>
       </td>
-      <td title="Calculated: ${fmtDetailTime(t.alert_time || t.entry_date)}">
+      <td style="text-align:center;" title="Calculated: ${fmtDetailTime(t.alert_time || t.entry_date)}">
         ${sc}
         <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${t.alert_time || t.entry_date ? fmtDetailTime(t.alert_time || t.entry_date) : ''}</div>
       </td>
       <td class="col-opt" style="color:var(--muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-body)">${t.category||'—'}</td>
-      <td class="col-opt">${fmt(t.capital_allocated)}</td>
-      <td class="col-opt">${t.shares_bought||'\u2014'}</td>
-      <td class="col-opt" style="color:var(--muted)">${t.days_held!=null?t.days_held+'d':'—'}</td>
+      <td class="col-opt" style="text-align:right;">${fmt(t.capital_allocated)}</td>
+      <td class="col-opt" style="text-align:right;">${t.shares_bought||'\u2014'}</td>
+      <td class="col-opt" style="color:var(--muted); text-align:center;">${t.days_held!=null?t.days_held+'d':'—'}</td>
     </tr>
     <tr class="detail-row">
       <td colspan="15">

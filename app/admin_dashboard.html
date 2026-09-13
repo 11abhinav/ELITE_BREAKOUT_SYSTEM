@@ -1213,7 +1213,7 @@ function changeAdminPage(type, delta) {
       width: 100%;
     }
 
-    table { width: 100%; min-width: 100%; border-collapse: collapse; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
 
     thead th {
       position: sticky;
@@ -1221,11 +1221,11 @@ function changeAdminPage(type, delta) {
       z-index: 10;
       background: var(--card2);
       color: var(--muted);
-      font-size: 10px;
+      font-size: 10.5px;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: .4px;
-      padding: 6px 6px;
+      padding: 8px 10px;
       text-align: left;
       border-bottom: 1px solid var(--border);
       white-space: nowrap;
@@ -1243,11 +1243,17 @@ function changeAdminPage(type, delta) {
     tbody tr:hover { background: var(--card2); }
 
     tbody td {
-      padding: 5px 6px;
+      padding: 8px 10px;
       white-space: nowrap;
       font-family: var(--font-mono);
-      font-size: 11.5px;
+      font-size: 12px;
       color: var(--text);
+      vertical-align: middle;
+    }
+
+    @media(max-width: 992px) {
+      thead th, tbody td { padding: 5px 6px !important; font-size: 11px !important; }
+      .col-opt { display: none !important; }
     }
 
     /* ─────────────────────────────────────────
@@ -2771,19 +2777,19 @@ function changeAdminPage(type, delta) {
           <table>
             <thead>
               <tr>
-                <th style="width:20px"><input type="checkbox" id="selectAllTrades" onclick="toggleAllTrades(this)"></th>
-                <th style="width:20px"></th>
-                <th data-col="symbol">Symbol</th>
-                <th data-col="entry_date">Date &amp; Time</th>
-                <th data-col="scanner">Scanner</th>
-                <th data-col="status" class="sort-asc">Status</th>
+                <th style="width:24px; text-align:center;"><input type="checkbox" id="selectAllTrades" onclick="toggleAllTrades(this)"></th>
+                <th style="width:24px; text-align:center;"></th>
+                <th data-col="symbol" style="text-align:left;">Symbol</th>
+                <th data-col="entry_date" style="text-align:left;">Date &amp; Time</th>
+                <th data-col="scanner" style="text-align:left;">Scanner</th>
+                <th data-col="status" class="sort-asc" style="text-align:left;">Status</th>
                 <th style="text-align:center;">🧠 AI Dossier</th>
-                <th data-col="current_price" style="cursor:pointer">Price / Entry ₹</th>
-                <th data-col="pnl_pct" style="cursor:pointer" class="desc">P&amp;L</th>
-                <th data-col="score" style="cursor:pointer">Score</th>
-                <th data-col="capital_allocated" style="cursor:pointer" class="col-opt">Capital ₹</th>
-                <th data-col="shares_bought" style="cursor:pointer" class="col-opt">Shares</th>
-                <th data-col="days_held" class="col-opt">Days</th>
+                <th data-col="current_price" style="cursor:pointer; text-align:right;">Price / Entry ₹</th>
+                <th data-col="pnl_pct" style="cursor:pointer; text-align:right;" class="desc">P&amp;L</th>
+                <th data-col="score" style="cursor:pointer; text-align:center;">Score</th>
+                <th data-col="capital_allocated" style="cursor:pointer; text-align:right;" class="col-opt">Capital ₹</th>
+                <th data-col="shares_bought" style="cursor:pointer; text-align:right;" class="col-opt">Shares</th>
+                <th data-col="days_held" class="col-opt" style="text-align:center;">Days</th>
               </tr>
             </thead>
             <tbody id="tradeBody"></tbody>
@@ -5162,8 +5168,8 @@ function getEarningsBadgeHtml(item) {
         const cleanSym = (t.symbol || '').replace('.NS', '').replace('.BO', '').trim();
         return `
     <tr class="main-row${isOpen ? ' open' : ''}" id="mr-${id}" onclick="toggleDetail('${id}', '${t.symbol}', '${key}', ${t.id})" style="${rowHighlightStyle}">
-      <td onclick="event.stopPropagation();">${checkboxHtml}</td>
-      <td>${isOpen ? '\u25bc' : '\u25b6'}</td>
+      <td onclick="event.stopPropagation();" style="text-align:center; width:24px;">${checkboxHtml}</td>
+      <td style="text-align:center; width:24px;">${isOpen ? '\u25bc' : '\u25b6'}</td>
       <td style="font-weight:700;color:var(--text);letter-spacing:-.3px">
         ${formatStockSymbolLink(t.symbol)}${eventMarkHtml}${evolutionBadge}
       </td>
@@ -5179,24 +5185,24 @@ function getEarningsBadgeHtml(item) {
       <td style="text-align:center;">
         <button onclick="openStockIntelligenceDossier('${cleanSym}'); event.stopPropagation();" style="background:linear-gradient(135deg,rgba(99,102,241,0.2),rgba(168,85,247,0.2)); border:1px solid rgba(168,85,247,0.4); color:#c084fc; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px; box-shadow:0 0 10px rgba(168,85,247,0.15); transition:all 0.2s;" onmouseover="this.style.transform='scale(1.04)'" onmouseout="this.style.transform='scale(1)'" title="Open AI Corporate & Analyst Intelligence Dossier for ${cleanSym}">🧠 AI Analyser</button>
       </td>
-      <td title="${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') ? (t.closed_at ? 'Closed: ' + fmtDetailTime(t.closed_at) : '') : ((t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) ? 'Updated: ' + fmtDetailTime(t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) : '')}">
+      <td style="text-align:right;" title="${(t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED' || t.status === 'REJECTED') ? (t.closed_at ? 'Closed: ' + fmtDetailTime(t.closed_at) : '') : ((t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) ? 'Updated: ' + fmtDetailTime(t.cmp_updated_at || t.cmp_updated || window.DATA_GENERATED_AT) : '')}">
         <div style="font-weight:800; font-size:12px; color:var(--text);">${fmt(t.exit_price || t.current_price)}</div>
         <div style="font-size:9.5px; color:var(--muted); margin-top:2px;">Entry: ${fmt(t.entry_price)}</div>
       </td>
-      <td>
-        <div class="pnl-wrap" style="gap:4px;">
+      <td style="text-align:right;">
+        <div class="pnl-wrap" style="justify-content:flex-end; gap:5px;">
           <div class="pnl-bar-track"><div class="pnl-bar-fill" style="width:${barW}%;background:${barColor}"></div></div>
           <span class="pnl-text ${pctClass(pnlData.totalPct)}" style="font-size:11.5px; min-width:auto;">${pct(pnlData.totalPct)}</span>
         </div>
         <div style="font-size:9.5px; margin-top:2px;" class="${pctClass(pnlData.totalRs)}">${pnlData.totalRs !== 0 || pnlData.totalPct !== 0 ? fmt(pnlData.totalRs) : '—'}</div>
       </td>
-      <td title="Calculated: ${fmtDetailTime(t.alert_time || t.entry_date)}">
+      <td style="text-align:center;" title="Calculated: ${fmtDetailTime(t.alert_time || t.entry_date)}">
         ${sc}
         <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${t.alert_time || t.entry_date ? fmtDetailTime(t.alert_time || t.entry_date) : ''}</div>
       </td>
-      <td class="col-opt">${fmt(capAllocated)}</td>
-      <td class="col-opt">${t.shares_bought || '\u2014'}</td>
-      <td class="col-opt" style="color:var(--muted)">${t.days_held != null ? t.days_held + 'd' : '—'}</td>
+      <td class="col-opt" style="text-align:right;">${fmt(capAllocated)}</td>
+      <td class="col-opt" style="text-align:right;">${t.shares_bought || '\u2014'}</td>
+      <td class="col-opt" style="color:var(--muted); text-align:center;">${t.days_held != null ? t.days_held + 'd' : '—'}</td>
     </tr>
     <tr class="detail-row">
       <td colspan="15">
