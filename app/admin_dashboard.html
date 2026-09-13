@@ -1827,7 +1827,6 @@ function changeAdminPage(type, delta) {
       } catch(e) {}
     }
 
-  
     function toggleMbWatchlist() {
       const body = document.getElementById('mb-watchlist-card-body');
       const icon = document.getElementById('mb-watchlist-icon');
@@ -1875,6 +1874,147 @@ function changeAdminPage(type, delta) {
       return `<button onclick="event.stopPropagation(); openStockIntelligenceDossier('${cleanSym}')" style="background:linear-gradient(135deg,rgba(99,102,241,0.2),rgba(168,85,247,0.2)); border:1px solid rgba(168,85,247,0.4); color:#c084fc; padding:4px 9px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px; box-shadow:0 0 8px rgba(168,85,247,0.15);" title="Open AI Corporate & Analyst Intelligence Dossier for ${cleanSym}">🧠 AI Analyser</button>`;
     }
 
+    // =====================================================================================
+    // UNIVERSAL STOCK INTELLIGENCE DOSSIER (INSTANT CACHE + AUTO-LOAD)
+    // =====================================================================================
+    window._STOCK_INTELLIGENCE_CACHE = window._STOCK_INTELLIGENCE_CACHE || {};
+
+    window.renderStockIntelligenceDossierModal = function(modal, cleanSym, data, asOf=null) {
+        const tvUrl = `https://in.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(cleanSym)}`;
+        const verdict = data.net_verdict || 'NEUTRAL';
+        let verdictBadge = '<span style="background:#2d3748; color:#cbd5e0; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:700;">⚪ NEUTRAL</span>';
+        if (verdict === 'STRONG_TAILWIND' || verdict === 'STRONGLY_BULLISH_CATALYST') verdictBadge = '<span style="background:rgba(72,187,120,0.2); color:#48bb78; border:1px solid #48bb78; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:700;">🟢 STRONG TAILWIND</span>';
+        else if (verdict === 'MODERATE_POSITIVE' || verdict === 'MODERATELY_BULLISH') verdictBadge = '<span style="background:rgba(66,153,225,0.2); color:#4299e1; border:1px solid #4299e1; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:700;">🔵 MODERATE POSITIVE</span>';
+        else if (verdict === 'SEVERE_RED_FLAG_AVOID') verdictBadge = '<span style="background:rgba(245,101,101,0.2); color:#f56565; border:1px solid #f56565; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:700;">🚨 SEVERE RED FLAG / AVOID</span>';
+        else if (verdict === 'ELEVATED_RISK') verdictBadge = '<span style="background:rgba(237,137,54,0.2); color:#ed8936; border:1px solid #ed8936; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:700;">⚠️ ELEVATED RISK</span>';
+
+        const hardGate = data.hard_gate_status === 'QUARANTINE' 
+            ? '<span style="color:#f56565; font-weight:700;">🚨 QUARANTINED</span>' 
+            : '<span style="color:#48bb78; font-weight:700;">🛡️ PASS</span>';
+
+        const catScore = (data.scores && data.scores.catalyst_score != null) ? data.scores.catalyst_score : (data.catalyst_score ?? 50);
+        const riskScore = (data.scores && data.scores.risk_score != null) ? data.scores.risk_score : (data.risk_score ?? 0);
+        const govScore = (data.scores && data.scores.governance_score != null) ? data.scores.governance_score : (data.governance_score ?? 7.0);
+        const mgmtScore = (data.scores && data.scores.management_credibility_score != null) ? data.scores.management_credibility_score : (data.management_credibility_score ?? 7.0);
+        const analystScore = (data.scores && data.scores.analyst_revision_score != null) ? data.scores.analyst_revision_score : (data.analyst_revision_score ?? 50);
+
+        const events = data.timeline_events || [];
+        let timelineHtml = '<div style="color:#718096; font-size:12px; padding:8px;">No material events recorded in timeline.</div>';
+        if (events.length > 0) {
+            timelineHtml = events.slice(0, 15).map(e => {
+                const dt = (e.event_date || e.published_at || '').substring(0, 10);
+                const hl = e.headline || e.description || 'Corporate filing';
+                const cat = e.category || 'FILING';
+                const tier = e.source_tier || 'SOURCE_TIER_1';
+                const url = e.source_url || '#';
+                const mat = e.materiality_score || 5.0;
+                let catColor = '#a0aec0';
+                if (cat === 'ORDER_WIN' || cat === 'CAPEX_EXPANSION') catColor = '#48bb78';
+                else if (cat === 'DEBT_DEFAULT' || cat === 'AUDITOR_RESIGNATION' || cat === 'REGULATORY_PENALTY' || cat === 'CREDIT_DOWNGRADE') catColor = '#f56565';
+                else if (cat === 'M_AND_A' || cat === 'CAPITAL_ACTION') catColor = '#4299e1';
+
+                return `
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
+                    <div style="flex:1;">
+                        <span style="font-family:monospace; color:#718096; margin-right:8px;">${dt}</span>
+                        <span style="background:rgba(255,255,255,0.08); color:${catColor}; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700; margin-right:6px;">${cat}</span>
+                        <span style="color:#e2e8f0;">${hl}</span>
+                        <span style="color:#718096; font-size:10px; margin-left:6px;">(${tier} | Mat: ${mat})</span>
+                    </div>
+                    ${url && url !== '#' ? `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#63b3ed; text-decoration:none; font-size:11px; white-space:nowrap; font-weight:600;">View Source ↗</a>` : ''}
+                </div>`;
+            }).join('');
+        }
+
+        const ac = data.analyst_consensus || {};
+        const analystHtml = `
+        <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; margin-top:8px;">
+            <div style="background:#1a202c; padding:10px; border-radius:6px; text-align:center;">
+                <div style="font-size:10px; color:#718096; font-weight:700;">COVERAGE</div>
+                <div style="font-size:14px; font-weight:700; color:#fff;">${ac.total_covering_analysts || 0} Analysts</div>
+            </div>
+            <div style="background:#1a202c; padding:10px; border-radius:6px; text-align:center;">
+                <div style="font-size:10px; color:#718096; font-weight:700;">BUY / HOLD / SELL</div>
+                <div style="font-size:13px; font-weight:700; color:#48bb78;">${ac.buy_count||0} <span style="color:#ecc94b;">/ ${ac.hold_count||0}</span> <span style="color:#f56565;">/ ${ac.sell_count||0}</span></div>
+            </div>
+            <div style="background:#1a202c; padding:10px; border-radius:6px; text-align:center;">
+                <div style="font-size:10px; color:#718096; font-weight:700;">MEDIAN TARGET</div>
+                <div style="font-size:14px; font-weight:700; color:#63b3ed;">${ac.median_target_price ? '₹'+ac.median_target_price : 'N/A'} ${ac.upside_pct ? `(+${ac.upside_pct}%)` : ''}</div>
+            </div>
+            <div style="background:#1a202c; padding:10px; border-radius:6px; text-align:center;">
+                <div style="font-size:10px; color:#718096; font-weight:700;">DISPERSION</div>
+                <div style="font-size:14px; font-weight:700; color:${(ac.target_dispersion_pct||0)>25 ? '#f56565':'#a0aec0'};">${ac.target_dispersion_pct ? ac.target_dispersion_pct+'%' : 'LOW'}</div>
+            </div>
+        </div>`;
+
+        modal.innerHTML = `
+        <div style="background:#11151c; border:1px solid rgba(255,255,255,0.12); border-radius:12px; max-width:880px; width:100%; max-height:90vh; overflow-y:auto; padding:24px; color:#e0e6ed; box-shadow:0 20px 50px rgba(0,0,0,0.8);">
+            <!-- Header -->
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; margin-bottom:16px;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <span style="font-size:24px;">🏢</span>
+                    <div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <a href="${tvUrl}" target="_blank" rel="noopener noreferrer" style="font-size:20px; font-weight:800; color:#00d4a1; text-decoration:none;" title="Open ${cleanSym} Chart on TradingView">${cleanSym} ↗</a>
+                            <span style="font-size:12px; color:#a0aec0;">(TradingView)</span>
+                        </div>
+                        <div style="font-size:11px; color:#718096; margin-top:2px;">As of: ${data.as_of_time || new Date().toISOString()} | Safety Gate: ${hardGate}</div>
+                    </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <button onclick="openStockIntelligenceDossier('${cleanSym}', null, true)" style="background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; border:none; padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:5px; box-shadow:0 0 12px rgba(139,92,246,0.35); transition:all 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'" title="Re-fetch exchange filings, analyst reports & run Gemini synthesis">⚡ Re-Analyze & Fetch Fresh Data</button>
+                    ${verdictBadge}
+                    <button onclick="document.getElementById('stock-intelligence-dossier-modal').style.display='none'" style="background:transparent; border:none; color:#888; font-size:22px; cursor:pointer; padding:0 6px;">✕</button>
+                </div>
+            </div>
+
+            <!-- Score Metrics Grid -->
+            <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:10px; margin-bottom:20px;">
+                <div style="background:#1a202c; padding:10px; border-radius:8px; border-top:3px solid #48bb78; text-align:center;">
+                    <div style="font-size:10px; color:#718096; font-weight:700;">CATALYST SCORE</div>
+                    <div style="font-size:18px; font-weight:800; color:#48bb78; margin-top:4px;">${catScore}/100</div>
+                </div>
+                <div style="background:#1a202c; padding:10px; border-radius:8px; border-top:3px solid #f56565; text-align:center;">
+                    <div style="font-size:10px; color:#718096; font-weight:700;">RISK SCORE</div>
+                    <div style="font-size:18px; font-weight:800; color:${riskScore>30?'#f56565':'#a0aec0'}; margin-top:4px;">${riskScore}/100</div>
+                </div>
+                <div style="background:#1a202c; padding:10px; border-radius:8px; border-top:3px solid #b794f4; text-align:center;">
+                    <div style="font-size:10px; color:#718096; font-weight:700;">GOVERNANCE</div>
+                    <div style="font-size:18px; font-weight:800; color:#b794f4; margin-top:4px;">${govScore}/10</div>
+                </div>
+                <div style="background:#1a202c; padding:10px; border-radius:8px; border-top:3px solid #4299e1; text-align:center;">
+                    <div style="font-size:10px; color:#718096; font-weight:700;">ANALYST MOMENTUM</div>
+                    <div style="font-size:18px; font-weight:800; color:#4299e1; margin-top:4px;">${analystScore}/100</div>
+                </div>
+                <div style="background:#1a202c; padding:10px; border-radius:8px; border-top:3px solid #ecc94b; text-align:center;">
+                    <div style="font-size:10px; color:#718096; font-weight:700;">MGMT CREDIBILITY</div>
+                    <div style="font-size:18px; font-weight:800; color:#ecc94b; margin-top:4px;">${mgmtScore}/10</div>
+                </div>
+            </div>
+
+            <!-- Executive Summary -->
+            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:14px; margin-bottom:20px;">
+                <div style="font-size:11px; font-weight:700; color:#a0aec0; text-transform:uppercase; margin-bottom:6px;">🧠 Research Synthesis & Reasoning</div>
+                <div style="font-size:13px; color:#e2e8f0; line-height:1.5;">${data.executive_summary || 'No summary generated.'}</div>
+                ${data.contradiction_detected ? '<div style="margin-top:8px; padding:6px 10px; background:rgba(245,101,101,0.15); border-left:3px solid #f56565; color:#feb2b2; font-size:11px;">⚠️ <b>Contradiction Flagged:</b> Management commentary conflicts with regulatory filings or credit ratings.</div>' : ''}
+            </div>
+
+            <!-- Institutional Analyst Consensus -->
+            <div style="margin-bottom:20px;">
+                <div style="font-size:12px; font-weight:700; color:#cbd5e0; text-transform:uppercase; letter-spacing:0.5px;">📈 Institutional Analyst Coverage & Target Momentum</div>
+                ${analystHtml}
+            </div>
+
+            <!-- Chronological Event Timeline -->
+            <div>
+                <div style="font-size:12px; font-weight:700; color:#cbd5e0; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">📅 Longitudinal Corporate Event Timeline</div>
+                <div style="background:#171923; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px 14px; max-height:220px; overflow-y:auto;">
+                    ${timelineHtml}
+                </div>
+            </div>
+        </div>`;
+    };
+
     window.openStockIntelligenceDossier = async function(symbol, asOf=null, forceRefresh=false) {
         let modal = document.getElementById('stock-intelligence-dossier-modal');
         if (!modal) {
@@ -1886,7 +2026,13 @@ function changeAdminPage(type, delta) {
         modal.onclick = (e) => { if(e.target === modal) modal.style.display = 'none'; };
         
         const cleanSym = (symbol || '').replace('.NS', '').replace('.BO', '').trim();
-        const tvUrl = `https://in.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(cleanSym)}`;
+
+        // Instant load from client memory cache if available and not forced
+        if (!forceRefresh && !asOf && window._STOCK_INTELLIGENCE_CACHE[cleanSym]) {
+            renderStockIntelligenceDossierModal(modal, cleanSym, window._STOCK_INTELLIGENCE_CACHE[cleanSym], asOf);
+            modal.style.display = 'flex';
+            return;
+        }
 
         modal.innerHTML = `
         <div style="background:#11151c; border:1px solid rgba(255,255,255,0.12); border-radius:12px; max-width:880px; width:100%; max-height:90vh; overflow-y:auto; padding:24px; color:#e0e6ed; box-shadow:0 20px 50px rgba(0,0,0,0.8);">
@@ -1933,139 +2079,9 @@ function changeAdminPage(type, delta) {
                 </div>`;
                 return;
             }
-            
-            const verdict = data.net_verdict || 'NEUTRAL';
-            let verdictBadge = '<span style="background:#2d3748; color:#cbd5e0; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:700;">⚪ NEUTRAL</span>';
-            if (verdict === 'STRONG_TAILWIND') verdictBadge = '<span style="background:rgba(72,187,120,0.2); color:#48bb78; border:1px solid #48bb78; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:700;">🟢 STRONG TAILWIND</span>';
-            else if (verdict === 'MODERATE_POSITIVE') verdictBadge = '<span style="background:rgba(66,153,225,0.2); color:#4299e1; border:1px solid #4299e1; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:700;">🔵 MODERATE POSITIVE</span>';
-            else if (verdict === 'SEVERE_RED_FLAG_AVOID') verdictBadge = '<span style="background:rgba(245,101,101,0.2); color:#f56565; border:1px solid #f56565; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:700;">🚨 SEVERE RED FLAG / AVOID</span>';
-            else if (verdict === 'ELEVATED_RISK') verdictBadge = '<span style="background:rgba(237,137,54,0.2); color:#ed8936; border:1px solid #ed8936; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:700;">⚠️ ELEVATED RISK</span>';
 
-            const hardGate = data.hard_gate_status === 'QUARANTINE' 
-                ? '<span style="color:#f56565; font-weight:700;">🚨 QUARANTINED</span>' 
-                : '<span style="color:#48bb78; font-weight:700;">🛡️ PASS</span>';
-
-            const catScore = data.catalyst_score ?? 50;
-            const riskScore = data.risk_score ?? 0;
-            const govScore = data.governance_score ?? 7.0;
-            const mgmtScore = data.management_credibility_score ?? 7.0;
-            const analystScore = data.analyst_revision_score ?? 50;
-
-            const events = data.timeline_events || [];
-            let timelineHtml = '<div style="color:#718096; font-size:12px; padding:8px;">No material events recorded in timeline.</div>';
-            if (events.length > 0) {
-                timelineHtml = events.slice(0, 15).map(e => {
-                    const dt = (e.event_date || '').substring(0, 10);
-                    const hl = e.headline || e.description || 'Corporate filing';
-                    const cat = e.category || 'FILING';
-                    const tier = e.source_tier || 'SOURCE_TIER_1';
-                    const url = e.source_url || '#';
-                    const mat = e.materiality_score || 5.0;
-                    let catColor = '#a0aec0';
-                    if (cat === 'ORDER_WIN' || cat === 'CAPEX_EXPANSION') catColor = '#48bb78';
-                    else if (cat === 'DEBT_DEFAULT' || cat === 'AUDITOR_RESIGNATION' || cat === 'REGULATORY_PENALTY' || cat === 'CREDIT_DOWNGRADE') catColor = '#f56565';
-                    else if (cat === 'M_AND_A' || cat === 'CAPITAL_ACTION') catColor = '#4299e1';
-
-                    return `
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
-                        <div style="flex:1;">
-                            <span style="font-family:monospace; color:#718096; margin-right:8px;">${dt}</span>
-                            <span style="background:rgba(255,255,255,0.08); color:${catColor}; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700; margin-right:6px;">${cat}</span>
-                            <span style="color:#e2e8f0;">${hl}</span>
-                            <span style="color:#718096; font-size:10px; margin-left:6px;">(${tier} | Mat: ${mat})</span>
-                        </div>
-                        ${url && url !== '#' ? `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#63b3ed; text-decoration:none; font-size:11px; white-space:nowrap; font-weight:600;">View Source ↗</a>` : ''}
-                    </div>`;
-                }).join('');
-            }
-
-            const ac = data.analyst_consensus || {};
-            const analystHtml = `
-            <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; margin-top:8px;">
-                <div style="background:#1a202c; padding:10px; border-radius:6px; text-align:center;">
-                    <div style="font-size:10px; color:#718096; font-weight:700;">COVERAGE</div>
-                    <div style="font-size:14px; font-weight:700; color:#fff;">${ac.total_covering_analysts || 0} Analysts</div>
-                </div>
-                <div style="background:#1a202c; padding:10px; border-radius:6px; text-align:center;">
-                    <div style="font-size:10px; color:#718096; font-weight:700;">BUY / HOLD / SELL</div>
-                    <div style="font-size:13px; font-weight:700; color:#48bb78;">${ac.buy_count||0} <span style="color:#ecc94b;">/ ${ac.hold_count||0}</span> <span style="color:#f56565;">/ ${ac.sell_count||0}</span></div>
-                </div>
-                <div style="background:#1a202c; padding:10px; border-radius:6px; text-align:center;">
-                    <div style="font-size:10px; color:#718096; font-weight:700;">MEDIAN TARGET</div>
-                    <div style="font-size:14px; font-weight:700; color:#63b3ed;">${ac.median_target_price ? '₹'+ac.median_target_price : 'N/A'} ${ac.upside_pct ? `(+${ac.upside_pct}%)` : ''}</div>
-                </div>
-                <div style="background:#1a202c; padding:10px; border-radius:6px; text-align:center;">
-                    <div style="font-size:10px; color:#718096; font-weight:700;">DISPERSION</div>
-                    <div style="font-size:14px; font-weight:700; color:${(ac.target_dispersion_pct||0)>25 ? '#f56565':'#a0aec0'};">${ac.target_dispersion_pct ? ac.target_dispersion_pct+'%' : 'LOW'}</div>
-                </div>
-            </div>`;
-
-            modal.innerHTML = `
-            <div style="background:#11151c; border:1px solid rgba(255,255,255,0.12); border-radius:12px; max-width:880px; width:100%; max-height:90vh; overflow-y:auto; padding:24px; color:#e0e6ed; box-shadow:0 20px 50px rgba(0,0,0,0.8);">
-                <!-- Header -->
-                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; margin-bottom:16px;">
-                    <div style="display:flex; align-items:center; gap:12px;">
-                        <span style="font-size:24px;">🏢</span>
-                        <div>
-                            <div style="display:flex; align-items:center; gap:8px;">
-                                <a href="${tvUrl}" target="_blank" rel="noopener noreferrer" style="font-size:20px; font-weight:800; color:#00d4a1; text-decoration:none;" title="Open ${cleanSym} Chart on TradingView">${cleanSym} ↗</a>
-                                <span style="font-size:12px; color:#a0aec0;">(TradingView)</span>
-                            </div>
-                            <div style="font-size:11px; color:#718096; margin-top:2px;">As of: ${data.as_of_time || new Date().toISOString()} | Safety Gate: ${hardGate}</div>
-                        </div>
-                    </div>
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <button onclick="openStockIntelligenceDossier('${cleanSym}', null, true)" style="background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; border:none; padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:5px; box-shadow:0 0 12px rgba(139,92,246,0.35); transition:all 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'" title="Re-fetch exchange filings, analyst reports & run Gemini synthesis">⚡ Re-Analyze & Fetch Fresh Data</button>
-                        ${verdictBadge}
-                        <button onclick="document.getElementById('stock-intelligence-dossier-modal').style.display='none'" style="background:transparent; border:none; color:#888; font-size:22px; cursor:pointer; padding:0 6px;">✕</button>
-                    </div>
-                </div>
-
-                <!-- Score Metrics Grid -->
-                <div style="display:grid; grid-template-columns:repeat(5, 1fr); gap:10px; margin-bottom:20px;">
-                    <div style="background:#1a202c; padding:10px; border-radius:8px; border-top:3px solid #48bb78; text-align:center;">
-                        <div style="font-size:10px; color:#718096; font-weight:700;">CATALYST SCORE</div>
-                        <div style="font-size:18px; font-weight:800; color:#48bb78; margin-top:4px;">${catScore}/100</div>
-                    </div>
-                    <div style="background:#1a202c; padding:10px; border-radius:8px; border-top:3px solid #f56565; text-align:center;">
-                        <div style="font-size:10px; color:#718096; font-weight:700;">RISK SCORE</div>
-                        <div style="font-size:18px; font-weight:800; color:${riskScore>30?'#f56565':'#a0aec0'}; margin-top:4px;">${riskScore}/100</div>
-                    </div>
-                    <div style="background:#1a202c; padding:10px; border-radius:8px; border-top:3px solid #b794f4; text-align:center;">
-                        <div style="font-size:10px; color:#718096; font-weight:700;">GOVERNANCE</div>
-                        <div style="font-size:18px; font-weight:800; color:#b794f4; margin-top:4px;">${govScore}/10</div>
-                    </div>
-                    <div style="background:#1a202c; padding:10px; border-radius:8px; border-top:3px solid #4299e1; text-align:center;">
-                        <div style="font-size:10px; color:#718096; font-weight:700;">ANALYST MOMENTUM</div>
-                        <div style="font-size:18px; font-weight:800; color:#4299e1; margin-top:4px;">${analystScore}/100</div>
-                    </div>
-                    <div style="background:#1a202c; padding:10px; border-radius:8px; border-top:3px solid #ecc94b; text-align:center;">
-                        <div style="font-size:10px; color:#718096; font-weight:700;">MGMT CREDIBILITY</div>
-                        <div style="font-size:18px; font-weight:800; color:#ecc94b; margin-top:4px;">${mgmtScore}/10</div>
-                    </div>
-                </div>
-
-                <!-- Executive Summary -->
-                <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:14px; margin-bottom:20px;">
-                    <div style="font-size:11px; font-weight:700; color:#a0aec0; text-transform:uppercase; margin-bottom:6px;">🧠 Research Synthesis & Reasoning</div>
-                    <div style="font-size:13px; color:#e2e8f0; line-height:1.5;">${data.executive_summary || 'No summary generated.'}</div>
-                    ${data.contradiction_detected ? '<div style="margin-top:8px; padding:6px 10px; background:rgba(245,101,101,0.15); border-left:3px solid #f56565; color:#feb2b2; font-size:11px;">⚠️ <b>Contradiction Flagged:</b> Management commentary conflicts with regulatory filings or credit ratings.</div>' : ''}
-                </div>
-
-                <!-- Institutional Analyst Consensus -->
-                <div style="margin-bottom:20px;">
-                    <div style="font-size:12px; font-weight:700; color:#cbd5e0; text-transform:uppercase; letter-spacing:0.5px;">📈 Institutional Analyst Coverage & Target Momentum</div>
-                    ${analystHtml}
-                </div>
-
-                <!-- Chronological Event Timeline -->
-                <div>
-                    <div style="font-size:12px; font-weight:700; color:#cbd5e0; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">📅 Longitudinal Corporate Event Timeline</div>
-                    <div style="background:#171923; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px 14px; max-height:220px; overflow-y:auto;">
-                        ${timelineHtml}
-                    </div>
-                </div>
-            </div>`;
+            window._STOCK_INTELLIGENCE_CACHE[cleanSym] = data;
+            renderStockIntelligenceDossierModal(modal, cleanSym, data, asOf);
         } catch(err) {
             modal.innerHTML = `
             <div style="background:#11151c; border:1px solid rgba(239,68,68,0.35); border-radius:12px; max-width:650px; width:100%; padding:24px; color:#fff; box-shadow:0 20px 50px rgba(0,0,0,0.85);">
@@ -2085,6 +2101,67 @@ function changeAdminPage(type, delta) {
                     <button onclick="document.getElementById('stock-intelligence-dossier-modal').style.display='none'" style="background:#2d3748; color:#cbd5e0; border:none; padding:8px 16px; border-radius:6px; font-weight:600; font-size:12px; cursor:pointer;">Close</button>
                 </div>
             </div>`;
+        }
+    };
+
+    window.loadInlineStockIntelligence = async function(symbol, containerId) {
+        const el = document.getElementById(containerId);
+        if (!el) return;
+        const cleanSym = (symbol || '').replace('.NS', '').replace('.BO', '').trim();
+        if (!cleanSym) return;
+
+        function renderInline(data) {
+            const isQuarantine = data.hard_gate_status === 'QUARANTINE';
+            const verdict = data.net_verdict || 'NEUTRAL';
+            let verdictClass = 'badge-neutral';
+            if (verdict === 'STRONG_TAILWIND' || verdict === 'STRONGLY_BULLISH_CATALYST') verdictClass = 'badge-ok';
+            else if (verdict === 'SEVERE_RED_FLAG_AVOID') verdictClass = 'badge-down';
+            else if (verdict === 'ELEVATED_RISK') verdictClass = 'badge-review';
+
+            const catScore = (data.scores && data.scores.catalyst_score != null) ? data.scores.catalyst_score : (data.catalyst_score ?? 50);
+            const riskScore = (data.scores && data.scores.risk_score != null) ? data.scores.risk_score : (data.risk_score ?? 0);
+            const analystScore = (data.scores && data.scores.analyst_revision_score != null) ? data.scores.analyst_revision_score : (data.analyst_revision_score ?? 50);
+            const ac = data.analyst_consensus || {};
+
+            el.innerHTML = `
+            <div style="background:var(--card2); border:1px solid rgba(168,85,247,0.25); border-radius:8px; padding:12px 14px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:14px;">🏢</span>
+                        <span style="font-size:12px; font-weight:800; color:var(--text);">${cleanSym} Intelligence Verdict:</span>
+                        <span class="badge ${verdictClass}">${formatText(verdict)}</span>
+                        ${isQuarantine ? '<span class="badge badge-down">🚨 QUARANTINED</span>' : '<span class="badge badge-ok">🛡️ HARD RISK: PASS</span>'}
+                    </div>
+                    <button onclick="openStockIntelligenceDossier('${cleanSym}'); event.stopPropagation();" style="background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; border:none; padding:3px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; box-shadow:0 0 8px rgba(139,92,246,0.3);">🔍 Full Dossier ↗</button>
+                </div>
+                <div style="display:flex; gap:14px; margin-bottom:8px; flex-wrap:wrap; font-size:11px; font-family:var(--font-mono);">
+                    <div>Catalyst: <strong style="color:var(--win);">${catScore}/100</strong></div>
+                    <div>Risk: <strong style="color:${riskScore>30?'var(--loss)':'var(--muted)'};">${riskScore}/100</strong></div>
+                    <div>Analyst Momentum: <strong style="color:var(--accent);">${analystScore}/100</strong></div>
+                    ${ac.upside_pct != null ? `<div>Upside: <strong style="color:var(--win);">+${ac.upside_pct}%</strong></div>` : ''}
+                </div>
+                <div style="font-size:11.5px; color:var(--text); line-height:1.45; font-family:var(--font-body);">${formatText(data.executive_summary || 'No material red flags identified.')}</div>
+            </div>`;
+        }
+
+        if (window._STOCK_INTELLIGENCE_CACHE[cleanSym]) {
+            renderInline(window._STOCK_INTELLIGENCE_CACHE[cleanSym]);
+            return;
+        }
+
+        el.innerHTML = `<div style="font-size:11px; color:#b266ff; display:flex; align-items:center; gap:6px;"><span>⚡</span> Ingesting & synthesizing intelligence for <strong>${cleanSym}</strong>...</div>`;
+
+        try {
+            const res = await fetch(`/api/stock/${encodeURIComponent(cleanSym)}/intelligence`);
+            if (res.ok) {
+                const data = await res.json();
+                window._STOCK_INTELLIGENCE_CACHE[cleanSym] = data;
+                renderInline(data);
+            } else {
+                el.innerHTML = `<div style="font-size:11px; color:var(--muted);">Intelligence currently unavailable for ${cleanSym}. <button onclick="openStockIntelligenceDossier('${cleanSym}', null, true); event.stopPropagation();" style="background:transparent; border:none; color:var(--accent); text-decoration:underline; cursor:pointer;">Generate now ↗</button></div>`;
+            }
+        } catch(e) {
+            el.innerHTML = `<div style="font-size:11px; color:var(--muted);">Intelligence unavailable: ${e.message}</div>`;
         }
     };
   </script>
@@ -5229,13 +5306,13 @@ function getEarningsBadgeHtml(item) {
               </div>
             </div>
           </div>
-          <div style="grid-column: 1 / -1; padding-top: 16px; border-top: 1px dashed rgba(0,212,161,.15);">
-              <div class="detail-label" style="color:#b266ff; display:flex; justify-content:space-between; align-items:center;">
-                  <span style="font-size:10px; font-weight:700;">🤖 AI Concall Analyzer</span>
-                  <button onclick="generateAI('${t.symbol}', 'ai-${id}', this)" style="background:rgba(178,102,255,0.15); border:1px solid #b266ff; color:#b266ff; padding:4px 10px; border-radius:4px; font-size:9px; font-weight:700; cursor:pointer; transition:0.2s;">Generate Insights ✨</button>
+          <div style="grid-column: 1 / -1; padding-top: 14px; border-top: 1px dashed rgba(0,212,161,.15);">
+              <div class="detail-label" style="color:#b266ff; display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                  <span style="font-size:11px; font-weight:800; display:flex; align-items:center; gap:6px;"><span>🧠</span> Corporate &amp; Analyst Intelligence Dossier</span>
+                  <button onclick="openStockIntelligenceDossier('${cleanSym}'); event.stopPropagation();" style="background:linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; border:none; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer;">🔍 Open Full Dossier &amp; Timeline ↗</button>
               </div>
-              <div class="detail-val" style="margin-top:8px;" id="ai-${id}">
-                  <div style="font-size:11px; color:var(--muted); font-family:var(--font-body); font-weight:normal;">Click Generate to extract insights from the latest earnings call or investor presentation.</div>
+              <div class="detail-val" id="ai-${id}">
+                  <div style="font-size:11px; color:var(--muted); font-family:var(--font-body); font-weight:normal;">Loading stock intelligence summary...</div>
               </div>
           </div>
           ${t.signals ? `<div class="detail-signals">⚡ ${t.signals}</div>` : ''}
@@ -5262,6 +5339,10 @@ function getEarningsBadgeHtml(item) {
         if (btn) btn.click();
         if (symbol && !window.NOTICES_CACHE[symbol]) {
           fetchNotices(symbol, 'notices-' + id);
+        }
+        // Automatically load Corporate & Analyst Intelligence Dossier by default
+        if (symbol) {
+          loadInlineStockIntelligence(symbol, 'ai-' + id);
         }
         
         // Auto-load Trade Journey timeline
