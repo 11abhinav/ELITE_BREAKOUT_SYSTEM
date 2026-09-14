@@ -6,9 +6,11 @@ Manages 10-day terminal setup cooldown and contiguous multi-day state transition
 import logging
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from app.accumulation.config import COOLDOWN_AFTER_TERMINAL_DAYS
 
 logger = logging.getLogger(__name__)
+IST = ZoneInfo("Asia/Kolkata")
 
 class AccumulationCooldownEngine:
     """Cooldown & Deduplication Engine for ACCUMULATION_SCANNER_V1."""
@@ -19,7 +21,7 @@ class AccumulationCooldownEngine:
         Checks if symbol has a terminal setup created within the last COOLDOWN_AFTER_TERMINAL_DAYS (10 days).
         """
         if as_of_date is None:
-            as_of_date = datetime.utcnow()
+            as_of_date = datetime.now(IST)
 
         close_conn = False
         if conn is None:

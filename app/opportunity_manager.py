@@ -19,9 +19,12 @@ Candidate Lifecycle:
                     → EXPIRED                  (persist)
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from candidate_pool import CandidatePool, InMemoryCandidatePool
+
+IST = ZoneInfo("Asia/Kolkata")
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +67,7 @@ class OpportunityManager:
     @staticmethod
     def _time_freshness(found_at_ts: float) -> int:
         """Returns 0–100 freshness based on age in seconds. 0 = reject."""
-        age_secs = datetime.now(timezone.utc).timestamp() - found_at_ts
+        age_secs = datetime.now(IST).timestamp() - found_at_ts
         for lo, hi, score in FRESHNESS_TABLE:
             if lo <= age_secs < hi:
                 return score
@@ -104,7 +107,7 @@ class OpportunityManager:
             return
 
         candidate["status"]   = "QUALIFIED"
-        candidate["found_at"] = datetime.now(timezone.utc).timestamp()
+        candidate["found_at"] = datetime.now(IST).timestamp()
         self._pool.add(candidate)
         logger.info(f"📥 {symbol} queued ({len(self._pool)} total in pool)")
 

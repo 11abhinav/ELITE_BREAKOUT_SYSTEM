@@ -8,8 +8,10 @@ import json
 import logging
 from typing import Dict, Any, Optional
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
+IST = ZoneInfo("Asia/Kolkata")
 
 class AccumulationTelemetry:
     """Forensic Telemetry Engine for ACCUMULATION_SCANNER_V1."""
@@ -17,7 +19,7 @@ class AccumulationTelemetry:
     @staticmethod
     def generate_snapshot_id(symbol: str, run_id: str, timestamp: Optional[datetime] = None) -> str:
         if timestamp is None:
-            timestamp = datetime.utcnow()
+            timestamp = datetime.now(IST)
         ts_str = timestamp.strftime("%Y%m%d_%H%M%S_%f")
         raw_key = f"{symbol}_{run_id}_{ts_str}"
         short_hash = hashlib.sha256(raw_key.encode('utf-8')).hexdigest()[:8]
@@ -65,7 +67,7 @@ class AccumulationTelemetry:
                 alert_data["target_2"], alert_data["target_3"], alert_data["risk_pct"], alert_data["rr_1"],
                 alert_data["rr_2"], alert_data["rr_3"], alert_data.get("suggested_capital"),
                 alert_data.get("suggested_position_size"), alert_data.get("position_sizing_basis", "ACCOUNT_RISK_1PCT"),
-                alert_data.get("effective_as_of", datetime.utcnow())
+                alert_data.get("effective_as_of", datetime.now(IST))
             )
             cur.execute(query, params)
             alert_id = cur.fetchone()[0]

@@ -5,8 +5,8 @@ Executes 15:45 IST post-close scan and 18:00 IST delivery finalization pass.
 
 import time
 import logging
-from typing import Dict, Any, List, Optional
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import pandas as pd
 
 from app.accumulation.scanner import AccumulationScanner
@@ -15,6 +15,7 @@ from app.accumulation.health import AccumulationHealthTracker
 from app.accumulation.control import AccumulationControlPlane
 
 logger = logging.getLogger(__name__)
+IST = ZoneInfo("Asia/Kolkata")
 
 class AccumulationScheduler:
     """Standalone Scheduler for ACCUMULATION_SCANNER_V1."""
@@ -27,7 +28,7 @@ class AccumulationScheduler:
         Executes 15:45 IST main scan pass (Snapshot A creation).
         """
         start_time = time.time()
-        run_id = f"ACCUM_RUN_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        run_id = f"ACCUM_RUN_{datetime.now(IST).strftime('%Y%m%d_%H%M%S')}"
         AccumulationHealthTracker.record_heartbeat(run_id, lifecycle_state="RUNNING", current_phase="MAIN_SCAN_1545")
 
         control_state = AccumulationControlPlane.get_control_state()

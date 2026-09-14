@@ -6,11 +6,13 @@
 import math
 import logging
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, List, Optional, Tuple
 import pandas as pd
 import numpy as np
 
 logger = logging.getLogger("alert_quality_engine")
+IST = ZoneInfo("Asia/Kolkata")
 
 # Scanner-Specific Post-SL Recovery Observation Horizons (in trading days/bars)
 SCANNER_RECOVERY_HORIZONS: Dict[str, int] = {
@@ -83,7 +85,7 @@ class AlertQualityEngine:
             "vol_ratio": float(vol_ratio),
             "atr_pct": float(atr_pct),
             "bb_width_pctile": float(bb_width_pctile),
-            "snapshot_timestamp": datetime.utcnow().isoformat(),
+            "snapshot_timestamp": datetime.now(IST).isoformat(),
             "raw_metadata": raw_metadata or {}
         }
 

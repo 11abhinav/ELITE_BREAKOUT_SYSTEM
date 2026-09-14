@@ -34,7 +34,8 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -42,6 +43,7 @@ import numpy as np
 import pandas as pd
 
 logger = logging.getLogger("champion_challenger_registry")
+IST = ZoneInfo("Asia/Kolkata")
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +182,7 @@ class EvidenceMetrics:
     regime_breakdown:      Dict[str, float] = field(default_factory=dict)
     positive_regime_count: int              = 0
 
-    evaluated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    evaluated_at: str = field(default_factory=lambda: datetime.now(IST).isoformat())
 
     @classmethod
     def from_outcomes_df(
@@ -327,7 +329,7 @@ class ScannerVariant:
     val_metrics:          Optional[EvidenceMetrics] = None
     oos_metrics:          Optional[EvidenceMetrics] = None
     walk_forward_metrics: List[EvidenceMetrics]   = field(default_factory=list)
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(IST).isoformat())
     evaluated_at: Optional[str] = None
     notes: str = ""
 
@@ -828,7 +830,7 @@ class ChampionChallengerRegistry:
             raise ValueError(f"Unknown partition_type {partition_type!r}")
 
         v.update_tier(self._evidence_pkg)
-        v.evaluated_at = datetime.now(timezone.utc).isoformat()
+        v.evaluated_at = datetime.now(IST).isoformat()
         logger.info(
             "Variant %s [%s]: E[R]=%.2f PF=%.2f Tier=%s",
             variant_id, partition_type, metrics.expectancy_r,

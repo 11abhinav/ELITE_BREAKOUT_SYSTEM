@@ -7,8 +7,10 @@ and method-specific entry activation and gap classification rules.
 import logging
 from typing import Dict, Any, Optional
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
+IST = ZoneInfo("Asia/Kolkata")
 
 class AccumulationExitEvaluator:
     """Post-Close Exit Evaluator & Milestone Engine for ACCUMULATION_SCANNER_V1."""
@@ -38,7 +40,7 @@ class AccumulationExitEvaluator:
         bar_high = float(bar.get("High") if "High" in bar else bar.get("high", 0.0))
         bar_low = float(bar.get("Low") if "Low" in bar else bar.get("low", 0.0))
         bar_close = float(bar.get("Close") if "Close" in bar else bar.get("close", 0.0))
-        bar_timestamp = bar.get("Timestamp") or bar.get("timestamp") or datetime.utcnow()
+        bar_timestamp = bar.get("Timestamp") or bar.get("timestamp") or datetime.now(IST)
 
         result = dict(setup)
 
@@ -83,7 +85,7 @@ class AccumulationExitEvaluator:
                 result["entry_gap_pct"] = gap_pct
                 result["entry_trigger_level_reached"] = None
                 result["entry_triggered_at"] = None
-                result["exit_timestamp"] = datetime.utcnow()
+                result["exit_timestamp"] = datetime.now(IST)
                 result["exit_bar_timestamp"] = bar_timestamp
                 result["action"] = "REJECTED_GAP"
                 return result
@@ -91,7 +93,7 @@ class AccumulationExitEvaluator:
             # Valid Activation -> Transition to ENTRY_TRIGGERED
             result["status"] = "ENTRY_TRIGGERED"
             result["setup_outcome"] = "PENDING"
-            result["entry_triggered_at"] = datetime.utcnow()
+            result["entry_triggered_at"] = datetime.now(IST)
             result["entry_triggered_price"] = preferred_entry if entry_type == "ZONE_MIDPOINT" else entry_trigger_level
             result["entry_quality"] = "STANDARD"
 
@@ -147,7 +149,7 @@ class AccumulationExitEvaluator:
             result["exit_reason"] = "STOP_LOSS_HIT"
             result["exit_price"] = stop_loss
             result["exit_bar_timestamp"] = bar_timestamp
-            result["exit_timestamp"] = datetime.utcnow()
+            result["exit_timestamp"] = datetime.now(IST)
             result["action"] = "STOP_TRIGGERED"
             # Note: best_target_reached (T1 or T2) is PRESERVED!
             return result
@@ -160,7 +162,7 @@ class AccumulationExitEvaluator:
             result["exit_reason"] = "TARGET_3_REACHED"
             result["exit_price"] = target_3
             result["exit_bar_timestamp"] = bar_timestamp
-            result["exit_timestamp"] = datetime.utcnow()
+            result["exit_timestamp"] = datetime.now(IST)
             result["action"] = "SETUP_COMPLETED"
             return result
 
@@ -172,7 +174,7 @@ class AccumulationExitEvaluator:
                 result["setup_outcome"] = "PENDING"
                 result["last_milestone_price"] = target_2
                 result["last_milestone_bar_timestamp"] = bar_timestamp
-                result["last_milestone_timestamp"] = datetime.utcnow()
+                result["last_milestone_timestamp"] = datetime.now(IST)
                 result["action"] = "MILESTONE_T2"
                 return result
 
@@ -184,7 +186,7 @@ class AccumulationExitEvaluator:
                 result["setup_outcome"] = "PENDING"
                 result["last_milestone_price"] = target_1
                 result["last_milestone_bar_timestamp"] = bar_timestamp
-                result["last_milestone_timestamp"] = datetime.utcnow()
+                result["last_milestone_timestamp"] = datetime.now(IST)
                 result["action"] = "MILESTONE_T1"
                 return result
 

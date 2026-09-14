@@ -30,10 +30,6 @@ except ImportError:
     except ImportError:
         def profile_function(f): return f
 
-try:
-    import pandas_ta as ta
-except ImportError:
-    pass
 
 
 def _find_swing_lows(low: pd.Series, n: int = 3) -> pd.Series:
@@ -175,12 +171,12 @@ def _build_rolling_high_columns(df: pd.DataFrame, high: pd.Series, timeframe: st
             if not isinstance(raw_ts, pd.DatetimeIndex):
                 datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df.columns), None)
                 if datetime_col is not None:
-                    raw_ts = pd.to_datetime(df[datetime_col])
+                    raw_ts = pd.to_datetime(df[datetime_col], errors='coerce', utc=True)
                 else:
                     raw_ts = pd.date_range(end=pd.Timestamp.now(tz="Asia/Kolkata"), periods=len(df), freq="1h")
 
             if not isinstance(raw_ts, pd.DatetimeIndex):
-                raw_ts = pd.DatetimeIndex(raw_ts)
+                raw_ts = pd.to_datetime(raw_ts, errors='coerce', utc=True)
 
             if raw_ts.tz is None:
                 ist_index = raw_ts.tz_localize('UTC').tz_convert('Asia/Kolkata')

@@ -2795,8 +2795,8 @@ def api_system_logs():
                         message, 
                         MAX(traceback) as traceback, 
                         COUNT(*) as occurrences,
-                        MIN(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') as first_seen,
-                        MAX(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') as last_seen
+                        MIN(created_at AT TIME ZONE 'Asia/Kolkata') as first_seen,
+                        MAX(created_at AT TIME ZONE 'Asia/Kolkata') as last_seen
                     FROM system_logs
                     WHERE is_acknowledged = FALSE
                     GROUP BY level, module, message

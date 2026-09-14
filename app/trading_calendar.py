@@ -195,11 +195,11 @@ def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
 
     try:
         if time_col is not None:
-            ts_series = pd.to_datetime(df[time_col], errors="coerce")
+            ts_series = pd.to_datetime(df[time_col], errors="coerce", utc=True)
         elif isinstance(df.index, pd.DatetimeIndex):
-            ts_series = df.index
+            ts_series = df.index.tz_convert("UTC") if df.index.tz is not None else df.index.tz_localize("UTC")
         else:
-            ts_series = pd.to_datetime(df.index, errors="coerce")
+            ts_series = pd.to_datetime(df.index, errors="coerce", utc=True)
 
         if ts_series is None or len(ts_series) == 0:
             return df

@@ -8,6 +8,7 @@ import math
 import logging
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import numpy as np
@@ -26,12 +27,13 @@ from app.accumulation.health import AccumulationHealthTracker
 from app.accumulation.cooldown import AccumulationCooldownEngine
 
 logger = logging.getLogger(__name__)
+IST = ZoneInfo("Asia/Kolkata")
 
 class AccumulationScanner:
     """Core Scanner Engine for ACCUMULATION_SCANNER_V1."""
 
     def __init__(self, run_id: Optional[str] = None):
-        self.run_id = run_id or f"ACCUM_RUN_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        self.run_id = run_id or f"ACCUM_RUN_{datetime.now(IST).strftime('%Y%m%d_%H%M%S')}"
 
     def evaluate_fundamental_floor(self, fundamental_data: Dict[str, Any]) -> FundamentalFloorResult:
         """Evaluates PASS/FAIL fundamental floor without sector exemptions."""

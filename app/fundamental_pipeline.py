@@ -23,7 +23,7 @@ import random
 import logging
 import threading
 import requests
-from datetime import datetime, timezone
+from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Dict, Any, Optional, Set, Tuple
 
@@ -171,7 +171,7 @@ def load_screener_cache_from_db(symbol: str) -> Optional[Dict[str, Any]]:
 
 def save_screener_cache_to_db(symbol: str, payload: Dict[str, Any]):
     clean_sym = symbol.split(":")[-1].replace(".NS", "").replace(".BO", "").strip().upper()
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(IST).isoformat()
     status = payload.get("hydration", {}).get("status", "COMPLETE")
     quality = payload.get("hydration", {}).get("quality", "HIGH")
     primary_src = payload.get("hydration", {}).get("primary_source", "UNKNOWN")

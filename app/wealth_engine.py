@@ -2065,10 +2065,16 @@ def _run_wealth_scan_wrapper(is_test_mode=False, run_ctx=None, session=None):
                                     # Append a new live candle for today
                                     hist_df = hist_df.copy()
                                     new_row = hist_df.iloc[-1:].copy()
-                                    new_dt = pd.to_datetime(today_date_str).tz_localize(IST)
                                     if t_col:
+                                        col_sample = hist_df[t_col].dropna().iloc[-1] if not hist_df[t_col].dropna().empty else None
+                                        is_tz_aware = (getattr(col_sample, 'tzinfo', None) is not None) or (hasattr(hist_df[t_col].dtype, 'tz') and hist_df[t_col].dtype.tz is not None)
+                                        new_dt = pd.to_datetime(today_date_str).tz_localize(IST) if is_tz_aware else pd.to_datetime(today_date_str)
                                         new_row[t_col] = new_dt
                                     else:
+                                        if isinstance(hist_df.index, pd.DatetimeIndex) and hist_df.index.tz is not None:
+                                            new_dt = pd.to_datetime(today_date_str).tz_localize(hist_df.index.tz)
+                                        else:
+                                            new_dt = pd.to_datetime(today_date_str)
                                         new_row.index = [new_dt]
                                     new_row['Open']  = live_price
                                     new_row['High']  = live_price

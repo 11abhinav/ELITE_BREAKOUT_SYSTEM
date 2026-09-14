@@ -2101,9 +2101,17 @@ def _run_scan(force: bool = False, session=None, run_ctx=None):
                             else:
                                 hist_df = hist_df.copy()
                                 new_row = hist_df.iloc[-1:].copy()
-                                new_dt = pd.to_datetime(today_date_str)
-                                if t_col: new_row[t_col] = new_dt
-                                else: new_row.index = [new_dt]
+                                if t_col:
+                                    col_sample = hist_df[t_col].dropna().iloc[-1] if not hist_df[t_col].dropna().empty else None
+                                    is_tz_aware = (getattr(col_sample, 'tzinfo', None) is not None) or (hasattr(hist_df[t_col].dtype, 'tz') and hist_df[t_col].dtype.tz is not None)
+                                    new_dt = pd.to_datetime(today_date_str).tz_localize(IST) if is_tz_aware else pd.to_datetime(today_date_str)
+                                    new_row[t_col] = new_dt
+                                else:
+                                    if isinstance(hist_df.index, pd.DatetimeIndex) and hist_df.index.tz is not None:
+                                        new_dt = pd.to_datetime(today_date_str).tz_localize(hist_df.index.tz)
+                                    else:
+                                        new_dt = pd.to_datetime(today_date_str)
+                                    new_row.index = [new_dt]
                                 new_row['Open'] = snap_open
                                 new_row['High'] = snap_high
                                 new_row['Low'] = snap_low
