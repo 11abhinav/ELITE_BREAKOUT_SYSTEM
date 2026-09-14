@@ -445,7 +445,7 @@ def _parse_close_series(df: pd.DataFrame, label: str) -> Optional[pd.Series]:
     date_col = next((c for c in ["Date", "Datetime", "index"] if c in df.columns), None)
     if date_col is None or "Close" not in df.columns:
         return None
-    df[date_col] = pd.to_datetime(df[date_col])
+    df[date_col] = pd.to_datetime(df[date_col], utc=True, errors="coerce").dt.tz_convert("Asia/Kolkata")
     series = df.sort_values(date_col).set_index(date_col)["Close"].dropna()
     if isinstance(series, pd.DataFrame):
         series = series.iloc[:, 0]

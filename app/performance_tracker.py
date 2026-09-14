@@ -207,7 +207,7 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], pr
             if not isinstance(hist.index, pd.DatetimeIndex):
                 return None
         else:
-            hist[date_col] = pd.to_datetime(hist[date_col])
+            hist[date_col] = pd.to_datetime(hist[date_col], utc=True, errors="coerce").dt.tz_convert("Asia/Kolkata")
             hist = hist.set_index(date_col)
 
         # Localise index to IST
