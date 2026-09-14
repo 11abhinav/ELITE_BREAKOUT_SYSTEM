@@ -2,14 +2,13 @@ import requests
 import tempfile
 import os
 import logging
-from PyPDF2 import PdfReader
 
 logger = logging.getLogger(__name__)
 
 def extract_text_from_nse_pdf(pdf_url: str) -> str:
     """
     Downloads a PDF from NSE archives into memory/temp file, 
-    extracts the text using PyPDF2, and returns it.
+    extracts the text using modern fault-tolerant pypdf with fallbacks, and returns it.
     Logs explicit success / failure status for all HTTP responses.
     """
     headers = {
@@ -88,22 +87,49 @@ def extract_text_from_nse_pdf(pdf_url: str) -> str:
                 if chunk:
                     tmp_file.write(chunk)
             
-        # Parse PDF
+        # Parse PDF using modern pypdf first, with fallback to PyPDF2
         text = ""
-        reader = PdfReader(tmp_path)
-        if reader.is_encrypted:
+        reader = None
+        
+        # Engine 1: pypdf with non-strict mode
+        try:
+            from pypdf import PdfReader as PypdfReader
+            reader = PypdfReader(tmp_path, strict=False)
+        except Exception as pypdf_init_err:
+            logger.debug(f"pypdf init failed: {pypdf_init_err}")
+            
+        # Engine 2: PyPDF2 fallback
+        if reader is None:
             try:
-                reader.decrypt("")
-            except Exception as dec_err:
-                logger.warning(f"Failed to decrypt PDF with empty password: {dec_err}")
-        for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
+                from PyPDF2 import PdfReader as PyPDF2Reader
+                reader = PyPDF2Reader(tmp_path)
+            except Exception as pypdf2_init_err:
+                logger.debug(f"PyPDF2 init failed: {pypdf2_init_err}")
+
+        if reader is not None:
+            if getattr(reader, 'is_encrypted', False):
+                try:
+                    reader.decrypt("")
+                except Exception as dec_err:
+                    logger.warning(f"Failed to decrypt PDF with empty password: {dec_err}")
+            
+            pages = getattr(reader, 'pages', [])
+            for page_idx, page in enumerate(pages):
+                try:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text += page_text + "\n"
+                except Exception as page_err:
+                    logger.warning(f"Failed to extract text from page {page_idx+1} of {pdf_url}: {page_err}")
             
         extracted_text = text.strip()
-        logger.info(f"✅ [PDF EXTRACT SUCCESS] Extracted {len(extracted_text)} characters from {pdf_url}")
-        return extracted_text
+        if extracted_text:
+            logger.info(f"✅ [PDF EXTRACT SUCCESS] Extracted {len(extracted_text)} characters from {pdf_url}")
+            return extracted_text
+        else:
+            logger.warning(f"⚠️ [PDF EXTRACT EMPTY] Zero text extracted from {pdf_url}")
+            return ""
+            
     except Exception as e:
         logger.error(f"❌ [PDF EXTRACT FAILURE] Failed to extract text from {pdf_url}: {e}")
         return ""
