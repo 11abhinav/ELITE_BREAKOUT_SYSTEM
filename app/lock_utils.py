@@ -98,7 +98,7 @@ def print_scanner_start_banner(scanner_key: str, queued_at: float = None, run_id
     return time.monotonic()
 
 
-def print_scanner_end_banner(scanner_key: str, start_mono: float, run_id: str = None, status: str = "OK", error_msg: str = None) -> None:
+def print_scanner_end_banner(scanner_key: str, start_mono: float, run_id: str = None, status: str = None, error_msg: str = None) -> None:
     """
     Print a vivid END banner for the given scanner and update scanner_health to OK/DOWN in DB.
     Must be called BEFORE releasing any locks so log order is guaranteed.
@@ -112,11 +112,14 @@ def print_scanner_end_banner(scanner_key: str, start_mono: float, run_id: str = 
     logger.info(bar)
 
     try:
-        from database import upsert_scanner_health
-        upsert_scanner_health(db_name, status=status, error_msg=error_msg, duration_seconds=runtime, run_id=run_id)
-        logger.info(f"✅ [{display}] Status updated: {status} (Completed in {runtime:.0f}s)")
+        from database import upsert_scanner_health, get_scanner_health
+        current_health = get_scanner_health(db_name)
+        curr_status = current_health.get("status") if current_health else "OK"
+        final_status = status if status is not None else (curr_status if curr_status in ("DOWN", "DEGRADED", "DEGRADED_FALLBACK") else "OK")
+        upsert_scanner_health(db_name, status=final_status, error_msg=error_msg, duration_seconds=runtime, run_id=run_id)
+        logger.info(f"✅ [{display}] Status updated: {final_status} (Completed in {runtime:.0f}s)")
     except Exception as _e:
-        logger.warning(f"⚠️ Could not update scanner status to {status}: {_e}")
+        logger.warning(f"⚠️ Could not update scanner status: {_e}")
 
 _process_locks = {}
 _process_locks_guard = threading.Lock()

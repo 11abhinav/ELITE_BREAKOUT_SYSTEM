@@ -136,7 +136,12 @@ def test_golden_dataset_fixture_parity():
         pat = sig["pattern"]
 
         if sym not in checked_files:
-            df = pd.read_parquet(f"data/history/1d/{sym}.parquet")
+            p_path = f"data/history/1d/{sym}.parquet"
+            if not os.path.exists(p_path):
+                p_path = f"data/history/1d/{sym}.NS.parquet"
+            if not os.path.exists(p_path):
+                continue
+            df = pd.read_parquet(p_path)
             idx = pd.to_datetime(df.index)
             if idx.tz is not None:
                 idx = idx.tz_convert("Asia/Kolkata").tz_localize(None)

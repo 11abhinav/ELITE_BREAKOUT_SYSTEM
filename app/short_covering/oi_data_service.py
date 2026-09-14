@@ -184,8 +184,15 @@ class OIDataService:
                     if not isinstance(df_p.index, pd.DatetimeIndex):
                         if "Date" in df_p.columns: df_p.index = pd.to_datetime(df_p["Date"])
                         elif "Datetime" in df_p.columns: df_p.index = pd.to_datetime(df_p["Datetime"])
-                    df_p = df_p.sort_index()
                     as_of_ts = pd.to_datetime(as_of)
+                    if df_p.index.tz is not None:
+                        if as_of_ts.tzinfo is None:
+                            as_of_ts = as_of_ts.tz_localize(df_p.index.tz)
+                        else:
+                            as_of_ts = as_of_ts.tz_convert(df_p.index.tz)
+                    else:
+                        if as_of_ts.tzinfo is not None:
+                            as_of_ts = as_of_ts.tz_localize(None)
                     df_slice = df_p[df_p.index <= as_of_ts].tail(lookback_days).copy()
                     if len(df_slice) >= 5:
                         df_res = pd.DataFrame({
