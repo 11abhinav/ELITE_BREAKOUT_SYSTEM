@@ -503,12 +503,16 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
 
         _scan_start = print_scanner_start_banner("pullback_scanner", queued_at=queued_at, run_id=run_ctx.run_id if run_ctx else None)
         total = run_pullback_pipeline(force=force, session=session, run_ctx=run_ctx, used_fallback_data=used_fallback_data)
-        if run_ctx and isinstance(total, dict) and "total_count" in total:
-            run_ctx.set_total_stocks(total["total_count"])
-            run_ctx.fresh_count = total["processed_count"]
-            if "today_alerts" in total:
-                run_ctx.add_alert(total["today_alerts"])
         if run_ctx:
+            if isinstance(total, dict):
+                if run_ctx.total_stocks == 0 and "total_count" in total:
+                    run_ctx.set_total_stocks(total["total_count"])
+                if run_ctx.fresh_count == 0 and "processed_count" in total:
+                    run_ctx.fresh_count = total["processed_count"]
+                if "today_alerts" in total:
+                    run_ctx.set_alerts(total["today_alerts"])
+            elif isinstance(total, (int, float)):
+                run_ctx.set_alerts(int(total))
             from database import complete_scanner_execution_run
             complete_scanner_execution_run(run_ctx, status_override="COMPLETED")
         return total
@@ -592,7 +596,22 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     if market_regime == "STRONG_BEAR":
         logger.info("🛑 STRONG_BEAR regime detected — Pullback scanner disabled entirely.")
         upsert_scanner_health("PULLBACK", status="OK", today_alerts=0, error_msg="Disabled in STRONG_BEAR regime")
-        return 0
+        try:
+            from watchlist_cache import get_watchlist
+            wl = get_watchlist()
+            tot_count = len(wl) if wl is not None and not wl.empty else 0
+        except Exception:
+            tot_count = 0
+        if run_ctx:
+            if tot_count > 0:
+                run_ctx.set_total_stocks(tot_count)
+                run_ctx.fresh_count = tot_count
+            run_ctx.set_stop_reason("Disabled in STRONG_BEAR regime")
+        return {
+            "total_count": tot_count,
+            "processed_count": 0,
+            "today_alerts": 0
+        }
 
     regime_thresholds = {
         "STRONG_BULL": 74.0,
@@ -615,12 +634,24 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     except Exception as e:
         logger.exception("❌ Failed to load fundamental watchlist for Pullback Scanner")
         upsert_scanner_health("PULLBACK", status="DOWN", error_msg=f"Watchlist load failed: {str(e)[:200]}")
-        return 0
+        return {
+            "total_count": 0,
+            "processed_count": 0,
+            "today_alerts": 0
+        }
 
     if watchlist.empty:
         logger.info("🛡️ Watchlist is empty. Exiting Pullback scan cleanly.")
         upsert_scanner_health("PULLBACK", status="OK", today_alerts=0, total_count=0, processed_count=0)
-        return 0
+        return {
+            "total_count": 0,
+            "processed_count": 0,
+            "today_alerts": 0
+        }
+
+    total_symbols = len(watchlist)
+    if run_ctx:
+        run_ctx.set_total_stocks(total_symbols)
 
     all_universe_symbols = [str(s) for s in watchlist["Stock"].tolist() if s]
     terminal_tracker = SingleTerminalTracker(all_universe_symbols, scanner_name="PULLBACK")
@@ -1482,6 +1513,14 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     stale_count = rejected.get("stale_data", 0)
     no_data_count = rejected.get("no_data", 0)
     fresh_count = len(fresh_valid_symbols)
+    incomplete_count = max(0, total_symbols - fresh_count - stale_count)
+
+    if run_ctx:
+        run_ctx.set_total_stocks(total_symbols)
+        run_ctx.fresh_count = fresh_count
+        run_ctx.stale_count = stale_count
+        run_ctx.incomplete_count = incomplete_count
+        run_ctx.set_alerts(alert_count)
     # [RULE 67] DEGRADED_FALLBACK takes precedence over stale-based DEGRADED in the summary display.
     # Matches the same precedence logic applied at the health write and EOD scanner.
     data_status = "OK"

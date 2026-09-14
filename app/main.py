@@ -876,26 +876,6 @@ def _run_pullback_with_retries(today_str, session=None, used_fallback=False):
             wait_time = min(300, (2 ** retry_count) * random.uniform(0.5, 1.5))
             time.sleep(wait_time)
 
-# [VERSION: PULLBACK_MANUAL_TRIGGER_FIX_v1.0] Pass force=True for manual trigger
-def _trigger_pullback():
-    import pullback_pipeline
-    from watchlist_cache import get_watchlist
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    IST = ZoneInfo("Asia/Kolkata")
-    wl = get_watchlist()
-    all_symbols = wl["Stock"].tolist() if wl is not None and not wl.empty else []
-    session = None
-    if all_symbols:
-        from market_data_session import MarketDataSession
-        try:
-            session = MarketDataSession.build(all_symbols, ist_date=datetime.now(IST).date(), requester="ManualPullback")
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f"Failed to build session for manual Pullback: {e}")
-    with MemoryProfiler("PULLBACK_SCANNER", force_gc_cleanup=True):
-        return pullback_pipeline.start(force=True, session=session)
-
 
 
 def run_evening_scanners():
@@ -2516,8 +2496,10 @@ def _trigger_daily_builder(force_rebuild: bool = False, trigger_type="MANUAL", s
     try:
         build_watchlist(force_rebuild=force_rebuild, run_ctx=run_ctx, trigger_type=trigger_type, scheduler_name=scheduler_name)
         from watchlist_cache import get_watchlist
-        get_watchlist()
-        if run_ctx:
+        wl = get_watchlist()
+        if run_ctx and run_ctx.total_stocks == 0 and wl is not None and not wl.empty:
+            run_ctx.set_total_stocks(len(wl))
+            run_ctx.fresh_count = len(wl)
             complete_scanner_execution_run(run_ctx)
         upsert_scanner_health("DAILY_BUILDER", status="OK", error_msg=None)
     except Exception as exc:

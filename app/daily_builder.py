@@ -1791,7 +1791,18 @@ def main(force_rebuild: bool = False, run_ctx=None, trigger_type="SCHEDULED", sc
                 if check_data_exists_for_today() and ensure_daily_builder_cache():
                     logger.info("⏭️ [DAILY BUILDER] Watchlist already fresh for today. Skipping redundant build.")
                     upsert_scanner_health("DAILY_BUILDER", status="OK", error_msg=None)
+                    try:
+                        from watchlist_cache import get_watchlist
+                        wl = get_watchlist()
+                        count = len(wl) if wl is not None and not wl.empty else 0
+                    except Exception:
+                        count = 0
                     if run_ctx:
+                        if count > 0:
+                            run_ctx.set_total_stocks(count)
+                            run_ctx.fresh_count = count
+                            run_ctx.stale_count = 0
+                            run_ctx.incomplete_count = 0
                         from database import complete_scanner_execution_run
                         complete_scanner_execution_run(run_ctx, status_override="SKIPPED_FRESH", stop_reason="Watchlist data already exists for today")
                     return
@@ -1804,6 +1815,16 @@ def main(force_rebuild: bool = False, run_ctx=None, trigger_type="SCHEDULED", sc
         _main_wrapper(force_rebuild, run_ctx=run_ctx)
         
         if run_ctx:
+            if run_ctx.total_stocks == 0:
+                try:
+                    from watchlist_cache import get_watchlist
+                    wl = get_watchlist()
+                    cnt = len(wl) if wl is not None and not wl.empty else 0
+                    if cnt > 0:
+                        run_ctx.set_total_stocks(cnt)
+                        run_ctx.fresh_count = cnt
+                except Exception:
+                    pass
             from database import complete_scanner_execution_run
             complete_scanner_execution_run(run_ctx, status_override="COMPLETED")
     except Exception as e:
@@ -1856,18 +1877,29 @@ def _main_wrapper(force_rebuild: bool = False, run_ctx=None):
             from zoneinfo import ZoneInfo
             _ist = ZoneInfo("Asia/Kolkata")
             import pandas as pd
+            from watchlist_cache import get_watchlist
             try:
-                tot = len(pd.read_parquet("data/temp_universe.parquet"))
-                proc = len(pd.read_parquet(WATCHLIST_PATH))
+                wl = get_watchlist()
+                proc = len(wl) if wl is not None and not wl.empty else None
             except Exception:
-                tot = None
                 proc = None
+            if proc is None and os.path.exists(WATCHLIST_PATH):
+                try: proc = len(pd.read_parquet(WATCHLIST_PATH))
+                except Exception: proc = None
+            tot = None
+            if os.path.exists("data/temp_universe.parquet"):
+                try: tot = len(pd.read_parquet("data/temp_universe.parquet"))
+                except Exception: tot = None
+            if tot is None and proc is not None:
+                tot = proc
+            if proc is None and tot is not None:
+                proc = tot
             
             outcome = "SUCCESS" if proc and proc > 0 else "FAILED"
             
-            if run_ctx and tot and proc:
-                run_ctx.set_total_stocks(tot)
-                run_ctx.mark_fresh(proc)
+            if run_ctx and (tot or proc):
+                if tot: run_ctx.set_total_stocks(tot)
+                if proc: run_ctx.fresh_count = proc
                 duration_sec = run_ctx.to_dict().get("duration_seconds", duration_sec)
                 
             upsert_scanner_health(
@@ -1988,6 +2020,15 @@ def _main_impl(force_rebuild: bool = False, run_ctx=None):
                     state = load_checkpoint()
                     state["fundamentals_scored"] = True
                     save_checkpoint(state)
+                    try:
+                        from watchlist_cache import get_watchlist
+                        wl = get_watchlist()
+                        cnt = len(wl) if wl is not None and not wl.empty else 0
+                    except Exception:
+                        cnt = 0
+                    if run_ctx and cnt > 0:
+                        run_ctx.set_total_stocks(cnt)
+                        run_ctx.fresh_count = cnt
                     return
         except Exception as e:
             logger.warning(f"⚠️ DB re-run guard check failed: {e}. Proceeding with daily builder scan.")
@@ -2096,6 +2137,9 @@ def _main_impl(force_rebuild: bool = False, run_ctx=None):
             pass
 
     stage_tracker.total_symbols = len(universe_df)
+    if run_ctx and universe_df is not None and not universe_df.empty:
+        run_ctx.set_total_stocks(len(universe_df))
+        run_ctx.fresh_count = len(universe_df)
     stage_tracker.end_stage(f"Fetched universe: {len(universe_df)} symbols")
     stage_tracker.start_stage(2, "Piotroski Fundamentals & Sector Medians Refresh", "Checking DB cache 14d/30d TTL")
 
