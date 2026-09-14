@@ -66,6 +66,7 @@ def compute_pullback_score(
     has_prior_multi: bool,
     is_full_high_takeover: bool = False,
     is_bullish_engulfing: bool = False,
+    is_undercut_and_rally: bool = False,
     depth_pct: float = 30.0,
     impulse_pct: float = 10.0,
     max_bonus: float = 5.0

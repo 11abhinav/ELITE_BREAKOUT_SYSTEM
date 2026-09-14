@@ -726,9 +726,9 @@ def init_db():
                         id SERIAL PRIMARY KEY,
                         alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
                         symbol VARCHAR(32) NOT NULL,
-                        scanner VARCHAR(64) NOT NULL,
-                        pattern VARCHAR(64) NOT NULL,
-                        event_type VARCHAR(32) NOT NULL,
+                        scanner TEXT NOT NULL,
+                        pattern TEXT NOT NULL,
+                        event_type TEXT NOT NULL,
                         event_date DATE NOT NULL,
                         event_time TIMESTAMPTZ DEFAULT NOW(),
                         
@@ -749,13 +749,18 @@ def init_db():
                         
                         evidence_count INTEGER DEFAULT 1,
                         distinct_patterns_count INTEGER DEFAULT 1,
-                        confirmation_quality VARCHAR(32) DEFAULT 'INITIAL',
+                        confirmation_quality TEXT DEFAULT 'INITIAL',
                         
-                        reason_code VARCHAR(128),
+                        reason_code TEXT,
                         notes TEXT,
                         created_at TIMESTAMPTZ DEFAULT NOW()
                     )
                 """)
+                cur.execute("ALTER TABLE alert_events ALTER COLUMN pattern TYPE TEXT")
+                cur.execute("ALTER TABLE alert_events ALTER COLUMN scanner TYPE TEXT")
+                cur.execute("ALTER TABLE alert_events ALTER COLUMN event_type TYPE TEXT")
+                cur.execute("ALTER TABLE alert_events ALTER COLUMN confirmation_quality TYPE TEXT")
+                cur.execute("ALTER TABLE alert_events ALTER COLUMN reason_code TYPE TEXT")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_alert_id ON alert_events(alert_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_symbol_date ON alert_events(symbol, event_date)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_event_type ON alert_events(event_type)")
