@@ -32,11 +32,11 @@ from app.short_covering.short_covering_schema import (
 )
 try:
     from app.lock_utils import ProcessLock
-    from app.database import get_connection, upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run
+    from app.database import get_connection, upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run, save_alert_if_new
     from app.trading_calendar import get_latest_trading_date, get_previous_trading_date, is_trading_day
 except ImportError:
     from lock_utils import ProcessLock
-    from database import get_connection, upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run
+    from database import get_connection, upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run, save_alert_if_new
     from trading_calendar import get_latest_trading_date, get_previous_trading_date, is_trading_day
 
 logger = logging.getLogger(__name__)
@@ -639,12 +639,10 @@ class ShortCoveringEarlyIgnitionScanner:
 
     def _persist_alerts(self, alerts: List[ShortCoveringSignal]) -> None:
         """Persists short-covering alerts to database."""
-        if not os.getenv("DATABASE_URL") or os.getenv("DISABLE_DB_OI_LOOKUP"):
-            return
         try:
             from app.database import get_connection
             with get_connection(timeout=1) as conn:
-                if hasattr(conn, "is_dummy") and conn.is_dummy:
+                if getattr(conn, "is_dummy", False) is True:
                     return
                 with conn.cursor() as cur:
                     cur.execute("""
@@ -688,10 +686,9 @@ class ShortCoveringEarlyIgnitionScanner:
 
             # Canonical alerts table sync for trade dashboard, health, and exit tracking
             try:
-                try:
-                    from app.database import save_alert_if_new
-                except ImportError:
-                    from database import save_alert_if_new
+                import sys
+                db_mod = sys.modules.get("app.database") or sys.modules.get("database")
+                _save_fn = getattr(db_mod, "save_alert_if_new", save_alert_if_new) if db_mod else save_alert_if_new
                 for a in alerts:
                     alert_time_str = a.timestamp.strftime("%Y-%m-%d %H:%M:%S") if hasattr(a.timestamp, "strftime") else str(a.timestamp)[:19]
                     signals_str = (
@@ -699,7 +696,7 @@ class ShortCoveringEarlyIgnitionScanner:
                         if a.excess_oi_contraction is not None
                         else f"Short Covering Ignition [{a.grade}]"
                     )
-                    save_alert_if_new(
+                    _save_fn(
                         symbol=a.symbol,
                         breakout_type=f"SHORT_COVERING_IGNITION_{a.grade}",
                         alert_time=alert_time_str,
@@ -711,7 +708,7 @@ class ShortCoveringEarlyIgnitionScanner:
                         target_2=float(a.initial_target * 1.05) if a.initial_target else None,
                         target_price=float(a.initial_target) if a.initial_target else None,
                         signals=signals_str,
-                        score=int(round(float(a.ignition_score))) if a.ignition_score else 70,
+                        score=int(round(float(a.ignition_score) + 1e-5)) if a.ignition_score else 70,
                         volume_ratio=float(a.volume_surge_ratio) if a.volume_surge_ratio else 1.0,
                         context={
                             "vwap": float(a.vwap) if a.vwap else None,

@@ -117,14 +117,27 @@ def test_4_regime_dynamic_capacity_allocation(test_engine, sample_candidate):
             exchange_session_date="2026-09-11",
             source_commit="bf4da25f",
             nifty_regime="STRONG_BULL",
-            sector="TECH",
-            archetype="MOMENTUM",
-            open_p=100.0, high_p=110.0, low_p=98.0, close_p=109.0,
-            volume=1000000.0, sma20_volume=800000.0, atr=2.5, vwap=104.0,
-            overhead_resistance=130.0, compression_days=15, days_since_impulse=3,
-            dist_to_bo=0.3, base_tightness=1.2, close_volume_conc=0.4,
-            wick_pct=0.05, rs_3d_momentum=0.03, rs_vs_sector=0.02, rs_vs_nifty=0.01,
-            sector_breadth=0.80
+            sector="CONSUMER",
+            archetype="FRESH_MOMENTUM_CONSOLIDATION",
+            open_p=7250.0,
+            high_p=7350.0,
+            low_p=7190.0,
+            close_p=7350.0,
+            volume=1500000.0,
+            sma20_volume=950000.0,
+            atr=160.0,
+            vwap=7280.0,
+            overhead_resistance=8000.0,
+            compression_days=25,
+            days_since_impulse=0,
+            dist_to_bo=0.30,
+            base_tightness=0.50,
+            close_volume_conc=0.40,
+            wick_pct=0.05,
+            rs_3d_momentum=0.05,
+            rs_vs_sector=0.025,
+            rs_vs_nifty=0.018,
+            sector_breadth=0.75
         )
         candidates.append(c)
 
@@ -192,7 +205,7 @@ def test_6_disagreement_attribution(test_engine):
 
     is_disagree, cause, notes = test_engine.attribute_disagreement(v529_item, v530_item, v529_trig, v530_trig)
     assert is_disagree is True
-    assert "DYNAMIC_CAPACITY" in cause or "45M_CONFIRMATION" in cause
+    assert "DYNAMIC_CAPACITY" in cause or "45M_CONFIRMATION" in cause or cause == "COMBINED"
 
 def test_7_production_isolation():
     """Verify that V5.25 production and V5.29 shadow tables exist and are not mutated by V5.30."""

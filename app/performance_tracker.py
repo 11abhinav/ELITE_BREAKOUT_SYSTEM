@@ -33,7 +33,7 @@ from price_cache import fetch_watchlist_data
 
 
 from config import MIN_STOCK_PRICE
-from database import get_all_alerts, update_alert_outcome, upsert_scanner_health, save_system_state
+from database import get_all_alerts, update_alert_outcome, update_partial_exit, upsert_scanner_health, save_system_state
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
@@ -234,6 +234,12 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], pr
 
 
 import json
+
+def evaluate_trade_exits(t: dict, hist: pd.DataFrame = None, cur_p: float = None):
+    """Evaluates trade exits against price history bars (alias for process_trade_history)."""
+    if cur_p is None and hist is not None and not hist.empty:
+        cur_p = float(hist.iloc[-1].get("Close", hist.iloc[-1].get("close", 0.0)))
+    return process_trade_history(t, hist, cur_p or 0.0)
 
 def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     """
