@@ -42,14 +42,15 @@ class UnifiedFetcher:
             if provider == "fyers":
                 try:
                     md = self.fyers.get_ohlcv(symbol, interval=interval, period=period)
-                    if md is not None and md.df is not None and not md.df.empty:
+                    df = getattr(md, "dataframe", getattr(md, "df", None))
+                    if df is not None and not df.empty:
                         logger.info(f"✅ [Fyers] Successfully fetched historical {symbol}")
                         entry = self.registry.get_entry(dataset_id)
                         if entry:
                             entry.provider_used = "fyers"
                             is_fallback = entry.preferred_provider and provider != entry.preferred_provider
                             from datetime import datetime
-                            md.df.attrs = {
+                            df.attrs = {
                                 "dataset": dataset_id,
                                 "provider": provider,
                                 "preferred_provider": entry.preferred_provider,
@@ -57,7 +58,7 @@ class UnifiedFetcher:
                                 "fetch_timestamp": datetime.now().isoformat()
                             }
                         from trading_calendar import enforce_trading_day_candles
-                        return enforce_trading_day_candles(md.df, symbol)
+                        return enforce_trading_day_candles(df, symbol)
                 except Exception as e:
                     logger.warning(f"⚠️ [Fyers] Failed to fetch historical {symbol}: {e}")
             

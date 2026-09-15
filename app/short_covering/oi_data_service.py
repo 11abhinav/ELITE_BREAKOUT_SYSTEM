@@ -634,10 +634,11 @@ class OIDataService:
                             "total_oi": df_slice["Volume"].values * 2,
                         })
                         
+                        df_res["total_oi"] = df_res["total_oi"].astype(float)
                         # Augment latest bar with live OI from Upstox /market/oi if available
                         up_oi = self.fetch_upstox_oi_data(symbol, as_of=as_of)
                         if up_oi and up_oi.get("total_oi", 0) > 0:
-                            df_res.loc[df_res.index[-1], "total_oi"] = up_oi["total_oi"]
+                            df_res.loc[df_res.index[-1], "total_oi"] = float(up_oi["total_oi"])
 
                         df_res["oi_change"] = df_res["total_oi"].diff().fillna(0)
                         df_res["oi_change_pct"] = df_res["total_oi"].pct_change().fillna(0.0) * 100.0

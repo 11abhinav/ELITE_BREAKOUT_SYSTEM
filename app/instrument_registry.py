@@ -88,6 +88,11 @@ class InstrumentRegistry:
             InstrumentRecord("MTARTECH", "NSE", "EQ", isin="INE864I01014", company_name="MTAR Technologies Ltd", first_trading_date="2021-03-15", fyers_symbol="NSE:MTARTECH-EQ", upstox_instrument_key="NSE_EQ|INE864I01014", yahoo_symbol="MTARTECH.NS"),
             InstrumentRecord("STLTECH", "NSE", "EQ", isin="INE089C01029", company_name="Sterlite Technologies Ltd", first_trading_date="2000-08-14", fyers_symbol="BSE:532374-EQ", upstox_instrument_key="NSE_EQ|INE089C01029", yahoo_symbol="STLTECH.NS"),
             InstrumentRecord("DIACABS", "NSE", "EQ", isin="INE989C01038", company_name="Diamond Power Infrastructure Ltd", first_trading_date="2008-04-10", fyers_symbol="BSE:532959-EQ", upstox_instrument_key="NSE_EQ|INE989C01038", yahoo_symbol="DIACABS.NS"),
+            InstrumentRecord("LTF", "NSE", "EQ", isin="INE498L01015", company_name="L&T Finance Ltd", aliases={"L&TFH", "L_TFH", "LTFH"}, fyers_symbol="NSE:LTF-EQ", upstox_instrument_key="NSE_EQ|INE498L01015", yahoo_symbol="LTF.NS"),
+            InstrumentRecord("GMRAIRPORT", "NSE", "EQ", isin="INE776C01039", company_name="GMR Airports Infrastructure Ltd", aliases={"GMRINFRA"}, fyers_symbol="NSE:GMRAIRPORT-EQ", upstox_instrument_key="NSE_EQ|INE776C01039", yahoo_symbol="GMRAIRPORT.NS"),
+            InstrumentRecord("GUJGAS", "NSE", "EQ", isin="INE844O01030", company_name="Gujarat Gas Ltd", aliases={"GUJGASLTD"}, fyers_symbol="NSE:GUJGAS-EQ", upstox_instrument_key="NSE_EQ|INE844O01030", yahoo_symbol="GUJGAS.NS"),
+            InstrumentRecord("PEL", "NSE", "EQ", isin="INE140A01024", company_name="Piramal Enterprises Ltd", fyers_symbol="NSE:PEL-EQ", upstox_instrument_key="NSE_EQ|INE140A01024", yahoo_symbol="PEL.NS"),
+            InstrumentRecord("UNITDSPR", "NSE", "EQ", isin="INE854D01024", company_name="United Spirits Ltd", aliases={"MCDOWELL-N", "MCDOWELL_N"}, fyers_symbol="NSE:UNITDSPR-EQ", upstox_instrument_key="NSE_EQ|INE854D01024", yahoo_symbol="UNITDSPR.NS"),
         ]
         for eq in special_equities:
             self._register(eq)
