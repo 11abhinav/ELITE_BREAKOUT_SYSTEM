@@ -31,11 +31,11 @@ from app.short_covering.short_covering_schema import (
     ShortCoveringState,
 )
 try:
-    from app.lock_utils import ProcessLock
+    from app.lock_utils import ProcessLock, print_scanner_start_banner, print_scanner_end_banner
     from app.database import get_connection, upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run, save_alert_if_new
     from app.trading_calendar import get_latest_trading_date, get_previous_trading_date, is_trading_day
 except ImportError:
-    from lock_utils import ProcessLock
+    from lock_utils import ProcessLock, print_scanner_start_banner, print_scanner_end_banner
     from database import get_connection, upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run, save_alert_if_new
     from trading_calendar import get_latest_trading_date, get_previous_trading_date, is_trading_day
 
@@ -143,18 +143,9 @@ class ShortCoveringEarlyIgnitionScanner:
                 return []
             run_ctx = None
 
-        start_t = time.monotonic()
+        _scan_start = print_scanner_start_banner("SHORT_COVERING_5M", run_id=run_ctx.run_id if run_ctx else None)
         _SCHEDULE_STR = "Every 5m (09:20 - 15:25 IST Market Days)"
         engine_mode = os.getenv("SHORT_COVERING_ENGINE", "C5_INTRADAY_ONLY").upper()
-
-        # [RULE 67 CHANGE-RATIONALE] Notify health monitor immediately that 5M scanner is actively RUNNING
-        upsert_scanner_health(
-            scanner_name="SHORT_COVERING_5M",
-            status="RUNNING",
-            error_msg=f"5m short-covering scan in progress [{engine_mode}]...",
-            scheduled_for=_SCHEDULE_STR,
-            run_id=run_ctx.run_id if run_ctx else None
-        )
 
         try:
             # 1. Universe Selection: C5 Intraday-Only (All Active F&O) vs Legacy V1
@@ -180,7 +171,7 @@ class ShortCoveringEarlyIgnitionScanner:
                             status="IDLE",
                             outcome="NO_FYERS_SESSION",
                             error_msg=_no_fyers_msg,
-                            duration_seconds=round(time.monotonic() - start_t, 2),
+                            duration_seconds=round(time.monotonic() - _scan_start, 2),
                             scheduled_for=_SCHEDULE_STR,
                             run_id=run_ctx.run_id if run_ctx else None
                         )
@@ -297,7 +288,7 @@ class ShortCoveringEarlyIgnitionScanner:
             if new_alerts and persist_db:
                 self._persist_alerts(new_alerts)
 
-            dur = round(time.monotonic() - start_t, 2)
+            dur = round(time.monotonic() - _scan_start, 2)
             if run_ctx:
                 run_ctx.record_fresh_data(len(symbols_to_scan) - stale_count)
                 run_ctx.record_stale_data(stale_count)
@@ -318,7 +309,7 @@ class ShortCoveringEarlyIgnitionScanner:
             )
             return new_alerts
         except Exception as exc:
-            dur = round(time.monotonic() - start_t, 2)
+            dur = round(time.monotonic() - _scan_start, 2)
             logger.exception("❌ [SHORT_COVERING_5M] Cycle failed: %s", exc)
             if run_ctx:
                 complete_scanner_execution_run(run_ctx, exception=exc)
@@ -345,6 +336,8 @@ class ShortCoveringEarlyIgnitionScanner:
             )
             raise exc
         finally:
+            if _scan_start is not None:
+                print_scanner_end_banner("SHORT_COVERING_5M", _scan_start, run_id=run_ctx.run_id if run_ctx else None)
             _scan_lock_5m.release()
 
 

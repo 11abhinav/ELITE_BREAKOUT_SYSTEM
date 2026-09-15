@@ -47,6 +47,8 @@ SCANNER_CONFIG = {
     "SHORT_COVERING_EOD": {"emoji": "⚡", "display": "SHORT COVERING EOD",    "db_name": "SHORT_COVERING_EOD"},
     "short_covering_5m":  {"emoji": "⚡", "display": "SHORT COVERING 5M",     "db_name": "SHORT_COVERING_5M"},
     "SHORT_COVERING_5M":  {"emoji": "⚡", "display": "SHORT COVERING 5M",     "db_name": "SHORT_COVERING_5M"},
+    "technical":          {"emoji": "📐", "display": "TECHNICAL SCANNER",    "db_name": "TECHNICAL"},
+    "TECHNICAL":          {"emoji": "📐", "display": "TECHNICAL SCANNER",    "db_name": "TECHNICAL"},
 }
 
 _BAR_LEN = 30
@@ -75,7 +77,7 @@ def print_scanner_start_banner(scanner_key: str, queued_at: float = None, run_id
     Transitions status QUEUED → RUNNING the instant the global lock is acquired.
     """
     emoji, display, db_name = _resolve_scanner_identity(scanner_key)
-    bar = emoji * _BAR_LEN
+    star_bar = "********************************************************************************"
     ts = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
     
     queue_wait_str = ""
@@ -83,9 +85,9 @@ def print_scanner_start_banner(scanner_key: str, queued_at: float = None, run_id
         queue_wait_secs = round(time.monotonic() - queued_at, 1)
         queue_wait_str = f" | Queue Wait: {queue_wait_secs}s"
     
-    logger.info(bar)
-    logger.info(f"&&&&& {display} STARTED — {ts}{queue_wait_str} &&&&&")
-    logger.info(bar)
+    logger.info(star_bar)
+    logger.info(f"🚀🚀🚀 {emoji} {display} STARTED — {ts}{queue_wait_str} {emoji} 🚀🚀🚀")
+    logger.info(star_bar)
     
     # ✅ Immediately transition QUEUED → RUNNING in DB
     try:
@@ -104,12 +106,12 @@ def print_scanner_end_banner(scanner_key: str, start_mono: float, run_id: str = 
     Must be called BEFORE releasing any locks so log order is guaranteed.
     """
     emoji, display, db_name = _resolve_scanner_identity(scanner_key)
-    bar = emoji * _BAR_LEN
+    star_bar = "********************************************************************************"
     ts = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S IST")
     runtime = time.monotonic() - start_mono
-    logger.info(bar)
-    logger.info(f"##### {display} ENDED — {ts} | Runtime: {runtime:.0f}s #####")
-    logger.info(bar)
+    logger.info(star_bar)
+    logger.info(f"🏁🏁🏁 {emoji} {display} ENDED — {ts} | Runtime: {runtime:.1f}s 🏁🏁🏁")
+    logger.info(star_bar)
 
     try:
         from database import upsert_scanner_health, get_scanner_health

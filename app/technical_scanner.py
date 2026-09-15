@@ -50,7 +50,7 @@ from database import (
     start_scanner_execution_run,
     upsert_scanner_health,
 )
-from lock_utils import ProcessLock
+from lock_utils import ProcessLock, print_scanner_start_banner, print_scanner_end_banner
 from price_cache import fetch_watchlist_data
 from technical_indicators import apply_indicators
 from telemetry_manager import telemetry
@@ -338,9 +338,11 @@ def _detect_undercut_and_rally(df: pd.DataFrame, atr14: Optional[float] = None) 
     """
     res = _detect_shakeout_reclaim(df, atr14)
     if res:
-        res["pattern"] = "UNDERCUT_AND_RALLY"
-        res["description"] = res["description"].replace("Shakeout Reclaim", "Undercut & Rally")
-    return res
+        res_copy = dict(res)
+        res_copy["pattern"] = "UNDERCUT_AND_RALLY"
+        res_copy["description"] = res_copy["description"].replace("Shakeout Reclaim", "Undercut & Rally")
+        return res_copy
+    return None
 
 
 def _detect_bull_flag(df: pd.DataFrame, atr14: Optional[float] = None) -> Optional[Dict[str, Any]]:
@@ -1491,6 +1493,7 @@ def run_technical_scan(
 
     acquired_global = False
     acquired_scan = False
+    _scan_start = None
     start_time = time.monotonic()
     real_run_ctx = run_ctx
 
@@ -1527,10 +1530,6 @@ def run_technical_scan(
 
         telemetry.log_scheduler_event("TECHNICAL", "CYCLE_START")
 
-        logger.info("=" * 70)
-        logger.info("🚀 TECHNICAL SCANNER | Starting 6:15 PM Multi-Pattern Technical Execution...")
-        logger.info("=" * 70)
-
         if not real_run_ctx:
             try:
                 real_run_ctx = start_scanner_execution_run(
@@ -1544,6 +1543,8 @@ def run_technical_scan(
                     return 0
                 logger.warning(f"⚠️ [TECHNICAL] Could not create run_ctx: {exc}")
                 real_run_ctx = None
+
+        _scan_start = print_scanner_start_banner("TECHNICAL", run_id=real_run_ctx.run_id if real_run_ctx else None)
 
         init_db()
         upsert_scanner_health(
@@ -1838,6 +1839,8 @@ def run_technical_scan(
                 pass
         return 0
     finally:
+        if _scan_start is not None:
+            print_scanner_end_banner("TECHNICAL", _scan_start, run_id=real_run_ctx.run_id if real_run_ctx else None)
         if acquired_global:
             try:
                 _global_lock.release()

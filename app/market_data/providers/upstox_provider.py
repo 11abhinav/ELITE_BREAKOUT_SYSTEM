@@ -385,6 +385,28 @@ class UpstoxProvider(ProviderInterface):
                 return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 0), error=f"API Failure: {api_error}")
                 
             candles = data.get("data", {}).get("candles", [])
+            
+            # [UPSTOX_INTRADAY_V3_FALLBACK] If historical endpoint returns empty for today's intraday bars, query intraday endpoint
+            if not candles and unit in ("minutes", "hours") and adjusted_range_to.date() >= datetime.now().date():
+                try:
+                    intraday_url = f"https://api.upstox.com/v3/historical-candle/intraday/{instrument_key}/{unit}/{interval}"
+                    intra_res = _upstox_session.get(intraday_url, headers=headers, timeout=8)
+                    if intra_res.status_code == 200:
+                        intra_data = intra_res.json()
+                        if intra_data.get("status") == "success":
+                            candles = intra_data.get("data", {}).get("candles", [])
+                    if not candles:
+                        # Secondary v2 intraday format fallback
+                        v2_interval = f"{interval}minute" if unit == "minutes" else f"{interval}hour"
+                        v2_url = f"https://api.upstox.com/v2/historical-candle/intraday/{instrument_key}/{v2_interval}"
+                        v2_res = _upstox_session.get(v2_url, headers=headers, timeout=6)
+                        if v2_res.status_code == 200:
+                            v2_data = v2_res.json()
+                            if v2_data.get("status") == "success":
+                                candles = v2_data.get("data", {}).get("candles", [])
+                except Exception as intra_err:
+                    logger.debug(f"Upstox intraday candle endpoint fallback failed for {symbol}: {intra_err}")
+
             if not candles:
                 return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), DataProvenance(self.provider_name, start_time, latency, 100), error=None)
                 
@@ -428,6 +450,42 @@ class UpstoxProvider(ProviderInterface):
             latency = (datetime.now() - start_time).total_seconds() * 1000
             prov = DataProvenance(self.provider_name, start_time, latency, 0.0)
             return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error=str(e))
+
+    def get_market_oi(self, symbol_or_key: str, expiry: str = "current_month", target_date: Optional[str] = None) -> dict:
+        """
+        Fetches Open Interest (OI) breakdown from official Upstox API v2 /market/oi endpoint.
+        API Docs: https://upstox.com/developer/api-documentation/get-oi/
+        Returns dict with total_puts, total_calls, spot_closing_price, expiry, call_put_oi_data_list.
+        """
+        import config
+        import urllib.parse
+        token = getattr(config, "UPSTOX_ACCESS_TOKEN", None)
+        if not token:
+            logger.debug("Upstox access token missing for get_market_oi.")
+            return {}
+
+        raw_key = symbol_or_key if ("|" in symbol_or_key or ":" in symbol_or_key) else self._get_instrument_key(symbol_or_key)
+        encoded_key = urllib.parse.quote(raw_key)
+        
+        date_param = target_date or datetime.now().strftime("%Y-%m-%d")
+        url = f"https://api.upstox.com/v2/market/oi?instrument_key={encoded_key}&expiry={expiry}&date={date_param}"
+        headers = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}"
+        }
+
+        try:
+            res = _upstox_session.get(url, headers=headers, timeout=8)
+            if res.status_code == 200:
+                payload = res.json()
+                if payload.get("status") == "success":
+                    return payload.get("data", {})
+            elif res.status_code == 400:
+                logger.debug(f"Upstox get_market_oi 400 for {symbol_or_key}: {res.text[:100]}")
+            return {}
+        except Exception as e:
+            logger.debug(f"Upstox get_market_oi exception for {symbol_or_key}: {e}")
+            return {}
 
     def fetch_batch_ohlcv(self, symbols: List[str], timeframe: str, range_from: datetime, range_to: datetime) -> Dict[str, NormalizedMarketData]:
         """Fetches batch normalized market data concurrently for multiple symbols."""

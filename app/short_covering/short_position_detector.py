@@ -22,11 +22,11 @@ from app.short_covering.fno_universe import fno_universe_manager
 from app.short_covering.oi_data_service import oi_data_service
 from app.short_covering.short_covering_schema import EODShortPositionCandidate
 try:
-    from app.lock_utils import ProcessLock
+    from app.lock_utils import ProcessLock, print_scanner_start_banner, print_scanner_end_banner
     from app.database import get_connection, upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run
     from app.trading_calendar import get_latest_trading_date, is_trading_day
 except ImportError:
-    from lock_utils import ProcessLock
+    from lock_utils import ProcessLock, print_scanner_start_banner, print_scanner_end_banner
     from database import get_connection, upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run
     from trading_calendar import get_latest_trading_date, is_trading_day
 
@@ -101,16 +101,8 @@ class ShortPositionDetector:
                 return []
             run_ctx = None
 
-        start_t = time.monotonic()
+        _scan_start = print_scanner_start_banner("SHORT_COVERING_EOD", run_id=run_ctx.run_id if run_ctx else None)
         try:
-            upsert_scanner_health(
-                scanner_name="SHORT_COVERING_EOD",
-                status="RUNNING",
-                error_msg="EOD positioning analysis in progress...",
-                scheduled_for="Daily 09:05 IST (Market Days)",
-                run_id=run_ctx.run_id if run_ctx else None
-            )
-
             candidates: List[EODShortPositionCandidate] = []
             stale_count = 0
 
@@ -141,7 +133,7 @@ class ShortPositionDetector:
             if persist_db:
                 self._persist_candidates_to_db(candidates, valid_trading_date)
 
-            dur = round(time.monotonic() - start_t, 2)
+            dur = round(time.monotonic() - _scan_start, 2)
             if run_ctx:
                 run_ctx.set_total_stocks(len(symbols))
                 run_ctx.record_fresh_data(len(candidates))
@@ -159,7 +151,7 @@ class ShortPositionDetector:
             )
             return candidates
         except Exception as exc:
-            dur = round(time.monotonic() - start_t, 2)
+            dur = round(time.monotonic() - _scan_start, 2)
             logger.exception("❌ [SHORT_COVERING_EOD] Scan failed: %s", exc)
             try:
                 from app.database import insert_notification
@@ -184,6 +176,8 @@ class ShortPositionDetector:
             )
             return []
         finally:
+            if _scan_start is not None:
+                print_scanner_end_banner("SHORT_COVERING_EOD", _scan_start, run_id=run_ctx.run_id if run_ctx else None)
             _eod_lock.release()
 
 

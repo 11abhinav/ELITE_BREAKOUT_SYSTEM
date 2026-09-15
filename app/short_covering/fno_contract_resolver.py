@@ -12,7 +12,10 @@ import calendar
 import logging
 from datetime import date, datetime, timedelta
 from typing import Dict, Optional, Tuple
-from app.short_covering.short_covering_schema import FNOContractInfo
+try:
+    from app.short_covering.short_covering_schema import FNOContractInfo
+except ImportError:
+    from short_covering.short_covering_schema import FNOContractInfo
 
 logger = logging.getLogger(__name__)
 
