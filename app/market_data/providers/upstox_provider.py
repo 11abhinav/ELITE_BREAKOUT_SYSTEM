@@ -471,7 +471,9 @@ class UpstoxProvider(ProviderInterface):
             return {}
 
         raw_key = symbol_or_key if ("|" in symbol_or_key or ":" in symbol_or_key) else self._get_instrument_key(symbol_or_key)
-        encoded_key = urllib.parse.quote(raw_key)
+        if not raw_key:
+            return {}
+        encoded_key = urllib.parse.quote(str(raw_key))
         
         date_param = target_date or datetime.now().strftime("%Y-%m-%d")
         url = f"https://api.upstox.com/v2/market/oi?instrument_key={encoded_key}&expiry={expiry}&date={date_param}"

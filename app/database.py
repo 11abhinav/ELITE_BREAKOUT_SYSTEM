@@ -4187,7 +4187,10 @@ def upsert_scanner_health(
         # Auto-release global lock if scanner went DOWN or FAILED so queued scanners can acquire lock instantly
         if status and str(status).upper() in ("DOWN", "FAILED"):
             try:
-                from lock_utils import release_global_lock_if_held_by
+                try:
+                    from app.lock_utils import release_global_lock_if_held_by
+                except ImportError:
+                    from lock_utils import release_global_lock_if_held_by
                 release_global_lock_if_held_by(scanner_name)
             except Exception as auto_rel_err:
                 logger.warning(f"Failed to auto-release lock for crashed scanner {scanner_name}: {auto_rel_err}")
@@ -4219,7 +4222,10 @@ def get_all_scanner_health() -> list[dict]:
 
     # Watchdog Auto-Healing: Only mark stuck RUNNING threads as DOWN if global scanner lock is NOT held AND no fresh heartbeat exists
     try:
-        from lock_utils import ProcessLock
+        try:
+            from app.lock_utils import ProcessLock
+        except ImportError:
+            from lock_utils import ProcessLock
         _g_lock = ProcessLock("global_scanner_lock")
         if not _g_lock.locked():
             with get_connection() as conn:

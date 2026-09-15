@@ -81,6 +81,10 @@ class FNOUniverseManager:
         clean_sym = symbol.upper().replace(".NS", "").replace("-EQ", "")
         return clean_sym in self._universe
 
+    def is_fno_stock(self, symbol: str) -> bool:
+        """Alias for is_fno_symbol."""
+        return self.is_fno_symbol(symbol)
+
     def update_from_bhavcopy(self, bhavcopy_symbols: List[str]) -> None:
         """Updates the active universe dynamically from the latest F&O Bhavcopy."""
         if bhavcopy_symbols and len(bhavcopy_symbols) > 50:

@@ -646,7 +646,8 @@ class FyersFetcher(DataFetcher):
                         if not any(k in error_str.lower() for k in ("invalid symbol", "invalid input", "additional permission required", "403")):
                             _fyers_circuit_breaker.record_failure()
 
-                    if "Could not authenticate the user" in error_str:
+                    if any(auth_err in error_str for auth_err in ["Could not authenticate the user", "Authentication Required", "token is not available", "client is uninitialized"]):
+                        logger.debug(f"⏭️ Fyers unauthenticated for {cand_symbol} — skipping retries.")
                         return None
                         
                     # Do not retry for bad symbols; move immediately to the next candidate

@@ -458,6 +458,14 @@ class OIDataService:
         between Fyers and Upstox, followed by historical exchange parquets.
         Zero synthetic data. Returns None if real data is unavailable.
         """
+        clean_sym = symbol.upper().replace(".NS", "").replace("-EQ", "")
+        # Fast exit for invalid/non-FNO symbols with no local parquet data
+        if not fno_universe_manager.is_fno_stock(clean_sym):
+            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            if not os.path.exists(os.path.join(repo_root, "data", "history", "5m", f"{clean_sym}.parquet")):
+                logger.debug(f"ℹ️ [OI DATA SERVICE] {symbol} is not an F&O underlying and has no local parquet — skipping.")
+                return None
+
         if not os.getenv("DISABLE_LIVE_DATA_FETCH"):
             # Check preferred provider configuration (Defaults to UPSTOX or FYERS)
             preferred = (self.preferred_provider or os.getenv("OI_DATA_PROVIDER", "UPSTOX")).upper()
@@ -561,6 +569,14 @@ class OIDataService:
         exchange daily parquets & Upstox /market/oi / Fyers depth. Zero synthetic data.
         Returns None if real data is unavailable.
         """
+        clean_sym = symbol.upper().replace(".NS", "").replace("-EQ", "")
+        # Fast exit for invalid/non-FNO symbols with no local parquet data
+        if not fno_universe_manager.is_fno_stock(clean_sym):
+            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            if not os.path.exists(os.path.join(repo_root, "data", "history", "1d", f"{clean_sym}.parquet")):
+                logger.debug(f"ℹ️ [OI DATA SERVICE] {symbol} is not an F&O underlying and has no local 1d parquet — skipping.")
+                return None
+
         # 1. Attempt DB fetch from daily_fo_bhavcopy if available and configured
         if os.getenv("DATABASE_URL") and not os.getenv("DISABLE_DB_OI_LOOKUP"):
             try:

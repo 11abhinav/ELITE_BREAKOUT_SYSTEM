@@ -161,16 +161,17 @@ class ShortCoveringEarlyIgnitionScanner:
                     except ImportError:
                         from fyers_auth import get_fyers_client
                     _fyers_client = get_fyers_client()
-                    if not _fyers_client:
-                        _no_fyers_msg = "Fyers API client unavailable (token expired or not authenticated). SHORT_COVERING_5M requires live intraday OI — cannot proceed without it."
-                        logger.warning("⚠️ [SHORT_COVERING_5M] %s", _no_fyers_msg)
+                    has_upstox = bool(os.getenv("UPSTOX_ACCESS_TOKEN"))
+                    if not _fyers_client and not has_upstox:
+                        _no_broker_msg = "Neither Fyers nor Upstox API client is available. SHORT_COVERING_5M requires live intraday OI — cannot proceed without broker authentication."
+                        logger.warning("⚠️ [SHORT_COVERING_5M] %s", _no_broker_msg)
                         if run_ctx:
-                            complete_scanner_execution_run(run_ctx, status_override="IDLE", stop_reason=_no_fyers_msg)
+                            complete_scanner_execution_run(run_ctx, status_override="IDLE", stop_reason=_no_broker_msg)
                         upsert_scanner_health(
                             scanner_name="SHORT_COVERING_5M",
                             status="IDLE",
-                            outcome="NO_FYERS_SESSION",
-                            error_msg=_no_fyers_msg,
+                            outcome="NO_BROKER_SESSION",
+                            error_msg=_no_broker_msg,
                             duration_seconds=round(time.monotonic() - _scan_start, 2),
                             scheduled_for=_SCHEDULE_STR,
                             run_id=run_ctx.run_id if run_ctx else None
