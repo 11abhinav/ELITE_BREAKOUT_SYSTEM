@@ -5926,22 +5926,29 @@ def api_get_user_watchlist():
             return Response(cached["payload"], mimetype="application/json")
         items = get_user_watchlist(user_id=user_id, username=username)
 
-        # [RULE 67 CHANGE-RATIONALE]: Ensure 100% CMP coverage in user watchlist via batch resolver
-        missing_syms = [
-            it.get("symbol") for it in items
-            if it.get("symbol") and (it.get("cmp") is None or float(it.get("cmp") or 0) <= 0)
-        ]
-        if missing_syms:
+        # [RULE 67 CHANGE-RATIONALE]: Ensure 100% fresh CMP coverage in user watchlist via live broker & batch resolver
+        all_wl_syms = [it.get("symbol") for it in items if it.get("symbol")]
+        if all_wl_syms:
             try:
+                from live_prices import get_live_prices
                 from master_orchestrator import orchestrator_v2
-                resolved_cmps = orchestrator_v2._batch_resolve_cmps(missing_syms)
+                from zoneinfo import ZoneInfo
+                from datetime import datetime
+                ist_tz = ZoneInfo("Asia/Kolkata")
+                now_ist_str = datetime.now(ist_tz).strftime("%Y-%m-%d %H:%M:%S")
+
+                live_quotes = get_live_prices(all_wl_syms, purpose="MANUAL_USER_ANALYSIS") or {}
+                resolved_cmps = orchestrator_v2._batch_resolve_cmps(all_wl_syms) if len(live_quotes) < len(all_wl_syms) else {}
+
                 for it in items:
                     sym = it.get("symbol")
-                    clean_s = sym.split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "") if sym else ""
-                    if it.get("cmp") is None or float(it.get("cmp") or 0) <= 0:
-                        p = resolved_cmps.get(sym) or resolved_cmps.get(clean_s)
-                        if p:
-                            it["cmp"] = round(float(p), 2)
+                    clean_s = str(sym).split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "") if sym else ""
+                    p = live_quotes.get(sym) or live_quotes.get(clean_s) or resolved_cmps.get(sym) or resolved_cmps.get(clean_s)
+                    if p and float(p) > 0:
+                        it["cmp"] = round(float(p), 2)
+                        it["cmp_updated_at"] = now_ist_str
+                    elif it.get("cmp") is not None and float(it.get("cmp") or 0) > 0 and not it.get("cmp_updated_at"):
+                        it["cmp_updated_at"] = now_ist_str
             except Exception as _cmp_err:
                 logger.debug(f"User watchlist CMP resolve warning: {_cmp_err}")
 

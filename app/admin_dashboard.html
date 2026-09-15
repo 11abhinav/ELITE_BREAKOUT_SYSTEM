@@ -9792,9 +9792,17 @@ function _renderManualWatchlist() {
       statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${it.symbol}')" title="Monitoring Mode.">🔍 ${it.last_status || 'MONITORING'}</span>`;
     }
 
-    const cmp = (it.cmp !== null && it.cmp !== undefined && !isNaN(it.cmp)) ? it.cmp : ((it.close_price !== null && it.close_price !== undefined && !isNaN(it.close_price)) ? it.close_price : null);
     const cmpAge = it.cmp_updated_at ? Math.round((Date.now() - new Date(it.cmp_updated_at).getTime()) / 60000) : null;
-    const cmpStale = cmpAge !== null && cmpAge > 30;
+    const isMktHours = (() => {
+      try {
+        const istNow = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"}));
+        const day = istNow.getDay();
+        if (day === 0 || day === 6) return false;
+        const mins = istNow.getHours() * 60 + istNow.getMinutes();
+        return mins >= 555 && mins <= 930;
+      } catch (e) { return true; }
+    })();
+    const cmpStale = cmpAge !== null && (isMktHours ? cmpAge > 30 : cmpAge > 1440);
     const cmpText = cmp != null
       ? `<span style="font-family:var(--font-mono); font-weight:700; color:${cmpStale ? 'var(--muted)' : 'var(--accent)'}; font-size:13px;" title="${cmpAge !== null ? 'Updated ' + cmpAge + ' min ago' : ''}">₹${parseFloat(cmp).toFixed(2)}${cmpStale ? ' <span style="font-size:9px;">(stale)</span>' : ''}</span>`
       : `<span style="color:var(--muted); font-size:12px;">—</span>`;
@@ -9919,10 +9927,18 @@ function loadUserWatchlist(force = false) {
           statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis(${idx})">🔍 ${item.last_status}</span>`;
         }
 
-        // [VERSION: CMP_MASTER_v1.0] Live CMP from stock_analysis_master
         const cmp = item.cmp;
         const cmpAge = item.cmp_updated_at ? Math.round((Date.now() - new Date(item.cmp_updated_at).getTime()) / 60000) : null;
-        const cmpStale = cmpAge !== null && cmpAge > 30;
+        const isMktHours = (() => {
+          try {
+            const istNow = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"}));
+            const day = istNow.getDay();
+            if (day === 0 || day === 6) return false;
+            const mins = istNow.getHours() * 60 + istNow.getMinutes();
+            return mins >= 555 && mins <= 930;
+          } catch (e) { return true; }
+        })();
+        const cmpStale = cmpAge !== null && (isMktHours ? cmpAge > 30 : cmpAge > 1440);
         const cmpText = cmp != null
           ? `<span style="font-family:var(--font-mono); font-weight:700; color:${cmpStale ? 'var(--muted)' : 'var(--accent)'}; font-size:13px;" title="${cmpAge !== null ? 'Updated ' + cmpAge + ' min ago' : ''}">₹${parseFloat(cmp).toFixed(2)}${cmpStale ? ' <span style="font-size:9px;">(stale)</span>' : ''}</span>`
           : `<span style="color:var(--muted); font-size:12px;">—</span>`;
