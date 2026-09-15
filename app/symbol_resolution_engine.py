@@ -13,8 +13,11 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from enum import Enum, IntEnum
 from typing import Dict, List, Optional, Tuple, Set
+
+IST = ZoneInfo("Asia/Kolkata")
 
 logger = logging.getLogger(__name__)
 
@@ -495,7 +498,7 @@ class SymbolResolutionService:
 
         if key in store.negative_cache:
             expire_dt, fail_cnt, fail_reason = store.negative_cache[key]
-            if datetime.now() < expire_dt:
+            if datetime.now(IST) < expire_dt:
                 latency_ms = (time.perf_counter() - t0) * 1000
                 self._record_telemetry("negative_hits", latency_ms)
                 return ResolvedInstrument("INVALID", sym_clean, prov, "", is_valid=False, error_message=f"Negative cache active ({fail_reason}) until {expire_dt.strftime('%H:%M:%S')}")
@@ -556,7 +559,7 @@ class SymbolResolutionService:
             fail_reason = "MASTER_MISSING" if str(symbol).startswith("^") else "NOT_FOUND"
             hours_map = {1: 1, 2: 6, 3: 24, 4: 72}
             backoff_hours = hours_map.get(fail_count, 168)
-            expire_dt = datetime.now() + timedelta(hours=backoff_hours)
+            expire_dt = datetime.now(IST) + timedelta(hours=backoff_hours)
             store.negative_cache[key] = (expire_dt, fail_count, fail_reason)
 
             latency_ms = (time.perf_counter() - t0) * 1000

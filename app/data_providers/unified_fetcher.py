@@ -7,7 +7,10 @@ from data_registry import registry
 from yf_rate_limiter import acquire as yf_acquire, release as yf_release
 
 import threading
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
+IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger(__name__)
 
 # Resource-specific lock for all external provider fetches
@@ -49,13 +52,12 @@ class UnifiedFetcher:
                         if entry:
                             entry.provider_used = "fyers"
                             is_fallback = entry.preferred_provider and provider != entry.preferred_provider
-                            from datetime import datetime
                             df.attrs = {
                                 "dataset": dataset_id,
                                 "provider": provider,
                                 "preferred_provider": entry.preferred_provider,
                                 "fallback_used": bool(is_fallback),
-                                "fetch_timestamp": datetime.now().isoformat()
+                                "fetch_timestamp": datetime.now(IST).isoformat()
                             }
                         from trading_calendar import enforce_trading_day_candles
                         return enforce_trading_day_candles(df, symbol)
@@ -73,13 +75,12 @@ class UnifiedFetcher:
                         if entry:
                             entry.provider_used = "upstox"
                             is_fallback = entry.preferred_provider and provider != entry.preferred_provider
-                            from datetime import datetime
                             md.dataframe.attrs = {
                                 "dataset": dataset_id,
                                 "provider": provider,
                                 "preferred_provider": entry.preferred_provider,
                                 "fallback_used": bool(is_fallback),
-                                "fetch_timestamp": datetime.now().isoformat()
+                                "fetch_timestamp": datetime.now(IST).isoformat()
                             }
                         from trading_calendar import enforce_trading_day_candles
                         return enforce_trading_day_candles(md.dataframe, symbol)

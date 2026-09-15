@@ -15,11 +15,13 @@
 
 import logging
 import math
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, List, Optional
 import pandas as pd
 import numpy as np
 
+IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger("MultibaggerV2Engine")
 
 
@@ -174,7 +176,7 @@ def evaluate_multibagger_v2_symbol(
     else:
         entry_readiness = "NOT_READY"
 
-    setup_id = f"PFC_{symbol}_MULTIBAGGER_{date.today()}"
+    setup_id = f"PFC_{symbol}_MULTIBAGGER_{datetime.now(IST).date()}"
     reasons = []
 
     if investment_state == "THESIS_BROKEN":

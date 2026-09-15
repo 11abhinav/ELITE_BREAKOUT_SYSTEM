@@ -338,7 +338,7 @@ def _actual_session_fraction(now_t: dtime) -> float:
     session_end = dtime(15, 30)
     if now_t < session_start or now_t >= session_end:
         return 1.0
-    elapsed = (datetime.combine(date.today(), now_t) - datetime.combine(date.today(), session_start)).seconds
+    elapsed = (datetime.combine(datetime.now(IST).date(), now_t) - datetime.combine(datetime.now(IST).date(), session_start)).seconds
     return elapsed / 22500.0
 
 

@@ -17,7 +17,9 @@ from typing import Dict, Any, List, Optional
 import pandas as pd
 import numpy as np
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
 
+IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger(__name__)
 
 PROVISIONAL_VOLUME_THRESHOLD = 1.8  # Sweep-calibrated in replay (1.2x to 2.0x)
@@ -190,7 +192,7 @@ def evaluate_eod_v2_symbol(
         }
 
     # Setup ID (Immutable identity format)
-    today_str = str(date.today())
+    today_str = str(datetime.now(IST).date())
     setup_id = f"PFC_{symbol}_EOD_STRUCTURAL_BREAKOUT_{today_str}"
 
     # Distance to trigger calculation

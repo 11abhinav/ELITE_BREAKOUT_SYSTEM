@@ -486,7 +486,7 @@ def run_near_miss_outcomes_batch(
     Returns a summary dict:
         {"processed": N, "good": N, "bad": N, "neutral": N, "unresolved": N, "skipped": N}
     """
-    cutoff = date.today() - timedelta(days=min_days_old)
+    cutoff = datetime.now(IST).date() - timedelta(days=min_days_old)
 
     with conn.cursor() as cur:
         cur.execute("""

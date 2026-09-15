@@ -11,11 +11,13 @@
 
 import logging
 import math
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, List, Optional
 import pandas as pd
 import numpy as np
 
+IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger("PullbackV2Engine")
 
 
@@ -189,7 +191,7 @@ def evaluate_pullback_v2_symbol(
     distance_to_resumption_pct = (resumption_level - close) / resumption_level * 100.0
 
     is_triggered = (close > resumption_level) and (resumption_volume_ratio >= provisional_vol_threshold)
-    setup_id = f"PFC_{symbol}_PULLBACK_BREAKOUT_{date.today()}"
+    setup_id = f"PFC_{symbol}_PULLBACK_BREAKOUT_{datetime.now(IST).date()}"
     reasons = []
 
     # 6. STATE LIFECYCLE & STAGE SEPARATION

@@ -10,6 +10,7 @@ from requests.adapters import HTTPAdapter
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
 
+IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger("constituent_service")
 
 # Target URLs for NSE Archives
@@ -165,7 +166,7 @@ class ConstituentService:
                         with open(CONSTITUENT_CACHE_PATH, 'r') as _dcf:
                             _dc = json.load(_dcf)
                         _dc_date = datetime.strptime(_dc.get("cached_at", "2000-01-01"), "%Y-%m-%d").date()
-                        _dc_age_days = (date.today() - _dc_date).days
+                        _dc_age_days = (datetime.now(IST).date() - _dc_date).days
                         _dc_symbols = _dc.get("symbols", [])
                         if _dc_symbols and _dc_age_days <= CONSTITUENT_DISK_CACHE_MAX_DAYS:
                             logger.warning(

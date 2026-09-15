@@ -11,7 +11,10 @@ Features:
 import calendar
 import logging
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Dict, Optional, Tuple
+
+IST = ZoneInfo("Asia/Kolkata")
 try:
     from app.short_covering.short_covering_schema import FNOContractInfo
 except ImportError:
@@ -39,7 +42,7 @@ def get_near_and_next_expiries(as_of: Optional[date] = None) -> Tuple[date, date
     rolls over to next month as near, and month+2 as next.
     """
     if as_of is None:
-        as_of = date.today()
+        as_of = datetime.now(IST).date()
 
     cur_expiry = get_monthly_expiry(as_of.year, as_of.month)
     if as_of <= cur_expiry:
@@ -75,7 +78,7 @@ class FNOContractResolver:
         Resolves the near and next futures contract details for a given underlying symbol.
         """
         if as_of is None:
-            as_of = date.today()
+            as_of = datetime.now(IST).date()
 
         clean_sym = symbol.upper().replace(".NS", "").replace("-EQ", "")
         fno_alias_map = {

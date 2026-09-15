@@ -2,6 +2,9 @@ import logging
 import pandas as pd
 from typing import List, Dict
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
 
 from ..core.interfaces import ProviderInterface
 from ..core.models import NormalizedMarketData, CapabilityMatrix, ProviderStatus, DataProvenance
@@ -97,7 +100,7 @@ class FyersProvider(ProviderInterface):
         import time
         import random
         
-        start_time = datetime.now()
+        start_time = datetime.now(IST)
         logger.debug(f"🔄 [Fyers] Fetching {symbol} | {timeframe} | {range_from.date()} → {range_to.date()}")
         
         try:
@@ -128,9 +131,9 @@ class FyersProvider(ProviderInterface):
             latency = 0
             
             for attempt in range(3):
-                attempt_start = datetime.now()
+                attempt_start = datetime.now(IST)
                 response = client.history(data=data)
-                latency = (datetime.now() - start_time).total_seconds() * 1000
+                latency = (datetime.now(IST) - start_time).total_seconds() * 1000
                 
                 if not response or response.get("s") != "ok":
                     code = str(response.get("code", "")) if response else ""
@@ -170,7 +173,7 @@ class FyersProvider(ProviderInterface):
         except Exception as e:
             self._health_score = max(0, self._health_score - 5)
             logger.error(f"Fyers fetch error for {symbol}: {e}")
-            latency = (datetime.now() - start_time).total_seconds() * 1000
+            latency = (datetime.now(IST) - start_time).total_seconds() * 1000
             prov = DataProvenance(self.provider_name, start_time, latency, 0.0)
             return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error=str(e))
             
@@ -179,7 +182,7 @@ class FyersProvider(ProviderInterface):
         results = {}
         total = len(symbols)
         logger.info(f"🔄 [Fyers] Starting batch fetch: {total} symbols | {timeframe} | {range_from.date()} → {range_to.date()}")
-        t_batch_start = datetime.now()
+        t_batch_start = datetime.now(IST)
         errors = 0
         last_request_time = 0
         
@@ -190,11 +193,11 @@ class FyersProvider(ProviderInterface):
             if elapsed_since_last < 0.11:
                 time.sleep(0.11 - elapsed_since_last)
                 
-            t_sym_start = datetime.now()
+            t_sym_start = datetime.now(IST)
             result = self.fetch_ohlcv(sym, timeframe, range_from, range_to)
             last_request_time = time.time()
             
-            elapsed_ms = int((datetime.now() - t_sym_start).total_seconds() * 1000)
+            elapsed_ms = int((datetime.now(IST) - t_sym_start).total_seconds() * 1000)
             results[sym] = result
             if result.error:
                 errors += 1
@@ -202,8 +205,8 @@ class FyersProvider(ProviderInterface):
             else:
                 logger.debug(f"  ✅ [Fyers] [{idx}/{total}] {sym} — OK in {elapsed_ms}ms")
             if idx % 25 == 0 or idx == total:
-                batch_elapsed = int((datetime.now() - t_batch_start).total_seconds())
+                batch_elapsed = int((datetime.now(IST) - t_batch_start).total_seconds())
                 logger.info(f"📊 [Fyers] Progress: {idx}/{total} symbols fetched | {errors} errors so far | Elapsed: {batch_elapsed}s")
-        total_elapsed = int((datetime.now() - t_batch_start).total_seconds())
+        total_elapsed = int((datetime.now(IST) - t_batch_start).total_seconds())
         logger.info(f"✅ [Fyers] Batch complete: {total - errors}/{total} ok | {errors} errors | Total: {total_elapsed}s")
         return results

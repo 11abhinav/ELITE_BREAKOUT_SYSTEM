@@ -23,8 +23,10 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, List, Any, Optional
 
+IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger("eod_alert_builder")
 
 # ── Score tier labels ─────────────────────────────────────────────────────────
@@ -317,7 +319,7 @@ def build_eod_scan_report(
     total = len(all_alerts)
 
     if scan_ts is None:
-        scan_ts = datetime.now()
+        scan_ts = datetime.now(IST)
 
     ts_str   = scan_ts.strftime("%d-%b-%Y  %H:%M IST")
     regime_emoji = {

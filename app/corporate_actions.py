@@ -7,7 +7,10 @@ import logging
 import time
 import pandas as pd
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, Optional, List
+
+IST = ZoneInfo("Asia/Kolkata")
 
 from database import get_connection
 
@@ -95,7 +98,7 @@ def get_bulk_split_factor(symbol: str, entry_date: date, exit_date: Optional[dat
             return 1.0
 
     clean_sym = symbol.strip().upper().replace(".NS", "").replace(".BO", "")
-    d_exit = exit_date or datetime.now().date()
+    d_exit = exit_date or datetime.now(IST).date()
     if isinstance(d_exit, datetime):
         d_exit = d_exit.date()
 
@@ -181,11 +184,11 @@ def get_cumulative_split_factor(symbol: str, entry_date_val: Any, exit_date_val:
     # Parse exit date
     try:
         if exit_date_val:
-            d_exit = exit_date_val if isinstance(exit_date_val, date) else pd.to_datetime(str(exit_date_val)).date()
+            d_exit = exit_date_val if isinstance(exit_date_val, date) else pd.to_datetime(str(exit_date_val), errors='coerce').date()
         else:
-            d_exit = datetime.now().date()
+            d_exit = datetime.now(IST).date()
     except Exception:
-        d_exit = datetime.now().date()
+        d_exit = datetime.now(IST).date()
 
     if d_entry >= d_exit:
         return 1.0

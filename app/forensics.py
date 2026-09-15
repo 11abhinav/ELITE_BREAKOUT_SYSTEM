@@ -149,7 +149,7 @@ class ForensicTelemetry:
     def generate_eod_summary_report(self) -> Dict[str, Any]:
         """Aggregate all JSONL logs and generate End-of-Day forensic analysis report."""
         summary = {
-            "report_date": date.today().isoformat(),
+            "report_date": datetime.now(IST).date().isoformat(),
             "generated_at": datetime.now(IST).isoformat(),
             "peak_rss_mb": 0.0,
             "total_scanners_executed": 0,

@@ -39,9 +39,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from enum import Enum
 from typing import Any, Dict, List, Optional
+
+IST = ZoneInfo("Asia/Kolkata")
 
 import numpy as np
 import pandas as pd
@@ -272,7 +275,7 @@ def evaluate_reversal_v2(
         stage1_rsi=current_rsi,
         stage1_drop_pct=round(drop_pct, 1),
         is_nq_universe=is_nq_universe,
-        setup_id=f"REV2_{symbol}_{date.today()}",
+        setup_id=f"REV2_{symbol}_{datetime.now(IST).date()}",
     )
 
     # =========================================================================
@@ -336,7 +339,7 @@ def evaluate_reversal_v2(
         stage2_sweep_vol_ratio=round(vol_ratio, 2),
         stage2_sweep_low=round(sweep_low, 2),
         is_nq_universe=is_nq_universe,
-        setup_id=f"REV2_{symbol}_{date.today()}",
+        setup_id=f"REV2_{symbol}_{datetime.now(IST).date()}",
     )
 
     # =========================================================================
@@ -395,7 +398,7 @@ def evaluate_reversal_v2(
         target_1=target_1,
         rr_ratio=rr_ratio,
         is_nq_universe=is_nq_universe,
-        setup_id=f"REV2_{symbol}_{date.today()}",
+        setup_id=f"REV2_{symbol}_{datetime.now(IST).date()}",
     )
 
     # NQ universe capped at Stage 3 (observation only — not a live trade)
@@ -457,7 +460,7 @@ def evaluate_reversal_v2(
         target_1=target_1,
         rr_ratio=rr_ratio,
         is_nq_universe=is_nq_universe,
-        setup_id=f"REV2_{symbol}_{date.today()}",
+        setup_id=f"REV2_{symbol}_{datetime.now(IST).date()}",
     )
 
     # =========================================================================
@@ -541,7 +544,7 @@ def evaluate_reversal_v2(
         rr_ratio=final_rr,
         breakout_level=round(prior_sweep_low, 2),
         is_nq_universe=is_nq_universe,
-        setup_id=f"REV2_{symbol}_{date.today()}",
+        setup_id=f"REV2_{symbol}_{datetime.now(IST).date()}",
     )
 
 
@@ -697,7 +700,7 @@ def evaluate_reversal_v2_1(
                 stage1_rsi=current_rsi_m,
                 stage1_drop_pct=round(drop_pct_m, 1),
                 is_nq_universe=is_nq_universe,
-                setup_id=f"REV21_{symbol}_{date.today()}",
+                setup_id=f"REV21_{symbol}_{datetime.now(IST).date()}",
             )
         return _no_setup(f"STAGE1_OR_SWEEP_FAIL: No sweep in prior {cfg.reclaim_bars_window} bars, drop={drop_pct_m:.1f}%, rsi={current_rsi_m:.1f}")
 
@@ -730,7 +733,7 @@ def evaluate_reversal_v2_1(
                 stage2_sweep_vol_ratio=round(best_sweep_vol_ratio or 1.0, 2),
                 stage2_sweep_low=round(best_sweep_low or 0.0, 2),
                 is_nq_universe=is_nq_universe,
-                setup_id=f"REV21_{symbol}_{date.today()}",
+                setup_id=f"REV21_{symbol}_{datetime.now(IST).date()}",
             )
 
     if not is_reclaim_on_m:
@@ -752,7 +755,7 @@ def evaluate_reversal_v2_1(
             stage2_sweep_vol_ratio=round(best_sweep_vol_ratio or 1.0, 2),
             stage2_sweep_low=round(best_sweep_low or 0.0, 2),
             is_nq_universe=is_nq_universe,
-            setup_id=f"REV21_{symbol}_{date.today()}",
+            setup_id=f"REV21_{symbol}_{datetime.now(IST).date()}",
         )
 
     # ── STAGE 3: RECLAIM CONFIRMED ───────────────────────────────────────────
@@ -795,7 +798,7 @@ def evaluate_reversal_v2_1(
         rr_ratio=rr_ratio,
         breakout_level=round(swept_support, 2),
         is_nq_universe=is_nq_universe,
-        setup_id=f"REV21_{symbol}_{date.today()}",
+        setup_id=f"REV21_{symbol}_{datetime.now(IST).date()}",
     )
 
     if is_nq_universe and cfg.nq_universe_blocks_stage5:
@@ -849,7 +852,7 @@ def evaluate_reversal_v2_1(
         rr_ratio=rr_ratio,
         breakout_level=round(swept_support, 2),
         is_nq_universe=is_nq_universe,
-        setup_id=f"REV21_{symbol}_{date.today()}",
+        setup_id=f"REV21_{symbol}_{datetime.now(IST).date()}",
     )
 
     # ── STAGE 5: HIGH-CONFIDENCE ALERT ───────────────────────────────────────
@@ -919,5 +922,5 @@ def evaluate_reversal_v2_1(
         rr_ratio=final_rr,
         breakout_level=round(swept_support, 2),
         is_nq_universe=is_nq_universe,
-        setup_id=f"REV21_{symbol}_{date.today()}",
+        setup_id=f"REV21_{symbol}_{datetime.now(IST).date()}",
     )

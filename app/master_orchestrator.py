@@ -27,7 +27,10 @@ import math
 import threading
 import pandas as pd
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, List, Optional
+
+IST = ZoneInfo("Asia/Kolkata")
 
 sys_path = os.path.dirname(os.path.realpath(__file__))
 if sys_path not in os.sys.path:
@@ -164,7 +167,7 @@ class MasterOrchestratorV2:
             logger.debug(f"Failed to load dynamic master summary: {e}")
 
         return {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(IST).isoformat(),
             "engines": engines_status,
             "status": global_status
         }
@@ -228,7 +231,7 @@ class MasterOrchestratorV2:
                         "cmp": round(fb, 2),
                         "cmp_source": "DB_RECORDED_FALLBACK",
                         "cmp_is_live": False,
-                        "cmp_timestamp": datetime.now().isoformat()
+                        "cmp_timestamp": datetime.now(IST).isoformat()
                     }
             except (ValueError, TypeError):
                 pass
@@ -325,7 +328,7 @@ class MasterOrchestratorV2:
                         results[clean_k] = val
                         try:
                             from price_cache import _FAST_CMP_MEMO
-                            _FAST_CMP_MEMO[clean_k] = (val, "STOCK_ANALYSIS_MASTER", False, datetime.now().isoformat(), time.monotonic())
+                            _FAST_CMP_MEMO[clean_k] = (val, "STOCK_ANALYSIS_MASTER", False, datetime.now(IST).isoformat(), time.monotonic())
                         except Exception:
                             pass
         except Exception as e:
@@ -359,7 +362,7 @@ class MasterOrchestratorV2:
                         results[clean_k] = val
                         try:
                             from price_cache import _FAST_CMP_MEMO
-                            _FAST_CMP_MEMO[clean_k] = (val, "DAILY_WATCHLIST_FALLBACK", False, datetime.now().isoformat(), time.monotonic())
+                            _FAST_CMP_MEMO[clean_k] = (val, "DAILY_WATCHLIST_FALLBACK", False, datetime.now(IST).isoformat(), time.monotonic())
                         except Exception:
                             pass
         except Exception as e:
@@ -999,7 +1002,7 @@ class MasterOrchestratorV2:
                         "scanner": r.get("scanner_name", "ENGINE"),
                         "status": r.get("status") or "UNKNOWN",
                         "error_msg": r.get("error_msg"),
-                        "last_run": r.get("last_success", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                        "last_run": r.get("last_success", datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")),
                         "duration_sec": r.get("duration_seconds", 0.0),
                         "symbols_evaluated": r.get("symbols_evaluated", 1174),
                         "watch_count": r.get("watch_count", 0),
@@ -1023,7 +1026,7 @@ class MasterOrchestratorV2:
                 "scanner": eng,
                 "status": "DOWN",
                 "error_msg": "Database query failed — scanner health unavailable",
-                "last_run": datetime.now().strftime("%Y-%m-%d %H:%M IST"),
+                "last_run": datetime.now(IST).strftime("%Y-%m-%d %H:%M IST"),
                 "duration_sec": 0.0,
                 "symbols_evaluated": live_symbols,
                 "watch_count": 0,
@@ -1314,7 +1317,7 @@ class MasterOrchestratorV2:
                     "sl_method": sl_rule,
                     "target_method": "Multi-Cluster Fibonacci / R:R Consensus",
                     "signals": rationale,
-                    "alert_time": datetime.now().strftime("%Y-%m-%d %H:%M IST")
+                    "alert_time": datetime.now(IST).strftime("%Y-%m-%d %H:%M IST")
                 })
                 outcomes[sc] = {"state": state, "score": score}
 
@@ -1322,7 +1325,7 @@ class MasterOrchestratorV2:
             for s in scanners_breakdown:
                 outcomes[s["scanner"]] = {"state": s.get("state", "CONFIRMED"), "score": s.get("score", 85.0)}
 
-        meta_res = evaluate_cross_scanner_confluence(symbol, datetime.now().strftime("%Y-%m-%d"), outcomes)
+        meta_res = evaluate_cross_scanner_confluence(symbol, datetime.now(IST).strftime("%Y-%m-%d"), outcomes)
         depth = len(scanners_breakdown)
         
         tier = meta_res.get("meta_conviction_tier") or ("🔥 APEX CONFLUENCE" if depth >= 3 else ("HIGH CONFLUENCE" if depth == 2 else "SINGLE ENGINE SETUP"))

@@ -10,11 +10,13 @@
 
 import logging
 import math
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, List, Optional
 import pandas as pd
 import numpy as np
 
+IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger("MultiTFV2Engine")
 
 
@@ -191,7 +193,7 @@ def evaluate_multi_tf_v2_symbol(
     upper_wick_ratio = (h_high - max(h_open, h_close)) / candle_range
 
     distance_pct = (prior_20d_high - h_close) / prior_20d_high * 100.0
-    setup_id = f"PFC_{symbol}_MULTI_TF_BREAKOUT_{date.today()}"
+    setup_id = f"PFC_{symbol}_MULTI_TF_BREAKOUT_{datetime.now(IST).date()}"
 
     reasons = []
     is_triggered = (h_close > prior_20d_high) and (vol_ratio >= provisional_vol_threshold)

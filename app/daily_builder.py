@@ -1616,7 +1616,7 @@ def _sweep_degradation_watch(
         # Recovery: previously-watched stocks that are now ELITE or NQ
         admitted_symbols = elite_symbols | nq_symbols
 
-        today = str(date.today())
+        today = str(datetime.now(IST).date())
 
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -1636,7 +1636,7 @@ def _sweep_degradation_watch(
                         )
 
                 # 2. Check which excluded stocks were recently ELITE/NQ
-                cutoff = str(date.today() - timedelta(days=N_TRADING_DAYS * 1.5))
+                cutoff = str(datetime.now(IST).date() - timedelta(days=N_TRADING_DAYS * 1.5))
                 cur.execute(
                     """
                     SELECT DISTINCT symbol FROM daily_watchlist_v2

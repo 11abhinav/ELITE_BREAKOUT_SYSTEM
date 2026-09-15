@@ -14,9 +14,12 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, Optional
 
 import pandas as pd
+
+IST = ZoneInfo("Asia/Kolkata")
 
 logger = logging.getLogger("multitf.pressure")
 
@@ -107,7 +110,7 @@ def _evaluate_confirmed(
     close_pos = (c - l) / candle_range
 
     # Calculate time-of-day normalized slot volume baseline
-    bar_ts = last_closed.name if isinstance(last_closed.name, pd.Timestamp) else pd.to_datetime(last_closed.get("Date", datetime.now()))
+    bar_ts = last_closed.name if isinstance(last_closed.name, pd.Timestamp) else pd.to_datetime(last_closed.get("Date", datetime.now(IST)), errors='coerce', utc=True).tz_convert(IST)
     slot_vol_avg = _calc_slot_volume_baseline(bar_ts, df_5m_closed, config)
     vol_ratio = v / slot_vol_avg if slot_vol_avg > 0 else 1.0
 

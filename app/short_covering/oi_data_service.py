@@ -83,7 +83,7 @@ class OIDataService:
         """
         clean_sym = symbol.upper().replace(".NS", "").replace("-EQ", "")
         if as_of is None:
-            as_of = date.today()
+            as_of = datetime.now(IST).date()
 
         # Check memory cache
         cache_key = f"{clean_sym}_{as_of.isoformat()}_{lookback_days}"
@@ -105,7 +105,7 @@ class OIDataService:
         """
         clean_sym = symbol.upper().replace(".NS", "").replace("-EQ", "")
         if target_date is None:
-            target_date = date.today()
+            target_date = datetime.now(IST).date()
 
         cache_key = f"{clean_sym}_5m_{target_date.isoformat()}"
         if cache_key in self._intraday_oi_cache:
@@ -157,7 +157,7 @@ class OIDataService:
 
             upstox = UpstoxProvider()
             clean_sym = symbol.upper().replace(".NS", "").replace("-EQ", "")
-            target_date_str = (as_of or date.today()).strftime("%Y-%m-%d")
+            target_date_str = (as_of or datetime.now(IST).date()).strftime("%Y-%m-%d")
             
             raw_data = upstox.get_market_oi(clean_sym, expiry=expiry, target_date=target_date_str)
             if not raw_data:
@@ -230,7 +230,7 @@ class OIDataService:
                 return None
 
             clean_sym = symbol.upper().replace(".NS", "").replace("-EQ", "")
-            contract = fno_contract_resolver.resolve(clean_sym, as_of or date.today())
+            contract = fno_contract_resolver.resolve(clean_sym, as_of or datetime.now(IST).date())
             fyers_candidates = [
                 f"NSE:{contract.near_trading_symbol}",
                 f"NSE:{clean_sym}-EQ"

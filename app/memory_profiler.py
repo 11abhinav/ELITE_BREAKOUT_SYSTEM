@@ -3,10 +3,13 @@ import os
 import sys
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import logging
 import psutil
 import tracemalloc
 import pandas as pd
+
+IST = ZoneInfo("Asia/Kolkata")
 
 import numpy as np
 from config import MEMORY_PROFILER_CONFIG
@@ -697,7 +700,7 @@ def _dump_threshold_snapshot(threshold: int, current_rss_mb: float):
         cache_stats["ConstituentService_Error"] = str(e)
         
     snapshot_data = {
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(IST).isoformat(),
         "threshold_mb": threshold,
         "rss_mb": current_rss_mb,
         "heap_mb": heap / (1024 * 1024),

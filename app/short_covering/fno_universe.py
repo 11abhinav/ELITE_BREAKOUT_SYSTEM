@@ -11,8 +11,10 @@ Features:
 
 import logging
 from typing import List, Dict, Set, Optional
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
+IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger(__name__)
 
 # Complete curated fallback list of standard active NSE F&O underlying equities
@@ -90,7 +92,7 @@ class FNOUniverseManager:
         if bhavcopy_symbols and len(bhavcopy_symbols) > 50:
             cleaned = {s.upper().replace(".NS", "").replace("-EQ", "") for s in bhavcopy_symbols}
             self._universe = cleaned
-            self._last_refresh_date = date.today()
+            self._last_refresh_date = datetime.now(IST).date()
             logger.info(f"✅ Dynamic F&O universe updated: {len(self._universe)} symbols")
 
 

@@ -10,11 +10,13 @@
 
 import logging
 import math
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, List, Optional
 import pandas as pd
 import numpy as np
 
+IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger("ConfluenceV3Engine")
 
 # Statistically verified pairs in historical replay with sample size n >= 30
@@ -148,7 +150,7 @@ def evaluate_confluence_shortlist() -> List[Dict[str, Any]]:
             by_symbol[sym][sc] = {"state": st, "investment_state": a.get("investment_state", "")}
 
         results = []
-        today_str = date.today().isoformat()
+        today_str = datetime.now(IST).date().isoformat()
         for sym, sc_map in by_symbol.items():
             conf = evaluate_cross_scanner_confluence(sym, today_str, sc_map, macro_regime=regime)
             if conf.get("meta_score", 0) >= 60.0:

@@ -11,11 +11,13 @@
 
 import logging
 import math
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, List, Optional
 import pandas as pd
 import numpy as np
 
+IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger("AccumulationV2Engine")
 
 
@@ -171,7 +173,7 @@ def evaluate_accumulation_v2_symbol(
 
     is_expansion = (close > resistance_level)
     is_triggered = is_expansion and (vol_ratio >= provisional_vol_threshold)
-    setup_id = f"PFC_{symbol}_ACCUMULATION_BREAKOUT_{date.today()}"
+    setup_id = f"PFC_{symbol}_ACCUMULATION_BREAKOUT_{datetime.now(IST).date()}"
     reasons = []
 
     # Calculate 7-Stage Maturity Progress

@@ -11,11 +11,13 @@
 
 import logging
 import math
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, List, Optional
 import pandas as pd
 import numpy as np
 
+IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger("ReversalV2Engine")
 
 
@@ -159,7 +161,7 @@ def evaluate_reversal_v2_symbol(
     # Swing High Breakout Trigger Anchor (prior 10D high)
     prior_swing_high = float(df["High"].iloc[-11:-1].max()) if len(df) >= 11 else float(df["High"].max())
     distance_pct = (prior_swing_high - close) / prior_swing_high * 100.0
-    setup_id = f"PFC_{symbol}_REVERSAL_BREAKOUT_{date.today()}"
+    setup_id = f"PFC_{symbol}_REVERSAL_BREAKOUT_{datetime.now(IST).date()}"
 
     # State Determination
     is_triggered = (close > prior_swing_high) and (vol_ratio >= provisional_vol_threshold)

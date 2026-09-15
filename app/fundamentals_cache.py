@@ -76,7 +76,7 @@ def save_cache(cache_data: dict, upload_to_db=False):
     global _IN_MEMORY_FUNDAMENTALS_CACHE, _IN_MEMORY_FUNDAMENTALS_MTIME
     clean_cache = {k: v for k, v in cache_data.items() if v is not None}
     _IN_MEMORY_FUNDAMENTALS_CACHE = clean_cache
-    _IN_MEMORY_FUNDAMENTALS_MTIME = time.time() if "time" in globals() else datetime.now().timestamp()
+    _IN_MEMORY_FUNDAMENTALS_MTIME = time.time() if "time" in globals() else datetime.now(IST).timestamp()
     try:
         from data_registry import registry
         registry.put("fundamentals_cache", clean_cache)

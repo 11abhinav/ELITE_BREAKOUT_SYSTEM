@@ -9,8 +9,11 @@ import logging
 import time
 from enum import IntEnum
 from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
 from typing import Dict, List, Any, Optional, Union
 import pandas as pd
+
+IST = ZoneInfo("Asia/Kolkata")
 
 logger = logging.getLogger("corporate_events")
 
@@ -122,7 +125,7 @@ def decorate_events(
     Decorates each stock row with event_badges containing split/bonus badges.
     Earnings Calendar badges removed — no longer generated.
     """
-    curr_d = current_date or datetime.now().date()
+    curr_d = current_date or datetime.now(IST).date()
     pipe = pipeline or default_pipeline
     e_map = events_map if events_map is not None else {}  # always empty — no earnings
 

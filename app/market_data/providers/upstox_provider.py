@@ -4,6 +4,9 @@ import requests
 import pandas as pd
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
@@ -300,7 +303,7 @@ class UpstoxProvider(ProviderInterface):
         import urllib.parse
         from datetime import timedelta
         
-        start_time = datetime.now()
+        start_time = datetime.now(IST)
 
         # [VERSION: NON_EQUITY_BLOCKLIST_v2.0] Filter only known InvITs/REITs (never ASM/GSM equities)
         non_equity_blocklist = getattr(config, "NON_EQUITY_BLOCKLIST", {"VERTIS", "HIGHWAYS", "POWERINVIT", "IRBINVIT", "INDIGRID", "EMBASSY", "MINDSPACE", "BROOKFIELD", "NEXUS"})
@@ -343,7 +346,7 @@ class UpstoxProvider(ProviderInterface):
             "Authorization": f"Bearer {token}"
         }
         
-        start_time = datetime.now()
+        start_time = datetime.now(IST)
         
         try:
             import random
@@ -351,7 +354,7 @@ class UpstoxProvider(ProviderInterface):
             response = None
             for attempt in range(4):
                 response = _upstox_session.get(url, headers=headers, timeout=10)
-                latency = (datetime.now() - start_time).total_seconds() * 1000
+                latency = (datetime.now(IST) - start_time).total_seconds() * 1000
                 
                 if response.status_code == 429:
                     self._health_score = max(0, self._health_score - 2)
@@ -390,7 +393,7 @@ class UpstoxProvider(ProviderInterface):
             candles = data.get("data", {}).get("candles", [])
             
             # [UPSTOX_INTRADAY_V3_FALLBACK] If historical endpoint returns empty for today's intraday bars, query intraday endpoint
-            if not candles and unit in ("minutes", "hours") and adjusted_range_to.date() >= datetime.now().date():
+            if not candles and unit in ("minutes", "hours") and adjusted_range_to.date() >= datetime.now(IST).date():
                 try:
                     intraday_url = f"https://api.upstox.com/v3/historical-candle/intraday/{instrument_key}/{unit}/{interval}"
                     intra_res = _upstox_session.get(intraday_url, headers=headers, timeout=8)
@@ -444,13 +447,13 @@ class UpstoxProvider(ProviderInterface):
                     logger.debug(f"Failed to invalidate stale key for {symbol}: {_inv_err}")
             else:
                 logger.error(f"Upstox fetch HTTP error for {symbol}: {e}")
-            latency = (datetime.now() - start_time).total_seconds() * 1000
+            latency = (datetime.now(IST) - start_time).total_seconds() * 1000
             prov = DataProvenance(self.provider_name, start_time, latency, 0.0)
             return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error=f"HTTP {status_code}")
         except Exception as e:
             self._health_score = max(0, self._health_score - 2)
             logger.exception(f"Upstox fetch error for {symbol}: {e}")
-            latency = (datetime.now() - start_time).total_seconds() * 1000
+            latency = (datetime.now(IST) - start_time).total_seconds() * 1000
             prov = DataProvenance(self.provider_name, start_time, latency, 0.0)
             return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error=str(e))
 
@@ -472,7 +475,7 @@ class UpstoxProvider(ProviderInterface):
             return {}
         encoded_key = urllib.parse.quote(str(raw_key))
         
-        date_param = target_date or datetime.now().strftime("%Y-%m-%d")
+        date_param = target_date or datetime.now(IST).strftime("%Y-%m-%d")
         url = f"https://api.upstox.com/v2/market/oi?instrument_key={encoded_key}&expiry={expiry}&date={date_param}"
         headers = {
             "Accept": "application/json",

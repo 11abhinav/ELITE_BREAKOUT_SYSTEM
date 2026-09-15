@@ -2208,7 +2208,7 @@ def _run_multi_tf_v2_pipeline():
                         target=res_v2.get("entry_price", 0.0) * 1.07,
                         score=res_v2.get("score", 70.0),
                         quality_grade=res_v2.get("quality_grade", "B"),
-                        setup_id=res_v2.get("setup_id", f"PFC_{sym}_MULTI_TF_{date.today()}")
+                        setup_id=res_v2.get("setup_id", f"PFC_{sym}_MULTI_TF_{datetime.now(IST).date()}")
                     )
                 except Exception as save_err:
                     logger.debug(f"V2 candidate save error for {sym}: {save_err}")
