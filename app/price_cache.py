@@ -613,9 +613,7 @@ class FifteenMinutePolicy(CacheFreshnessPolicy):
             now_dt = datetime.now(IST)
         from market_utils import is_market_open
         if is_market_open(now_dt):
-            # Same-day session or within 2 hours is considered fresh (live CMP is stitched into forming bar)
-            if last_ts.date() == now_dt.date() or (now_dt - last_ts).total_seconds() <= (120 * 60):
-                return True
+            # During market hours, 15m data must have the latest closed candle within 20 mins of now
             return (now_dt - last_ts).total_seconds() <= (20 * 60)
         return _is_cache_up_to_date_legacy(last_ts, "15m", now_dt)
 
@@ -627,9 +625,7 @@ class FiveMinutePolicy(CacheFreshnessPolicy):
             now_dt = datetime.now(IST)
         from market_utils import is_market_open
         if is_market_open(now_dt):
-            # Same-day session or within 2 hours is considered fresh (live CMP is stitched into forming bar)
-            if last_ts.date() == now_dt.date() or (now_dt - last_ts).total_seconds() <= (120 * 60):
-                return True
+            # During market hours, 5m data must have the latest closed candle within 10 mins of now
             return (now_dt - last_ts).total_seconds() <= (10 * 60)
         return _is_cache_up_to_date_legacy(last_ts, "5m", now_dt)
 
@@ -676,9 +672,8 @@ class OneHourPolicy(CacheFreshnessPolicy):
             now_dt = datetime.now(IST)
         from market_utils import is_market_open
         if is_market_open(now_dt):
-            if last_ts.date() == now_dt.date() or (now_dt - last_ts).total_seconds() <= (240 * 60):
-                return True
-            return (now_dt - last_ts).total_seconds() <= (90 * 60)
+            # During market hours, 1h data must have the latest closed candle within 75 mins of now
+            return (now_dt - last_ts).total_seconds() <= (75 * 60)
         return _is_cache_up_to_date_legacy(last_ts, "1h", now_dt)
 
 
@@ -689,9 +684,8 @@ class ThirtyMinutePolicy(CacheFreshnessPolicy):
             now_dt = datetime.now(IST)
         from market_utils import is_market_open
         if is_market_open(now_dt):
-            if last_ts.date() == now_dt.date() or (now_dt - last_ts).total_seconds() <= (180 * 60):
-                return True
-            return (now_dt - last_ts).total_seconds() <= (45 * 60)
+            # During market hours, 30m data must have the latest closed candle within 40 mins of now
+            return (now_dt - last_ts).total_seconds() <= (40 * 60)
         return _is_cache_up_to_date_legacy(last_ts, "30m", now_dt)
 
 
