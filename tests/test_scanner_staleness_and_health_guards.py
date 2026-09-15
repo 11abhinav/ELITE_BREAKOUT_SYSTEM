@@ -48,5 +48,40 @@ class TestScannerStalenessAndHealthGuards(unittest.TestCase):
         res_5m = oi_data_service.get_intraday_5m_data(fake_sym, target_date=date(2026, 9, 11))
         self.assertIsNone(res_5m, "Must return None when genuine intraday parquet data is missing — zero synthetic data invariant!")
 
+    def test_build_watchlist_candidate_clean_ts(self):
+        """Verify candidate builder cleans timestamps safely without NameError on pd or np."""
+        from app.multitf.candidate import build_watchlist_candidate
+        from app.multitf.data import MultitfDataBundle, TFProvenance
+        from app.multitf.consolidation import ConsolidationResult
+        import numpy as np
+        
+        bundle = MultitfDataBundle(
+            symbol="POWERGRID",
+            prov_15m=TFProvenance(interval="15m", symbol="POWERGRID", source="FYERS", last_candle_ts="2026-09-15 14:30:00")
+        )
+        cons = ConsolidationResult(
+            symbol="POWERGRID",
+            is_valid=True,
+            box_id="test_box_1",
+            start_ts=pd.Timestamp("2026-09-15 10:00:00"),
+            end_ts=None,
+            last_confirmed_pivot_ts="",
+            box_high=300.0,
+            box_low=295.0
+        )
+        cand = build_watchlist_candidate(
+            bundle=bundle,
+            consolidation=cons,
+            ctx_1h={},
+            ctx_30m={},
+            market_ctx={},
+            ist_now=datetime.now(IST)
+        )
+        self.assertEqual(cand["symbol"], "POWERGRID")
+        self.assertIsNone(cand["consolidation_end_ts"])
+        self.assertIsNone(cand["last_confirmed_pivot_ts"])
+        self.assertIsInstance(cand["consolidation_start_ts"], pd.Timestamp)
+
 if __name__ == "__main__":
     unittest.main()
+
