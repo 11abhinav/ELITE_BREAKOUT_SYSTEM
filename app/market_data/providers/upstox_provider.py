@@ -273,7 +273,7 @@ class UpstoxProvider(ProviderInterface):
         if mapper_func:
             try:
                 mapped = mapper_func(symbol)
-                if mapped and mapped != f"NSE_EQ|{clean.lstrip('^')}":
+                if mapped:
                     _inst_key_cache[clean] = mapped
                     return mapped
             except Exception as e:
@@ -288,35 +288,41 @@ class UpstoxProvider(ProviderInterface):
                     _inst_key_cache[clean] = resolved.mapped_symbol
                     return resolved.mapped_symbol
             except Exception as e:
-                logger.warning(f"⚠️ [Upstox] Symbol resolver failed for '{symbol}': {e} — using NSE_EQ fallback")
+                logger.warning(f"⚠️ [Upstox] Symbol resolver failed for '{symbol}': {e}")
 
-        clean_bare = clean.lstrip("^")
-        fallback_key = f"NSE_EQ|{clean_bare}"
-        _inst_key_cache[clean] = fallback_key
-        return fallback_key
+        # If already an official key format (e.g. NSE_EQ|INE...), return as is
+        if "|" in clean:
+            _inst_key_cache[clean] = clean
+            return clean
+
+        logger.warning(f"⚠️ [Upstox] Could not resolve verified instrument key for '{symbol}' — skipping raw fallback.")
+        return None
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, range_from: datetime, range_to: datetime) -> NormalizedMarketData:
         import config
         import urllib.parse
         from datetime import timedelta
         
+        start_time = datetime.now()
+
         # [VERSION: NON_EQUITY_BLOCKLIST_v2.0] Filter only known InvITs/REITs (never ASM/GSM equities)
         non_equity_blocklist = getattr(config, "NON_EQUITY_BLOCKLIST", {"VERTIS", "HIGHWAYS", "POWERINVIT", "IRBINVIT", "INDIGRID", "EMBASSY", "MINDSPACE", "BROOKFIELD", "NEXUS"})
         if symbol and str(symbol).strip().upper() in non_equity_blocklist:
-            start_time = datetime.now()
             prov = DataProvenance(self.provider_name, start_time, 0.0, 0)
             return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error="Blacklisted non-equity trust")
 
-
         token = getattr(config, "UPSTOX_ACCESS_TOKEN", None)
         raw_key = self._get_instrument_key(symbol)
+        if not raw_key:
+            prov = DataProvenance(self.provider_name, start_time, 0.0, 0)
+            return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error=f"Upstox instrument key resolution failed for {symbol}")
+
         instrument_key = urllib.parse.quote(raw_key)
         unit, interval = self._map_timeframe(timeframe)
         
         # Upstox V3 API historical candles for indices: defer intraday index candles to Fyers fallback
         if (raw_key.startswith("NSE_INDEX|") or raw_key.startswith("BSE_INDEX|")) and unit in ("minutes", "hours"):
             logger.debug(f"Upstox API does not support intraday candles for index {symbol} ({raw_key}); deferring to fallback.")
-            start_time = datetime.now()
             prov = DataProvenance(self.provider_name, start_time, 0.0, 0)
             return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error="Intraday index candles not supported by Upstox")
         

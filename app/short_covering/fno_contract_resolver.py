@@ -81,8 +81,12 @@ class FNOContractResolver:
         fno_alias_map = {
             "L&TFH": "LTF",
             "L_TFH": "LTF",
+            "GMRINFRA": "GMRAIRPORT",
+            "GUJGASLTD": "GUJGAS",
             "MCDOWELL-N": "UNITDSPR",
             "MCDOWELL_N": "UNITDSPR",
+            "BAJAJ-AUTO": "BAJAJ_AUTO",
+            "M&M": "M_M",
         }
         clean_sym = fno_alias_map.get(clean_sym, clean_sym).replace("&", "_").replace("-", "_")
         near_exp, next_exp = get_near_and_next_expiries(as_of)
