@@ -1282,11 +1282,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         # [VERSION: TIMEZONE_FIX_v1.0] True timezone normalization at ingestion boundary
                         time_col = 'Date' if 'Date' in new_df.columns else ('Datetime' if 'Datetime' in new_df.columns else None)
                         if time_col:
-                            new_df[time_col] = pd.to_datetime(new_df[time_col])
-                            if new_df[time_col].dt.tz is None:
-                                new_df[time_col] = new_df[time_col].dt.tz_localize('Asia/Kolkata')
-                            else:
-                                new_df[time_col] = new_df[time_col].dt.tz_convert('Asia/Kolkata')
+                            new_df[time_col] = pd.to_datetime(new_df[time_col], errors='coerce', utc=True).dt.tz_convert('Asia/Kolkata')
                             
                             # [VERSION: TIME_COLUMN_MERGE_FIX] Standardize to 'Datetime' to prevent NaN gaps during concat
                             if time_col == 'Date':
@@ -1294,22 +1290,14 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                                 time_col = 'Datetime'
                                 
                         elif not new_df.index.empty:
-                            new_df.index = pd.to_datetime(new_df.index)
-                            if new_df.index.tz is None:
-                                new_df.index = new_df.index.tz_localize('Asia/Kolkata')
-                            else:
-                                new_df.index = new_df.index.tz_convert('Asia/Kolkata')
+                            new_df.index = pd.to_datetime(new_df.index, errors='coerce', utc=True).tz_convert('Asia/Kolkata')
                                 
                         fresh_count += 1
                         if cached_df is not None and not cached_df.empty:
                             # [VERSION: TIMEZONE_FIX_v1.1] Normalize cached_df timezone before concat
                             c_time_col = 'Date' if 'Date' in cached_df.columns else ('Datetime' if 'Datetime' in cached_df.columns else None)
                             if c_time_col:
-                                cached_df[c_time_col] = pd.to_datetime(cached_df[c_time_col])
-                                if cached_df[c_time_col].dt.tz is None:
-                                    cached_df[c_time_col] = cached_df[c_time_col].dt.tz_localize('Asia/Kolkata')
-                                else:
-                                    cached_df[c_time_col] = cached_df[c_time_col].dt.tz_convert('Asia/Kolkata')
+                                cached_df[c_time_col] = pd.to_datetime(cached_df[c_time_col], errors='coerce', utc=True).dt.tz_convert('Asia/Kolkata')
                                     
                                 # [VERSION: TIME_COLUMN_MERGE_FIX] Standardize to 'Datetime' to prevent NaN gaps during concat
                                 if c_time_col == 'Date':
@@ -1317,11 +1305,7 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                                     c_time_col = 'Datetime'
                                     
                             elif not cached_df.index.empty:
-                                cached_df.index = pd.to_datetime(cached_df.index)
-                                if cached_df.index.tz is None:
-                                    cached_df.index = cached_df.index.tz_localize('Asia/Kolkata')
-                                else:
-                                    cached_df.index = cached_df.index.tz_convert('Asia/Kolkata')
+                                cached_df.index = pd.to_datetime(cached_df.index, errors='coerce', utc=True).tz_convert('Asia/Kolkata')
 
                             # [VERSION: CACHE_MERGE_ALIGNMENT_FIX] Align structural mismatch (time in column vs index)
                             if time_col and not c_time_col:
@@ -1380,10 +1364,10 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         else:
                             # [VERSION: FRESH_DATA_SORT_FIX_v1.0] Deduplicate and sort fresh DataFrames by date before validation
                             if time_col:
-                                new_df[time_col] = pd.to_datetime(new_df[time_col])
+                                new_df[time_col] = pd.to_datetime(new_df[time_col], errors='coerce', utc=True).dt.tz_convert('Asia/Kolkata')
                                 new_df = new_df.drop_duplicates(subset=[time_col], keep='last').sort_values(time_col).reset_index(drop=True)
                             elif not new_df.index.empty:
-                                new_df.index = pd.to_datetime(new_df.index)
+                                new_df.index = pd.to_datetime(new_df.index, errors='coerce', utc=True).tz_convert('Asia/Kolkata')
                                 new_df = new_df[~new_df.index.duplicated(keep='last')].sort_index()
                             all_data[sym] = new_df
                             

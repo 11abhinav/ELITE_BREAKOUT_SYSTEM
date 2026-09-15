@@ -102,14 +102,15 @@ def _fetch_ohlcv_after(
     or None if insufficient data is found.
     """
     to_date = from_date + timedelta(days=days)
-    should_close = conn is None
+    ctx = None
 
     try:
-        if conn is None:
+        active_conn = conn
+        if active_conn is None:
             ctx = get_connection()
-            conn = ctx.__enter__()
+            active_conn = ctx.__enter__()
 
-        with conn.cursor() as cur:
+        with active_conn.cursor() as cur:
             # Try the canonical daily OHLCV table first
             cur.execute("""
                 SELECT trade_date AS "Date",
@@ -128,7 +129,7 @@ def _fetch_ohlcv_after(
             if rows:
                 cols = [desc[0] for desc in cur.description]
                 df = pd.DataFrame(rows, columns=cols)
-                df["Date"] = pd.to_datetime(df["Date"])
+                df["Date"] = pd.to_datetime(df["Date"], errors='coerce', utc=True).dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
                 return df
 
         # Fallback: check stock_analysis_master / cached data
@@ -142,9 +143,9 @@ def _fetch_ohlcv_after(
         logger.warning(f"[analytics] OHLCV fetch failed for {symbol}: {exc}")
         return None
     finally:
-        if should_close and conn is not None:
+        if ctx is not None:
             try:
-                conn.rollback()
+                ctx.__exit__(None, None, None)
             except Exception:
                 pass
 
@@ -203,7 +204,7 @@ def compute_outcome(
 
     # Ensure Date column is datetime
     if not pd.api.types.is_datetime64_any_dtype(ohlcv_df["Date"]):
-        ohlcv_df["Date"] = pd.to_datetime(ohlcv_df["Date"])
+        ohlcv_df["Date"] = pd.to_datetime(ohlcv_df["Date"], errors='coerce', utc=True).dt.tz_convert("Asia/Kolkata").dt.tz_localize(None)
 
     # Filter to post-signal rows only
     signal_dt = pd.Timestamp(signal_date)
@@ -333,7 +334,7 @@ def _resolve_same_candle(
         candle_dt = pd.Timestamp(candle_date)
         # Support both DatetimeIndex (default) and a "Datetime" column
         if "Datetime" in intraday_df.columns:
-            time_series = pd.to_datetime(intraday_df["Datetime"])
+            time_series = pd.to_datetime(intraday_df["Datetime"], errors='coerce', utc=True).dt.tz_convert("Asia/Kolkata")
             day_bars = intraday_df[time_series.dt.date == candle_dt.date()].copy()
         else:
             # Index-based — DatetimeIndex doesn't have .dt, use direct comparison

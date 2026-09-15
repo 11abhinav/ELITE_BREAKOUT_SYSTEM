@@ -13,9 +13,12 @@ Provides:
 import os
 import logging
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Dict, List, Optional, Tuple, Any
 import pandas as pd
 import numpy as np
+
+IST = ZoneInfo("Asia/Kolkata")
 
 try:
     from app.short_covering.fno_contract_resolver import fno_contract_resolver
@@ -308,11 +311,10 @@ class OIDataService:
             df_up = norm_data.dataframe.copy()
             if not isinstance(df_up.index, pd.DatetimeIndex):
                 if "Datetime" in df_up.columns:
-                    df_up.index = pd.to_datetime(df_up["Datetime"])
+                    df_up.index = pd.to_datetime(df_up["Datetime"], errors='coerce', utc=True).dt.tz_convert("Asia/Kolkata")
                 elif "Date" in df_up.columns:
-                    df_up.index = pd.to_datetime(df_up["Date"])
-
-            if df_up.index.tz is None:
+                    df_up.index = pd.to_datetime(df_up["Date"], errors='coerce', utc=True).dt.tz_convert("Asia/Kolkata")
+            elif df_up.index.tz is None:
                 df_up.index = df_up.index.tz_localize("Asia/Kolkata")
             else:
                 df_up.index = df_up.index.tz_convert("Asia/Kolkata")
@@ -501,9 +503,9 @@ class OIDataService:
                 df_5m = pd.read_parquet(parquet_path)
                 if df_5m is not None and not df_5m.empty:
                     if not isinstance(df_5m.index, pd.DatetimeIndex):
-                        if "Datetime" in df_5m.columns: df_5m.index = pd.to_datetime(df_5m["Datetime"])
-                        elif "Date" in df_5m.columns: df_5m.index = pd.to_datetime(df_5m["Date"])
-                    if df_5m.index.tz is None:
+                        if "Datetime" in df_5m.columns: df_5m.index = pd.to_datetime(df_5m["Datetime"], errors='coerce', utc=True).dt.tz_convert("Asia/Kolkata")
+                        elif "Date" in df_5m.columns: df_5m.index = pd.to_datetime(df_5m["Date"], errors='coerce', utc=True).dt.tz_convert("Asia/Kolkata")
+                    elif df_5m.index.tz is None:
                         df_5m.index = df_5m.index.tz_localize("Asia/Kolkata")
                     else:
                         df_5m.index = df_5m.index.tz_convert("Asia/Kolkata")
@@ -534,9 +536,9 @@ class OIDataService:
             if data_map and symbol in data_map and not data_map[symbol].empty:
                 df_dyn = data_map[symbol].copy()
                 if not isinstance(df_dyn.index, pd.DatetimeIndex):
-                    if "Datetime" in df_dyn.columns: df_dyn.index = pd.to_datetime(df_dyn["Datetime"])
-                    elif "Date" in df_dyn.columns: df_dyn.index = pd.to_datetime(df_dyn["Date"])
-                if df_dyn.index.tz is None:
+                    if "Datetime" in df_dyn.columns: df_dyn.index = pd.to_datetime(df_dyn["Datetime"], errors='coerce', utc=True).dt.tz_convert("Asia/Kolkata")
+                    elif "Date" in df_dyn.columns: df_dyn.index = pd.to_datetime(df_dyn["Date"], errors='coerce', utc=True).dt.tz_convert("Asia/Kolkata")
+                elif df_dyn.index.tz is None:
                     df_dyn.index = df_dyn.index.tz_localize("Asia/Kolkata")
                 else:
                     df_dyn.index = df_dyn.index.tz_convert("Asia/Kolkata")
@@ -627,9 +629,9 @@ class OIDataService:
                 df_p = pd.read_parquet(parquet_path)
                 if df_p is not None and not df_p.empty:
                     if not isinstance(df_p.index, pd.DatetimeIndex):
-                        if "Date" in df_p.columns: df_p.index = pd.to_datetime(df_p["Date"])
-                        elif "Datetime" in df_p.columns: df_p.index = pd.to_datetime(df_p["Datetime"])
-                    as_of_ts = pd.to_datetime(as_of)
+                        if "Date" in df_p.columns: df_p.index = pd.to_datetime(df_p["Date"], errors='coerce', utc=True).dt.tz_convert("Asia/Kolkata")
+                        elif "Datetime" in df_p.columns: df_p.index = pd.to_datetime(df_p["Datetime"], errors='coerce', utc=True).dt.tz_convert("Asia/Kolkata")
+                    as_of_ts = pd.to_datetime(as_of, errors='coerce', utc=True).tz_convert("Asia/Kolkata") if as_of is not None else datetime.now(IST)
                     if df_p.index.tz is not None:
                         if as_of_ts.tzinfo is None:
                             as_of_ts = as_of_ts.tz_localize(df_p.index.tz)
@@ -672,9 +674,9 @@ class OIDataService:
             if data_map and symbol in data_map and not data_map[symbol].empty:
                 df_p = data_map[symbol]
                 if not isinstance(df_p.index, pd.DatetimeIndex):
-                    if "Date" in df_p.columns: df_p.index = pd.to_datetime(df_p["Date"])
-                    elif "Datetime" in df_p.columns: df_p.index = pd.to_datetime(df_p["Datetime"])
-                as_of_ts = pd.to_datetime(as_of)
+                    if "Date" in df_p.columns: df_p.index = pd.to_datetime(df_p["Date"], errors='coerce', utc=True).dt.tz_convert("Asia/Kolkata")
+                    elif "Datetime" in df_p.columns: df_p.index = pd.to_datetime(df_p["Datetime"], errors='coerce', utc=True).dt.tz_convert("Asia/Kolkata")
+                as_of_ts = pd.to_datetime(as_of, errors='coerce', utc=True).tz_convert("Asia/Kolkata") if as_of is not None else datetime.now(IST)
                 if df_p.index.tz is not None:
                     if as_of_ts.tzinfo is None:
                         as_of_ts = as_of_ts.tz_localize(df_p.index.tz)

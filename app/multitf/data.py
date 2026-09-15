@@ -328,11 +328,7 @@ def normalize_sessions(
         else:
             time_col = "Date" if "Date" in out.columns else ("Datetime" if "Datetime" in out.columns else None)
             if time_col:
-                bar_starts = pd.to_datetime(out[time_col])
-                if bar_starts.dt.tz is None:
-                    bar_starts = bar_starts.dt.tz_localize("Asia/Kolkata")
-                else:
-                    bar_starts = bar_starts.dt.tz_convert(IST)
+                bar_starts = pd.to_datetime(out[time_col], errors='coerce', utc=True).dt.tz_convert(IST)
                 out["bar_start"] = bar_starts
                 out["session_date"] = bar_starts.dt.date
                 open_minutes = _NSE_OPEN_H * 60 + _NSE_OPEN_M

@@ -226,7 +226,7 @@ class ShortCoveringEarlyIgnitionScanner:
                         status="DEGRADED",
                         outcome="MISSING_WATCHLIST",
                         error_msg=err_msg,
-                        duration_seconds=round(time.monotonic() - start_t, 2),
+                        duration_seconds=round(time.monotonic() - _scan_start, 2),
                         scheduled_for=_SCHEDULE_STR,
                         run_id=run_ctx.run_id if run_ctx else None
                     )

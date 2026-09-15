@@ -895,11 +895,11 @@ def _generate_candidate_windows(df: pd.DataFrame, atr_15m: float, config: Dict[s
     if "session_date" in df.columns:
         dates_arr = df["session_date"].values
     elif "Date" in df.columns:
-        dates_arr = pd.to_datetime(df["Date"]).dt.date.values
+        dates_arr = pd.to_datetime(df["Date"], errors='coerce', utc=True).dt.date.values
     elif isinstance(df.index, pd.DatetimeIndex):
         dates_arr = df.index.date
     else:
-        dt_idx = pd.to_datetime(df.index)
+        dt_idx = pd.to_datetime(df.index, errors='coerce', utc=True)
         dates_arr = dt_idx.date if hasattr(dt_idx, "date") else np.array([d.date() for d in dt_idx])
 
     # Find disruptive overnight gap positions across the entire DataFrame
@@ -1100,10 +1100,10 @@ def _evaluate_dormancy(window_df: pd.DataFrame, full_df: pd.DataFrame, config: D
     # 2. Time-of-Day Aware Baseline
     # Match the time of day of the window's latest bars against historical bars at the same time
     try:
-        last_dt = window_df.index[-1] if isinstance(window_df.index[-1], pd.Timestamp) else pd.to_datetime(window_df.index[-1])
+        last_dt = window_df.index[-1] if isinstance(window_df.index[-1], pd.Timestamp) else pd.to_datetime(window_df.index[-1], errors='coerce', utc=True)
         target_minute = last_dt.hour * 60 + last_dt.minute
         
-        full_dt_idx = pd.to_datetime(full_df.index) if not isinstance(full_df.index, pd.DatetimeIndex) else full_df.index
+        full_dt_idx = pd.to_datetime(full_df.index, errors='coerce', utc=True) if not isinstance(full_df.index, pd.DatetimeIndex) else full_df.index
         minutes = full_dt_idx.hour * 60 + full_dt_idx.minute
         # Find bars within +/- 30 mins of the same time of day across previous sessions
         time_mask = (abs(minutes - target_minute) <= 30)
