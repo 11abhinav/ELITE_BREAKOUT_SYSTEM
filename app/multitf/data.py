@@ -275,13 +275,19 @@ def validate_freshness(
         return True
 
     tf_min = _TF_MINUTES.get(interval, 60)
-    max_staleness_min = tf_min + 5  # 1 extra period of headroom
+    # Closed candle starting at T is the latest available until T + 2*tf_min + 10m buffer
+    max_staleness_min = (2 * tf_min) + 10
 
     try:
         last_ts = _get_bar_timestamp(df, -1)
         if last_ts is None:
             return False
-        age_min = (ist_now.replace(tzinfo=IST) if ist_now.tzinfo is None else ist_now - last_ts).total_seconds() / 60.0
+        now_ist = ist_now if ist_now.tzinfo is not None else ist_now.replace(tzinfo=IST)
+        if last_ts.tzinfo is None:
+            last_ts = last_ts.replace(tzinfo=IST)
+        elif last_ts.tzinfo != IST:
+            last_ts = last_ts.astimezone(IST)
+        age_min = (now_ist - last_ts).total_seconds() / 60.0
         return age_min <= max_staleness_min
     except Exception as exc:
         logger.warning("[freshness] %s: failed to compute age — %s", interval, exc)

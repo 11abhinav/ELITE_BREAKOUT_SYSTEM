@@ -239,7 +239,8 @@ def persist_new_watchlist_candidate(
                 cur.execute(query, vals)
                 conn.commit()
     except Exception as exc:
-        logger.error("[%s] persist_new_watchlist_candidate failed: %s", candidate_dict.get("symbol"), exc)
+        logger.error("[%s] persist_new_watchlist_candidate failed: %s", candidate_dict.get("symbol"), exc, exc_info=True)
+        raise exc
 
 
 def update_state_in_db(record: MtfStateRecord, updates: Dict[str, Any]) -> bool:
