@@ -16,7 +16,7 @@ Features:
 import os
 import logging
 import time
-from datetime import datetime, date
+from datetime import datetime, date, time as dt_time
 from typing import List, Dict, Optional, Set, Tuple, Any
 from zoneinfo import ZoneInfo
 import pandas as pd
@@ -254,7 +254,7 @@ class ShortCoveringEarlyIgnitionScanner:
 
             # Certified signal window enforcement (09:20 - 15:25 IST)
             current_t = current_time.time()
-            is_valid_signal_window = (time(9, 20) <= current_t <= time(15, 25))
+            is_valid_signal_window = (dt_time(9, 20) <= current_t <= dt_time(15, 25))
 
             for symbol in symbols_to_scan:
                 try:
