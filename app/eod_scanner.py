@@ -2547,7 +2547,7 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                 upsert_scanner_health(
                     scanner_name="EOD",
                     status=status,
-                    last_success=datetime.now(IST).isoformat(),
+                    last_success=datetime.now(IST).isoformat() if status == "OK" else None,
                     today_alerts=total_alerts,
                     processed_count=total_alerts,
                     total_count=len(watchlist),

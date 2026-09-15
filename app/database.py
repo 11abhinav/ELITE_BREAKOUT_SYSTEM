@@ -1925,33 +1925,55 @@ def init_db():
                         CREATE TABLE IF NOT EXISTS short_covering_watchlist (
                             symbol TEXT NOT NULL,
                             scan_date DATE NOT NULL,
-                            close_price NUMERIC(10,2),
+                            close_price DOUBLE PRECISION,
                             total_oi BIGINT,
-                            oi_buildup_5d_pct NUMERIC(6,2),
-                            short_buildup_ratio NUMERIC(5,2),
-                            rsi_14 NUMERIC(5,2),
-                            support_level NUMERIC(10,2),
-                            overhead_resistance NUMERIC(10,2),
-                            atr_14 NUMERIC(10,2),
-                            buildup_quality_score NUMERIC(5,2),
+                            oi_buildup_5d_pct DOUBLE PRECISION,
+                            short_buildup_ratio DOUBLE PRECISION,
+                            rsi_14 DOUBLE PRECISION,
+                            support_level DOUBLE PRECISION,
+                            overhead_resistance DOUBLE PRECISION,
+                            atr_14 DOUBLE PRECISION,
+                            buildup_quality_score DOUBLE PRECISION,
                             sector TEXT,
                             created_at TIMESTAMPTZ DEFAULT NOW(),
                             PRIMARY KEY (symbol, scan_date)
                         );
                         CREATE INDEX IF NOT EXISTS idx_sc_watchlist_date ON short_covering_watchlist(scan_date);
+                    """)
+                except Exception as _sc_create_err:
+                    logger.debug(f"Short covering watchlist create notice: {_sc_create_err}")
 
+                # Migrate each numeric column individually so one failure doesn't abort the rest.
+                # USING cast required when converting NUMERIC(6,2) -> DOUBLE PRECISION.
+                _sc_watchlist_cols = [
+                    "close_price", "oi_buildup_5d_pct", "short_buildup_ratio",
+                    "rsi_14", "support_level", "overhead_resistance",
+                    "atr_14", "buildup_quality_score",
+                ]
+                for _col in _sc_watchlist_cols:
+                    try:
+                        cur.execute(
+                            f"ALTER TABLE short_covering_watchlist "
+                            f"ALTER COLUMN {_col} TYPE DOUBLE PRECISION "
+                            f"USING {_col}::DOUBLE PRECISION;"
+                        )
+                    except Exception as _sc_alt_err:
+                        logger.warning(f"short_covering_watchlist ALTER {_col}: {_sc_alt_err}")
+
+                try:
+                    cur.execute("""
                         CREATE TABLE IF NOT EXISTS short_covering_alerts (
                             id SERIAL PRIMARY KEY,
                             symbol TEXT NOT NULL,
                             alert_time TIMESTAMPTZ NOT NULL,
-                            ignition_price NUMERIC(10,2),
-                            vwap NUMERIC(10,2),
-                            stop_loss NUMERIC(10,2),
-                            initial_target NUMERIC(10,2),
-                            risk_reward_ratio NUMERIC(5,2),
-                            excess_oi_contraction NUMERIC(6,2),
-                            volume_surge_ratio NUMERIC(5,2),
-                            ignition_score NUMERIC(5,2),
+                            ignition_price DOUBLE PRECISION,
+                            vwap DOUBLE PRECISION,
+                            stop_loss DOUBLE PRECISION,
+                            initial_target DOUBLE PRECISION,
+                            risk_reward_ratio DOUBLE PRECISION,
+                            excess_oi_contraction DOUBLE PRECISION,
+                            volume_surge_ratio DOUBLE PRECISION,
+                            ignition_score DOUBLE PRECISION,
                             grade VARCHAR(10),
                             reasons JSONB,
                             state VARCHAR(30) DEFAULT 'IGNITION',
@@ -1960,8 +1982,24 @@ def init_db():
                         CREATE INDEX IF NOT EXISTS idx_sc_alerts_time ON short_covering_alerts(alert_time);
                         CREATE INDEX IF NOT EXISTS idx_sc_alerts_symbol ON short_covering_alerts(symbol);
                     """)
-                except Exception as _sc_err:
-                    logger.debug(f"Short covering tables init notice: {_sc_err}")
+                except Exception as _sc_alerts_create_err:
+                    logger.debug(f"Short covering alerts create notice: {_sc_alerts_create_err}")
+
+                _sc_alerts_cols = [
+                    "ignition_price", "vwap", "stop_loss", "initial_target",
+                    "risk_reward_ratio", "excess_oi_contraction",
+                    "volume_surge_ratio", "ignition_score",
+                ]
+                for _col in _sc_alerts_cols:
+                    try:
+                        cur.execute(
+                            f"ALTER TABLE short_covering_alerts "
+                            f"ALTER COLUMN {_col} TYPE DOUBLE PRECISION "
+                            f"USING {_col}::DOUBLE PRECISION;"
+                        )
+                    except Exception as _sc_alt_err:
+                        logger.warning(f"short_covering_alerts ALTER {_col}: {_sc_alt_err}")
+
 
                 # 45. Universal Corporate & Analyst Intelligence Dossier Engine
                 try:

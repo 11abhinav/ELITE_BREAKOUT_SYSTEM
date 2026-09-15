@@ -160,6 +160,32 @@ class ShortCoveringEarlyIgnitionScanner:
             # 1. Universe Selection: C5 Intraday-Only (All Active F&O) vs Legacy V1
             candidate_map: Dict[str, Optional[EODShortPositionCandidate]] = {}
             if engine_mode == "C5_INTRADAY_ONLY":
+                # Pre-flight: C5 requires live Fyers intraday OI data. If Fyers client is
+                # unavailable (expired token, weekend, no session), every symbol will return
+                # None → 100% stale → DEGRADED. Instead, gate on Fyers availability early
+                # and exit as IDLE to avoid false staleness alarms.
+                if not os.getenv("DISABLE_LIVE_DATA_FETCH"):
+                    try:
+                        from app.fyers_auth import get_fyers_client
+                    except ImportError:
+                        from fyers_auth import get_fyers_client
+                    _fyers_client = get_fyers_client()
+                    if not _fyers_client:
+                        _no_fyers_msg = "Fyers API client unavailable (token expired or not authenticated). SHORT_COVERING_5M requires live intraday OI — cannot proceed without it."
+                        logger.warning("⚠️ [SHORT_COVERING_5M] %s", _no_fyers_msg)
+                        if run_ctx:
+                            complete_scanner_execution_run(run_ctx, status_override="IDLE", stop_reason=_no_fyers_msg)
+                        upsert_scanner_health(
+                            scanner_name="SHORT_COVERING_5M",
+                            status="IDLE",
+                            outcome="NO_FYERS_SESSION",
+                            error_msg=_no_fyers_msg,
+                            duration_seconds=round(time.monotonic() - start_t, 2),
+                            scheduled_for=_SCHEDULE_STR,
+                            run_id=run_ctx.run_id if run_ctx else None
+                        )
+                        return []
+
                 # Certified C5 Production: Direct Active F&O Universe (Zero EOD alpha threshold)
                 symbols_to_scan = fno_universe_manager.get_fno_symbols()
                 candidate_map = {sym: None for sym in symbols_to_scan}
@@ -650,14 +676,14 @@ class ShortCoveringEarlyIgnitionScanner:
                             id SERIAL PRIMARY KEY,
                             symbol TEXT NOT NULL,
                             alert_time TIMESTAMPTZ NOT NULL,
-                            ignition_price NUMERIC(10,2),
-                            vwap NUMERIC(10,2),
-                            stop_loss NUMERIC(10,2),
-                            initial_target NUMERIC(10,2),
-                            risk_reward_ratio NUMERIC(5,2),
-                            excess_oi_contraction NUMERIC(6,2),
-                            volume_surge_ratio NUMERIC(5,2),
-                            ignition_score NUMERIC(5,2),
+                            ignition_price DOUBLE PRECISION,
+                            vwap DOUBLE PRECISION,
+                            stop_loss DOUBLE PRECISION,
+                            initial_target DOUBLE PRECISION,
+                            risk_reward_ratio DOUBLE PRECISION,
+                            excess_oi_contraction DOUBLE PRECISION,
+                            volume_surge_ratio DOUBLE PRECISION,
+                            ignition_score DOUBLE PRECISION,
                             grade VARCHAR(10),
                             reasons JSONB,
                             state VARCHAR(30) DEFAULT 'CONFIRMED_IGNITION',
@@ -665,6 +691,14 @@ class ShortCoveringEarlyIgnitionScanner:
                         );
                         CREATE INDEX IF NOT EXISTS idx_sc_alerts_time ON short_covering_alerts(alert_time);
                         CREATE INDEX IF NOT EXISTS idx_sc_alerts_symbol ON short_covering_alerts(symbol);
+                        ALTER TABLE short_covering_alerts ALTER COLUMN ignition_price TYPE DOUBLE PRECISION;
+                        ALTER TABLE short_covering_alerts ALTER COLUMN vwap TYPE DOUBLE PRECISION;
+                        ALTER TABLE short_covering_alerts ALTER COLUMN stop_loss TYPE DOUBLE PRECISION;
+                        ALTER TABLE short_covering_alerts ALTER COLUMN initial_target TYPE DOUBLE PRECISION;
+                        ALTER TABLE short_covering_alerts ALTER COLUMN risk_reward_ratio TYPE DOUBLE PRECISION;
+                        ALTER TABLE short_covering_alerts ALTER COLUMN excess_oi_contraction TYPE DOUBLE PRECISION;
+                        ALTER TABLE short_covering_alerts ALTER COLUMN volume_surge_ratio TYPE DOUBLE PRECISION;
+                        ALTER TABLE short_covering_alerts ALTER COLUMN ignition_score TYPE DOUBLE PRECISION;
                     """)
                     import json
                     for a in alerts:

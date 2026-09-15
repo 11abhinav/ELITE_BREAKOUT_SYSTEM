@@ -352,26 +352,42 @@ class ShortPositionDetector:
                 if hasattr(conn, "is_dummy") and conn.is_dummy:
                     return
                 with conn.cursor() as cur:
-                    # Ensure table exists
+                    # Ensure table exists — create only, no ALTERs here (they follow separately)
                     cur.execute("""
                         CREATE TABLE IF NOT EXISTS short_covering_watchlist (
                             symbol TEXT NOT NULL,
                             scan_date DATE NOT NULL,
-                            close_price NUMERIC(10,2),
+                            close_price DOUBLE PRECISION,
                             total_oi BIGINT,
-                            oi_buildup_5d_pct NUMERIC(6,2),
-                            short_buildup_ratio NUMERIC(5,2),
-                            rsi_14 NUMERIC(5,2),
-                            support_level NUMERIC(10,2),
-                            overhead_resistance NUMERIC(10,2),
-                            atr_14 NUMERIC(10,2),
-                            buildup_quality_score NUMERIC(5,2),
+                            oi_buildup_5d_pct DOUBLE PRECISION,
+                            short_buildup_ratio DOUBLE PRECISION,
+                            rsi_14 DOUBLE PRECISION,
+                            support_level DOUBLE PRECISION,
+                            overhead_resistance DOUBLE PRECISION,
+                            atr_14 DOUBLE PRECISION,
+                            buildup_quality_score DOUBLE PRECISION,
                             sector TEXT,
                             created_at TIMESTAMPTZ DEFAULT NOW(),
                             PRIMARY KEY (symbol, scan_date)
                         );
                         CREATE INDEX IF NOT EXISTS idx_sc_watchlist_date ON short_covering_watchlist(scan_date);
                     """)
+                    # Migrate each numeric column individually with USING cast.
+                    # NUMERIC(6,2)->DOUBLE PRECISION requires an explicit USING clause.
+                    # Each ALTER is isolated so a single pre-migrated column doesn't abort the rest.
+                    for _sc_col in [
+                        "close_price", "oi_buildup_5d_pct", "short_buildup_ratio",
+                        "rsi_14", "support_level", "overhead_resistance",
+                        "atr_14", "buildup_quality_score",
+                    ]:
+                        try:
+                            cur.execute(
+                                f"ALTER TABLE short_covering_watchlist "
+                                f"ALTER COLUMN {_sc_col} TYPE DOUBLE PRECISION "
+                                f"USING {_sc_col}::DOUBLE PRECISION;"
+                            )
+                        except Exception as _alt_err:
+                            logger.debug("short_covering_watchlist ALTER %s (already migrated?): %s", _sc_col, _alt_err)
 
                     # RULE 67 RATIONALE: Cleanly delete all existing watchlist records for this session date
                     # before inserting the fresh Top-N candidates. This guarantees full idempotency and prevents

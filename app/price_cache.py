@@ -377,7 +377,8 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
                         last_bar_ts = df_d[t_col].iloc[-1] if t_col else (df_d.index[-1] if not df_d.index.empty else None)
                         if last_bar_ts is not None:
                             from market_utils import get_expected_latest_closed_daily_bar
-                            if pd.to_datetime(last_bar_ts).date() < get_expected_latest_closed_daily_bar():
+                            ts_dt = pd.to_datetime(last_bar_ts, errors="coerce")
+                            if pd.isna(ts_dt) or ts_dt.date() < get_expected_latest_closed_daily_bar():
                                 missing_symbols.append(s)
                                 continue
                     cached_result[s] = sym_entry["data"]
@@ -426,7 +427,8 @@ def fetch_watchlist_data(watchlist: Any, period: str = "10d", interval: str = "1
                             last_bar_ts = df_d[t_col].iloc[-1] if t_col else (df_d.index[-1] if not df_d.index.empty else None)
                             if last_bar_ts is not None:
                                 from market_utils import get_expected_latest_closed_daily_bar
-                                if pd.to_datetime(last_bar_ts).date() < get_expected_latest_closed_daily_bar():
+                                ts_dt = pd.to_datetime(last_bar_ts, errors="coerce")
+                                if pd.isna(ts_dt) or ts_dt.date() < get_expected_latest_closed_daily_bar():
                                     still_missing.append(s)
                                     continue
                         cached_result[s] = sym_entry["data"]
@@ -1947,7 +1949,8 @@ def get_cached_df(symbol: str, interval: str = "1d", period: str = "1y") -> pd.D
                         last_bar_ts = df[t_col].iloc[-1] if t_col else (df.index[-1] if not df.index.empty else None)
                         if last_bar_ts is not None:
                             from market_utils import get_expected_latest_closed_daily_bar
-                            if pd.to_datetime(last_bar_ts).date() < get_expected_latest_closed_daily_bar():
+                            ts_dt = pd.to_datetime(last_bar_ts, errors="coerce")
+                            if pd.isna(ts_dt) or ts_dt.date() < get_expected_latest_closed_daily_bar():
                                 is_fresh = False
 
                     if is_fresh:

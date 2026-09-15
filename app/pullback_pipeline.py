@@ -1093,7 +1093,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         upsert_scanner_health(
             "PULLBACK",
             status=status_val,
-            last_success=ist_now.isoformat(),
+            last_success=ist_now.isoformat() if status_val == "OK" else None,
             today_alerts=0,
             total_count=total_symbols,
             processed_count=symbols_processed,
@@ -1481,7 +1481,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     upsert_scanner_health(
         "PULLBACK",
         status=status_val,
-        last_success=ist_now.isoformat(),
+        last_success=ist_now.isoformat() if status_val == "OK" else None,
         today_alerts=alert_count,
         total_count=total_symbols,
         processed_count=symbols_processed,
