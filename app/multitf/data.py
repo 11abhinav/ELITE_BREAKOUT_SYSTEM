@@ -210,21 +210,42 @@ def load_multitf_data(
         bundle.insufficiency_reason = "STALE_15M"
     elif df_15m_cl is None or len(df_15m_cl) < 24:
         bundle.data_sufficient = False
-        bundle.insufficiency_reason = "INSUFFICIENT_15M_BARS"
+        bundle.insufficiency_reason = f"INSUFFICIENT_15M_BARS (bars={len(df_15m_cl) if df_15m_cl is not None else 0}, min=24)"
+    elif df_5m_cl is None or len(df_5m_cl) < 10:
+        bundle.data_sufficient = False
+        bundle.insufficiency_reason = f"INSUFFICIENT_5M_BARS (bars={len(df_5m_cl) if df_5m_cl is not None else 0}, min=10)"
     else:
         bundle.data_sufficient = True
         bundle.insufficiency_reason = ""
 
-    logger.debug(
-        "[%s] data bundle: 15m=%s(%d bars) 5m=%s 1h=%s 30m=%s sufficient=%s",
-        symbol,
-        "FRESH" if bundle.fresh_15m else "STALE",
-        len(df_15m_cl) if df_15m_cl is not None else 0,
-        "FRESH" if bundle.fresh_5m  else "STALE",
-        "FRESH" if bundle.fresh_1h  else "STALE",
-        "FRESH" if bundle.fresh_30m else "STALE",
-        bundle.data_sufficient,
-    )
+    last_15m_ts = _get_bar_timestamp(df_15m_cl, -1) if df_15m_cl is not None else None
+    last_5m_ts = _get_bar_timestamp(df_5m_cl, -1) if df_5m_cl is not None else None
+
+    if not bundle.data_sufficient:
+        logger.info(
+            "⚠️ [MULTI_TF_DATA] %s data insufficient: reason='%s' | 15m=%s (bars=%d, last=%s) | 5m=%s (bars=%d, last=%s) | 1h=%s | 30m=%s",
+            symbol,
+            bundle.insufficiency_reason,
+            "FRESH" if bundle.fresh_15m else "STALE",
+            len(df_15m_cl) if df_15m_cl is not None else 0,
+            last_15m_ts.strftime('%Y-%m-%d %H:%M') if last_15m_ts else "None",
+            "FRESH" if bundle.fresh_5m else "STALE",
+            len(df_5m_cl) if df_5m_cl is not None else 0,
+            last_5m_ts.strftime('%Y-%m-%d %H:%M') if last_5m_ts else "None",
+            "FRESH" if bundle.fresh_1h else "STALE",
+            "FRESH" if bundle.fresh_30m else "STALE",
+        )
+    else:
+        logger.debug(
+            "[%s] data bundle: 15m=%s(%d bars) 5m=%s(%d bars) 1h=%s 30m=%s sufficient=True",
+            symbol,
+            "FRESH" if bundle.fresh_15m else "STALE",
+            len(df_15m_cl) if df_15m_cl is not None else 0,
+            "FRESH" if bundle.fresh_5m else "STALE",
+            len(df_5m_cl) if df_5m_cl is not None else 0,
+            "FRESH" if bundle.fresh_1h else "STALE",
+            "FRESH" if bundle.fresh_30m else "STALE",
+        )
 
     return bundle
 

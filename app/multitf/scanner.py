@@ -883,6 +883,12 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
         def _eval_5m_worker(sym):
             local_funnel = defaultdict(int)
             try:
+                has_5m = sym in all_5m and all_5m[sym] is not None and not all_5m[sym].empty
+                has_15m = sym in all_15m and all_15m[sym] is not None and not all_15m[sym].empty
+                logger.info(
+                    f"🔍 [MULTI_TF_5M: EVAL] {sym} | 5m data: {'Available (' + str(len(all_5m[sym])) + ' bars)' if has_5m else 'MISSING'} | "
+                    f"15m data: {'Available (' + str(len(all_15m[sym])) + ' bars)' if has_15m else 'MISSING'}"
+                )
                 _process_symbol(
                     symbol=sym,
                     ist_now=ist_now,
@@ -896,8 +902,10 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
                     config=MULTI_TF_V2_CONFIG,
                     funnel_counters=local_funnel
                 )
+                fired = [f"{k}={v}" for k, v in local_funnel.items() if v > 0]
+                logger.info(f"📊 [MULTI_TF_5M: RESULT] {sym} outcome -> {', '.join(fired) if fired else 'NONE'}")
             except Exception as e:
-                logger.error(f"[MULTI_TF_5M] Error evaluating {sym}: {e}")
+                logger.error(f"[MULTI_TF_5M] Error evaluating {sym}: {e}", exc_info=True)
                 local_funnel["evaluation_exception"] += 1
 
             with _eval_lock_5m:
