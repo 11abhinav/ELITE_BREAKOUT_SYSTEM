@@ -79,12 +79,7 @@ class ShortPositionDetector:
         if custom_symbols:
             symbols = custom_symbols
         else:
-            fno_syms = fno_universe_manager.get_fno_symbols()
-            import glob
-            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-            hist_files = glob.glob(os.path.join(repo_root, "data", "history", "1d", "*.parquet"))
-            extra_syms = [os.path.basename(f).replace(".parquet", "") for f in hist_files]
-            symbols = sorted(list(set(fno_syms + extra_syms)))
+            symbols = sorted(list(set(fno_universe_manager.get_fno_symbols())))
 
         run_ctx = None
         try:
@@ -103,18 +98,38 @@ class ShortPositionDetector:
 
         _scan_start = print_scanner_start_banner("SHORT_COVERING_EOD", run_id=run_ctx.run_id if run_ctx else None)
         try:
+            import concurrent.futures
             candidates: List[EODShortPositionCandidate] = []
             stale_count = 0
+            completed_count = 0
 
             logger.info("🔍 [SHORT_COVERING_EOD] Scanning %d universe symbols for trading date: %s", len(symbols), valid_trading_date)
 
-            for symbol in symbols:
+            def _eval_worker(sym: str):
+                nonlocal completed_count
+                cand_res = None
+                is_stale_res = False
                 try:
-                    candidate = self.evaluate_symbol(symbol, valid_trading_date)
-                    if candidate is not None:
-                        candidates.append(candidate)
+                    cand_res = self.evaluate_symbol(sym, valid_trading_date)
                 except Exception as e:
-                    logger.debug("Error evaluating EOD candidate for %s: %s", symbol, e)
+                    logger.debug("Error evaluating EOD candidate for %s: %s", sym, e)
+                    is_stale_res = True
+                completed_count += 1
+                if run_ctx and completed_count % 25 == 0:
+                    try:
+                        run_ctx.heartbeat()
+                    except Exception:
+                        pass
+                return cand_res, is_stale_res
+
+            max_workers = min(16, max(2, (os.cpu_count() or 4) * 2))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                results = list(executor.map(_eval_worker, symbols))
+
+            for cand, is_stale in results:
+                if cand is not None:
+                    candidates.append(cand)
+                if is_stale:
                     stale_count += 1
 
             # 25% Stale Data Hard Blocker validation
