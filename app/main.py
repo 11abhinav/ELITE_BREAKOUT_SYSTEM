@@ -2431,13 +2431,20 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
             except Exception as run_err:
                 raise run_err
 
-            now_str = datetime.now(IST).isoformat()
-            upsert_scanner_health(scanner_key, status="OK", last_success=now_str,
-                                  error_msg=None,
+            # Preserve scanner's true recorded health status (do not overwrite DEGRADED / DOWN with OK)
+            from database import get_scanner_health
+            curr_health = get_scanner_health(scanner_key)
+            curr_status = curr_health.get("status") if curr_health else "OK"
+            final_status = curr_status if curr_status in ("DOWN", "DEGRADED", "DEGRADED_FALLBACK", "BLOCKED", "FAILED") else "OK"
+            final_err = curr_health.get("error_msg") if (final_status != "OK" and curr_health) else None
+            now_str = datetime.now(IST).isoformat() if final_status == "OK" else (curr_health.get("last_success") if curr_health else None)
+
+            upsert_scanner_health(scanner_key, status=final_status, last_success=now_str,
+                                  error_msg=final_err,
                                   duration_seconds=duration_sec,
-                                  total_count=stats.get("total_count") if isinstance(stats, dict) else None,
-                                  processed_count=stats.get("processed_count") if isinstance(stats, dict) else None,
-                                  today_alerts=stats.get("today_alerts") if isinstance(stats, dict) else None)
+                                  total_count=stats.get("total_count") if isinstance(stats, dict) else (curr_health.get("total_count") if curr_health else None),
+                                  processed_count=stats.get("processed_count") if isinstance(stats, dict) else (curr_health.get("processed_count") if curr_health else None),
+                                  today_alerts=stats.get("today_alerts") if isinstance(stats, dict) else (curr_health.get("today_alerts") if curr_health else None))
             
             try:
                 from database import insert_notification
