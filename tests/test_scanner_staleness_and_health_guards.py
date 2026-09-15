@@ -82,6 +82,27 @@ class TestScannerStalenessAndHealthGuards(unittest.TestCase):
         self.assertIsNone(cand["last_confirmed_pivot_ts"])
         self.assertIsInstance(cand["consolidation_start_ts"], pd.Timestamp)
 
+    def test_apply_indicators_mixed_tz_resilience(self):
+        """Verify apply_indicators and VWAP calculation handle mixed tz-aware and tz-naive timestamps without raising ValueError."""
+        from app.technical_indicators import apply_indicators
+        # Construct a DataFrame with 55 bars where bars 0..53 have tz-naive dates, and bar 54 has a tz-aware date
+        dates = [f"2026-06-01 09:15:00"] * 50
+        dates.extend(["2026-09-14 15:30:00", "2026-09-15 15:30:00+05:30"])
+        # Ensure length >= 50
+        df = pd.DataFrame({
+            "Datetime": dates,
+            "Open": [100.0] * len(dates),
+            "High": [105.0] * len(dates),
+            "Low": [98.0] * len(dates),
+            "Close": [103.0] * len(dates),
+            "Volume": [10000] * len(dates)
+        })
+        # Must execute cleanly without ValueError: Cannot mix tz-aware with tz-naive values
+        res_df = apply_indicators(df, timeframe="1d")
+        self.assertIn("VWAP", res_df.columns)
+        self.assertIn("RSI", res_df.columns)
+        self.assertFalse(res_df.empty)
+
 if __name__ == "__main__":
     unittest.main()
 

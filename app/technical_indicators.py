@@ -258,7 +258,15 @@ def _build_vwap_columns(df: pd.DataFrame, high: pd.Series, low: pd.Series, close
         if not isinstance(df_index, pd.DatetimeIndex):
             datetime_col = next((c for c in ["Datetime", "Date", "index"] if c in df.columns), None)
             if datetime_col is not None:
-                df_index = pd.to_datetime(df[datetime_col])
+                try:
+                    df_index = pd.to_datetime(df[datetime_col], errors='coerce', utc=True)
+                except Exception:
+                    df_index = pd.to_datetime(df[datetime_col], errors='coerce')
+        elif getattr(df_index, 'tz', None) is not None:
+            try:
+                df_index = df_index.tz_convert('UTC')
+            except Exception:
+                pass
 
         if timeframe in ("15m", "1h") and hasattr(df_index, 'date'):
             date_groups = df_index.date
