@@ -75,11 +75,18 @@ class FNOContractResolver:
             as_of = date.today()
 
         clean_sym = symbol.upper().replace(".NS", "").replace("-EQ", "")
+        fno_alias_map = {
+            "L&TFH": "LTF",
+            "L_TFH": "LTF",
+            "MCDOWELL-N": "UNITDSPR",
+            "MCDOWELL_N": "UNITDSPR",
+        }
+        clean_sym = fno_alias_map.get(clean_sym, clean_sym).replace("&", "_").replace("-", "_")
         near_exp, next_exp = get_near_and_next_expiries(as_of)
         days_to_near = (near_exp - as_of).days
         is_expiry_week = days_to_near <= 4
 
-        # Format symbols (e.g., RELIANCE26SEP24FUT / RELIANCE-FUT)
+        # Format symbols (e.g., RELIANCE26SEPFUT / M_M26SEPFUT / BAJAJ_AUTO26SEPFUT)
         near_mon_str = near_exp.strftime("%b").upper()
         near_yr_str = near_exp.strftime("%y")
         next_mon_str = next_exp.strftime("%b").upper()
