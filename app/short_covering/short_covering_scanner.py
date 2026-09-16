@@ -243,6 +243,7 @@ class ShortCoveringEarlyIgnitionScanner:
             new_alerts: List[ShortCoveringSignal] = []
             nifty_oi_5m_delta = self._get_index_5m_oi_delta(current_time)
             stale_count = 0
+            gate_rejections: Dict[str, int] = {}
 
             # Certified signal window enforcement (09:20 - 15:25 IST)
             current_t = current_time.time()
@@ -253,23 +254,55 @@ class ShortCoveringEarlyIgnitionScanner:
                     df_5m = oi_data_service.get_intraday_5m_data(symbol, current_time.date())
                     if df_5m is None or len(df_5m) < 2:
                         stale_count += 1
+                        gate_rejections["DATA_INSUFFICIENT"] = gate_rejections.get("DATA_INSUFFICIENT", 0) + 1
                         continue
 
-                    signal = self.evaluate_symbol_5m(
+                    signal, rej_code, eval_score, rej_reason, eval_reasons = self.evaluate_symbol_5m(
                         symbol=symbol,
                         current_time=current_time,
                         eod_candidate=candidate_map.get(symbol),
-                        nifty_oi_5m_delta=nifty_oi_5m_delta
+                        nifty_oi_5m_delta=nifty_oi_5m_delta,
+                        return_diagnostics=True
                     )
                     if signal is not None and signal.state == ShortCoveringState.CONFIRMED_IGNITION:
                         if is_valid_signal_window:
                             new_alerts.append(signal)
-                            logger.info("🚨 [SHORT COVERING ALERT] %s | Price=%.2f | Latency=%.0fm | Score=%.1f (%s)",
-                                        symbol, signal.ignition_price, signal.alert_latency_minutes, signal.ignition_score, signal.grade)
+                            gate_rejections["CONFIRMED_IGNITION"] = gate_rejections.get("CONFIRMED_IGNITION", 0) + 1
+                            logger.info("🚨 [SHORT COVERING ALERT] %s | Price=₹%.2f | Latency=%.0fm | Score=%.1f (%s) | Reasons: %s",
+                                        symbol, signal.ignition_price, signal.alert_latency_minutes, signal.ignition_score, signal.grade, "; ".join(signal.reasons))
                         else:
-                            logger.debug("Signal detected for %s outside certified 09:20-15:25 window at %s (suppressed)", symbol, current_t)
+                            gate_rejections["OUTSIDE_SIGNAL_WINDOW"] = gate_rejections.get("OUTSIDE_SIGNAL_WINDOW", 0) + 1
+                            logger.info("🚫 [SHORT_COVERING_5M] %s REJECTED — Gate: OUTSIDE_SIGNAL_WINDOW (Detected at %s IST)", symbol, current_t)
+                    else:
+                        gate_rejections[rej_code] = gate_rejections.get(rej_code, 0) + 1
+                        if eval_score >= 50.0 or rej_code in ("SCORE_BELOW_THRESHOLD", "IGNITION_CANDIDATE_WATCH", "EXTENDED_FROM_OPEN"):
+                            logger.info("🚫 [SHORT_COVERING_5M] %s REJECTED — Gate: %s | Score: %.1f | Reason: %s",
+                                        symbol, rej_code, eval_score, rej_reason)
+                            if eval_score >= 55.0:
+                                logger.info("🎯 [NEAR-MISS LOGGED] %s (SHORT_COVERING_5M) gate '%s': obs=%.2f vs thresh=%.2f",
+                                            symbol, rej_code, eval_score, self.min_ignition_score)
                 except Exception as e:
+                    gate_rejections["EVALUATION_ERROR"] = gate_rejections.get("EVALUATION_ERROR", 0) + 1
                     logger.debug("Error in 5m evaluation for %s: %s", symbol, e)
+
+            # Log comprehensive stage-by-stage pipeline summary
+            summary_lines = [
+                "\n======================================================================",
+                "=== [SHORT COVERING 5M PIPELINE SUMMARY] ===",
+                "======================================================================",
+                f"  • Total F&O Universe Scanned : {len(symbols_to_scan)}",
+                f"  • Fresh Data Resolved        : {len(symbols_to_scan) - stale_count} ({((len(symbols_to_scan) - stale_count)/max(len(symbols_to_scan),1))*100:.1f}%)",
+                f"  • Stale / Missing Symbols    : {stale_count}",
+                f"  • Alerts Generated           : {len(new_alerts)}",
+                f"  • Execution Mode             : {'C5_INTRADAY_ONLY' if self.c5_intraday_only_mode else 'LEGACY_V1'}",
+                f"  • Signal Window Active       : {'YES (09:20-15:25 IST)' if is_valid_signal_window else f'NO (Outside window: {current_t})'}",
+                "",
+                "🎯 GATE-BY-GATE REJECTION BREAKDOWN:"
+            ]
+            for gate_name, cnt in sorted(gate_rejections.items(), key=lambda x: x[1], reverse=True):
+                summary_lines.append(f"  • {gate_name:<30}: {cnt}")
+            summary_lines.append("======================================================================")
+            logger.info("\n".join(summary_lines))
 
             # Enforce 25% staleness hard blocker
             from app.market_utils import validate_batch_staleness
@@ -309,6 +342,7 @@ class ShortCoveringEarlyIgnitionScanner:
                 run_id=run_ctx.run_id if run_ctx else None
             )
             return new_alerts
+            return new_alerts
         except Exception as exc:
             dur = round(time.monotonic() - _scan_start, 2)
             logger.exception("❌ [SHORT_COVERING_5M] Cycle failed: %s", exc)
@@ -347,19 +381,19 @@ class ShortCoveringEarlyIgnitionScanner:
         symbol: str,
         current_time: datetime,
         eod_candidate: Optional[EODShortPositionCandidate],
-        nifty_oi_5m_delta: float = 0.0
-    ) -> Optional[ShortCoveringSignal]:
+        nifty_oi_5m_delta: float = 0.0,
+        return_diagnostics: bool = False
+    ) -> Any:
         """
         Evaluates 5m bar, dynamic evidence-based state progression, and tiered structural context.
         """
         df_5m = oi_data_service.get_intraday_5m_data(symbol, current_time.date())
         if df_5m is None or len(df_5m) < 2:
-            return None
+            return (None, "DATA_INSUFFICIENT", 0.0, "Missing or insufficient 5m bars (< 2)", []) if return_diagnostics else None
 
         past_bars = df_5m[df_5m["timestamp"] <= current_time]
         if len(past_bars) < 2:
             past_bars = df_5m.head(2)
-
 
         cur_bar = past_bars.iloc[-1]
         prev_bar = past_bars.iloc[-2]
@@ -377,7 +411,7 @@ class ShortCoveringEarlyIgnitionScanner:
         last_alert = self._last_alert_time.get(symbol)
         if last_alert is not None and (current_time - last_alert).total_seconds() < 1800:
             logger.debug("Suppressing alert for %s: 30m cooldown active (last: %s)", symbol, last_alert.strftime('%H:%M'))
-            return None
+            return (None, "COOLDOWN_ACTIVE", 0.0, f"30m cooldown active (last alert at {last_alert.strftime('%H:%M')})", []) if return_diagnostics else None
 
         # 1. Primary 5m Ignition Evidence & CLV
         is_green_candle = cur_close >= cur_open
@@ -402,13 +436,13 @@ class ShortCoveringEarlyIgnitionScanner:
 
         # Anti-Fake Rollover Check
         if oi_data_service.is_rollover_in_progress(symbol, oi_change_5m_pct, 0.0, current_time.date()):
-            return None
+            return (None, "ROLLOVER_IN_PROGRESS", 0.0, "Expiry-week contract rollover flow detected", []) if return_diagnostics else None
 
         # Early Ignition Gate: Reject late entries if price has already moved > +2.5% from session open
         extension_from_open_pct = ((cur_close - session_open_price) / max(session_open_price, 1e-4)) * 100.0
         if extension_from_open_pct > 2.5:
             logger.debug(f"Rejecting {symbol}: Move already extended (+{extension_from_open_pct:.1f}% from open)")
-            return None
+            return (None, "EXTENDED_FROM_OPEN", 0.0, f"Move already extended (+{extension_from_open_pct:.1f}% > +2.5% from open)", []) if return_diagnostics else None
 
         # 2. Tiered Multi-Timeframe Structural Context
         tf_confirmations = self._check_multitf_context(past_bars)
@@ -482,7 +516,31 @@ class ShortCoveringEarlyIgnitionScanner:
             if current_state == ShortCoveringState.IGNITION_CANDIDATE:
                 tracking["state"] = ShortCoveringState.WATCH
                 self._tracked_states[symbol] = tracking
-            return None
+
+            # Determine dominant rejection failure reason
+            if not is_green_candle:
+                rej_code = "NOT_GREEN_CANDLE"
+                rej_reason = f"Red candle (Close ₹{cur_close:.2f} < Open ₹{cur_open:.2f})"
+            elif not is_above_vwap:
+                rej_code = "BELOW_VWAP"
+                rej_reason = f"Below VWAP (Close ₹{cur_close:.2f} < VWAP ₹{cur_vwap:.2f})"
+            elif price_change_5m_pct < 0.08:
+                rej_code = "LOW_5M_PRICE_MOMENTUM"
+                rej_reason = f"Price change {price_change_5m_pct:+.2f}% < +0.08%"
+            elif oi_change_5m_pct > self.min_5m_oi_contraction_pct and excess_oi_contraction > -0.20:
+                rej_code = "NO_OI_CONTRACTION"
+                rej_reason = f"5m OI change {oi_change_5m_pct:+.2f}% (Excess {excess_oi_contraction:+.2f}%) not unwinding"
+            elif vol_surge_ratio < 1.10:
+                rej_code = "LOW_VOLUME_SURGE"
+                rej_reason = f"Volume surge {vol_surge_ratio:.2f}x < 1.10x"
+            elif score < self.min_ignition_score:
+                rej_code = "SCORE_BELOW_THRESHOLD"
+                rej_reason = f"Score {score:.1f} < threshold {self.min_ignition_score:.1f}"
+            else:
+                rej_code = "PRIMARY_IGNITION_FAIL"
+                rej_reason = "Primary ignition criteria not met"
+
+            return (None, rej_code, score, rej_reason, reasons) if return_diagnostics else None
 
         # Evidence evaluation:
         # High Conviction (Score >= 76 or exceptionally clean surge + CLV) -> Confirm immediately on same candle!
@@ -505,7 +563,7 @@ class ShortCoveringEarlyIgnitionScanner:
                 tracking["count"] = 1
                 self._tracked_states[symbol] = tracking
                 logger.debug(f"🔍 [{symbol}] Moderate ignition -> IGNITION_CANDIDATE at {current_time.strftime('%H:%M')}")
-                return None  # Wait for confirming evidence
+                return (None, "IGNITION_CANDIDATE_WATCH", score, f"Moderate ignition (Score: {score:.1f}) — watching for confirming candle", reasons) if return_diagnostics else None
 
         elif current_state == ShortCoveringState.IGNITION_CANDIDATE:
             # Confirming evidence in subsequent candle
@@ -516,10 +574,10 @@ class ShortCoveringEarlyIgnitionScanner:
         elif current_state == ShortCoveringState.CONFIRMED_IGNITION:
             tracking["state"] = ShortCoveringState.CONTINUATION
             self._tracked_states[symbol] = tracking
-            return None
+            return (None, "CONTINUATION_STATE", score, "Already alerted — currently in continuation phase", reasons) if return_diagnostics else None
 
         elif current_state in (ShortCoveringState.CONTINUATION, ShortCoveringState.EXHAUSTED):
-            return None
+            return (None, "EXHAUSTED_STATE", score, "Ignition move exhausted", reasons) if return_diagnostics else None
 
         # Record alert timestamp for 30m cooldown guard
         self._last_alert_time[symbol] = current_time
@@ -571,7 +629,7 @@ class ShortCoveringEarlyIgnitionScanner:
             timeframe_confirmations=tf_confirmations,
             reasons=reasons
         )
-        return signal
+        return (signal, "CONFIRMED_IGNITION", score, "Confirmed ignition breakout", reasons) if return_diagnostics else signal
 
     def _check_multitf_context(self, past_5m_bars: pd.DataFrame) -> Dict[str, Any]:
         """Calculates progressive 15m and 30m context from 5m bars."""
