@@ -259,6 +259,12 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
                         "NO_OF_TRADES": "TOTALTRADES"
                     }
                     df.rename(columns=rename_map, inplace=True)
+                    if "SYMBOL" in df.columns:
+                        df["SYMBOL"] = df["SYMBOL"].astype(str).str.strip()
+                    if "SERIES" in df.columns:
+                        df["SERIES"] = df["SERIES"].astype(str).str.strip()
+                    if "TIMESTAMP" in df.columns:
+                        df["TIMESTAMP"] = df["TIMESTAMP"].astype(str).str.strip()
                 except Exception as e:
                     logger.warning(f"⚠️ Parse Error: {e}")
                     return {}

@@ -141,8 +141,9 @@ class BhavcopyValidator(BaseValidator):
             result.metrics.row_count = len(df)
             result.metrics.monotonic = True  # Monotonic logic can be expanded if needed
             
-            # Check for duplicate SYMBOL + TIMESTAMP
-            duplicates = df.duplicated(subset=["SYMBOL", "TIMESTAMP"]).sum()
+            # Check for duplicate SYMBOL + SERIES + TIMESTAMP (if SERIES exists) or SYMBOL + TIMESTAMP
+            pk_cols = ["SYMBOL", "SERIES", "TIMESTAMP"] if "SERIES" in df.columns else ["SYMBOL", "TIMESTAMP"]
+            duplicates = df.duplicated(subset=pk_cols).sum()
             result.metrics.duplicate_rows = int(duplicates)
             
             # Since a Bhavcopy dataframe could be sorted by SYMBOL rather than TIMESTAMP, 
@@ -154,15 +155,16 @@ class BhavcopyValidator(BaseValidator):
                 result.historical_failures.append(ValidationFailure(
                     code=FailureCode.HIS003,
                     severity=Severity.CRITICAL,
-                    message=f"Duplicate primary key (SYMBOL + TIMESTAMP) detected: {duplicates} rows"
+                    message=f"Duplicate primary key ({' + '.join(pk_cols)}) detected: {duplicates} rows"
                 ))
                 return
                  
-            # Check for duplicate ISINs (Only if valid ISINs exist)
+            # Check for duplicate ISINs (Only if valid ISINs exist, respecting SERIES if present)
             if "ISIN" in df.columns and not df["ISIN"].isna().all() and (df["ISIN"] != "UNKNOWN_ISIN").all():
                 # Filter out UNKNOWN_ISIN or NaNs before checking for duplicates
                 valid_isins = df[df["ISIN"].notna() & (df["ISIN"] != "UNKNOWN_ISIN")]
-                dup_isins = valid_isins.duplicated(subset=["ISIN", "TIMESTAMP"]).sum()
+                isin_pk_cols = ["ISIN", "SERIES", "TIMESTAMP"] if "SERIES" in valid_isins.columns else ["ISIN", "TIMESTAMP"]
+                dup_isins = valid_isins.duplicated(subset=isin_pk_cols).sum()
                 if dup_isins > 0:
                     result.historical_failures.append(ValidationFailure(
                         code=FailureCode.HIS003,
