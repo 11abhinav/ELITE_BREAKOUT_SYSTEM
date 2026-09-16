@@ -278,9 +278,26 @@ class ShortCoveringEarlyIgnitionScanner:
                         if eval_score >= 50.0 or rej_code in ("SCORE_BELOW_THRESHOLD", "IGNITION_CANDIDATE_WATCH", "EXTENDED_FROM_OPEN"):
                             logger.info("🚫 [SHORT_COVERING_5M] %s REJECTED — Gate: %s | Score: %.1f | Reason: %s",
                                         symbol, rej_code, eval_score, rej_reason)
-                            if eval_score >= 55.0:
-                                logger.info("🎯 [NEAR-MISS LOGGED] %s (SHORT_COVERING_5M) gate '%s': obs=%.2f vs thresh=%.2f",
-                                            symbol, rej_code, eval_score, self.min_ignition_score)
+                            if eval_score >= 50.0 or rej_code in ("SCORE_BELOW_THRESHOLD", "IGNITION_CANDIDATE_WATCH", "LOW_VOLUME_SURGE"):
+                                try:
+                                    from near_miss_tracker import log_near_miss
+                                    last_close = float(df_5m["close"].iloc[-1]) if df_5m is not None and len(df_5m) > 0 else None
+                                    sl_val = round(last_close * 0.985, 2) if last_close else None
+                                    t1_val = round(last_close * 1.03, 2) if last_close else None
+                                    log_near_miss(
+                                        symbol=symbol,
+                                        scanner="SHORT_COVERING_5M",
+                                        breakout_type="SHORT_COVERING",
+                                        gate_name=rej_code,
+                                        observed_value=round(float(eval_score), 2),
+                                        threshold_value=float(self.min_ignition_score),
+                                        score=int(eval_score),
+                                        entry_price=last_close,
+                                        stop_loss=sl_val,
+                                        target_1=t1_val
+                                    )
+                                except Exception as nm_err:
+                                    logger.debug("Failed to persist near miss for %s: %s", symbol, nm_err)
                 except Exception as e:
                     gate_rejections["EVALUATION_ERROR"] = gate_rejections.get("EVALUATION_ERROR", 0) + 1
                     logger.debug("Error in 5m evaluation for %s: %s", symbol, e)

@@ -3,6 +3,7 @@
 # NEAR-MISS OPPORTUNITY-COST TRACKER (VALUE-ADD 1)
 # =====================================================================================
 import logging
+import threading
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from typing import Dict, Any, Optional
@@ -11,39 +12,55 @@ from database import get_connection, IST, init_db
 
 logger = logging.getLogger("near_miss_tracker")
 
+_SCHEMA_INITIALIZED = False
+_SCHEMA_LOCK = threading.Lock()
+
 def init_near_miss_schema() -> None:
-    """Creates the near_misses PostgreSQL table if it does not exist."""
-    init_db()
-    try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS near_misses (
-                        id SERIAL PRIMARY KEY,
-                        symbol TEXT NOT NULL,
-                        scanner TEXT NOT NULL,
-                        breakout_type TEXT NOT NULL,
-                        gate_name TEXT NOT NULL,
-                        observed_value NUMERIC(10, 2),
-                        threshold_value NUMERIC(10, 2),
-                        delta_pct NUMERIC(5, 2),
-                        score INTEGER,
-                        entry_price NUMERIC(10, 2),
-                        stop_loss NUMERIC(10, 2),
-                        target_1 NUMERIC(10, 2),
-                        logged_at TIMESTAMPTZ NOT NULL,
-                        logged_date DATE NOT NULL,
-                        status TEXT DEFAULT 'TRACKING',
-                        realized_rr NUMERIC(5, 2),
-                        max_mfe_r NUMERIC(5, 2) DEFAULT 0.0
-                    )
-                """)
-                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_near_misses_sym_scanner_date ON near_misses (symbol, scanner, logged_date)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_date ON near_misses (logged_date, scanner)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_symbol ON near_misses (symbol)")
-                conn.commit()
-    except Exception as e:
-        logger.exception(f"Failed to initialize near_misses table: {e}")
+    """Creates the near_misses PostgreSQL table and high-performance indexes if they do not exist."""
+    global _SCHEMA_INITIALIZED
+    if _SCHEMA_INITIALIZED:
+        return
+    with _SCHEMA_LOCK:
+        if _SCHEMA_INITIALIZED:
+            return
+        init_db()
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS near_misses (
+                            id SERIAL PRIMARY KEY,
+                            symbol TEXT NOT NULL,
+                            scanner TEXT NOT NULL,
+                            breakout_type TEXT NOT NULL,
+                            gate_name TEXT NOT NULL,
+                            observed_value NUMERIC(10, 2),
+                            threshold_value NUMERIC(10, 2),
+                            delta_pct NUMERIC(5, 2),
+                            score INTEGER,
+                            entry_price NUMERIC(10, 2),
+                            stop_loss NUMERIC(10, 2),
+                            target_1 NUMERIC(10, 2),
+                            logged_at TIMESTAMPTZ NOT NULL,
+                            logged_date DATE NOT NULL,
+                            status TEXT DEFAULT 'TRACKING',
+                            realized_rr NUMERIC(5, 2),
+                            max_mfe_r NUMERIC(5, 2) DEFAULT 0.0
+                        )
+                    """)
+                    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_near_misses_sym_scanner_date ON near_misses (symbol, scanner, logged_date)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_date ON near_misses (logged_date, scanner)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_symbol ON near_misses (symbol)")
+                    # High-performance compound & expression indexes for /api/near_misses and forensic audits
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_logged_at_desc ON near_misses (logged_at DESC)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_date_logged_at ON near_misses (logged_date DESC, logged_at DESC)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_upper_scanner_date ON near_misses (UPPER(scanner), logged_date DESC, logged_at DESC)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_upper_scanner_logged_at ON near_misses (UPPER(scanner), logged_at DESC)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_near_miss_outcomes_nm_id ON near_miss_outcomes (near_miss_id)")
+                    conn.commit()
+            _SCHEMA_INITIALIZED = True
+        except Exception as e:
+            logger.exception(f"Failed to initialize near_misses table: {e}")
 
 def log_near_miss(
     symbol: str,
@@ -58,7 +75,7 @@ def log_near_miss(
     target_1: Optional[float] = None
 ) -> None:
     """
-    Logs a near-miss candidate rejected within 10% of a gate threshold into PostgreSQL.
+    Logs a near-miss candidate rejected within 15% of a gate threshold (or close score) into PostgreSQL.
     Enforces 1 entry per scanner per symbol per date.
     Guarantees valid entry_price, stop_loss, and target_1 for post-rejection forensic tracking.
     """
@@ -66,7 +83,8 @@ def log_near_miss(
         return
         
     delta_pct = abs(observed_value - threshold_value) / threshold_value * 100.0
-    if delta_pct > 10.0:  # Only track candidates within 10% of gate
+    # Allow candidates within 16.7% of gate or score within 10 points
+    if delta_pct > 16.7 and abs(observed_value - threshold_value) > 10.0:
         return
 
     now_ist = datetime.now(IST)
@@ -78,6 +96,15 @@ def log_near_miss(
     clean_gate_name = str(gate_name).strip()[:150]
 
     # Auto-resolve entry_price if missing
+    if entry_price is None or entry_price <= 0:
+        try:
+            from price_cache import get_cached_price
+            cp = get_cached_price(clean_symbol)
+            if cp and float(cp) > 0:
+                entry_price = float(cp)
+        except Exception:
+            pass
+
     if entry_price is None or entry_price <= 0:
         try:
             with get_connection() as conn:
@@ -128,3 +155,4 @@ def log_near_miss(
                 logger.info(f"🎯 [NEAR-MISS LOGGED] {clean_symbol} ({clean_scanner}) gate '{clean_gate_name}': obs={observed_value:.2f} vs thresh={threshold_value:.2f} (delta: {delta_pct:.1f}%) | entry=₹{entry_price} | SL=₹{stop_loss} | T1=₹{target_1}")
     except Exception as e:
         logger.exception(f"Failed to log near-miss for {symbol}: {e}")
+

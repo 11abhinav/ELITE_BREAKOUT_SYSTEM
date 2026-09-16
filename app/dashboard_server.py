@@ -1078,7 +1078,7 @@ def api_admin_users_update_role():
 
 
 _dashboard_cache_lock = threading.RLock()
-_NEAR_MISSES_CACHE = {}  # keyed by (days, sc_key, fetch_limit, offset_val) -> {"ts": float, "payload": str}
+_NEAR_MISSES_CACHE = {}  # keyed by (days, sc_key, fetch_limit, offset_val) -> {"ts": float, "payload": str, "etag": str}
 
 @app.route("/api/near_misses", methods=["GET"])
 @app.route("/api/admin/near_misses", methods=["GET"])
@@ -1088,7 +1088,7 @@ def api_get_near_misses():
     Returns logged near-miss opportunity cost candidates for admin/user dashboard views.
     Query parameters:
       - days: Lookback window in days (default: 7)
-      - scanner: Filter by scanner (e.g. EOD, PULLBACK, REVERSAL)
+      - scanner: Filter by scanner (e.g. EOD, PULLBACK, REVERSAL, SHORT_COVERING_5M, MULTIBAGGER)
       - limit: Maximum rows to return (default: 100)
       - page, per_page: Optional pagination parameters
     """
@@ -1112,27 +1112,31 @@ def api_get_near_misses():
 
     from datetime import datetime, timezone, timedelta
     IST = timezone(timedelta(hours=5, minutes=30))
-    cutoff_date = (datetime.now(IST) - timedelta(days=days)).date()
+    now_dt = datetime.now(IST)
+    today_date = now_dt.date()
+    cutoff_date = today_date - timedelta(days=days)
 
-    # [RULE 67 CHANGE-RATIONALE]:
-    # Activate 10-second TTL in-memory micro-cache for /api/near_misses with thread-safe lock.
-    # Eliminates repetitive DB queries, row-by-row price cache lookups, and corporate event decorations
-    # when the user switches tabs or auto-polls. Serves identical queries in <1ms.
     cache_key = (days, tuple(sorted(sc_list)), fetch_limit, offset_val)
     now_ts = time.time()
     force_refresh = request.args.get("force", "").lower() == "true"
+    
     if not force_refresh:
         with _dashboard_cache_lock:
             if cache_key in _NEAR_MISSES_CACHE:
                 cached_entry = _NEAR_MISSES_CACHE[cache_key]
-                if (now_ts - cached_entry["ts"]) < 10.0:
+                if (now_ts - cached_entry["ts"]) < 15.0:
+                    client_etag = request.headers.get("If-None-Match", "")
+                    if client_etag and client_etag == cached_entry.get("etag"):
+                        return Response(status=304)
                     resp = Response(cached_entry["payload"], mimetype="application/json")
-                    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+                    resp.headers["ETag"] = cached_entry.get("etag", "")
+                    resp.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
                     return resp
 
     try:
         from database import get_connection
         from psycopg2.extras import RealDictCursor
+        rows = []
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 if sc_list:
@@ -1226,42 +1230,36 @@ def api_get_near_misses():
                     """, (fetch_limit,))
                     rows = [dict(r) for r in cur.fetchall()]
 
-        # [RULE 67 CHANGE-RATIONALE]:
-        # Enrich near_misses rows with live RAM price lookup, live returns, live MFE, and elapsed audit days.
-        # Eliminates the empty/0.0% columns by dynamically populating live CMP and audit metrics.
-        now_dt = datetime.now(IST)
-        today_date = now_dt.date()
+        # High-Performance Batch Preload for RAM Live Quotes
+        symbols = [r.get("symbol") for r in rows if r.get("symbol")]
+        price_map = {}
+        try:
+            from master_orchestrator import _FAST_CMP_MEMO
+            price_map.update({s: float(_FAST_CMP_MEMO[s]) for s in symbols if s in _FAST_CMP_MEMO and float(_FAST_CMP_MEMO[s] or 0) > 0})
+        except Exception:
+            pass
+
+        try:
+            from price_cache import get_cached_price
+            for s in symbols:
+                if s not in price_map:
+                    cp = get_cached_price(s)
+                    if cp and float(cp) > 0:
+                        price_map[s] = float(cp)
+        except Exception:
+            pass
+
         for r in rows:
             sym = r.get("symbol")
-            live_cmp = None
-            try:
-                from master_orchestrator import _FAST_CMP_MEMO
-                live_cmp = _FAST_CMP_MEMO.get(sym)
-            except Exception:
-                pass
-            if not live_cmp:
-                try:
-                    from price_cache import get_cached_price
-                    cp = get_cached_price(sym)
-                    if cp and float(cp) > 0:
-                        live_cmp = float(cp)
-                except Exception:
-                    pass
+            live_cmp = price_map.get(sym)
 
             ep = r.get("entry_price")
             if ep is None or float(ep or 0) <= 0:
                 if live_cmp and float(live_cmp) > 0:
                     ep = float(live_cmp)
                     r["entry_price"] = round(ep, 2)
-                else:
-                    try:
-                        from price_cache import get_cached_price
-                        cp = get_cached_price(sym)
-                        if cp and float(cp) > 0:
-                            ep = float(cp)
-                            r["entry_price"] = round(ep, 2)
-                    except Exception:
-                        pass
+            else:
+                ep = float(ep)
 
             if live_cmp and float(live_cmp) > 0:
                 r["cmp"] = round(float(live_cmp), 2)
@@ -1309,12 +1307,17 @@ def api_get_near_misses():
             pass
 
         payload = json.dumps(serialize_datetimes(rows), default=str)
+        import hashlib
+        etag_val = f'"{hashlib.md5(payload.encode("utf-8")).hexdigest()[:16]}"'
+
         with _dashboard_cache_lock:
-            _NEAR_MISSES_CACHE[cache_key] = {"ts": now_ts, "payload": payload}
-            if len(_NEAR_MISSES_CACHE) > 50:
+            _NEAR_MISSES_CACHE[cache_key] = {"ts": now_ts, "payload": payload, "etag": etag_val}
+            if len(_NEAR_MISSES_CACHE) > 100:
                 _NEAR_MISSES_CACHE.clear()
+
         resp = Response(payload, mimetype="application/json")
-        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["ETag"] = etag_val
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
         return resp
     except Exception as e:
         logger.error(f"Error fetching near_misses from DB: {e}")

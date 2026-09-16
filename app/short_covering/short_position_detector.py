@@ -282,6 +282,23 @@ class ShortPositionDetector:
         # RULE 67 RATIONALE: Enforce self.min_quality_score (50.0+) rather than an arbitrary loose
         # 35.0 threshold to prevent low-conviction or noisy synthetic candidates from entering the watchlist.
         if score < self.min_quality_score:
+            if score >= 40.0:
+                try:
+                    from near_miss_tracker import log_near_miss
+                    log_near_miss(
+                        symbol=symbol,
+                        scanner="SHORT_COVERING_EOD",
+                        breakout_type="SHORT_BUILDUP",
+                        gate_name="SCORE_BELOW_THRESHOLD",
+                        observed_value=round(float(score), 2),
+                        threshold_value=float(self.min_quality_score),
+                        score=int(score),
+                        entry_price=float(cur_price),
+                        stop_loss=round(float(cur_price) * 0.95, 2),
+                        target_1=round(float(cur_price) * 1.08, 2)
+                    )
+                except Exception as nm_err:
+                    logger.debug("Failed to persist EOD near miss for %s: %s", symbol, nm_err)
             return None
 
         sector = fno_universe_manager.get_sector(symbol)

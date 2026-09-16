@@ -1404,6 +1404,10 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_logged_at ON near_misses(logged_date DESC, logged_at DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_scanner_date ON near_misses(scanner, logged_date DESC, logged_at DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_sym_date ON near_misses(symbol, logged_date DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_logged_at_desc ON near_misses(logged_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_date_logged_at ON near_misses(logged_date DESC, logged_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_upper_scanner_date ON near_misses(UPPER(scanner), logged_date DESC, logged_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_near_misses_upper_scanner_logged_at ON near_misses(UPPER(scanner), logged_at DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_user_messages_user_created ON user_messages(user_id, created_at DESC)")
 
 
