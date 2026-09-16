@@ -698,27 +698,47 @@ var USER_PAGE_SIZE = 10;
   let activeUserTab = 'trades-portfolio';
 
   function switchUserTab(tabId) {
-    activeUserTab = tabId;
+    const tabAliasMap = {
+      'trades': 'trades-portfolio',
+      'portfolio': 'trades-portfolio',
+      'real-time-trades': 'trades-portfolio',
+      'signals-trades': 'trades-portfolio',
+      'alerts': 'trades-portfolio',
+      'signals': 'live-signals',
+      'ladder': 'live-signals',
+      'watchlist': 'watchlist-analyzer',
+      'analyzer': 'watchlist-analyzer'
+    };
+    const resolvedTabId = tabAliasMap[tabId] || tabId;
+    activeUserTab = resolvedTabId;
 
     document.querySelectorAll('.user-tab-btn').forEach(btn => {
-      const isActive = btn.getAttribute('data-utab') === tabId;
+      const isActive = btn.getAttribute('data-utab') === resolvedTabId;
       btn.classList.toggle('active', isActive);
     });
 
+    let matchedPanel = false;
     document.querySelectorAll('.utab-panel').forEach(panel => {
-      const isActive = panel.id === `utab-${tabId}`;
+      const isActive = panel.id === `utab-${resolvedTabId}`;
       panel.classList.toggle('active', isActive);
+      if (isActive) matchedPanel = true;
     });
 
-    if (tabId === 'live-signals') {
+    // Safety fallback: if no panel matched, default to utab-trades-portfolio so screen is NEVER blank
+    if (!matchedPanel) {
+      const fallback = document.getElementById('utab-trades-portfolio') || document.querySelector('.utab-panel');
+      if (fallback) fallback.classList.add('active');
+    }
+
+    if (resolvedTabId === 'live-signals') {
       if (typeof fetchSignalLadder === 'function') fetchSignalLadder();
       if (typeof loadMultibaggerWatchlist === 'function') loadMultibaggerWatchlist();
-    } else if (tabId === 'trades-portfolio') {
+    } else if (resolvedTabId === 'trades-portfolio') {
       if (typeof ALL_TRADES !== 'undefined' && ALL_TRADES.length > 0 && typeof renderTradeTable === 'function') {
         renderTradeTable();
       }
       if (typeof loadCapitalInfo === 'function') loadCapitalInfo();
-    } else if (tabId === 'watchlist-analyzer') {
+    } else if (resolvedTabId === 'watchlist-analyzer') {
       if (typeof loadUserWatchlist === 'function') loadUserWatchlist(false);
       if (typeof preloadMasterSymbolsList === 'function') preloadMasterSymbolsList();
     }
@@ -3664,36 +3684,46 @@ async function fetchNotifications() {
 
 async function markNotificationSeen(id, symbol, title) {
     try {
-        await fetch(`/api/notifications/mark_seen/${id}`, {method: 'POST'});
-        fetchNotifications(); // refresh
-        document.getElementById('notif-dropdown').classList.remove('show');
+        if (id) {
+            await fetch(`/api/notifications/mark_seen/${id}`, {method: 'POST'});
+            fetchNotifications(); // refresh
+        }
+        const notifDropdown = document.getElementById('notif-dropdown');
+        if (notifDropdown) notifDropdown.classList.remove('show');
 
-        if (symbol && symbol !== 'null') {
-            title = title || '';
-            const upTitle = title.toUpperCase();
+        title = title || '';
+        const upTitle = title.toUpperCase();
 
-            // Watchlist deep analysis notification → switch to watchlist tab and open modal
-            if (upTitle.includes('DEEP ANALYSIS READY') || upTitle.includes('ANALYSIS READY') || upTitle.includes('ANALYSIS DONE')) {
+        // 1. Watchlist deep analysis notification → switch to watchlist tab and open modal
+        if (upTitle.includes('DEEP ANALYSIS READY') || upTitle.includes('ANALYSIS READY') || upTitle.includes('ANALYSIS DONE')) {
+            if (symbol && symbol !== 'null' && symbol !== 'None') {
+                if (typeof switchUserTab === 'function') switchUserTab('watchlist-analyzer');
                 openSavedWatchlistAnalysis(symbol);
                 return;
             }
+        }
 
-            // Wealth / position closed → switch to trades tab
-            if (upTitle.includes('WEALTH') || upTitle === 'POSITION CLOSED') {
-                if (typeof switchUserTab === 'function') switchUserTab('trades-portfolio');
-            } else {
-                if (typeof switchUserTab === 'function') switchUserTab('trades-portfolio');
-            }
+        // 2. Live signals notification
+        if (upTitle.includes('LADDER') || upTitle.includes('PRE-BREAKOUT') || upTitle.includes('PRESSURE')) {
+            if (typeof switchUserTab === 'function') switchUserTab('live-signals');
+            return;
+        }
 
-            const filterDate = document.getElementById('filterDate');
-            if (filterDate) filterDate.value = 'ALL';
-            const filterScanner = document.getElementById('filterScanner');
-            if (filterScanner) filterScanner.value = '';
-            const statusInput = document.getElementById('filterStatus');
-            if (statusInput) statusInput.value = '';
-            const catInput = document.getElementById('filterCategory');
-            if (catInput) catInput.value = '';
+        // 3. Default: Trade / breakout / wealth alert → switch to trades-portfolio tab
+        if (typeof switchUserTab === 'function') {
+            switchUserTab('trades-portfolio');
+        }
 
+        const filterDate = document.getElementById('filterDate');
+        if (filterDate) filterDate.value = 'ALL';
+        const filterScanner = document.getElementById('filterScanner');
+        if (filterScanner) filterScanner.value = '';
+        const statusInput = document.getElementById('filterStatus');
+        if (statusInput) statusInput.value = '';
+        const catInput = document.getElementById('filterCategory');
+        if (catInput) catInput.value = '';
+
+        if (symbol && symbol !== 'null' && symbol !== 'None' && symbol !== 'undefined') {
             await hydrateAndHighlightSymbol(symbol, true);
         }
     } catch (e) {
@@ -3797,6 +3827,11 @@ window.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
     const watchlistSym = urlParams.get('watchlist_sym');
     const sym = urlParams.get('sym');
+    const tab = urlParams.get('tab');
+
+    if (tab && typeof switchUserTab === 'function') {
+        switchUserTab(tab);
+    }
 
     if (watchlistSym) {
         setTimeout(() => {
@@ -3838,6 +3873,13 @@ window.addEventListener('DOMContentLoaded', () => {
         if (!refreshing) {
           refreshing = true;
           window.location.reload();
+        }
+      });
+
+      navigator.serviceWorker.addEventListener('message', event => {
+        if (event.data && event.data.type === 'NOTIFICATION_CLICK') {
+          const { symbol, title } = event.data;
+          markNotificationSeen(null, symbol, title);
         }
       });
     });

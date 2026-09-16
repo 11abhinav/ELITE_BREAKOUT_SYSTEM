@@ -175,13 +175,29 @@ self.addEventListener('notificationclick', event => {
 
   if (event.action === 'dismiss') return;
 
-  const targetUrl = event.notification.data?.url || '/';
+  let targetUrl = event.notification.data?.url || '/';
+  const symbol = event.notification.data?.symbol || '';
+  if (symbol && !targetUrl.includes('sym=')) {
+    const separator = targetUrl.includes('?') ? '&' : '?';
+    targetUrl = `${targetUrl}${separator}sym=${encodeURIComponent(symbol)}`;
+  }
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
       for (const client of clientList) {
         if ('focus' in client) {
-          return client.focus().then(c => c.navigate(targetUrl)).catch(() => {
+          try {
+            client.postMessage({
+              type: 'NOTIFICATION_CLICK',
+              symbol: symbol,
+              title: event.notification.title || ''
+            });
+          } catch(e) {}
+          return client.focus().then(c => {
+            if (symbol && !c.url.includes(`sym=${encodeURIComponent(symbol)}`)) {
+              return c.navigate(targetUrl);
+            }
+          }).catch(() => {
             if (clients.openWindow) return clients.openWindow(targetUrl);
           });
         }
