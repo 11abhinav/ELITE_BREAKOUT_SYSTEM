@@ -9545,6 +9545,7 @@ def bulk_update_cmp(prices: dict) -> bool:
 
     Called by performance_tracker every cycle to keep CMP fresh for all watchlist symbols.
     Uses INSERT … ON CONFLICT so symbols not yet in the master table are auto-created.
+    Applies deterministic alphabetical sorting and execute_values batching to guarantee zero deadlocks.
 
     Args:
         prices: dict of {symbol: float} e.g. {"RELIANCE": 2983.45, "TCS": 4012.10}
@@ -9554,27 +9555,51 @@ def bulk_update_cmp(prices: dict) -> bool:
     if not prices:
         return True
     now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
-    rows = [(sym.strip().upper(), float(price), now_ist) for sym, price in prices.items() if price and price > 0]
-    if not rows:
+    # Deduplicate and sort deterministically by symbol to prevent deadlocks across concurrent bulk/single updates
+    cleaned = {}
+    for sym, price in prices.items():
+        if sym and price and price > 0:
+            cleaned[sym.strip().upper()] = float(price)
+    if not cleaned:
         return True
-    try:
-        init_db()
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.executemany("""
-                    INSERT INTO stock_analysis_master (symbol, cmp, cmp_updated_at, updated_at)
-                    VALUES (%s, %s, %s, %s)
-                    ON CONFLICT (symbol) DO UPDATE SET
-                        cmp = EXCLUDED.cmp,
-                        cmp_updated_at = EXCLUDED.cmp_updated_at,
-                        updated_at = EXCLUDED.updated_at
-                """, [(sym, price, ts, ts) for sym, price, ts in rows])
-            conn.commit()
-        logger.debug(f"[CMP] Bulk-updated CMP for {len(rows)} symbols in stock_analysis_master")
-        return True
-    except Exception as e:
-        logger.error(f"❌ bulk_update_cmp failed: {e}")
-        return False
+
+    rows = [(sym, price, now_ist, now_ist) for sym, price in sorted(cleaned.items())]
+
+    import random
+    import time
+    from psycopg2.extras import execute_values
+
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            init_db()
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    execute_values(
+                        cur,
+                        """
+                        INSERT INTO stock_analysis_master (symbol, cmp, cmp_updated_at, updated_at)
+                        VALUES %s
+                        ON CONFLICT (symbol) DO UPDATE SET
+                            cmp = EXCLUDED.cmp,
+                            cmp_updated_at = EXCLUDED.cmp_updated_at,
+                            updated_at = EXCLUDED.updated_at
+                        """,
+                        rows,
+                        page_size=250
+                    )
+                conn.commit()
+            logger.debug(f"[CMP] Bulk-updated CMP for {len(rows)} symbols in stock_analysis_master")
+            return True
+        except Exception as e:
+            err_str = str(e).lower()
+            if ("deadlock" in err_str or "lock" in err_str or "could not serialize" in err_str) and attempt < max_retries - 1:
+                backoff = 0.05 * (2 ** attempt) + random.uniform(0.02, 0.08)
+                logger.warning(f"⚠️ [CMP] Deadlock/contention during bulk_update_cmp (attempt {attempt+1}/{max_retries}), retrying in {backoff:.3f}s: {e}")
+                time.sleep(backoff)
+                continue
+            logger.error(f"❌ bulk_update_cmp failed: {e}")
+            return False
 
 
 def get_stock_master_analysis(symbol: str) -> dict:
@@ -9618,27 +9643,39 @@ def sync_master_symbols(symbol_rows: list) -> bool:
         return False
     try:
         init_db()
+        deduped = {}
+        for r in symbol_rows:
+            if r.get("symbol"):
+                sym = r["symbol"].upper().strip()
+                deduped[sym] = (
+                    sym,
+                    r.get("company_name", sym).strip(),
+                    r.get("exchange", "NSE").strip(),
+                    r.get("sector", "EQUITY").strip()
+                )
+        if not deduped:
+            return False
+        args = [deduped[sym] for sym in sorted(deduped.keys())]
+
+        from psycopg2.extras import execute_values
         with get_connection() as conn:
             with conn.cursor() as cur:
-                args = [
-                    (
-                        r["symbol"].upper().strip(),
-                        r.get("company_name", r["symbol"]).strip(),
-                        r.get("exchange", "NSE").strip(),
-                        r.get("sector", "EQUITY").strip()
-                    )
-                    for r in symbol_rows if r.get("symbol")
-                ]
-                cur.executemany("""
+                execute_values(
+                    cur,
+                    """
                     INSERT INTO master_symbols (symbol, company_name, exchange, sector, is_active, last_updated)
-                    VALUES (%s, %s, %s, %s, TRUE, CURRENT_TIMESTAMP)
+                    VALUES %s
                     ON CONFLICT (symbol) DO UPDATE
                     SET company_name = EXCLUDED.company_name,
                         exchange = EXCLUDED.exchange,
                         sector = EXCLUDED.sector,
                         is_active = TRUE,
                         last_updated = CURRENT_TIMESTAMP
-                """, args)
+                    """,
+                    args,
+                    template="(%s, %s, %s, %s, TRUE, CURRENT_TIMESTAMP)",
+                    page_size=500
+                )
             conn.commit()
             return True
     except Exception as e:
