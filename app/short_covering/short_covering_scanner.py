@@ -64,6 +64,7 @@ class ShortCoveringEarlyIgnitionScanner:
         self.min_rvol_diurnal = min_rvol_diurnal
         self.min_risk_reward_ratio = min_risk_reward_ratio
         self.min_ignition_score = min_ignition_score
+        self.c5_intraday_only_mode = (os.getenv("SHORT_COVERING_ENGINE", "C5_INTRADAY_ONLY").upper() == "C5_INTRADAY_ONLY")
 
         # Stateful candidate tracker across 5m cycles:
         # Maps symbol -> {'state': ShortCoveringState, 'true_ignition_time': datetime, 'count': int}
@@ -311,7 +312,7 @@ class ShortCoveringEarlyIgnitionScanner:
                 f"  • Fresh Data Resolved        : {len(symbols_to_scan) - stale_count} ({((len(symbols_to_scan) - stale_count)/max(len(symbols_to_scan),1))*100:.1f}%)",
                 f"  • Stale / Missing Symbols    : {stale_count}",
                 f"  • Alerts Generated           : {len(new_alerts)}",
-                f"  • Execution Mode             : {'C5_INTRADAY_ONLY' if self.c5_intraday_only_mode else 'LEGACY_V1'}",
+                f"  • Execution Mode             : {engine_mode}",
                 f"  • Signal Window Active       : {'YES (09:20-15:25 IST)' if is_valid_signal_window else f'NO (Outside window: {current_t})'}",
                 "",
                 "🎯 GATE-BY-GATE REJECTION BREAKDOWN:"
