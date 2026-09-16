@@ -254,7 +254,8 @@ def get_connection(timeout: int = 20):
     try:
         yield conn
     except Exception as e:
-        logger.exception(f"🔴 DB operation failed: {e}")
+        if not (isinstance(e, RuntimeError) and "actively running" in str(e).lower()):
+            logger.exception(f"🔴 DB operation failed: {e}")
         if conn:
             try:
                 conn.rollback()

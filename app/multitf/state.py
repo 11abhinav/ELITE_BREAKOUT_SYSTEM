@@ -84,10 +84,10 @@ def load_state(symbol: str, box_id: str) -> Optional[MtfStateRecord]:
                         box_id=box_id,
                         state=row["state"],
                         mtf_substate=row["mtf_substate"],
-                        attempt_count=row["attempt_count"],
+                        attempt_count=row["attempt_count"] if row["attempt_count"] is not None else 0,
                         last_attempt_ts=row["last_attempt_ts"],
                         attempt_started_ts=row["attempt_started_ts"],
-                        attempt_bar_boundary=row["attempt_bar_boundary"],
+                        attempt_bar_boundary=int(row["attempt_bar_boundary"]) if row["attempt_bar_boundary"] is not None else 0,
                         attempt_ttl_expires_at=row["attempt_ttl_expires_at"],
                         cooldown_until=row["cooldown_until"],
                         invalidated_at=row["invalidated_at"],
@@ -138,10 +138,10 @@ def find_active_box_for_symbol(
                             box_id=row["box_id"],
                             state=row["state"],
                             mtf_substate=row["mtf_substate"],
-                            attempt_count=row["attempt_count"],
+                            attempt_count=row["attempt_count"] if row["attempt_count"] is not None else 0,
                             last_attempt_ts=row["last_attempt_ts"],
                             attempt_started_ts=row["attempt_started_ts"],
-                            attempt_bar_boundary=row["attempt_bar_boundary"],
+                            attempt_bar_boundary=int(row["attempt_bar_boundary"]) if row["attempt_bar_boundary"] is not None else 0,
                             attempt_ttl_expires_at=row["attempt_ttl_expires_at"],
                             cooldown_until=row["cooldown_until"],
                             invalidated_at=row["invalidated_at"],
@@ -164,7 +164,8 @@ def apply_ttl_and_cooldown(record: MtfStateRecord, ist_now: datetime, current_5m
     # 1. ATTEMPT TTL Check (expires after N completed bars)
     if record.mtf_substate == MtfSubstate.ATTEMPT:
         # If we have advanced 3 full 5m bars since the attempt started without confirming...
-        if current_5m_bars >= record.attempt_bar_boundary + 3:
+        boundary = int(record.attempt_bar_boundary) if record.attempt_bar_boundary is not None else 0
+        if current_5m_bars >= boundary + 3:
             logger.info("[%s] ATTEMPT TTL expired. Transitioning to FAILED_ATTEMPT.", record.symbol)
             _set_substate(record, MtfSubstate.FAILED_ATTEMPT, ist_now)
             record.cooldown_until = ist_now + timedelta(minutes=30)
