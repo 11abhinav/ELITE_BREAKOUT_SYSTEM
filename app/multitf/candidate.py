@@ -53,8 +53,10 @@ def build_watchlist_candidate(
         except Exception:
             return None
 
+    canonical_sym = consolidation.symbol if (consolidation.symbol and consolidation.symbol != "?") else bundle.symbol
+
     return {
-        "symbol": consolidation.symbol,
+        "symbol": canonical_sym,
         "box_id": consolidation.box_id,
         "state": canonical_state,
         "mtf_substate": substate,

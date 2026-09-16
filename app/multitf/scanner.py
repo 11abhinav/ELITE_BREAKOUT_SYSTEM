@@ -1040,7 +1040,10 @@ def _process_symbol(
     if precomputed_consolidation is not None and precomputed_consolidation.is_valid:
         consolidation = precomputed_consolidation
     else:
-        consolidation = detect_15m_consolidation(bundle.df_15m_closed, atr_15m, ist_now, config)
+        consolidation = detect_15m_consolidation(bundle.df_15m_closed, atr_15m, ist_now, config, symbol=symbol)
+    if not consolidation.symbol or consolidation.symbol == "?":
+        consolidation.symbol = symbol
+
     if not consolidation.is_valid:
         if funnel_counters is not None:
             if "TESTS_TOO_LOW" in getattr(consolidation, "rejection_reason", ""):
@@ -1068,6 +1071,7 @@ def _process_symbol(
     if is_new:
         # First time seeing this box
         cand_dict = build_watchlist_candidate(bundle, consolidation, ctx_1h, ctx_30m, market_ctx, ist_now)
+        cand_dict["symbol"] = symbol
         try:
             persist_new_watchlist_candidate(cand_dict)
             logger.info(
@@ -1081,9 +1085,14 @@ def _process_symbol(
                 funnel_counters["persistence_failed"] += 1
         state_record = load_state(symbol, consolidation.box_id) # Reload to get initialized record
         if not state_record:
-            if funnel_counters is not None:
-                funnel_counters["persistence_failed"] += 1
-            return
+            # Fallback to initialized in-memory record to continue evaluation without dropping candidate
+            state_record = MtfStateRecord(
+                symbol=symbol,
+                box_id=consolidation.box_id,
+                state="WATCH",
+                mtf_substate=MtfSubstate.WATCHING,
+                version=1
+            )
 
     # [FIX: EARLY_EXIT_STAMP_v1.0]
     # Helper: builds the live-data dict so every early exit also refreshes box/score columns.
