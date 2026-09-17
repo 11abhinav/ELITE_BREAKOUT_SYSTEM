@@ -84,10 +84,10 @@ _global_lock = ProcessLock("global_scanner_lock")
 # CONFIGURABLE STRATEGY PARAMETERS & THRESHOLDS
 # =====================================================================================
 
-# Universal Hard Gates
-MIN_RVOL_HARD_GATE = 1.20           # Minimum RVOL for trigger candle (RVOL < 1.20 -> REJECT)
-MIN_CLV_HARD_GATE = 0.65            # Minimum Close Location Value ((C - L) / (H - L) >= 0.65)
-MAX_UPPER_WICK_PCT = 0.30           # Maximum upper wick ratio ((H - max(O, C)) / (H - L) <= 0.30)
+# Universal Hard Gates (Tournament Hardened Parameters)
+MIN_RVOL_HARD_GATE = 1.35           # Minimum RVOL for trigger candle (RVOL < 1.35 -> REJECT)
+MIN_CLV_HARD_GATE = 0.70            # Minimum Close Location Value ((C - L) / (H - L) >= 0.70)
+MAX_UPPER_WICK_PCT = 0.25           # Maximum upper wick ratio ((H - max(O, C)) / (H - L) <= 0.25)
 MIN_AVG_TURNOVER_INR = 50_00_000    # Minimum 20-day average turnover: ₹50 Lakhs
 MIN_AVG_VOLUME = 25_000             # Minimum 20-day average volume: 25k shares
 
