@@ -1,0 +1,20 @@
+{
+  "universe": 871,
+  "data_valid": 854,
+  "structural_valid": 342,
+  "quality_valid": 218,
+  "context_valid": 146,
+  "temporal_confirmed": 84,
+  "score_qualified": 46,
+  "risk_qualified": 22,
+  "gross_scanner_alerts": 61,
+  "unique_deduped_alerts": 22,
+  "attribution": {
+    "TECHNICAL": 7,
+    "EOD": 5,
+    "MULTI_TF": 4,
+    "SHORT_COVERING": 3,
+    "PULLBACK": 2,
+    "REVERSAL": 1
+  }
+}

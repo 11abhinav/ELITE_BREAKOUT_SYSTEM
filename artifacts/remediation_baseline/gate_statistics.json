@@ -1,0 +1,36 @@
+{
+  "SHORT_COVERING_5M": {
+    "OI_CONTRACTION": 1842,
+    "EXTENDED_FROM_OPEN": 317,
+    "STATE_WIPEOUT": 192,
+    "alerts": 0
+  },
+  "MULTI_TF_BREAKOUT": {
+    "LATE_CONFLUENCE_FAIL": 412,
+    "BREAKOUT_CLOSE_FAIL": 188,
+    "alerts": 2
+  },
+  "PULLBACK": {
+    "COLD_RS_PENALTY": 156,
+    "MIN_DEPTH_FAIL": 284,
+    "SAME_NIGHT_EOD_SUPPRESSED": 45,
+    "alerts": 1
+  },
+  "EOD_BREAKOUT": {
+    "BASE_ATR_TOO_WIDE": 328,
+    "TRIPLE_FAULT_REJECT": 94,
+    "RSI_CEILING_REJECT": 52,
+    "alerts": 4
+  },
+  "REVERSAL": {
+    "RSI_4BAR_DECLINE": 215,
+    "MACD_STALE": 148,
+    "alerts": 1
+  },
+  "TECHNICAL": {
+    "LOW_CLV": 310,
+    "EXCESSIVE_UPPER_WICK": 240,
+    "ROOM_TO_RESISTANCE_LT_1_5R": 180,
+    "alerts": 3
+  }
+}

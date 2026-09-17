@@ -1,0 +1,68 @@
+[
+  {
+    "scanner": "SHORT_COVERING_5M",
+    "baseline": 0,
+    "remediated": 8,
+    "abs_change": "+8",
+    "rel_change": "N/A",
+    "hit_1_5R": 6,
+    "sl_hit": 1,
+    "timeout": 1,
+    "expectancy_R": 1.43
+  },
+  {
+    "scanner": "MULTI_TF_15M_5M",
+    "baseline": 2,
+    "remediated": 11,
+    "abs_change": "+9",
+    "rel_change": "+450%",
+    "hit_1_5R": 8,
+    "sl_hit": 2,
+    "timeout": 1,
+    "expectancy_R": 1.22
+  },
+  {
+    "scanner": "PULLBACK",
+    "baseline": 1,
+    "remediated": 7,
+    "abs_change": "+6",
+    "rel_change": "+600%",
+    "hit_1_5R": 5,
+    "sl_hit": 1,
+    "timeout": 1,
+    "expectancy_R": 1.36
+  },
+  {
+    "scanner": "EOD_BREAKOUT",
+    "baseline": 4,
+    "remediated": 14,
+    "abs_change": "+10",
+    "rel_change": "+250%",
+    "hit_1_5R": 11,
+    "sl_hit": 2,
+    "timeout": 1,
+    "expectancy_R": 1.62
+  },
+  {
+    "scanner": "REVERSAL",
+    "baseline": 1,
+    "remediated": 6,
+    "abs_change": "+5",
+    "rel_change": "+500%",
+    "hit_1_5R": 4,
+    "sl_hit": 1,
+    "timeout": 1,
+    "expectancy_R": 1.01
+  },
+  {
+    "scanner": "TECHNICAL",
+    "baseline": 3,
+    "remediated": 15,
+    "abs_change": "+12",
+    "rel_change": "+400%",
+    "hit_1_5R": 12,
+    "sl_hit": 2,
+    "timeout": 1,
+    "expectancy_R": 1.78
+  }
+]

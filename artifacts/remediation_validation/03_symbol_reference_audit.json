@@ -1,0 +1,54 @@
+[
+  {
+    "symbol": "OIDataService",
+    "module": "app.short_covering.oi_data_service",
+    "callers": [
+      "short_covering_scanner.py",
+      "main.py"
+    ],
+    "status": "PASS"
+  },
+  {
+    "symbol": "ShortCoveringScanner",
+    "module": "app.short_covering.short_covering_scanner",
+    "callers": [
+      "master_orchestrator.py",
+      "dashboard_server.py"
+    ],
+    "status": "PASS"
+  },
+  {
+    "symbol": "evaluate_breakout_strength",
+    "module": "app.multitf.breakout_strength",
+    "callers": [
+      "multitf/scanner.py"
+    ],
+    "status": "PASS"
+  },
+  {
+    "symbol": "PullbackPipeline",
+    "module": "app.pullback_pipeline",
+    "callers": [
+      "master_orchestrator.py"
+    ],
+    "status": "PASS"
+  },
+  {
+    "symbol": "EODScanner",
+    "module": "app.eod_scanner",
+    "callers": [
+      "main.py",
+      "master_orchestrator.py"
+    ],
+    "status": "PASS"
+  },
+  {
+    "symbol": "detect_technical_setup",
+    "module": "app.technical_scanner",
+    "callers": [
+      "main.py",
+      "technical_scanner.py"
+    ],
+    "status": "PASS"
+  }
+]

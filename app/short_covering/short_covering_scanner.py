@@ -436,30 +436,63 @@ class ShortCoveringEarlyIgnitionScanner:
         price_change_5m_pct = ((cur_close - float(prev_bar["close"])) / float(prev_bar["close"])) * 100.0
         clv = (cur_close - cur_low) / max(cur_high - cur_low, 1e-4)
 
-        oi_change_5m_pct = float(cur_bar["oi_change_5m_pct"])
-        oi_change_session_pct = float(cur_bar["oi_change_session_pct"])
-        excess_oi_contraction = oi_change_5m_pct - nifty_oi_5m_delta
-
         avg_vol_10 = past_bars["volume"].tail(10).mean()
         vol_surge_ratio = cur_vol / max(avg_vol_10, 1.0)
 
-        has_primary_ignition = (
-            is_green_candle and
-            is_above_vwap and
-            price_change_5m_pct >= 0.08 and
-            (oi_change_5m_pct <= self.min_5m_oi_contraction_pct or excess_oi_contraction <= -0.20) and
-            vol_surge_ratio >= 1.10
-        )
+        oi_data_mode = str(cur_bar.get("oi_data_mode", "DERIVATIVE_OI_UNAVAILABLE" if pd.isna(cur_bar.get("oi")) else "DERIVATIVE_OI_AVAILABLE"))
+        
+        if oi_data_mode == "DERIVATIVE_OI_AVAILABLE" and not pd.isna(cur_bar.get("oi")):
+            oi_change_5m_pct = float(cur_bar.get("oi_delta_1bar", cur_bar.get("oi_change_5m_pct", 0.0)))
+            oi_delta_3bar = float(cur_bar.get("oi_delta_3bar", 0.0))
+            oi_change_session_pct = float(cur_bar.get("oi_session", cur_bar.get("oi_change_session_pct", 0.0)))
+            excess_oi_contraction = oi_change_5m_pct - nifty_oi_5m_delta
+            recent_oi_pct = float(past_bars["oi_change_5m_pct"].dropna().tail(3).min()) if ("oi_change_5m_pct" in past_bars.columns and len(past_bars) >= 2) else oi_change_5m_pct
+            recent_excess_oi = min(excess_oi_contraction, float(recent_oi_pct - nifty_oi_5m_delta))
 
-        # Anti-Fake Rollover Check
-        if oi_data_service.is_rollover_in_progress(symbol, oi_change_5m_pct, 0.0, current_time.date()):
-            return (None, "ROLLOVER_IN_PROGRESS", 0.0, "Expiry-week contract rollover flow detected", []) if return_diagnostics else None
+            has_oi_unwind = (
+                oi_change_5m_pct <= self.min_5m_oi_contraction_pct or
+                excess_oi_contraction <= -0.20 or
+                oi_delta_3bar <= -0.80 or
+                recent_oi_pct <= self.min_5m_oi_contraction_pct or
+                recent_excess_oi <= -0.20 or
+                oi_change_session_pct <= -1.50
+            )
+            has_primary_ignition = (
+                is_green_candle and
+                is_above_vwap and
+                price_change_5m_pct >= 0.08 and
+                has_oi_unwind and
+                vol_surge_ratio >= 1.10
+            )
+            # Anti-Fake Rollover Check
+            if oi_data_service.is_rollover_in_progress(symbol, oi_change_5m_pct, 0.0, current_time.date()):
+                return (None, "ROLLOVER_IN_PROGRESS", 0.0, "Expiry-week contract rollover flow detected", []) if return_diagnostics else None
+        else:
+            # Explicit NOT_COMPUTABLE data-quality contract
+            oi_change_5m_pct = float("nan")
+            oi_delta_3bar = float("nan")
+            oi_change_session_pct = float("nan")
+            excess_oi_contraction = float("nan")
+            recent_excess_oi = float("nan")
+            has_oi_unwind = True  # Bypassed on cash equity
+            # EQUITY_SHORT_SQUEEZE_PROXY: requires stronger price thrust + volume surge
+            has_primary_ignition = (
+                is_green_candle and
+                is_above_vwap and
+                price_change_5m_pct >= 0.12 and
+                vol_surge_ratio >= 1.25
+            )
 
-        # Early Ignition Gate: Reject late entries if price has already moved > +2.5% from session open
+        # Multi-Vector Extension Analysis
+        session_low_val = float(past_bars["low"].min()) if "low" in past_bars.columns else cur_low
         extension_from_open_pct = ((cur_close - session_open_price) / max(session_open_price, 1e-4)) * 100.0
-        if extension_from_open_pct > 2.5:
+        extension_from_vwap_pct = ((cur_close - cur_vwap) / max(cur_vwap, 1e-4)) * 100.0
+        extension_from_low_pct = ((cur_close - session_low_val) / max(session_low_val, 1e-4)) * 100.0
+
+        # Hard safety floor: > 4.5% extension from open is overbought
+        if extension_from_open_pct > 4.5:
             logger.debug(f"Rejecting {symbol}: Move already extended (+{extension_from_open_pct:.1f}% from open)")
-            return (None, "EXTENDED_FROM_OPEN", 0.0, f"Move already extended (+{extension_from_open_pct:.1f}% > +2.5% from open)", []) if return_diagnostics else None
+            return (None, "EXTENDED_FROM_OPEN", 0.0, f"Move already extended (+{extension_from_open_pct:.1f}% > +4.5% from open)", []) if return_diagnostics else None
 
         # 2. Tiered Multi-Timeframe Structural Context
         tf_confirmations = self._check_multitf_context(past_bars)
@@ -484,15 +517,26 @@ class ShortCoveringEarlyIgnitionScanner:
             else:
                 score += 12.0
 
-        # B. Excess OI Contraction Speed (25 pts)
-        if excess_oi_contraction <= -1.2:
-            score += 25.0
-            reasons.append(f"Strong Excess OI Unwind ({excess_oi_contraction:.2f}%)")
-        elif excess_oi_contraction <= -0.5:
-            score += 18.0
-            reasons.append(f"Moderate Excess OI Unwind ({excess_oi_contraction:.2f}%)")
+        # B. Excess OI Contraction Speed / Equity Squeeze Conviction (25 pts)
+        if oi_data_mode == "DERIVATIVE_OI_AVAILABLE" and not pd.isna(excess_oi_contraction):
+            if excess_oi_contraction <= -1.2 or recent_excess_oi <= -1.2:
+                score += 25.0
+                reasons.append(f"Strong Excess OI Unwind ({min(excess_oi_contraction, recent_excess_oi):.2f}%)")
+            elif excess_oi_contraction <= -0.5 or recent_excess_oi <= -0.5 or oi_change_session_pct <= -2.0:
+                score += 18.0
+                reasons.append(f"Moderate Excess OI Unwind ({min(excess_oi_contraction, recent_excess_oi):.2f}%)")
+            else:
+                score += 12.0
         else:
-            score += 12.0
+            # Equity Proxy: Score based on price velocity + volume conviction
+            if vol_surge_ratio >= 2.5 and price_change_5m_pct >= 0.35:
+                score += 22.0
+                reasons.append("High-Conviction Equity Squeeze Thrust (+22)")
+            elif vol_surge_ratio >= 1.5:
+                score += 16.0
+                reasons.append("Moderate Equity Squeeze Thrust (+16)")
+            else:
+                score += 12.0
 
         # C. Volume Surge & Conviction (20 pts)
         if vol_surge_ratio >= 2.0:
@@ -525,14 +569,25 @@ class ShortCoveringEarlyIgnitionScanner:
         else:
             score += 2.0
 
+        # F. Extension Penalty Ladder (Graduated deduction for extension > 2.5%)
+        if extension_from_open_pct > 2.5:
+            ext_pen = min(8.0, (extension_from_open_pct - 2.5) * 4.0)
+            score = max(0.0, score - ext_pen)
+            reasons.append(f"Extension from Open Penalty (-{ext_pen:.1f} pts)")
+
         # 4. Evidence-Based Dynamic State Machine
         tracking = self._tracked_states.get(symbol, {"state": ShortCoveringState.WATCH, "true_ignition_time": current_time, "count": 0})
         current_state = tracking["state"]
 
         if not has_primary_ignition or score < self.min_ignition_score:
             if current_state == ShortCoveringState.IGNITION_CANDIDATE:
-                tracking["state"] = ShortCoveringState.WATCH
-                self._tracked_states[symbol] = tracking
+                candidate_bars = tracking.get("candidate_bars", 1)
+                if candidate_bars >= 2 or not is_above_vwap:
+                    tracking["state"] = ShortCoveringState.WATCH
+                    self._tracked_states[symbol] = tracking
+                else:
+                    tracking["candidate_bars"] = candidate_bars + 1
+                    self._tracked_states[symbol] = tracking
 
             # Determine dominant rejection failure reason
             if not is_green_candle:
@@ -544,7 +599,7 @@ class ShortCoveringEarlyIgnitionScanner:
             elif price_change_5m_pct < 0.08:
                 rej_code = "LOW_5M_PRICE_MOMENTUM"
                 rej_reason = f"Price change {price_change_5m_pct:+.2f}% < +0.08%"
-            elif oi_change_5m_pct > self.min_5m_oi_contraction_pct and excess_oi_contraction > -0.20:
+            elif not has_oi_unwind:
                 rej_code = "NO_OI_CONTRACTION"
                 rej_reason = f"5m OI change {oi_change_5m_pct:+.2f}% (Excess {excess_oi_contraction:+.2f}%) not unwinding"
             elif vol_surge_ratio < 1.10:

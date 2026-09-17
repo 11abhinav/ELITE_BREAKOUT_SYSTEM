@@ -1296,7 +1296,8 @@ def _evaluate_candidate(
             d2 = float(rsi_tail.iloc[-2] - rsi_tail.iloc[-3])
             d3 = float(rsi_tail.iloc[-3] - rsi_tail.iloc[-4])
             agg_decline = float(rsi_tail.iloc[-4] - rsi_tail.iloc[-1])
-            if d1 < 0 and d2 < 0 and d3 < 0 and agg_decline >= 1.5:
+            is_reversal_candle = (candle_open is not None and close_price > candle_open) or d1 > 0
+            if d1 < 0 and d2 < 0 and d3 < 0 and agg_decline >= 1.5 and not is_reversal_candle:
                 return {
                     "passed": False,
                     "reject_reason": f"RSI continuously declining over last 4 bars (agg decline={agg_decline:.2f}): {list(rsi_tail.tail(4).round(2))}",
@@ -1315,6 +1316,7 @@ def _evaluate_candidate(
     # 1. Fresh Crossover Mode: Exact bullish crossover occurring within the last 10 bars.
     # 2. Active Bullish State Mode: MACD > Signal with strictly expanding histogram over recent bars,
     #    allowing ongoing multi-week reversals to qualify without timing starvation.
+    # 3. Rounding Base Mode: Price reclaiming EMA20 with solid RSI recovery.
     macd = df.get("MACD")
     sig = df.get("MACD_SIGNAL")
     macd_crossover_passed = False
@@ -1338,6 +1340,10 @@ def _evaluate_candidate(
         is_hist_expanding = (hist_now > hist_prev) or (hist_now >= hist_prev and (hist_now - hist_3_ago) > 0)
 
         if macd_now > sig_now and is_hist_expanding:
+            macd_active_bullish = True
+
+        # 3. Rounding Base Mode: Price reclaiming EMA20 with solid RSI recovery
+        if (close_price >= ema20 * 0.98) and (rsi_recovery >= 3.0) and (macd_now > sig_now or hist_now > hist_prev):
             macd_active_bullish = True
 
     if not (macd_crossover_passed or macd_active_bullish):

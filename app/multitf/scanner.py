@@ -1222,16 +1222,17 @@ def _process_symbol(
             buffer_atr = config.get("BREAKOUT_BUFFER_ATR_MULT", 0.10) * (atr_5m if atr_5m > 0 else 1.0)
             res_line = consolidation.box_high
 
-            # Gate 1: 5M Close above resistance + buffer
-            if c_5m < (res_line + buffer_atr):
-                dist_res = ((res_line + buffer_atr - c_5m) / res_line * 100.0) if res_line > 0 else 0.0
+            # Gate 1: 5M Close above resistance + buffer (Model B only requires c_5m >= res_line)
+            req_close = res_line if pressure.trigger_model == "MODEL_B_RETEST" else (res_line + buffer_atr)
+            if c_5m < req_close:
+                dist_res = ((req_close - c_5m) / res_line * 100.0) if res_line > 0 else 0.0
                 if funnel_counters is not None:
                     funnel_counters["BREAKOUT_CLOSE_FAIL"] += 1
-                logger.info("🚫 [MULTI_TF] %s REJECTED — 5M Close (₹%.2f) failed to clear resistance buffer (₹%.2f [dist: -%.1f%%]) | RVOL: %.2fx", symbol, c_5m, res_line + buffer_atr, dist_res, pressure.volume_ratio)
+                logger.info("🚫 [MULTI_TF] %s REJECTED — 5M Close (₹%.2f) failed to clear resistance buffer (₹%.2f [dist: -%.1f%%]) | RVOL: %.2fx", symbol, c_5m, req_close, dist_res, pressure.volume_ratio)
                 if c_5m >= res_line:
                     try:
                         from near_miss_tracker import log_near_miss
-                        log_near_miss(symbol, "MULTI_TF", "5M_BREAKOUT", "resistance_buffer_clearance", c_5m, res_line + buffer_atr, entry_price=c_5m, stop_loss=consolidation.box_low)
+                        log_near_miss(symbol, "MULTI_TF", "5M_BREAKOUT", "resistance_buffer_clearance", c_5m, req_close, entry_price=c_5m, stop_loss=consolidation.box_low)
                     except Exception:
                         pass
                 update_state_in_db(state_record, _live_data_updates())

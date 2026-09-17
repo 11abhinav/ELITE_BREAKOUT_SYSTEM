@@ -1151,9 +1151,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     if service_warnings:
         warn_str = f"Service failure ({', '.join(service_warnings)})"
         err_val = f"{err_val} | {warn_str}" if err_val else warn_str
-        # Fail-safe threshold markup
-        required_threshold += 3.0
-        logger.warning(f"⚠️ Service failure detected. Required threshold raised to {required_threshold}")
+        logger.info(f"ℹ️ [PULLBACK] Service advisory: {warn_str} — keeping baseline threshold at {required_threshold}")
 
     for c in candidates:
         rs_pct_val = float(rs_rankings.get(c.symbol, 50.0))
@@ -1234,24 +1232,16 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
         else:
             scored_candidates.append(c)
 
-    # ---------------- SAME-NIGHT EOD SUPPRESSION ----------------
+    # ---------------- SAME-NIGHT EOD AWARENESS ----------------
     tonight_eod_alerts = get_recent_alerts_for_scanner("EOD", 300)
     for c in scored_candidates:
         if (c.symbol, "EOD") in tonight_eod_alerts:
-            c.status = CandidateState.SUPPRESSED
-            c.suppressed_by = "EOD"
-            rejected["eod_suppressed"] += 1
-            terminal_tracker.record_terminal(c.symbol, "EOD_SUPPRESSED", "Primary EOD alert already generated tonight")
-            logger.info(f"🚫 [PULLBACK] {c.symbol} REJECTED — Gate: EOD_SUPPRESSED | Reason: Primary EOD alert already generated tonight")
-            telemetry_logger.record_reject(
-                symbol=c.symbol,
-                last_stage="EOD_SUPPRESSION",
-                gate="EOD_SUPPRESSED",
-                actual=None,
-                required=None
-            )
+            if not hasattr(c, "context") or c.context is None:
+                c.context = {}
+            c.context["eod_alert_today"] = True
+            logger.info(f"ℹ️ [PULLBACK] {c.symbol} tagged with dual EOD + Pullback setup context.")
 
-    survivors = [c for c in scored_candidates if c.status != CandidateState.SUPPRESSED]
+    survivors = list(scored_candidates)
 
     stage_tracker.end_stage(f"Scored={len(scored_candidates)} cleared threshold, {rejected.get('score_below_threshold',0)} rejected")
     stage_tracker.start_stage(5, "Risk Engine & Alert Persistence", f"Validating SL/target for {len(scored_candidates)} candidates and saving alerts")

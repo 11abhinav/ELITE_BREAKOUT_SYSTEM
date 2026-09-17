@@ -1,0 +1,30 @@
+{
+  "SHORT_COVERING": {
+    "min_5m_oi_contraction_pct": -0.5,
+    "max_extension_from_open_pct": 2.5
+  },
+  "MULTITF": {
+    "LATE_SESSION_MIN_CONFLUENCE": 82,
+    "BASE_FLOOR": 75,
+    "BREAKOUT_FLOOR": 75
+  },
+  "PULLBACK": {
+    "MIN_DEPTH_PCT": 10.0,
+    "MIN_DURATION": 3,
+    "cold_cache_penalty": 3.0
+  },
+  "EOD": {
+    "BASE_ATR_MAX": 4.5,
+    "RSI_MAX": 92.0,
+    "TRIPLE_FAULT_VETO": true
+  },
+  "REVERSAL": {
+    "RSI_4BAR_VETO": true,
+    "MACD_MAX_AGE": 10
+  },
+  "TECHNICAL": {
+    "MIN_RVOL": 1.2,
+    "MIN_CLV": 0.65,
+    "MAX_UPPER_WICK": 0.3
+  }
+}

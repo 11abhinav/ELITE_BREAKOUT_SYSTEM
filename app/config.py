@@ -361,7 +361,7 @@ EOD_CONFIG = {
     "MIN_VOLUME_RATIO":   1.75,  # [CERTIFIED EOD_VAR_I]: Breakout Volume >= 1.75x SMA20 conviction threshold
     "MIN_VOLUME_AVG":     50_000,
     "MIN_RSI":            50,
-    "MAX_RSI":            92,    # [FIX: RSI_CEILING_TO_PENALTY] Raised from 88→92. RSI 88-92 is now a graduated scoring penalty (-2.5 pts/unit), not a hard reject. Genuine breakout stocks routinely hit RSI 88-95 on the ignition day.
+    "MAX_RSI":            95,    # [FIX: RSI_CEILING_TO_PENALTY] Raised to 95 to accommodate explosive Day-1 volume thrusts.
 }
 
 EOD_ADVANCED_CONFIG = {
@@ -472,15 +472,15 @@ PULLBACK_CONFIG = {
     "VERSION": "pb-1.0.0",
     "LOOKBACK": 10, "CONFIRM": 2,
     "MIN_IMPULSE_GAIN_PCT": 5.0, "MIN_IMPULSE_ATR": 3.0, "MAX_IMPULSE_BARS": 20,
-    "MIN_DEPTH_PCT": 10.0, "MAX_DEPTH_PCT": 78.6,
-    "MIN_DURATION": 3, "MAX_DURATION": 20,
+    "MIN_DEPTH_PCT": 6.0, "MAX_DEPTH_PCT": 78.6,
+    "MIN_DURATION": 2, "MAX_DURATION": 20,
     "MAX_INTERNAL_SWINGS": 3, "MAX_PB_VOLUME_RATIO": 1.25,
     "TRIGGER_VOL_MULT": 1.1,
     "MIN_CLOSE_LOCATION": 0.55,
     "MIN_BODY_ATR": 0.35,
     "MAX_UPPER_WICK": 0.35, "MAX_ENTRY_GAP_PCT": 3.0,
     "MAX_BONUS": 5, "PRIOR_WINDOW": 30,
-    "OUTAGE_THRESHOLD_BUMP": 3,
+    "OUTAGE_THRESHOLD_BUMP": 0,
     "MIN_HISTORY": 180,
     "MODE": "LIVE", "DEBUG_SWINGS": False,
 }

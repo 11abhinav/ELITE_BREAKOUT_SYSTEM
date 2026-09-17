@@ -348,19 +348,34 @@ class OIDataService:
                         if fyers_oi and fyers_oi.get("open_interest", 0) > 0:
                             live_oi_val = fyers_oi["open_interest"]
 
-            if live_oi_val and live_oi_val > 0:
-                day_bars["OI"] = live_oi_val
-            elif "OI" not in day_bars.columns:
-                day_bars["OI"] = day_bars["Volume"] * 2
+            if "OI" in day_bars.columns and day_bars["OI"].fillna(0).max() > 0:
+                day_bars["oi"] = day_bars["OI"].fillna(method="ffill").fillna(0)
+                oi_mode = "DERIVATIVE_OI_AVAILABLE"
+            elif live_oi_val and live_oi_val > 0:
+                day_bars["oi"] = np.nan
+                day_bars.loc[day_bars.index[-1], "oi"] = live_oi_val
+                oi_mode = "DERIVATIVE_OI_AVAILABLE"
             else:
-                day_bars["OI"] = day_bars["OI"].fillna(day_bars["Volume"] * 2)
+                day_bars["oi"] = np.nan
+                oi_mode = "DERIVATIVE_OI_UNAVAILABLE"
 
             cum_vol = day_bars["Volume"].cumsum()
             cum_vol_price = (day_bars["Close"] * day_bars["Volume"]).cumsum()
             day_bars["vwap"] = cum_vol_price / np.maximum(cum_vol, 1)
-            day_bars["oi"] = day_bars["OI"]
-            day_bars["oi_change_5m_pct"] = day_bars["oi"].pct_change().fillna(0.0) * 100.0
-            day_bars["oi_change_session_pct"] = ((day_bars["oi"] - day_bars["oi"].iloc[0]) / max(day_bars["oi"].iloc[0], 1)) * 100.0
+            
+            if oi_mode == "DERIVATIVE_OI_AVAILABLE" and day_bars["oi"].dropna().max() > 0:
+                day_bars["oi_delta_1bar"] = day_bars["oi"].pct_change().fillna(0.0) * 100.0
+                day_bars["oi_delta_3bar"] = ((day_bars["oi"] - day_bars["oi"].shift(3)) / day_bars["oi"].shift(3).replace(0, np.nan)).fillna(0.0) * 100.0
+                first_pos_oi = day_bars["oi"][day_bars["oi"] > 0].iloc[0] if (day_bars["oi"] > 0).any() else 1
+                day_bars["oi_session"] = ((day_bars["oi"] - first_pos_oi) / max(first_pos_oi, 1)) * 100.0
+                day_bars["oi_change_5m_pct"] = day_bars["oi_delta_1bar"]
+                day_bars["oi_change_session_pct"] = day_bars["oi_session"]
+            else:
+                day_bars["oi_delta_1bar"] = np.nan
+                day_bars["oi_delta_3bar"] = np.nan
+                day_bars["oi_session"] = np.nan
+                day_bars["oi_change_5m_pct"] = np.nan
+                day_bars["oi_change_session_pct"] = np.nan
 
             res_df = pd.DataFrame({
                 "timestamp": day_bars["timestamp"],
@@ -371,6 +386,10 @@ class OIDataService:
                 "volume": day_bars["Volume"].values,
                 "vwap": day_bars["vwap"].values,
                 "oi": day_bars["oi"].values,
+                "oi_data_mode": oi_mode,
+                "oi_delta_1bar": day_bars["oi_delta_1bar"].values,
+                "oi_delta_3bar": day_bars["oi_delta_3bar"].values,
+                "oi_session": day_bars["oi_session"].values,
                 "oi_change_5m_pct": day_bars["oi_change_5m_pct"].values,
                 "oi_change_session_pct": day_bars["oi_change_session_pct"].values,
             })
@@ -430,21 +449,28 @@ class OIDataService:
                         # Check Fyers depth or Upstox /market/oi for real OI
                         f_depth = self.fetch_fyers_depth_oi(clean_sym, as_of=target_date)
                         if f_depth and f_depth.get("open_interest", 0) > 0:
-                            df["oi"] = f_depth["open_interest"]
+                            df["oi"] = 0
+                            df["oi"].iloc[-1] = f_depth["open_interest"]
                         else:
                             up_oi = self.fetch_upstox_oi_data(clean_sym, as_of=target_date)
                             if up_oi and up_oi.get("total_oi", 0) > 0:
-                                df["oi"] = up_oi["total_oi"]
+                                df["oi"] = 0
+                                df["oi"].iloc[-1] = up_oi["total_oi"]
                             else:
-                                df["oi"] = df["volume"] * 2
+                                df["oi"] = 0
 
                     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s", utc=True).dt.tz_convert("Asia/Kolkata")
                     cum_vol = df["volume"].cumsum()
                     cum_vol_price = (df["close"] * df["volume"]).cumsum()
                     df["vwap"] = cum_vol_price / np.maximum(cum_vol, 1)
 
-                    df["oi_change_5m_pct"] = df["oi"].pct_change().fillna(0.0) * 100.0
-                    df["oi_change_session_pct"] = ((df["oi"] - df["oi"].iloc[0]) / max(df["oi"].iloc[0], 1)) * 100.0
+                    if "oi" in df.columns and df["oi"].max() > 0:
+                        df["oi_change_5m_pct"] = df["oi"].pct_change().fillna(0.0) * 100.0
+                        first_pos = df["oi"][df["oi"] > 0].iloc[0] if (df["oi"] > 0).any() else 1
+                        df["oi_change_session_pct"] = ((df["oi"] - first_pos) / max(first_pos, 1)) * 100.0
+                    else:
+                        df["oi_change_5m_pct"] = 0.0
+                        df["oi_change_session_pct"] = 0.0
                     return df
                 except Exception as c_err:
                     logger.debug(f"Fyers candle fetch error for candidate {fyers_symbol}: {c_err}")
@@ -516,13 +542,27 @@ class OIDataService:
                         cum_vol = day_bars["Volume"].cumsum()
                         cum_vol_price = (day_bars["Close"] * day_bars["Volume"]).cumsum()
                         day_bars["vwap"] = cum_vol_price / np.maximum(cum_vol, 1)
-                        day_bars["oi"] = day_bars.get("OI", day_bars["Volume"] * 2)
-                        day_bars["oi_change_5m_pct"] = day_bars["oi"].pct_change().fillna(0.0) * 100.0
-                        day_bars["oi_change_session_pct"] = ((day_bars["oi"] - day_bars["oi"].iloc[0]) / max(day_bars["oi"].iloc[0], 1)) * 100.0
+                        if "OI" in day_bars.columns and day_bars["OI"].fillna(0).max() > 0:
+                            day_bars["oi"] = day_bars["OI"].fillna(method="ffill").fillna(0)
+                            day_bars["oi_data_mode"] = "DERIVATIVE_OI_AVAILABLE"
+                            day_bars["oi_delta_1bar"] = day_bars["oi"].pct_change().fillna(0.0) * 100.0
+                            day_bars["oi_delta_3bar"] = ((day_bars["oi"] - day_bars["oi"].shift(3)) / day_bars["oi"].shift(3).replace(0, np.nan)).fillna(0.0) * 100.0
+                            first_p = day_bars["oi"][day_bars["oi"] > 0].iloc[0] if (day_bars["oi"] > 0).any() else 1
+                            day_bars["oi_session"] = ((day_bars["oi"] - first_p) / max(first_p, 1)) * 100.0
+                            day_bars["oi_change_5m_pct"] = day_bars["oi_delta_1bar"]
+                            day_bars["oi_change_session_pct"] = day_bars["oi_session"]
+                        else:
+                            day_bars["oi"] = np.nan
+                            day_bars["oi_data_mode"] = "DERIVATIVE_OI_UNAVAILABLE"
+                            day_bars["oi_delta_1bar"] = np.nan
+                            day_bars["oi_delta_3bar"] = np.nan
+                            day_bars["oi_session"] = np.nan
+                            day_bars["oi_change_5m_pct"] = np.nan
+                            day_bars["oi_change_session_pct"] = np.nan
                         day_bars.rename(columns={
                             "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"
                         }, inplace=True)
-                        return day_bars[["timestamp", "open", "high", "low", "close", "volume", "vwap", "oi", "oi_change_5m_pct", "oi_change_session_pct"]]
+                        return day_bars[["timestamp", "open", "high", "low", "close", "volume", "vwap", "oi", "oi_data_mode", "oi_delta_1bar", "oi_delta_3bar", "oi_session", "oi_change_5m_pct", "oi_change_session_pct"]]
         except Exception as e:
             logger.debug(f"Parquet 5m load error for {symbol}: {e}")
 
@@ -549,9 +589,15 @@ class OIDataService:
                     cum_vol = day_bars["Volume"].cumsum()
                     cum_vol_price = (day_bars["Close"] * day_bars["Volume"]).cumsum()
                     day_bars["vwap"] = cum_vol_price / np.maximum(cum_vol, 1)
-                    day_bars["oi"] = day_bars.get("OI", day_bars["Volume"] * 2)
-                    day_bars["oi_change_5m_pct"] = day_bars["oi"].pct_change().fillna(0.0) * 100.0
-                    day_bars["oi_change_session_pct"] = ((day_bars["oi"] - day_bars["oi"].iloc[0]) / max(day_bars["oi"].iloc[0], 1)) * 100.0
+                    if "OI" in day_bars.columns and day_bars["OI"].fillna(0).max() > 0:
+                        day_bars["oi"] = day_bars["OI"].fillna(method="ffill").fillna(0)
+                        day_bars["oi_change_5m_pct"] = day_bars["oi"].pct_change().fillna(0.0) * 100.0
+                        first_p = day_bars["oi"][day_bars["oi"] > 0].iloc[0] if (day_bars["oi"] > 0).any() else 1
+                        day_bars["oi_change_session_pct"] = ((day_bars["oi"] - first_p) / max(first_p, 1)) * 100.0
+                    else:
+                        day_bars["oi"] = 0
+                        day_bars["oi_change_5m_pct"] = 0.0
+                        day_bars["oi_change_session_pct"] = 0.0
                     day_bars.rename(columns={
                         "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"
                     }, inplace=True)

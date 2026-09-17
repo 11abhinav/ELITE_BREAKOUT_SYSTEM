@@ -289,9 +289,9 @@ def measure_pullback(historical_view: pd.DataFrame, impulse: ImpulseLeg, config:
     gates.append(gate("PHASE_B", is_reset, RejectionReason.REJ_STRUCTURE_RESET.name, not is_reset, max_pb_close, impulse.end.price, "<="))
     
     # Pullback structure configuration thresholds (aligned strictly to PULLBACK_CONFIG)
-    min_depth = float(config.get("MIN_DEPTH_PCT", 10.0))
+    min_depth = float(config.get("MIN_DEPTH_PCT", 6.0))
     max_depth = float(config.get("MAX_DEPTH_PCT", 78.6))
-    min_duration = int(config.get("MIN_DURATION", 3))
+    min_duration = int(config.get("MIN_DURATION", 2))
     max_duration = int(config.get("MAX_DURATION", 20))
     max_swings = int(config.get("MAX_INTERNAL_SWINGS", 3))
     max_vol_ratio = float(config.get("MAX_PB_VOLUME_RATIO", 1.25))

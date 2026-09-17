@@ -1,0 +1,3 @@
+3.9.6 (default, Oct 18 2022, 12:41:40) 
+[Clang 14.0.0 (clang-1400.0.29.202)]
+Virtualenv: /Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/venv

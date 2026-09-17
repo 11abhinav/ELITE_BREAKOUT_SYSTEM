@@ -1,0 +1,29 @@
+{
+  "MULTI_TF_CONFLUENCE": {
+    "82": "STARVED",
+    "80": "RESTRICTIVE",
+    "78": "MODERATE",
+    "76": "GOOD",
+    "74": "STRONG",
+    "72": "OPTIMAL (PASS)",
+    "70": "SLIGHT_NOISE"
+  },
+  "PULLBACK_DEPTH_DURATION": {
+    "10%_3b": "STARVED",
+    "8%_3b": "MODERATE",
+    "6%_2b": "OPTIMAL (PASS)"
+  },
+  "EOD_RSI_CEILING": {
+    "92": "CLIFF",
+    "93": "STRICT",
+    "94": "BALANCED",
+    "95": "OPTIMAL (PASS)"
+  },
+  "SHORT_COVERING_EXTENSION": {
+    "2.5%": "BASELINE",
+    "3.0%": "GOOD",
+    "3.5%": "BALANCED",
+    "4.0%": "OPTIMAL (PASS)",
+    "4.5%": "HARD_FLOOR"
+  }
+}

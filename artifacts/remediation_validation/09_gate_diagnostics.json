@@ -1,0 +1,44 @@
+{
+  "SHORT_COVERING_5M": {
+    "entered": 871,
+    "passed": 8,
+    "rejected": 863,
+    "reject_pct": 99.1,
+    "dominant_gate": "OI_CONTRACTION (41%)"
+  },
+  "MULTI_TF_15M_5M": {
+    "entered": 871,
+    "passed": 11,
+    "rejected": 860,
+    "reject_pct": 98.7,
+    "dominant_gate": "LATE_CONFLUENCE (18%)"
+  },
+  "PULLBACK": {
+    "entered": 871,
+    "passed": 7,
+    "rejected": 864,
+    "reject_pct": 99.2,
+    "dominant_gate": "MIN_DEPTH (22%)"
+  },
+  "EOD_BREAKOUT": {
+    "entered": 871,
+    "passed": 14,
+    "rejected": 857,
+    "reject_pct": 98.4,
+    "dominant_gate": "BASE_ATR_LADDER (11%)"
+  },
+  "REVERSAL": {
+    "entered": 871,
+    "passed": 6,
+    "rejected": 865,
+    "reject_pct": 99.3,
+    "dominant_gate": "MACD_STALE (14%)"
+  },
+  "TECHNICAL": {
+    "entered": 871,
+    "passed": 15,
+    "rejected": 856,
+    "reject_pct": 98.3,
+    "dominant_gate": "ROOM_TO_RESISTANCE (8%)"
+  }
+}

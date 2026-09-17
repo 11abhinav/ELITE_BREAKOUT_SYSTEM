@@ -456,10 +456,10 @@ def evaluate_trade_eligibility(
 
     # 1. Late Session (14:15 - 15:00 IST) Quality Floor
     if is_late_session:
-        late_base = config.get("LATE_SESSION_MIN_BASE", 75)
-        late_brk = config.get("LATE_SESSION_MIN_BREAKOUT", 75)
-        late_rvol = config.get("LATE_SESSION_MIN_RVOL", 1.50)
-        late_conf = config.get("LATE_SESSION_MIN_CONFLUENCE", 82)
+        late_base = config.get("LATE_SESSION_MIN_BASE", 70)
+        late_brk = config.get("LATE_SESSION_MIN_BREAKOUT", 70)
+        late_rvol = config.get("LATE_SESSION_MIN_RVOL", 1.35)
+        late_conf = config.get("LATE_SESSION_MIN_CONFLUENCE", 72)
         if base_score < late_base:
             return False, "LATE_SESSION_BASE_FAIL"
         if breakout_score < late_brk:

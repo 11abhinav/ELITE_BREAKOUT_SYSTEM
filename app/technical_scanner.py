@@ -339,7 +339,7 @@ def _detect_undercut_and_rally(df: pd.DataFrame, atr14: Optional[float] = None) 
     res = _detect_shakeout_reclaim(df, atr14)
     if res:
         res_copy = dict(res)
-        res_copy["pattern"] = "UNDERCUT_AND_RALLY"
+        res_copy["pattern"] = "SHAKEOUT_RECLAIM"
         res_copy["description"] = res_copy["description"].replace("Shakeout Reclaim", "Undercut & Rally")
         return res_copy
     return None
@@ -1273,13 +1273,63 @@ def detect_technical_setup(
     else:
         trace["04_PATTERN_VALIDATION"]["MULTI_MONTH_BASE_BREAKOUT"] = {"candidate_found": False, "status": "REJECT"}
 
-    # 4. Undercut & Rally (Structural Reclaim Champion)
+    # 4. Undercut & Rally / Shakeout Reclaim (Structural Reclaim Champion)
     ur = _detect_undercut_and_rally(df_window, atr14)
     if ur:
         candidate_patterns.append(ur)
         trace["04_PATTERN_VALIDATION"]["UNDERCUT_AND_RALLY"] = {"candidate_found": True, "details": ur, "status": "PASS"}
+        trace["04_PATTERN_VALIDATION"]["SHAKEOUT_RECLAIM"] = {"candidate_found": True, "details": ur, "status": "PASS"}
     else:
         trace["04_PATTERN_VALIDATION"]["UNDERCUT_AND_RALLY"] = {"candidate_found": False, "status": "REJECT"}
+        trace["04_PATTERN_VALIDATION"]["SHAKEOUT_RECLAIM"] = {"candidate_found": False, "status": "REJECT"}
+
+    # 5. Double Bottom Breakout
+    db = _detect_double_bottom(df_window, atr14)
+    if db:
+        candidate_patterns.append(db)
+        trace["04_PATTERN_VALIDATION"]["DOUBLE_BOTTOM"] = {"candidate_found": True, "details": db, "status": "PASS"}
+    else:
+        trace["04_PATTERN_VALIDATION"]["DOUBLE_BOTTOM"] = {"candidate_found": False, "status": "REJECT"}
+
+    # 6. V-Reversal Recovery
+    vr = _detect_v_reversal(df_window, atr14)
+    if vr:
+        candidate_patterns.append(vr)
+        trace["04_PATTERN_VALIDATION"]["V_REVERSAL"] = {"candidate_found": True, "details": vr, "status": "PASS"}
+    else:
+        trace["04_PATTERN_VALIDATION"]["V_REVERSAL"] = {"candidate_found": False, "status": "REJECT"}
+
+    # 7. Cup & Handle Breakout
+    ch = _detect_cup_and_handle(df_window, atr14)
+    if ch:
+        candidate_patterns.append(ch)
+        trace["04_PATTERN_VALIDATION"]["CUP_HANDLE"] = {"candidate_found": True, "details": ch, "status": "PASS"}
+    else:
+        trace["04_PATTERN_VALIDATION"]["CUP_HANDLE"] = {"candidate_found": False, "status": "REJECT"}
+
+    # 8. Ascending Triangle Breakout
+    at = _detect_ascending_triangle(df_window, atr14)
+    if at:
+        candidate_patterns.append(at)
+        trace["04_PATTERN_VALIDATION"]["ASCENDING_TRIANGLE"] = {"candidate_found": True, "details": at, "status": "PASS"}
+    else:
+        trace["04_PATTERN_VALIDATION"]["ASCENDING_TRIANGLE"] = {"candidate_found": False, "status": "REJECT"}
+
+    # 9. Bull Pennant Breakout
+    bp = _detect_bull_pennant(df_window, atr14)
+    if bp:
+        candidate_patterns.append(bp)
+        trace["04_PATTERN_VALIDATION"]["BULL_PENNANT"] = {"candidate_found": True, "details": bp, "status": "PASS"}
+    else:
+        trace["04_PATTERN_VALIDATION"]["BULL_PENNANT"] = {"candidate_found": False, "status": "REJECT"}
+
+    # 10. Higher Low Reversal
+    hl = _detect_higher_low_reversal(df_window, atr14)
+    if hl:
+        candidate_patterns.append(hl)
+        trace["04_PATTERN_VALIDATION"]["HIGHER_LOW_REVERSAL"] = {"candidate_found": True, "details": hl, "status": "PASS"}
+    else:
+        trace["04_PATTERN_VALIDATION"]["HIGHER_LOW_REVERSAL"] = {"candidate_found": False, "status": "REJECT"}
 
     trace["03_PATTERN_DISCOVERY"]["detected_patterns"] = [p["pattern"] for p in candidate_patterns]
 
@@ -1295,32 +1345,85 @@ def detect_technical_setup(
         "MULTI_MONTH_BASE_BREAKOUT": 3,
         "UNDERCUT_AND_RALLY": 4,
         "SHAKEOUT_RECLAIM": 4,
+        "DOUBLE_BOTTOM": 5,
+        "CUP_HANDLE": 6,
+        "ASCENDING_TRIANGLE": 7,
+        "BULL_PENNANT": 8,
+        "V_REVERSAL": 9,
+        "HIGHER_LOW_REVERSAL": 10,
     }
 
     candidate_patterns.sort(key=lambda p: (
         PATTERN_PRIORITY_RANK.get(p["pattern"], 99),
         -p.get("pattern_quality_score", 0)
     ))
-    primary = candidate_patterns[0]
-    secondary_pattern_names = [p["pattern"] for p in candidate_patterns[1:]]
 
-    # ── RISK ENGINE & STOP LOSS CALCULATION ─────────────────────────────────────────
-    raw_invalidation = primary.get("invalidation_level", l_today * 0.99)
-    hard_sl_floor = c_today * (1.0 - MAX_SL_PCT)
-    stop_loss = round(max(raw_invalidation, hard_sl_floor), 2)
+    # ── RISK ENGINE & PATTERN SELECTION ─────────────────────────────────────────
+    primary = None
+    stop_loss = 0.0
+    risk_points = 0.0
+    risk_pct = 0.0
+    target_1 = 0.0
+    target_2 = 0.0
+    target_3 = 0.0
+    rr_1 = 0.0
+    target_res = 0.0
+    room_to_resistance_r = 0.0
 
-    risk_points = max(c_today - stop_loss, c_today * MIN_SL_PCT)
-    stop_loss = round(c_today - risk_points, 2)
-    risk_pct = round((risk_points / c_today) * 100.0, 2)
+    # Find the highest-ranked candidate pattern that passes the room-to-resistance gate
+    last_rejected_candidate = None
+    last_rejected_room_r = 0.0
 
-    target_1 = round(c_today + (1.5 * risk_points), 2)
-    target_2 = round(c_today + (3.0 * risk_points), 2)
-    target_3 = round(c_today + (5.0 * risk_points), 2)
-    rr_1 = round((target_1 - c_today) / max(risk_points, 0.01), 2)
+    for cand in candidate_patterns:
+        raw_invalidation = cand.get("invalidation_level", l_today * 0.99)
+        hard_sl_floor = c_today * (1.0 - MAX_SL_PCT)
+        cand_sl = round(max(raw_invalidation, hard_sl_floor), 2)
 
-    target_res = primary.get("target_resistance", c_today * 1.15)
-    room_to_resistance_points = target_res - c_today
-    room_to_resistance_r = room_to_resistance_points / max(risk_points, 0.01)
+        cand_risk_pts = max(c_today - cand_sl, c_today * MIN_SL_PCT)
+        cand_sl = round(c_today - cand_risk_pts, 2)
+        cand_risk_p = round((cand_risk_pts / c_today) * 100.0, 2)
+
+        cand_t1 = round(c_today + (1.5 * cand_risk_pts), 2)
+        cand_t2 = round(c_today + (3.0 * cand_risk_pts), 2)
+        cand_t3 = round(c_today + (5.0 * cand_risk_pts), 2)
+        cand_rr = round((cand_t1 - c_today) / max(cand_risk_pts, 0.01), 2)
+
+        cand_target_res = cand.get("target_resistance", c_today * 1.15)
+        cand_room_pts = cand_target_res - c_today
+        cand_room_r = cand_room_pts / max(cand_risk_pts, 0.01)
+
+        if cand_room_r >= (MIN_ROOM_TO_RESISTANCE_R - 1e-6) or cand_target_res <= c_today:
+            primary = cand
+            stop_loss = cand_sl
+            risk_points = cand_risk_pts
+            risk_pct = cand_risk_p
+            target_1 = cand_t1
+            target_2 = cand_t2
+            target_3 = cand_t3
+            rr_1 = cand_rr
+            target_res = cand_target_res
+            room_to_resistance_r = cand_room_r
+            break
+        else:
+            if last_rejected_candidate is None:
+                last_rejected_candidate = cand
+                last_rejected_room_r = cand_room_r
+
+    if primary is None:
+        rep_cand = last_rejected_candidate or candidate_patterns[0]
+        trace["05_RISK"]["sl"] = cand_sl
+        trace["05_RISK"]["risk_pct"] = cand_risk_p
+        trace["05_RISK"]["target_resistance"] = cand_target_res
+        trace["05_RISK"]["room_r"] = round(last_rejected_room_r, 2)
+        trace["05_RISK"]["status"] = "REJECT"
+        trace["05_RISK"]["rejection_code"] = f"{rep_cand['pattern']}_ROOM_LT_1_5R"
+        trace["FINAL"]["terminal_stage"] = "05_RISK"
+        trace["FINAL"]["terminal_reason"] = f"{rep_cand['pattern']}_ROOM_LT_1_5R"
+        trace["FINAL"]["required"]["min_room_r"] = MIN_ROOM_TO_RESISTANCE_R
+        trace["FINAL"]["observed"]["room_r"] = round(last_rejected_room_r, 2)
+        return _finish(None)
+
+    secondary_pattern_names = [p["pattern"] for p in candidate_patterns if p["pattern"] != primary["pattern"]]
 
     trace["05_RISK"]["sl"] = stop_loss
     trace["05_RISK"]["target_1"] = target_1
@@ -1330,17 +1433,6 @@ def detect_technical_setup(
     trace["05_RISK"]["natural_rr"] = rr_1
     trace["05_RISK"]["target_resistance"] = target_res
     trace["05_RISK"]["room_r"] = round(room_to_resistance_r, 2)
-
-    # Room-to-Resistance Hard Gate (>= 1.5R with epsilon tolerance)
-    if room_to_resistance_r < (MIN_ROOM_TO_RESISTANCE_R - 1e-6) and target_res > c_today:
-        trace["05_RISK"]["status"] = "REJECT"
-        trace["05_RISK"]["rejection_code"] = f"{primary['pattern']}_ROOM_LT_1_5R"
-        trace["FINAL"]["terminal_stage"] = "05_RISK"
-        trace["FINAL"]["terminal_reason"] = f"{primary['pattern']}_ROOM_LT_1_5R"
-        trace["FINAL"]["required"]["min_room_r"] = MIN_ROOM_TO_RESISTANCE_R
-        trace["FINAL"]["observed"]["room_r"] = round(room_to_resistance_r, 2)
-        return _finish(None)
-
     trace["05_RISK"]["status"] = "PASS"
 
     # ── TIER C CONFLUENCE BOOSTERS ──────────────────────────────────────────────────

@@ -1733,12 +1733,16 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                             waterfall_counts["atr_351_450"] = waterfall_counts.get("atr_351_450", 0) + 1
                                             waterfall_counts["recovered_from_cliff"] = waterfall_counts.get("recovered_from_cliff", 0) + 1
                                             base_atr_penalty = 7
+                                        elif base_atr_pct <= 6.0000 + 1e-7:
+                                            waterfall_counts["atr_451_600"] = waterfall_counts.get("atr_451_600", 0) + 1
+                                            waterfall_counts["recovered_from_cliff"] = waterfall_counts.get("recovered_from_cliff", 0) + 1
+                                            base_atr_penalty = 12
                                         else:
-                                            waterfall_counts["atr_gt_450_rejected"] = waterfall_counts.get("atr_gt_450_rejected", 0) + 1
-                                            logger.info(f"🚫 [EOD] {symbol} REJECTED — Base ATR10 ({base_atr_pct:.2f}%) > 4.50% tightness ceiling")
+                                            waterfall_counts["atr_gt_600_rejected"] = waterfall_counts.get("atr_gt_600_rejected", 0) + 1
+                                            logger.info(f"🚫 [EOD] {symbol} REJECTED — Base ATR10 ({base_atr_pct:.2f}%) > 6.00% tightness ceiling")
                                             rejection_counts["base_atr_too_wide"] = rejection_counts.get("base_atr_too_wide", 0) + 1
-                                            terminal_tracker.record_terminal(symbol, "BASE_ATR_TOO_WIDE", f"Base ATR10 {base_atr_pct:.2f}% > 4.50%")
-                                            telemetry_logger.record_reject(symbol, "STRUCTURE", "BASE_ATR_TOO_WIDE", base_atr_pct, 4.50, start_time=_row_start_time)
+                                            terminal_tracker.record_terminal(symbol, "BASE_ATR_TOO_WIDE", f"Base ATR10 {base_atr_pct:.2f}% > 6.00%")
+                                            telemetry_logger.record_reject(symbol, "STRUCTURE", "BASE_ATR_TOO_WIDE", base_atr_pct, 6.00, start_time=_row_start_time)
                                             return
 
                                 # ── v6: OBV STRUCTURE — SCORING PENALTY (not hard reject) ──────────
@@ -1813,13 +1817,12 @@ def _start_wrapper(force: bool = False, session=None, run_ctx=None, used_fallbac
                                     total_deductions = _bucket_candle + _bucket_gap + _bucket_obv + _bucket_misc + base_atr_penalty
 
                                     # [FIX: TRIPLE_FAULT_VETO] If all three primary quality dimensions
-                                    # simultaneously show serious weakness, reject regardless of score.
-                                    # This catches setups that individually scrape by but collectively signal poor quality.
-                                    _CANDLE_FAULT_THRESHOLD = 10  # candle bucket >= 10 = seriously bad candle
-                                    _GAP_FAULT_THRESHOLD    = 10  # gap bucket >= 10 = oversized gap
+                                    # simultaneously show severe weakness, reject if post-deduction score < 75.
+                                    _CANDLE_FAULT_THRESHOLD = 15  # candle bucket >= 15 = severely bad candle
+                                    _GAP_FAULT_THRESHOLD    = 15  # gap bucket >= 15 = oversized gap
                                     if (_bucket_candle >= _CANDLE_FAULT_THRESHOLD and
                                         _bucket_gap    >= _GAP_FAULT_THRESHOLD and
-                                        _bucket_obv    > 0):
+                                        _bucket_obv    > 0 and (score - total_deductions) < 75):
                                         logger.info(f"🚫 [EOD] {symbol} REJECTED — TRIPLE_FAULT_VETO (candle:{_bucket_candle} gap:{_bucket_gap} obv:{_bucket_obv})")
                                         with _batch_lock:
                                             rejection_counts["triple_fault_reject"] = rejection_counts.get("triple_fault_reject", 0) + 1
