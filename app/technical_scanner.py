@@ -1346,11 +1346,11 @@ def detect_technical_setup(
         "UNDERCUT_AND_RALLY": 4,
         "SHAKEOUT_RECLAIM": 4,
         "DOUBLE_BOTTOM": 5,
-        "CUP_HANDLE": 6,
-        "ASCENDING_TRIANGLE": 7,
+        "ASCENDING_TRIANGLE": 6,
+        "CUP_HANDLE": 7,
         "BULL_PENNANT": 8,
-        "V_REVERSAL": 9,
-        "HIGHER_LOW_REVERSAL": 10,
+        "HIGHER_LOW_REVERSAL": 9,
+        "V_REVERSAL": 10,
     }
 
     candidate_patterns.sort(key=lambda p: (
