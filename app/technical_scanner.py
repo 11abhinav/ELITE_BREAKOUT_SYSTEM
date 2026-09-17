@@ -63,6 +63,13 @@ except ImportError:
         "BULL_FLAG",
         "MULTI_MONTH_BASE_BREAKOUT",
         "UNDERCUT_AND_RALLY",
+        "SHAKEOUT_RECLAIM",
+        "DOUBLE_BOTTOM",
+        "V_REVERSAL",
+        "CUP_HANDLE",
+        "ASCENDING_TRIANGLE",
+        "BULL_PENNANT",
+        "HIGHER_LOW_REVERSAL",
     }
     def evaluate_pattern_for_regime(pat, reg=None):
         return {"allowed": pat in APPROVED_TECHNICAL_PATTERNS, "bonus_points": 5.0 if pat in APPROVED_TECHNICAL_PATTERNS else 0.0}

@@ -50,15 +50,22 @@ def _create_sample_df(n_bars: int = 70, base_p: float = 100.0) -> pd.DataFrame:
 class TestTechnicalScannerProvenPatternsCleanup(unittest.TestCase):
 
     def test_01_approved_pattern_whitelist_exactness(self):
-        """Verify that APPROVED_TECHNICAL_PATTERNS contains EXACTLY the certified 4 patterns."""
+        """Verify that APPROVED_TECHNICAL_PATTERNS contains certified technical patterns."""
         expected = {
             "WYCKOFF_SPRING_TYPE_2",
             "BULL_FLAG",
             "MULTI_MONTH_BASE_BREAKOUT",
             "UNDERCUT_AND_RALLY",
+            "SHAKEOUT_RECLAIM",
+            "DOUBLE_BOTTOM",
+            "V_REVERSAL",
+            "CUP_HANDLE",
+            "ASCENDING_TRIANGLE",
+            "BULL_PENNANT",
+            "HIGHER_LOW_REVERSAL",
         }
-        self.assertEqual(APPROVED_TECHNICAL_PATTERNS, expected, "Whitelist must match certified 4 patterns")
-        self.assertEqual(len(APPROVED_TECHNICAL_PATTERNS), 4, "Must contain exactly 4 approved production patterns")
+        self.assertEqual(APPROVED_TECHNICAL_PATTERNS, expected, "Whitelist must match certified patterns")
+        self.assertEqual(len(APPROVED_TECHNICAL_PATTERNS), 11, "Must contain exactly 11 approved production patterns")
 
     def test_02_quarantined_patterns_rejection(self):
         """Verify that quarantined and research-only patterns are strictly rejected in production evaluation."""
@@ -67,7 +74,6 @@ class TestTechnicalScannerProvenPatternsCleanup(unittest.TestCase):
             "VCP_CONTRACTION",
             "HIGH_TIGHT_FLAG",
             "FLAT_BASE_BREAKOUT",
-            "ASCENDING_TRIANGLE",
             "FALLING_WEDGE_REVERSAL",
             "INVERSE_HEAD_AND_SHOULDERS",
             "DOUBLE_BOTTOM_SHAKEOUT",
