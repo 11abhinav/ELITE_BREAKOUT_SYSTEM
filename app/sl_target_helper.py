@@ -1117,6 +1117,7 @@ def _compute_multi_tf_v2(entry: float, eff_atr: float, ticker: pd.DataFrame = No
     t3 = round(entry + (t1_dist * 2.618), 2)
 
     # 4. Validation Gate via TradeStructureValidator
+    min_risk_pct = kwargs.get("min_risk_pct", 0.5)
     validation = TradeStructureValidator.validate(
         entry=entry,
         stop_loss=sl,
@@ -1125,7 +1126,7 @@ def _compute_multi_tf_v2(entry: float, eff_atr: float, ticker: pd.DataFrame = No
         target_3=t3,
         min_rr=1.5,
         direction="LONG",
-        min_risk_pct=1.2,
+        min_risk_pct=min_risk_pct,
         max_rr=8.0,
         eff_atr=eff_atr,
         max_target_atr_mult=10.0
@@ -1270,7 +1271,7 @@ def _compute_multi_tf(entry: float, eff_atr: float, atr_pct: float, adx: float, 
         target_4=t4,
         min_rr=min_rr,
         direction="LONG",
-        min_risk_pct=1.2,
+        min_risk_pct=kwargs.get("min_risk_pct", 0.5),
         max_rr=8.0,
         eff_atr=eff_atr,
         max_target_atr_mult=10.0

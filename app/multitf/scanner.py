@@ -1286,11 +1286,14 @@ def _process_symbol(
             )
 
             rr_actual = float(sl_target.get("rr_ratio", 0.0))
-            if sl_target.get("is_rejected") or rr_actual < config.get("MIN_RR_RATIO", 1.5):
+            is_sl_rejected = bool(sl_target.get("is_rejected"))
+            min_rr_threshold = float(config.get("MIN_RR_RATIO", 1.5))
+            if is_sl_rejected or rr_actual < min_rr_threshold:
                 if funnel_counters is not None:
                     funnel_counters["RR_T1_FAIL"] += 1
-                logger.info("🚫 [MULTI_TF] %s REJECTED — R:R gate failed (%.2f < %.2f). NOT SAVING TO ALERTS.",
-                            symbol, rr_actual, config.get("MIN_RR_RATIO", 1.5))
+                rej_reason = sl_target.get("rejection_reason") or f"R:R ({rr_actual:.2f} < {min_rr_threshold:.2f})"
+                logger.info("🚫 [MULTI_TF] %s REJECTED — Trade structure / R:R gate failed: %s. NOT SAVING TO ALERTS.",
+                            symbol, rej_reason)
                 invalidate_record(state_record, ist_now, "NOT_TRADEABLE")
                 updates["invalidated_at"] = ist_now
                 updates["invalidation_reason"] = "NOT_TRADEABLE"
@@ -1301,9 +1304,9 @@ def _process_symbol(
                         symbol=symbol,
                         scanner="MULTI_TF",
                         breakout_type="MULTI_TF",
-                        gate_name="rr_ratio_gate",
+                        gate_name=sl_target.get("rejection_code") or "rr_ratio_gate",
                         observed_value=rr_actual,
-                        threshold_value=float(config.get("MIN_RR_RATIO", 1.5)),
+                        threshold_value=min_rr_threshold,
                         score=int(confluence.total_score),
                         entry_price=float(sl_target.get("entry_price") or 0.0),
                         stop_loss=float(sl_target.get("stop_loss") or 0.0),
@@ -1526,7 +1529,8 @@ def _process_symbol(
             else:
                 if funnel_counters is not None:
                     funnel_counters["PREBREAK_RR_FAIL"] += 1
-                logger.info("🚫 [MULTI_TF] %s — Pre-breakout ignition ready but projected R:R (%.2f) < 1.5R", symbol, proj_rr)
+                rej_msg = proj_sl_target.get("rejection_reason") or f"projected R:R ({proj_rr:.2f} < 1.5R)"
+                logger.info("🚫 [MULTI_TF] %s — Pre-breakout ignition ready but rejected: %s", symbol, rej_msg)
 
         elif pressure.is_attempt and state_record.mtf_substate == MtfSubstate.WATCHING:
             if funnel_counters is not None:
