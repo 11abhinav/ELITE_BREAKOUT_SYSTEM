@@ -7,10 +7,17 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 
-from reversal_scanner import _evaluate_candidate, REVERSAL_MIN_BARS
-from pullback_pipeline import detect_pullback_setup
-from multibagger import StockPriceData, entry_confirmed
-from technical_scanner import detect_technical_setup
+try:
+    from app.reversal_scanner import _evaluate_candidate, REVERSAL_MIN_BARS
+    from app.pullback_pipeline import detect_pullback_setup
+    from app.multibagger import StockPriceData, entry_confirmed
+    from app.technical_scanner import detect_technical_setup
+except ImportError:
+    from reversal_scanner import _evaluate_candidate, REVERSAL_MIN_BARS
+    from pullback_pipeline import detect_pullback_setup
+    from multibagger import StockPriceData, entry_confirmed
+    from technical_scanner import detect_technical_setup
+
 
 
 def _generate_candles(n_bars: int = 50, start_price: float = 100.0) -> pd.DataFrame:

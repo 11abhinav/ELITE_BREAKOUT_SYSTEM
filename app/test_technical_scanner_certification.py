@@ -9,24 +9,45 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from technical_scanner import (
-    detect_technical_setup,
-    _detect_bull_flag,
-    _detect_shakeout_reclaim,
-    _detect_double_bottom,
-    _detect_v_reversal,
-    _detect_cup_and_handle,
-    _detect_ascending_triangle,
-    _detect_bull_pennant,
-    _detect_higher_low_reversal,
-    _coalesce_indicator_val,
-    _coalesce_indicator_with_source,
-    _coalesce_indicator_series,
-    MIN_RVOL_HARD_GATE,
-    MIN_CLV_HARD_GATE,
-    MAX_UPPER_WICK_PCT,
-    MIN_ROOM_TO_RESISTANCE_R,
-)
+try:
+    from app.technical_scanner import (
+        detect_technical_setup,
+        _detect_bull_flag,
+        _detect_shakeout_reclaim,
+        _detect_double_bottom,
+        _detect_v_reversal,
+        _detect_cup_and_handle,
+        _detect_ascending_triangle,
+        _detect_bull_pennant,
+        _detect_higher_low_reversal,
+        _coalesce_indicator_val,
+        _coalesce_indicator_with_source,
+        _coalesce_indicator_series,
+        MIN_RVOL_HARD_GATE,
+        MIN_CLV_HARD_GATE,
+        MAX_UPPER_WICK_PCT,
+        MIN_ROOM_TO_RESISTANCE_R,
+    )
+except ImportError:
+    from technical_scanner import (
+        detect_technical_setup,
+        _detect_bull_flag,
+        _detect_shakeout_reclaim,
+        _detect_double_bottom,
+        _detect_v_reversal,
+        _detect_cup_and_handle,
+        _detect_ascending_triangle,
+        _detect_bull_pennant,
+        _detect_higher_low_reversal,
+        _coalesce_indicator_val,
+        _coalesce_indicator_with_source,
+        _coalesce_indicator_series,
+        MIN_RVOL_HARD_GATE,
+        MIN_CLV_HARD_GATE,
+        MAX_UPPER_WICK_PCT,
+        MIN_ROOM_TO_RESISTANCE_R,
+    )
+
 
 
 def _generate_synthetic_df(n_bars: int = 60, base_price: float = 100.0) -> pd.DataFrame:
