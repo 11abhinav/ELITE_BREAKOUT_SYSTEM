@@ -75,6 +75,24 @@ import pandas as pd
 
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
+import psycopg2.extensions
+import numpy as np
+
+# Register numpy scalar type adapters for psycopg2
+try:
+    psycopg2.extensions.register_adapter(np.int64, psycopg2.extensions.AsIs)
+    psycopg2.extensions.register_adapter(np.int32, psycopg2.extensions.AsIs)
+    psycopg2.extensions.register_adapter(np.int16, psycopg2.extensions.AsIs)
+    psycopg2.extensions.register_adapter(np.int8, psycopg2.extensions.AsIs)
+    psycopg2.extensions.register_adapter(np.uint64, psycopg2.extensions.AsIs)
+    psycopg2.extensions.register_adapter(np.uint32, psycopg2.extensions.AsIs)
+    psycopg2.extensions.register_adapter(np.uint16, psycopg2.extensions.AsIs)
+    psycopg2.extensions.register_adapter(np.uint8, psycopg2.extensions.AsIs)
+    psycopg2.extensions.register_adapter(np.float64, psycopg2.extensions.Float)
+    psycopg2.extensions.register_adapter(np.float32, psycopg2.extensions.Float)
+    psycopg2.extensions.register_adapter(np.bool_, psycopg2.extensions.Boolean)
+except Exception:
+    pass
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")

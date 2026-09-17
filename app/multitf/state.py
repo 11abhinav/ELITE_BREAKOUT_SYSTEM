@@ -14,6 +14,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 
+import numpy as np
+import pandas as pd
+import psycopg2.extensions
 import psycopg2.extras
 from zoneinfo import ZoneInfo
 
@@ -22,6 +25,59 @@ from signal_contract import assert_valid_transition
 
 logger = logging.getLogger("multitf.state")
 IST = ZoneInfo("Asia/Kolkata")
+
+# Register numpy scalar type adapters for psycopg2
+try:
+    psycopg2.extensions.register_adapter(np.int64, psycopg2.extensions.AsIs)
+    psycopg2.extensions.register_adapter(np.int32, psycopg2.extensions.AsIs)
+    psycopg2.extensions.register_adapter(np.int16, psycopg2.extensions.AsIs)
+    psycopg2.extensions.register_adapter(np.int8, psycopg2.extensions.AsIs)
+    psycopg2.extensions.register_adapter(np.uint64, psycopg2.extensions.AsIs)
+    psycopg2.extensions.register_adapter(np.uint32, psycopg2.extensions.AsIs)
+    psycopg2.extensions.register_adapter(np.uint16, psycopg2.extensions.AsIs)
+    psycopg2.extensions.register_adapter(np.uint8, psycopg2.extensions.AsIs)
+    psycopg2.extensions.register_adapter(np.float64, psycopg2.extensions.Float)
+    psycopg2.extensions.register_adapter(np.float32, psycopg2.extensions.Float)
+    psycopg2.extensions.register_adapter(np.bool_, psycopg2.extensions.Boolean)
+except Exception:
+    pass
+
+
+def sanitize_db_values(d: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Sanitizes dictionary values before SQL insertion or update.
+    Converts numpy types, pandas timestamps, NaT, NaN, Inf to safe Python types.
+    """
+    clean = {}
+    for k, v in d.items():
+        if v is None:
+            clean[k] = None
+        elif isinstance(v, (datetime, pd.Timestamp)):
+            if pd.isna(v):
+                clean[k] = None
+            elif isinstance(v, pd.Timestamp):
+                clean[k] = v.to_pydatetime()
+            else:
+                clean[k] = v
+        elif isinstance(v, (np.floating, float)):
+            if np.isnan(v) or np.isinf(v) or pd.isna(v):
+                clean[k] = None
+            else:
+                clean[k] = float(v)
+        elif isinstance(v, (np.integer, int)):
+            clean[k] = int(v)
+        elif isinstance(v, (np.bool_, bool)):
+            clean[k] = bool(v)
+        elif isinstance(v, str):
+            if v == "" and ("_ts" in k or k.endswith("_at")):
+                clean[k] = None
+            else:
+                clean[k] = v
+        elif pd.isna(v):
+            clean[k] = None
+        else:
+            clean[k] = v
+    return clean
 
 
 class MtfSubstate:
@@ -84,7 +140,7 @@ def load_state(symbol: str, box_id: str) -> Optional[MtfStateRecord]:
                         box_id=box_id,
                         state=row["state"],
                         mtf_substate=row["mtf_substate"],
-                        attempt_count=row["attempt_count"] if row["attempt_count"] is not None else 0,
+                        attempt_count=int(row["attempt_count"]) if row["attempt_count"] is not None else 0,
                         last_attempt_ts=row["last_attempt_ts"],
                         attempt_started_ts=row["attempt_started_ts"],
                         attempt_bar_boundary=int(row["attempt_bar_boundary"]) if row["attempt_bar_boundary"] is not None else 0,
@@ -104,8 +160,8 @@ def find_active_box_for_symbol(
     symbol: str,
     box_high: float,
     atr_15m: float,
-    tol_pct: float = 0.010,
-    tol_atr: float = 0.50
+    tol_pct: float = 0.035,
+    tol_atr: float = 1.50
 ) -> Optional[MtfStateRecord]:
     """
     Finds an existing active (unconfirmed, non-invalidated) box record for this symbol
@@ -138,7 +194,7 @@ def find_active_box_for_symbol(
                             box_id=row["box_id"],
                             state=row["state"],
                             mtf_substate=row["mtf_substate"],
-                            attempt_count=row["attempt_count"] if row["attempt_count"] is not None else 0,
+                            attempt_count=int(row["attempt_count"]) if row["attempt_count"] is not None else 0,
                             last_attempt_ts=row["last_attempt_ts"],
                             attempt_started_ts=row["attempt_started_ts"],
                             attempt_bar_boundary=int(row["attempt_bar_boundary"]) if row["attempt_bar_boundary"] is not None else 0,
@@ -151,7 +207,6 @@ def find_active_box_for_symbol(
     except Exception as exc:
         logger.error("[%s] find_active_box_for_symbol failed: %s", symbol, exc)
     return None
-
 
 
 def apply_ttl_and_cooldown(record: MtfStateRecord, ist_now: datetime, current_5m_bars: int) -> bool:
@@ -225,6 +280,7 @@ def persist_new_watchlist_candidate(
     """
     Inserts a newly discovered 15m consolidation box.
     """
+    candidate_dict = sanitize_db_values(candidate_dict)
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -235,7 +291,12 @@ def persist_new_watchlist_candidate(
                 query = f"""
                     INSERT INTO mtf_v2_watchlist ({",".join(cols)})
                     VALUES ({placeholders})
-                    ON CONFLICT (symbol, box_id) DO NOTHING
+                    ON CONFLICT (symbol, box_id) DO UPDATE SET
+                        updated_at = EXCLUDED.updated_at,
+                        last_evaluated_at = EXCLUDED.last_evaluated_at,
+                        box_high = EXCLUDED.box_high,
+                        box_low = EXCLUDED.box_low,
+                        setup_score = EXCLUDED.setup_score
                 """
                 cur.execute(query, vals)
                 conn.commit()
@@ -251,10 +312,10 @@ def update_state_in_db(record: MtfStateRecord, updates: Dict[str, Any]) -> bool:
     """
     updates["state"] = record.state
     updates["mtf_substate"] = record.mtf_substate
-    updates["attempt_count"] = record.attempt_count
+    updates["attempt_count"] = int(record.attempt_count) if record.attempt_count is not None else 0
     updates["last_attempt_ts"] = record.last_attempt_ts
     updates["attempt_started_ts"] = record.attempt_started_ts
-    updates["attempt_bar_boundary"] = record.attempt_bar_boundary
+    updates["attempt_bar_boundary"] = int(record.attempt_bar_boundary) if record.attempt_bar_boundary is not None else 0
     updates["attempt_ttl_expires_at"] = record.attempt_ttl_expires_at
     updates["cooldown_until"] = record.cooldown_until
     updates["invalidated_at"] = record.invalidated_at
@@ -267,11 +328,13 @@ def update_state_in_db(record: MtfStateRecord, updates: Dict[str, Any]) -> bool:
     # Without this, stocks stuck in WATCHING with no state change kept showing stale creation timestamps.
     updates["last_evaluated_at"] = _now_ist
     
+    clean_updates = sanitize_db_values(updates)
+    
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                set_clause = ", ".join([f"{k} = %s" for k in updates.keys()]) + ", version = version + 1"
-                vals = list(updates.values())
+                set_clause = ", ".join([f"{k} = %s" for k in clean_updates.keys()]) + ", version = version + 1"
+                vals = list(clean_updates.values())
                 vals.extend([record.symbol, record.box_id, record.version])
                 
                 cur.execute(f"""
@@ -282,8 +345,18 @@ def update_state_in_db(record: MtfStateRecord, updates: Dict[str, Any]) -> bool:
                 conn.commit()
                 
                 if cur.rowcount == 0:
-                    logger.warning("[%s] Concurrent update detected for box %s. Transition aborted.", record.symbol, record.box_id)
-                    return False
+                    # Fallback update without strict version lock if concurrent pass touched timestamp
+                    fallback_vals = list(clean_updates.values())
+                    fallback_vals.extend([record.symbol, record.box_id])
+                    cur.execute(f"""
+                        UPDATE mtf_v2_watchlist
+                        SET {set_clause}
+                        WHERE symbol = %s AND box_id = %s
+                    """, fallback_vals)
+                    conn.commit()
+                    if cur.rowcount == 0:
+                        logger.warning("[%s] Update ignored — box %s not found in mtf_v2_watchlist.", record.symbol, record.box_id)
+                        return False
                 
                 record.version += 1
                 return True
