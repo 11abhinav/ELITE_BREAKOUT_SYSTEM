@@ -360,7 +360,6 @@ class ShortCoveringEarlyIgnitionScanner:
                 run_id=run_ctx.run_id if run_ctx else None
             )
             return new_alerts
-            return new_alerts
         except Exception as exc:
             dur = round(time.monotonic() - _scan_start, 2)
             logger.exception("❌ [SHORT_COVERING_5M] Cycle failed: %s", exc)
@@ -761,14 +760,6 @@ class ShortCoveringEarlyIgnitionScanner:
                         );
                         CREATE INDEX IF NOT EXISTS idx_sc_alerts_time ON short_covering_alerts(alert_time);
                         CREATE INDEX IF NOT EXISTS idx_sc_alerts_symbol ON short_covering_alerts(symbol);
-                        ALTER TABLE short_covering_alerts ALTER COLUMN ignition_price TYPE DOUBLE PRECISION;
-                        ALTER TABLE short_covering_alerts ALTER COLUMN vwap TYPE DOUBLE PRECISION;
-                        ALTER TABLE short_covering_alerts ALTER COLUMN stop_loss TYPE DOUBLE PRECISION;
-                        ALTER TABLE short_covering_alerts ALTER COLUMN initial_target TYPE DOUBLE PRECISION;
-                        ALTER TABLE short_covering_alerts ALTER COLUMN risk_reward_ratio TYPE DOUBLE PRECISION;
-                        ALTER TABLE short_covering_alerts ALTER COLUMN excess_oi_contraction TYPE DOUBLE PRECISION;
-                        ALTER TABLE short_covering_alerts ALTER COLUMN volume_surge_ratio TYPE DOUBLE PRECISION;
-                        ALTER TABLE short_covering_alerts ALTER COLUMN ignition_score TYPE DOUBLE PRECISION;
                     """)
                     import json
                     for a in alerts:
