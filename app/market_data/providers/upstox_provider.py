@@ -113,7 +113,18 @@ class UpstoxProvider(ProviderInterface):
         """Build a normalized OHLCV DataFrame from Upstox candle list.
         Daily intervals emit a 'Date' column; intraday emits 'Datetime'.
         """
-        df = pd.DataFrame(candles, columns=["Datetime", "Open", "High", "Low", "Close", "Volume", "OI"])
+        if not candles:
+            return pd.DataFrame()
+            
+        width = len(candles[0])
+        if width >= 7:
+            df = pd.DataFrame(candles, columns=["Datetime", "Open", "High", "Low", "Close", "Volume", "OI"])
+            df["OI"] = pd.to_numeric(df["OI"], errors="coerce").fillna(0.0)
+        elif width == 6:
+            df = pd.DataFrame(candles, columns=["Datetime", "Open", "High", "Low", "Close", "Volume"])
+        else:
+            raise ValueError(f"[UPSTOX PARSER] Unexpected candle width: {width}")
+
         df["Datetime"] = pd.to_datetime(df["Datetime"], errors='coerce', utc=True)
         
         # [VERSION: UPSTOX_TZ_FIX_v1.0] Convert UTC to IST before normalizing dates.
