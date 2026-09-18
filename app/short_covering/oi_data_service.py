@@ -498,18 +498,15 @@ class OIDataService:
                         df = pd.DataFrame(candles, columns=["timestamp", "open", "high", "low", "close", "volume", "oi"][:len(candles[0])])
                     else:
                         df = pd.DataFrame(candles, columns=["timestamp", "open", "high", "low", "close", "volume"])
-                        # Check Fyers depth or Upstox /market/oi for real OI
+                        df["oi"] = 0
+                        last_idx = df.index[-1]
                         f_depth = self.fetch_fyers_depth_oi(clean_sym, as_of=target_date)
                         if f_depth and f_depth.get("open_interest", 0) > 0:
-                            df["oi"] = 0
-                            df["oi"].iloc[-1] = f_depth["open_interest"]
+                            df.loc[last_idx, "oi"] = f_depth["open_interest"]
                         else:
                             up_oi = self.fetch_upstox_oi_data(clean_sym, as_of=target_date)
                             if up_oi and up_oi.get("total_oi", 0) > 0:
-                                df["oi"] = 0
-                                df["oi"].iloc[-1] = up_oi["total_oi"]
-                            else:
-                                df["oi"] = 0
+                                df.loc[last_idx, "oi"] = up_oi["total_oi"]
 
                     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="s", utc=True).dt.tz_convert("Asia/Kolkata")
                     cum_vol = df["volume"].cumsum()
