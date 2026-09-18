@@ -60,16 +60,6 @@ try:
 except ImportError:
     APPROVED_TECHNICAL_PATTERNS = {
         "WYCKOFF_SPRING_TYPE_2",
-        "BULL_FLAG",
-        "MULTI_MONTH_BASE_BREAKOUT",
-        "UNDERCUT_AND_RALLY",
-        "SHAKEOUT_RECLAIM",
-        "DOUBLE_BOTTOM",
-        "V_REVERSAL",
-        "CUP_HANDLE",
-        "ASCENDING_TRIANGLE",
-        "BULL_PENNANT",
-        "HIGHER_LOW_REVERSAL",
     }
     def evaluate_pattern_for_regime(pat, reg=None):
         return {"allowed": pat in APPROVED_TECHNICAL_PATTERNS, "bonus_points": 5.0 if pat in APPROVED_TECHNICAL_PATTERNS else 0.0}
@@ -1766,7 +1756,12 @@ def run_technical_scan(
                     funnel_stats["score_pass"] += 1
 
                 if res and res.get("score", 0) >= 70:
-                    qualified_candidates.append(res)
+                    pat_detected = res.get("primary_pattern")
+                    if pat_detected in APPROVED_TECHNICAL_PATTERNS:
+                        qualified_candidates.append(res)
+                    else:
+                        logger.debug(f"🛑 [UNAPPROVED PATTERN DROPPED] {symbol} {pat_detected} not in APPROVED_TECHNICAL_PATTERNS")
+                        rejection_counts[f"UNAPPROVED_PATTERN_{pat_detected}"] = rejection_counts.get(f"UNAPPROVED_PATTERN_{pat_detected}", 0) + 1
                 else:
                     term_reason = tr["FINAL"].get("terminal_reason", "UNKNOWN_REJECTION")
                     rejection_counts[term_reason] = rejection_counts.get(term_reason, 0) + 1
@@ -1793,7 +1788,7 @@ def run_technical_scan(
             desc = cand["description"]
 
             # HARD PRODUCTION INVARIANT: Only Approved Proven Patterns May Generate Live Alerts
-            if pat not in APPROVED_TECHNICAL_PATTERNS and pat != "SHAKEOUT_RECLAIM":
+            if pat not in APPROVED_TECHNICAL_PATTERNS:
                 logger.error(f"🛑 [INVARIANT VIOLATION BLOCKED] Attempted to dispatch unapproved pattern alert: {pat} for {sym}")
                 continue
 
