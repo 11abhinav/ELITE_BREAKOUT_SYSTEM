@@ -440,6 +440,8 @@ class OIDataService:
                     candles = response.get("candles", [])
                     if not candles:
                         continue
+                        
+                    logger.info(f"🔍 [FORENSIC FYERS] {fyers_symbol} | First candle length: {len(candles[0])} | Sample: {candles[0]}")
 
                     # 7 columns if oi_flag=1: [timestamp, open, high, low, close, volume, oi]
                     if len(candles[0]) >= 7:
