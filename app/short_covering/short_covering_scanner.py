@@ -124,6 +124,22 @@ class ShortCoveringEarlyIgnitionScanner:
             self._last_alert_time.clear()
             self._last_scan_date = today
 
+        # [FIX: NON_MARKET_HOURS_DATE] Never probe live data using a weekend/holiday date.
+        # Use the last completed trading session (≥15:30 IST on a trading day = today,
+        # otherwise previous trading day). This prevents HTTP 400 on Upstox/Fyers when
+        # a manual trigger fires on a Saturday at midnight or pre-market on a weekday.
+        _MARKET_CLOSE_TIME = dt_time(15, 30)
+        if is_trading_day(today) and current_time.time() >= _MARKET_CLOSE_TIME:
+            scan_target_date = today
+        else:
+            scan_target_date = get_previous_trading_date(today)
+        if scan_target_date != today:
+            logger.info(
+                "📅 [SHORT_COVERING_5M] Non-market hours — using last trading session "
+                "(%s) instead of today (%s) for data probes.",
+                scan_target_date, today,
+            )
+
         logger.info("[SHORT_COVERING_5M] Acquiring lock: short_covering_5m_lock")
         if not _scan_lock_5m.acquire(blocking=False):
             logger.warning("🛑 [SHORT_COVERING_5M] Lock 'short_covering_5m_lock' held by another instance. Skipping duplicate cycle.")
@@ -164,7 +180,7 @@ class ShortCoveringEarlyIgnitionScanner:
                         except ImportError:
                             from short_covering.sc_data_health import sc_data_health_gate, SCDataHealth
 
-                        _data_health = sc_data_health_gate.assess(target_date=today)
+                        _data_health = sc_data_health_gate.assess(target_date=scan_target_date)
 
                         if _data_health.is_blocked():
                             _blocked_msg = (
@@ -309,7 +325,7 @@ class ShortCoveringEarlyIgnitionScanner:
             for symbol in symbols_to_scan:
                 try:
                     _t0_sym_5m = time.monotonic()
-                    df_5m = oi_data_service.get_intraday_5m_data(symbol, current_time.date())
+                    df_5m = oi_data_service.get_intraday_5m_data(symbol, scan_target_date)
                     _rows_5m = len(df_5m) if df_5m is not None else 0
                     logger.debug(
                         "[SC_5M] ── %s ── data_fetch → %d rows%s",
@@ -526,7 +542,11 @@ class ShortCoveringEarlyIgnitionScanner:
         """
         Evaluates 5m bar, dynamic evidence-based state progression, and tiered structural context.
         """
-        df_5m = oi_data_service.get_intraday_5m_data(symbol, current_time.date())
+        # [FIX: NON_MARKET_HOURS_DATE] Use last completed trading session, not raw current_time.date()
+        _t = current_time.time()
+        _d = current_time.date()
+        _fetch_date = _d if (is_trading_day(_d) and _t >= dt_time(15, 30)) else get_previous_trading_date(_d)
+        df_5m = oi_data_service.get_intraday_5m_data(symbol, _fetch_date)
         _rows_eval = len(df_5m) if df_5m is not None else 0
         logger.debug("[SC_5M] %s | [step 1] data_fetch → %d bars", symbol, _rows_eval)
         if df_5m is None or len(df_5m) < 2:
@@ -929,7 +949,10 @@ class ShortCoveringEarlyIgnitionScanner:
     def _get_index_5m_oi_delta(self, current_time: datetime) -> float:
         """Fetches NIFTY 5m futures OI change percentage."""
         try:
-            df_nifty = oi_data_service.get_intraday_5m_data("NIFTY", current_time.date())
+            _d = current_time.date()
+            _t = current_time.time()
+            _fetch_date = _d if (is_trading_day(_d) and _t >= dt_time(15, 30)) else get_previous_trading_date(_d)
+            df_nifty = oi_data_service.get_intraday_5m_data("NIFTY", _fetch_date)
             if df_nifty is not None and not df_nifty.empty:
                 past = df_nifty[df_nifty["timestamp"] <= current_time]
                 if not past.empty:
