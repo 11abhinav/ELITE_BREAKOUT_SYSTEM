@@ -744,7 +744,7 @@ class ProviderHealthCheck:
 
         # ── Aggregate ─────────────────────────────────────────────────────────
         _CRITICAL = {"token_present", "client_available", "api_request",
-                     "oi_valid", "oi_data_service_e2e"}
+                     "oi_data_service_e2e"}
         critical_all_pass = all(s.passed for s in steps if s.name in _CRITICAL)
         if critical_all_pass:
             result.status = (ProviderStatus.GREEN
@@ -836,8 +836,8 @@ class ProviderHealthCheck:
             range_from = datetime.combine(target_date, datetime.min.time()).replace(tzinfo=IST)
             range_to   = datetime.combine(target_date, datetime.max.time()).replace(tzinfo=IST)
             
-            # Use near_sym (futures symbol) so Upstox returns OI data instead of cash equity data
-            norm       = upstox.fetch_ohlcv(near_sym, "5m", range_from, range_to)
+            # Use base symbol (equity) for Upstox historical candles; OI validation relies on oi_data_service_e2e
+            norm       = upstox.fetch_ohlcv(symbol, "5m", range_from, range_to)
         except Exception as e:
             steps.append(ProbeStep("api_request", False, str(e), (time.time() - t) * 1000))
             result.status = ProviderStatus.RED
@@ -894,7 +894,7 @@ class ProviderHealthCheck:
         steps.append(self._check_oi_data_service(symbol, target_date))
 
         # ── Aggregate ─────────────────────────────────────────────────────────
-        _CRITICAL = {"token_present", "api_request", "oi_valid", "oi_data_service_e2e"}
+        _CRITICAL = {"token_present", "api_request", "oi_data_service_e2e"}
         critical_all_pass = all(s.passed for s in steps if s.name in _CRITICAL)
         if critical_all_pass:
             result.status = (ProviderStatus.GREEN
