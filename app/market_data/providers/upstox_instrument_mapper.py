@@ -24,14 +24,14 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# v2: bumped from upstox_instruments.json → upstox_instruments_v2.json after
-# adding NSE_FO futures ingestion. Old v1 cache lacked NSE_FO keys entirely;
-# renaming forces a fresh CSV re-download on production without manual cleanup.
+# v3: fixed inst_type filter FUTSTK/FUTIDX (Upstox CSV never uses generic "FUT");
+# also added next-month fallback in get_futures_instrument_key so the scanner
+# resolves correctly when Upstox rolls their CSV before NSE expiry.
 _CACHE_FILE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "artifacts", "cache", "upstox_instruments_v2.json"
+    "artifacts", "cache", "upstox_instruments_v3.json"
 )
-_DB_STATE_KEY = "upstox_instrument_map_v2"
+_DB_STATE_KEY = "upstox_instrument_map_v3"
 
 # ── Static Fallback Map for High-Frequency Stocks & Indices ──────────────────
 # Prevents network dependency during cold starts or offline unit tests.
@@ -225,10 +225,10 @@ class UpstoxInstrumentMapper:
                             new_map[tradingsymbol] = inst_key
                             new_map[f"{exchange}:{tradingsymbol}"] = inst_key
 
-                    elif inst_type in ("FUT",) and exchange == "NSE_FO":
-                        # [FIX: NSE_FO_FUTURES_INGESTION] Store futures contracts under a dedicated prefix
-                        # so get_futures_instrument_key() can look them up without polluting the EQ map.
-                        # Key format: "NSE_FO:<TRADING_SYMBOL>" e.g. "NSE_FO:AARTIIND26SEPFUT"
+                    elif inst_type in ("FUTSTK", "FUTIDX") and exchange == "NSE_FO":
+                        # [FIX: NSE_FO_FUTURES_INGESTION] Upstox CSV uses FUTSTK (stock
+                        # futures) and FUTIDX (index futures) — never generic "FUT".
+                        # Store under "NSE_FO:<TRADING_SYMBOL>" for get_futures_instrument_key().
                         if tradingsymbol:
                             new_map[f"NSE_FO:{tradingsymbol}"] = inst_key
 
@@ -261,10 +261,12 @@ class UpstoxInstrumentMapper:
             except Exception as e:
                 logger.warning(f"Could not save {_DB_STATE_KEY} to DB: {e}")
 
+            nse_fo_count = sum(1 for k in new_map if k.startswith("NSE_FO:"))
             # [PHASE1_DIAG] Post-download warmup log
             logger.info(
                 f"[WARMUP] Upstox instrument map updated via download: {len(new_map)} keys "
-                f"(static={len(_STATIC_SYMBOL_MAP)}, dynamic={len(new_map) - len(_STATIC_SYMBOL_MAP)})"
+                f"(static={len(_STATIC_SYMBOL_MAP)}, dynamic={len(new_map) - len(_STATIC_SYMBOL_MAP)}, "
+                f"nse_fo_futures={nse_fo_count})"
             )
 
         except Exception as e:
@@ -281,6 +283,10 @@ class UpstoxInstrumentMapper:
 
         Returns the NSE_FO instrument key (e.g. 'NSE_FO|53806') or None if not found.
         NEVER falls back to equity (NSE_EQ) keys — a futures lookup failure is explicit.
+
+        Next-month fallback: Upstox sometimes drops near-month contracts from their
+        master CSV before NSE expiry. If the near-month key is missing, we try the
+        next calendar month so OI still resolves correctly during the rollover window.
         """
         if not trading_symbol:
             return None
@@ -290,11 +296,38 @@ class UpstoxInstrumentMapper:
         if result:
             logger.debug(f"[FUT_KEY] {clean} → {result}")
             return result
+
+        # [ROLLOVER FALLBACK] Upstox CSV may drop near-month rows before NSE expiry.
+        # Try swapping the 3-letter month code to the next calendar month.
+        # e.g. AARTIIND26SEPFUT → AARTIIND26OCTFUT when Oct contracts replace Sep.
+        import re
+        _MONTH_ROLL = {
+            "JAN": "FEB", "FEB": "MAR", "MAR": "APR",
+            "APR": "MAY", "MAY": "JUN", "JUN": "JUL",
+            "JUL": "AUG", "AUG": "SEP", "SEP": "OCT",
+            "OCT": "NOV", "NOV": "DEC", "DEC": "JAN",
+        }
+        m = re.search(r"(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(FUT)$", clean)
+        if m:
+            yr, mon, suffix = m.group(1), m.group(2), m.group(3)
+            next_mon = _MONTH_ROLL[mon]
+            # If rolling Dec→Jan the year increments; derive from fno_contract_resolver at call time
+            next_yr = str(int(yr) + 1).zfill(2) if mon == "DEC" else yr
+            next_clean = clean[:m.start()] + next_yr + next_mon + suffix
+            next_result = self._symbol_map.get(f"NSE_FO:{next_clean}")
+            if next_result:
+                logger.warning(
+                    f"[FUT_KEY ROLLOVER] Near-month '{clean}' not in map — "
+                    f"Upstox CSV rolled early. Using next-month '{next_clean}' → {next_result}"
+                )
+                return next_result
+
         logger.debug(
             f"⚠️ [FUT_KEY] NSE_FO key not found for '{clean}' — "
             f"master CSV may not have been downloaded yet or contract has expired."
         )
         return None
+
 
     def get_instrument_key(self, symbol: str, allow_fallback: bool = True) -> Optional[str]:
         """Maps symbol to official Upstox instrument key."""
