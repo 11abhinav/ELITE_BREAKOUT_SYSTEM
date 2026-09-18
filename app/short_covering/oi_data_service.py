@@ -288,10 +288,166 @@ class OIDataService:
 
     def fetch_upstox_5m_candles(self, symbol: str, target_date: date) -> Optional[pd.DataFrame]:
         """
-        Fetches genuine 5-minute candles with Open Interest from UPSTOX API v3.
-        Supports both live intraday endpoint (for today) and historical candle endpoint.
-        Augments with real-time OI from Upstox /market/oi or quotes API when needed.
+        Fetches genuine 5-minute OHLCV + Open Interest candles from Upstox API v3.
+
+        RCA (2026-09-18): The previous implementation passed the equity symbol directly to
+        UpstoxProvider.fetch_ohlcv(), which resolved it to an NSE_EQ instrument key.
+        Upstox V3 historical candle API returns OI = 0 for all NSE_EQ keys — OI is only
+        populated for NSE_FO (futures) segment instrument keys.
+
+        Fix: Use fno_contract_resolver to derive the near-month futures trading symbol
+        (e.g. AARTIIND26SEPFUT), then look up the NSE_FO instrument key via the instrument
+        mapper. The resolved NSE_FO key is passed directly to fetch_ohlcv, bypassing the
+        equity resolver entirely.
         """
+        try:
+            try:
+                from market_data.providers.upstox_provider import UpstoxProvider
+                from market_data.providers.upstox_instrument_mapper import get_upstox_futures_key
+            except ImportError:
+                from app.market_data.providers.upstox_provider import UpstoxProvider
+                from app.market_data.providers.upstox_instrument_mapper import get_upstox_futures_key
+
+            upstox = UpstoxProvider()
+            clean_sym = symbol.upper().replace(".NS", "").replace("-EQ", "")
+
+            # ── Step 1: Resolve near-month futures trading symbol ──────────────────────
+            contract = fno_contract_resolver.resolve(clean_sym, target_date)
+            near_tsym = contract.near_trading_symbol  # e.g. "AARTIIND26SEPFUT"
+
+            # ── Step 2: Look up NSE_FO instrument key from Upstox master CSV ──────────
+            # [RCA FIX] Must use NSE_FO key — NSE_EQ keys return OI=0 from Upstox V3 API.
+            fut_instrument_key = get_upstox_futures_key(near_tsym) if near_tsym else None
+
+            if fut_instrument_key:
+                logger.info(
+                    f"[SC_UPSTOX_5M] {clean_sym} | Resolved NSE_FO key: {fut_instrument_key} "
+                    f"(near_tsym={near_tsym}, expiry={contract.near_expiry})"
+                )
+                fetch_sym = fut_instrument_key  # Pass the NSE_FO key directly as the "symbol"
+            else:
+                # Key not yet in mapper cache — CSV download may still be in progress.
+                # Log and fall through: the code after fetch_ohlcv will detect OI=0 and
+                # the caller (_fetch_or_build_5m_bars) will failover to Fyers.
+                logger.warning(
+                    f"[SC_UPSTOX_5M] {clean_sym} | NSE_FO key NOT FOUND for '{near_tsym}' "
+                    f"— Upstox master CSV may not have been downloaded yet. "
+                    f"Attempting equity fetch (OI will be 0, Fyers failover recommended)."
+                )
+                fetch_sym = clean_sym  # equity fallback — will produce OI=0
+
+            range_from = datetime.combine(target_date, datetime.min.time())
+            range_to = datetime.combine(target_date, datetime.max.time())
+
+            norm_data = upstox.fetch_ohlcv(fetch_sym, timeframe="5m", range_from=range_from, range_to=range_to)
+            if norm_data is None or norm_data.dataframe is None or norm_data.dataframe.empty:
+                return None
+
+            df_up = norm_data.dataframe.copy()
+            if not isinstance(df_up.index, pd.DatetimeIndex):
+                if "Datetime" in df_up.columns:
+                    df_up.index = pd.to_datetime(df_up["Datetime"], errors='coerce', utc=True).dt.tz_convert("Asia/Kolkata")
+                elif "Date" in df_up.columns:
+                    df_up.index = pd.to_datetime(df_up["Date"], errors='coerce', utc=True).dt.tz_convert("Asia/Kolkata")
+            elif df_up.index.tz is None:
+                df_up.index = df_up.index.tz_localize("Asia/Kolkata")
+            else:
+                df_up.index = df_up.index.tz_convert("Asia/Kolkata")
+
+            target_str = target_date.strftime("%Y-%m-%d")
+            day_bars = df_up[df_up.index.strftime("%Y-%m-%d") == target_str].copy()
+            if len(day_bars) < 2:
+                if len(day_bars) == 0:
+                    return None
+
+            day_bars["timestamp"] = day_bars.index
+            for col in ["Open", "High", "Low", "Close", "Volume", "OI"]:
+                if col not in day_bars.columns:
+                    for c in day_bars.columns:
+                        if c.lower() == col.lower():
+                            day_bars[col] = day_bars[c]
+                            break
+
+            # ── Step 3: Log OI health — the primary diagnostic ─────────────────────────
+            raw_oi_max = day_bars["OI"].fillna(0).max() if "OI" in day_bars.columns else 0
+            logger.info(
+                f"[SC_UPSTOX_5M] {clean_sym} | OI from candles: max={raw_oi_max:.0f} "
+                f"(instrument_key={fetch_sym}) | bars={len(day_bars)}"
+            )
+
+            # If OI is still 0 after using the NSE_FO key, try live OI fallbacks.
+            live_oi_val = None
+            if "OI" not in day_bars.columns or raw_oi_max == 0:
+                upstox_oi_data = self.fetch_upstox_oi_data(clean_sym, as_of=target_date)
+                if upstox_oi_data and upstox_oi_data.get("total_oi", 0) > 0:
+                    live_oi_val = upstox_oi_data["total_oi"]
+                    logger.info(f"[SC_UPSTOX_5M] {clean_sym} | OI sourced from /market/oi fallback: {live_oi_val}")
+                else:
+                    upstox_quote = self.fetch_upstox_quote_oi(clean_sym)
+                    if upstox_quote and upstox_quote.get("open_interest", 0) > 0:
+                        live_oi_val = upstox_quote["open_interest"]
+                        logger.info(f"[SC_UPSTOX_5M] {clean_sym} | OI sourced from quote fallback: {live_oi_val}")
+                    else:
+                        fyers_oi = self.fetch_fyers_depth_oi(clean_sym, as_of=target_date)
+                        if fyers_oi and fyers_oi.get("open_interest", 0) > 0:
+                            live_oi_val = fyers_oi["open_interest"]
+                            logger.info(f"[SC_UPSTOX_5M] {clean_sym} | OI sourced from Fyers depth fallback: {live_oi_val}")
+
+            if "OI" in day_bars.columns and day_bars["OI"].fillna(0).max() > 0:
+                day_bars["oi"] = day_bars["OI"].fillna(method="ffill").fillna(0)
+                oi_mode = "DERIVATIVE_OI_AVAILABLE"
+            elif live_oi_val and live_oi_val > 0:
+                day_bars["oi"] = np.nan
+                day_bars.loc[day_bars.index[-1], "oi"] = live_oi_val
+                oi_mode = "DERIVATIVE_OI_AVAILABLE"
+            else:
+                day_bars["oi"] = np.nan
+                oi_mode = "DERIVATIVE_OI_UNAVAILABLE"
+                logger.warning(
+                    f"[SC_UPSTOX_5M] {clean_sym} | ⚠️ OI=0 even after NSE_FO key resolution "
+                    f"(key={fetch_sym}). fut_key_found={fut_instrument_key is not None}. "
+                    f"Caller will failover to Fyers."
+                )
+
+            cum_vol = day_bars["Volume"].cumsum()
+            cum_vol_price = (day_bars["Close"] * day_bars["Volume"]).cumsum()
+            day_bars["vwap"] = cum_vol_price / np.maximum(cum_vol, 1)
+
+            if oi_mode == "DERIVATIVE_OI_AVAILABLE" and day_bars["oi"].dropna().max() > 0:
+                day_bars["oi_delta_1bar"] = day_bars["oi"].pct_change().fillna(0.0) * 100.0
+                day_bars["oi_delta_3bar"] = ((day_bars["oi"] - day_bars["oi"].shift(3)) / day_bars["oi"].shift(3).replace(0, np.nan)).fillna(0.0) * 100.0
+                first_pos_oi = day_bars["oi"][day_bars["oi"] > 0].iloc[0] if (day_bars["oi"] > 0).any() else 1
+                day_bars["oi_session"] = ((day_bars["oi"] - first_pos_oi) / max(first_pos_oi, 1)) * 100.0
+                day_bars["oi_change_5m_pct"] = day_bars["oi_delta_1bar"]
+                day_bars["oi_change_session_pct"] = day_bars["oi_session"]
+            else:
+                day_bars["oi_delta_1bar"] = np.nan
+                day_bars["oi_delta_3bar"] = np.nan
+                day_bars["oi_session"] = np.nan
+                day_bars["oi_change_5m_pct"] = np.nan
+                day_bars["oi_change_session_pct"] = np.nan
+
+            res_df = pd.DataFrame({
+                "timestamp": day_bars["timestamp"],
+                "open": day_bars["Open"].values,
+                "high": day_bars["High"].values,
+                "low": day_bars["Low"].values,
+                "close": day_bars["Close"].values,
+                "volume": day_bars["Volume"].values,
+                "vwap": day_bars["vwap"].values,
+                "oi": day_bars["oi"].values,
+                "oi_data_mode": oi_mode,
+                "oi_delta_1bar": day_bars["oi_delta_1bar"].values,
+                "oi_delta_3bar": day_bars["oi_delta_3bar"].values,
+                "oi_session": day_bars["oi_session"].values,
+                "oi_change_5m_pct": day_bars["oi_change_5m_pct"].values,
+                "oi_change_session_pct": day_bars["oi_change_session_pct"].values,
+            })
+            return res_df
+        except Exception as ue:
+            logger.debug(f"Upstox 5m candle fetch error for {symbol}: {ue}")
+            return None
+
         try:
             try:
                 from market_data.providers.upstox_provider import UpstoxProvider
