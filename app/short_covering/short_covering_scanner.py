@@ -300,6 +300,7 @@ class ShortCoveringEarlyIgnitionScanner:
             nifty_oi_5m_delta = self._get_index_5m_oi_delta(current_time)
             stale_count = 0
             gate_rejections: Dict[str, int] = {}
+            eval_error_messages = set()
 
             # Certified signal window enforcement (09:20 - 15:25 IST)
             current_t = current_time.time()
@@ -362,6 +363,7 @@ class ShortCoveringEarlyIgnitionScanner:
                                     logger.debug("Failed to persist near miss for %s: %s", symbol, nm_err)
                 except Exception as e:
                     gate_rejections["EVALUATION_ERROR"] = gate_rejections.get("EVALUATION_ERROR", 0) + 1
+                    eval_error_messages.add(f"{type(e).__name__}: {str(e)}")
                     logger.warning("[SC_5M] %s | EVALUATION_ERROR: %s", symbol, e, exc_info=True)
 
             # Log comprehensive stage-by-stage pipeline summary
@@ -419,6 +421,27 @@ class ShortCoveringEarlyIgnitionScanner:
                     complete_scanner_execution_run(
                         run_ctx, status_override="BLOCKED", stop_reason=_systemic_msg
                     )
+                return []
+
+            # Enforce 10% runtime error hard blocker (prevents swallowing systemic bugs)
+            eval_errors = gate_rejections.get("EVALUATION_ERROR", 0)
+            if len(symbols_to_scan) > 0 and (eval_errors / len(symbols_to_scan)) >= 0.10:
+                err_details_str = " | ".join(list(eval_error_messages)[:5])
+                if len(eval_error_messages) > 5:
+                    err_details_str += " | (and more...)"
+                err_block = f"SHORT_COVERING_5M halted due to {eval_errors} runtime evaluation errors ({(eval_errors/len(symbols_to_scan))*100:.1f}% failure rate). Details: {err_details_str}"
+                logger.error("🚨 [SHORT_COVERING_5M] %s", err_block)
+                upsert_scanner_health(
+                    scanner_name="SHORT_COVERING_5M",
+                    status="ERROR",
+                    outcome="RUNTIME_FAILURE",
+                    error_msg=err_block,
+                    duration_seconds=round(time.monotonic() - _scan_start, 2),
+                    scheduled_for=_SCHEDULE_STR,
+                    run_id=run_ctx.run_id if run_ctx else None
+                )
+                if run_ctx:
+                    complete_scanner_execution_run(run_ctx, status_override="ERROR", stop_reason=err_block)
                 return []
 
             # Enforce 25% staleness hard blocker (non-systemic partial stale)
@@ -517,14 +540,13 @@ class ShortCoveringEarlyIgnitionScanner:
         cur_bar = past_bars.iloc[-1]
         prev_bar = past_bars.iloc[-2]
         session_open_price = float(past_bars.iloc[0]["open"])
-
-        cur_close = float(cur_bar["close"])
-        cur_open = float(cur_bar["open"])
-        cur_high = float(cur_bar["high"])
-        cur_low = float(cur_bar["low"])
-        cur_vwap = float(cur_bar["vwap"])
-        cur_vol = int(cur_bar["volume"])
-        cur_oi = int(cur_bar["oi"])
+        cur_close = float(cur_bar["close"]) if not pd.isna(cur_bar.get("close")) else 0.0
+        cur_open = float(cur_bar["open"]) if not pd.isna(cur_bar.get("open")) else cur_close
+        cur_high = float(cur_bar["high"]) if not pd.isna(cur_bar.get("high")) else cur_close
+        cur_low = float(cur_bar["low"]) if not pd.isna(cur_bar.get("low")) else cur_close
+        cur_vwap = float(cur_bar["vwap"]) if not pd.isna(cur_bar.get("vwap")) else cur_close
+        cur_vol = int(cur_bar["volume"]) if not pd.isna(cur_bar.get("volume")) else 0
+        cur_oi = int(cur_bar["oi"]) if not pd.isna(cur_bar.get("oi")) else 0
 
         logger.debug(
             "[SC_5M] %s | [step 2] cur_bar → O=₹%.2f H=₹%.2f L=₹%.2f C=₹%.2f VWAP=₹%.2f Vol=%d OI=%d",
@@ -544,7 +566,8 @@ class ShortCoveringEarlyIgnitionScanner:
         # 1. Primary 5m Ignition Evidence & CLV
         is_green_candle = cur_close >= cur_open
         is_above_vwap = cur_close >= cur_vwap * 0.999
-        price_change_5m_pct = ((cur_close - float(prev_bar["close"])) / float(prev_bar["close"])) * 100.0
+        prev_close = float(prev_bar["close"]) if not pd.isna(prev_bar.get("close")) else cur_close
+        price_change_5m_pct = ((cur_close - prev_close) / prev_close) * 100.0 if prev_close > 0 else 0.0
         clv = (cur_close - cur_low) / max(cur_high - cur_low, 1e-4)
 
         avg_vol_10 = past_bars["volume"].tail(10).mean()
