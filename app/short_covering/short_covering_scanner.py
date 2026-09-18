@@ -556,6 +556,8 @@ class ShortCoveringEarlyIgnitionScanner:
             "[SC_5M] %s | [step 3] momentum → green=%s vwap=%s price_chg=%+.2f%% vol_surge=%.2fx clv=%.2f avg_vol10=%.0f",
             symbol, is_green_candle, is_above_vwap, price_change_5m_pct, vol_surge_ratio, clv, avg_vol_10,
         )
+
+        if oi_data_mode == "DERIVATIVE_OI_AVAILABLE":
             oi_change_5m_pct = float(cur_bar.get("oi_delta_1bar", cur_bar.get("oi_change_5m_pct", 0.0)))
             oi_delta_3bar = float(cur_bar.get("oi_delta_3bar", 0.0))
             oi_change_session_pct = float(cur_bar.get("oi_session", cur_bar.get("oi_change_session_pct", 0.0)))
