@@ -660,29 +660,42 @@ class ProviderHealthCheck:
             return result
 
         # Step 5: 5M API request
-        t        = time.time()
         date_str = target_date.strftime("%Y-%m-%d")
-        fyers_sym = f"NSE:{near_sym}"
-        try:
-            response = client.history(data={
-                "symbol":      fyers_sym,
-                "resolution":  "5",
-                "date_format": "1",
-                "range_from":  date_str,
-                "range_to":    date_str,
-                "cont_flag":   "1",
-                "oi_flag":     "1",
-            })
-            http_ok = bool(response and response.get("s") == "ok")
-            detail  = (f"s={response.get('s') if response else 'None'}"
-                       f"  code={response.get('code') if response else 'None'}")
-            steps.append(ProbeStep("api_request", http_ok, detail, (time.time() - t) * 1000))
-            if not http_ok:
-                result.status = ProviderStatus.RED
-                result.error  = f"Fyers API rejected: {detail}"
-                result.latency_ms = (time.time() - t0) * 1000
-                return result
-        except Exception as e:
+        fyers_candidates = [
+            f"NSE:{near_sym}",
+            f"NSE:{symbol}-EQ"
+        ]
+        
+        response = None
+        http_ok = False
+        detail = ""
+        
+        for fyers_sym in fyers_candidates:
+            try:
+                response = client.history(data={
+                    "symbol":      fyers_sym,
+                    "resolution":  "5",
+                    "date_format": "1",
+                    "range_from":  date_str,
+                    "range_to":    date_str,
+                    "cont_flag":   "1",
+                    "oi_flag":     "1",
+                })
+                http_ok = bool(response and response.get("s") == "ok")
+                detail  = (f"s={response.get('s') if response else 'None'}"
+                           f"  code={response.get('code') if response else 'None'}")
+                if http_ok:
+                    break
+            except Exception as e:
+                detail = str(e)
+                
+        t        = time.time()
+        steps.append(ProbeStep("api_request", http_ok, detail, (time.time() - t) * 1000))
+        if not http_ok:
+            result.status = ProviderStatus.RED
+            result.error  = f"Fyers API rejected: {detail}"
+            result.latency_ms = (time.time() - t0) * 1000
+            return result
             steps.append(ProbeStep("api_request", False, str(e), (time.time() - t) * 1000))
             result.status = ProviderStatus.RED
             result.error  = f"Fyers request exception: {e}"
@@ -822,7 +835,9 @@ class ProviderHealthCheck:
             upstox     = UpstoxProvider()
             range_from = datetime.combine(target_date, datetime.min.time()).replace(tzinfo=IST)
             range_to   = datetime.combine(target_date, datetime.max.time()).replace(tzinfo=IST)
-            norm       = upstox.fetch_ohlcv(symbol, "5m", range_from, range_to)
+            
+            # Use near_sym (futures symbol) so Upstox returns OI data instead of cash equity data
+            norm       = upstox.fetch_ohlcv(near_sym, "5m", range_from, range_to)
         except Exception as e:
             steps.append(ProbeStep("api_request", False, str(e), (time.time() - t) * 1000))
             result.status = ProviderStatus.RED
