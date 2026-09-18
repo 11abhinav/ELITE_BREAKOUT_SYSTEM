@@ -1,56 +1,162 @@
-# Technical Scanner Master Empirical Certification Report
+# Technical Scanner Master Forensic Certification & Empirical Audit Report
 
-**Generated**: 2026-09-17 21:42:50 IST  
-**Instruments Evaluated**: 871 BSE/NSE Historical Equities (`data/history/1d/`)  
-**Naive Control Baseline**: Win Rate = 42.0%, Total Baseline Trades Replayed = 7,213  
-**Causality & Conservative Invariant**: Strict point-in-time ($T \le t$, Asia/Kolkata IST), Monday-Friday trading calendar only. Daily bars touching both Stop Loss and Target 1 are strictly penalized as `LOSS` (`INTRABAR_AMBIGUITY_LOSS`) to ensure zero optimistic bias.
-
----
-
-## 1. Pattern Certification Matrix
-
-| Pattern | Baseline N | Baseline WR | Hardened N | Hardened WR | Hardened PF | Hardened Avg R | Wilson 95% CI | VAL (2025) WR | OOS (2026) WR | OOS (2026) PF | Bull WR | Bear WR | Sideways WR | Certification Status | Decision Rationale |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `WYCKOFF_SPRING_TYPE_2` | 1,401 | 51.8% | 900 | **52.4%** | >10.0 | +0.28R | [49.2%, 55.7%] | 52.4% | **52.7%** | >10.0 | 39.5% | **69.3%** | 51.3% | `TIER_2_PROVEN` | Certified Tier 2 Champion: Positive OOS Expectancy (52.7% WR) & Bear Alpha (69.3%) |
-| `HIGHER_LOW_REVERSAL` | 266 | 47.7% | 176 | **48.9%** | 1.36 | +0.16R | [41.6%, 56.2%] | 45.0% | **50.9%** | 1.50 | 49.7% | 50.0% | 44.4% | `RESEARCH_ONLY` | Promising OOS WR (50.9%) but overall PF (1.36) falls below production bar (1.50) |
-| `MULTI_MONTH_BASE_BREAKOUT`| 729 | 49.1% | 630 | **49.0%** | >10.0 | +0.18R | [45.2%, 52.9%] | 51.7% | **47.4%** | >10.0 | 49.2% | 0.0% | 45.5% | `RESEARCH_ONLY` | High base quality, sub-50% OOS Win Rate under severe regime stress |
-| `BULL_FLAG` | 578 | 45.5% | 390 | **47.4%** | >10.0 | +0.12R | [42.5%, 52.4%] | 51.8% | **46.5%** | >10.0 | 48.6% | 100.0% | 39.3% | `RESEARCH_ONLY` | Sub-50% OOS Win Rate (46.5%) in bear/sideways markets |
-| `CUP_HANDLE` | 1,129 | 46.1% | 698 | **45.7%** | 1.21 | +0.11R | [42.0%, 49.4%] | 48.1% | **43.7%** | 1.11 | 46.9% | 33.3% | 40.0% | `QUARANTINED` | Sub-threshold expectancy; failed production gate (OOS WR 43.7% < 50%) |
-| `DOUBLE_BOTTOM` | 464 | 42.9% | 328 | **40.9%** | 0.94 | -0.03R | [35.7%, 46.2%] | 49.4% | **37.8%** | 0.89 | 40.5% | 100.0% | 40.9% | `QUARANTINED` | Sub-1.0 Profit Factor; negative expectancy across OOS holdout |
-| `V_REVERSAL` | 1,147 | 46.4% | 740 | **44.3%** | >10.0 | +0.06R | [40.8%, 47.9%] | 50.0% | **41.5%** | >10.0 | 45.9% | 56.3% | 40.6% | `QUARANTINED` | Poor OOS follow-through (41.5% WR); negative structural alpha |
-| `SHAKEOUT_RECLAIM` | 1,354 | 39.3% | 899 | **39.9%** | 0.93 | -0.04R | [36.8%, 43.2%] | 43.0% | **39.2%** | 0.91 | 40.1% | 39.5% | 40.4% | `QUARANTINED` | Inferior to naive random control (39.9% vs 42.0% Naive WR) |
-| `BULL_PENNANT` | 99 | 31.3% | 69 | **30.4%** | 0.68 | -0.21R | [20.8%, 42.1%] | 5.9% | **39.2%** | 1.00 | 28.6% | 44.4% | 28.1% | `QUARANTINED` | Negative expectancy (-0.21R); severely underperforms baseline |
-| `ASCENDING_TRIANGLE` | 46 | 41.3% | 23 | **39.1%** | 0.76 | -0.14R | [22.2%, 59.2%] | 42.9% | **37.5%** | 0.88 | 39.1% | 0.0% | 0.0% | `INSUFFICIENT_SAMPLE` | Sample deficit (Hardened N=23 < 25 minimum threshold) |
+**Generated**: 2026-09-18 00:28:27 IST  
+**Historical Universe**: 879 Real BSE/NSE Equity Instruments (`data/history/1d/*.parquet`)  
+**Evaluation Invariant**: Zero forward lookahead ($T \le t$), Asian/Kolkata (IST) Monday–Friday trading calendar. Same-bar SL/T1 touch strictly classified as **LOSS** (`INTRABAR_AMBIGUITY_LOSS`).  
+**Ledgers Generated**:
+- Pre-Gate Baseline Ledger: [technical_scanner_baseline_ledger.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/technical_scanner_baseline_ledger.csv) (7134 trades)
+- Post-Gate Hardened Ledger: [technical_scanner_hardened_ledger.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/technical_scanner_hardened_ledger.csv) (4806 trades)
+- Production Master Ledger: [technical_scanner_trade_ledger.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/technical_scanner_trade_ledger.csv) (4806 trades)
 
 ---
 
-## 2. Production Promotion & Governance Decision
+## 1. Executive Summary & Dual Production Policy Decision
 
-1. 🏆 **PROMOTED TO PRODUCTION (Tier 2 Champion)**:
-   - **`WYCKOFF_SPRING_TYPE_2`**:
-     - *Hardened Win Rate*: **52.4%** (N=900, Wilson 95% CI: [49.2%, 55.7%])
-     - *2026 OOS Win Rate*: **52.7%**
-     - *Regime Invariant Alpha*: 69.3% Bear Win Rate, 51.3% Sideways Win Rate
-     - *Action*: Maintained as primary certified setup for Technical Scanner live alert dispatch.
+### Formal Dual Certification Rule
+A pattern qualifies for **`PRODUCTION` (`TIER_2_OOS_VALIDATED`)** if and only if it satisfies all 6 requirements:
+1. **$\text{OOS WR} \ge 50.0\%$**
+2. **$\text{OOS PF} \ge 1.50$**
+3. **$\text{Full Hardened PF} \ge 1.50$**
+4. **$\text{OOS Avg R} > 0.00\text{R}$**
+5. **$\text{OOS Sample } N \ge 25$**
+6. **Zero Data Integrity / Invariant Violations**
 
-2. 🔬 **RETAINED IN RESEARCH / SHADOW MONITORING ONLY**:
-   - **`HIGHER_LOW_REVERSAL`** (OOS WR 50.9%, PF 1.36)
-   - **`MULTI_MONTH_BASE_BREAKOUT`** (OOS WR 47.4%, PF >10.0)
-   - **`BULL_FLAG`** (OOS WR 46.5%, PF >10.0)
-   - *Action*: Blocked from triggering live push notifications/trades until further refinement passes PF $\ge 1.50$ production bar.
+### Mechanical Classification Results:
+1. **`WYCKOFF_SPRING_TYPE_2`**: **`PRODUCTION` (`TIER_2_OOS_VALIDATED`)**
+   - *OOS (2026) Metrics*: **52.9% Win Rate**, **PF 1.63**, **+0.27R Expectancy** across 535 holdout trades.
+   - *Full Hardened Metrics*: **52.7% Win Rate**, **PF 1.57**, **+0.24R Expectancy** across 888 trades.
+   - *Confidence Intervals*: Hard WR 95% CI = [49.4%, 56.0%], OOS WR 95% CI = [48.7%, 57.1%].
+   - *Assessment*: Positive OOS-validated expectancy with PF above production threshold (1.57 Hard / 1.63 OOS), with win-rate estimate statistically close to the 50% boundary.
+   - *Regime Attribution*: **Bear WR = 69.3%** (N=202), **Sideways WR = 51.7%** (N=468), **Bull WR = 39.4%** (N=218).
 
-3. 🚫 **QUARANTINED / BLOCKED FROM PRODUCTION**:
-   - `CUP_HANDLE`, `DOUBLE_BOTTOM`, `V_REVERSAL`, `SHAKEOUT_RECLAIM`, `BULL_PENNANT`
-   - *Action*: Strictly disabled from production live alert routing.
+2. **`HIGHER_LOW_REVERSAL`**: **`RESEARCH_ONLY`**
+   - *OOS (2026) Metrics*: WR = 50.0%, PF = 1.44 (N=114).
+   - *Full Hardened Metrics*: Hard PF = 1.32 (< 1.50 Production standard).
+   - *Policy Action*: Retained in detector codebase for continuous research; blocked from live alert dispatch under the dual production gate.
+
+3. **`RESEARCH_ONLY` (Sub-Threshold / Promising Expectancy)**:
+   - `MULTI_MONTH_BASE_BREAKOUT` (Hard PF 1.34, +0.16R), `CUP_HANDLE` (Hard PF 1.21, +0.11R)
+   - *Policy Action*: Retained in detector codebase for continuous research; blocked from live alert dispatch.
+
+4. **`QUARANTINED` (Negative / Breakeven Expectancy)**:
+   - `BULL_FLAG` (PF 1.25, OOS PF 1.22), `DOUBLE_BOTTOM` (PF 0.93), `V_REVERSAL` (PF 1.06), `SHAKEOUT_RECLAIM` (PF 0.93), `BULL_PENNANT` (PF 0.69)
+   - *Policy Action*: Detectors preserved in repository; explicitly gated out in `PATTERN_STATUS`.
+
+5. **`INSUFFICIENT_SAMPLE` (N < 25)**:
+   - `ASCENDING_TRIANGLE` (Hardened N=23 < 25).
 
 ---
 
-## 3. Anti-Fakeout Quality Gate Hardening Impact
+## 2. Anti-Fakeout Quality Gate Proof: Retained vs. Rejected Population
 
-The empirical tournament evaluated baseline unconstrained pattern triggers against hardened anti-fakeout filters:
-- **`MIN_CLV_HARD_GATE = 0.70`** (Close Location Value: Close must finish in top 30% of daily range)
-- **`MAX_UPPER_WICK_PCT = 0.25`** (Upper wick rejection $\le 25\%$ of total candle range)
-- **`MIN_RVOL_HARD_GATE = 1.35`** (Breakout candle volume $\ge 1.35\times$ 20-day average)
-- **Results**:
-  - Eliminated **37.8%** of false/weak breakouts (2,729 weak signals eliminated out of 7,213).
-  - Increased pattern win rates by **+1.5% to +3.5%** across all certified structures.
+Below is the empirical proof comparing the **Pre-Gate Baseline**, **Post-Gate Hardened**, and **Rejected** candidate signal populations:
+
+| Signal Population | N | Win Rate | Gross Profit R | Gross Loss R | Profit Factor (PF) | Total Net R | Expectancy (Avg R) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Baseline Scanner (Pre-Gate)** | 7134 | 45.9% | +4162.6R | -3537.3R | **1.18** | +625.3R | +0.09R |
+| **Hardened Scanner (Post-Gate)** | 4806 | **45.8%** | +2819.2R | -2400.2R | **1.17** | +419.1R | **+0.09R** |
+| **Rejected by Anti-Fake Gates** | 2328 | 46.2% | +1343.4R | -1137.2R | **1.18** | +206.2R | +0.09R |
+
+> **Empirical Finding on Gate Selectivity**: The anti-fake gates rejected **2328 of 7134 candidate signals (32.6%)**, but aggregate outcome metrics did not improve materially in the overall retained population. The effect of the anti-fake gates is pattern-specific rather than universally quality-accretive across all geometries.
+
+---
+
+## 3. Stepwise Gate Contribution (Ablation Waterfall) & Pattern-Specific Impact
+
+### Universal Stepwise Waterfall:
+| Step / Gate Applied | N | Win Rate (%) | Profit Factor (PF) | Expectancy (Avg R) | Signal Retention (%) |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **1. Baseline (Unfiltered Candidates)** | 7134 | 45.9% | 1.18 | +0.09R | 100.0% |
+| **2. + CLV $\ge$ 0.70** | 7134 | 45.9% | 1.18 | +0.09R | 100.0% |
+| **3. + RVOL $\ge$ 1.35** | 5737 | 46.0% | 1.18 | +0.09R | 80.4% |
+| **4. + Upper Wick $\le$ 25%** | 4806 | 45.8% | 1.17 | +0.09R | 67.4% |
+| **5. + Score $\ge$ 70 (Hardened)** | 4806 | 45.8% | 1.17 | +0.09R | 67.4% |
+
+### Pattern-Specific Gate Impact:
+| Pattern | Baseline N | Baseline WR | Baseline PF | Baseline Avg R | Hardened N | Hardened WR | Hardened PF | Hardened Avg R | $\Delta$ PF | Quality Impact |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| `ASCENDING_TRIANGLE` | 46 | 41.3% | 0.75 | +-0.14R | 23 | 39.1% | 0.76 | +-0.14R | **+0.01** | 🟢 ACCRETIVE |
+| `BULL_FLAG` | 575 | 45.7% | 1.16 | +0.08R | 388 | 47.7% | 1.25 | +0.12R | **+0.09** | 🟢 ACCRETIVE |
+| `BULL_PENNANT` | 98 | 31.6% | 0.71 | +-0.18R | 68 | 30.9% | 0.69 | +-0.2R | **-0.02** | 🔴 DILUTIVE |
+| `CUP_HANDLE` | 1126 | 46.2% | 1.25 | +0.13R | 696 | 45.7% | 1.21 | +0.11R | **-0.04** | 🔴 DILUTIVE |
+| `DOUBLE_BOTTOM` | 461 | 42.7% | 1.01 | +0.01R | 325 | 40.6% | 0.93 | +-0.04R | **-0.08** | 🔴 DILUTIVE |
+| `HIGHER_LOW_REVERSAL` | 264 | 47.3% | 1.26 | +0.12R | 174 | 48.3% | 1.32 | +0.15R | **+0.06** | 🟢 ACCRETIVE |
+| `MULTI_MONTH_BASE_BREAKOUT` | 724 | 49.0% | 1.33 | +0.15R | 625 | 49.0% | 1.34 | +0.16R | **+0.01** | 🟢 ACCRETIVE |
+| `SHAKEOUT_RECLAIM` | 1324 | 39.4% | 0.91 | +-0.05R | 885 | 39.9% | 0.93 | +-0.04R | **+0.02** | 🟢 ACCRETIVE |
+| `V_REVERSAL` | 1136 | 46.5% | 1.14 | +0.06R | 734 | 44.4% | 1.06 | +0.03R | **-0.08** | 🔴 DILUTIVE |
+| `WYCKOFF_SPRING_TYPE_2` | 1380 | 52.1% | 1.52 | +0.22R | 888 | 52.7% | 1.57 | +0.24R | **+0.05** | 🟢 ACCRETIVE |
+
+---
+
+## 4. 4-Way Controlled Benchmark Matrix
+
+| Benchmark Model | Independent Ledger | N | Win Rate (WR) | Profit Factor (PF) | Expectancy (Avg R) | 95% Confidence Interval |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| `Control A: Random Entry` | Random Ledger | 4257 | 43.2% | 1.13 | +0.07R | [41.7%, 44.7%] |
+| `Control C: 20D Momentum` | Momentum Ledger | 1423 | 43.9% | 1.17 | +0.09R | [41.3%, 46.4%] |
+| `Control D: Baseline Scanner` | Pre-Gate Ledger | 7134 | 45.9% | 1.18 | +0.09R | [44.8%, 47.1%] |
+| `Challenger: Hardened Scanner` | Post-Gate Ledger | 4806 | **45.8%** | **1.17** | **+0.09R** | [44.4%, 47.2%] |
+
+---
+
+## 5. Master Pattern Certification Matrix
+
+| Pattern | OOS N | OOS WR | OOS PF | OOS Avg R | OOS WR 95% CI | Hard N | Hard WR | Hard PF | Hard Avg R | Hard WR 95% CI | Status |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| `ASCENDING_TRIANGLE` | 16 | **37.5%** | 0.88 | +-0.07R | [18.5%, 61.4%] | 23 | 39.1% | 0.76 | +-0.14R | [22.2%, 59.2%] | `INSUFFICIENT_SAMPLE` |
+| `BULL_FLAG` | 302 | **46.7%** | 1.22 | +0.11R | [41.1%, 52.3%] | 388 | 47.7% | 1.25 | +0.12R | [42.8%, 52.6%] | `RESEARCH_ONLY` |
+| `BULL_PENNANT` | 51 | **39.2%** | 1.0 | +0.0R | [27.0%, 52.9%] | 68 | 30.9% | 0.69 | +-0.2R | [21.2%, 42.6%] | `RESEARCH_ONLY` |
+| `CUP_HANDLE` | 380 | **43.7%** | 1.11 | +0.06R | [38.8%, 48.7%] | 696 | 45.7% | 1.21 | +0.11R | [42.0%, 49.4%] | `RESEARCH_ONLY` |
+| `DOUBLE_BOTTOM` | 239 | **37.2%** | 0.86 | +-0.08R | [31.4%, 43.5%] | 325 | 40.6% | 0.93 | +-0.04R | [35.4%, 46.0%] | `RESEARCH_ONLY` |
+| `HIGHER_LOW_REVERSAL` | 114 | **50.0%** | 1.44 | +0.2R | [41.0%, 59.0%] | 174 | 48.3% | 1.32 | +0.15R | [41.0%, 55.7%] | `RESEARCH_ONLY` |
+| `MULTI_MONTH_BASE_BREAKOUT` | 359 | **47.1%** | 1.19 | +0.1R | [42.0%, 52.2%] | 625 | 49.0% | 1.34 | +0.16R | [45.1%, 52.9%] | `RESEARCH_ONLY` |
+| `SHAKEOUT_RECLAIM` | 711 | **39.4%** | 0.92 | +-0.05R | [35.9%, 43.0%] | 885 | 39.9% | 0.93 | +-0.04R | [36.7%, 43.2%] | `RESEARCH_ONLY` |
+| `V_REVERSAL` | 486 | **41.6%** | 0.98 | +-0.01R | [37.3%, 46.0%] | 734 | 44.4% | 1.06 | +0.03R | [40.9%, 48.0%] | `RESEARCH_ONLY` |
+| `WYCKOFF_SPRING_TYPE_2` | 535 | **52.9%** | 1.63 | +0.27R | [48.7%, 57.1%] | 888 | 52.7% | 1.57 | +0.24R | [49.4%, 56.0%] | `PRODUCTION` |
+
+---
+
+## 6. Complete Trade-Level Forensic Reconciliation (Zero NaN Distortion)
+
+Every aggregate metric below equals the sum of individual trade ledger records:
+
+| Pattern | N | Winners | Losers | Gross Profit R | Gross Loss R | PF | Total R | Avg Win R | Avg Loss R | Avg R |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `ASCENDING_TRIANGLE` | 23 | 9 | 14 | +10.3R | -13.6R | **0.76** | +-3.3R | +1.15R | -0.97R | **+-0.14R** |
+| `BULL_FLAG` | 388 | 185 | 203 | +238.0R | -190.7R | **1.25** | +47.3R | +1.29R | -0.94R | **+0.12R** |
+| `BULL_PENNANT` | 68 | 21 | 47 | +30.6R | -44.1R | **0.69** | +-13.5R | +1.46R | -0.94R | **+-0.2R** |
+| `CUP_HANDLE` | 696 | 318 | 378 | +438.9R | -362.2R | **1.21** | +76.7R | +1.38R | -0.96R | **+0.11R** |
+| `DOUBLE_BOTTOM` | 325 | 132 | 193 | +163.4R | -176.0R | **0.93** | +-12.6R | +1.24R | -0.91R | **+-0.04R** |
+| `HIGHER_LOW_REVERSAL` | 174 | 84 | 90 | +103.7R | -78.4R | **1.32** | +25.4R | +1.23R | -0.87R | **+0.15R** |
+| `MULTI_MONTH_BASE_BREAKOUT` | 625 | 306 | 319 | +391.0R | -291.3R | **1.34** | +99.7R | +1.28R | -0.91R | **+0.16R** |
+| `SHAKEOUT_RECLAIM` | 885 | 353 | 532 | +473.2R | -508.9R | **0.93** | +-35.6R | +1.34R | -0.96R | **+-0.04R** |
+| `V_REVERSAL` | 734 | 326 | 408 | +378.2R | -358.4R | **1.06** | +19.8R | +1.16R | -0.88R | **+0.03R** |
+| `WYCKOFF_SPRING_TYPE_2` | 888 | 468 | 420 | +592.0R | -376.7R | **1.57** | +215.3R | +1.26R | -0.9R | **+0.24R** |
+
+---
+
+## 7. Bear Market Regime Validation vs. Bear Controls
+
+| Strategy / Pattern | Bear Trades (N) | Bear Win Rate (%) | Bear Gross Profit R | Bear Gross Loss R | Bear Profit Factor (PF) | Bear Avg R |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| `Control A (Random in Bear)` | 1051 | 42.2% | +631.5R | -591.4R | 1.07 | 0.04R |
+| `Control C (Momentum in Bear)` | 0 | 0.0% | +0.0R | -0.0R | 0.0 | 0.0R |
+| `Hardened Universe in Bear` | 676 | 50.4% | +467.3R | -321.6R | 1.45 | 0.22R |
+| `WYCKOFF_SPRING_TYPE_2 (Bear)` | **202** | **69.3%** | +189.7R | -59.4R | **3.19** | **+0.64R** |
+
+> **Bear Regime Takeaway**: WYCKOFF_SPRING_TYPE_2 showed strong observed performance during the defined bear regimes: **69.3% WR, PF 3.19 and +0.64R across 202 trades**, versus 42.2% WR and PF 1.07 for the random bear control. The momentum bear control had zero observations and is therefore not comparable.
+
+---
+
+## 8. Automated Invariant & Data Integrity Verification
+
+| # | Invariant Rule | Validation Status |
+| :--- | :--- | :--- |
+| 1 | **Point-in-Time Causality** | **`PASS`** (Zero future bar lookahead during bar replay) |
+| 2 | **Intrabar Ambiguity** | **`PASS`** (Same-bar SL and T1 touch strictly penalized as LOSS) |
+| 3 | **Trading Calendar** | **`PASS`** (Monday–Friday only, zero weekend bars) |
+| 4 | **Risk Integrity** | **`PASS`** (Entry > Stop Loss, Target 1 > Entry, Risk points > 0) |
+| 5 | **Holding Horizon** | **`PASS`** (Maximum holding period bounded at 20 daily bars) |
+| 6 | **Ledger Reconciliation** | **`PASS`** (SUM(Win R) / SUM(Loss R) == PF across all rows) |
+| 7 | **Zero NaN Contamination** | **`PASS`** (All metrics validated against clean floating-point numbers) |
+| 8 | **Dual Baseline/Hardened Separation** | **`PASS`** (Pre-gate vs post-gate independent ledger validation) |

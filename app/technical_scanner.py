@@ -1048,6 +1048,10 @@ def detect_technical_setup(
     df: pd.DataFrame,
     symbol: str,
     return_trace: bool = False,
+    min_score: float = 70.0,
+    rvol_gate: Optional[float] = None,
+    clv_gate: Optional[float] = None,
+    max_upper_wick_gate: Optional[float] = None,
 ) -> Union[Optional[Dict[str, Any]], Tuple[Optional[Dict[str, Any]], Dict[str, Any]]]:
     """
     Unified Technical Pattern & Anti-Fake Engine with Forensic Telemetry:
@@ -1055,9 +1059,9 @@ def detect_technical_setup(
     1. Common Hard Filters:
        - Candle Gate: Green trigger candle (Close > Open) & Non-zero spread.
        - Liquidity Filter: 20-day Volume >= 25k & Turnover >= ₹50L.
-       - Hard Volume Gate: RVOL >= 1.20x.
-       - Close Strength Gate: CLV >= 0.65.
-       - Upper Wick Filter: Upper Wick <= 30% of range.
+       - Hard Volume Gate: RVOL >= 1.20x (Default Hardened: 1.35x).
+       - Close Strength Gate: CLV >= 0.65 (Default Hardened: 0.70).
+       - Upper Wick Filter: Upper Wick <= 30% of range (Default Hardened: 25%).
     2. Permissive Pattern Discovery (8 Core Structures).
     3. Pattern-Specific Validation & Volume Signature Matching.
     4. Risk Engine & Room-to-Resistance Hard Gate (>= 1.5R).
@@ -1065,6 +1069,10 @@ def detect_technical_setup(
     6. Clean 100-Point Additive Scoring Engine (Calibrated Tier-B).
     7. Forensic Trace Generation (`TECHNICAL_TRACE`).
     """
+    effective_min_rvol = rvol_gate if rvol_gate is not None else MIN_RVOL_HARD_GATE
+    effective_min_clv = clv_gate if clv_gate is not None else MIN_CLV_HARD_GATE
+    effective_max_wick = max_upper_wick_gate if max_upper_wick_gate is not None else MAX_UPPER_WICK_PCT
+
     now_ist = datetime.now(IST)
     trading_date = str(df.index[-1]).split(" ")[0] if (df is not None and not df.empty and hasattr(df.index[-1], "strftime")) else now_ist.strftime("%Y-%m-%d")
     final_bar_ts = str(df.index[-1]) if (df is not None and not df.empty) else now_ist.strftime("%Y-%m-%d %H:%M:%S")
@@ -1168,72 +1176,69 @@ def detect_technical_setup(
     # ── COMMON HARD FILTER 0: GREEN CANDLE & NON-ZERO SPREAD ───────────────────────
     if c_today <= o_today or c_today <= 0:
         trace["02_COMMON_GATES"]["status"] = "REJECT"
-        trace["02_COMMON_GATES"]["rejection_code"] = "RED_CANDLE"
+        trace["02_COMMON_GATES"]["rejection_code"] = "RED_OR_FLAT_CANDLE"
         trace["FINAL"]["terminal_stage"] = "02_COMMON_GATES"
-        trace["FINAL"]["terminal_reason"] = "RED_CANDLE"
-        trace["FINAL"]["required"]["close_gt_open"] = True
+        trace["FINAL"]["terminal_reason"] = "RED_OR_FLAT_CANDLE"
         return _finish(None)
 
-    candle_range = h_today - l_today
-    if candle_range <= 0:
+    candle_range = max(0.001, h_today - l_today)
+    if candle_range <= 0.001:
         trace["02_COMMON_GATES"]["status"] = "REJECT"
-        trace["02_COMMON_GATES"]["rejection_code"] = "ZERO_RANGE"
+        trace["02_COMMON_GATES"]["rejection_code"] = "ZERO_SPREAD"
         trace["FINAL"]["terminal_stage"] = "02_COMMON_GATES"
-        trace["FINAL"]["terminal_reason"] = "ZERO_RANGE"
+        trace["FINAL"]["terminal_reason"] = "ZERO_SPREAD"
         return _finish(None)
 
-    # ── COMMON HARD FILTER 1: LIQUIDITY & TURNOVER ─────────────────────────────────
+    # ── COMMON HARD FILTER 1: LIQUIDITY & TURNOVER ──────────────────────────────────
     vol_sma20 = _coalesce_indicator_val(df, ["Volume_SMA20", "VOL_SMA20", "volume_sma20", "vol_sma20", "SMA20_Volume"], default=float(np.mean(volumes[-20:])))
     avg_turnover = vol_sma20 * c_today
-    avg_turnover_cr = avg_turnover / 10_000_000.0
+    trace["02_COMMON_GATES"]["avg_volume_20"] = int(vol_sma20)
+    trace["02_COMMON_GATES"]["avg_turnover_inr"] = int(avg_turnover)
 
-    trace["02_COMMON_GATES"]["avg_volume"] = round(vol_sma20, 1)
-    trace["02_COMMON_GATES"]["avg_turnover_cr"] = round(avg_turnover_cr, 2)
-
-    if vol_sma20 < MIN_AVG_VOLUME and avg_turnover < MIN_AVG_TURNOVER_INR:
+    if vol_sma20 < MIN_AVG_VOLUME or avg_turnover < MIN_AVG_TURNOVER_INR:
         trace["02_COMMON_GATES"]["status"] = "REJECT"
         trace["02_COMMON_GATES"]["rejection_code"] = "ILLIQUID_STOCK"
         trace["FINAL"]["terminal_stage"] = "02_COMMON_GATES"
         trace["FINAL"]["terminal_reason"] = "ILLIQUID_STOCK"
-        trace["FINAL"]["required"]["min_avg_volume"] = MIN_AVG_VOLUME
-        trace["FINAL"]["required"]["min_avg_turnover_inr"] = MIN_AVG_TURNOVER_INR
+        trace["FINAL"]["required"]["min_vol"] = MIN_AVG_VOLUME
+        trace["FINAL"]["required"]["min_turnover"] = MIN_AVG_TURNOVER_INR
         return _finish(None)
 
-    # ── COMMON HARD FILTER 2: RVOL EXPANSION (>= 1.20x) ─────────────────────────────
+    # ── COMMON HARD FILTER 2: RVOL EXPANSION ────────────────────────────────────────
     vol_ratio = v_today / max(vol_sma20, 1.0)
     trace["02_COMMON_GATES"]["rvol"] = round(vol_ratio, 2)
 
-    if vol_ratio < MIN_RVOL_HARD_GATE:
+    if vol_ratio < effective_min_rvol:
         trace["02_COMMON_GATES"]["status"] = "REJECT"
         trace["02_COMMON_GATES"]["rejection_code"] = "LOW_RVOL"
         trace["FINAL"]["terminal_stage"] = "02_COMMON_GATES"
         trace["FINAL"]["terminal_reason"] = "LOW_RVOL"
-        trace["FINAL"]["required"]["rvol_min"] = MIN_RVOL_HARD_GATE
+        trace["FINAL"]["required"]["rvol_min"] = effective_min_rvol
         return _finish(None)
 
-    # ── COMMON HARD FILTER 3: CLOSE STRENGTH (CLV >= 0.65) ──────────────────────────
+    # ── COMMON HARD FILTER 3: CLOSE STRENGTH (CLV) ──────────────────────────────────
     clv = (c_today - l_today) / candle_range
     trace["02_COMMON_GATES"]["clv"] = round(clv, 2)
 
-    if clv < MIN_CLV_HARD_GATE:
+    if clv < effective_min_clv:
         trace["02_COMMON_GATES"]["status"] = "REJECT"
         trace["02_COMMON_GATES"]["rejection_code"] = "LOW_CLV"
         trace["FINAL"]["terminal_stage"] = "02_COMMON_GATES"
         trace["FINAL"]["terminal_reason"] = "LOW_CLV"
-        trace["FINAL"]["required"]["clv_min"] = MIN_CLV_HARD_GATE
+        trace["FINAL"]["required"]["clv_min"] = effective_min_clv
         return _finish(None)
 
-    # ── COMMON HARD FILTER 4: UPPER WICK FILTER (<= 30%) ────────────────────────────
+    # ── COMMON HARD FILTER 4: UPPER WICK FILTER ─────────────────────────────────────
     upper_wick = h_today - max(c_today, o_today)
     upper_wick_pct = upper_wick / candle_range
     trace["02_COMMON_GATES"]["upper_wick"] = round(upper_wick_pct, 2)
 
-    if upper_wick_pct > MAX_UPPER_WICK_PCT:
+    if upper_wick_pct > effective_max_wick:
         trace["02_COMMON_GATES"]["status"] = "REJECT"
         trace["02_COMMON_GATES"]["rejection_code"] = "EXCESSIVE_UPPER_WICK"
         trace["FINAL"]["terminal_stage"] = "02_COMMON_GATES"
         trace["FINAL"]["terminal_reason"] = "EXCESSIVE_UPPER_WICK"
-        trace["FINAL"]["required"]["max_upper_wick_pct"] = MAX_UPPER_WICK_PCT
+        trace["FINAL"]["required"]["max_upper_wick_pct"] = effective_max_wick
         return _finish(None)
 
     trace["02_COMMON_GATES"]["status"] = "PASS"
@@ -1504,12 +1509,12 @@ def detect_technical_setup(
     }
 
     trace["06_SCORE"] = score_breakdown
-    trace["06_SCORE"]["status"] = "PASS" if total_score >= 70 else "REJECT"
+    trace["06_SCORE"]["status"] = "PASS" if total_score >= min_score else "REJECT"
 
-    if total_score < 70:
+    if total_score < min_score:
         trace["FINAL"]["terminal_stage"] = "06_SCORE"
-        trace["FINAL"]["terminal_reason"] = "SCORE_BELOW_70"
-        trace["FINAL"]["required"]["min_score"] = 70
+        trace["FINAL"]["terminal_reason"] = f"SCORE_BELOW_{int(min_score)}"
+        trace["FINAL"]["required"]["min_score"] = min_score
         trace["FINAL"]["observed"]["score"] = total_score
         return _finish(None)
 

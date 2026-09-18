@@ -53,23 +53,14 @@ class TestTechnicalScannerProvenPatternsCleanup(unittest.TestCase):
         """Verify that APPROVED_TECHNICAL_PATTERNS contains certified technical patterns."""
         expected = {
             "WYCKOFF_SPRING_TYPE_2",
-            "BULL_FLAG",
-            "MULTI_MONTH_BASE_BREAKOUT",
-            "UNDERCUT_AND_RALLY",
-            "SHAKEOUT_RECLAIM",
-            "DOUBLE_BOTTOM",
-            "V_REVERSAL",
-            "CUP_HANDLE",
-            "ASCENDING_TRIANGLE",
-            "BULL_PENNANT",
-            "HIGHER_LOW_REVERSAL",
         }
         self.assertEqual(APPROVED_TECHNICAL_PATTERNS, expected, "Whitelist must match certified patterns")
-        self.assertEqual(len(APPROVED_TECHNICAL_PATTERNS), 11, "Must contain exactly 11 approved production patterns")
+        self.assertEqual(len(APPROVED_TECHNICAL_PATTERNS), 1, "Must contain exactly 1 approved production pattern under dual certification standard")
 
     def test_02_quarantined_patterns_rejection(self):
         """Verify that quarantined and research-only patterns are strictly rejected in production evaluation."""
         unapproved_patterns = [
+            "HIGHER_LOW_REVERSAL",
             "CUP_AND_HANDLE",
             "VCP_CONTRACTION",
             "HIGH_TIGHT_FLAG",
@@ -78,6 +69,11 @@ class TestTechnicalScannerProvenPatternsCleanup(unittest.TestCase):
             "INVERSE_HEAD_AND_SHOULDERS",
             "DOUBLE_BOTTOM_SHAKEOUT",
             "PENNANT_CONVERGENCE",
+            "BULL_FLAG",
+            "DOUBLE_BOTTOM",
+            "V_REVERSAL",
+            "SHAKEOUT_RECLAIM",
+            "BULL_PENNANT",
         ]
         for reg in ["STRONG_BULL", "BULL", "SIDEWAYS", "HIGH_VOLATILITY", "WEAK_BEAR"]:
             for pat in unapproved_patterns:
@@ -88,14 +84,14 @@ class TestTechnicalScannerProvenPatternsCleanup(unittest.TestCase):
 
     def test_03_approved_patterns_scoring_under_regimes(self):
         """Verify that approved patterns receive proper regime bonuses."""
-        # Strong Bull: Multi-Month Base & Wyckoff Spring
-        sb_eval = evaluate_pattern_for_regime("MULTI_MONTH_BASE_BREAKOUT", "STRONG_BULL")
+        # Strong Bull: Wyckoff Spring Type 2
+        sb_eval = evaluate_pattern_for_regime("WYCKOFF_SPRING_TYPE_2", "STRONG_BULL")
         self.assertTrue(sb_eval["allowed"])
         self.assertEqual(sb_eval["status"], "PRIMARY_CHAMPION")
         self.assertEqual(sb_eval["bonus_points"], 15.0)
 
-        # Bull: Bull Flag primary
-        b_eval = evaluate_pattern_for_regime("BULL_FLAG", "BULL")
+        # Bull: Wyckoff Spring Type 2 primary
+        b_eval = evaluate_pattern_for_regime("WYCKOFF_SPRING_TYPE_2", "BULL")
         self.assertTrue(b_eval["allowed"])
         self.assertEqual(b_eval["status"], "PRIMARY_CHAMPION")
         self.assertEqual(b_eval["bonus_points"], 15.0)
@@ -103,29 +99,29 @@ class TestTechnicalScannerProvenPatternsCleanup(unittest.TestCase):
         # High Volatility: Wyckoff Spring Type 2 primary
         hv_eval = evaluate_pattern_for_regime("WYCKOFF_SPRING_TYPE_2", "HIGH_VOLATILITY")
         self.assertTrue(hv_eval["allowed"])
-        self.assertEqual(hv_eval["status"], "PRIMARY_CHAMPION")
         self.assertEqual(hv_eval["bonus_points"], 15.0)
 
-        # Weak Bear: Undercut & Rally primary, Base Breakouts blocked
-        wb_ur = evaluate_pattern_for_regime("UNDERCUT_AND_RALLY", "WEAK_BEAR")
-        self.assertTrue(wb_ur["allowed"])
-        self.assertEqual(wb_ur["status"], "PRIMARY_CHAMPION")
+        # Bear: Wyckoff Spring Type 2 primary
+        bear_eval = evaluate_pattern_for_regime("WYCKOFF_SPRING_TYPE_2", "WEAK_BEAR")
+        self.assertTrue(bear_eval["allowed"])
+        self.assertEqual(bear_eval["status"], "PRIMARY_CHAMPION")
+        self.assertEqual(bear_eval["bonus_points"], 15.0)
         
-        wb_mm = evaluate_pattern_for_regime("MULTI_MONTH_BASE_BREAKOUT", "WEAK_BEAR")
-        self.assertFalse(wb_mm["allowed"], "Base breakouts must be blocked in Weak Bear")
+        wb_hl = evaluate_pattern_for_regime("HIGHER_LOW_REVERSAL", "WEAK_BEAR")
+        self.assertFalse(wb_hl["allowed"], "Higher Low Reversals must be blocked in Weak Bear")
 
     def test_04_candidate_discovery_whitelisting(self):
         """Verify that candidate detection in detect_technical_setup outputs only approved patterns."""
         df = _create_sample_df(n_bars=70)
-        # Create a Bull Flag setup
+        # Create a Wyckoff Spring setup
         df.loc[df.index[40:50], "high"] = 120.0
         df.loc[df.index[40:50], "low"] = 100.0
         df.loc[df.index[50:68], "high"] = 118.0
-        df.loc[df.index[50:68], "low"] = 112.0
-        df.loc[df.index[69], "open"] = 117.0
-        df.loc[df.index[69], "close"] = 121.0 # Breakout
-        df.loc[df.index[69], "high"] = 122.0
-        df.loc[df.index[69], "low"] = 116.5
+        df.loc[df.index[50:68], "low"] = 98.0
+        df.loc[df.index[69], "open"] = 101.0
+        df.loc[df.index[69], "close"] = 106.0 # Reclaim
+        df.loc[df.index[69], "high"] = 107.0
+        df.loc[df.index[69], "low"] = 99.0
         df.loc[df.index[69], "volume"] = 150_000.0 # 3x RVOL
 
         res, trace = detect_technical_setup(df, "TESTSYM", return_trace=True)

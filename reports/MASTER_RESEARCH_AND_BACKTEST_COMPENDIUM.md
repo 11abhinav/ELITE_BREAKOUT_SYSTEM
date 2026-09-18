@@ -903,12 +903,64 @@ $$\text{Exact Arithmetic Check: } +0.070R + 0.091R + 0.126R \equiv \mathbf{+0.28
 - **Research ↔ Live Parity Replay**: Replayed 250 holdout sessions through shadow engine achieving **100% bit-for-bit deterministic output parity** ($0$ unexplained mismatches, exact $+1.515R$, $91.52\%$ WR, $24.10$ PF).
 - **Calendar & Temporal Invariants**: Verified $0$ Saturday bars, $0$ Sunday bars, $0$ duplicate IDs, $0$ lookahead violations.
 
-### B. Certified Artifact Reference Directory
-- [engine/production/v529_shadow_execution_engine.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/engine/production/v529_shadow_execution_engine.py)
-- [reports/v529_shadow_live_parity_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v529_shadow_live_parity_certification_report.md)
-- [reports/v529_production_candidate_certification_report.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/v529_production_candidate_certification_report.md)
-- [tests/test_v529_shadow_parity_and_certification.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/tests/test_v529_shadow_parity_and_certification.py)
-- [scripts/reconcile_v529_certification_audit.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scripts/reconcile_v529_certification_audit.py)
+---
+
+## 36. Technical Scanner Master Forensic Certification, Dual Production Policy & Gate Ablation Audit
+
+### A. Executive Certification Summary
+- **Date**: 2026-09-18
+- **Historical Universe**: 879 Real BSE/NSE Equity Instruments (`data/history/1d/*.parquet`)
+- **Evaluation Invariant**: Zero forward lookahead ($T \le t$), Asia/Kolkata (IST) Monday–Friday trading calendar. Same-bar SL/T1 touch strictly penalized as **`LOSS`** (`INTRABAR_AMBIGUITY_LOSS`). Maximum 20-day timeout horizon.
+- **Dual Replay Datasets**:
+  * **Pre-Gate Baseline Ledger**: [technical_scanner_baseline_ledger.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/technical_scanner_baseline_ledger.csv) (**7,134 trades**)
+  * **Post-Gate Hardened Ledger**: [technical_scanner_hardened_ledger.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/technical_scanner_hardened_ledger.csv) (**4,806 trades**)
+  * **Rejected Candidate Population**: **2,328 trades (32.6%)**
+
+### B. Formal Dual Production Rule
+A pattern qualifies for **`PRODUCTION` (`TIER_2_OOS_VALIDATED`)** if and only if it satisfies all 6 requirements:
+1. $\text{OOS WR} \ge 50.0\%$
+2. $\text{OOS PF} \ge 1.50$
+3. $\text{Full Hardened PF} \ge 1.50$
+4. $\text{OOS Avg R} > 0.00\text{R}$
+5. $\text{OOS Sample } N \ge 25$
+6. Zero Data Integrity / Invariant Violations
+
+### C. Mechanical Promotion & Routing Matrix
+| Pattern | OOS N | OOS WR | OOS PF | OOS Avg R | OOS WR 95% CI | Hard N | Hard WR | Hard PF | Hard Avg R | Hard WR 95% CI | Final Policy Status |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| **`WYCKOFF_SPRING_TYPE_2`** | 535 | **52.9%** | **1.63** | **+0.27R** | [48.7%, 57.1%] | 888 | **52.7%** | **1.57** | **+0.24R** | [49.4%, 56.0%] | **`PRODUCTION` (`TIER_2_OOS_VALIDATED`)** |
+| `HIGHER_LOW_REVERSAL` | 114 | 50.0% | 1.44 | +0.20R | [41.0%, 59.0%] | 174 | 48.3% | 1.32 | +0.15R | [41.0%, 55.7%] | `RESEARCH_ONLY` |
+| `MULTI_MONTH_BASE_BREAKOUT` | 359 | 47.1% | 1.19 | +0.10R | [42.0%, 52.2%] | 625 | 49.0% | 1.34 | +0.16R | [45.1%, 52.9%] | `RESEARCH_ONLY` |
+| `CUP_HANDLE` | 380 | 43.7% | 1.11 | +0.06R | [38.8%, 48.7%] | 696 | 45.7% | 1.21 | +0.11R | [42.0%, 49.4%] | `RESEARCH_ONLY` |
+| `BULL_FLAG` | 302 | 46.7% | 1.22 | +0.11R | [41.1%, 52.3%] | 388 | 47.7% | 1.25 | +0.12R | [42.8%, 52.6%] | `QUARANTINED` |
+| `V_REVERSAL` | 486 | 41.6% | 0.98 | -0.01R | [37.3%, 46.0%] | 734 | 44.4% | 1.06 | +0.03R | [40.9%, 48.0%] | `QUARANTINED` |
+| `DOUBLE_BOTTOM` | 239 | 37.2% | 0.86 | -0.08R | [31.4%, 43.5%] | 325 | 40.6% | 0.93 | -0.04R | [35.4%, 46.0%] | `QUARANTINED` |
+| `SHAKEOUT_RECLAIM` | 711 | 39.4% | 0.92 | -0.05R | [35.9%, 43.0%] | 885 | 39.9% | 0.93 | -0.04R | [36.7%, 43.2%] | `QUARANTINED` |
+| `BULL_PENNANT` | 51 | 39.2% | 1.00 | +0.00R | [27.0%, 52.9%] | 68 | 30.9% | 0.69 | -0.20R | [21.2%, 42.6%] | `QUARANTINED` |
+| `ASCENDING_TRIANGLE` | 16 | 37.5% | 0.88 | -0.07R | [18.5%, 61.4%] | 23 | 39.1% | 0.76 | -0.14R | [22.2%, 59.2%] | `INSUFFICIENT_SAMPLE` |
+
+### D. Stepwise Gate Ablation & Pattern-Specific Lift Discovery
+1. **Universal Aggregate Waterfall**:
+   - Baseline: $N=7,134$, WR $45.9\%$, PF $1.18$, $+0.09\text{R}$.
+   - + CLV $\ge 0.70$: $N=7,134$, WR $45.9\%$, PF $1.18$, $+0.09\text{R}$.
+   - + RVOL $\ge 1.35$: $N=5,737$, WR $46.0\%$, PF $1.18$, $+0.09\text{R}$.
+   - + Upper Wick $\le 25\%$: $N=4,806$, WR $45.8\%$, PF $1.17$, $+0.09\text{R}$.
+   - + Score $\ge 70$: $N=4,806$, WR $45.8\%$, PF $1.17$, $+0.09\text{R}$.
+2. **Empirical Gate Lift Finding**:
+   - The anti-fake gates rejected 2,328 candidate signals ($32.6\%$). The effect is **pattern-specific**:
+     * **Accretive** on `WYCKOFF_SPRING_TYPE_2` (PF $1.52 \to 1.57$, $+0.22\text{R} \to +0.24\text{R}$) and `BULL_FLAG` (PF $1.16 \to 1.25$).
+     * **Dilutive** on `CUP_HANDLE` (PF $1.25 \to 1.21$), `DOUBLE_BOTTOM` (PF $1.01 \to 0.93$), and `V_REVERSAL` (PF $1.14 \to 1.06$).
+
+### E. Bear Regime Benchmark
+- `WYCKOFF_SPRING_TYPE_2 (Bear)`: **$N=202$ trades, $69.3\%$ Win Rate, PF $3.19$, $+0.64\text{R}$ expectancy** (versus $42.2\%$ WR and PF $1.07$ for Random Bear control).
+
+### F. Governance & Artifact Directory
+- Report: [reports/technical_scanner_certification.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/technical_scanner_certification.md)
+- Baseline Ledger: [reports/technical_scanner_baseline_ledger.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/technical_scanner_baseline_ledger.csv)
+- Hardened Ledger: [reports/technical_scanner_hardened_ledger.csv](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/technical_scanner_hardened_ledger.csv)
+- Policy File: [app/regime_pattern_policy.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/regime_pattern_policy.py) (`APPROVED_TECHNICAL_PATTERNS = {"WYCKOFF_SPRING_TYPE_2"}`)
+- Invariant Test Suite: [tests/test_certification_integrity.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/tests/test_certification_integrity.py) (32/32 PASS)
+
 
 
 

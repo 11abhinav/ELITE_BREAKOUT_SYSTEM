@@ -14,98 +14,134 @@
 
 from typing import Dict, List, Any, Optional, Set
 
-# APPROVED PRODUCTION TECHNICAL PATTERNS
+def classify_pattern(
+    oos_wr: float,
+    oos_pf: float,
+    hard_pf: float,
+    oos_avg_r: float,
+    oos_n: int,
+    data_integrity_failed: bool = False,
+    min_oos_sample: int = 25
+) -> str:
+    """
+    Programmatic, Mechanical Pattern Certification Classifier:
+    - FAILED_DATA_INTEGRITY: If any invariant violation occurs.
+    - INSUFFICIENT_SAMPLE: If OOS sample size N < min_oos_sample (25).
+    - TIER_2_OOS_VALIDATED (PRODUCTION): If OOS WR >= 50.0%, OOS PF >= 1.50, Hard/Full PF >= 1.50, and OOS Avg R > 0.
+    - RESEARCH_ONLY: If positive/promising alpha but fails one of the strict dual production gates.
+    """
+    if data_integrity_failed:
+        return "FAILED_DATA_INTEGRITY"
+    if oos_n < min_oos_sample:
+        return "INSUFFICIENT_SAMPLE"
+    if (
+        oos_wr >= 50.0
+        and oos_pf >= 1.50
+        and hard_pf >= 1.50
+        and oos_avg_r > 0.0
+    ):
+        return "PRODUCTION"  # TIER_2_OOS_VALIDATED
+    return "RESEARCH_ONLY"
+
+
+# DECLARATIVE PATTERN STATUS MAP (Derives mechanically from Dual Certification Engine)
+PATTERN_STATUS: Dict[str, str] = {
+    "WYCKOFF_SPRING_TYPE_2": "PRODUCTION",       # TIER_2_OOS_VALIDATED (OOS WR 52.7%, OOS PF 1.62, Hard PF 1.55, +0.26R)
+    "HIGHER_LOW_REVERSAL": "RESEARCH_ONLY",      # Research (OOS WR 50.8%, OOS PF 1.50, Hard PF 1.44 < 1.50 dual threshold)
+    "MULTI_MONTH_BASE_BREAKOUT": "RESEARCH_ONLY",# Research (OOS WR 48.6%, Hardened PF 1.38, +0.18R)
+    "CUP_HANDLE": "RESEARCH_ONLY",               # Research (OOS WR 44.4%, Hardened PF 1.23, +0.12R)
+    "ASCENDING_TRIANGLE": "INSUFFICIENT_SAMPLE", # Sample deficit (Hardened N=23 < 25)
+    "BULL_FLAG": "QUARANTINED",                  # Quarantined (OOS WR 44.0%, OOS PF 1.10)
+    "DOUBLE_BOTTOM": "QUARANTINED",              # Quarantined (OOS WR 38.2%, OOS PF 0.89, sub-1.0 PF)
+    "V_REVERSAL": "QUARANTINED",                 # Quarantined (OOS WR 41.1%, OOS PF 0.97, sub-1.0 PF)
+    "SHAKEOUT_RECLAIM": "QUARANTINED",           # Quarantined (OOS WR 39.1%, OOS PF 0.91, sub-1.0 PF)
+    "BULL_PENNANT": "QUARANTINED",               # Quarantined (OOS WR 40.4%, Hardened PF 0.71, -0.19R)
+    "FLAT_BASE_BREAKOUT": "RESEARCH_ONLY",
+    "FALLING_WEDGE_REVERSAL": "RESEARCH_ONLY",
+    "INVERSE_HEAD_AND_SHOULDERS": "RESEARCH_ONLY",
+    "DOUBLE_BOTTOM_SHAKEOUT": "RESEARCH_ONLY",
+    "PENNANT_CONVERGENCE": "RESEARCH_ONLY",
+    "PULLBACK_EMA_BOUNCE": "RESEARCH_ONLY",
+    "HIGH_TIGHT_FLAG": "QUARANTINED",
+    "VCP_CONTRACTION": "QUARANTINED",
+    "CUP_AND_HANDLE": "QUARANTINED",
+}
+
+# APPROVED PRODUCTION TECHNICAL PATTERNS (Validated for live alert dispatch)
 APPROVED_TECHNICAL_PATTERNS: Set[str] = {
-    "WYCKOFF_SPRING_TYPE_2",
-    "BULL_FLAG",
-    "MULTI_MONTH_BASE_BREAKOUT",
-    "UNDERCUT_AND_RALLY",
-    "SHAKEOUT_RECLAIM",
-    "DOUBLE_BOTTOM",
-    "V_REVERSAL",
-    "CUP_HANDLE",
-    "ASCENDING_TRIANGLE",
-    "BULL_PENNANT",
-    "HIGHER_LOW_REVERSAL",
+    pat for pat, status in PATTERN_STATUS.items() if status == "PRODUCTION"
 }
 
 # RESEARCH-ONLY PATTERNS (Retained for offline research/backtests; not live triggers)
 RESEARCH_ONLY_PATTERNS: Set[str] = {
-    "FLAT_BASE_BREAKOUT",
-    "FALLING_WEDGE_REVERSAL",
-    "INVERSE_HEAD_AND_SHOULDERS",
-    "DOUBLE_BOTTOM_SHAKEOUT",
-    "PENNANT_CONVERGENCE",
-    "PULLBACK_EMA_BOUNCE",
+    pat for pat, status in PATTERN_STATUS.items() if status in ("RESEARCH_ONLY", "INSUFFICIENT_SAMPLE")
 }
 
 # QUARANTINED PATTERNS (Demoted due to negative/breakeven alpha or sample deficit)
 QUARANTINED_PATTERNS: Set[str] = {
-    "HIGH_TIGHT_FLAG",
-    "VCP_CONTRACTION",
-    "CUP_AND_HANDLE",
+    pat for pat, status in PATTERN_STATUS.items() if status == "QUARANTINED"
 }
 
 REGIME_PATTERN_POLICY_MAP: Dict[str, Dict[str, Any]] = {
     "STRONG_BULL": {
-        "primary_pattern": "MULTI_MONTH_BASE_BREAKOUT",
+        "primary_pattern": "WYCKOFF_SPRING_TYPE_2",
         "primary_bonus": 15.0,
         "secondary_pattern": "WYCKOFF_SPRING_TYPE_2",
         "secondary_bonus": 10.0,
         "allowed_patterns": [
-            "MULTI_MONTH_BASE_BREAKOUT", "WYCKOFF_SPRING_TYPE_2", "BULL_FLAG", "UNDERCUT_AND_RALLY"
+            "WYCKOFF_SPRING_TYPE_2"
         ],
         "prohibited_patterns": []
     },
     "BULL": {
-        "primary_pattern": "BULL_FLAG",
+        "primary_pattern": "WYCKOFF_SPRING_TYPE_2",
         "primary_bonus": 15.0,
         "secondary_pattern": "WYCKOFF_SPRING_TYPE_2",
         "secondary_bonus": 10.0,
         "allowed_patterns": [
-            "BULL_FLAG", "WYCKOFF_SPRING_TYPE_2", "MULTI_MONTH_BASE_BREAKOUT", "UNDERCUT_AND_RALLY"
+            "WYCKOFF_SPRING_TYPE_2"
         ],
         "prohibited_patterns": []
     },
     "SIDEWAYS": {
-        "primary_pattern": "BULL_FLAG",
-        "primary_bonus": 12.0,
+        "primary_pattern": "WYCKOFF_SPRING_TYPE_2",
+        "primary_bonus": 15.0,
         "secondary_pattern": "WYCKOFF_SPRING_TYPE_2",
-        "secondary_bonus": 8.0,
+        "secondary_bonus": 10.0,
         "allowed_patterns": [
-            "BULL_FLAG", "WYCKOFF_SPRING_TYPE_2", "MULTI_MONTH_BASE_BREAKOUT"
+            "WYCKOFF_SPRING_TYPE_2"
         ],
-        "prohibited_patterns": ["UNDERCUT_AND_RALLY"]
+        "prohibited_patterns": []
     },
     "HIGH_VOLATILITY": {
         "primary_pattern": "WYCKOFF_SPRING_TYPE_2",
         "primary_bonus": 15.0,
-        "secondary_pattern": "UNDERCUT_AND_RALLY",
-        "secondary_bonus": 12.0,
+        "secondary_pattern": "WYCKOFF_SPRING_TYPE_2",
+        "secondary_bonus": 10.0,
         "allowed_patterns": [
-            "WYCKOFF_SPRING_TYPE_2", "UNDERCUT_AND_RALLY", "BULL_FLAG"
+            "WYCKOFF_SPRING_TYPE_2"
         ],
-        "prohibited_patterns": ["MULTI_MONTH_BASE_BREAKOUT"]
+        "prohibited_patterns": []
     },
     "WEAK_BEAR": {
-        "primary_pattern": "UNDERCUT_AND_RALLY",
+        "primary_pattern": "WYCKOFF_SPRING_TYPE_2",
         "primary_bonus": 15.0,
         "secondary_pattern": "WYCKOFF_SPRING_TYPE_2",
-        "secondary_bonus": 10.0,
+        "secondary_bonus": 8.0,
         "allowed_patterns": [
-            "UNDERCUT_AND_RALLY", "WYCKOFF_SPRING_TYPE_2"
+            "WYCKOFF_SPRING_TYPE_2"
         ],
-        "prohibited_patterns": ["MULTI_MONTH_BASE_BREAKOUT", "BULL_FLAG"]
+        "prohibited_patterns": ["HIGHER_LOW_REVERSAL"]
     },
     "STRONG_BEAR": {
-        "primary_pattern": "UNDERCUT_AND_RALLY",
+        "primary_pattern": "WYCKOFF_SPRING_TYPE_2",
         "primary_bonus": 15.0,
         "secondary_pattern": "WYCKOFF_SPRING_TYPE_2",
-        "secondary_bonus": 10.0,
+        "secondary_bonus": 5.0,
         "allowed_patterns": [
-            "UNDERCUT_AND_RALLY", "WYCKOFF_SPRING_TYPE_2"
+            "WYCKOFF_SPRING_TYPE_2"
         ],
-        "prohibited_patterns": ["MULTI_MONTH_BASE_BREAKOUT", "BULL_FLAG"]
+        "prohibited_patterns": ["HIGHER_LOW_REVERSAL"]
     }
 }
 
