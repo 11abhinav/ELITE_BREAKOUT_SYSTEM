@@ -607,20 +607,12 @@ class ShortCoveringEarlyIgnitionScanner:
             if oi_data_service.is_rollover_in_progress(symbol, oi_change_5m_pct, 0.0, current_time.date()):
                 return (None, "ROLLOVER_IN_PROGRESS", 0.0, "Expiry-week contract rollover flow detected", []) if return_diagnostics else None
         else:
-            # Explicit NOT_COMPUTABLE data-quality contract
-            oi_change_5m_pct = float("nan")
-            oi_delta_3bar = float("nan")
-            oi_change_session_pct = float("nan")
-            excess_oi_contraction = float("nan")
-            recent_excess_oi = float("nan")
-            has_oi_unwind = True  # Bypassed on cash equity
-            # EQUITY_SHORT_SQUEEZE_PROXY: requires stronger price thrust + volume surge
-            has_primary_ignition = (
-                is_green_candle and
-                is_above_vwap and
-                price_change_5m_pct >= 0.12 and
-                vol_surge_ratio >= 1.25
+            # [RULE 67 CHANGE-RATIONALE: NO DERIVATIVE OI -> NO C5 SHORT COVERING SIGNAL]
+            # Explicitly fail if derivative OI is unavailable instead of falling back to cash-equity proxy.
+            logger.debug(
+                "[SC_5M] %s | REJECT — DATA_INSUFFICIENT (Cannot compute C5 without OI)", symbol
             )
+            return (None, "DATA_INSUFFICIENT", 0.0, "Derivative OI is unavailable; cannot compute C5 short-covering signal", []) if return_diagnostics else None
 
         # Multi-Vector Extension Analysis
         session_low_val = float(past_bars["low"].min()) if "low" in past_bars.columns else cur_low

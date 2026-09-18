@@ -41,6 +41,9 @@ class FyersProvider(ProviderInterface):
     def get_health_score(self) -> float:
         return self._health_score
         
+    def get_status(self) -> ProviderStatus:
+        return self._status
+        
     _FYERS_INDEX_MAP = {
         "^NSEI": "NSE:NIFTY50-INDEX",
         "NIFTY 50": "NSE:NIFTY50-INDEX",
@@ -123,7 +126,8 @@ class FyersProvider(ProviderInterface):
                 "date_format": "1",
                 "range_from": range_from.strftime("%Y-%m-%d"),
                 "range_to": range_to.strftime("%Y-%m-%d"),
-                "cont_flag": "1"
+                "cont_flag": "1",
+                "oi_flag": "1"
             }
             
             backoff = 1.0
@@ -155,10 +159,30 @@ class FyersProvider(ProviderInterface):
                 break
                 
             candles = response.get("candles", [])
-            df = pd.DataFrame(candles, columns=["Timestamp", "Open", "High", "Low", "Close", "Volume"])
+            base_columns = [
+                "Timestamp",
+                "Open",
+                "High",
+                "Low",
+                "Close",
+                "Volume",
+            ]
             
-            from zoneinfo import ZoneInfo
-            IST = ZoneInfo("Asia/Kolkata")
+            if not candles:
+                df = pd.DataFrame(columns=base_columns)
+            else:
+                widths = {len(row) for row in candles}
+                if widths == {7}:
+                    columns = base_columns + ["OI"]
+                elif widths == {6}:
+                    columns = base_columns
+                else:
+                    raise ValueError(f"Unexpected FYERS candle widths: {sorted(widths)}")
+                
+                df = pd.DataFrame(candles, columns=columns)
+            
+            if "OI" in df.columns:
+                df["OI"] = pd.to_numeric(df["OI"], errors="coerce")
             
             df["Datetime"] = pd.to_datetime(df["Timestamp"], unit="s", utc=True).dt.tz_convert(IST)
             df = df.set_index("Datetime").drop(columns=["Timestamp"]).sort_index()

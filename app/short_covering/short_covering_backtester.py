@@ -157,10 +157,10 @@ class ShortCoveringBacktester:
 
                 cur_bar = past.iloc[-1]
                 prev_bar = past.iloc[-2]
-                close = float(cur_bar["close"])
-                open_p = float(cur_bar["open"])
-                oi_delta = float(cur_bar["oi_change_5m_pct"])
-                vol = int(cur_bar["volume"])
+                close = float(cur_bar["close"]) if not pd.isna(cur_bar.get("close")) else 0.0
+                open_p = float(cur_bar["open"]) if not pd.isna(cur_bar.get("open")) else 0.0
+                oi_delta = float(cur_bar.get("oi_change_5m_pct", 0.0)) if not pd.isna(cur_bar.get("oi_change_5m_pct")) else 0.0
+                vol = int(cur_bar["volume"]) if not pd.isna(cur_bar.get("volume")) else 0
                 avg_vol = past["volume"].tail(10).mean()
 
                 # Baseline A: Simple Price ↑ + OI ↓

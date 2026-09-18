@@ -36,6 +36,8 @@ INTRADAY_IGNITION_CONFIG: Dict[str, Any] = {
     "SYMBOL_COOLDOWN_MINUTES": 30,       # Deduplication guard: 30m symbol cooldown
     "MAX_PORTFOLIO_SLOTS": 10,           # Max concurrent portfolio positions (10 slots)
     "ROLLOVER_EXCLUSION_RATIO": 0.70,    # If next month OI absorbs >= 70% of drop in expiry week
+    "DERIVATIVE_OI_REQUIRED": True,      # No derivative OI -> No C5 Short-Covering signal
+    "ALLOW_CASH_EQUITY_PROXY": False,    # Prohibit cash-equity squeeze fallback for C5
 }
 
 # ── LEGACY V1 ROLLBACK CONFIG (Inactive under C5) ─────────────────────────────
