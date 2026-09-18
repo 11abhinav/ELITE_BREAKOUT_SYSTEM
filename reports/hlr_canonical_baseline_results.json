@@ -1,0 +1,127 @@
+{
+  "pattern": "HIGHER_LOW_REVERSAL",
+  "canonical_exit_spec": {
+    "sl_min_pct": 0.035,
+    "sl_max_pct": 0.08,
+    "target_1_R": 2.0,
+    "target_2_R": 3.0,
+    "target_1_min_hold_bars": 5,
+    "max_hold_bars": 25,
+    "same_bar_ambiguity": "LOSS"
+  },
+  "overall": {
+    "N": 0,
+    "wins": 0,
+    "losses": 0,
+    "win_rate": 0.0,
+    "gross_profit_R": 0,
+    "gross_loss_R": 0,
+    "profit_factor": 0.0,
+    "net_R": 0,
+    "avg_R": 0.0,
+    "median_R": 0.0,
+    "avg_win_R": 0.0,
+    "avg_loss_R": 0.0,
+    "finite_trade_count": 0
+  },
+  "periods": {
+    "DEV_2024": {
+      "N": 0,
+      "wins": 0,
+      "losses": 0,
+      "win_rate": 0.0,
+      "gross_profit_R": 0,
+      "gross_loss_R": 0,
+      "profit_factor": 0.0,
+      "net_R": 0,
+      "avg_R": 0.0,
+      "median_R": 0.0,
+      "avg_win_R": 0.0,
+      "avg_loss_R": 0.0,
+      "finite_trade_count": 0
+    },
+    "VAL_2025": {
+      "N": 0,
+      "wins": 0,
+      "losses": 0,
+      "win_rate": 0.0,
+      "gross_profit_R": 0,
+      "gross_loss_R": 0,
+      "profit_factor": 0.0,
+      "net_R": 0,
+      "avg_R": 0.0,
+      "median_R": 0.0,
+      "avg_win_R": 0.0,
+      "avg_loss_R": 0.0,
+      "finite_trade_count": 0
+    },
+    "OOS_2026": {
+      "N": 0,
+      "wins": 0,
+      "losses": 0,
+      "win_rate": 0.0,
+      "gross_profit_R": 0,
+      "gross_loss_R": 0,
+      "profit_factor": 0.0,
+      "net_R": 0,
+      "avg_R": 0.0,
+      "median_R": 0.0,
+      "avg_win_R": 0.0,
+      "avg_loss_R": 0.0,
+      "finite_trade_count": 0
+    }
+  },
+  "execution": {
+    "max_workers": 4,
+    "elapsed_seconds": 103.61771202087402,
+    "symbols": 879
+  },
+  "worker_status": {
+    "OK": 871,
+    "EMPTY": 0,
+    "INVALID_COLUMNS": 0,
+    "ERROR": 8
+  },
+  "errors": [
+    {
+      "symbol": "AEGISLOG",
+      "error": "RuntimeError: HLR detector produced a record without a signal date for AEGISLOG",
+      "traceback": "Traceback (most recent call last):\n  File \"/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scratch/hlr_baseline_evaluation.py\", line 363, in process_symbol\n    signals = normalize_signals(call_detector(detector, df), symbol)\n  File \"/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scratch/hlr_baseline_evaluation.py\", line 213, in normalize_signals\n    raise RuntimeError(\nRuntimeError: HLR detector produced a record without a signal date for AEGISLOG\n"
+    },
+    {
+      "symbol": "DYNAMATECH",
+      "error": "RuntimeError: HLR detector produced a record without a signal date for DYNAMATECH",
+      "traceback": "Traceback (most recent call last):\n  File \"/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scratch/hlr_baseline_evaluation.py\", line 363, in process_symbol\n    signals = normalize_signals(call_detector(detector, df), symbol)\n  File \"/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scratch/hlr_baseline_evaluation.py\", line 213, in normalize_signals\n    raise RuntimeError(\nRuntimeError: HLR detector produced a record without a signal date for DYNAMATECH\n"
+    },
+    {
+      "symbol": "GICRE",
+      "error": "RuntimeError: HLR detector produced a record without a signal date for GICRE",
+      "traceback": "Traceback (most recent call last):\n  File \"/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scratch/hlr_baseline_evaluation.py\", line 363, in process_symbol\n    signals = normalize_signals(call_detector(detector, df), symbol)\n  File \"/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scratch/hlr_baseline_evaluation.py\", line 213, in normalize_signals\n    raise RuntimeError(\nRuntimeError: HLR detector produced a record without a signal date for GICRE\n"
+    },
+    {
+      "symbol": "IIFL",
+      "error": "RuntimeError: HLR detector produced a record without a signal date for IIFL",
+      "traceback": "Traceback (most recent call last):\n  File \"/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scratch/hlr_baseline_evaluation.py\", line 363, in process_symbol\n    signals = normalize_signals(call_detector(detector, df), symbol)\n  File \"/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scratch/hlr_baseline_evaluation.py\", line 213, in normalize_signals\n    raise RuntimeError(\nRuntimeError: HLR detector produced a record without a signal date for IIFL\n"
+    },
+    {
+      "symbol": "SKIPPER",
+      "error": "RuntimeError: HLR detector produced a record without a signal date for SKIPPER",
+      "traceback": "Traceback (most recent call last):\n  File \"/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scratch/hlr_baseline_evaluation.py\", line 363, in process_symbol\n    signals = normalize_signals(call_detector(detector, df), symbol)\n  File \"/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scratch/hlr_baseline_evaluation.py\", line 213, in normalize_signals\n    raise RuntimeError(\nRuntimeError: HLR detector produced a record without a signal date for SKIPPER\n"
+    },
+    {
+      "symbol": "TATACAP",
+      "error": "RuntimeError: HLR detector produced a record without a signal date for TATACAP",
+      "traceback": "Traceback (most recent call last):\n  File \"/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scratch/hlr_baseline_evaluation.py\", line 363, in process_symbol\n    signals = normalize_signals(call_detector(detector, df), symbol)\n  File \"/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scratch/hlr_baseline_evaluation.py\", line 213, in normalize_signals\n    raise RuntimeError(\nRuntimeError: HLR detector produced a record without a signal date for TATACAP\n"
+    },
+    {
+      "symbol": "^CNXMETAL",
+      "error": "RuntimeError: HLR detector produced a record without a signal date for ^CNXMETAL",
+      "traceback": "Traceback (most recent call last):\n  File \"/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scratch/hlr_baseline_evaluation.py\", line 363, in process_symbol\n    signals = normalize_signals(call_detector(detector, df), symbol)\n  File \"/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scratch/hlr_baseline_evaluation.py\", line 213, in normalize_signals\n    raise RuntimeError(\nRuntimeError: HLR detector produced a record without a signal date for ^CNXMETAL\n"
+    },
+    {
+      "symbol": "^CNXREALTY",
+      "error": "RuntimeError: HLR detector produced a record without a signal date for ^CNXREALTY",
+      "traceback": "Traceback (most recent call last):\n  File \"/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scratch/hlr_baseline_evaluation.py\", line 363, in process_symbol\n    signals = normalize_signals(call_detector(detector, df), symbol)\n  File \"/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scratch/hlr_baseline_evaluation.py\", line 213, in normalize_signals\n    raise RuntimeError(\nRuntimeError: HLR detector produced a record without a signal date for ^CNXREALTY\n"
+    }
+  ]
+}

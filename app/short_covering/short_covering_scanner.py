@@ -152,32 +152,87 @@ class ShortCoveringEarlyIgnitionScanner:
             # 1. Universe Selection: C5 Intraday-Only (All Active F&O) vs Legacy V1
             candidate_map: Dict[str, Optional[EODShortPositionCandidate]] = {}
             if engine_mode == "C5_INTRADAY_ONLY":
-                # Pre-flight: C5 requires live Fyers intraday OI data. If Fyers client is
-                # unavailable (expired token, weekend, no session), every symbol will return
-                # None → 100% stale → DEGRADED. Instead, gate on Fyers availability early
-                # and exit as IDLE to avoid false staleness alarms.
+                # [VERSION: SC_DATA_HEALTH_GATE_v1.0]
+                # Pre-flight: C5 requires live intraday OI data. Use SCDataHealthGate to assess
+                # ALL data layers (Fyers, Upstox, parquet) via a full 9-step end-to-end probe.
+                # This explicitly distinguishes INGESTION_FAILURE from NO_SIGNAL (legitimate zero).
+                # A shallow bool(get_fyers_client()) check is intentionally replaced here.
                 if not os.getenv("DISABLE_LIVE_DATA_FETCH"):
                     try:
-                        from app.fyers_auth import get_fyers_client
-                    except ImportError:
-                        from fyers_auth import get_fyers_client
-                    _fyers_client = get_fyers_client()
-                    has_upstox = bool(os.getenv("UPSTOX_ACCESS_TOKEN"))
-                    if not _fyers_client and not has_upstox:
-                        _no_broker_msg = "Neither Fyers nor Upstox API client is available. SHORT_COVERING_5M requires live intraday OI — cannot proceed without broker authentication."
-                        logger.warning("⚠️ [SHORT_COVERING_5M] %s", _no_broker_msg)
-                        if run_ctx:
-                            complete_scanner_execution_run(run_ctx, status_override="IDLE", stop_reason=_no_broker_msg)
-                        upsert_scanner_health(
-                            scanner_name="SHORT_COVERING_5M",
-                            status="IDLE",
-                            outcome="NO_BROKER_SESSION",
-                            error_msg=_no_broker_msg,
-                            duration_seconds=round(time.monotonic() - _scan_start, 2),
-                            scheduled_for=_SCHEDULE_STR,
-                            run_id=run_ctx.run_id if run_ctx else None
+                        try:
+                            from app.short_covering.sc_data_health import sc_data_health_gate, SCDataHealth
+                        except ImportError:
+                            from short_covering.sc_data_health import sc_data_health_gate, SCDataHealth
+
+                        _data_health = sc_data_health_gate.assess(target_date=today)
+
+                        if _data_health.is_blocked():
+                            _blocked_msg = (
+                                f"SC_DATA_HEALTH = BLOCKED — INGESTION_FAILURE. "
+                                f"Reason: {_data_health.reason}. "
+                                f"Recommendation: {_data_health.recommendation}"
+                            )
+                            logger.warning("🚨 [SHORT_COVERING_5M] %s", _blocked_msg)
+                            if run_ctx:
+                                complete_scanner_execution_run(
+                                    run_ctx, status_override="BLOCKED", stop_reason=_blocked_msg
+                                )
+                            upsert_scanner_health(
+                                scanner_name="SHORT_COVERING_5M",
+                                status="BLOCKED",
+                                outcome="INGESTION_FAILURE",
+                                error_msg=_blocked_msg,
+                                duration_seconds=round(time.monotonic() - _scan_start, 2),
+                                scheduled_for=_SCHEDULE_STR,
+                                run_id=run_ctx.run_id if run_ctx else None
+                            )
+                            return []
+
+                        elif _data_health.status in (
+                            SCDataHealth.DEGRADED_REDUNDANCY,
+                            SCDataHealth.DEGRADED,
+                        ):
+                            logger.warning(
+                                "⚠️ [SHORT_COVERING_5M] SC_DATA_HEALTH = %s — "
+                                "proceeding with reduced data confidence. %s. %s",
+                                _data_health.status.value,
+                                _data_health.reason,
+                                _data_health.recommendation,
+                            )
+
+                    except Exception as _health_err:
+                        # Health gate failure is non-fatal — fall back to legacy shallow check
+                        logger.warning(
+                            "⚠️ [SHORT_COVERING_5M] SCDataHealthGate probe failed (%s). "
+                            "Falling back to shallow token check.", _health_err
                         )
-                        return []
+                        try:
+                            from app.fyers_auth import get_fyers_client
+                        except ImportError:
+                            from fyers_auth import get_fyers_client
+                        _fyers_client = get_fyers_client()
+                        has_upstox = bool(os.getenv("UPSTOX_ACCESS_TOKEN"))
+                        if not _fyers_client and not has_upstox:
+                            _no_broker_msg = (
+                                "Neither Fyers nor Upstox API client is available. "
+                                "SHORT_COVERING_5M requires live intraday OI — "
+                                "cannot proceed without broker authentication."
+                            )
+                            logger.warning("⚠️ [SHORT_COVERING_5M] %s", _no_broker_msg)
+                            if run_ctx:
+                                complete_scanner_execution_run(
+                                    run_ctx, status_override="IDLE", stop_reason=_no_broker_msg
+                                )
+                            upsert_scanner_health(
+                                scanner_name="SHORT_COVERING_5M",
+                                status="IDLE",
+                                outcome="NO_BROKER_SESSION",
+                                error_msg=_no_broker_msg,
+                                duration_seconds=round(time.monotonic() - _scan_start, 2),
+                                scheduled_for=_SCHEDULE_STR,
+                                run_id=run_ctx.run_id if run_ctx else None
+                            )
+                            return []
 
                 # Certified C5 Production: Direct Active F&O Universe (Zero EOD alpha threshold)
                 symbols_to_scan = fno_universe_manager.get_fno_symbols()
@@ -252,7 +307,13 @@ class ShortCoveringEarlyIgnitionScanner:
 
             for symbol in symbols_to_scan:
                 try:
+                    _t0_sym_5m = time.monotonic()
                     df_5m = oi_data_service.get_intraday_5m_data(symbol, current_time.date())
+                    _rows_5m = len(df_5m) if df_5m is not None else 0
+                    logger.debug(
+                        "[SC_5M] ── %s ── data_fetch → %d rows%s",
+                        symbol, _rows_5m, "" if _rows_5m >= 2 else " ← INSUFFICIENT",
+                    )
                     if df_5m is None or len(df_5m) < 2:
                         stale_count += 1
                         gate_rejections["DATA_INSUFFICIENT"] = gate_rejections.get("DATA_INSUFFICIENT", 0) + 1
@@ -301,7 +362,7 @@ class ShortCoveringEarlyIgnitionScanner:
                                     logger.debug("Failed to persist near miss for %s: %s", symbol, nm_err)
                 except Exception as e:
                     gate_rejections["EVALUATION_ERROR"] = gate_rejections.get("EVALUATION_ERROR", 0) + 1
-                    logger.debug("Error in 5m evaluation for %s: %s", symbol, e)
+                    logger.warning("[SC_5M] %s | EVALUATION_ERROR: %s", symbol, e, exc_info=True)
 
             # Log comprehensive stage-by-stage pipeline summary
             summary_lines = [
@@ -322,7 +383,45 @@ class ShortCoveringEarlyIgnitionScanner:
             summary_lines.append("======================================================================")
             logger.info("\n".join(summary_lines))
 
-            # Enforce 25% staleness hard blocker
+            # [VERSION: SC_DATA_HEALTH_GATE_v1.0] Retroactive systemic ingestion failure check.
+            # If DATA_INSUFFICIENT >= 90% of all candidates, this run is INGESTION_FAILURE —
+            # not a legitimate zero-signal market result. Emits BLOCKED outcome explicitly.
+            data_insufficient_count = gate_rejections.get("DATA_INSUFFICIENT", 0)
+            try:
+                try:
+                    from app.short_covering.sc_data_health import SCDataHealthGate
+                except ImportError:
+                    from short_covering.sc_data_health import SCDataHealthGate
+                _is_systemic_failure = SCDataHealthGate.is_systemic_data_failure(
+                    data_insufficient_count=data_insufficient_count,
+                    total_candidates=len(symbols_to_scan)
+                )
+            except Exception:
+                _is_systemic_failure = False
+
+            if _is_systemic_failure:
+                _systemic_msg = (
+                    f"INGESTION_FAILURE: {data_insufficient_count}/{len(symbols_to_scan)} "
+                    f"({data_insufficient_count / max(len(symbols_to_scan), 1) * 100:.1f}%) candidates "
+                    f"returned DATA_INSUFFICIENT — systemic data outage, not a market result."
+                )
+                logger.warning("🚨 [SHORT_COVERING_5M] %s", _systemic_msg)
+                upsert_scanner_health(
+                    scanner_name="SHORT_COVERING_5M",
+                    status="BLOCKED",
+                    outcome="INGESTION_FAILURE",
+                    error_msg=_systemic_msg,
+                    duration_seconds=round(time.monotonic() - _scan_start, 2),
+                    scheduled_for=_SCHEDULE_STR,
+                    run_id=run_ctx.run_id if run_ctx else None
+                )
+                if run_ctx:
+                    complete_scanner_execution_run(
+                        run_ctx, status_override="BLOCKED", stop_reason=_systemic_msg
+                    )
+                return []
+
+            # Enforce 25% staleness hard blocker (non-systemic partial stale)
             from app.market_utils import validate_batch_staleness
             staleness_check = validate_batch_staleness(
                 stale_count=stale_count,
@@ -405,7 +504,10 @@ class ShortCoveringEarlyIgnitionScanner:
         Evaluates 5m bar, dynamic evidence-based state progression, and tiered structural context.
         """
         df_5m = oi_data_service.get_intraday_5m_data(symbol, current_time.date())
+        _rows_eval = len(df_5m) if df_5m is not None else 0
+        logger.debug("[SC_5M] %s | [step 1] data_fetch → %d bars", symbol, _rows_eval)
         if df_5m is None or len(df_5m) < 2:
+            logger.debug("[SC_5M] %s | SKIP — DATA_INSUFFICIENT (%d bars)", symbol, _rows_eval)
             return (None, "DATA_INSUFFICIENT", 0.0, "Missing or insufficient 5m bars (< 2)", []) if return_diagnostics else None
 
         past_bars = df_5m[df_5m["timestamp"] <= current_time]
@@ -424,10 +526,19 @@ class ShortCoveringEarlyIgnitionScanner:
         cur_vol = int(cur_bar["volume"])
         cur_oi = int(cur_bar["oi"])
 
+        logger.debug(
+            "[SC_5M] %s | [step 2] cur_bar → O=₹%.2f H=₹%.2f L=₹%.2f C=₹%.2f VWAP=₹%.2f Vol=%d OI=%d",
+            symbol, cur_open, cur_high, cur_low, cur_close, cur_vwap, cur_vol, cur_oi,
+        )
+
         # 30-Minute Symbol Cooldown Guard (Deduplication)
         last_alert = self._last_alert_time.get(symbol)
         if last_alert is not None and (current_time - last_alert).total_seconds() < 1800:
-            logger.debug("Suppressing alert for %s: 30m cooldown active (last: %s)", symbol, last_alert.strftime('%H:%M'))
+            logger.debug(
+                "[SC_5M] %s | SKIP — COOLDOWN_ACTIVE (last alert %s, cooldown ends %s)",
+                symbol, last_alert.strftime('%H:%M'),
+                (last_alert + pd.Timedelta(minutes=30)).strftime('%H:%M'),
+            )
             return (None, "COOLDOWN_ACTIVE", 0.0, f"30m cooldown active (last alert at {last_alert.strftime('%H:%M')})", []) if return_diagnostics else None
 
         # 1. Primary 5m Ignition Evidence & CLV
@@ -440,8 +551,11 @@ class ShortCoveringEarlyIgnitionScanner:
         vol_surge_ratio = cur_vol / max(avg_vol_10, 1.0)
 
         oi_data_mode = str(cur_bar.get("oi_data_mode", "DERIVATIVE_OI_UNAVAILABLE" if pd.isna(cur_bar.get("oi")) else "DERIVATIVE_OI_AVAILABLE"))
-        
-        if oi_data_mode == "DERIVATIVE_OI_AVAILABLE" and not pd.isna(cur_bar.get("oi")):
+
+        logger.debug(
+            "[SC_5M] %s | [step 3] momentum → green=%s vwap=%s price_chg=%+.2f%% vol_surge=%.2fx clv=%.2f avg_vol10=%.0f",
+            symbol, is_green_candle, is_above_vwap, price_change_5m_pct, vol_surge_ratio, clv, avg_vol_10,
+        )
             oi_change_5m_pct = float(cur_bar.get("oi_delta_1bar", cur_bar.get("oi_change_5m_pct", 0.0)))
             oi_delta_3bar = float(cur_bar.get("oi_delta_3bar", 0.0))
             oi_change_session_pct = float(cur_bar.get("oi_session", cur_bar.get("oi_change_session_pct", 0.0)))
@@ -489,9 +603,17 @@ class ShortCoveringEarlyIgnitionScanner:
         extension_from_vwap_pct = ((cur_close - cur_vwap) / max(cur_vwap, 1e-4)) * 100.0
         extension_from_low_pct = ((cur_close - session_low_val) / max(session_low_val, 1e-4)) * 100.0
 
+        logger.debug(
+            "[SC_5M] %s | [step 5] primary_ignition=%s | ext_open=%+.2f%% ext_vwap=%+.2f%% ext_low=%+.2f%%",
+            symbol, has_primary_ignition, extension_from_open_pct, extension_from_vwap_pct, extension_from_low_pct,
+        )
+
         # Hard safety floor: > 4.5% extension from open is overbought
         if extension_from_open_pct > 4.5:
-            logger.debug(f"Rejecting {symbol}: Move already extended (+{extension_from_open_pct:.1f}% from open)")
+            logger.debug(
+                "[SC_5M] %s | REJECT — EXTENDED_FROM_OPEN (+%.1f%% > 4.5%% hard floor)",
+                symbol, extension_from_open_pct,
+            )
             return (None, "EXTENDED_FROM_OPEN", 0.0, f"Move already extended (+{extension_from_open_pct:.1f}% > +4.5% from open)", []) if return_diagnostics else None
 
         # 2. Tiered Multi-Timeframe Structural Context
@@ -502,78 +624,105 @@ class ShortCoveringEarlyIgnitionScanner:
         reasons = []
 
         # A. Prior Short Buildup Quality / CLV Strong Close (25 pts)
+        _pts_a = 0.0
         if eod_candidate:
-            prior_pts = (eod_candidate.buildup_quality_score / 100.0) * 25.0
-            score += prior_pts
+            _pts_a = (eod_candidate.buildup_quality_score / 100.0) * 25.0
+            score += _pts_a
             reasons.append(f"Prior Short Score: {eod_candidate.buildup_quality_score:.0f}")
         else:
             # C5 Intraday-Only: CLV and Close Velocity (25 pts)
             if clv >= 0.80:
-                score += 25.0
+                _pts_a = 25.0
                 reasons.append(f"High CLV Top Close ({clv:.2f})")
             elif clv >= 0.60:
-                score += 18.0
+                _pts_a = 18.0
                 reasons.append(f"Moderate CLV Close ({clv:.2f})")
             else:
-                score += 12.0
+                _pts_a = 12.0
+            score += _pts_a
+        logger.debug("[SC_5M] %s | [A] CLV/Prior → %+.1f pts | clv=%.2f | running=%.1f", symbol, _pts_a, clv, score)
 
         # B. Excess OI Contraction Speed / Equity Squeeze Conviction (25 pts)
+        _pts_b = 0.0
         if oi_data_mode == "DERIVATIVE_OI_AVAILABLE" and not pd.isna(excess_oi_contraction):
             if excess_oi_contraction <= -1.2 or recent_excess_oi <= -1.2:
-                score += 25.0
+                _pts_b = 25.0
                 reasons.append(f"Strong Excess OI Unwind ({min(excess_oi_contraction, recent_excess_oi):.2f}%)")
             elif excess_oi_contraction <= -0.5 or recent_excess_oi <= -0.5 or oi_change_session_pct <= -2.0:
-                score += 18.0
+                _pts_b = 18.0
                 reasons.append(f"Moderate Excess OI Unwind ({min(excess_oi_contraction, recent_excess_oi):.2f}%)")
             else:
-                score += 12.0
+                _pts_b = 12.0
         else:
             # Equity Proxy: Score based on price velocity + volume conviction
             if vol_surge_ratio >= 2.5 and price_change_5m_pct >= 0.35:
-                score += 22.0
+                _pts_b = 22.0
                 reasons.append("High-Conviction Equity Squeeze Thrust (+22)")
             elif vol_surge_ratio >= 1.5:
-                score += 16.0
+                _pts_b = 16.0
                 reasons.append("Moderate Equity Squeeze Thrust (+16)")
             else:
-                score += 12.0
+                _pts_b = 12.0
+        score += _pts_b
+        logger.debug(
+            "[SC_5M] %s | [B] OI/Squeeze → %+.1f pts | excess=%.2f%% recent=%.2f%% | running=%.1f",
+            symbol, _pts_b,
+            excess_oi_contraction if not pd.isna(excess_oi_contraction) else float("nan"),
+            recent_excess_oi if not pd.isna(recent_excess_oi) else float("nan"),
+            score,
+        )
 
         # C. Volume Surge & Conviction (20 pts)
+        _pts_c = 0.0
         if vol_surge_ratio >= 2.0:
-            score += 20.0
+            _pts_c = 20.0
             reasons.append(f"High 5m Volume Spike ({vol_surge_ratio:.1f}x)")
         elif vol_surge_ratio >= self.min_volume_surge_ratio:
-            score += 15.0
+            _pts_c = 15.0
             reasons.append(f"Volume Surge ({vol_surge_ratio:.1f}x)")
         else:
-            score += 8.0
+            _pts_c = 8.0
+        score += _pts_c
+        logger.debug("[SC_5M] %s | [C] Volume → %+.1f pts | surge=%.2fx (min=%.2fx) | running=%.1f",
+                     symbol, _pts_c, vol_surge_ratio, self.min_volume_surge_ratio, score)
 
         # D. VWAP & Price Momentum (15 pts)
+        _pts_d = 0.0
         if cur_close >= cur_vwap * 1.003 and price_change_5m_pct >= 0.30:
-            score += 15.0
+            _pts_d = 15.0
             reasons.append("Clean VWAP acceleration")
         else:
-            score += 10.0
+            _pts_d = 10.0
+        score += _pts_d
+        logger.debug("[SC_5M] %s | [D] VWAP → %+.1f pts | close=₹%.2f vwap=₹%.2f chg=%+.2f%% | running=%.1f",
+                     symbol, _pts_d, cur_close, cur_vwap, price_change_5m_pct, score)
 
         # E. Progressive 30m / 15m Structural Context (15 pts)
         struct_30m = tf_confirmations.get("30m_structure", "BASE")
+        _pts_e = 0.0
         if struct_30m == "BREAKOUT":
-            score += 15.0
+            _pts_e = 15.0
             reasons.append("30m Structural Breakout (+15)")
         elif struct_30m == "NEAR_BREAKOUT":
-            score += 10.0
+            _pts_e = 10.0
             reasons.append("Near 30m Breakout (+10)")
         elif struct_30m == "RECLAIMING_STRUCTURE":
-            score += 6.0
+            _pts_e = 6.0
             reasons.append("Reclaiming 30m Structure (+6)")
         else:
-            score += 2.0
+            _pts_e = 2.0
+        score += _pts_e
+        logger.debug("[SC_5M] %s | [E] Structure → %+.1f pts | 30m=%s | running=%.1f",
+                     symbol, _pts_e, struct_30m, score)
 
         # F. Extension Penalty Ladder (Graduated deduction for extension > 2.5%)
+        _ext_pen = 0.0
         if extension_from_open_pct > 2.5:
-            ext_pen = min(8.0, (extension_from_open_pct - 2.5) * 4.0)
-            score = max(0.0, score - ext_pen)
-            reasons.append(f"Extension from Open Penalty (-{ext_pen:.1f} pts)")
+            _ext_pen = min(8.0, (extension_from_open_pct - 2.5) * 4.0)
+            score = max(0.0, score - _ext_pen)
+            reasons.append(f"Extension from Open Penalty (-{_ext_pen:.1f} pts)")
+        logger.debug("[SC_5M] %s | [F] Ext penalty → -%.1f pts | ext_open=%+.2f%% | final_score=%.1f (need ≥%.1f)",
+                     symbol, _ext_pen, extension_from_open_pct, score, self.min_ignition_score)
 
         # 4. Evidence-Based Dynamic State Machine
         tracking = self._tracked_states.get(symbol, {"state": ShortCoveringState.WATCH, "true_ignition_time": current_time, "count": 0})
@@ -612,6 +761,10 @@ class ShortCoveringEarlyIgnitionScanner:
                 rej_code = "PRIMARY_IGNITION_FAIL"
                 rej_reason = "Primary ignition criteria not met"
 
+            logger.debug(
+                "[SC_5M] %s | ❌ REJECT | gate=%s | score=%.1f | state=%s | %s",
+                symbol, rej_code, score, current_state.value, rej_reason,
+            )
             return (None, rej_code, score, rej_reason, reasons) if return_diagnostics else None
 
         # Evidence evaluation:
@@ -622,6 +775,11 @@ class ShortCoveringEarlyIgnitionScanner:
 
         true_ignition_time = tracking.get("true_ignition_time", current_time)
 
+        logger.debug(
+            "[SC_5M] %s | [step 6] state_machine → current=%s | score=%.1f | high_conviction=%s",
+            symbol, current_state.value, score, is_high_conviction,
+        )
+
         if current_state == ShortCoveringState.WATCH:
             true_ignition_time = current_time
             tracking["true_ignition_time"] = true_ignition_time
@@ -629,12 +787,19 @@ class ShortCoveringEarlyIgnitionScanner:
                 tracking["state"] = ShortCoveringState.CONFIRMED_IGNITION
                 tracking["count"] = 1
                 self._tracked_states[symbol] = tracking
-                logger.info(f"⚡ [{symbol}] High-conviction ignition -> CONFIRMED_IGNITION immediately at {current_time.strftime('%H:%M')}")
+                logger.info(
+                    "⚡ [SC_5M] %s | WATCH → CONFIRMED_IGNITION immediately | score=%.1f | vol=%.2fx | excess_oi=%+.2f%% | clv=%.2f",
+                    symbol, score, vol_surge_ratio,
+                    excess_oi_contraction if not pd.isna(excess_oi_contraction) else 0.0, clv,
+                )
             else:
                 tracking["state"] = ShortCoveringState.IGNITION_CANDIDATE
                 tracking["count"] = 1
                 self._tracked_states[symbol] = tracking
-                logger.debug(f"🔍 [{symbol}] Moderate ignition -> IGNITION_CANDIDATE at {current_time.strftime('%H:%M')}")
+                logger.debug(
+                    "[SC_5M] %s | WATCH → IGNITION_CANDIDATE (moderate conviction) | score=%.1f threshold=%.1f",
+                    symbol, score, self.min_ignition_score,
+                )
                 return (None, "IGNITION_CANDIDATE_WATCH", score, f"Moderate ignition (Score: {score:.1f}) — watching for confirming candle", reasons) if return_diagnostics else None
 
         elif current_state == ShortCoveringState.IGNITION_CANDIDATE:
@@ -642,13 +807,19 @@ class ShortCoveringEarlyIgnitionScanner:
             tracking["state"] = ShortCoveringState.CONFIRMED_IGNITION
             tracking["count"] = tracking.get("count", 1) + 1
             self._tracked_states[symbol] = tracking
+            logger.info(
+                "⚡ [SC_5M] %s | IGNITION_CANDIDATE → CONFIRMED_IGNITION (confirming candle) | score=%.1f | count=%d",
+                symbol, score, tracking["count"],
+            )
 
         elif current_state == ShortCoveringState.CONFIRMED_IGNITION:
             tracking["state"] = ShortCoveringState.CONTINUATION
             self._tracked_states[symbol] = tracking
+            logger.debug("[SC_5M] %s | CONFIRMED_IGNITION → CONTINUATION (already alerted)", symbol)
             return (None, "CONTINUATION_STATE", score, "Already alerted — currently in continuation phase", reasons) if return_diagnostics else None
 
         elif current_state in (ShortCoveringState.CONTINUATION, ShortCoveringState.EXHAUSTED):
+            logger.debug("[SC_5M] %s | %s → no action", symbol, current_state.value)
             return (None, "EXHAUSTED_STATE", score, "Ignition move exhausted", reasons) if return_diagnostics else None
 
         # Record alert timestamp for 30m cooldown guard
@@ -700,6 +871,16 @@ class ShortCoveringEarlyIgnitionScanner:
             state=ShortCoveringState.CONFIRMED_IGNITION,
             timeframe_confirmations=tf_confirmations,
             reasons=reasons
+        )
+        logger.info(
+            "🚨 [SC_5M] %s | ✅ CONFIRMED_IGNITION | grade=%s | score=%.1f"
+            " | entry=₹%.2f SL=₹%.2f target=₹%.2f RR=%.2f"
+            " | vol=%.2fx excess_oi=%+.2f%% latency=%.0fm"
+            " | reasons: %s",
+            symbol, grade, min(100.0, score), cur_close, stop_loss, target, rr_ratio,
+            vol_surge_ratio,
+            excess_oi_contraction if not pd.isna(excess_oi_contraction) else 0.0,
+            latency_minutes, " | ".join(reasons),
         )
         return (signal, "CONFIRMED_IGNITION", score, "Confirmed ignition breakout", reasons) if return_diagnostics else signal
 

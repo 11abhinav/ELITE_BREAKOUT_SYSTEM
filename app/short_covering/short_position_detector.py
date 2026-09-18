@@ -109,10 +109,23 @@ class ShortPositionDetector:
                 nonlocal completed_count
                 cand_res = None
                 is_stale_res = False
+                _t0_sym = time.monotonic()
+                logger.debug("[SC_EOD] ┌── %s ── start eval", sym)
                 try:
                     cand_res = self.evaluate_symbol(sym, valid_trading_date)
+                    _dur_ms = (time.monotonic() - _t0_sym) * 1000
+                    if cand_res is not None:
+                        logger.debug(
+                            "[SC_EOD] └── %s ── ✅ PASS | score=%.1f | oi_5d=%+.1f%% "
+                            "| sbr=%.2f | rsi=%.1f | %.0fms",
+                            sym, cand_res.buildup_quality_score,
+                            cand_res.oi_buildup_5d_pct,
+                            cand_res.short_buildup_ratio, cand_res.rsi_14, _dur_ms,
+                        )
+                    else:
+                        logger.debug("[SC_EOD] └── %s ── SKIP | %.0fms", sym, _dur_ms)
                 except Exception as e:
-                    logger.debug("Error evaluating EOD candidate for %s: %s", sym, e)
+                    logger.warning("[SC_EOD] └── %s ── ERROR during evaluation: %s", sym, e, exc_info=True)
                     is_stale_res = True
                 completed_count += 1
                 if run_ctx and completed_count % 25 == 0:
@@ -206,7 +219,10 @@ class ShortPositionDetector:
         Evaluates a single stock for prior short buildup over a 10-day lookback.
         """
         df = oi_data_service.get_daily_oi_history(symbol, lookback_days=15, as_of=as_of)
+        _rows = len(df) if df is not None else 0
+        logger.debug("[SC_EOD] %s | [step 1] data_fetch → %d rows (need ≥8)", symbol, _rows)
         if df is None or len(df) < 8:
+            logger.debug("[SC_EOD] %s | SKIP — insufficient daily OI history (%d rows)", symbol, _rows)
             return None
 
         # Sort chronologically
@@ -225,10 +241,18 @@ class ShortPositionDetector:
         oi_10d_pct = ((cur_oi - oi_10d_ago) / max(oi_10d_ago, 1)) * 100.0
         oi_1d_pct = df["oi_change_pct"].iloc[-1]
 
+        logger.debug(
+            "[SC_EOD] %s | [step 2] OI metrics → cur_oi=%d | 1d=%+.2f%% | 5d=%+.2f%% | 10d=%+.2f%%"
+            " (thresholds: 5d≥%.1f%%, 10d≥8.0%%)",
+            symbol, cur_oi, oi_1d_pct, oi_5d_pct, oi_10d_pct, self.min_oi_buildup_5d_pct,
+        )
+
         # 2. Price changes over 5 and 10 days
         cur_price = closes[-1]
         price_5d_ago = closes[-6] if len(closes) >= 6 else closes[0]
         price_5d_pct = ((cur_price - price_5d_ago) / price_5d_ago) * 100.0
+
+        logger.debug("[SC_EOD] %s | [step 3] price → cur=₹%.2f | 5d_chg=%+.2f%%", symbol, cur_price, price_5d_pct)
 
         # 3. Short Buildup Ratio (SBR) over last 6-10 days
         # Days where price fell and OI rose
@@ -240,48 +264,88 @@ class ShortPositionDetector:
         total_days = len(price_diffs)
         sbr = short_buildup_days / max(total_days, 1)
 
+        logger.debug(
+            "[SC_EOD] %s | [step 4] SBR → short_days=%d/%d | sbr=%.2f (need ≥%.2f)",
+            symbol, short_buildup_days, total_days, sbr, self.min_short_buildup_ratio,
+        )
+
         # 4. Technical Indicators (RSI, ATR, Key Levels)
         rsi_14 = self._calculate_rsi(closes)
         atr_14 = self._calculate_atr(df)
         support_level = float(np.min(df["low"].tail(10)))
         overhead_resistance = float(np.max(df["high"].tail(10)))
 
+        logger.debug(
+            "[SC_EOD] %s | [step 5] tech → RSI=%.1f (need ≤%.1f) | ATR=%.2f"
+            " | support=₹%.2f | resist=₹%.2f",
+            symbol, rsi_14, self.max_rsi, atr_14, support_level, overhead_resistance,
+        )
+
         reasons = []
         score = 0.0
 
         # Criteria checks:
         # A. Prior short accumulation
+        _pts_a = 0.0
         if oi_5d_pct >= self.min_oi_buildup_5d_pct or oi_10d_pct >= 8.0:
-            score += 35.0
+            _pts_a = 35.0
             reasons.append(f"Strong 5d/10d OI expansion (+{oi_5d_pct:.1f}% / +{oi_10d_pct:.1f}%)")
         elif oi_5d_pct >= 3.0 or oi_10d_pct >= 5.0:
-            score += 20.0
+            _pts_a = 20.0
             reasons.append(f"Moderate 5d/10d OI expansion (+{oi_5d_pct:.1f}%)")
+        score += _pts_a
+        logger.debug(
+            "[SC_EOD] %s | [A] OI Buildup → %+.0f pts | (5d=%+.1f%% 10d=%+.1f%% threshold=%.1f%%) | running=%.1f",
+            symbol, _pts_a, oi_5d_pct, oi_10d_pct, self.min_oi_buildup_5d_pct, score,
+        )
 
         # B. Short buildup regime (SBR)
+        _pts_b = 0.0
         if sbr >= self.min_short_buildup_ratio:
-            score += 25.0
+            _pts_b = 25.0
             reasons.append(f"High Short Buildup Ratio ({sbr:.2f})")
         elif sbr >= 0.35 or price_5d_pct < -1.5:
-            score += 15.0
+            _pts_b = 15.0
             reasons.append(f"Moderate Short Buildup ({sbr:.2f}) with price drop ({price_5d_pct:.1f}%)")
+        score += _pts_b
+        logger.debug(
+            "[SC_EOD] %s | [B] SBR → %+.0f pts | sbr=%.2f (need ≥%.2f) price_5d=%+.1f%% | running=%.1f",
+            symbol, _pts_b, sbr, self.min_short_buildup_ratio, price_5d_pct, score,
+        )
 
         # C. Price in oversold or support-forming zone
+        _pts_c = 0.0
         if rsi_14 <= self.max_rsi:
-            score += 20.0
+            _pts_c = 20.0
             reasons.append(f"RSI in deep base/oversold zone ({rsi_14:.1f})")
         elif rsi_14 <= 58.0:
-            score += 10.0
+            _pts_c = 10.0
             reasons.append(f"Price stabilizing near base (RSI {rsi_14:.1f})")
+        score += _pts_c
+        logger.debug(
+            "[SC_EOD] %s | [C] RSI → %+.0f pts | rsi=%.1f (need ≤%.1f) | running=%.1f",
+            symbol, _pts_c, rsi_14, self.max_rsi, score,
+        )
 
         # D. Early signs of short fatigue (OI expansion plateaued or minor 1d dip with green candle)
-        if oi_1d_pct <= 0.5 and closes[-1] >= df["open"].iloc[-1]:
-            score += 20.0
+        _pts_d = 0.0
+        _is_green_eod = closes[-1] >= df["open"].iloc[-1]
+        if oi_1d_pct <= 0.5 and _is_green_eod:
+            _pts_d = 20.0
             reasons.append("1d OI stall/reduction with bullish lower wick")
+        score += _pts_d
+        logger.debug(
+            "[SC_EOD] %s | [D] Fatigue → %+.0f pts | oi_1d=%+.2f%% green=%s | running=%.1f",
+            symbol, _pts_d, oi_1d_pct, _is_green_eod, score,
+        )
 
         # RULE 67 RATIONALE: Enforce self.min_quality_score (50.0+) rather than an arbitrary loose
         # 35.0 threshold to prevent low-conviction or noisy synthetic candidates from entering the watchlist.
         if score < self.min_quality_score:
+            logger.debug(
+                "[SC_EOD] %s | ❌ REJECT | score=%.1f < threshold=%.1f | breakdown: A=%.0f B=%.0f C=%.0f D=%.0f",
+                symbol, score, self.min_quality_score, _pts_a, _pts_b, _pts_c, _pts_d,
+            )
             if score >= 40.0:
                 try:
                     from near_miss_tracker import log_near_miss
@@ -320,6 +384,12 @@ class ShortPositionDetector:
             sector=sector,
             buildup_quality_score=min(100.0, score),
             reasons=reasons
+        )
+        logger.info(
+            "[SC_EOD] %s | ✅ CANDIDATE | score=%.1f | oi_5d=%+.1f%% | sbr=%.2f"
+            " | rsi=%.1f | close=₹%.2f | sector=%s | reasons=%s",
+            symbol, min(100.0, score), oi_5d_pct, sbr, rsi_14, cur_price,
+            sector, " | ".join(reasons),
         )
         return candidate
 
