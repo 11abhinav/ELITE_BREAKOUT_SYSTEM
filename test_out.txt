@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/scratch/test_canonical_exit_engine.py", line 11, in <module>
+    from app.trade_simulation import simulate_trade_canonical
+ModuleNotFoundError: No module named 'app.trade_simulation'
