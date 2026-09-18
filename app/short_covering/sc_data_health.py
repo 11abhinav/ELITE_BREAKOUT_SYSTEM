@@ -747,8 +747,15 @@ class ProviderHealthCheck:
                      "oi_data_service_e2e"}
         critical_all_pass = all(s.passed for s in steps if s.name in _CRITICAL)
         if critical_all_pass:
+            # [FIX: EQUITY_PROBE_OI_COLUMN] Step 7 (oi_valid) checks the raw equity
+            # candle response — equity tickers never carry an OI column in Upstox/Fyers
+            # historical data. Step 9 (oi_data_service_e2e) is the authoritative live-OI
+            # test via the full NSE_FO key path. When Step 9 passes, OI ingestion is
+            # confirmed; Step 7 absence is expected, not a degradation.
+            e2e_passed = any(s.name == "oi_data_service_e2e" and s.passed for s in steps)
+            oi_confirmed = result.oi_valid.data_valid or e2e_passed
             result.status = (ProviderStatus.GREEN
-                             if result.oi_valid.data_valid and result.candle_count >= 2
+                             if oi_confirmed and result.candle_count >= 2
                              else ProviderStatus.DEGRADED)
         else:
             result.status = ProviderStatus.RED
@@ -897,8 +904,15 @@ class ProviderHealthCheck:
         _CRITICAL = {"token_present", "api_request", "oi_data_service_e2e"}
         critical_all_pass = all(s.passed for s in steps if s.name in _CRITICAL)
         if critical_all_pass:
+            # [FIX: EQUITY_PROBE_OI_COLUMN] Step 7 (oi_valid) checks the raw equity
+            # candle response — equity tickers never carry an OI column in Upstox
+            # historical data. Step 9 (oi_data_service_e2e) is the authoritative live-OI
+            # test via the full NSE_FO key path. When Step 9 passes, OI ingestion is
+            # confirmed; Step 7 absence is expected, not a degradation.
+            e2e_passed = any(s.name == "oi_data_service_e2e" and s.passed for s in steps)
+            oi_confirmed = result.oi_valid.data_valid or e2e_passed
             result.status = (ProviderStatus.GREEN
-                             if result.oi_valid.data_valid and result.candle_count >= 2
+                             if oi_confirmed and result.candle_count >= 2
                              else ProviderStatus.DEGRADED)
         else:
             result.status = ProviderStatus.RED

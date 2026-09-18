@@ -454,13 +454,24 @@ class UpstoxProvider(ProviderInterface):
                 # [RULE 67 CHANGE-RATIONALE]: Log HTTP 400 as warning instead of error since invalid/discontinued ticker requests should not trigger system error alerts
                 logger.warning(f"⚠️ [UPSTOX HTTP 400] Stale or invalid instrument key for {symbol} ({e}). Invalidating cached key...")
                 try:
-                    from market_data.providers.upstox_instrument_mapper import mapper
                     clean_sym = str(symbol).strip().upper()
-                    for sfx in (".NS", ".BO", ".BSE"):
-                        if clean_sym.endswith(sfx):
-                            clean_sym = clean_sym[:-len(sfx)]
-                    mapper._symbol_map.pop(clean_sym, None)
-                    mapper.trigger_background_download(force=True)
+                    # [FIX: PRE_RESOLVED_KEY_INVALIDATION] If symbol is already an instrument
+                    # key (contains |, e.g. NSE_FO|68443), the mapper never stores it under
+                    # that form — purge only the _inst_key_cache entry to force re-resolution
+                    # on the next call. Do NOT trigger a full CSV re-download for a key that
+                    # was already resolved; the 400 means the contract expired or the session
+                    # date was wrong (already fixed upstream by scan_target_date).
+                    if "|" in clean_sym:
+                        _inst_key_cache.pop(clean_sym, None)
+                        logger.debug(f"[HTTP 400] Purged _inst_key_cache for pre-resolved key '{clean_sym}'")
+                    else:
+                        for sfx in (".NS", ".BO", ".BSE"):
+                            if clean_sym.endswith(sfx):
+                                clean_sym = clean_sym[:-len(sfx)]
+                        from market_data.providers.upstox_instrument_mapper import mapper
+                        mapper._symbol_map.pop(clean_sym, None)
+                        _inst_key_cache.pop(clean_sym, None)
+                        mapper.trigger_background_download(force=True)
                 except Exception as _inv_err:
                     logger.debug(f"Failed to invalidate stale key for {symbol}: {_inv_err}")
             else:
