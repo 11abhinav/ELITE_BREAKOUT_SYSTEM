@@ -469,6 +469,10 @@ class OIDataService:
                 f"NSE:{contract.near_trading_symbol}",
                 f"NSE:{clean_sym}-EQ"
             ]
+            if clean_sym in ("NIFTY", "NIFTY50", "^NSEI"):
+                candidate_symbols.append("NSE:NIFTY50-INDEX")
+            elif clean_sym in ("BANKNIFTY", "NIFTYBANK", "^NSEBANK"):
+                candidate_symbols.append("NSE:NIFTYBANK-INDEX")
             date_str = target_date.strftime("%Y-%m-%d")
 
             for fyers_symbol in candidate_symbols:

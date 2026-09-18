@@ -124,12 +124,11 @@ class ShortCoveringEarlyIgnitionScanner:
             self._last_alert_time.clear()
             self._last_scan_date = today
 
-        # [FIX: NON_MARKET_HOURS_DATE] Never probe live data using a weekend/holiday date.
-        # Use the last completed trading session (≥15:30 IST on a trading day = today,
-        # otherwise previous trading day). This prevents HTTP 400 on Upstox/Fyers when
-        # a manual trigger fires on a Saturday at midnight or pre-market on a weekday.
-        _MARKET_CLOSE_TIME = dt_time(15, 30)
-        if is_trading_day(today) and current_time.time() >= _MARKET_CLOSE_TIME:
+        # [FIX: MARKET_HOURS_DATE_RESOLUTION] During market hours (≥09:15 IST on a trading day),
+        # use today's date for live intraday scanning. Pre-market (<09:15 IST) or on weekends/holidays,
+        # use the last completed trading session.
+        _MARKET_OPEN_TIME = dt_time(9, 15)
+        if is_trading_day(today) and current_time.time() >= _MARKET_OPEN_TIME:
             scan_target_date = today
         else:
             scan_target_date = get_previous_trading_date(today)
@@ -542,10 +541,10 @@ class ShortCoveringEarlyIgnitionScanner:
         """
         Evaluates 5m bar, dynamic evidence-based state progression, and tiered structural context.
         """
-        # [FIX: NON_MARKET_HOURS_DATE] Use last completed trading session, not raw current_time.date()
+        # [FIX: MARKET_HOURS_DATE_RESOLUTION] Use today's date during market hours (≥09:15 IST), or previous session pre-market/weekends
         _t = current_time.time()
         _d = current_time.date()
-        _fetch_date = _d if (is_trading_day(_d) and _t >= dt_time(15, 30)) else get_previous_trading_date(_d)
+        _fetch_date = _d if (is_trading_day(_d) and _t >= dt_time(9, 15)) else get_previous_trading_date(_d)
         df_5m = oi_data_service.get_intraday_5m_data(symbol, _fetch_date)
         _rows_eval = len(df_5m) if df_5m is not None else 0
         logger.debug("[SC_5M] %s | [step 1] data_fetch → %d bars", symbol, _rows_eval)
@@ -951,7 +950,7 @@ class ShortCoveringEarlyIgnitionScanner:
         try:
             _d = current_time.date()
             _t = current_time.time()
-            _fetch_date = _d if (is_trading_day(_d) and _t >= dt_time(15, 30)) else get_previous_trading_date(_d)
+            _fetch_date = _d if (is_trading_day(_d) and _t >= dt_time(9, 15)) else get_previous_trading_date(_d)
             df_nifty = oi_data_service.get_intraday_5m_data("NIFTY", _fetch_date)
             if df_nifty is not None and not df_nifty.empty:
                 past = df_nifty[df_nifty["timestamp"] <= current_time]
