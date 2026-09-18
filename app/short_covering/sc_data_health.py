@@ -969,15 +969,16 @@ class SCDataHealthGate:
             symbols, sc_candidate, sc_candidate_included = _select_probe_symbols(PROBE_COUNT)
 
         probe_sym = symbols[0] if symbols else "RELIANCE"
+        provider_probe_sym = "RELIANCE" if "RELIANCE" in symbols or not probe_symbols else (symbols[0] if symbols else "RELIANCE")
 
         logger.info(
-            "🔍 [SC_DATA_HEALTH] Assessing %s | probe=%s | sc_candidate=%s (included=%s)",
-            target_date, probe_sym, sc_candidate or "none", sc_candidate_included
+            "🔍 [SC_DATA_HEALTH] Assessing %s | probe=%s (provider_probe=%s) | sc_candidate=%s (included=%s)",
+            target_date, probe_sym, provider_probe_sym, sc_candidate or "none", sc_candidate_included
         )
 
-        # ── Provider probes (use first probe symbol as the representative) ────
-        fyers_result  = self._provider_check.probe_fyers(probe_sym, target_date)
-        upstox_result = self._provider_check.probe_upstox(probe_sym, target_date)
+        # ── Provider probes (use benchmark probe symbol as the representative) ────
+        fyers_result  = self._provider_check.probe_fyers(provider_probe_sym, target_date)
+        upstox_result = self._provider_check.probe_upstox(provider_probe_sym, target_date)
 
         # ── Parquet health (all probe symbols) ───────────────────────────────
         parquet_results = [self._parquet_check.classify(sym, target_date) for sym in symbols]
