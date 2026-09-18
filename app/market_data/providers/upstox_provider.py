@@ -263,6 +263,15 @@ class UpstoxProvider(ProviderInterface):
         if clean in _inst_key_cache:
             return _inst_key_cache[clean]
 
+        # [FIX: PRE_RESOLVED_KEY_PASSTHROUGH] If the caller already resolved an official
+        # Upstox instrument key (e.g. NSE_FO|68443, NSE_EQ|INE769A01020), return it
+        # immediately. Previously this check was at the bottom, so pre-resolved NSE_FO keys
+        # passed through the equity mapper first — triggering spurious RESOLUTION_FAILED
+        # warnings and AsyncProbe dispatches before finally short-circuiting here.
+        if "|" in clean:
+            _inst_key_cache[clean] = clean
+            return clean
+
         for sfx in (".NS", ".BO", ".BSE"):
             if clean.endswith(sfx):
                 clean = clean[:-len(sfx)]
@@ -301,13 +310,9 @@ class UpstoxProvider(ProviderInterface):
             except Exception as e:
                 logger.warning(f"⚠️ [Upstox] Symbol resolver failed for '{symbol}': {e}")
 
-        # If already an official key format (e.g. NSE_EQ|INE...), return as is
-        if "|" in clean:
-            _inst_key_cache[clean] = clean
-            return clean
-
         logger.warning(f"⚠️ [Upstox] Could not resolve verified instrument key for '{symbol}' — skipping raw fallback.")
         return None
+
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, range_from: datetime, range_to: datetime) -> NormalizedMarketData:
         import config
