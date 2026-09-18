@@ -24,10 +24,14 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# v2: bumped from upstox_instruments.json → upstox_instruments_v2.json after
+# adding NSE_FO futures ingestion. Old v1 cache lacked NSE_FO keys entirely;
+# renaming forces a fresh CSV re-download on production without manual cleanup.
 _CACHE_FILE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "artifacts", "cache", "upstox_instruments.json"
+    "artifacts", "cache", "upstox_instruments_v2.json"
 )
+_DB_STATE_KEY = "upstox_instrument_map_v2"
 
 # ── Static Fallback Map for High-Frequency Stocks & Indices ──────────────────
 # Prevents network dependency during cold starts or offline unit tests.
@@ -148,7 +152,7 @@ class UpstoxInstrumentMapper:
         if _load_source is None:
             try:
                 from database import get_system_state
-                db_raw = get_system_state("upstox_instrument_map")
+                db_raw = get_system_state(_DB_STATE_KEY)
                 if db_raw:
                     db_data = json.loads(db_raw) if isinstance(db_raw, str) else db_raw
                     if isinstance(db_data, dict) and len(db_data) > 100:
@@ -250,12 +254,12 @@ class UpstoxInstrumentMapper:
             with open(_CACHE_FILE, "w") as f:
                 json.dump(new_map, f)
 
-            # Persist to DB
+            # Persist to DB (versioned key — v2 includes NSE_FO futures rows)
             try:
                 from database import save_system_state
-                save_system_state("upstox_instrument_map", json.dumps(new_map))
+                save_system_state(_DB_STATE_KEY, json.dumps(new_map))
             except Exception as e:
-                logger.warning(f"Could not save upstox_instrument_map to DB: {e}")
+                logger.warning(f"Could not save {_DB_STATE_KEY} to DB: {e}")
 
             # [PHASE1_DIAG] Post-download warmup log
             logger.info(
