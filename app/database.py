@@ -4428,6 +4428,8 @@ def normalize_scanner_name(scanner_name: str) -> str:
         return "PULLBACK"
     elif upper in ["ACCUMULATION", "ACCUMULATION_SCANNER", "ACCUMULATION_SCANNER_V1"]:
         return "ACCUMULATION"
+    elif upper in ["TECHNICAL", "TECHNICAL_SCANNER"]:
+        return "TECHNICAL"
     elif upper in ["WEALTH", "WEALTH_ENGINE"]:
         return "Wealth Engine"
     elif upper in ["WEALTH_EXIT", "WEALTH_INTRADAY", "WEALTH_5M"]:
@@ -4452,6 +4454,8 @@ def normalize_scanner_name(scanner_name: str) -> str:
         return "SHORT_COVERING_5M"
     elif upper in ["SHORT_COVERING", "SHORTCOVERING"]:
         return "SHORT_COVERING"
+    elif upper in ["BAYESIAN_UPDATER", "BAYESIANUPDATER"]:
+        return "BayesianUpdater"
     return s
 
 
@@ -4466,25 +4470,35 @@ def is_scanner_stopped(scanner_name: str) -> bool:
         init_db()
         with get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT status FROM scanner_health WHERE UPPER(scanner_name) = UPPER(%s) LIMIT 1", (norm_name,))
+                cur.execute("""
+                    SELECT status FROM scanner_health 
+                    WHERE UPPER(scanner_name) IN (UPPER(%s), UPPER(%s))
+                    ORDER BY CASE WHEN status IN ('PAUSED', 'STOPPED') THEN 1 ELSE 2 END
+                    LIMIT 1;
+                """, (norm_name, scanner_name))
                 row = cur.fetchone()
                 if row and row[0]:
                     status_str = str(row[0]).upper()
                     if status_str in ("STOPPED", "PAUSED"):
                         _LOCAL_STOPPED_SCANNERS.add(norm_name)
+                        _LOCAL_STOPPED_SCANNERS.add(scanner_name)
                         return True
                     else:
                         _LOCAL_STOPPED_SCANNERS.discard(norm_name)
+                        _LOCAL_STOPPED_SCANNERS.discard(scanner_name)
                         return False
     except Exception as e:
         logger.warning(f"is_scanner_stopped query failed for {scanner_name}: {e}")
-    return norm_name in _LOCAL_STOPPED_SCANNERS
+    return norm_name in _LOCAL_STOPPED_SCANNERS or scanner_name in _LOCAL_STOPPED_SCANNERS
 
 
 def stop_scanner(scanner_name: str) -> bool:
     """Set scanner health status to PAUSED by Admin and update active history runs."""
+    if not scanner_name:
+        return False
     norm_name = normalize_scanner_name(scanner_name)
     _LOCAL_STOPPED_SCANNERS.add(norm_name)
+    _LOCAL_STOPPED_SCANNERS.add(scanner_name)
     init_db()
     try:
         with get_connection() as conn:
@@ -4498,15 +4512,24 @@ def stop_scanner(scanner_name: str) -> bool:
                         active_run_id = NULL,
                         updated_at = NOW();
                 """, (norm_name,))
+                if scanner_name != norm_name:
+                    cur.execute("""
+                        UPDATE scanner_health
+                        SET status = 'PAUSED',
+                            error_msg = 'Stopped by Admin',
+                            active_run_id = NULL,
+                            updated_at = NOW()
+                        WHERE UPPER(scanner_name) = UPPER(%s);
+                    """, (scanner_name,))
                 cur.execute("""
                     UPDATE scanner_execution_history
                     SET completed_at = NOW(),
                         lifecycle_status = 'STOPPED',
                         stop_reason = 'Stopped by Admin',
                         error_summary = 'Stopped by Admin via Health Dashboard'
-                    WHERE UPPER(scanner_name) = UPPER(%s)
+                    WHERE UPPER(scanner_name) IN (UPPER(%s), UPPER(%s))
                       AND lifecycle_status IN ('RUNNING', 'QUEUED');
-                """, (norm_name,))
+                """, (norm_name, scanner_name))
                 conn.commit()
     except Exception as e:
         logger.warning(f"Failed to update execution history stop state for {norm_name}: {e}")
@@ -4516,8 +4539,11 @@ def stop_scanner(scanner_name: str) -> bool:
 
 def resume_scanner(scanner_name: str) -> bool:
     """Resume a SINGLE scanner from PAUSED state back to IDLE/OK without affecting any other scanner."""
+    if not scanner_name:
+        return False
     norm_name = normalize_scanner_name(scanner_name)
     _LOCAL_STOPPED_SCANNERS.discard(norm_name)
+    _LOCAL_STOPPED_SCANNERS.discard(scanner_name)
     init_db()
     try:
         with get_connection() as conn:
@@ -4528,9 +4554,9 @@ def resume_scanner(scanner_name: str) -> bool:
                         error_msg = NULL,
                         active_run_id = NULL,
                         updated_at = NOW()
-                    WHERE UPPER(scanner_name) = UPPER(%s)
+                    WHERE UPPER(scanner_name) IN (UPPER(%s), UPPER(%s))
                       AND status IN ('PAUSED', 'STOPPED');
-                """, (norm_name,))
+                """, (norm_name, scanner_name))
                 conn.commit()
     except Exception as e:
         logger.warning(f"Failed to resume scanner {norm_name}: {e}")
@@ -4544,16 +4570,17 @@ ALL_KNOWN_SCANNERS = [
     'PULLBACK', 'ACCUMULATION', 'TECHNICAL', 'Wealth Engine', 'MULTIBAGGER',
     'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT',
     'SHORT_COVERING_EOD', 'SHORT_COVERING_5M',
-    'Pledge Worker', 'AI Worker'
+    'Pledge Worker', 'AI Worker', 'BayesianUpdater'
 ]
 
 
 def pause_all_scanners() -> bool:
-    """Pause all scanners at once in DB and memory."""
+    """Pause all scanners at once in DB and memory without exception."""
     init_db()
     for sc in ALL_KNOWN_SCANNERS:
         norm = normalize_scanner_name(sc)
         _LOCAL_STOPPED_SCANNERS.add(norm)
+        _LOCAL_STOPPED_SCANNERS.add(sc)
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
@@ -4564,6 +4591,17 @@ def pause_all_scanners() -> bool:
                         active_run_id = NULL,
                         updated_at = NOW();
                 """)
+                for sc in ALL_KNOWN_SCANNERS:
+                    norm = normalize_scanner_name(sc)
+                    cur.execute("""
+                        INSERT INTO scanner_health (scanner_name, status, error_msg, active_run_id, updated_at)
+                        VALUES (%s, 'PAUSED', 'Stopped by Admin', NULL, NOW())
+                        ON CONFLICT (scanner_name) DO UPDATE
+                        SET status = 'PAUSED',
+                            error_msg = 'Stopped by Admin',
+                            active_run_id = NULL,
+                            updated_at = NOW();
+                    """, (norm,))
                 cur.execute("""
                     UPDATE scanner_execution_history
                     SET completed_at = NOW(),
@@ -4594,6 +4632,17 @@ def resume_all_scanners() -> bool:
                         updated_at = NOW()
                     WHERE status IN ('PAUSED', 'STOPPED');
                 """)
+                for sc in ALL_KNOWN_SCANNERS:
+                    norm = normalize_scanner_name(sc)
+                    cur.execute("""
+                        UPDATE scanner_health
+                        SET status = 'IDLE',
+                            error_msg = NULL,
+                            active_run_id = NULL,
+                            updated_at = NOW()
+                        WHERE UPPER(scanner_name) = UPPER(%s)
+                          AND status IN ('PAUSED', 'STOPPED');
+                    """, (norm,))
                 conn.commit()
     except Exception as e:
         logger.warning(f"Failed to resume all scanners in DB: {e}")
