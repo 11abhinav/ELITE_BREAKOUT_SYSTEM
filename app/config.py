@@ -4,11 +4,28 @@
 # =====================================================================================
 
 import os
+_env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
 try:
     from dotenv import load_dotenv
-    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
+    load_dotenv(_env_path)
 except ImportError:
     pass
+
+# Direct manual .env reader fallback (guarantees .env variables are loaded even without python-dotenv)
+if os.path.exists(_env_path):
+    try:
+        with open(_env_path, "r", encoding="utf-8") as _ef:
+            for _line in _ef:
+                _line = _line.strip()
+                if _line and not _line.startswith("#") and "=" in _line:
+                    _k, _v = _line.split("=", 1)
+                    _k = _k.strip()
+                    _v = _v.strip().strip("'").strip('"')
+                    if _k not in os.environ:
+                        os.environ[_k] = _v
+    except Exception:
+        pass
+
 
 # =====================================================================================
 # BASE DIRECTORY
@@ -572,6 +589,7 @@ FEATURE_PROVIDER_LOCK_SPLIT_V1 = True
 SCAN_WORKER_THREADS = 8
 
 UPSTOX_ACCESS_TOKEN = os.environ.get("UPSTOX_ACCESS_TOKEN")
+
 TELEGRAM_TIMEOUT = 10
 LOG_LEVEL = "INFO"
 

@@ -251,6 +251,32 @@ class ShortCoveringEarlyIgnitionScanner:
 
                 # Certified C5 Production: Direct Active F&O Universe (Zero EOD alpha threshold)
                 symbols_to_scan = fno_universe_manager.get_fno_symbols()
+                if not symbols_to_scan:
+                    _empty_msg = "Dynamic F&O universe is empty — exchange master contract discovery failed or returned 0 symbols. Scanner halted."
+                    logger.error("🚨 [SHORT_COVERING_5M] %s", _empty_msg)
+                    if run_ctx:
+                        complete_scanner_execution_run(run_ctx, status_override="BLOCKED", stop_reason=_empty_msg)
+                    try:
+                        from app.database import insert_notification
+                        insert_notification(
+                            notif_type="error",
+                            title="🚨 SHORT_COVERING_5M Dynamic Universe Empty",
+                            message=_empty_msg,
+                            symbol=None
+                        )
+                    except Exception:
+                        pass
+                    upsert_scanner_health(
+                        scanner_name="SHORT_COVERING_5M",
+                        status="BLOCKED",
+                        outcome="DYNAMIC_FNO_UNIVERSE_EMPTY",
+                        error_msg=_empty_msg,
+                        duration_seconds=round(time.monotonic() - _scan_start, 2),
+                        scheduled_for=_SCHEDULE_STR,
+                        run_id=run_ctx.run_id if run_ctx else None
+                    )
+                    return []
+
                 candidate_map = {sym: None for sym in symbols_to_scan}
                 logger.info("🚀 [SHORT_COVERING_5M] Operating in C5_INTRADAY_ONLY Mode across %d active F&O symbols", len(symbols_to_scan))
             else:

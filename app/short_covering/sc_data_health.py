@@ -40,6 +40,22 @@ import pandas as pd
 IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger(__name__)
 
+try:
+    from app.short_covering.fno_universe import fno_universe_manager
+except ImportError:
+    try:
+        from short_covering.fno_universe import fno_universe_manager
+    except ImportError:
+        fno_universe_manager = None
+
+try:
+    from app.database import get_connection
+except ImportError:
+    try:
+        from database import get_connection
+    except ImportError:
+        get_connection = None
+
 # ── Locked constants ────────────────────────────────────────────────────────
 PROBE_COUNT                  = 5      # Number of F&O symbols in deterministic probe sample
 SYSTEMIC_DATA_THRESHOLD      = 0.90   # 90% DATA_INSUFFICIENT → INGESTION_FAILURE
@@ -363,23 +379,13 @@ def _select_probe_symbols(n: int = PROBE_COUNT) -> Tuple[List[str], Optional[str
     # ── Load live universe ────────────────────────────────────────────────────
     all_syms: List[str] = []
     try:
-        try:
-            from app.short_covering.fno_universe import fno_universe_manager
-        except ImportError:
-            from short_covering.fno_universe import fno_universe_manager
-        all_syms = sorted(fno_universe_manager.get_fno_symbols())
+        if fno_universe_manager is not None:
+            all_syms = sorted(fno_universe_manager.get_fno_symbols())
     except Exception as e:
-        logger.debug("_select_probe_symbols: fno_universe unavailable (%s), using fallback", e)
+        logger.debug("_select_probe_symbols: fno_universe unavailable (%s)", e)
 
     if not all_syms:
-        try:
-            try:
-                from app.short_covering.fno_universe import NSE_FNO_FALLBACK_UNIVERSE
-            except ImportError:
-                from short_covering.fno_universe import NSE_FNO_FALLBACK_UNIVERSE
-            all_syms = sorted(NSE_FNO_FALLBACK_UNIVERSE)
-        except Exception:
-            all_syms = ["HDFCBANK", "INFY", "RELIANCE", "TATASTEEL", "SUNPHARMA"]
+        return [], None, False
 
     # ── Deterministic evenly-spaced base sample ───────────────────────────────
     m         = max(1, len(all_syms) // n)
@@ -388,40 +394,35 @@ def _select_probe_symbols(n: int = PROBE_COUNT) -> Tuple[List[str], Optional[str
     # ── Attempt to fetch one live SC candidate (best-effort) ─────────────────
     sc_candidate: Optional[str] = None
     try:
-        try:
-            from app.database import get_connection
-        except ImportError:
-            from database import get_connection
-        conn = get_connection()
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT DISTINCT symbol FROM short_covering_watchlist
-                WHERE is_active = TRUE
-                ORDER BY quality_score DESC NULLS LAST, symbol
-                LIMIT 1
-                """
-            )
-            row = cur.fetchone()
-            if row and row[0]:
-                sc_candidate = str(row[0])
-        conn.close()
+        if get_connection is not None:
+            conn = get_connection()
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT DISTINCT symbol FROM short_covering_watchlist
+                    WHERE is_active = TRUE
+                    ORDER BY quality_score DESC NULLS LAST, symbol
+                    LIMIT 1
+                    """
+                )
+                row = cur.fetchone()
+                if row and row[0]:
+                    sc_candidate = str(row[0])
+            try:
+                conn.close()
+            except Exception:
+                pass
     except Exception:
         pass
 
-    # ── Deduplicate while preserving order ────────────────────────────────────
-    # Merge base sample + SC candidate, then deduplicate, then trim to n.
-    # Invariant: all symbols in probe are unique; len <= n.
-    candidates_ordered = base_syms + ([sc_candidate] if sc_candidate else [])
-    seen: set           = set()
-    unique: List[str]   = []
-    for sym in candidates_ordered:
-        if sym not in seen:
-            seen.add(sym)
-            unique.append(sym)
-
-    probe                = unique[:n]
-    sc_candidate_included = (sc_candidate is not None) and (sc_candidate in probe)
+    # ── Deduplicate while preserving order & guaranteeing SC candidate inclusion ─
+    if sc_candidate and sc_candidate not in base_syms:
+        # Include unique SC candidate in probe
+        probe = base_syms[:max(0, n - 1)] + [sc_candidate]
+        sc_candidate_included = True
+    else:
+        probe = base_syms[:n]
+        sc_candidate_included = False
 
     logger.debug(
         "_select_probe_symbols: universe=%d  base=%s  sc_candidate=%s  included=%s  final=%s",
@@ -544,11 +545,7 @@ class ProviderHealthCheck:
     def _check_fno_membership(symbol: str) -> ProbeStep:
         t = time.time()
         try:
-            try:
-                from app.short_covering.fno_universe import fno_universe_manager
-            except ImportError:
-                from short_covering.fno_universe import fno_universe_manager
-            syms = fno_universe_manager.get_fno_symbols()
+            syms = fno_universe_manager.get_fno_symbols() if fno_universe_manager is not None else []
             ok   = symbol in syms
             return ProbeStep("fno_membership", ok,
                              f"{'in' if ok else 'NOT in'} F&O universe ({len(syms)} symbols)",

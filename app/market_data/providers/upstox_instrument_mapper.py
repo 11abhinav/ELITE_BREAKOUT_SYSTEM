@@ -20,7 +20,7 @@ import csv
 import urllib.request
 import threading
 import time
-from typing import Optional
+from typing import Optional, List, Dict, Set, Tuple, Any
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +198,7 @@ class UpstoxInstrumentMapper:
         from collections import defaultdict
         ssl_ctx = ssl._create_unverified_context()
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"})
             with urllib.request.urlopen(req, timeout=30, context=ssl_ctx) as resp:
                 content = resp.read()
 
@@ -232,7 +232,7 @@ class UpstoxInstrumentMapper:
                         # Multi-index F&O contract indexing:
                         if tradingsymbol:
                             new_map[f"NSE_FO:{tradingsymbol}"] = inst_key
-                            clean_tsym = re.sub(r'[^A-Z0-9]', '', tradingsymbol)
+                            clean_tsym = re.sub(r'[^A-Z0-9_&-]', '', tradingsymbol)
                             new_map[f"NSE_FO:{clean_tsym}"] = inst_key
 
                             # If Upstox tradingsymbol is e.g. "AARTIIND24SEP26FUT" (with day of month 24)
@@ -245,8 +245,15 @@ class UpstoxInstrumentMapper:
                                 new_map[f"NSE_FO:{sym_p}_{yr_p}{mon_p}FUT"] = inst_key
                                 new_map[f"NSE_FO:{sym_p}-{yr_p}{mon_p}FUT"] = inst_key
 
-                        # Group contracts under underlying name for near/next resolution
-                        underlying = name if name else tradingsymbol.split()[0]
+                            # Extract underlying symbol directly from tradingsymbol
+                            m_und = re.match(r'^([A-Z0-9_&-]+?)(\d{2}[A-Z]{3}(?:\d{2})?FUT)$', clean_tsym)
+                            if m_und:
+                                underlying = m_und.group(1)
+                            else:
+                                underlying = tradingsymbol.split()[0]
+                        else:
+                            underlying = name
+
                         underlying_clean = re.sub(r'[^A-Z0-9]', '', underlying)
                         
                         # Parse expiry value for sorting
@@ -281,11 +288,13 @@ class UpstoxInstrumentMapper:
                 "UNITDSPR": ["MCDOWELL-N", "MCDOWELL_N", "MCDOWELL"],
                 "MCDOWELL-N": ["UNITDSPR", "MCDOWELL_N"],
                 "TATAMOTORS": ["TMPV", "TMCV"],
+                "TMPV": ["TATAMOTORS"],
                 "GUJGASLTD": ["GUJGAS"],
                 "GUJGAS": ["GUJGASLTD"],
                 "GMRINFRA": ["GMRAIRPORT"],
                 "GMRAIRPORT": ["GMRINFRA"],
             }
+
 
             for und, contract_list in futures_by_underlying.items():
                 # Sort contracts by expiry ascending
@@ -379,7 +388,10 @@ class UpstoxInstrumentMapper:
             "MCDOWELL_N": "UNITDSPR",
             "BAJAJ-AUTO": "BAJAJ_AUTO",
             "M&M": "M_M",
+            "TATAMOTORS": "TMPV",
+            "TMPV": "TATAMOTORS",
         }
+
         for k_alias, v_alias in fno_alias_map.items():
             if k_alias in clean:
                 alias_sym = clean.replace(k_alias, v_alias)
@@ -438,6 +450,19 @@ class UpstoxInstrumentMapper:
         )
         return None
 
+
+    def get_active_fno_underlying_symbols(self) -> List[str]:
+        """Returns list of all active F&O underlying equity tickers dynamically discovered from Upstox master CSV."""
+        if len(self._symbol_map) <= len(_STATIC_SYMBOL_MAP):
+            self._download_master_csv()
+
+        active_syms = set()
+        for k in self._symbol_map:
+            if k.startswith("NSE_FO_NEAR:"):
+                sym = k.replace("NSE_FO_NEAR:", "").strip().upper()
+                if sym and len(sym) >= 2 and not " " in sym and sym not in ("NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50", "NIFTYFPI"):
+                    active_syms.add(sym)
+        return sorted(list(active_syms))
 
     def get_instrument_key(self, symbol: str, allow_fallback: bool = True) -> Optional[str]:
         """Maps symbol to official Upstox instrument key."""

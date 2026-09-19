@@ -81,6 +81,33 @@ class ShortPositionDetector:
         else:
             symbols = sorted(list(set(fno_universe_manager.get_fno_symbols())))
 
+        if not symbols:
+            _empty_msg = "Dynamic F&O universe is empty — exchange master contract discovery failed or returned 0 symbols. EOD Scanner halted."
+            logger.error("🚨 [SHORT_COVERING_EOD] %s", _empty_msg)
+            try:
+                from app.database import insert_notification, upsert_scanner_health
+            except ImportError:
+                from database import insert_notification, upsert_scanner_health
+            try:
+                insert_notification(
+                    notif_type="error",
+                    title="🚨 SHORT_COVERING_EOD Dynamic Universe Empty",
+                    message=_empty_msg,
+                    symbol=None
+                )
+                upsert_scanner_health(
+                    scanner_name="SHORT_COVERING_EOD",
+                    status="BLOCKED",
+                    outcome="DYNAMIC_FNO_UNIVERSE_EMPTY",
+                    error_msg=_empty_msg,
+                    duration_seconds=0.0,
+                    scheduled_for="DAILY_EOD"
+                )
+            except Exception:
+                pass
+            _eod_lock.release()
+            return []
+
         run_ctx = None
         try:
             run_ctx = start_scanner_execution_run(

@@ -48,6 +48,7 @@ class OIDataService:
         self._daily_oi_cache: Dict[str, pd.DataFrame] = {}
         self._intraday_oi_cache: Dict[str, pd.DataFrame] = {}
         self._fo_bhavcopy_table_exists: Optional[bool] = None
+        self._notified_failed_symbols: set = set()
 
     def get_provider_capability(self, provider_name: Optional[str] = None) -> ProviderCapability:
         """Returns the capability specification for the given provider."""
@@ -563,31 +564,56 @@ class OIDataService:
                 return None
 
         if not os.getenv("DISABLE_LIVE_DATA_FETCH"):
+            # Helper to verify dataframe contains genuine derivative Open Interest
+            def _has_valid_derivative_oi(df: Optional[pd.DataFrame]) -> bool:
+                if df is None or len(df) < 2:
+                    return False
+                if "oi" in df.columns:
+                    oi_s = df["oi"].dropna()
+                    if not oi_s.empty and (oi_s > 0).any():
+                        return True
+                return False
+
             # Check preferred provider configuration (Defaults to UPSTOX or FYERS)
             preferred = (self.preferred_provider or os.getenv("OI_DATA_PROVIDER", "UPSTOX")).upper()
 
             if preferred == "UPSTOX":
                 # Primary: UPSTOX
                 upstox_df = self.fetch_upstox_5m_candles(symbol, target_date)
-                if upstox_df is not None and len(upstox_df) >= 2:
+                if _has_valid_derivative_oi(upstox_df):
                     return upstox_df
 
-                # Secondary: FYERS Failover
-                logger.info(f"🔄 [OI DATA SERVICE] Upstox 5m unavailable for {symbol}, failing over to Fyers API v3")
+                # Secondary: FYERS Failover (Triggered if Upstox unavailable or missing OI)
+                logger.info(f"🔄 [OI DATA SERVICE] Upstox 5m unavailable or lacking OI for {symbol}, failing over to Fyers API v3")
                 live_df = self.fetch_fyers_5m_candles(symbol, target_date)
+                if _has_valid_derivative_oi(live_df):
+                    if self.preferred_provider != "FYERS":
+                        logger.info(f"⚡ [OI DATA SERVICE] Working Broker Promoted: Switched preferred broker to 'FYERS' (successful 5m+OI fetch for {symbol})")
+                        self.preferred_provider = "FYERS"
+                    return live_df
                 if live_df is not None and len(live_df) >= 2:
                     return live_df
+                if upstox_df is not None and len(upstox_df) >= 2:
+                    return upstox_df
             else:
                 # Primary: FYERS
                 live_df = self.fetch_fyers_5m_candles(symbol, target_date)
+                if _has_valid_derivative_oi(live_df):
+                    return live_df
+
+                # Secondary: UPSTOX Failover (Triggered if Fyers unavailable or missing OI)
+                logger.info(f"🔄 [OI DATA SERVICE] Fyers 5m unavailable or lacking OI for {symbol}, failing over to Upstox API v2/v3")
+                upstox_df = self.fetch_upstox_5m_candles(symbol, target_date)
+                if _has_valid_derivative_oi(upstox_df):
+                    if self.preferred_provider != "UPSTOX":
+                        logger.info(f"⚡ [OI DATA SERVICE] Working Broker Promoted: Switched preferred broker to 'UPSTOX' (successful 5m+OI fetch for {symbol})")
+                        self.preferred_provider = "UPSTOX"
+                    return upstox_df
+                if upstox_df is not None and len(upstox_df) >= 2:
+                    return upstox_df
                 if live_df is not None and len(live_df) >= 2:
                     return live_df
 
-                # Secondary: UPSTOX Failover
-                logger.info(f"🔄 [OI DATA SERVICE] Fyers 5m unavailable for {symbol}, failing over to Upstox API v2/v3")
-                upstox_df = self.fetch_upstox_5m_candles(symbol, target_date)
-                if upstox_df is not None and len(upstox_df) >= 2:
-                    return upstox_df
 
         # 3. Fallback to REAL historical 5m parquet file from data/history/5m/
         try:
@@ -673,8 +699,25 @@ class OIDataService:
         except Exception as dyn_err:
             logger.debug(f"Dynamic price_cache 5m fetch error for {symbol}: {dyn_err}")
 
-        # ZERO SYNTHETIC DATA: Return None if genuine real 5m data is not available
+        # ZERO SYNTHETIC DATA: If all live brokers and local storage fail, notify admin
         logger.warning(f"⚠️ [OI DATA SERVICE] Real 5m intraday data unavailable for {symbol} on {target_date} across Fyers, Upstox, and local storage")
+        try:
+            today_str = (target_date or datetime.now(IST).date()).strftime("%Y-%m-%d")
+            notif_key = f"{clean_sym}_{today_str}"
+            if notif_key not in self._notified_failed_symbols:
+                self._notified_failed_symbols.add(notif_key)
+                try:
+                    from app.database import insert_notification
+                except ImportError:
+                    from database import insert_notification
+                insert_notification(
+                    notif_type="error",
+                    title=f"🚨 5M/OI Ingestion Failed: Both Brokers Unavailable ({clean_sym})",
+                    message=f"Real-time 5-minute candles & Open Interest could not be retrieved for {clean_sym} on {target_date}. Both Upstox and Fyers API queries failed.",
+                    symbol=clean_sym
+                )
+        except Exception:
+            pass
         return None
 
     def _fetch_or_build_daily_oi(

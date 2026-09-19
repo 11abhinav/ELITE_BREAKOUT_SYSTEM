@@ -90,6 +90,7 @@ class FNOContractResolver:
             "MCDOWELL_N": "UNITDSPR",
             "BAJAJ-AUTO": "BAJAJ_AUTO",
             "M&M": "M_M",
+            "TATAMOTORS": "TMPV",
         }
         clean_sym = fno_alias_map.get(clean_sym, clean_sym).replace("&", "_").replace("-", "_")
         near_exp, next_exp = get_near_and_next_expiries(as_of)

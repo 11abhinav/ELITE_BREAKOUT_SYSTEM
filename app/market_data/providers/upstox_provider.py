@@ -33,6 +33,7 @@ _upstox_adapter = HTTPAdapter(
     max_retries=_upstox_retry,
 )
 _upstox_session = requests.Session()
+_upstox_session.headers.update({"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"})
 _upstox_session.mount("https://", _upstox_adapter)
 _upstox_session.mount("http://", _upstox_adapter)
 
@@ -86,6 +87,14 @@ class UpstoxProvider(ProviderInterface):
         )
         self._health_score = 100.0
         self._status = ProviderStatus.HEALTHY
+
+    def _get_token(self) -> Optional[str]:
+        """Resolves active Upstox access token from environment variable."""
+        import os
+        import config
+        return getattr(config, "UPSTOX_ACCESS_TOKEN", None) or os.environ.get("UPSTOX_ACCESS_TOKEN")
+
+
         
     @property
     def provider_name(self) -> str:
@@ -327,8 +336,9 @@ class UpstoxProvider(ProviderInterface):
             prov = DataProvenance(self.provider_name, start_time, 0.0, 0)
             return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error="Blacklisted non-equity trust")
 
-        token = getattr(config, "UPSTOX_ACCESS_TOKEN", None)
+        token = self._get_token()
         raw_key = self._get_instrument_key(symbol)
+
         if not raw_key:
             prov = DataProvenance(self.provider_name, start_time, 0.0, 0)
             return NormalizedMarketData(symbol, timeframe, pd.DataFrame(), prov, error=f"Upstox instrument key resolution failed for {symbol}")
@@ -492,9 +502,8 @@ class UpstoxProvider(ProviderInterface):
         API Docs: https://upstox.com/developer/api-documentation/get-oi/
         Returns dict with total_puts, total_calls, spot_closing_price, expiry, call_put_oi_data_list.
         """
-        import config
         import urllib.parse
-        token = getattr(config, "UPSTOX_ACCESS_TOKEN", None)
+        token = self._get_token()
         if not token:
             logger.debug("Upstox access token missing for get_market_oi.")
             return {}
@@ -558,12 +567,12 @@ class UpstoxProvider(ProviderInterface):
         if not symbols:
             return {}
 
-        import config
         import urllib.parse
-        token = getattr(config, "UPSTOX_ACCESS_TOKEN", None)
+        token = self._get_token()
         if not token:
             logger.error("❌ [UPSTOX] UPSTOX_ACCESS_TOKEN missing — cannot fetch live quotes. Returning empty.")
             return {}
+
 
         headers = {
             "Accept": "application/json",

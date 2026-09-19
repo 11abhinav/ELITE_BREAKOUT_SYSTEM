@@ -309,8 +309,8 @@ class TestProbeSymbolDeduplication(unittest.TestCase):
         self.assertEqual(len(probe), len(set(probe)))
         self.assertLessEqual(len(probe), len(universe))
 
-    def test_empty_universe_falls_back_gracefully(self):
-        """Empty universe must not raise — falls back to static list."""
+    def test_empty_universe_returns_empty_gracefully(self):
+        """Empty universe must not raise — returns empty probe gracefully."""
         mock_mgr = MagicMock()
         mock_mgr.get_fno_symbols.return_value = []
         mock_conn = MagicMock()
@@ -324,8 +324,9 @@ class TestProbeSymbolDeduplication(unittest.TestCase):
              patch("app.short_covering.sc_data_health.get_connection",
                    return_value=mock_conn, create=True):
             probe, sc_cand, sc_included = _select_probe_symbols(PROBE_COUNT)
-        self.assertGreater(len(probe), 0, "Fallback probe must not be empty")
-        self.assertEqual(len(probe), len(set(probe)), "Fallback probe has duplicates")
+        self.assertEqual(len(probe), 0, "Empty universe should produce empty probe")
+        self.assertIsNone(sc_cand)
+        self.assertFalse(sc_included)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
