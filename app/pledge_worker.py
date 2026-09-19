@@ -134,11 +134,11 @@ def run_pledge_worker_sync(force: bool = False) -> Dict[str, Any]:
         result, err = fetch_and_parse_nse_pledged_data()
         if err or not result:
             err_msg = err or "Empty result from NSE fetcher"
-            logger.error(f"❌ [PLEDGE WORKER] NSE bulk fetch failed: {err_msg}")
+            logger.warning(f"⚠️ [PLEDGE WORKER] NSE bulk fetch deferred/unsuccessful: {err_msg}")
             upsert_scanner_health(
                 "Pledge Worker", "DEGRADED",
                 last_success=now_ist.isoformat(),
-                error_msg=f"NSE_FETCH_FAILED: {err_msg[:100]}"
+                error_msg=f"NSE_FETCH_PENDING: {err_msg[:100]}"
             )
             if worker_run_ctx:
                 complete_scanner_execution_run(worker_run_ctx, status_override="FAILED", stop_reason=err_msg)
@@ -260,8 +260,8 @@ def worker_loop():
         else:
             # If failed within window, retry after 15 minutes if still before 10:00 AM
             if now.hour < 10:
-                logger.warning("⚠️ NSE ingestion failed. Retrying in 15 minutes (within 02:00-10:00 AM window)...")
+                logger.info("ℹ️ NSE ingestion deferred/pending. Retrying in 15 minutes (within 02:00-10:00 AM window)...")
                 sleep_with_mode_check(900)
             else:
-                logger.error("🛑 10:00 AM window elapsed. Halting retries until next Saturday.")
+                logger.warning("⚠️ 10:00 AM Saturday window elapsed. Halting retries until next Saturday (existing DB cache preserved).")
                 sleep_with_mode_check(3600)
