@@ -15,3 +15,10 @@
 - Timezone: Asia/Kolkata (IST).
 - Currency: Indian Rupee (INR / ₹ / Rs).
 - Governance: All production parameter promotions require dual-track registration and audit trail.
+
+## MANDATORY PRE-PUSH CODE INTEGRITY RULES
+1. **FULL IMPORT & VARIABLE SCOPE VALIDATION (ZERO UNBOUND / SHADOW VARIABLES)**:
+   - All newly added functions, modified methods, and variables MUST have their imports and symbols fully declared at the proper scope level.
+   - NEVER place partial or shadow imports (e.g. `from database import ...`) inside inner nested `try`, `except`, or `finally` blocks that shadow or conflict with outer-scope identifier usage.
+2. **MANDATORY PRE-PUSH COMPILE & SYMBOL SANITY CHECK**:
+   - Before ANY `git push`, the agent MUST run syntax verification (`python3 -m py_compile`) and test import execution on all modified files to ensure zero `SyntaxError`, `ImportError`, `NameError`, or `UnboundLocalError` at runtime.
