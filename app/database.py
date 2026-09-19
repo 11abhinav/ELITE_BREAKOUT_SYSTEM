@@ -4038,6 +4038,15 @@ def upsert_scanner_health(
             logger.warning(f"upsert_scanner_health: unknown status '{status}' provided — mapping to 'IDLE'")
             status = 'IDLE'
 
+        # [RULE 67 CHANGE-RATIONALE: IMMUTABLE_PAUSED_STATE_v1.0]
+        # Guarantee that a PAUSED or STOPPED scanner NEVER gets mutated back to OK, IDLE, RUNNING, DOWN, or QUEUED
+        # by automated background tasks, boot catch-up passes, or health heartbeats.
+        # ONLY explicit Admin actions (resume_scanner / resume_all_scanners) are authorized to unpause scanners.
+        is_currently_stopped = (old_status in ('PAUSED', 'STOPPED')) or is_scanner_stopped(scanner_name)
+        if is_currently_stopped and (status not in ('PAUSED', 'STOPPED')):
+            logger.info(f"🛑 [PAUSED_PROTECTION] Preserving PAUSED/STOPPED state for '{scanner_name}' (ignored attempted transition to '{status}')")
+            status = old_status if old_status in ('PAUSED', 'STOPPED') else 'PAUSED'
+
         # 🔍 EXECUTION OWNERSHIP GUARD:
         # If run_id is supplied on a terminal status update (OK/DOWN/IDLE) and active_run_id is set,
         # reject updates from older/stale execution runs.
@@ -4077,7 +4086,7 @@ def upsert_scanner_health(
                     params = []
 
                     if status is not None:
-                        set_clauses.append("status = %s")
+                        set_clauses.append("status = CASE WHEN scanner_health.status IN ('PAUSED', 'STOPPED') THEN scanner_health.status ELSE %s END")
                         params.append(status)
                     if last_success is not None:
                         set_clauses.append("last_success = %s")
@@ -4123,7 +4132,7 @@ def upsert_scanner_health(
                         set_clauses.append("retry_count = %s")
                         params.append(retry_count)
                     if run_id is not None:
-                        set_clauses.append("active_run_id = %s")
+                        set_clauses.append("active_run_id = CASE WHEN scanner_health.status IN ('PAUSED', 'STOPPED') THEN NULL ELSE %s END")
                         params.append(run_id)
                     elif status in ('OK', 'DOWN', 'IDLE') or (status and str(status).startswith('QUEUED')):
                         set_clauses.append("active_run_id = NULL")
@@ -4316,9 +4325,10 @@ def get_all_scanner_health() -> list[dict]:
                 existing_names = {r["scanner_name"] for r in rows if "scanner_name" in r}
                 for sc_name, sched_str in schedule_map.items():
                     if sc_name not in existing_names:
+                        is_stopped = is_scanner_stopped(sc_name)
                         rows.append({
                             "scanner_name": sc_name,
-                            "status": "IDLE",
+                            "status": "PAUSED" if is_stopped else "IDLE",
                             "scheduled_for": sched_str,
                             "today_alerts": 0,
                             "is_acknowledged": True,
@@ -4393,11 +4403,13 @@ def reset_all_scanners_on_boot() -> None:
                     "AI Worker": "Continuous (Sat-Sun Active)",
                 }
                 for sc_name, sched_str in schedule_map.items():
+                    is_stopped = is_scanner_stopped(sc_name)
+                    default_status = "PAUSED" if is_stopped else "IDLE"
                     cur.execute("""
                         INSERT INTO scanner_health (scanner_name, status, scheduled_for, updated_at)
-                        VALUES (%s, 'IDLE', %s, %s)
+                        VALUES (%s, %s, %s, %s)
                         ON CONFLICT (scanner_name) DO UPDATE SET scheduled_for = EXCLUDED.scheduled_for;
-                    """, (sc_name, sched_str, now_str))
+                    """, (sc_name, default_status, sched_str, now_str))
                 conn.commit()
         logger.info("🧹 [BOOT RESET] Scanner health statuses initialized (PAUSED/STOPPED states preserved across restart).")
     except Exception as e:
@@ -5734,7 +5746,7 @@ def acknowledge_data_fetch_health(source_name: str):
                     else:
                         targeted = impacted
                     for sc in targeted:
-                        cur.execute("UPDATE scanner_health SET is_acknowledged = TRUE, error_msg = NULL, status = 'OK' WHERE scanner_name = %s", (sc,))
+                        cur.execute("UPDATE scanner_health SET is_acknowledged = TRUE, error_msg = NULL, status = 'OK' WHERE scanner_name = %s AND status NOT IN ('PAUSED', 'STOPPED')", (sc,))
                         if cur.rowcount:
                             cleared.append(sc)
                     conn.commit()
@@ -5752,7 +5764,8 @@ def acknowledge_scanner_health(scanner_name: str):
             try:
                 cur.execute("""
                     UPDATE scanner_health
-                    SET is_acknowledged = TRUE, error_msg = NULL, status = 'OK'
+                    SET is_acknowledged = TRUE, error_msg = NULL,
+                        status = CASE WHEN status IN ('PAUSED', 'STOPPED') THEN status ELSE 'OK' END
                     WHERE scanner_name = %s
                 """, (scanner_name,))
                 conn.commit()
@@ -5918,11 +5931,12 @@ def acknowledge_fetch_error(error_id: int) -> bool:
                 """, (scanner_name,))
                 has_more_errors = cur.fetchone() is not None
 
-                # If no more errors, clear the scanner_health record (turn green)
+                # If no more errors, clear the scanner_health record (turn green), preserving PAUSED state
                 if not has_more_errors:
                     cur.execute("""
                         UPDATE scanner_health
-                        SET status = 'OK', is_acknowledged = TRUE, error_msg = NULL, updated_at = %s
+                        SET status = CASE WHEN status IN ('PAUSED', 'STOPPED') THEN status ELSE 'OK' END,
+                            is_acknowledged = TRUE, error_msg = NULL, updated_at = %s
                         WHERE scanner_name = %s
                     """, (datetime.now(IST).isoformat(), scanner_name))
                     logger.info(f"✓ Cleared scanner_health for {scanner_name} (all errors acknowledged)")
@@ -5966,7 +5980,8 @@ def acknowledge_fetch_error_batch(error_ids: list) -> bool:
                     if not has_more_errors:
                         cur.execute("""
                             UPDATE scanner_health
-                            SET status = 'OK', is_acknowledged = TRUE, error_msg = NULL, updated_at = %s
+                            SET status = CASE WHEN status IN ('PAUSED', 'STOPPED') THEN status ELSE 'OK' END,
+                                is_acknowledged = TRUE, error_msg = NULL, updated_at = %s
                             WHERE scanner_name = %s
                         """, (datetime.now(IST).isoformat(), scanner_name))
                         logger.info(f"✓ Cleared scanner_health for {scanner_name} (all errors acknowledged)")
@@ -5991,11 +6006,11 @@ def acknowledge_all_fetch_errors() -> bool:
                     WHERE is_acknowledged = FALSE
                 """)
 
-                # Clear scanner_health for all scanners (mark as OK)
+                # Clear scanner_health for all active scanners (mark as OK, preserving PAUSED)
                 cur.execute("""
                     UPDATE scanner_health
                     SET status = 'OK', is_acknowledged = TRUE, error_msg = NULL, updated_at = %s
-                    WHERE status != 'OK'
+                    WHERE status NOT IN ('OK', 'PAUSED', 'STOPPED')
                 """, (datetime.now(IST).isoformat(),))
 
                 conn.commit()

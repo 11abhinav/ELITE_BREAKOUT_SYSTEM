@@ -2909,9 +2909,6 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
             complete_scanner_execution_run(run_ctx, status_override="SKIPPED", stop_reason="Empty parquet")
             return run_wealth_scan(is_test_mode=is_test_mode)
 
-        run_ctx.set_total_stocks(len(wealth_df))
-        run_ctx.record_fresh_data(len(wealth_df))
-
         stage_tracker.start_stage(1, "Postgres Portfolio Query", "Querying open holdings from manual_portfolio and wealth_buy_alert")
         portfolio_dict = {}
         try:
@@ -2940,6 +2937,20 @@ def run_wealth_intraday_update(is_test_mode=False, write_health=True):
             except Exception as e:
                 logger.warning(f"Failed to fetch live prices for wealth intraday update: {e}")
         stage_tracker.end_stage(f"Fetched CMP for {len(realtime_metrics)} positions")
+
+        # [RULE 67 CHANGE-RATIONALE: WEALTH_EXIT_TELEMETRY_ACCURACY_v1.0]
+        # Record open position counts and live CMP fetch success/failure in run_ctx for admin visibility
+        if run_ctx:
+            if open_symbols:
+                run_ctx.set_total_stocks(len(open_symbols))
+                run_ctx.fresh_count = len(realtime_metrics)
+                run_ctx.stale_count = 0
+                run_ctx.incomplete_count = max(0, len(open_symbols) - len(realtime_metrics))
+            else:
+                run_ctx.set_total_stocks(len(wealth_df))
+                run_ctx.fresh_count = len(wealth_df)
+                run_ctx.stale_count = 0
+                run_ctx.incomplete_count = 0
 
         # [RULE 67 CHANGE-RATIONALE: O1_PORTFOLIO_LOOKUP_v1.0]
         # Pre-index wealth_df into a dictionary for O(1) lookups instead of 50+ sequential DataFrame scans

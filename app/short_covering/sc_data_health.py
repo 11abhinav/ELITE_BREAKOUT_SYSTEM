@@ -661,8 +661,20 @@ class ProviderHealthCheck:
 
         # Step 5: 5M API request
         date_str = target_date.strftime("%Y-%m-%d")
+        next_sym = f"{symbol}FUT"
+        try:
+            try:
+                from app.short_covering.fno_contract_resolver import fno_contract_resolver
+            except ImportError:
+                from short_covering.fno_contract_resolver import fno_contract_resolver  # type: ignore
+            c_info = fno_contract_resolver.resolve(symbol, target_date)
+            next_sym = c_info.next_trading_symbol
+        except Exception:
+            pass
+
         fyers_candidates = [
             f"NSE:{near_sym}",
+            f"NSE:{next_sym}",
             f"NSE:{symbol}-EQ"
         ]
         
@@ -831,39 +843,34 @@ class ProviderHealthCheck:
                                    f"profile check unavailable: {e}",
                                    (time.time() - t) * 1000))
 
-        # Steps 5–8: UpstoxProvider.fetch_ohlcv
+        # Steps 5–8: Upstox 5M Futures Candles with genuine OI
         t = time.time()
-        norm = None
+        df = None
         try:
             try:
-                from app.market_data.providers.upstox_provider import UpstoxProvider
+                from app.short_covering.oi_data_service import OIDataService
             except ImportError:
-                from market_data.providers.upstox_provider import UpstoxProvider  # type: ignore
-            upstox     = UpstoxProvider()
-            range_from = datetime.combine(target_date, datetime.min.time()).replace(tzinfo=IST)
-            range_to   = datetime.combine(target_date, datetime.max.time()).replace(tzinfo=IST)
-            
-            # Use base symbol (equity) for Upstox historical candles; OI validation relies on oi_data_service_e2e
-            norm       = upstox.fetch_ohlcv(symbol, "5m", range_from, range_to)
+                from short_covering.oi_data_service import OIDataService  # type: ignore
+            svc = OIDataService()
+            df = svc.fetch_upstox_5m_candles(symbol, target_date)
         except Exception as e:
             steps.append(ProbeStep("api_request", False, str(e), (time.time() - t) * 1000))
             result.status = ProviderStatus.RED
-            result.error  = f"Upstox fetch_ohlcv exception: {e}"
+            result.error  = f"Upstox fetch_upstox_5m_candles exception: {e}"
             result.latency_ms = (time.time() - t0) * 1000
             return result
 
         # Step 5: API request succeeded
-        req_ok = norm is not None and (not norm.error)
+        req_ok = df is not None and not df.empty
         steps.append(ProbeStep("api_request", req_ok,
-                                norm.error if norm and norm.error else "OK",
+                                "OK" if req_ok else "No futures candles returned from Upstox",
                                 (time.time() - t) * 1000))
-        if not req_ok or norm.dataframe is None or norm.dataframe.empty:
+        if not req_ok:
             result.status = ProviderStatus.RED
-            result.error  = f"Upstox: {norm.error if norm else 'No response'}"
+            result.error  = "Upstox: No futures candles returned for probe symbol"
             result.latency_ms = (time.time() - t0) * 1000
             return result
 
-        df                  = norm.dataframe
         result.candle_count = len(df)
 
         # Step 6: Response fields
@@ -879,7 +886,7 @@ class ProviderHealthCheck:
         if oi_col:
             result.oi_valid = _validate_oi_series(df[oi_col])
         else:
-            result.oi_valid = OIValidResult(data_valid=False, data_reason="OI column absent from UpstoxProvider dataframe")
+            result.oi_valid = OIValidResult(data_valid=False, data_reason="OI column absent from Upstox futures dataframe")
         steps.append(ProbeStep("oi_valid", result.oi_valid.data_valid,
                                 result.oi_valid.data_reason, (time.time() - t) * 1000))
 
@@ -901,19 +908,13 @@ class ProviderHealthCheck:
         steps.append(self._check_oi_data_service(symbol, target_date))
 
         # ── Aggregate ─────────────────────────────────────────────────────────
-        _CRITICAL = {"token_present", "api_request", "oi_data_service_e2e"}
+        _CRITICAL = {"token_present", "api_request", "oi_valid", "oi_data_service_e2e"}
         critical_all_pass = all(s.passed for s in steps if s.name in _CRITICAL)
-        if critical_all_pass:
-            # [FIX: EQUITY_PROBE_OI_COLUMN] Step 7 (oi_valid) checks the raw equity
-            # candle response — equity tickers never carry an OI column in Upstox
-            # historical data. Step 9 (oi_data_service_e2e) is the authoritative live-OI
-            # test via the full NSE_FO key path. When Step 9 passes, OI ingestion is
-            # confirmed; Step 7 absence is expected, not a degradation.
-            e2e_passed = any(s.name == "oi_data_service_e2e" and s.passed for s in steps)
-            oi_confirmed = result.oi_valid.data_valid or e2e_passed
-            result.status = (ProviderStatus.GREEN
-                             if oi_confirmed and result.candle_count >= 2
-                             else ProviderStatus.DEGRADED)
+        if critical_all_pass and result.oi_valid.data_valid and result.candle_count >= 2:
+            result.status = ProviderStatus.GREEN
+        elif steps and any(s.name == "api_request" and s.passed for s in steps) and result.candle_count >= 2:
+            result.status = ProviderStatus.DEGRADED
+            result.error  = f"Upstox partial: {result.oi_valid.data_reason}"
         else:
             result.status = ProviderStatus.RED
             failures      = [s.name for s in steps if s.name in _CRITICAL and not s.passed]

@@ -179,12 +179,14 @@ def wait_for_bhavcopy_or_fallback(name: str) -> bool:
         
         # [VERSION: BHAVCOPY_UI_STATUS] Expose the blocking state to the UI so users don't think the scanner is dead
         if first_wait and name in ("EVENING_SCANNERS", "PULLBACK"):
+            from database import is_scanner_stopped
             for scanner_name in ["EOD", "REVERSAL", "PULLBACK"]:
-                upsert_scanner_health(
-                    scanner_name, 
-                    status="IDLE", 
-                    error_msg="Blocked: Waiting for NSE to publish today's Bhavcopy (Delivery Data)..."
-                )
+                if not is_scanner_stopped(scanner_name):
+                    upsert_scanner_health(
+                        scanner_name, 
+                        status="IDLE", 
+                        error_msg="Blocked: Waiting for NSE to publish today's Bhavcopy (Delivery Data)..."
+                    )
             first_wait = False
             
         time.sleep(300)
@@ -588,17 +590,18 @@ def verify_watchlist_is_pristine() -> bool:
 
 def block_until_watchlist_ready():
     """Blocks the thread until the watchlist is pristine."""
-    from database import upsert_scanner_health
+    from database import upsert_scanner_health, is_scanner_stopped
     first_block = True
     while not verify_watchlist_is_pristine():
         if first_block:
             logger.warning("⏳ Watchlist not ready. Updating dashboard to show scanners as WAITING...")
             for scanner in ["Wealth Engine", "MULTI-TF LADDER", "REVERSAL", "EOD"]:
-                upsert_scanner_health(
-                    scanner,
-                    status="IDLE",
-                    error_msg="Blocked: Waiting for Daily Builder to provide fresh fundamental data."
-                )
+                if not is_scanner_stopped(scanner):
+                    upsert_scanner_health(
+                        scanner,
+                        status="IDLE",
+                        error_msg="Blocked: Waiting for Daily Builder to provide fresh fundamental data."
+                    )
             first_block = False
         logger.warning("⏳ Retrying watchlist check in 60 seconds...")
         time.sleep(60)
@@ -628,7 +631,10 @@ def block_until_watchlist_ready():
 # force=True must NOT be removed — doing so causes the scanners to silently
 # enter test_mode and discard all alert results whenever they run before 21:00.
 def _run_eod_with_retries(today_str, session=None, used_fallback=False):
-    from database import upsert_scanner_health, insert_notification
+    from database import upsert_scanner_health, insert_notification, is_scanner_stopped
+    if is_scanner_stopped("EOD"):
+        logger.info("⏸️ [EOD] Scanner is PAUSED/STOPPED by Admin. Skipping scheduled execution.")
+        return
     retry_count = 0
     while True:
         # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run
@@ -720,7 +726,10 @@ def _run_eod_with_retries(today_str, session=None, used_fallback=False):
 
 
 def _run_reversal_with_retries(today_str, session=None, used_fallback=False):
-    from database import upsert_scanner_health, insert_notification
+    from database import upsert_scanner_health, insert_notification, is_scanner_stopped
+    if is_scanner_stopped("REVERSAL"):
+        logger.info("⏸️ [REVERSAL] Scanner is PAUSED/STOPPED by Admin. Skipping scheduled execution.")
+        return
     retry_count = 0
     while True:
         # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run
@@ -810,7 +819,10 @@ def _run_reversal_with_retries(today_str, session=None, used_fallback=False):
 
 
 def _run_pullback_with_retries(today_str, session=None, used_fallback=False):
-    from database import upsert_scanner_health, insert_notification
+    from database import upsert_scanner_health, insert_notification, is_scanner_stopped
+    if is_scanner_stopped("PULLBACK"):
+        logger.info("⏸️ [PULLBACK] Scanner is PAUSED/STOPPED by Admin. Skipping scheduled execution.")
+        return
     retry_count = 0
     while True:
         # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run
@@ -1159,6 +1171,7 @@ def run_all_seven_scanners_non_market_boot():
                                 error_msg = 'Boot sequence completed — status reset from QUEUED',
                                 updated_at = NOW()
                             WHERE (status = 'QUEUED' OR status LIKE 'QUEUED%%')
+                                AND status NOT IN ('PAUSED', 'STOPPED')
                                 AND scanner_name = ANY(%s);
                         """, (scanner_names,))
                     conn.commit()
@@ -1209,6 +1222,10 @@ def run_system_scheduler():
 
     def safe_run_daily_builder():
         """Helper to run the builder and update the memory cache."""
+        from database import is_scanner_stopped
+        if is_scanner_stopped("DAILY_BUILDER"):
+            logger.info("⏸️ [DAILY_BUILDER] Scanner is PAUSED/STOPPED by Admin. Skipping 5:00 AM scheduled trigger.")
+            return False
         start_time = time.time()
         try:
             import os
@@ -1301,6 +1318,10 @@ def run_system_scheduler():
 
     def safe_run_wealth_scan_initial():
         """Run Wealth Engine at 2:00 AM with fresh watchlist."""
+        from database import is_scanner_stopped
+        if is_scanner_stopped("Wealth Engine"):
+            logger.info("⏸️ [Wealth Engine] Scanner is PAUSED/STOPPED by Admin. Skipping 6:00 AM initial scan.")
+            return False
         start_time = time.time()
         from database import upsert_scanner_health
         upsert_scanner_health("Wealth Engine", status="RUNNING", error_msg="Wealth Engine scan in progress...")
@@ -1430,8 +1451,12 @@ def run_system_scheduler():
         # 1. Verify Watchlist (with full date-aware cache/DB/rebuild logic)
         logger.info(f"🕒 SCHEDULER | Step 1: Verifying watchlist freshness for {today_str}")
         if not verify_watchlist_is_pristine():
-            logger.warning("📋 Watchlist is missing/stale on boot. Triggering Daily Builder to build watchlist...")
-            _trigger_daily_builder()
+            logger.warning("📋 Watchlist is missing/stale on boot. Checking if Daily Builder can build watchlist...")
+            from database import is_scanner_stopped
+            if not is_scanner_stopped("DAILY_BUILDER"):
+                _trigger_daily_builder()
+            else:
+                logger.info("⏸️ [DAILY_BUILDER] is PAUSED/STOPPED by Admin. Skipping boot watchlist rebuild.")
 
         # 2. Verify Wealth Engine
         try:
@@ -1490,6 +1515,10 @@ def run_system_scheduler():
 
     def safe_run_multibagger_scan_initial():
         """Run Multibagger Scanner Cold Start at 4:00 AM with fresh watchlist."""
+        from database import is_scanner_stopped
+        if is_scanner_stopped("MULTIBAGGER"):
+            logger.info("⏸️ [MULTIBAGGER] Scanner is PAUSED/STOPPED by Admin. Skipping 4:00 AM initial cold start.")
+            return False
         start_time = time.time()
         try:
             logger.info("🕒 SCHEDULER | [4:00 AM] Triggering Multibagger Scanner (initial cold start)")
@@ -2116,6 +2145,10 @@ def run_multibagger_exit_monitor():
 
 def _run_multibagger_scanner_single():
     """Runs a single pass of the Multibagger Scanner."""
+    from database import is_scanner_stopped
+    if is_scanner_stopped("MULTIBAGGER"):
+        logger.info("⏸️ [MULTIBAGGER] Scanner is PAUSED/STOPPED by Admin. Skipping execution.")
+        return
     try:
         now = datetime.now(IST)
         logger.info(f"🚀 MULTIBAGGER SCAN | Starting daily scan at {now.strftime('%H:%M:%S IST')}...")
@@ -2485,6 +2518,10 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
 
 
 def _trigger_daily_builder(force_rebuild: bool = False, trigger_type="MANUAL", scheduler_name="MANUAL"):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("DAILY_BUILDER"):
+        logger.info("⏸️ [DAILY_BUILDER] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return
     import os
     import json
     if force_rebuild:
@@ -2517,6 +2554,10 @@ def _trigger_daily_builder(force_rebuild: bool = False, trigger_type="MANUAL", s
         raise exc
 
 def _trigger_multi_tf(trigger_type="SCHEDULED", scheduler_name="CRON"):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("MULTI_TF"):
+        logger.info("⏸️ [MULTI_TF] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return
     from multitf.scanner import run_multitf_v2
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -2542,6 +2583,10 @@ def _trigger_multi_tf(trigger_type="SCHEDULED", scheduler_name="CRON"):
 
 
 def _trigger_multi_tf_5m_monitor(trigger_type="SCHEDULED", scheduler_name="CRON"):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("MULTI_TF"):
+        logger.info("⏸️ [MULTI_TF] Scanner is PAUSED/STOPPED by Admin. Skipping 5m monitor trigger.")
+        return
     from multitf.scanner import run_multitf_5m_monitor
     from datetime import datetime
     from zoneinfo import ZoneInfo
@@ -2562,37 +2607,69 @@ def _trigger_multi_tf_5m_monitor(trigger_type="SCHEDULED", scheduler_name="CRON"
 
 
 def _trigger_eod(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("EOD"):
+        logger.info("⏸️ [EOD] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return
     import eod_scanner
     eod_scanner.start(force=True, trigger_type=trigger_type, scheduler_name=scheduler_name, session=session, used_fallback_data=False)
 
 def _trigger_reversal(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("REVERSAL"):
+        logger.info("⏸️ [REVERSAL] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return
     import reversal_scanner
     reversal_scanner.start(force=True, trigger_type=trigger_type, scheduler_name=scheduler_name, session=session, used_fallback_data=False)
 
 def _trigger_pullback(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("PULLBACK"):
+        logger.info("⏸️ [PULLBACK] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return
     import pullback_pipeline
     pullback_pipeline.start(force=True, trigger_type=trigger_type, scheduler_name=scheduler_name, session=session, used_fallback_data=False)
 
 def _trigger_wealth_engine(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("Wealth Engine"):
+        logger.info("⏸️ [Wealth Engine] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return
     from wealth_engine import run_wealth_scan
     run_wealth_scan(trigger_type=trigger_type, scheduler_name=scheduler_name, session=session)
 
 def _trigger_multibagger(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("MULTIBAGGER"):
+        logger.info("⏸️ [MULTIBAGGER] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return
     import multibagger
     return multibagger.start(trigger_type=trigger_type, scheduler_name=scheduler_name, session=session)
 
 def _trigger_accumulation(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=None, session=None):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("ACCUMULATION"):
+        logger.info("⏸️ [ACCUMULATION] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return
     from accumulation_scanner import AccumulationScanner
     scanner = AccumulationScanner()
     return scanner.start(force=True, run_ctx=run_ctx, trigger_type=trigger_type, scheduler_name=scheduler_name, session=session)
 
 def _trigger_technical(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=None, session=None):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("TECHNICAL"):
+        logger.info("⏸️ [TECHNICAL] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return {"total_count": 0, "processed_count": 0}
     from technical_scanner import run_technical_scan
     count = run_technical_scan(trigger_type=trigger_type, scheduler_name=scheduler_name, run_ctx=run_ctx, session=session)
     return {"total_count": count, "processed_count": count}
 
 # [VERSION: TRIGGER_AI_WORKER_v1.1] Define _trigger_ai_worker
 def _trigger_ai_worker():
+    from database import is_scanner_stopped
+    if is_scanner_stopped("AI Worker"):
+        logger.info("⏸️ [AI Worker] Worker is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return
     from ai_worker import run_ai_worker_scan_once
     return run_ai_worker_scan_once()
 
@@ -2602,21 +2679,37 @@ def _trigger_earnings_calendar():
     return {"total_count": 0, "processed_count": 0}
 
 def _trigger_performance_tracker():
+    from database import is_scanner_stopped
+    if is_scanner_stopped("PERFORMANCE_TRACKER"):
+        logger.info("⏸️ [PERFORMANCE_TRACKER] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return {"total_count": 0, "processed_count": 0}
     from performance_tracker import build_performance_data
     build_performance_data(force_live_fetch=True)
     return {"total_count": 1, "processed_count": 1}
 
 def _trigger_multibagger_exit():
+    from database import is_scanner_stopped
+    if is_scanner_stopped("MULTIBAGGER_EXIT"):
+        logger.info("⏸️ [MULTIBAGGER_EXIT] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return {"total_count": 0, "processed_count": 0}
     _run_multibagger_exit_single()
     return {"total_count": 1, "processed_count": 1}
 
 def _trigger_wealth_exit():
+    from database import is_scanner_stopped
+    if is_scanner_stopped("WEALTH_EXIT"):
+        logger.info("⏸️ [WEALTH_EXIT] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return {"total_count": 0, "processed_count": 0}
     from wealth_engine import run_wealth_intraday_update
     run_wealth_intraday_update()
     return {"total_count": 1, "processed_count": 1}
 
 def _trigger_short_covering_eod(trigger_type="MANUAL", scheduler_name="MANUAL"):
     """Triggers Layer 1 EOD Short-Positioning buildup detector."""
+    from database import is_scanner_stopped
+    if is_scanner_stopped("SHORT_COVERING_EOD") or is_scanner_stopped("SHORT_COVERING"):
+        logger.info("⏸️ [SHORT_COVERING_EOD] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return {"total_count": 0, "processed_count": 0, "status": "PAUSED"}
     try:
         try:
             from short_covering.short_position_detector import short_position_detector
@@ -2630,6 +2723,10 @@ def _trigger_short_covering_eod(trigger_type="MANUAL", scheduler_name="MANUAL"):
 
 def _trigger_short_covering_5m(trigger_type="SCHEDULED", scheduler_name="CRON"):
     """Triggers Layer 2 Intraday 5m Short-Covering ignition scan."""
+    from database import is_scanner_stopped
+    if is_scanner_stopped("SHORT_COVERING_5M") or is_scanner_stopped("SHORT_COVERING"):
+        logger.info("⏸️ [SHORT_COVERING_5M] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return {"total_count": 0, "processed_count": 0, "status": "PAUSED"}
     try:
         try:
             from short_covering.short_covering_scanner import short_covering_scanner

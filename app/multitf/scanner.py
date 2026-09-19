@@ -680,8 +680,14 @@ def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str =
 
         if real_run_ctx:
             try:
+                # [RULE 67 CHANGE-RATIONALE: MULTITF_V2_TELEMETRY_ACCURACY_v1.0]
+                # Accurately reflect fast_rejected breakdown (NO_DATA / INSUFFICIENT_BARS) as incomplete data.
+                incomplete_cnt = fast_rejected_breakdown.get("NO_DATA", 0) + fast_rejected_breakdown.get("INSUFFICIENT_BARS", 0)
                 real_run_ctx.set_total_stocks(len(watchlist))
-                real_run_ctx.record_fresh_data(len(watchlist))
+                real_run_ctx.fresh_count = max(0, len(watchlist) - incomplete_cnt)
+                real_run_ctx.stale_count = 0
+                real_run_ctx.incomplete_count = incomplete_cnt
+                real_run_ctx.set_alerts(alerts_generated)
                 complete_scanner_execution_run(real_run_ctx, status_override="COMPLETED")
             except Exception as _c_err:
                 logger.warning(f"⚠️ [MULTI_TF] Failed to complete execution run: {_c_err}")
@@ -975,8 +981,14 @@ def run_multitf_5m_monitor(regime_ctx: Optional[Dict[str, Any]] = None, ist_now:
 
         if real_run_ctx:
             try:
+                # [RULE 67 CHANGE-RATIONALE: MULTITF_5M_TELEMETRY_ACCURACY_v1.0]
+                # Accurately reflect 5m/15m data availability per symbol in execution history
+                valid_5m = sum(1 for sym in symbols if sym in all_5m and all_5m[sym] is not None and not all_5m[sym].empty)
                 real_run_ctx.set_total_stocks(len(symbols))
-                real_run_ctx.record_fresh_data(len(symbols))
+                real_run_ctx.fresh_count = valid_5m
+                real_run_ctx.stale_count = 0
+                real_run_ctx.incomplete_count = max(0, len(symbols) - valid_5m)
+                real_run_ctx.set_alerts(alerts_generated)
                 complete_scanner_execution_run(real_run_ctx, status_override="COMPLETED")
             except Exception:
                 pass

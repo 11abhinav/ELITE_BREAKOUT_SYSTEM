@@ -89,11 +89,14 @@ def print_scanner_start_banner(scanner_key: str, queued_at: float = None, run_id
     logger.info(f"🚀🚀🚀 {emoji} {display} STARTED — {ts}{queue_wait_str} {emoji} 🚀🚀🚀")
     logger.info(star_bar)
     
-    # ✅ Immediately transition QUEUED → RUNNING in DB
+    # ✅ Immediately transition QUEUED → RUNNING in DB (only if not paused/stopped)
     try:
-        from database import upsert_scanner_health
-        upsert_scanner_health(db_name, "RUNNING", error_msg="Scan in progress...", run_id=run_id)
-        logger.info(f"🟢 [{display}] Status updated: RUNNING (was QUEUED{queue_wait_str})")
+        from database import upsert_scanner_health, is_scanner_stopped
+        if not is_scanner_stopped(db_name):
+            upsert_scanner_health(db_name, "RUNNING", error_msg="Scan in progress...", run_id=run_id)
+            logger.info(f"🟢 [{display}] Status updated: RUNNING (was QUEUED{queue_wait_str})")
+        else:
+            logger.info(f"⏸️ [{display}] Scanner is PAUSED/STOPPED — preserving PAUSED state, will not set RUNNING")
     except Exception as _e:
         logger.warning(f"⚠️ Could not update scanner status to RUNNING: {_e}")
     
@@ -114,12 +117,18 @@ def print_scanner_end_banner(scanner_key: str, start_mono: float, run_id: str = 
     logger.info(star_bar)
 
     try:
-        from database import upsert_scanner_health, get_scanner_health
-        current_health = get_scanner_health(db_name)
-        curr_status = current_health.get("status") if current_health else "OK"
-        final_status = status if status is not None else (curr_status if curr_status in ("DOWN", "DEGRADED", "DEGRADED_FALLBACK", "BLOCKED", "IDLE", "ERROR", "FAILED") else "OK")
-        upsert_scanner_health(db_name, status=final_status, error_msg=error_msg, duration_seconds=runtime, run_id=run_id)
-        logger.info(f"✅ [{display}] Status updated: {final_status} (Completed in {runtime:.0f}s)")
+        from database import upsert_scanner_health, get_scanner_health, is_scanner_stopped
+        if is_scanner_stopped(db_name):
+            logger.info(f"⏸️ [{display}] Scanner is PAUSED/STOPPED — preserving PAUSED state on end banner")
+        else:
+            current_health = get_scanner_health(db_name)
+            curr_status = current_health.get("status") if current_health else "OK"
+            if curr_status in ("PAUSED", "STOPPED"):
+                final_status = curr_status
+            else:
+                final_status = status if status is not None else (curr_status if curr_status in ("DOWN", "DEGRADED", "DEGRADED_FALLBACK", "BLOCKED", "IDLE", "ERROR", "FAILED") else "OK")
+            upsert_scanner_health(db_name, status=final_status, error_msg=error_msg, duration_seconds=runtime, run_id=run_id)
+            logger.info(f"✅ [{display}] Status updated: {final_status} (Completed in {runtime:.0f}s)")
     except Exception as _e:
         logger.warning(f"⚠️ Could not update scanner status: {_e}")
 

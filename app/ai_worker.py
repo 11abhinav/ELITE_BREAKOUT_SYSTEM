@@ -220,9 +220,12 @@ def run_ai_worker_scan_once() -> dict:
                         logger.exception(f"Failed to upsert final fetch_error for {fsym}: {inner_e}")
                         
         total_elapsed = round(time.time() - _fn_start, 1)
+        # [RULE 67 CHANGE-RATIONALE: AI_WORKER_TELEMETRY_ACCURACY_v1.0]
+        # Record successful concall cache/fetch as fresh and failed items as incomplete for execution history
         run_ctx.set_total_stocks(total_stocks)
-        run_ctx.record_fresh_data(db_processed_count)
-        run_ctx.record_stale_data(final_failed_count)
+        run_ctx.fresh_count = max(0, total_stocks - final_failed_count)
+        run_ctx.stale_count = 0
+        run_ctx.incomplete_count = final_failed_count
         logger.info("=" * 70)
         logger.info(f"🤖 [AI WORKER] Scan complete in {total_elapsed}s | Total={total_stocks} | Processed={db_processed_count} | Failed={final_failed_count}")
         logger.info("=" * 70)

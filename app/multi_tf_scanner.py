@@ -1971,10 +1971,13 @@ def _start_wrapper(run_once=False, is_test_mode=False, session=None, run_ctx=Non
             total_symbols = max(metrics_a.get("total", 0), metrics_b.get("total", 0))
             total_fetched = max(metrics_a.get("fetched", 0), metrics_b.get("fetched", 0))
             
+            # [RULE 67 CHANGE-RATIONALE: MULTI_TF_TELEMETRY_ACCURACY_v1.0]
+            # Accurately partition universe into fresh vs stale vs incomplete data counts for full admin transparency.
             if run_ctx:
                 run_ctx.set_total_stocks(total_symbols)
-                run_ctx.fresh_count = total_fetched
                 run_ctx.stale_count = total_stale
+                run_ctx.fresh_count = max(0, total_fetched - total_stale)
+                run_ctx.incomplete_count = max(0, total_symbols - total_fetched)
                 
             from app.market_utils import validate_batch_staleness
             staleness_res = validate_batch_staleness(total_stale, total_symbols, "MULTI_TF", max_stale_pct=25.0, run_ctx=run_ctx)

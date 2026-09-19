@@ -29,9 +29,9 @@ logger = logging.getLogger(__name__)
 # resolves correctly when Upstox rolls their CSV before NSE expiry.
 _CACHE_FILE = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "artifacts", "cache", "upstox_instruments_v3.json"
+    "artifacts", "cache", "upstox_instruments_v4.json"
 )
-_DB_STATE_KEY = "upstox_instrument_map_v3"
+_DB_STATE_KEY = "upstox_instrument_map_v4"
 
 # ── Static Fallback Map for High-Frequency Stocks & Indices ──────────────────
 # Prevents network dependency during cold starts or offline unit tests.
@@ -114,7 +114,7 @@ _STATIC_SYMBOL_MAP = {
 
 
 class UpstoxInstrumentMapper:
-    """Singleton Instrument Key Mapper for Upstox API v2."""
+    """Singleton Instrument Key Mapper for Upstox API v2 / v3."""
 
     _instance = None
     _lock = threading.RLock()
@@ -131,7 +131,6 @@ class UpstoxInstrumentMapper:
 
     def _load_cache(self):
         """Loads cached instrument map from DB or local disk if available."""
-        # [PHASE1_DIAG] Track source for warmup log
         _load_source = None
 
         # 1. Try local disk
@@ -161,7 +160,6 @@ class UpstoxInstrumentMapper:
             except Exception as e:
                 logger.debug(f"DB load for Upstox instrument map failed: {e}")
 
-        # [PHASE1_DIAG] Warmup verification log — confirms map is ready and its size
         static_count = len(_STATIC_SYMBOL_MAP)
         total_count = len(self._symbol_map)
         if _load_source:
@@ -181,7 +179,7 @@ class UpstoxInstrumentMapper:
         with self._lock:
             if self._is_downloading:
                 return
-            if not force and (time.time() - self._last_download_ts) < (86400 * 3):  # Avoid downloading more than once per 3 days
+            if not force and (time.time() - self._last_download_ts) < (86400 * 3):
                 return
             self._is_downloading = True
 
@@ -196,6 +194,8 @@ class UpstoxInstrumentMapper:
         logger.info("📥 Downloading Upstox complete master instrument contract file...")
         url = "https://assets.upstox.com/market-quote/instruments/exchange/complete.csv.gz"
         import ssl
+        import re
+        from collections import defaultdict
         ssl_ctx = ssl._create_unverified_context()
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -211,13 +211,16 @@ class UpstoxInstrumentMapper:
                 return
 
             new_map = dict(_STATIC_SYMBOL_MAP)
+            futures_by_underlying = defaultdict(list)
+
             for row in reader:
                 if len(row) >= 12:
-                    inst_key = row[0]
+                    inst_key = row[0].strip()
                     tradingsymbol = row[2].strip().upper()
-                    name = row[3].strip().upper()
-                    inst_type = row[9].strip().upper()
-                    exchange = row[11].strip().upper()
+                    name = row[3].strip().upper() if len(row) > 3 else ""
+                    expiry_raw = row[5].strip() if len(row) > 5 else ""
+                    inst_type = row[9].strip().upper() if len(row) > 9 else ""
+                    exchange = row[11].strip().upper() if len(row) > 11 else ""
 
                     if inst_type in ("EQ", "EQUITY", "SM", "ST", "SME", "BE", "BZ") and exchange in ("NSE_EQ", "BSE_EQ"):
                         # Save both symbol alone (TCS) and exchange-prefixed (NSE_EQ:TCS)
@@ -226,11 +229,38 @@ class UpstoxInstrumentMapper:
                             new_map[f"{exchange}:{tradingsymbol}"] = inst_key
 
                     elif inst_type in ("FUTSTK", "FUTIDX") and exchange == "NSE_FO":
-                        # [FIX: NSE_FO_FUTURES_INGESTION] Upstox CSV uses FUTSTK (stock
-                        # futures) and FUTIDX (index futures) — never generic "FUT".
-                        # Store under "NSE_FO:<TRADING_SYMBOL>" for get_futures_instrument_key().
+                        # Multi-index F&O contract indexing:
                         if tradingsymbol:
                             new_map[f"NSE_FO:{tradingsymbol}"] = inst_key
+                            clean_tsym = re.sub(r'[^A-Z0-9]', '', tradingsymbol)
+                            new_map[f"NSE_FO:{clean_tsym}"] = inst_key
+
+                            # If Upstox tradingsymbol is e.g. "AARTIIND24SEP26FUT" (with day of month 24)
+                            # Convert to standard NSE form "AARTIIND26SEPFUT"
+                            m_fno = re.match(r'^([A-Z0-9_&-]+?)(\d{2})([A-Z]{3})(\d{2})FUT$', clean_tsym)
+                            if m_fno:
+                                sym_p, day_p, mon_p, yr_p = m_fno.groups()
+                                std_tsym = f"{sym_p}{yr_p}{mon_p}FUT"
+                                new_map[f"NSE_FO:{std_tsym}"] = inst_key
+                                new_map[f"NSE_FO:{sym_p}_{yr_p}{mon_p}FUT"] = inst_key
+                                new_map[f"NSE_FO:{sym_p}-{yr_p}{mon_p}FUT"] = inst_key
+
+                        # Group contracts under underlying name for near/next resolution
+                        underlying = name if name else tradingsymbol.split()[0]
+                        underlying_clean = re.sub(r'[^A-Z0-9]', '', underlying)
+                        
+                        # Parse expiry value for sorting
+                        exp_val = expiry_raw
+                        if expiry_raw:
+                            try:
+                                if expiry_raw.isdigit():
+                                    exp_val = int(expiry_raw)
+                            except Exception:
+                                pass
+
+                        futures_by_underlying[underlying].append((exp_val, inst_key, tradingsymbol, expiry_raw))
+                        if underlying_clean != underlying:
+                            futures_by_underlying[underlying_clean].append((exp_val, inst_key, tradingsymbol, expiry_raw))
 
                     elif inst_type == "INDEX" or exchange in ("NSE_INDEX", "BSE_INDEX"):
                         if tradingsymbol:
@@ -239,6 +269,45 @@ class UpstoxInstrumentMapper:
                         if name:
                             new_map[name] = inst_key
                             new_map[f"^{name}"] = inst_key
+
+            # ── Establish Near-Month and Next-Month mappings for all F&O underlyings ──
+            alias_map = {
+                "BAJAJ-AUTO": ["BAJAJ_AUTO", "BAJAJAUTO"],
+                "BAJAJ_AUTO": ["BAJAJ-AUTO", "BAJAJAUTO"],
+                "M&M": ["M_M", "MM"],
+                "M_M": ["M&M", "MM"],
+                "L&TFH": ["LTF", "L_TFH"],
+                "LTF": ["L&TFH", "L_TFH"],
+                "UNITDSPR": ["MCDOWELL-N", "MCDOWELL_N", "MCDOWELL"],
+                "MCDOWELL-N": ["UNITDSPR", "MCDOWELL_N"],
+                "TATAMOTORS": ["TMPV", "TMCV"],
+                "GUJGASLTD": ["GUJGAS"],
+                "GUJGAS": ["GUJGASLTD"],
+                "GMRINFRA": ["GMRAIRPORT"],
+                "GMRAIRPORT": ["GMRINFRA"],
+            }
+
+            for und, contract_list in futures_by_underlying.items():
+                # Sort contracts by expiry ascending
+                try:
+                    sorted_contracts = sorted(contract_list, key=lambda x: str(x[0]))
+                except Exception:
+                    sorted_contracts = contract_list
+
+                if sorted_contracts:
+                    near_key = sorted_contracts[0][1]
+                    new_map[f"NSE_FO_NEAR:{und}"] = near_key
+                    if len(sorted_contracts) > 1:
+                        next_key = sorted_contracts[1][1]
+                        new_map[f"NSE_FO_NEXT:{und}"] = next_key
+                    else:
+                        new_map[f"NSE_FO_NEXT:{und}"] = near_key
+
+                    # Map aliases
+                    for alias in alias_map.get(und, []):
+                        new_map[f"NSE_FO_NEAR:{alias}"] = near_key
+                        if len(sorted_contracts) > 1:
+                            new_map[f"NSE_FO_NEXT:{alias}"] = sorted_contracts[1][1]
 
             # Ensure static index mappings (e.g. NSE_INDEX|Nifty 50) take top priority for indices
             index_static = {k: v for k, v in _STATIC_SYMBOL_MAP.items() if "INDEX" in v}
@@ -254,19 +323,18 @@ class UpstoxInstrumentMapper:
             with open(_CACHE_FILE, "w") as f:
                 json.dump(new_map, f)
 
-            # Persist to DB (versioned key — v2 includes NSE_FO futures rows)
+            # Persist to DB
             try:
                 from database import save_system_state
                 save_system_state(_DB_STATE_KEY, json.dumps(new_map))
             except Exception as e:
                 logger.warning(f"Could not save {_DB_STATE_KEY} to DB: {e}")
 
-            nse_fo_count = sum(1 for k in new_map if k.startswith("NSE_FO:"))
-            # [PHASE1_DIAG] Post-download warmup log
+            nse_fo_count = sum(1 for k in new_map if k.startswith("NSE_FO:") or k.startswith("NSE_FO_NEAR:"))
             logger.info(
                 f"[WARMUP] Upstox instrument map updated via download: {len(new_map)} keys "
                 f"(static={len(_STATIC_SYMBOL_MAP)}, dynamic={len(new_map) - len(_STATIC_SYMBOL_MAP)}, "
-                f"nse_fo_futures={nse_fo_count})"
+                f"nse_fo_keys={nse_fo_count})"
             )
 
         except Exception as e:
@@ -278,29 +346,65 @@ class UpstoxInstrumentMapper:
     def get_futures_instrument_key(self, trading_symbol: str) -> Optional[str]:
         """Resolves the official Upstox NSE_FO instrument key for a futures trading symbol.
 
-        The trading_symbol must be the exact NSE F&O contract name as generated by
-        fno_contract_resolver, e.g. 'AARTIIND26SEPFUT', 'M_M26SEPFUT', 'BAJAJ_AUTO26SEPFUT'.
+        Supports:
+          1. Exact trading symbol: e.g. 'AARTIIND26SEPFUT', 'M_M26SEPFUT', 'BAJAJ_AUTO26SEPFUT'
+          2. Delimiter-stripped symbols: 'AARTIIND24SEP26FUT', 'M_M24SEP26FUT'
+          3. Underlying near-month contract: 'AARTIIND', 'ACC', 'BAJAJ-AUTO', 'M&M'
+          4. Automatic rollover to next calendar month when near-month contract rolls over.
 
         Returns the NSE_FO instrument key (e.g. 'NSE_FO|53806') or None if not found.
         NEVER falls back to equity (NSE_EQ) keys — a futures lookup failure is explicit.
-
-        Next-month fallback: Upstox sometimes drops near-month contracts from their
-        master CSV before NSE expiry. If the near-month key is missing, we try the
-        next calendar month so OI still resolves correctly during the rollover window.
         """
         if not trading_symbol:
             return None
-        clean = str(trading_symbol).strip().upper()
-        lookup_key = f"NSE_FO:{clean}"
-        result = self._symbol_map.get(lookup_key)
-        if result:
-            logger.debug(f"[FUT_KEY] {clean} → {result}")
-            return result
-
-        # [ROLLOVER FALLBACK] Upstox CSV may drop near-month rows before NSE expiry.
-        # Try swapping the 3-letter month code to the next calendar month.
-        # e.g. AARTIIND26SEPFUT → AARTIIND26OCTFUT when Oct contracts replace Sep.
         import re
+        clean = str(trading_symbol).strip().upper()
+        clean_stripped = re.sub(r'[^A-Z0-9]', '', clean)
+
+        # 1. Direct match
+        lookup_key = f"NSE_FO:{clean}"
+        if lookup_key in self._symbol_map:
+            return self._symbol_map[lookup_key]
+
+        if f"NSE_FO:{clean_stripped}" in self._symbol_map:
+            return self._symbol_map[f"NSE_FO:{clean_stripped}"]
+
+        # 2. Match with aliases
+        fno_alias_map = {
+            "L&TFH": "LTF",
+            "L_TFH": "LTF",
+            "GMRINFRA": "GMRAIRPORT",
+            "GUJGASLTD": "GUJGAS",
+            "MCDOWELL-N": "UNITDSPR",
+            "MCDOWELL_N": "UNITDSPR",
+            "BAJAJ-AUTO": "BAJAJ_AUTO",
+            "M&M": "M_M",
+        }
+        for k_alias, v_alias in fno_alias_map.items():
+            if k_alias in clean:
+                alias_sym = clean.replace(k_alias, v_alias)
+                if f"NSE_FO:{alias_sym}" in self._symbol_map:
+                    return self._symbol_map[f"NSE_FO:{alias_sym}"]
+
+        # 3. Extract underlying from trading symbol e.g. "AARTIIND26SEPFUT" or "M_M26SEPFUT"
+        m_fut = re.match(r'^([A-Z0-9_&-]+?)(\d{2})([A-Z]{3})FUT$', clean)
+        if m_fut:
+            underlying, yr, mon = m_fut.groups()
+            # Check near-month by underlying
+            for cand_und in (underlying, fno_alias_map.get(underlying, underlying), underlying.replace("&", "_"), underlying.replace("_", "&"), underlying.replace("-", "_")):
+                near_k = f"NSE_FO_NEAR:{cand_und}"
+                if near_k in self._symbol_map:
+                    logger.debug(f"[FUT_KEY] Resolved {clean} via near-month mapping {near_k} → {self._symbol_map[near_k]}")
+                    return self._symbol_map[near_k]
+
+        # 4. If clean itself is an underlying symbol (e.g. "AARTIIND", "ACC", "BAJAJ-AUTO")
+        for cand_und in (clean, fno_alias_map.get(clean, clean), clean.replace("&", "_"), clean.replace("_", "&"), clean.replace("-", "_")):
+            near_k = f"NSE_FO_NEAR:{cand_und}"
+            if near_k in self._symbol_map:
+                logger.debug(f"[FUT_KEY] Resolved underlying {clean} via near-month mapping {near_k} → {self._symbol_map[near_k]}")
+                return self._symbol_map[near_k]
+
+        # 5. [ROLLOVER FALLBACK] Try next-month contract
         _MONTH_ROLL = {
             "JAN": "FEB", "FEB": "MAR", "MAR": "APR",
             "APR": "MAY", "MAY": "JUN", "JUN": "JUL",
@@ -311,16 +415,22 @@ class UpstoxInstrumentMapper:
         if m:
             yr, mon, suffix = m.group(1), m.group(2), m.group(3)
             next_mon = _MONTH_ROLL[mon]
-            # If rolling Dec→Jan the year increments; derive from fno_contract_resolver at call time
             next_yr = str(int(yr) + 1).zfill(2) if mon == "DEC" else yr
             next_clean = clean[:m.start()] + next_yr + next_mon + suffix
             next_result = self._symbol_map.get(f"NSE_FO:{next_clean}")
             if next_result:
                 logger.warning(
                     f"[FUT_KEY ROLLOVER] Near-month '{clean}' not in map — "
-                    f"Upstox CSV rolled early. Using next-month '{next_clean}' → {next_result}"
+                    f"using next-month '{next_clean}' → {next_result}"
                 )
                 return next_result
+
+            # Check next-month by underlying
+            underlying = clean[:m.start()]
+            for cand_und in (underlying, fno_alias_map.get(underlying, underlying), underlying.replace("&", "_"), underlying.replace("-", "_")):
+                next_k = f"NSE_FO_NEXT:{cand_und}"
+                if next_k in self._symbol_map:
+                    return self._symbol_map[next_k]
 
         logger.debug(
             f"⚠️ [FUT_KEY] NSE_FO key not found for '{clean}' — "

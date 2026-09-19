@@ -167,7 +167,13 @@ def run_pledge_worker_sync(force: bool = False) -> Dict[str, Any]:
             error_msg=f"Official NSE Snapshot Complete ({upserted_count} fresh)"
         )
 
+        # [RULE 67 CHANGE-RATIONALE: PLEDGE_WORKER_TELEMETRY_ACCURACY_v1.0]
+        # Set exact record counts and ingestion completeness in worker_run_ctx for execution history
         if worker_run_ctx:
+            worker_run_ctx.set_total_stocks(total_rows)
+            worker_run_ctx.fresh_count = upserted_count
+            worker_run_ctx.stale_count = 0
+            worker_run_ctx.incomplete_count = max(0, total_rows - upserted_count)
             if hasattr(worker_run_ctx, "record_progress"):
                 try:
                     worker_run_ctx.record_progress(processed=upserted_count, total=total_rows, success=upserted_count)

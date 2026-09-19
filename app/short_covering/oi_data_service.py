@@ -233,8 +233,15 @@ class OIDataService:
             contract = fno_contract_resolver.resolve(clean_sym, as_of or datetime.now(IST).date())
             fyers_candidates = [
                 f"NSE:{contract.near_trading_symbol}",
+                f"NSE:{contract.next_trading_symbol}",
                 f"NSE:{clean_sym}-EQ"
             ]
+            for sym_var in (clean_sym.replace('&', '_'), clean_sym.replace('-', '_'), clean_sym.replace('_', '-'), clean_sym.replace('&', '')):
+                if sym_var != clean_sym:
+                    fyers_candidates.extend([
+                        f"NSE:{sym_var}{contract.near_expiry.strftime('%y%b').upper()}FUT",
+                        f"NSE:{sym_var}-EQ"
+                    ])
 
             # 1. Try Depth API
             for fyers_symbol in fyers_candidates:
@@ -317,7 +324,7 @@ class OIDataService:
 
             # ── Step 2: Look up NSE_FO instrument key from Upstox master CSV ──────────
             # [RCA FIX] Must use NSE_FO key — NSE_EQ keys return OI=0 from Upstox V3 API.
-            fut_instrument_key = get_upstox_futures_key(near_tsym) if near_tsym else None
+            fut_instrument_key = (get_upstox_futures_key(near_tsym) if near_tsym else None) or get_upstox_futures_key(clean_sym)
 
             if fut_instrument_key:
                 logger.info(
@@ -330,7 +337,7 @@ class OIDataService:
                 # Log and fall through: the code after fetch_ohlcv will detect OI=0 and
                 # the caller (_fetch_or_build_5m_bars) will failover to Fyers.
                 logger.warning(
-                    f"[SC_UPSTOX_5M] {clean_sym} | NSE_FO key NOT FOUND for '{near_tsym}' "
+                    f"[SC_UPSTOX_5M] {clean_sym} | NSE_FO key NOT FOUND for '{near_tsym}' / '{clean_sym}' "
                     f"— Upstox master CSV may not have been downloaded yet. "
                     f"Attempting equity fetch (OI will be 0, Fyers failover recommended)."
                 )
@@ -467,12 +474,20 @@ class OIDataService:
             contract = fno_contract_resolver.resolve(clean_sym, target_date)
             candidate_symbols = [
                 f"NSE:{contract.near_trading_symbol}",
+                f"NSE:{contract.next_trading_symbol}",
                 f"NSE:{clean_sym}-EQ"
             ]
             if clean_sym in ("NIFTY", "NIFTY50", "^NSEI"):
                 candidate_symbols.append("NSE:NIFTY50-INDEX")
             elif clean_sym in ("BANKNIFTY", "NIFTYBANK", "^NSEBANK"):
                 candidate_symbols.append("NSE:NIFTYBANK-INDEX")
+            
+            for sym_var in (clean_sym.replace('&', '_'), clean_sym.replace('-', '_'), clean_sym.replace('_', '-'), clean_sym.replace('&', '')):
+                if sym_var != clean_sym:
+                    candidate_symbols.extend([
+                        f"NSE:{sym_var}{contract.near_expiry.strftime('%y%b').upper()}FUT",
+                        f"NSE:{sym_var}-EQ"
+                    ])
             date_str = target_date.strftime("%Y-%m-%d")
 
             for fyers_symbol in candidate_symbols:

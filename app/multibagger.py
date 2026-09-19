@@ -2717,10 +2717,12 @@ def run_standalone_exit_monitor(is_test_mode: bool = False, run_ctx=None):
 
         if run_ctx:
             run_ctx.set_total_stocks(len(symbols))
-            run_ctx.record_fresh_data(len(symbols))
 
         price_data_map_raw = batch_download_market_data(symbols, run_ctx=run_ctx)
 
+        # [RULE 67 CHANGE-RATIONALE: MB_EXIT_TELEMETRY_ACCURACY_v1.0]
+        # Calculate exact fresh vs stale vs incomplete data counts for open positions to guarantee
+        # full administrative visibility in the Execution History table.
         price_data_map = {}
         for sym, stock_data in price_data_map_raw.items():
             if stock_data:
@@ -2738,6 +2740,12 @@ def run_standalone_exit_monitor(is_test_mode: bool = False, run_ctx=None):
                     closes_below_sma200_count=stock_data.closes_below_sma200_count,
                     last_trade_date=getattr(stock_data, 'last_trade_date', '') or ''
                 )
+
+        if run_ctx:
+            calc_stale = sum(1 for p in price_data_map.values() if _is_stale_trade_date(getattr(p, 'last_trade_date', '')))
+            run_ctx.fresh_count = len(price_data_map) - calc_stale
+            run_ctx.stale_count = calc_stale
+            run_ctx.incomplete_count = max(0, len(symbols) - len(price_data_map))
 
         # 3. Use cache for fundamentals — always pull fresh from DB so exit monitor
         # sees the DEEP_V5 data written by the last daily MULTIBAGGER screening scan.

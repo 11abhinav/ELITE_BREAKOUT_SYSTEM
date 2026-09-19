@@ -1028,6 +1028,14 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         except Exception as _db_cmp_err:
             logger.warning(f"Could not load fallback CMP from stock_analysis_master: {_db_cmp_err}")
 
+    # [RULE 67 CHANGE-RATIONALE: PERF_TRACKER_TELEMETRY_ACCURACY_v1.0]
+    # Record actual market price availability for active alert symbols in run_ctx
+    if run_ctx:
+        run_ctx.set_total_stocks(len(unique_symbols))
+        run_ctx.fresh_count = len(current_prices)
+        run_ctx.stale_count = 0
+        run_ctx.incomplete_count = max(0, len(unique_symbols) - len(current_prices))
+
     # [VERSION: CMP_MASTER_v1.0] Fetch CMP for ALL watchlist symbols and persist to stock_analysis_master.
     # This makes the master table the single source of truth for live prices across admin + user dashboards.
     if is_open:
