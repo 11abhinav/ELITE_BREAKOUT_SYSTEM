@@ -171,7 +171,7 @@ def wait_for_bhavcopy_or_fallback(name: str) -> bool:
         except Exception as e:
             logger.warning(f"[{name}] Failed to fetch bhavcopy: {e}")
             
-        if now.hour >= 21 or (now.hour == 20 and now.minute >= 30):
+        if now.hour >= 21 or (now.hour == 20 and now.minute >= 30) or (name == "short_covering_eod" and now.hour >= 9 and now.minute >= 5):
             logger.warning(f"[{name}] ⚠️ It's {now.strftime('%H:%M')} and today's Bhavcopy is still missing. Using fallback (yesterday).")
             return True
             
@@ -1655,7 +1655,7 @@ def run_system_scheduler():
             # 09:05 AM - Short Covering Layer 1 EOD Positioning Detector / Active F&O Universe Builder (Trading Days Only)
             if (now.hour > 9 or (now.hour == 9 and now.minute >= 5)) and last_short_covering_eod_date != now.date():
                 last_short_covering_eod_date = now.date()
-                if not is_scanner_stopped("SHORT_COVERING_EOD") and not is_scanner_stopped("SHORT_COVERING"):
+                if not is_scanner_stopped("SHORT_COVERING_EOD"):
                     from trading_calendar import is_trading_day
                     if is_trading_day(now.date()):
                         logger.info("🕒 SCHEDULER | [09:05 IST] Triggering SHORT COVERING EOD Positioning Detector / Active F&O Universe Builder...")
@@ -1808,7 +1808,7 @@ def run_system_scheduler():
                         if now_mtf >= (slot_sc + _td(seconds=10)):
                             if last_short_covering_5m is None or slot_sc > last_short_covering_5m:
                                 last_short_covering_5m = slot_sc
-                                if not is_scanner_stopped("SHORT_COVERING_5M") and not is_scanner_stopped("SHORT_COVERING"):
+                                if not is_scanner_stopped("SHORT_COVERING_5M"):
                                     logger.info(f"⚡ SHORT_COVERING (5M IGNITION) | Starting 5m cycle for slot {slot_sc.strftime('%H:%M')} IST...")
                                     import threading
                                     threading.Thread(
@@ -2713,7 +2713,7 @@ def _trigger_wealth_exit():
 def _trigger_short_covering_eod(trigger_type="MANUAL", scheduler_name="MANUAL"):
     """Triggers Layer 1 EOD Short-Positioning buildup detector."""
     from database import is_scanner_stopped
-    if is_scanner_stopped("SHORT_COVERING_EOD") or is_scanner_stopped("SHORT_COVERING"):
+    if is_scanner_stopped("SHORT_COVERING_EOD"):
         logger.info("⏸️ [SHORT_COVERING_EOD] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
         return {"total_count": 0, "processed_count": 0, "status": "PAUSED"}
     try:
@@ -2730,7 +2730,7 @@ def _trigger_short_covering_eod(trigger_type="MANUAL", scheduler_name="MANUAL"):
 def _trigger_short_covering_5m(trigger_type="SCHEDULED", scheduler_name="CRON"):
     """Triggers Layer 2 Intraday 5m Short-Covering ignition scan."""
     from database import is_scanner_stopped
-    if is_scanner_stopped("SHORT_COVERING_5M") or is_scanner_stopped("SHORT_COVERING"):
+    if is_scanner_stopped("SHORT_COVERING_5M"):
         logger.info("⏸️ [SHORT_COVERING_5M] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
         return {"total_count": 0, "processed_count": 0, "status": "PAUSED"}
     try:
