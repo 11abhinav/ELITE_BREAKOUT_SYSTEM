@@ -3048,7 +3048,9 @@ initDashboard();
           const tc = document.getElementById('ticker-content');
           if (!tc) return;
           if (Object.keys(data).length === 0 || data.status === 'error' || data.error) {
-              tc.innerHTML = '<span style="color:var(--muted); font-size:12px;">Market data temporarily unavailable</span>';
+              if (!tc.innerHTML || tc.innerHTML.trim() === '') {
+                  tc.innerHTML = '<span style="color:var(--muted); font-size:12px;">Loading market rates...</span>';
+              }
               return;
           }
           let html = '';
@@ -3090,11 +3092,15 @@ initDashboard();
             </div>`;
           }
 
-          tc.innerHTML = html;
+          if (html) {
+            tc.innerHTML = html;
+          }
         })
         .catch(err => {
             const tc = document.getElementById('ticker-content');
-            if (tc) tc.innerHTML = '<span style="color:var(--muted); font-size:12px;">Market data offline</span>';
+            if (tc && (!tc.innerHTML || tc.innerHTML.trim() === '')) {
+                tc.innerHTML = '<span style="color:var(--muted); font-size:12px;">Market data offline</span>';
+            }
         });
 
 </script>
