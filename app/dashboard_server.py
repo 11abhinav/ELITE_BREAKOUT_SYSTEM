@@ -4335,6 +4335,41 @@ def api_indices():
         except Exception as e:
             logger.error(f"Error fetching indices via UnifiedFetcher (bg): {e}")
 
+        # Enrich with live Strong and Weak Sector Leaders
+        try:
+            try:
+                from sector_rotation import get_sector_scores
+            except ImportError:
+                from app.sector_rotation import get_sector_scores
+            sec_res = get_sector_scores()
+            if sec_res and sec_res.scores:
+                strong_items = []
+                weak_items = []
+                for s_name in sec_res.strong_sectors:
+                    sc = sec_res.scores.get(s_name)
+                    if sc:
+                        strong_items.append({
+                            "name": s_name,
+                            "pct": sc.outperformance_pct,
+                            "ret": sc.sector_return_pct,
+                            "status": sc.classification
+                        })
+                for w_name in sec_res.weak_sectors:
+                    sc = sec_res.scores.get(w_name)
+                    if sc:
+                        weak_items.append({
+                            "name": w_name,
+                            "pct": sc.outperformance_pct,
+                            "ret": sc.sector_return_pct,
+                            "status": sc.classification
+                        })
+                strong_items.sort(key=lambda x: x["pct"], reverse=True)
+                weak_items.sort(key=lambda x: x["pct"])
+                bg_data["_strong_sectors"] = strong_items[:3]
+                bg_data["_weak_sectors"] = weak_items[:3]
+        except Exception as _sec_err:
+            logger.debug(f"Could not calculate sector leaders for indices header: {_sec_err}")
+
         if bg_data:
             with _indices_lock:
                 c = _get_indices_cache()
