@@ -162,9 +162,14 @@ class ShortPositionDetector:
                 self._persist_candidates_to_db(candidates, valid_trading_date)
 
             dur = round(time.monotonic() - _scan_start, 2)
+            fresh_count = max(0, len(symbols) - stale_count)
             if run_ctx:
+                # [RULE 67 CHANGE-RATIONALE: ACCURATE_EOD_SEH_ACCOUNTING]
+                # Record total evaluated symbols as fresh/stale and candidates as alerts
                 run_ctx.set_total_stocks(len(symbols))
-                run_ctx.record_fresh_data(len(candidates))
+                run_ctx.record_fresh_data(fresh_count)
+                run_ctx.record_stale_data(stale_count)
+                run_ctx.set_alerts(len(candidates))
                 complete_scanner_execution_run(run_ctx)
 
             upsert_scanner_health(
@@ -172,7 +177,8 @@ class ShortPositionDetector:
                 status="OK",
                 outcome="SUCCESS" if len(candidates) > 0 else "ZERO_CANDIDATES",
                 total_count=len(symbols),
-                processed_count=len(candidates),
+                processed_count=fresh_count,
+                today_alerts=len(candidates),
                 duration_seconds=dur,
                 scheduled_for="Daily 09:05 IST (Market Days)",
                 run_id=run_ctx.run_id if run_ctx else None

@@ -480,9 +480,16 @@ class ShortCoveringEarlyIgnitionScanner:
                 self._persist_alerts(new_alerts)
 
             dur = round(time.monotonic() - _scan_start, 2)
+            data_insufficient_count = gate_rejections.get("DATA_INSUFFICIENT", 0)
+            fresh_count = max(0, len(symbols_to_scan) - stale_count - data_insufficient_count)
+
             if run_ctx:
-                run_ctx.record_fresh_data(len(symbols_to_scan) - stale_count)
+                # [RULE 67 CHANGE-RATIONALE: ACCURATE_SEH_STOCK_ACCOUNTING]
+                # Accurately reflect fresh evaluated symbols vs incomplete (missing derivative OI)
+                # so the admin dashboard execution history displays (Fresh / Stale / Incomplete) accurately.
+                run_ctx.record_fresh_data(fresh_count)
                 run_ctx.record_stale_data(stale_count)
+                run_ctx.mark_incomplete(data_insufficient_count)
                 if new_alerts:
                     run_ctx.increment_alerts(len(new_alerts))
                 complete_scanner_execution_run(run_ctx)
@@ -492,7 +499,7 @@ class ShortCoveringEarlyIgnitionScanner:
                 status="OK",
                 outcome="SUCCESS",
                 total_count=len(symbols_to_scan),
-                processed_count=len(symbols_to_scan) - stale_count,
+                processed_count=fresh_count,
                 today_alerts=len(new_alerts),
                 duration_seconds=dur,
                 scheduled_for=_SCHEDULE_STR,
