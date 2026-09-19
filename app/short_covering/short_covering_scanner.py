@@ -472,7 +472,9 @@ class ShortCoveringEarlyIgnitionScanner:
                 err_block = f"SHORT_COVERING_5M halted due to {staleness_check['stale_pct']:.1f}% stale intraday data ({stale_count}/{len(symbols_to_scan)} symbols)."
                 if run_ctx:
                     complete_scanner_execution_run(run_ctx, status_override="DEGRADED", stop_reason=err_block)
+                upsert_scanner_health("SHORT_COVERING_5M", status="DEGRADED", error_msg=err_block)
                 return []
+
 
             if new_alerts and persist_db:
                 self._persist_alerts(new_alerts)

@@ -117,7 +117,7 @@ def print_scanner_end_banner(scanner_key: str, start_mono: float, run_id: str = 
         from database import upsert_scanner_health, get_scanner_health
         current_health = get_scanner_health(db_name)
         curr_status = current_health.get("status") if current_health else "OK"
-        final_status = status if status is not None else (curr_status if curr_status in ("DOWN", "DEGRADED", "DEGRADED_FALLBACK") else "OK")
+        final_status = status if status is not None else (curr_status if curr_status in ("DOWN", "DEGRADED", "DEGRADED_FALLBACK", "BLOCKED", "IDLE", "ERROR", "FAILED") else "OK")
         upsert_scanner_health(db_name, status=final_status, error_msg=error_msg, duration_seconds=runtime, run_id=run_id)
         logger.info(f"✅ [{display}] Status updated: {final_status} (Completed in {runtime:.0f}s)")
     except Exception as _e:

@@ -2393,10 +2393,11 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
 
     # Invalidate dashboard status cache so next poll returns fresh DB state immediately
     try:
-        import dashboard_server
-        dashboard_server._scanner_status_cache["payload"] = None
+        from dashboard_server import invalidate_scanner_status_cache
+        invalidate_scanner_status_cache()
     except Exception:
         pass
+
 
     # Run in background thread so the API returns immediately
     def _run():

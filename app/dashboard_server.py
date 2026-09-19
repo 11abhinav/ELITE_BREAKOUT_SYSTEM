@@ -3993,6 +3993,13 @@ def route_wealth():
 
 _SCANNER_STATUS_CACHE = {"ts": 0, "payload": None}
 
+def invalidate_scanner_status_cache():
+    """Immediately invalidate scanner status and health cache so UI polls see live DB state."""
+    global _SCANNER_STATUS_CACHE
+    _SCANNER_STATUS_CACHE["ts"] = 0
+    _SCANNER_STATUS_CACHE["payload"] = None
+
+
 @app.route("/api/download_shortlist")
 @login_required
 def api_download_shortlist():
