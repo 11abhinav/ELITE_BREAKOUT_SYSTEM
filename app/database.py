@@ -2209,12 +2209,25 @@ def init_db():
                 # 40. Seed reference data & admin user
                 bootstrap_admin(cur=cur)
 
-                # [VERSION: CLEAN_BOOT_RESET_v1.0] Complete boot reset of all scanner statuses & advisory locks on startup
+                # [VERSION: CLEAN_BOOT_RESET_v1.0] Complete boot reset of all scanner statuses & advisory locks on startup (preserving PAUSED/STOPPED)
                 try:
                     cur.execute("SELECT pg_advisory_unlock_all();")
-                    cur.execute("UPDATE scanner_health SET status = 'IDLE', error_msg = NULL, processed_count = 0, updated_at = NOW()")
+                    cur.execute("""
+                        UPDATE scanner_health
+                        SET status = 'IDLE',
+                            error_msg = NULL,
+                            processed_count = 0,
+                            updated_at = NOW()
+                        WHERE status NOT IN ('PAUSED', 'STOPPED');
+                    """)
+                    cur.execute("SELECT scanner_name FROM scanner_health WHERE status IN ('PAUSED', 'STOPPED');")
+                    paused_rows = cur.fetchall()
+                    for pr in paused_rows:
+                        if pr and pr[0]:
+                            _LOCAL_STOPPED_SCANNERS.add(normalize_scanner_name(pr[0]))
+                            _LOCAL_STOPPED_SCANNERS.add(pr[0])
                     cleanup_orphaned_scanner_runs_on_boot(cur=cur)
-                    logger.info("🧹 [BOOT RESET] All scanner health statuses and advisory locks reset to clean IDLE state.")
+                    logger.info("🧹 [BOOT RESET] Active scanner health statuses (excluding PAUSED/STOPPED) and advisory locks reset to clean IDLE state.")
                 except Exception as t_err:
                     try:
                         conn.rollback()
