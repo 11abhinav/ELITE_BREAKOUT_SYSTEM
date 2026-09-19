@@ -19,8 +19,10 @@ logger = logging.getLogger(__name__)
 
 # Index symbols to exclude from underlying stock universe
 INDEX_SYMBOLS = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50", "NIFTYFPI"}
+MAJOR_INDEX_FUTURES = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"}
 
 SECTOR_MAPPING: Dict[str, str] = {
+    "NIFTY": "INDEX", "BANKNIFTY": "INDEX", "FINNIFTY": "INDEX", "MIDCPNIFTY": "INDEX",
     "HDFCBANK": "BANKING", "ICICIBANK": "BANKING", "SBIN": "BANKING", "AXISBANK": "BANKING",
     "KOTAKBANK": "BANKING", "INDUSINDBK": "BANKING", "BANKBARODA": "BANKING", "PNB": "BANKING",
     "FEDERALBNK": "BANKING", "IDFCFIRSTB": "BANKING", "AUBANK": "BANKING", "BANDHANBNK": "BANKING",
@@ -64,17 +66,20 @@ FNO_ALIAS_MAP = {
 
 
 class FNOUniverseManager:
-    """Manages the dynamic F&O equity universe loaded directly from live exchange master contracts."""
+    """Manages the dynamic F&O equity and index futures universe loaded directly from live exchange master contracts."""
 
     def __init__(self, custom_symbols: Optional[List[str]] = None):
         self._universe: Set[str] = set(custom_symbols) if custom_symbols else set()
         self._last_refresh_date: Optional[date] = None
 
-    def get_fno_symbols(self, exclude_banned: bool = True) -> List[str]:
-        """Returns the list of all currently active F&O underlying equity symbols dynamically discovered."""
+    def get_fno_symbols(self, exclude_banned: bool = True, include_indices: bool = True) -> List[str]:
+        """Returns the list of all currently active F&O underlying symbols (equities + major index futures) dynamically discovered."""
         if not self._universe or self._last_refresh_date != datetime.now(IST).date():
             self._sync_dynamic_symbols()
-        symbols = sorted(list(self._universe - INDEX_SYMBOLS))
+        if include_indices:
+            symbols = sorted(list(self._universe))
+        else:
+            symbols = sorted(list(self._universe - INDEX_SYMBOLS))
         return symbols
 
     def _sync_dynamic_symbols(self) -> None:

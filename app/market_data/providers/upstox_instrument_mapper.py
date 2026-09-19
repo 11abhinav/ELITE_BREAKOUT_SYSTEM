@@ -452,7 +452,7 @@ class UpstoxInstrumentMapper:
 
 
     def get_active_fno_underlying_symbols(self) -> List[str]:
-        """Returns list of all active F&O underlying equity tickers dynamically discovered from Upstox master CSV."""
+        """Returns list of all active F&O underlying equity and major index tickers dynamically discovered from Upstox master CSV."""
         if len(self._symbol_map) <= len(_STATIC_SYMBOL_MAP):
             self._download_master_csv()
 
@@ -460,7 +460,7 @@ class UpstoxInstrumentMapper:
         for k in self._symbol_map:
             if k.startswith("NSE_FO_NEAR:"):
                 sym = k.replace("NSE_FO_NEAR:", "").strip().upper()
-                if sym and len(sym) >= 2 and not " " in sym and sym not in ("NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50", "NIFTYFPI"):
+                if sym and len(sym) >= 2 and not " " in sym and sym not in ("NIFTYNXT50", "NIFTYFPI"):
                     active_syms.add(sym)
         return sorted(list(active_syms))
 
