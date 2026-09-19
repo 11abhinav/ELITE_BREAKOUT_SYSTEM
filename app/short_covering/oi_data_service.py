@@ -43,7 +43,18 @@ class OIDataService:
 
     def __init__(self, preferred_provider: Optional[str] = None):
         if preferred_provider is None:
-            preferred_provider = os.getenv("OI_DATA_PROVIDER", "UPSTOX")
+            db_provider = None
+            try:
+                try:
+                    from database import get_system_state
+                except ImportError:
+                    from app.database import get_system_state
+                db_val = get_system_state("oi_preferred_provider")
+                if db_val and isinstance(db_val, str) and db_val.strip().upper() in ("UPSTOX", "FYERS"):
+                    db_provider = db_val.strip().upper()
+            except Exception:
+                pass
+            preferred_provider = db_provider or os.getenv("OI_DATA_PROVIDER", "UPSTOX")
         self.preferred_provider = preferred_provider.upper()
         self._daily_oi_cache: Dict[str, pd.DataFrame] = {}
         self._intraday_oi_cache: Dict[str, pd.DataFrame] = {}
@@ -590,6 +601,14 @@ class OIDataService:
                     if self.preferred_provider != "FYERS":
                         logger.info(f"⚡ [OI DATA SERVICE] Working Broker Promoted: Switched preferred broker to 'FYERS' (successful 5m+OI fetch for {symbol})")
                         self.preferred_provider = "FYERS"
+                        try:
+                            try:
+                                from database import save_system_state
+                            except ImportError:
+                                from app.database import save_system_state
+                            save_system_state("oi_preferred_provider", "FYERS")
+                        except Exception as e:
+                            logger.debug(f"Failed to persist oi_preferred_provider to DB: {e}")
                     return live_df
                 if live_df is not None and len(live_df) >= 2:
                     return live_df
@@ -608,6 +627,14 @@ class OIDataService:
                     if self.preferred_provider != "UPSTOX":
                         logger.info(f"⚡ [OI DATA SERVICE] Working Broker Promoted: Switched preferred broker to 'UPSTOX' (successful 5m+OI fetch for {symbol})")
                         self.preferred_provider = "UPSTOX"
+                        try:
+                            try:
+                                from database import save_system_state
+                            except ImportError:
+                                from app.database import save_system_state
+                            save_system_state("oi_preferred_provider", "UPSTOX")
+                        except Exception as e:
+                            logger.debug(f"Failed to persist oi_preferred_provider to DB: {e}")
                     return upstox_df
                 if upstox_df is not None and len(upstox_df) >= 2:
                     return upstox_df
