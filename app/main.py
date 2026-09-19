@@ -2517,6 +2517,17 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
                 insert_notification("scanner_down", f"🚨 {scanner_key} Manual Scan Failed", f"Error: {str(e)[:200]}")
             except Exception:
                 pass
+        finally:
+            # CRITICAL: Ensure QUEUED status is NEVER left stranded if execution exited early or was skipped
+            try:
+                from database import get_scanner_health, is_scanner_stopped, upsert_scanner_health
+                curr_h = get_scanner_health(scanner_key)
+                if curr_h and str(curr_h.get("status", "")).startswith("QUEUED"):
+                    is_stop = is_scanner_stopped(scanner_key) or is_scanner_stopped(norm_key)
+                    fallback_status = "PAUSED" if is_stop else "IDLE"
+                    upsert_scanner_health(scanner_key, status=fallback_status, error_msg=None)
+            except Exception:
+                pass
     
     t = threading.Thread(target=_run, name=f"ManualTrigger-{scanner_key}", daemon=True)
     t.start()
