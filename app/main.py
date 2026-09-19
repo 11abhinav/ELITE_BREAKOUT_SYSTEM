@@ -2342,7 +2342,14 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     Returns a dict with 'status' and 'message'.
     Called from the admin dashboard API endpoint.
     """
-    from database import upsert_scanner_health, is_scanner_stopped, normalize_scanner_name
+    from database import (
+        upsert_scanner_health,
+        is_scanner_stopped,
+        normalize_scanner_name,
+        is_scanner_actively_running,
+        get_scanner_health,
+        insert_notification
+    )
     
     norm_key = normalize_scanner_name(scanner_key)
     if is_scanner_stopped(scanner_key) or is_scanner_stopped(norm_key):
@@ -2411,7 +2418,6 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
             pass
 
     # Check PostgreSQL execution history for active running/queued execution across all processes/workers
-    from database import is_scanner_actively_running
     if is_scanner_actively_running(scanner_key) or is_scanner_actively_running(norm_key):
         return {"status": "error", "message": f"❌ {scanner_key} is already actively running!"}
 
@@ -2470,7 +2476,6 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
                 raise run_err
 
             # Preserve scanner's true recorded health status (do not overwrite DEGRADED / DOWN / PAUSED with OK)
-            from database import get_scanner_health
             curr_health = get_scanner_health(scanner_key)
             curr_status = curr_health.get("status") if curr_health else "OK"
             if curr_status in ("PAUSED", "STOPPED"):
@@ -2487,7 +2492,6 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
                                   today_alerts=stats.get("today_alerts") if isinstance(stats, dict) else (curr_health.get("today_alerts") if curr_health else None))
             
             try:
-                from database import insert_notification
                 dur_str = f"Time: {format_duration(duration_sec)}"
                 summary = f"Total Scanned: {stats.get('total_count', 'N/A')} | {dur_str}" if isinstance(stats, dict) else f"Completed in {dur_str}."
                 if scanner_key not in ["DAILY_BUILDER", "EOD", "MULTIBAGGER", "REVERSAL", "MULTI_TF", "Wealth Engine", "PULLBACK"]:
@@ -2504,7 +2508,6 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
                 upsert_scanner_health(scanner_key, status="DOWN",
                                       error_msg=f"Manual trigger failed: {str(e)[:400]}")
                 try:
-                    from database import insert_notification
                     insert_notification("scanner_down", f"🚨 {scanner_key} Manual Scan Failed", f"Error: {str(e)[:200]}")
                 except Exception:
                     pass
@@ -2513,14 +2516,12 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
             upsert_scanner_health(scanner_key, status="DOWN",
                                   error_msg=f"Manual trigger failed: {str(e)[:400]}")
             try:
-                from database import insert_notification
                 insert_notification("scanner_down", f"🚨 {scanner_key} Manual Scan Failed", f"Error: {str(e)[:200]}")
             except Exception:
                 pass
         finally:
             # CRITICAL: Ensure QUEUED status is NEVER left stranded if execution exited early or was skipped
             try:
-                from database import get_scanner_health, is_scanner_stopped, upsert_scanner_health
                 curr_h = get_scanner_health(scanner_key)
                 if curr_h and str(curr_h.get("status", "")).startswith("QUEUED"):
                     is_stop = is_scanner_stopped(scanner_key) or is_scanner_stopped(norm_key)
