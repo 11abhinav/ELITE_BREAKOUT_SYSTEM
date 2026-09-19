@@ -2342,9 +2342,10 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     Returns a dict with 'status' and 'message'.
     Called from the admin dashboard API endpoint.
     """
-    from database import upsert_scanner_health, is_scanner_stopped
+    from database import upsert_scanner_health, is_scanner_stopped, normalize_scanner_name
     
-    if is_scanner_stopped(scanner_key):
+    norm_key = normalize_scanner_name(scanner_key)
+    if is_scanner_stopped(scanner_key) or is_scanner_stopped(norm_key):
         return {
             "status": "error",
             "message": f"❌ Cannot trigger {scanner_key}: Scanner is currently STOPPED by Admin. Please RESUME the scanner first."
@@ -2372,7 +2373,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "SHORT_COVERING_5M": _trigger_short_covering_5m,
     }
     
-    fn = TRIGGER_MAP.get(scanner_key)
+    fn = TRIGGER_MAP.get(scanner_key) or TRIGGER_MAP.get(norm_key)
     if fn is None:
         return {"status": "error", "message": f"Unknown scanner: {scanner_key}"}
         
@@ -2400,7 +2401,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
 
     
     # Check in-memory thread lock first — if not locked, no scan is running in this process
-    lock_fn = LOCK_MAP.get(scanner_key)
+    lock_fn = LOCK_MAP.get(scanner_key) or LOCK_MAP.get(norm_key)
     if lock_fn:
         try:
             lock = lock_fn()
@@ -2411,7 +2412,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
 
     # Check PostgreSQL execution history for active running/queued execution across all processes/workers
     from database import is_scanner_actively_running
-    if is_scanner_actively_running(scanner_key):
+    if is_scanner_actively_running(scanner_key) or is_scanner_actively_running(norm_key):
         return {"status": "error", "message": f"❌ {scanner_key} is already actively running!"}
 
     # Synchronously write an initial QUEUED state to the database so the UI immediately
@@ -2419,7 +2420,6 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     # initializing the MarketDataSession. The actual scanner thread will then
     # overwrite this with RUNNING or a "Waiting for lock" QUEUED message.
     try:
-        from database import upsert_scanner_health
         upsert_scanner_health(scanner_key, status="QUEUED", error_msg="Initializing scanner environment (fetching market data)...")
     except Exception as _qerr:
         pass
@@ -2435,6 +2435,10 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     # Run in background thread so the API returns immediately
     def _run():
         try:
+            if is_scanner_stopped(scanner_key) or is_scanner_stopped(norm_key):
+                logger.info(f"⏸️ [ADMIN MANUAL TRIGGER] {scanner_key} is PAUSED by Admin. Skipping background trigger.")
+                return
+
             start_time = time.time()
             logger.info(f"🔧 ADMIN MANUAL TRIGGER | Starting {scanner_key}...")
             try:
@@ -2445,9 +2449,9 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
                 else:
                     stats = fn() or {}
                 
-                # Check if scan execution was skipped due to duplicate lock guard
-                if isinstance(stats, dict) and (stats.get("status") == "skipped" or stats.get("skipped") is True):
-                    logger.warning(f"⚠️ ADMIN MANUAL TRIGGER | {scanner_key} skipped ({stats.get('reason', 'already running')})")
+                # Check if scan execution was skipped due to pause or duplicate lock guard
+                if isinstance(stats, dict) and (stats.get("status") in ("skipped", "PAUSED") or stats.get("skipped") is True):
+                    logger.warning(f"⚠️ ADMIN MANUAL TRIGGER | {scanner_key} skipped ({stats.get('reason', stats.get('status', 'already running or paused'))})")
                     return
 
                 # Check if primary scanner thread is still running and holds lock
@@ -2465,10 +2469,12 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
             except Exception as run_err:
                 raise run_err
 
-            # Preserve scanner's true recorded health status (do not overwrite DEGRADED / DOWN with OK)
+            # Preserve scanner's true recorded health status (do not overwrite DEGRADED / DOWN / PAUSED with OK)
             from database import get_scanner_health
             curr_health = get_scanner_health(scanner_key)
             curr_status = curr_health.get("status") if curr_health else "OK"
+            if curr_status in ("PAUSED", "STOPPED"):
+                return
             final_status = curr_status if curr_status in ("DOWN", "DEGRADED", "DEGRADED_FALLBACK", "BLOCKED", "FAILED") else "OK"
             final_err = curr_health.get("error_msg") if (final_status != "OK" and curr_health) else None
             now_str = datetime.now(IST).isoformat() if final_status == "OK" else (curr_health.get("last_success") if curr_health else None)
