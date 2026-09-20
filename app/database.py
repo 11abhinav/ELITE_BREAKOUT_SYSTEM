@@ -1926,6 +1926,7 @@ def init_db():
                         evaluated_at     TIMESTAMPTZ DEFAULT NOW()
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_nmo_near_miss_id ON near_miss_outcomes(near_miss_id)")
 
                 # [RULE 67 CHANGE-RATIONALE]:
                 # Adds compound indexes for daily_watchlist_v2 and daily_excluded_watchlist_v2 to accelerate

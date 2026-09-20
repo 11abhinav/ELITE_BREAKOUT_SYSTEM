@@ -1191,7 +1191,7 @@ def api_get_near_misses():
                     FROM near_misses nm
                     LEFT JOIN near_miss_outcomes nmo ON nmo.near_miss_id = nm.id
                     {where_sql}
-                    ORDER BY nm.logged_at DESC
+                    ORDER BY nm.logged_date DESC, nm.logged_at DESC
                     LIMIT %s OFFSET %s
                 """
                 cur.execute(query, params + [fetch_limit, offset_val])
@@ -1211,7 +1211,7 @@ def api_get_near_misses():
                                nmo.mfe, nmo.mae, nmo.hypothetical_r, nmo.rejection_verdict
                         FROM near_misses nm
                         LEFT JOIN near_miss_outcomes nmo ON nmo.near_miss_id = nm.id
-                        ORDER BY nm.logged_at DESC
+                        ORDER BY nm.logged_date DESC, nm.logged_at DESC
                         LIMIT %s
                     """, (fetch_limit,))
                     rows = [dict(r) for r in cur.fetchall()]
