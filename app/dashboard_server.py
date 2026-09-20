@@ -1092,10 +1092,34 @@ def api_get_near_misses():
       - limit: Maximum rows to return (default: 100)
       - page, per_page: Optional pagination parameters
     """
-    days = request.args.get("days", 7, type=int)
-    limit = min(300, max(1, request.args.get("limit", 100, type=int)))
+    days_param = request.args.get("days", "all")
+    is_all_time = False
+    days_val = 0
+    if str(days_param).strip().lower() in ("all", "0", "-1", "none", ""):
+        is_all_time = True
+    else:
+        try:
+            days_val = int(days_param)
+            if days_val <= 0:
+                is_all_time = True
+        except (ValueError, TypeError):
+            is_all_time = True
+            days_val = 0
+
+    limit_param = request.args.get("limit", "1000")
+    if str(limit_param).strip().lower() in ("all", "0", "-1", "none"):
+        fetch_limit = 10000
+    else:
+        try:
+            fetch_limit = min(10000, max(1, int(limit_param)))
+        except (ValueError, TypeError):
+            fetch_limit = 1000
+
     page = request.args.get("page", None, type=int)
     per_page = request.args.get("per_page", None, type=int)
+    if per_page:
+        fetch_limit = min(10000, max(1, per_page))
+    offset_val = ((page - 1) * fetch_limit) if (page and fetch_limit and page > 1) else 0
     
     scanners_raw = request.args.getlist("scanner")
     if not scanners_raw:
@@ -1105,18 +1129,14 @@ def api_get_near_misses():
         sc_list = [s.strip() for s in scanners_raw[0].split(",") if s.strip()]
     else:
         sc_list = [s.strip() for s in scanners_raw if s.strip()]
-    sc_list = [s for s in sc_list if s.upper() != "ALL"]
-
-    fetch_limit = per_page if per_page else limit
-    offset_val = ((page - 1) * per_page) if (page and per_page and page > 1) else 0
+    sc_list = [s for s in sc_list if s.upper() not in ("ALL", "")]
 
     from datetime import datetime, timezone, timedelta
     IST = timezone(timedelta(hours=5, minutes=30))
     now_dt = datetime.now(IST)
     today_date = now_dt.date()
-    cutoff_date = today_date - timedelta(days=days)
 
-    cache_key = (days, tuple(sorted(sc_list)), fetch_limit, offset_val)
+    cache_key = (is_all_time, days_val, tuple(sorted(sc_list)), fetch_limit, offset_val)
     now_ts = time.time()
     force_refresh = request.args.get("force", "").lower() == "true"
     
@@ -1139,59 +1159,42 @@ def api_get_near_misses():
         rows = []
         with get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                where_clauses = []
+                params = []
+
+                if not is_all_time and days_val > 0:
+                    cutoff_date = today_date - timedelta(days=days_val)
+                    where_clauses.append("nm.logged_date >= %s")
+                    params.append(cutoff_date)
+
                 if sc_list:
                     if len(sc_list) == 1:
-                        cur.execute("""
-                            SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
-                                   nm.threshold_value, nm.delta_pct, nm.score,
-                                   nm.entry_price,
-                                   COALESCE(nm.stop_loss, ROUND(nm.entry_price * 0.95, 2)) AS stop_loss,
-                                   COALESCE(nm.target_1, ROUND(nm.entry_price * 1.08, 2)) AS target_1,
-                                   nm.logged_at, nm.logged_date, nm.status, nm.realized_rr,
-                                   COALESCE(nmo.mfe, nm.max_mfe_r) AS max_mfe_r,
-                                   nmo.return_1d, nmo.return_3d, nmo.return_5d, nmo.return_10d, nmo.return_20d, nmo.return_60d,
-                                   nmo.mfe, nmo.mae, nmo.hypothetical_r, nmo.rejection_verdict
-                            FROM near_misses nm
-                            LEFT JOIN near_miss_outcomes nmo ON nmo.near_miss_id = nm.id
-                            WHERE nm.logged_date >= %s AND (nm.scanner = %s OR UPPER(nm.scanner) = UPPER(%s))
-                            ORDER BY nm.logged_at DESC
-                            LIMIT %s OFFSET %s
-                        """, (cutoff_date, sc_list[0], sc_list[0], fetch_limit, offset_val))
+                        where_clauses.append("(nm.scanner = %s OR UPPER(nm.scanner) = UPPER(%s))")
+                        params.extend([sc_list[0], sc_list[0]])
                     else:
                         placeholders = ", ".join(["UPPER(%s)"] * len(sc_list))
-                        cur.execute(f"""
-                            SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
-                                   nm.threshold_value, nm.delta_pct, nm.score,
-                                   nm.entry_price,
-                                   COALESCE(nm.stop_loss, ROUND(nm.entry_price * 0.95, 2)) AS stop_loss,
-                                   COALESCE(nm.target_1, ROUND(nm.entry_price * 1.08, 2)) AS target_1,
-                                   nm.logged_at, nm.logged_date, nm.status, nm.realized_rr,
-                                   COALESCE(nmo.mfe, nm.max_mfe_r) AS max_mfe_r,
-                                   nmo.return_1d, nmo.return_3d, nmo.return_5d, nmo.return_10d, nmo.return_20d, nmo.return_60d,
-                                   nmo.mfe, nmo.mae, nmo.hypothetical_r, nmo.rejection_verdict
-                            FROM near_misses nm
-                            LEFT JOIN near_miss_outcomes nmo ON nmo.near_miss_id = nm.id
-                            WHERE nm.logged_date >= %s AND UPPER(nm.scanner) IN ({placeholders})
-                            ORDER BY nm.logged_at DESC
-                            LIMIT %s OFFSET %s
-                        """, [cutoff_date] + sc_list + [fetch_limit, offset_val])
-                else:
-                    cur.execute("""
-                        SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
-                               nm.threshold_value, nm.delta_pct, nm.score,
-                               nm.entry_price,
-                               COALESCE(nm.stop_loss, ROUND(nm.entry_price * 0.95, 2)) AS stop_loss,
-                               COALESCE(nm.target_1, ROUND(nm.entry_price * 1.08, 2)) AS target_1,
-                               nm.logged_at, nm.logged_date, nm.status, nm.realized_rr,
-                               COALESCE(nmo.mfe, nm.max_mfe_r) AS max_mfe_r,
-                               nmo.return_1d, nmo.return_3d, nmo.return_5d, nmo.return_10d, nmo.return_20d, nmo.return_60d,
-                               nmo.mfe, nmo.mae, nmo.hypothetical_r, nmo.rejection_verdict
-                        FROM near_misses nm
-                        LEFT JOIN near_miss_outcomes nmo ON nmo.near_miss_id = nm.id
-                        WHERE nm.logged_date >= %s
-                        ORDER BY nm.logged_at DESC
-                        LIMIT %s OFFSET %s
-                    """, (cutoff_date, fetch_limit, offset_val))
+                        where_clauses.append(f"UPPER(nm.scanner) IN ({placeholders})")
+                        params.extend(sc_list)
+
+                where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+                query = f"""
+                    SELECT nm.id, nm.symbol, nm.scanner, nm.breakout_type, nm.gate_name, nm.observed_value,
+                           nm.threshold_value, nm.delta_pct, nm.score,
+                           nm.entry_price,
+                           COALESCE(nm.stop_loss, ROUND(nm.entry_price * 0.95, 2)) AS stop_loss,
+                           COALESCE(nm.target_1, ROUND(nm.entry_price * 1.08, 2)) AS target_1,
+                           nm.logged_at, nm.logged_date, nm.status, nm.realized_rr,
+                           COALESCE(nmo.mfe, nm.max_mfe_r) AS max_mfe_r,
+                           nmo.return_1d, nmo.return_3d, nmo.return_5d, nmo.return_10d, nmo.return_20d, nmo.return_60d,
+                           nmo.mfe, nmo.mae, nmo.hypothetical_r, nmo.rejection_verdict
+                    FROM near_misses nm
+                    LEFT JOIN near_miss_outcomes nmo ON nmo.near_miss_id = nm.id
+                    {where_sql}
+                    ORDER BY nm.logged_at DESC
+                    LIMIT %s OFFSET %s
+                """
+                cur.execute(query, params + [fetch_limit, offset_val])
                 rows = [dict(r) for r in cur.fetchall()]
 
                 # If no rows within date range, fall back to latest near_misses entries

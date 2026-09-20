@@ -453,10 +453,69 @@ function changeAdminPage(type, delta) {
 
     .forensic-symbol-badge {
       font-family: var(--font-display);
-      font-size: 22px;
-      font-weight: 800;
+      font-size: 24px;
+      font-weight: 900;
       color: var(--accent);
       letter-spacing: -0.5px;
+    }
+
+    .forensic-cmp-box {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 12px;
+      background: rgba(0, 229, 160, 0.08);
+      border: 1px solid rgba(0, 229, 160, 0.35);
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 229, 160, 0.12);
+    }
+
+    .forensic-header-cmp {
+      font-family: var(--font-mono);
+      font-size: 18px;
+      font-weight: 800;
+      color: #00e5a0;
+      letter-spacing: -0.3px;
+    }
+
+    .forensic-header-change {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      color: #34d399;
+      background: rgba(16, 185, 129, 0.15);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .live-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #00e5a0;
+      box-shadow: 0 0 8px #00e5a0;
+      animation: livePulse 2s infinite ease-in-out;
+    }
+
+    @keyframes livePulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.35; transform: scale(0.8); }
+    }
+
+    .engine-date-pill {
+      font-size: 10px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--muted);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
     }
 
     .forensic-status-pill {
@@ -659,17 +718,19 @@ function changeAdminPage(type, delta) {
       gap: 14px;
     }
     .confluence-engine-card {
-      background: var(--card);
+      background: linear-gradient(145deg, rgba(22, 27, 38, 0.95), rgba(16, 20, 29, 0.95));
       border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 10px;
-      padding: 14px;
+      border-radius: 12px;
+      padding: 16px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
-      transition: transform 0.2s, border-color 0.2s;
+      gap: 12px;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+      transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
     }
     .confluence-engine-card:hover {
-      border-color: rgba(99, 102, 241, 0.5);
+      border-color: rgba(99, 102, 241, 0.6);
+      box-shadow: 0 8px 24px rgba(99, 102, 241, 0.18);
       transform: translateY(-2px);
     }
     .engine-card-header {
@@ -678,18 +739,20 @@ function changeAdminPage(type, delta) {
       justify-content: space-between;
       flex-wrap: wrap;
       gap: 8px;
-      padding-bottom: 8px;
-      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     }
     .engine-title-wrap {
       display: flex;
       align-items: center;
       gap: 8px;
+      flex-wrap: wrap;
     }
     .engine-title {
-      font-size: 13px;
+      font-size: 14px;
       font-weight: 800;
       color: var(--text);
+      letter-spacing: -0.2px;
     }
     .engine-tf-pill {
       font-size: 10px;
@@ -709,6 +772,16 @@ function changeAdminPage(type, delta) {
       color: #34d399;
       border: 1px solid rgba(16, 185, 129, 0.3);
     }
+    .engine-score-pill {
+      font-size: 11px;
+      font-weight: 800;
+      font-family: var(--font-mono);
+      color: #818cf8;
+      background: rgba(99, 102, 241, 0.15);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      padding: 3px 9px;
+      border-radius: 12px;
+    }
     .engine-metrics-row {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -717,21 +790,22 @@ function changeAdminPage(type, delta) {
     .engine-m-box {
       background: var(--card2);
       border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 6px 8px;
+      border-radius: 8px;
+      padding: 8px 10px;
       text-align: center;
     }
     .engine-m-label {
       font-size: 9px;
       color: var(--muted);
       text-transform: uppercase;
-      margin-bottom: 2px;
-      font-weight: 600;
+      margin-bottom: 3px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
     }
     .engine-m-val {
       font-family: var(--font-mono);
-      font-size: 12px;
-      font-weight: 700;
+      font-size: 13px;
+      font-weight: 800;
       color: var(--text);
     }
     .engine-tech-row {
@@ -751,13 +825,14 @@ function changeAdminPage(type, delta) {
       color: var(--text);
     }
     .engine-signals-box {
-      background: rgba(0, 0, 0, 0.25);
-      border: 1px solid var(--border);
+      background: rgba(99, 102, 241, 0.05);
+      border: 1px solid rgba(99, 102, 241, 0.2);
+      border-left: 3px solid #818cf8;
       border-radius: 6px;
-      padding: 8px 10px;
-      font-size: 11px;
-      line-height: 1.4;
-      color: var(--muted);
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text);
     }
     .engine-signals-box b {
       color: #a5b4fc;
@@ -2351,9 +2426,53 @@ function changeAdminPage(type, delta) {
             </div>
           </div>
 
-          <div class="filter-bar" style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
-            <input type="text" id="filterMasterSignalsInput" placeholder="🔍 Search Symbol..." oninput="filterMasterSignals(this.value)" style="width:240px; padding:6px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-family:var(--font-mono);" />
-            <div id="master-signals-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:600;"></div>
+          <!-- MULTI-CRITERIA FILTER BAR -->
+          <div class="filter-bar" style="margin-bottom:16px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; background:var(--card); padding:12px 14px; border:1px solid var(--border); border-radius:10px;">
+            <input type="text" id="filterMasterSignalsInput" placeholder="🔍 Search Confirmed Symbol / Rules..." oninput="filterMasterSignals()" style="min-width:180px; flex:1; padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-family:var(--font-mono);" />
+            
+            <select id="filterMasterScanner" onchange="filterMasterSignals()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="">🎯 All Scanners</option>
+              <option value="EOD">EOD Breakout</option>
+              <option value="MULTI_TF">Multi-TF Breakout</option>
+              <option value="PULLBACK">Pullback</option>
+              <option value="REVERSAL">Reversal</option>
+              <option value="ACCUMULATION">Accumulation</option>
+              <option value="SHORT_COVERING">Short Covering</option>
+              <option value="WEALTH">Wealth Engine</option>
+            </select>
+
+            <select id="filterMasterGrade" onchange="filterMasterSignals()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="">⭐ All Quality Grades</option>
+              <option value="A">Grade A+ / A</option>
+              <option value="B">Grade B</option>
+              <option value="C">Grade C</option>
+            </select>
+
+            <select id="filterMasterConfluence" onchange="filterMasterSignals()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="">🌊 All Confluence Tiers</option>
+              <option value="TIER_1">Tier 1 Super Confluence</option>
+              <option value="TIER_2">Tier 2 Multi-Scanner</option>
+              <option value="TIER_3">Tier 3 Single Scanner</option>
+            </select>
+
+            <select id="filterMasterRR" onchange="filterMasterSignals()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="">🎯 All R:R</option>
+              <option value="2.0">R:R ≥ 2.0R</option>
+              <option value="1.5">R:R ≥ 1.5R</option>
+              <option value="1.0">R:R ≥ 1.0R</option>
+            </select>
+
+            <select id="filterMasterSort" onchange="filterMasterSignals()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="newest">⏱️ Newest First</option>
+              <option value="rr_desc">🎯 Highest R:R</option>
+              <option value="cmp_desc">💰 Highest CMP</option>
+              <option value="sym_asc">🔤 Symbol (A-Z)</option>
+            </select>
+
+            <button onclick="resetMasterFilters()" class="refresh-btn" style="padding:7px 12px; font-size:12px; font-weight:700; background:rgba(255,255,255,0.06); color:var(--muted); border:1px solid var(--border);">🔄 Reset</button>
+            <button onclick="loadMasterSystemV2Data(true)" class="refresh-btn" style="padding:7px 14px; font-size:12px; font-weight:700; background:var(--win); color:#000; border:none;">⚡ Refresh</button>
+
+            <div id="master-signals-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:700; margin-left:auto;"></div>
           </div>
 
           <div id="master-signals-tbl-wrap" class="tbl-wrap">
@@ -2398,9 +2517,52 @@ function changeAdminPage(type, delta) {
             </div>
           </div>
 
-          <div class="filter-bar" style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
-            <input type="text" id="filterStocksWatchInput" placeholder="🔍 Search Symbol / Scanner..." oninput="filterStocksWatch(this.value)" style="width:240px; padding:6px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-family:var(--font-mono);" />
-            <div id="stocks-watch-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:600;"></div>
+          <!-- MULTI-CRITERIA FILTER BAR -->
+          <div class="filter-bar" style="margin-bottom:16px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; background:var(--card); padding:12px 14px; border:1px solid var(--border); border-radius:10px;">
+            <input type="text" id="filterStocksWatchInput" placeholder="🔍 Search Watching Symbol / Blocker..." oninput="filterStocksWatch()" style="min-width:180px; flex:1; padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-family:var(--font-mono);" />
+            
+            <select id="filterWatchScanner" onchange="filterStocksWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="">🎯 All Scanners</option>
+              <option value="EOD">EOD Breakout</option>
+              <option value="MULTI_TF">Multi-TF Breakout</option>
+              <option value="PULLBACK">Pullback</option>
+              <option value="REVERSAL">Reversal</option>
+              <option value="ACCUMULATION">Accumulation</option>
+              <option value="WEALTH">Wealth</option>
+            </select>
+
+            <select id="filterWatchStage" onchange="filterStocksWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="">📊 All Stages</option>
+              <option value="ARMED">🔥 ARMED (Pre-Breakout)</option>
+              <option value="BASE_BUILDING">👀 Base Building (Watch)</option>
+              <option value="IMMEDIATE">⚡ Immediate Trigger Zone</option>
+            </select>
+
+            <select id="filterWatchDistance" onchange="filterStocksWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="">📏 All Distance to Trigger</option>
+              <option value="2.0">⚡ Imminent (≤ 2.0%)</option>
+              <option value="5.0">🎯 On Radar (≤ 5.0%)</option>
+              <option value="gt5">👀 Forming (> 5.0%)</option>
+            </select>
+
+            <select id="filterWatchMaturity" onchange="filterStocksWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="">⭐ All Maturity Scores</option>
+              <option value="70">High (Score ≥ 70)</option>
+              <option value="50">Medium (50–69)</option>
+              <option value="lt50">Developing (< 50)</option>
+            </select>
+
+            <select id="filterWatchSort" onchange="filterStocksWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="dist_asc">⚡ Distance (Closest First)</option>
+              <option value="maturity_desc">⭐ Highest Maturity Score</option>
+              <option value="cmp_desc">💰 Highest CMP</option>
+              <option value="sym_asc">🔤 Symbol (A-Z)</option>
+            </select>
+
+            <button onclick="resetWatchFilters()" class="refresh-btn" style="padding:7px 12px; font-size:12px; font-weight:700; background:rgba(255,255,255,0.06); color:var(--muted); border:1px solid var(--border);">🔄 Reset</button>
+            <button onclick="loadMasterSystemV2Data(true)" class="refresh-btn" style="padding:7px 14px; font-size:12px; font-weight:700; background:var(--amber); color:#000; border:none;">⚡ Refresh</button>
+
+            <div id="stocks-watch-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:700; margin-left:auto;"></div>
           </div>
 
           <div id="stocks-watch-tbl-wrap" class="tbl-wrap">
@@ -2442,9 +2604,42 @@ function changeAdminPage(type, delta) {
             </div>
           </div>
 
-          <div class="filter-bar" style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
-            <input type="text" id="filterInvestmentWatchInput" placeholder="🔍 Search Fundamental Symbol..." oninput="filterInvestmentWatch(this.value)" style="width:240px; padding:6px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-family:var(--font-mono);" />
-            <div id="investment-watch-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:600;"></div>
+          <!-- MULTI-CRITERIA FILTER BAR -->
+          <div class="filter-bar" style="margin-bottom:16px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; background:var(--card); padding:12px 14px; border:1px solid var(--border); border-radius:10px;">
+            <input type="text" id="filterInvestmentWatchInput" placeholder="🔍 Search Fundamental Symbol / Thesis..." oninput="filterInvestmentWatch()" style="min-width:180px; flex:1; padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-family:var(--font-mono);" />
+            
+            <select id="filterInvestState" onchange="filterInvestmentWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="">📈 All Investment States</option>
+              <option value="ACCUMULATE">🟢 Accumulate (Buy Zone)</option>
+              <option value="GROWTH">🚀 Growth Runway</option>
+              <option value="QUALITY">💎 Quality Watch</option>
+              <option value="MONITOR">👀 Monitor / Hold</option>
+            </select>
+
+            <select id="filterInvestValuation" onchange="filterInvestmentWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="">💰 All Valuation Grades</option>
+              <option value="Tier A">Tier A (Undervalued)</option>
+              <option value="Tier B+">Tier B+ (Quality Fair Value)</option>
+              <option value="Tier C">Tier C / Fair Value</option>
+            </select>
+
+            <select id="filterInvestMoS" onchange="filterInvestmentWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="">🛡️ All Margin of Safety</option>
+              <option value="25">High (> 25% MoS)</option>
+              <option value="10">Moderate (10%–25% MoS)</option>
+              <option value="lt10">Low (< 10% MoS)</option>
+            </select>
+
+            <select id="filterInvestSort" onchange="filterInvestmentWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="mos_desc">🛡️ Highest Margin of Safety</option>
+              <option value="cmp_desc">💰 Highest CMP</option>
+              <option value="sym_asc">🔤 Symbol (A-Z)</option>
+            </select>
+
+            <button onclick="resetInvestFilters()" class="refresh-btn" style="padding:7px 12px; font-size:12px; font-weight:700; background:rgba(255,255,255,0.06); color:var(--muted); border:1px solid var(--border);">🔄 Reset</button>
+            <button onclick="loadMasterSystemV2Data(true)" class="refresh-btn" style="padding:7px 14px; font-size:12px; font-weight:700; background:var(--accent); color:#fff; border:none;">⚡ Refresh</button>
+
+            <div id="investment-watch-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:700; margin-left:auto;"></div>
           </div>
 
           <div id="investment-watch-tbl-wrap" class="tbl-wrap">
@@ -2487,9 +2682,64 @@ function changeAdminPage(type, delta) {
             </div>
           </div>
 
-          <div class="filter-bar" style="margin-bottom:12px; display:flex; justify-content:space-between; align-items:center;">
-            <input type="text" id="filterMissedOppsInput" placeholder="🔍 Search Rejected Symbol / Gate..." oninput="filterMissedOpps(this.value)" style="width:240px; padding:6px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-family:var(--font-mono);" />
-            <div id="missed-opps-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:600;"></div>
+          <!-- MULTI-DIMENSIONAL FILTER CONTROLS BAR -->
+          <div class="filter-bar" style="margin-bottom:16px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; background:var(--card); padding:12px 14px; border:1px solid var(--border); border-radius:10px;">
+            <input type="text" id="filterMissedOppsInput" placeholder="🔍 Search Symbol / Gate / Reason..." oninput="filterMissedOpps()" style="min-width:180px; flex:1; padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-family:var(--font-mono);" />
+            
+            <select id="filterMissedDays" onchange="loadNearMisses(true)" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="all" selected>📅 All Time (Full History)</option>
+              <option value="1">Today (1D)</option>
+              <option value="7">Last 7 Days</option>
+              <option value="14">Last 14 Days</option>
+              <option value="30">Last 30 Days</option>
+              <option value="90">Last 90 Days</option>
+              <option value="365">Last 1 Year</option>
+            </select>
+
+            <select id="filterMissedScanner" onchange="loadNearMisses(true)" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="">🎯 All Scanners</option>
+              <option value="TECHNICAL">Technical Scanner</option>
+              <option value="ACCUMULATION">Accumulation</option>
+              <option value="EOD">EOD Breakout</option>
+              <option value="MULTI_TF">Multi-TF Breakout</option>
+              <option value="PULLBACK">Pullback</option>
+              <option value="REVERSAL">Reversal</option>
+              <option value="SHORT_COVERING_5M">Short Covering (5M)</option>
+              <option value="SHORT_COVERING_EOD">Short Covering (EOD)</option>
+              <option value="WEALTH">Wealth Engine</option>
+              <option value="MULTIBAGGER">Multibagger Engine</option>
+            </select>
+
+            <select id="filterMissedVerdict" onchange="filterMissedOpps()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="">⚖️ All Rejection Audits</option>
+              <option value="GOOD">🛡️ Good Rejection (Saved Loss)</option>
+              <option value="BAD">⚠️ Bad Rejection (Missed Winner)</option>
+              <option value="AUDITING">⏳ Auditing (Day 1-20 / Active)</option>
+              <option value="EXCLUDED">🔍 Excluded / Fallback</option>
+            </select>
+
+            <select id="filterMissedGrade" onchange="filterMissedOpps()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="">⭐ All Quality Grades</option>
+              <option value="A">Grade A (Score ≥ 75)</option>
+              <option value="B">Grade B (Score 60–74)</option>
+              <option value="C">Grade C (Score 45–59)</option>
+              <option value="D">Grade D (Score < 45)</option>
+            </select>
+
+            <select id="filterMissedSort" onchange="filterMissedOpps()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
+              <option value="date_desc">⏱️ Date (Newest First)</option>
+              <option value="date_asc">⏱️ Date (Oldest First)</option>
+              <option value="ret1d_desc">📈 Return +1D (High to Low)</option>
+              <option value="ret5d_desc">📈 Return +5D (High to Low)</option>
+              <option value="ret20d_desc">📈 Return +20D (High to Low)</option>
+              <option value="mfe_desc">🎯 Max MFE (High to Low)</option>
+              <option value="score_desc">⭐ Score (High to Low)</option>
+            </select>
+
+            <button onclick="resetMissedOppsFilters()" class="refresh-btn" style="padding:7px 12px; font-size:12px; font-weight:700; background:rgba(255,255,255,0.06); color:var(--muted); border:1px solid var(--border);">🔄 Reset</button>
+            <button onclick="loadNearMisses(true)" class="refresh-btn" style="padding:7px 14px; font-size:12px; font-weight:700; background:var(--accent); color:#fff; border:none;">⚡ Refresh</button>
+
+            <div id="missed-opps-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:700; margin-left:auto;"></div>
           </div>
 
           <div id="missed-opps-tbl-wrap" class="tbl-wrap">
@@ -2561,7 +2811,8 @@ function changeAdminPage(type, delta) {
               <h3 id="universe-details-title" style="font-size: 15px; font-weight: 700; color: var(--text); margin: 0; display: flex; align-items: center; gap: 8px;">
                 <span>📋</span> Detailed Universe Breakdown: <span id="universe-tier-badge" class="badge-ok" style="font-size:12px; margin-left:6px;">ELITE</span>
               </h3>
-              <div style="display: flex; gap: 8px;">
+              <div style="display: flex; gap: 8px; flex-wrap:wrap; align-items:center;">
+                <input type="text" id="filterUniverseSearchInput" placeholder="🔍 Search Symbol / Reason..." oninput="filterInlineUniverseData(this.value)" style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:11px; font-family:var(--font-mono); width:180px;" />
                 <button class="refresh-btn" onclick="loadInlineUniverseData('ELITE')" style="padding: 5px 12px; font-weight: 600;">ELITE</button>
                 <button class="refresh-btn" onclick="loadInlineUniverseData('NEAR_QUALIFIED')" style="padding: 5px 12px; font-weight: 600;">NEAR_QUALIFIED (NQ)</button>
                 <button class="refresh-btn" onclick="loadInlineUniverseData('EXCLUDED')" style="padding: 5px 12px; font-weight: 600;">EXCLUDED</button>
@@ -2628,6 +2879,30 @@ function changeAdminPage(type, delta) {
               • <strong>2 Engines Agreeing</strong>: <strong>HIGH CONFLUENCE</strong> — Strong multi-tf agreement. Standard position size.<br>
               • <strong>Guard Rule</strong>: Multi-engine pairs with small historical samples ($n < 30$) are marked <em>UNVERIFIED</em> to prevent false confidence.
             </div>
+          </div>
+
+          <!-- FILTER & SEARCH BAR -->
+          <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:12px 16px; margin-bottom:18px; display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
+            <input type="text" id="confluence-search-input" placeholder="🔍 Search symbol or engine..." style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; min-width:200px;" oninput="filterAndRenderConfluenceMatrix()" />
+            <select id="confluence-depth-filter" onchange="filterAndRenderConfluenceMatrix()" style="padding:6px 10px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
+              <option value="ALL">All Confluence Depths</option>
+              <option value="APEX">🔥 APEX CONFLUENCE (3+ Engines)</option>
+              <option value="HIGH">⚡ HIGH CONFLUENCE (2 Engines)</option>
+            </select>
+            <select id="confluence-guard-filter" onchange="filterAndRenderConfluenceMatrix()" style="padding:6px 10px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
+              <option value="ALL">All Guard Statuses</option>
+              <option value="VERIFIED">✅ Verified (n ≥ 30)</option>
+              <option value="BASELINE">⚠️ Baseline Observation</option>
+            </select>
+            <select id="confluence-sort-select" onchange="filterAndRenderConfluenceMatrix()" style="padding:6px 10px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
+              <option value="depth_desc">Sort: Confluence Depth (High to Low)</option>
+              <option value="price_desc">Sort: CMP (High to Low)</option>
+              <option value="price_asc">Sort: CMP (Low to High)</option>
+              <option value="symbol_asc">Sort: Symbol (A to Z)</option>
+            </select>
+            <button class="refresh-btn" onclick="resetConfluenceMatrixFilters()" style="padding:6px 12px; font-size:12px;">↺ Reset</button>
+            <button class="refresh-btn" onclick="exportConfluenceMatrixCSV()" style="padding:6px 12px; font-size:12px; background:rgba(0,212,161,0.15); color:var(--accent); border:1px solid var(--accent);">📥 Export CSV</button>
+            <div id="confluence-filtered-count" style="margin-left:auto; font-size:12px; color:var(--muted); font-weight:600; font-family:var(--font-mono);">Showing 0 setups</div>
           </div>
 
           <div id="confluence-matrix-tbl-wrap" class="tbl-wrap">
@@ -2740,17 +3015,27 @@ function changeAdminPage(type, delta) {
             <option value="ALL">All Time</option>
             <option value="TODAY">Today</option>
             <option value="WEEK">This Week</option>
+            <option value="14D">Last 14 Days</option>
             <option value="MONTH">This Month</option>
-            <option value="QUARTER">This Quarter</option>
-            <option value="YEAR">This Year</option>
             <option value="30D">Last 30 Days</option>
+            <option value="QUARTER">This Quarter</option>
             <option value="90D">Last 90 Days</option>
+            <option value="365D">Last 365 Days</option>
+            <option value="YEAR">This Year</option>
           </select>
           <select id="filterScanner">
             <option value="">All scanners</option>
           </select>
           <select id="filterStatus">
             <option value="">All status</option>
+          </select>
+          <select id="filterTradeSort" onchange="renderTrades()">
+            <option value="DEFAULT">Sort: Default (Newest First)</option>
+            <option value="PNL_DESC">Sort: P&amp;L % (High to Low)</option>
+            <option value="PNL_ASC">Sort: P&amp;L % (Low to High)</option>
+            <option value="SCORE_DESC">Sort: Score (High to Low)</option>
+            <option value="CAPITAL_DESC">Sort: Capital (High to Low)</option>
+            <option value="DAYS_DESC">Sort: Days Held (High to Low)</option>
           </select>
 
           <input id="filterSymbol" type="text" placeholder="Search symbol…" style="width:130px">
@@ -2993,6 +3278,20 @@ function changeAdminPage(type, delta) {
               <button onclick="filterWealthCategory('BUY')" class="btn-sm" style="padding:4px 10px; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); border-radius:6px; font-weight:700; font-size:11px; cursor:pointer;">🎯 BUY Signals Only</button>
             </div>
           </div>
+          <!-- WEALTH SEARCH & SORT BAR -->
+          <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px; background:var(--card2); padding:10px 14px; border-radius:8px; border:1px solid var(--border); align-items:center;">
+            <input type="text" id="wealth-search-input" placeholder="🔍 Search symbol, sector, or bucket..." style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; min-width:220px; flex:1;" oninput="onWealthSearchOrSortChange()" />
+            <select id="wealth-sort-select" onchange="onWealthSearchOrSortChange()" style="padding:6px 10px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
+              <option value="DEFAULT">Sort: Default Ranking</option>
+              <option value="FM_DESC">Sort: FM Score (High to Low)</option>
+              <option value="MOM_DESC">Sort: Momentum Score (High to Low)</option>
+              <option value="RS_DESC">Sort: 6M RS (High to Low)</option>
+              <option value="CMP_DESC">Sort: CMP (High to Low)</option>
+              <option value="CMP_ASC">Sort: CMP (Low to High)</option>
+              <option value="SYM_ASC">Sort: Symbol (A to Z)</option>
+            </select>
+            <button class="refresh-btn" onclick="resetWealthSearchAndSort()" style="padding:6px 12px; font-size:11px;">↺ Reset</button>
+          </div>
           <div class="tbl-wrap">
             <table id="tbl-wealth-holdings">
               <thead>
@@ -3178,9 +3477,13 @@ function changeAdminPage(type, delta) {
                 <option value="MULTIBAGGER">Multibagger Engine</option>
               </select>
               <select id="near-miss-days-filter" onchange="loadNearMisses()" style="padding:4px 10px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:11px; font-weight:600;">
-                <option value="7">Last 7 Days</option>
+                <option value="ALL">All Time (Full History)</option>
+                <option value="1">Today (1 Day)</option>
+                <option value="7" selected>Last 7 Days</option>
                 <option value="14">Last 14 Days</option>
                 <option value="30">Last 30 Days</option>
+                <option value="90">Last 90 Days</option>
+                <option value="365">Last 365 Days</option>
               </select>
               <button onclick="loadNearMisses()" class="refresh-btn" style="font-size:11px; padding:4px 12px; font-weight:700;">🔄 Refresh</button>
             </div>
@@ -3520,9 +3823,20 @@ function changeAdminPage(type, delta) {
           <!-- SYSTEM LOGS PANEL (Python Errors) -->
           <div class="section-label" style="display:flex; justify-content:space-between; align-items:center;">
             <span>System Logs (Unhandled Python Errors)</span>
-            <div id="systemLogsHeaderBtns">
+            <div id="systemLogsHeaderBtns" style="display:flex; gap:8px; align-items:center;">
               <button class="btn btn-sm" onclick="fetchSystemLogs(this)" style="font-size:12px;">🔄 Refresh</button>
             </div>
+          </div>
+          <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:12px; background:var(--card2); padding:10px 14px; border-radius:8px; border:1px solid var(--border); align-items:center;">
+            <input type="text" id="syslogs-search-input" placeholder="🔍 Search error message, module, or traceback..." style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; min-width:240px; flex:1;" oninput="filterAndRenderSystemLogs()" />
+            <select id="syslogs-level-filter" onchange="filterAndRenderSystemLogs()" style="padding:6px 10px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
+              <option value="ALL">All Log Levels</option>
+              <option value="CRITICAL">🔴 CRITICAL</option>
+              <option value="ERROR">🟠 ERROR</option>
+              <option value="WARNING">🟡 WARNING</option>
+              <option value="INFO">🔵 INFO</option>
+            </select>
+            <button class="refresh-btn" onclick="resetSystemLogFilters()" style="padding:6px 12px; font-size:11px;">↺ Reset</button>
           </div>
           <div id="systemLogsContainer" style="margin-bottom:28px;">
             <div class="card" style="padding:16px; text-align:center; color:var(--muted);">Loading system logs...</div>
@@ -5896,8 +6210,10 @@ function getEarningsBadgeHtml(item) {
       const yearStart = new Date(now.getFullYear(), 0, 1);
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
       const quarterStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+      const d14 = new Date(now); d14.setDate(d14.getDate() - 14);
       const d30 = new Date(now); d30.setDate(d30.getDate() - 30);
       const d90 = new Date(now); d90.setDate(d90.getDate() - 90);
+      const d365 = new Date(now); d365.setDate(d365.getDate() - 365);
       const weekStart = new Date(todayStart);
       const dayOfWeek = weekStart.getDay() || 7;
       weekStart.setDate(weekStart.getDate() - dayOfWeek + 1);
@@ -5920,13 +6236,15 @@ function getEarningsBadgeHtml(item) {
         if (sym && !t.symbol.includes(sym)) return false;
         if (dateFilt !== 'ALL') {
           const d = new Date((t.entry_date || '').replace(' ', 'T'));
-          if (dateFilt === 'TODAY' && d <todayStart) return false;
-          if (dateFilt === 'WEEK' && d <weekStart) return false;
-          if (dateFilt === 'MONTH' && d <monthStart) return false;
-          if (dateFilt === 'QUARTER' && d <quarterStart) return false;
-          if (dateFilt === 'YEAR' && d <yearStart) return false;
-          if (dateFilt === '30D' && d <d30) return false;
-          if (dateFilt === '90D' && d <d90) return false;
+          if (dateFilt === 'TODAY' && d < todayStart) return false;
+          if (dateFilt === 'WEEK' && d < weekStart) return false;
+          if (dateFilt === '14D' && d < d14) return false;
+          if (dateFilt === 'MONTH' && d < monthStart) return false;
+          if (dateFilt === 'QUARTER' && d < quarterStart) return false;
+          if (dateFilt === 'YEAR' && d < yearStart) return false;
+          if (dateFilt === '30D' && d < d30) return false;
+          if (dateFilt === '90D' && d < d90) return false;
+          if (dateFilt === '365D' && d < d365) return false;
         }
         return true;
       });
@@ -5940,7 +6258,13 @@ function getEarningsBadgeHtml(item) {
       }
 
       window._currentFilteredTrades = filtered;
+      const sortSel = document.getElementById('filterTradeSort')?.value || 'DEFAULT';
       filtered = [...filtered].sort((a, b) => {
+        if (sortSel === 'PNL_DESC') return (b.pnl_pct || 0) - (a.pnl_pct || 0);
+        if (sortSel === 'PNL_ASC') return (a.pnl_pct || 0) - (b.pnl_pct || 0);
+        if (sortSel === 'SCORE_DESC') return (b.score || 0) - (a.score || 0);
+        if (sortSel === 'CAPITAL_DESC') return (b.capital_allocated || 0) - (a.capital_allocated || 0);
+        if (sortSel === 'DAYS_DESC') return (b.days_held || 0) - (a.days_held || 0);
         if (sortCol === 'status') {
           const p = { 'OPEN': 0, 'PARTIAL_WIN_1': 0, 'PARTIAL_WIN_2': 0, 'WIN': 1, 'LOSS': 2, 'NEUTRAL': 3 };
           const pA = p[a.status] ?? 4;
@@ -5953,7 +6277,7 @@ function getEarningsBadgeHtml(item) {
         }
         let va = a[sortCol], vb = b[sortCol];
         if (va == null) return 1; if (vb == null) return -1;
-        return sortDir * (va > vb ? 1 : va <vb ? -1 : 0);
+        return sortDir * (va > vb ? 1 : va < vb ? -1 : 0);
       });
       
       renderKPIs(window._kpiDefs ? window._kpiDefs.find(k => k.id === 'total') : { total_alerts: 0 });
@@ -6884,8 +7208,20 @@ function escapeHTML(str) {
     .replace(/'/g, '&#039;');
 }
 
+function filterAndRenderSystemLogs() {
+  renderSystemLogs(SYSTEM_LOGS_CACHE);
+}
+
+function resetSystemLogFilters() {
+  const searchInput = document.getElementById('syslogs-search-input');
+  const levelFilter = document.getElementById('syslogs-level-filter');
+  if (searchInput) searchInput.value = '';
+  if (levelFilter) levelFilter.value = 'ALL';
+  renderSystemLogs(SYSTEM_LOGS_CACHE);
+}
+
 function renderSystemLogs(logs) {
-  SYSTEM_LOGS_CACHE = logs;
+  SYSTEM_LOGS_CACHE = logs || [];
   const container = document.getElementById('systemLogsContainer');
   const headerBtnArea = document.getElementById('systemLogsHeaderBtns');
   if(!logs || logs.length === 0) {
@@ -6893,16 +7229,33 @@ function renderSystemLogs(logs) {
     if(headerBtnArea) headerBtnArea.innerHTML = '<button class="btn btn-sm" onclick="fetchSystemLogs(this)" style="font-size:12px;">🔄 Refresh</button>';
     return;
   }
+
+  const query = (document.getElementById('syslogs-search-input')?.value || '').trim().toLowerCase();
+  const lvl = document.getElementById('syslogs-level-filter')?.value || 'ALL';
+
+  let filtered = logs.filter(log => {
+    if (lvl !== 'ALL' && String(log.level || '').toUpperCase() !== lvl) return false;
+    if (query) {
+      const haystack = `${log.message || ''} ${log.module || ''} ${log.traceback || ''}`.toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
+    return true;
+  });
   
   if(headerBtnArea) {
       headerBtnArea.innerHTML = `
-        <button class="btn btn-sm" onclick = "clearAllSystemLogs()" style = "font-size:12px; background:var(--warn); color:#000; border:none; margin-right:8px;" >🗑️ Clear All</button >
-          <button class="btn btn-sm" onclick="fetchSystemLogs(this)" style="font-size:12px;">🔄 Refresh</button>
+        <button class="btn btn-sm" onclick="clearAllSystemLogs()" style="font-size:12px; background:var(--warn); color:#000; border:none; margin-right:8px;">🗑️ Clear All</button>
+        <button class="btn btn-sm" onclick="fetchSystemLogs(this)" style="font-size:12px;">🔄 Refresh</button>
       `;
   }
   
+  if (!filtered.length) {
+    container.innerHTML = '<div class="card" style="padding:16px; text-align:center; color:var(--muted);">No system logs match the current filter/search.</div>';
+    return;
+  }
+
   let html = '<div style="max-height:400px; overflow-y:auto; display:flex; flex-direction:column; gap:8px;">';
-  logs.forEach((log, index) => {
+  filtered.forEach((log, index) => {
     const levelColor = log.level === 'CRITICAL' ? 'var(--warn)' : 'var(--amber)';
     const safeMessage = escapeHTML(log.message);
     const safeTraceback = escapeHTML(log.traceback);
@@ -10394,9 +10747,102 @@ function renderDatabaseExplorerGrid() {
 
 window._nearMissesCache = [];
 
+function resetMissedOppsFilters() {
+  const inputEl = document.getElementById('filterMissedOppsInput');
+  const daysEl = document.getElementById('filterMissedDays');
+  const scannerEl = document.getElementById('filterMissedScanner');
+  const verdictEl = document.getElementById('filterMissedVerdict');
+  const gradeEl = document.getElementById('filterMissedGrade');
+  const sortEl = document.getElementById('filterMissedSort');
+  if (inputEl) inputEl.value = '';
+  if (daysEl) daysEl.value = 'all';
+  if (scannerEl) scannerEl.value = '';
+  if (verdictEl) verdictEl.value = '';
+  if (gradeEl) gradeEl.value = '';
+  if (sortEl) sortEl.value = 'date_desc';
+  loadNearMisses(true);
+}
+
 function filterMissedOpps(query) {
-  const q = (query || '').trim().toUpperCase();
-  const filtered = window._nearMissesCache.filter(item => !q || (item.symbol || '').toUpperCase().includes(q) || (item.scanner || '').toUpperCase().includes(q) || (item.gate_name || '').toUpperCase().includes(q));
+  const searchInput = document.getElementById('filterMissedOppsInput');
+  const verdictEl = document.getElementById('filterMissedVerdict');
+  const gradeEl = document.getElementById('filterMissedGrade');
+  const sortEl = document.getElementById('filterMissedSort');
+
+  const q = (query !== undefined ? query : (searchInput && searchInput.value ? searchInput.value : '')).trim().toUpperCase();
+  const verdict = verdictEl ? verdictEl.value.toUpperCase() : '';
+  const grade = gradeEl ? gradeEl.value.toUpperCase() : '';
+  const sortBy = sortEl ? sortEl.value : 'date_desc';
+
+  let filtered = (window._nearMissesCache || []).filter(item => {
+    // Text search (Symbol / Scanner / Gate / Reason / Audit)
+    if (q) {
+      const sym = (item.symbol || '').toUpperCase();
+      const sc = (item.scanner || '').toUpperCase();
+      const gate = (item.gate_name || '').toUpperCase();
+      const audit = (item.rejection_audit || '').toUpperCase();
+      const st = (item.status || '').toUpperCase();
+      if (!sym.includes(q) && !sc.includes(q) && !gate.includes(q) && !audit.includes(q) && !st.includes(q)) {
+        return false;
+      }
+    }
+
+    // Rejection Verdict filter
+    if (verdict) {
+      const itemAudit = String(item.rejection_audit || '').toUpperCase();
+      const itemStatus = String(item.status || '').toUpperCase();
+      const isFb = Boolean(item.is_fallback);
+      if (verdict === 'GOOD') {
+        if (!itemAudit.includes('GOOD') && itemStatus !== 'STOP_HIT') return false;
+      } else if (verdict === 'BAD') {
+        if (!itemAudit.includes('BAD') && itemStatus !== 'TARGET_HIT') return false;
+      } else if (verdict === 'AUDITING') {
+        if (itemAudit.includes('GOOD') || itemAudit.includes('BAD') || isFb || itemStatus === 'STOP_HIT' || itemStatus === 'TARGET_HIT') return false;
+      } else if (verdict === 'EXCLUDED') {
+        if (!isFb && itemStatus !== 'FORENSIC_EXCLUSION_FALLBACK') return false;
+      }
+    }
+
+    // Quality Grade filter
+    if (grade) {
+      const scoreVal = item.score !== undefined && item.score !== null ? item.score : item.observed_value;
+      const g = item.quality_grade || (typeof scoreVal === 'number' ? (scoreVal >= 75 ? 'A' : scoreVal >= 60 ? 'B' : scoreVal >= 45 ? 'C' : 'D') : '');
+      if (String(g).toUpperCase() !== grade) return false;
+    }
+
+    return true;
+  });
+
+  // Multi-column sorting
+  filtered.sort((a, b) => {
+    if (sortBy === 'date_asc') {
+      return (new Date(a.logged_at || a.logged_date || 0)) - (new Date(b.logged_at || b.logged_date || 0));
+    } else if (sortBy === 'ret1d_desc') {
+      const rA = (a.return_1d !== null && a.return_1d !== undefined) ? parseFloat(a.return_1d) : (parseFloat(a.live_return_pct) || -999);
+      const rB = (b.return_1d !== null && b.return_1d !== undefined) ? parseFloat(b.return_1d) : (parseFloat(b.live_return_pct) || -999);
+      return rB - rA;
+    } else if (sortBy === 'ret5d_desc') {
+      const rA = (a.return_5d !== null && a.return_5d !== undefined) ? parseFloat(a.return_5d) : -999;
+      const rB = (b.return_5d !== null && b.return_5d !== undefined) ? parseFloat(b.return_5d) : -999;
+      return rB - rA;
+    } else if (sortBy === 'ret20d_desc') {
+      const rA = (a.return_20d !== null && a.return_20d !== undefined) ? parseFloat(a.return_20d) : -999;
+      const rB = (b.return_20d !== null && b.return_20d !== undefined) ? parseFloat(b.return_20d) : -999;
+      return rB - rA;
+    } else if (sortBy === 'mfe_desc') {
+      const mfeA = parseFloat(a.max_mfe_r || a.live_mfe_r || 0);
+      const mfeB = parseFloat(b.max_mfe_r || b.live_mfe_r || 0);
+      return mfeB - mfeA;
+    } else if (sortBy === 'score_desc') {
+      const sA = parseFloat(a.score || a.observed_value || 0);
+      const sB = parseFloat(b.score || b.observed_value || 0);
+      return sB - sA;
+    } else {
+      // date_desc (default)
+      return (new Date(b.logged_at || b.logged_date || 0)) - (new Date(a.logged_at || a.logged_date || 0));
+    }
+  });
+
   renderNearMissesRows(filtered);
   const countEl = document.getElementById('missed-opps-count');
   if (countEl) countEl.innerText = `${filtered.length} of ${window._nearMissesCache.length} rejections`;
@@ -10551,31 +10997,43 @@ function renderNearMissesRows(data) {
 let _lastNearMissesFetchTs = 0;
 let _lastNearMissesKey = '';
 function loadNearMisses(forceRefresh = false) {
-  const scannerEl = document.getElementById('near-miss-scanner-filter');
-  const daysEl = document.getElementById('near-miss-days-filter');
-  const tbody = document.getElementById('near-misses-tbody');
-  if (!tbody) return;
+  const isTab3 = (typeof activeAdminTab !== 'undefined' && activeAdminTab === 'watchlist-users');
+  const daysTab3 = document.getElementById('near-miss-days-filter');
+  const scannerTab3 = document.getElementById('near-miss-scanner-filter');
+  const daysTab0D = document.getElementById('filterMissedDays');
+  const scannerTab0D = document.getElementById('filterMissedScanner');
 
-  const scanner = scannerEl ? scannerEl.value : '';
-  const days = daysEl ? daysEl.value : 7;
+  let days = 'all';
+  let scanner = '';
+
+  if (isTab3 && daysTab3) {
+    days = daysTab3.value || 'all';
+    scanner = scannerTab3 ? scannerTab3.value : '';
+    if (daysTab0D) daysTab0D.value = days;
+    if (scannerTab0D) scannerTab0D.value = scanner;
+  } else {
+    days = daysTab0D ? daysTab0D.value : (daysTab3 ? daysTab3.value : 'all');
+    scanner = scannerTab0D ? scannerTab0D.value : (scannerTab3 ? scannerTab3.value : '');
+    if (daysTab3) daysTab3.value = days;
+    if (scannerTab3) scannerTab3.value = scanner;
+  }
+
   const cacheKey = `${days}_${scanner}`;
   const now = Date.now();
 
   if (!forceRefresh && (now - _lastNearMissesFetchTs < 5000) && _lastNearMissesKey === cacheKey && window._nearMissesCache && window._nearMissesCache.length > 0) {
-    renderNearMissesRows(window._nearMissesCache);
+    filterMissedOpps();
     return;
   }
 
   _lastNearMissesFetchTs = now;
   _lastNearMissesKey = cacheKey;
 
-  fetch(`/api/near_misses?days=${days}&scanner=${encodeURIComponent(scanner)}`)
+  fetch(`/api/near_misses?days=${encodeURIComponent(days)}&scanner=${encodeURIComponent(scanner)}&limit=5000`)
     .then(res => res.json())
     .then(data => {
       window._nearMissesCache = Array.isArray(data) ? data : [];
-      renderNearMissesRows(window._nearMissesCache);
-      const countEl = document.getElementById('missed-opps-count');
-      if (countEl) countEl.innerText = `${window._nearMissesCache.length} rejections`;
+      filterMissedOpps();
     })
     .catch(err => {
       console.warn('Failed to load near misses:', err);
@@ -10588,12 +11046,85 @@ window._masterAlertsCache = [];
 window._stocksWatchCache = [];
 window._investmentWatchCache = [];
 
+function resetMasterFilters() {
+  const inputEl = document.getElementById('filterMasterSignalsInput');
+  const scannerEl = document.getElementById('filterMasterScanner');
+  const gradeEl = document.getElementById('filterMasterGrade');
+  const confEl = document.getElementById('filterMasterConfluence');
+  const rrEl = document.getElementById('filterMasterRR');
+  const sortEl = document.getElementById('filterMasterSort');
+  if (inputEl) inputEl.value = '';
+  if (scannerEl) scannerEl.value = '';
+  if (gradeEl) gradeEl.value = '';
+  if (confEl) confEl.value = '';
+  if (rrEl) rrEl.value = '';
+  if (sortEl) sortEl.value = 'newest';
+  filterMasterSignals();
+}
+
 function filterMasterSignals(query) {
-  const q = (query || '').trim().toUpperCase();
-  const filtered = window._masterAlertsCache.filter(item => !q || (item.symbol || '').toUpperCase().includes(q) || (item.scanners || []).join(' ').toUpperCase().includes(q));
+  const searchInput = document.getElementById('filterMasterSignalsInput');
+  const scannerEl = document.getElementById('filterMasterScanner');
+  const gradeEl = document.getElementById('filterMasterGrade');
+  const confEl = document.getElementById('filterMasterConfluence');
+  const rrEl = document.getElementById('filterMasterRR');
+  const sortEl = document.getElementById('filterMasterSort');
+
+  const q = (query !== undefined ? query : (searchInput && searchInput.value ? searchInput.value : '')).trim().toUpperCase();
+  const scanner = scannerEl ? scannerEl.value.toUpperCase() : '';
+  const grade = gradeEl ? gradeEl.value.toUpperCase() : '';
+  const conf = confEl ? confEl.value.toUpperCase() : '';
+  const minRR = rrEl && rrEl.value ? parseFloat(rrEl.value) : 0;
+  const sortBy = sortEl ? sortEl.value : 'newest';
+
+  let filtered = (window._masterAlertsCache || []).filter(item => {
+    if (q) {
+      const sym = (item.symbol || '').toUpperCase();
+      const scStr = (item.scanners || []).join(' ').toUpperCase();
+      const why = String(item.checklist_cleared || item.why_qualifies || '').toUpperCase();
+      if (!sym.includes(q) && !scStr.includes(q) && !why.includes(q)) return false;
+    }
+
+    if (scanner) {
+      const scList = (item.scanners || []).map(s => String(s).toUpperCase());
+      const scRaw = String(item.scanner || '').toUpperCase();
+      if (!scList.some(s => s.includes(scanner)) && !scRaw.includes(scanner)) return false;
+    }
+
+    if (grade) {
+      const g = String(item.quality_grade || '').toUpperCase();
+      if (!g.startsWith(grade)) return false;
+    }
+
+    if (conf) {
+      const tier = String(item.meta_confluence_tier || '').toUpperCase();
+      if (!tier.includes(conf)) return false;
+    }
+
+    if (minRR > 0) {
+      const rr = parseFloat(item.rr_ratio) || 0;
+      if (rr < minRR) return false;
+    }
+
+    return true;
+  });
+
+  filtered.sort((a, b) => {
+    if (sortBy === 'rr_desc') {
+      return (parseFloat(b.rr_ratio) || 0) - (parseFloat(a.rr_ratio) || 0);
+    } else if (sortBy === 'cmp_desc') {
+      return (parseFloat(b.cmp || b.entry_price || 0)) - (parseFloat(a.cmp || a.entry_price || 0));
+    } else if (sortBy === 'sym_asc') {
+      return String(a.symbol || '').localeCompare(String(b.symbol || ''));
+    } else {
+      // newest
+      return (new Date(b.alert_time || 0)) - (new Date(a.alert_time || 0));
+    }
+  });
+
   renderMasterSignalsRows(filtered);
   const countEl = document.getElementById('master-signals-count');
-  if (countEl) countEl.innerText = `${filtered.length} of ${window._masterAlertsCache.length} signals`;
+  if (countEl) countEl.innerText = `${filtered.length} of ${window._masterAlertsCache.length} confirmed signals`;
 }
 
 function renderMasterSignalsRows(data) {
@@ -10632,9 +11163,89 @@ function formatWhyQualifies(str) {
   return formatText(s);
 }
 
+function resetWatchFilters() {
+  const inputEl = document.getElementById('filterStocksWatchInput');
+  const scannerEl = document.getElementById('filterWatchScanner');
+  const stageEl = document.getElementById('filterWatchStage');
+  const distEl = document.getElementById('filterWatchDistance');
+  const matEl = document.getElementById('filterWatchMaturity');
+  const sortEl = document.getElementById('filterWatchSort');
+  if (inputEl) inputEl.value = '';
+  if (scannerEl) scannerEl.value = '';
+  if (stageEl) stageEl.value = '';
+  if (distEl) distEl.value = '';
+  if (matEl) matEl.value = '';
+  if (sortEl) sortEl.value = 'dist_asc';
+  filterStocksWatch();
+}
+
 function filterStocksWatch(query) {
-  const q = (query || '').trim().toUpperCase();
-  const filtered = window._stocksWatchCache.filter(item => !q || (item.symbol || '').toUpperCase().includes(q) || (item.scanner || '').toUpperCase().includes(q));
+  const searchInput = document.getElementById('filterStocksWatchInput');
+  const scannerEl = document.getElementById('filterWatchScanner');
+  const stageEl = document.getElementById('filterWatchStage');
+  const distEl = document.getElementById('filterWatchDistance');
+  const matEl = document.getElementById('filterWatchMaturity');
+  const sortEl = document.getElementById('filterWatchSort');
+
+  const q = (query !== undefined ? query : (searchInput && searchInput.value ? searchInput.value : '')).trim().toUpperCase();
+  const scanner = scannerEl ? scannerEl.value.toUpperCase() : '';
+  const stage = stageEl ? stageEl.value.toUpperCase() : '';
+  const distFilter = distEl ? distEl.value : '';
+  const matFilter = matEl ? matEl.value : '';
+  const sortBy = sortEl ? sortEl.value : 'dist_asc';
+
+  let filtered = (window._stocksWatchCache || []).filter(item => {
+    if (q) {
+      const sym = (item.symbol || '').toUpperCase();
+      const sc = String(item.scanner || '').toUpperCase();
+      const blocker = String(item.primary_blocker || '').toUpperCase();
+      const why = String(item.why_qualifies || '').toUpperCase();
+      if (!sym.includes(q) && !sc.includes(q) && !blocker.includes(q) && !why.includes(q)) return false;
+    }
+
+    if (scanner) {
+      const sc = String(item.scanner || '').toUpperCase();
+      if (!sc.includes(scanner)) return false;
+    }
+
+    if (stage) {
+      const st = String(item.stage || '').toUpperCase();
+      if (!st.includes(stage)) return false;
+    }
+
+    if (distFilter) {
+      const dist = item.distance_pct !== null && item.distance_pct !== undefined ? parseFloat(item.distance_pct) : null;
+      if (dist === null) return false;
+      if (distFilter === '2.0' && dist > 2.0) return false;
+      if (distFilter === '5.0' && dist > 5.0) return false;
+      if (distFilter === 'gt5' && dist <= 5.0) return false;
+    }
+
+    if (matFilter) {
+      const mat = item.maturity_score !== null && item.maturity_score !== undefined ? parseFloat(item.maturity_score) : 0;
+      if (matFilter === '70' && mat < 70) return false;
+      if (matFilter === '50' && (mat < 50 || mat >= 70)) return false;
+      if (matFilter === 'lt50' && mat >= 50) return false;
+    }
+
+    return true;
+  });
+
+  filtered.sort((a, b) => {
+    if (sortBy === 'dist_asc') {
+      const dA = a.distance_pct !== null && a.distance_pct !== undefined ? parseFloat(a.distance_pct) : 999;
+      const dB = b.distance_pct !== null && b.distance_pct !== undefined ? parseFloat(b.distance_pct) : 999;
+      return dA - dB;
+    } else if (sortBy === 'maturity_desc') {
+      return (parseFloat(b.maturity_score) || 0) - (parseFloat(a.maturity_score) || 0);
+    } else if (sortBy === 'cmp_desc') {
+      return (parseFloat(b.cmp) || 0) - (parseFloat(a.cmp) || 0);
+    } else if (sortBy === 'sym_asc') {
+      return String(a.symbol || '').localeCompare(String(b.symbol || ''));
+    }
+    return 0;
+  });
+
   renderStocksWatchRows(filtered);
   const countEl = document.getElementById('stocks-watch-count');
   if (countEl) countEl.innerText = `${filtered.length} of ${window._stocksWatchCache.length} watching`;
@@ -10709,9 +11320,72 @@ function renderStocksWatchRows(data) {
   }).join('');
 }
 
+function resetInvestFilters() {
+  const inputEl = document.getElementById('filterInvestmentWatchInput');
+  const stateEl = document.getElementById('filterInvestState');
+  const valEl = document.getElementById('filterInvestValuation');
+  const mosEl = document.getElementById('filterInvestMoS');
+  const sortEl = document.getElementById('filterInvestSort');
+  if (inputEl) inputEl.value = '';
+  if (stateEl) stateEl.value = '';
+  if (valEl) valEl.value = '';
+  if (mosEl) mosEl.value = '';
+  if (sortEl) sortEl.value = 'mos_desc';
+  filterInvestmentWatch();
+}
+
 function filterInvestmentWatch(query) {
-  const q = (query || '').trim().toUpperCase();
-  const filtered = window._investmentWatchCache.filter(item => !q || (item.symbol || '').toUpperCase().includes(q) || (item.business_quality || '').toUpperCase().includes(q));
+  const searchInput = document.getElementById('filterInvestmentWatchInput');
+  const stateEl = document.getElementById('filterInvestState');
+  const valEl = document.getElementById('filterInvestValuation');
+  const mosEl = document.getElementById('filterInvestMoS');
+  const sortEl = document.getElementById('filterInvestSort');
+
+  const q = (query !== undefined ? query : (searchInput && searchInput.value ? searchInput.value : '')).trim().toUpperCase();
+  const state = stateEl ? stateEl.value.toUpperCase() : '';
+  const valGrade = valEl ? valEl.value.toUpperCase() : '';
+  const mosFilter = mosEl ? mosEl.value : '';
+  const sortBy = sortEl ? sortEl.value : 'mos_desc';
+
+  let filtered = (window._investmentWatchCache || []).filter(item => {
+    if (q) {
+      const sym = (item.symbol || '').toUpperCase();
+      const bq = String(item.business_quality || '').toUpperCase();
+      const why = String(item.why_qualifies || '').toUpperCase();
+      if (!sym.includes(q) && !bq.includes(q) && !why.includes(q)) return false;
+    }
+
+    if (state) {
+      const st = String(item.investment_state || '').toUpperCase();
+      if (!st.includes(state)) return false;
+    }
+
+    if (valGrade) {
+      const vg = String(item.valuation_grade || '').toUpperCase();
+      if (!vg.includes(valGrade)) return false;
+    }
+
+    if (mosFilter) {
+      const mos = item.margin_of_safety_pct !== null && item.margin_of_safety_pct !== undefined ? parseFloat(item.margin_of_safety_pct) : 0;
+      if (mosFilter === '25' && mos < 25) return false;
+      if (mosFilter === '10' && (mos < 10 || mos >= 25)) return false;
+      if (mosFilter === 'lt10' && mos >= 10) return false;
+    }
+
+    return true;
+  });
+
+  filtered.sort((a, b) => {
+    if (sortBy === 'mos_desc') {
+      return (parseFloat(b.margin_of_safety_pct) || 0) - (parseFloat(a.margin_of_safety_pct) || 0);
+    } else if (sortBy === 'cmp_desc') {
+      return (parseFloat(b.cmp) || 0) - (parseFloat(a.cmp) || 0);
+    } else if (sortBy === 'sym_asc') {
+      return String(a.symbol || '').localeCompare(String(b.symbol || ''));
+    }
+    return 0;
+  });
+
   renderInvestmentWatchRows(filtered);
   const countEl = document.getElementById('investment-watch-count');
   if (countEl) countEl.innerText = `${filtered.length} of ${window._investmentWatchCache.length} compounders`;
@@ -11072,13 +11746,27 @@ function filterWealthCategory(cat) {
   }
 }
 
+function onWealthSearchOrSortChange() {
+  window._adminWealthHoldingsPage = 1;
+  renderWealthHoldingsTable(window.ALL_WEALTH_HOLDINGS_CACHE || [], window.ACTIVE_WEALTH_CATEGORY || 'ALL');
+}
+
+function resetWealthSearchAndSort() {
+  const searchInput = document.getElementById('wealth-search-input');
+  const sortSelect = document.getElementById('wealth-sort-select');
+  if (searchInput) searchInput.value = '';
+  if (sortSelect) sortSelect.value = 'DEFAULT';
+  window._adminWealthHoldingsPage = 1;
+  renderWealthHoldingsTable(window.ALL_WEALTH_HOLDINGS_CACHE || [], window.ACTIVE_WEALTH_CATEGORY || 'ALL');
+}
+
 function renderWealthHoldingsTable(items, filterBucket) {
   const tbody = document.getElementById('wealth-holdings-tbody');
   if (!tbody) return;
 
-  let filtered = items;
+  let filtered = items || [];
   if (filterBucket && filterBucket !== 'ALL') {
-    filtered = items.filter(i => {
+    filtered = filtered.filter(i => {
       const b = String(i.Portfolio_Bucket || '');
       if (filterBucket === 'BUY') return (i.Signal || i.Signal_Code || '').includes('BUY');
       if (filterBucket === 'Core') return b.includes('Core') || i.Core_Selected;
@@ -11086,8 +11774,30 @@ function renderWealthHoldingsTable(items, filterBucket) {
     });
   }
 
+  const searchQ = (document.getElementById('wealth-search-input')?.value || '').trim().toLowerCase();
+  if (searchQ) {
+    filtered = filtered.filter(i => {
+      const sym = String(i.Stock || i.symbol || '').toLowerCase();
+      const sec = String(i.Sector || i.sector || '').toLowerCase();
+      const bkt = String(i.Portfolio_Bucket || '').toLowerCase();
+      const cat = String(i.Category || '').toLowerCase();
+      return sym.includes(searchQ) || sec.includes(searchQ) || bkt.includes(searchQ) || cat.includes(searchQ);
+    });
+  }
+
+  const sortVal = document.getElementById('wealth-sort-select')?.value || 'DEFAULT';
+  filtered = [...filtered].sort((a, b) => {
+    if (sortVal === 'FM_DESC') return (parseFloat(b.FM_Score || b.score || 0)) - (parseFloat(a.FM_Score || a.score || 0));
+    if (sortVal === 'MOM_DESC') return (parseFloat(b.momentum_score || 0)) - (parseFloat(a.momentum_score || 0));
+    if (sortVal === 'RS_DESC') return (parseFloat(b.rs_6m || 0)) - (parseFloat(a.rs_6m || 0));
+    if (sortVal === 'CMP_DESC') return (parseFloat(b.cmp || b.Close || 0)) - (parseFloat(a.cmp || a.Close || 0));
+    if (sortVal === 'CMP_ASC') return (parseFloat(a.cmp || a.Close || 0)) - (parseFloat(b.cmp || b.Close || 0));
+    if (sortVal === 'SYM_ASC') return String(a.Stock || a.symbol || '').localeCompare(String(b.Stock || b.symbol || ''));
+    return 0;
+  });
+
   if (filtered.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">No stocks matching selected bucket '${filterBucket || 'ALL'}'.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">No stocks matching selected criteria.</td></tr>`;
     return;
   }
   const totalPages = Math.ceil(filtered.length / ADMIN_PAGE_SIZE);
@@ -11218,35 +11928,123 @@ window.changeAdminPage = function(type, delta) {
     }
 };
 
+let _rawConfluenceList = [];
+
 function loadConfluenceMatrixTab() {
   fetch('/api/v2/confluence_breakdown')
     .then(r => r.json())
     .then(data => {
-      const tbody = document.getElementById('confluence-matrix-tbody');
-      if (!tbody) return;
-      window._forensicStore.confluence = Array.isArray(data) ? data : [];
-      if (!Array.isArray(data) || data.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:20px; color:var(--muted);">No active multi-scanner confluence setups right now.</td></tr>`;
-        return;
-      }
-      tbody.innerHTML = data.map((item, idx) => `
-        <tr class="clickable-stock-row" onclick="openStockForensics('confluence', ${idx})" title="Click to view full Forensic Audit &amp; Technical Radar">
-          <td style="font-weight:700; color:var(--accent);">${formatStockSymbolLink(item.symbol)}</td>
-          <td onclick="event.stopPropagation()">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
-          <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp)}</td>
-          <td>${(item.participating_scanners || []).join(', ')}</td>
-          <td><span class="badge-ok">${item.confluence_depth} Engines</span></td>
-          <td><span class="${item.is_fallback ? 'badge-queued' : 'badge-ok'}">${formatText(item.confluence_tier || 'HIGH CONFLUENCE')}</span></td>
-          <td style="font-size:11px; color:${item.is_fallback ? 'var(--muted)' : 'var(--win)'};">${item.is_fallback ? 'BASELINE OBSERVATION' : formatText(item.sample_floor_passed || 'VERIFIED (n >= 30)')}</td>
-          <td style="font-size:11px; color:var(--accent); font-weight:700;">${formatText(item.position_sizing_guidance || 'Standard Position Size')}</td>
-        </tr>
-      `).join('');
+      _rawConfluenceList = Array.isArray(data) ? data : [];
+      window._forensicStore.confluence = _rawConfluenceList;
+      filterAndRenderConfluenceMatrix();
     })
     .catch(e => {
       console.warn('Failed to load confluence matrix:', e);
       const tbody = document.getElementById('confluence-matrix-tbody');
       if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:20px; color:var(--muted);">No active multi-scanner confluence setups right now.</td></tr>`;
     });
+}
+
+function filterAndRenderConfluenceMatrix() {
+  const tbody = document.getElementById('confluence-matrix-tbody');
+  const countEl = document.getElementById('confluence-filtered-count');
+  if (!tbody) return;
+
+  const searchQ = (document.getElementById('confluence-search-input')?.value || '').trim().toLowerCase();
+  const depthFilter = document.getElementById('confluence-depth-filter')?.value || 'ALL';
+  const guardFilter = document.getElementById('confluence-guard-filter')?.value || 'ALL';
+  const sortOption = document.getElementById('confluence-sort-select')?.value || 'depth_desc';
+
+  let list = [..._rawConfluenceList];
+
+  if (searchQ) {
+    list = list.filter(item => {
+      const sym = (item.symbol || '').toLowerCase();
+      const scanners = (item.participating_scanners || []).join(' ').toLowerCase();
+      return sym.includes(searchQ) || scanners.includes(searchQ);
+    });
+  }
+
+  if (depthFilter === 'APEX') {
+    list = list.filter(item => (item.confluence_depth || 0) >= 3);
+  } else if (depthFilter === 'HIGH') {
+    list = list.filter(item => (item.confluence_depth || 0) === 2);
+  }
+
+  if (guardFilter === 'VERIFIED') {
+    list = list.filter(item => !item.is_fallback);
+  } else if (guardFilter === 'BASELINE') {
+    list = list.filter(item => item.is_fallback);
+  }
+
+  list.sort((a, b) => {
+    if (sortOption === 'depth_desc') return (b.confluence_depth || 0) - (a.confluence_depth || 0);
+    if (sortOption === 'price_desc') return (b.cmp || 0) - (a.cmp || 0);
+    if (sortOption === 'price_asc') return (a.cmp || 0) - (b.cmp || 0);
+    if (sortOption === 'symbol_asc') return (a.symbol || '').localeCompare(b.symbol || '');
+    return 0;
+  });
+
+  if (countEl) {
+    countEl.textContent = `Showing ${list.length} of ${_rawConfluenceList.length} setups`;
+  }
+
+  if (list.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; padding:20px; color:var(--muted);">No confluence setups match the selected filters.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = list.map((item, idx) => `
+    <tr class="clickable-stock-row" onclick="openStockForensics('confluence', ${idx})" title="Click to view full Forensic Audit &amp; Technical Radar">
+      <td style="font-weight:700; color:var(--accent);">${formatStockSymbolLink(item.symbol)}</td>
+      <td onclick="event.stopPropagation()">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
+      <td style="font-weight:700; color:var(--text);">${formatPrice(item.cmp)}</td>
+      <td>${(item.participating_scanners || []).join(', ')}</td>
+      <td><span class="badge-ok">${item.confluence_depth} Engines</span></td>
+      <td><span class="${item.is_fallback ? 'badge-queued' : 'badge-ok'}">${formatText(item.confluence_tier || 'HIGH CONFLUENCE')}</span></td>
+      <td style="font-size:11px; color:${item.is_fallback ? 'var(--muted)' : 'var(--win)'};">${item.is_fallback ? 'BASELINE OBSERVATION' : formatText(item.sample_floor_passed || 'VERIFIED (n >= 30)')}</td>
+      <td style="font-size:11px; color:var(--accent); font-weight:700;">${formatText(item.position_sizing_guidance || 'Standard Position Size')}</td>
+    </tr>
+  `).join('');
+}
+
+function resetConfluenceMatrixFilters() {
+  const sInput = document.getElementById('confluence-search-input');
+  const dFilter = document.getElementById('confluence-depth-filter');
+  const gFilter = document.getElementById('confluence-guard-filter');
+  const sSelect = document.getElementById('confluence-sort-select');
+  if (sInput) sInput.value = '';
+  if (dFilter) dFilter.value = 'ALL';
+  if (gFilter) gFilter.value = 'ALL';
+  if (sSelect) sSelect.value = 'depth_desc';
+  filterAndRenderConfluenceMatrix();
+}
+
+function exportConfluenceMatrixCSV() {
+  if (!_rawConfluenceList || _rawConfluenceList.length === 0) {
+    if (typeof showCustomToast === 'function') showCustomToast('No confluence setups to export', 'warn');
+    return;
+  }
+  const headers = ['Symbol', 'CMP', 'Engines', 'Confluence Depth', 'Tier', 'Guard Status', 'Sizing Guidance'];
+  const rows = _rawConfluenceList.map(item => [
+    `"${item.symbol || ''}"`,
+    item.cmp || 0,
+    `"${(item.participating_scanners || []).join(', ')}"`,
+    item.confluence_depth || 0,
+    `"${item.confluence_tier || 'HIGH CONFLUENCE'}"`,
+    `"${item.is_fallback ? 'BASELINE OBSERVATION' : (item.sample_floor_passed || 'VERIFIED')}"`,
+    `"${item.position_sizing_guidance || 'Standard Position Size'}"`
+  ]);
+  const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `confluence_setups_${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // Initial watchlist & database summary load
@@ -11442,11 +12240,65 @@ document.addEventListener("DOMContentLoaded", function() {
 </script>
 
 <script>
+window._currentUniverseTier = 'ELITE';
+window._currentUniverseData = [];
+
+function filterInlineUniverseData(query) {
+  const thead = document.getElementById('universe-details-thead');
+  const tbody = document.getElementById('universe-details-tbody');
+  if (!tbody) return;
+
+  const q = (query || '').trim().toUpperCase();
+  const tier = window._currentUniverseTier || 'ELITE';
+  const filtered = (window._currentUniverseData || []).filter(r => {
+    if (!q) return true;
+    const sym = (r.symbol || '').toUpperCase();
+    const reason = (r.primary_exclusion_code || r.business_quality || r.exclusion_class || '').toUpperCase();
+    return sym.includes(q) || reason.includes(q);
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--muted);">No matching records found for "${q}".</td></tr>`;
+    return;
+  }
+
+  let htmlHead = '';
+  let htmlBody = '';
+
+  if (tier === 'ELITE' || tier === 'NEAR_QUALIFIED') {
+    htmlHead = `<tr><th style="padding:10px;">Symbol</th><th style="padding:10px;">Quality Score</th><th style="padding:10px;">Data Confidence</th><th style="padding:10px;">Business Quality</th>${tier === 'NEAR_QUALIFIED' ? '<th style="padding:10px;">NQ Mode</th>' : ''}</tr>`;
+    htmlBody = filtered.map(r => `
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px; font-weight:bold; color:var(--accent); font-family:var(--font-mono);">${formatStockSymbolLink(r.symbol)}</td>
+        <td style="padding:8px; font-family:var(--font-mono); font-weight:700;">${r.score != null ? r.score : '—'}</td>
+        <td style="padding:8px;"><span class="badge-ok">${r.confidence || 'HIGH'}</span></td>
+        <td style="padding:8px;">${r.business_quality || '—'}</td>
+        ${tier === 'NEAR_QUALIFIED' ? `<td style="padding:8px; color:var(--amber); font-family:var(--font-mono);">${r.nq_mode || 'PRE_WATCH'}</td>` : ''}
+      </tr>
+    `).join('');
+  } else {
+    htmlHead = `<tr><th style="padding:10px;">Symbol</th><th style="padding:10px;">Quality Score</th><th style="padding:10px;">Exclusion Class</th><th style="padding:10px;">Primary Exclusion Reason</th></tr>`;
+    htmlBody = filtered.map(r => `
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:8px; font-weight:bold; color:var(--text); font-family:var(--font-mono);">${formatStockSymbolLink(r.symbol)}</td>
+        <td style="padding:8px; font-family:var(--font-mono);">${r.score != null ? r.score : '—'}</td>
+        <td style="padding:8px;"><span class="badge-idle">${r.exclusion_class || 'BLOCKED'}</span></td>
+        <td style="padding:8px; color:var(--warn); font-size:12px;">${r.primary_exclusion_code || '—'}</td>
+      </tr>
+    `).join('');
+  }
+
+  if (thead) thead.innerHTML = htmlHead;
+  tbody.innerHTML = htmlBody;
+}
+
 function loadInlineUniverseData(tierStr) {
   const badge = document.getElementById('universe-tier-badge');
   const thead = document.getElementById('universe-details-thead');
   const tbody = document.getElementById('universe-details-tbody');
   const metaDiv = document.getElementById('universe-details-meta');
+  const searchInput = document.getElementById('filterUniverseSearchInput');
+  if (searchInput) searchInput.value = '';
 
   if (!tbody) return;
 
@@ -11455,6 +12307,8 @@ function loadInlineUniverseData(tierStr) {
   else if (tierStr.includes('NEAR')) tier = 'NEAR_QUALIFIED';
   else if (tierStr.includes('EXCLUDED')) tier = 'EXCLUDED';
   else tier = tierStr;
+
+  window._currentUniverseTier = tier;
 
   if (badge) {
     badge.innerText = tier;
@@ -11469,6 +12323,7 @@ function loadInlineUniverseData(tierStr) {
   fetch('/api/v2/universe_data?tier=' + tier)
     .then(r => r.json())
     .then(data => {
+      window._currentUniverseData = data.data || [];
       if (!data.data || data.data.length === 0) {
         tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--muted);">No records available for ' + tier + '.</td></tr>';
         metaDiv.innerHTML = '<strong>Tier:</strong> ' + tier + ' | <strong>Records:</strong> 0';
@@ -11484,34 +12339,7 @@ function loadInlineUniverseData(tierStr) {
         `;
       }
 
-      let htmlHead = '';
-      let htmlBody = '';
-
-      if (tier === 'ELITE' || tier === 'NEAR_QUALIFIED') {
-        htmlHead = `<tr><th style="padding:10px;">Symbol</th><th style="padding:10px;">Quality Score</th><th style="padding:10px;">Data Confidence</th><th style="padding:10px;">Business Quality</th>${tier === 'NEAR_QUALIFIED' ? '<th style="padding:10px;">NQ Mode</th>' : ''}</tr>`;
-        htmlBody = data.data.map(r => `
-          <tr style="border-bottom:1px solid var(--border);">
-            <td style="padding:8px; font-weight:bold; color:var(--accent); font-family:var(--font-mono);">${r.symbol || ''}</td>
-            <td style="padding:8px; font-family:var(--font-mono); font-weight:700;">${r.score != null ? r.score : '—'}</td>
-            <td style="padding:8px;"><span class="badge-ok">${r.confidence || 'HIGH'}</span></td>
-            <td style="padding:8px;">${r.business_quality || '—'}</td>
-            ${tier === 'NEAR_QUALIFIED' ? `<td style="padding:8px; color:var(--amber); font-family:var(--font-mono);">${r.nq_mode || 'PRE_WATCH'}</td>` : ''}
-          </tr>
-        `).join('');
-      } else {
-        htmlHead = `<tr><th style="padding:10px;">Symbol</th><th style="padding:10px;">Quality Score</th><th style="padding:10px;">Exclusion Class</th><th style="padding:10px;">Primary Exclusion Reason</th></tr>`;
-        htmlBody = data.data.map(r => `
-          <tr style="border-bottom:1px solid var(--border);">
-            <td style="padding:8px; font-weight:bold; color:var(--text); font-family:var(--font-mono);">${r.symbol || ''}</td>
-            <td style="padding:8px; font-family:var(--font-mono);">${r.score != null ? r.score : '—'}</td>
-            <td style="padding:8px;"><span class="badge-idle">${r.exclusion_class || 'BLOCKED'}</span></td>
-            <td style="padding:8px; color:var(--warn); font-size:12px;">${r.primary_exclusion_code || '—'}</td>
-          </tr>
-        `).join('');
-      }
-
-      thead.innerHTML = htmlHead;
-      tbody.innerHTML = htmlBody;
+      filterInlineUniverseData('');
     })
     .catch(err => {
       tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:20px; color:var(--warn);">Failed to load inline details.</td></tr>';
@@ -11528,7 +12356,7 @@ window._forensicStore = {
   confluence: []
 };
 
-function renderConfluenceBreakdown(scannersList, metaTier, depth) {
+function renderConfluenceBreakdown(scannersList, metaTier, depth, item) {
   const panel = document.getElementById('fm-confluence-panel');
   const grid = document.getElementById('fm-confluence-scanners-grid');
   const tierBadge = document.getElementById('fm-confluence-tier-badge');
@@ -11568,6 +12396,13 @@ function renderConfluenceBreakdown(scannersList, metaTier, depth) {
     const pattern = sc.breakout_type || 'BREAKOUT';
     const slMethod = sc.sl_method || 'Structural Anchor';
     const signals = sc.signals || 'Meets quantitative breakout criteria with confirmed volume expansion.';
+
+    // Format Alert Date for this specific engine
+    const rawDate = sc.alert_time || sc.alert_date || sc.entry_date || sc.logged_at || sc.timestamp || sc.created_at || item?.alert_time || item?.entry_date || item?.logged_at || item?.logged_date || item?.timestamp || item?.build_date || item?.date;
+    let alertDateFormatted = '—';
+    if (rawDate) {
+      alertDateFormatted = typeof formatISTDateTime === 'function' ? formatISTDateTime(rawDate) : (typeof formatISTDate === 'function' ? formatISTDate(rawDate) : String(rawDate));
+    }
     
     return `
       <div class="confluence-engine-card">
@@ -11575,10 +12410,11 @@ function renderConfluenceBreakdown(scannersList, metaTier, depth) {
           <div class="engine-title-wrap">
             <span class="engine-title">⚙️ ${formatText(scTitle)}</span>
             <span class="engine-tf-pill">${formatText(tf)}</span>
+            <span class="engine-date-pill" title="Engine Alert Timestamp">📅 ${alertDateFormatted}</span>
           </div>
-          <div style="display:flex; align-items:center; gap:6px;">
+          <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
             <span class="engine-state-pill">${formatText(state)}</span>
-            <span style="font-size:10px; font-weight:700; color:var(--accent); background:rgba(99,102,241,0.15); border:1px solid rgba(99,102,241,0.3); padding:2px 7px; border-radius:10px;">★ Score: ${score}</span>
+            <span class="engine-score-pill">★ Score: ${score}</span>
           </div>
         </div>
 
@@ -11587,17 +12423,17 @@ function renderConfluenceBreakdown(scannersList, metaTier, depth) {
             <div class="engine-m-label">Entry Price</div>
             <div class="engine-m-val" style="color:var(--text);">${entry}</div>
           </div>
-          <div class="engine-m-box">
+          <div class="engine-m-box" style="border-color:rgba(239,68,68,0.25);">
             <div class="engine-m-label">Stop Loss</div>
             <div class="engine-m-val" style="color:var(--loss);">${sl} <span style="font-size:9px; font-weight:600;">${riskPct}</span></div>
           </div>
-          <div class="engine-m-box">
+          <div class="engine-m-box" style="border-color:rgba(16,185,129,0.25);">
             <div class="engine-m-label">Target 1</div>
             <div class="engine-m-val" style="color:var(--win);">${t1} <span style="font-size:9px; font-weight:600;">${rewPct}</span></div>
           </div>
-          <div class="engine-m-box">
+          <div class="engine-m-box" style="border-color:rgba(99,102,241,0.25);">
             <div class="engine-m-label">Reward : Risk</div>
-            <div class="engine-m-val" style="color:var(--accent);">${rr}</div>
+            <div class="engine-m-val" style="color:var(--accent); font-weight:900;">${rr}</div>
           </div>
         </div>
 
@@ -11606,8 +12442,8 @@ function renderConfluenceBreakdown(scannersList, metaTier, depth) {
           <div class="engine-tech-pill">Vol Surge: <b>${vol}</b></div>
           <div class="engine-tech-pill">RSI: <b>${rsi}</b></div>
           <div class="engine-tech-pill">SL Rule: <b>${formatText(slMethod)}</b></div>
-          ${t2 ? `<div class="engine-tech-pill" style="color:var(--win);"><b>${t2}</b></div>` : ''}
-          ${t3 ? `<div class="engine-tech-pill" style="color:var(--win);"><b>${t3}</b></div>` : ''}
+          ${t2 ? `<div class="engine-tech-pill" style="color:var(--win); border-color:rgba(16,185,129,0.25);"><b>${t2}</b></div>` : ''}
+          ${t3 ? `<div class="engine-tech-pill" style="color:var(--win); border-color:rgba(16,185,129,0.25);"><b>${t3}</b></div>` : ''}
         </div>
 
         <div class="engine-signals-box">
@@ -11699,7 +12535,8 @@ function openStockForensics(typeOrObj, index) {
         rsi: 62.5,
         sl_method: meta.slRule,
         target_method: 'Multi-Cluster Fibonacci / R:R Consensus',
-        signals: meta.rationale
+        signals: meta.rationale,
+        alert_time: item.alert_time || item.entry_date || item.logged_at || item.timestamp || item.date
       };
     });
   }
@@ -11712,11 +12549,36 @@ function openStockForensics(typeOrObj, index) {
   const scoreVal = item.maturity_score != null ? item.maturity_score : (item.score != null ? item.score : (primaryEngine?.score != null ? primaryEngine.score : 88.0));
   const volVal = item.volume_surge != null ? item.volume_surge : (item.volume_ratio != null ? item.volume_ratio : (primaryEngine?.volume_ratio != null ? primaryEngine.volume_ratio : 3.2));
 
-  // Header Elements
+  // Top Header Elements
   document.getElementById('fm-symbol').textContent = symbol;
   document.getElementById('fm-badge-status').textContent = item.state || item.stage || item.investment_state || primaryEngine?.state || (item.rejected_gate ? `REJECTED: ${item.rejected_gate}` : 'ACTIVE');
   document.getElementById('fm-badge-scanners').textContent = participatingScanners.join(', ');
   
+  // Header CMP Box
+  const cmpEl = document.getElementById('fm-header-cmp');
+  const chgEl = document.getElementById('fm-header-change');
+  if (cmpEl) cmpEl.textContent = formatPrice(cmp);
+  if (chgEl) {
+    const ret = item.pnl_pct != null ? parseFloat(item.pnl_pct) : (item.live_return_pct != null ? parseFloat(item.live_return_pct) : (item.return_1d != null ? parseFloat(item.return_1d) : (entry > 0 && cmp > 0 ? ((cmp - entry) / entry * 100) : 0)));
+    const sign = ret >= 0 ? '+' : '';
+    chgEl.textContent = `${sign}${ret.toFixed(2)}%`;
+    chgEl.style.color = ret >= 0 ? '#34d399' : '#f87171';
+    chgEl.style.background = ret >= 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)';
+  }
+
+  // Header Alert Date Pill
+  const headerDatePill = document.getElementById('fm-header-alert-date');
+  const itemDate = item.alert_time || item.entry_date || item.logged_at || item.logged_date || item.timestamp || item.build_date || item.date;
+  if (headerDatePill) {
+    if (itemDate) {
+      headerDatePill.style.display = 'inline-flex';
+      const formattedDate = typeof formatISTDateTime === 'function' ? formatISTDateTime(itemDate) : String(itemDate);
+      headerDatePill.textContent = `📅 ${formattedDate}`;
+    } else {
+      headerDatePill.style.display = 'none';
+    }
+  }
+
   const tvBtn = document.getElementById('fm-tv-btn');
   if (tvBtn) {
     tvBtn.href = `https://in.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(tvSym)}`;
@@ -11726,7 +12588,8 @@ function openStockForensics(typeOrObj, index) {
   renderConfluenceBreakdown(
     item.scanners_breakdown, 
     item.confluence_tier || (participatingScanners.length >= 3 ? '🔥 APEX CONFLUENCE' : (participatingScanners.length === 2 ? '⚡ HIGH CONFLUENCE' : 'SINGLE ENGINE SETUP')), 
-    participatingScanners.length
+    participatingScanners.length,
+    item
   );
 
   // Quadrant 1: Orders
@@ -11786,7 +12649,7 @@ function openStockForensics(typeOrObj, index) {
       .then(r => r.json())
       .then(data => {
         if (data && Array.isArray(data.scanners_breakdown) && data.scanners_breakdown.length > 0) {
-          renderConfluenceBreakdown(data.scanners_breakdown, data.confluence_tier, data.participating_scanners?.length);
+          renderConfluenceBreakdown(data.scanners_breakdown, data.confluence_tier, data.participating_scanners?.length, item);
           const pe = data.scanners_breakdown[0];
           if (pe) {
             if (pe.stop_loss) document.getElementById('fm-sl').textContent = formatPrice(pe.stop_loss);
@@ -11829,8 +12692,15 @@ document.addEventListener('keydown', function(e) {
     <div class="forensic-modal-header">
       <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
         <span id="fm-symbol" class="forensic-symbol-badge">SYMBOL</span>
+        <div id="fm-cmp-header-box" class="forensic-cmp-box">
+          <span class="live-dot"></span>
+          <span style="font-size:10px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;">CMP</span>
+          <span id="fm-header-cmp" class="forensic-header-cmp">₹0.00</span>
+          <span id="fm-header-change" class="forensic-header-change">+0.00%</span>
+        </div>
         <span id="fm-badge-status" class="forensic-status-pill">STATUS</span>
         <span id="fm-badge-scanners" class="forensic-scanner-pill">SCANNER</span>
+        <span id="fm-header-alert-date" class="engine-date-pill" style="display:none;">📅 —</span>
       </div>
       <div style="display:flex; align-items:center; gap:10px;">
         <a id="fm-tv-btn" href="#" target="_blank" class="forensic-btn-tv">
