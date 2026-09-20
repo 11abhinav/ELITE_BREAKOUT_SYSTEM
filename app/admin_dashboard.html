@@ -118,80 +118,120 @@ function changeAdminPage(type, delta) {
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700&display=swap');
 
     /* ═══════════════════════════════════════════════
-       ELITE BREAKOUT — ULTRA-PREMIUM MODERN LIGHT THEME
-       Next-Gen Financial Dashboard with Crisp Contrast, Subtle Gradients & Sharp Elevation
+       ELITE BREAKOUT — NEXT-GEN PREMIUM LIGHT THEME
+       Ultra-Crisp Contrast, Glassmorphism, Elevating Hover States
     ═══════════════════════════════════════════════ */
 
     :root {
-      /* Crisp Light Surfaces */
+      /* Next-Gen Light Surfaces */
       --bg:         #f8fafc;
       --surface:    #ffffff;
       --card:       #ffffff;
       --card2:      #f1f5f9;
       --card3:      #e2e8f0;
+      
+      /* Glassmorphism Backgrounds */
+      --glass-bg:   rgba(255, 255, 255, 0.75);
+      --glass-border: rgba(255, 255, 255, 0.4);
 
-      /* Borders with Crisp Precision */
+      /* Crisp Borders */
       --border:     #e2e8f0;
       --border2:    #cbd5e1;
 
-      /* Modern High-End Financial Accents */
-      --accent:       #059669;
-      --accent-dim:   rgba(5, 150, 105, 0.08);
-      --accent-hover: #047857;
-      --accent2:      #2563eb;
-      --accent2-dim:  rgba(37, 99, 235, 0.08);
+      /* High-End Institutional Accents */
+      --accent:       #2563eb;       /* Primary Indigo/Blue */
+      --accent-dim:   rgba(37, 99, 235, 0.08);
+      --accent-hover: #1d4ed8;
+      --accent2:      #059669;       /* Emerald */
+      --accent2-dim:  rgba(5, 150, 105, 0.08);
 
-      /* Semantic High-Contrast Colors */
+      /* Semantic Colors */
       --win:      #059669;
+      --win-bg:   rgba(5, 150, 105, 0.12);
       --loss:     #dc2626;
+      --loss-bg:  rgba(220, 38, 38, 0.12);
       --open:     #2563eb;
       --neutral:  #64748b;
       --down:     #dc2626;
       --warn:     #dc2626;
-      --warn-dim: rgba(220, 38, 38, 0.08);
+      --warn-dim: rgba(220, 38, 38, 0.12);
       --amber:    #d97706;
-      --amber-dim:rgba(217, 119, 6, 0.08);
+      --amber-dim:rgba(217, 119, 6, 0.12);
 
-      /* Typography & High-Contrast Text */
-      --text:   #0f172a;
-      --muted:  #475569;
-      --muted2: #64748b;
+      /* Typography High-Contrast */
+      --text:       #0f172a;
+      --muted:      #475569;
+      --muted2:     #64748b;
+      --text-inv:   #ffffff;
 
-      /* Typography */
+      /* Typography Stacks */
       --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
       --font-body:    'Inter', system-ui, -apple-system, sans-serif;
       --font-mono:    'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 
       /* Layout */
-      --radius:    10px;
-      --radius-sm: 6px;
-      --radius-lg: 16px;
+      --radius:    12px;
+      --radius-sm: 8px;
+      --radius-lg: 20px;
 
-      /* Premium Shadows & Soft Glow */
-      --shadow:    0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
-      --shadow-md: 0 4px 16px rgba(15, 23, 42, 0.08), 0 2px 4px rgba(15, 23, 42, 0.04);
-      --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.12), 0 4px 8px rgba(15, 23, 42, 0.06);
-      --glow:      0 0 0 3px rgba(5, 150, 105, 0.2);
+      /* Premium Shadows & Elevation */
+      --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+      --shadow:    0 4px 6px -1px rgba(15, 23, 42, 0.08), 0 2px 4px -2px rgba(15, 23, 42, 0.04);
+      --shadow-md: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.04);
+      --shadow-lg: 0 20px 25px -5px rgba(15, 23, 42, 0.1), 0 8px 10px -6px rgba(15, 23, 42, 0.04);
+      --shadow-xl: 0 25px 50px -12px rgba(15, 23, 42, 0.15);
+      --glow:      0 0 0 3px rgba(37, 99, 235, 0.2);
+      --glow-win:  0 0 0 3px rgba(5, 150, 105, 0.2);
+      
+      /* Modals */
+      --modal-backdrop: rgba(15, 23, 42, 0.6);
     }
 
     [data-theme="dark"] {
-      --bg:      #080c14;
-      --surface: #0f172a;
-      --card:    #111827;
-      --card2:   #1a2236;
-      --card3:   #24304c;
-      --border:  rgba(255,255,255,.08);
-      --border2: rgba(255,255,255,.16);
-      --text:    #f8fafc;
-      --muted:   #94a3b8;
-      --muted2:  #64748b;
-      --accent:       #00e5a0;
-      --accent-dim:   rgba(0,229,160,0.12);
-      --accent-hover: #00c88b;
-      --shadow:  0 2px 8px rgba(0,0,0,.4);
-      --shadow-md: 0 8px 24px rgba(0,0,0,.5);
-      --shadow-lg: 0 16px 40px rgba(0,0,0,.6);
-      --glow:      0 0 0 3px rgba(0,229,160,0.25);
+      --bg:         var(--bg);
+      --surface:    #0f172a;
+      --card:       #111827;
+      --card2:      #1a2236;
+      --card3:      #24304c;
+      
+      --glass-bg:   rgba(17, 24, 39, 0.75);
+      --glass-border: rgba(255, 255, 255, 0.1);
+
+      --border:     var(--border);
+      --border2:    rgba(255,255,255,0.16);
+
+      --accent:       #3b82f6;
+      --accent-dim:   var(--accent-dim);
+      --accent-hover: var(--accent);
+      --accent2:      #10b981;
+      --accent2-dim:  var(--win-bg);
+
+      --win:      #10b981;
+      --win-bg:   var(--win-bg);
+      --loss:     #ef4444;
+      --loss-bg:  rgba(239, 68, 68, 0.15);
+      --open:     #3b82f6;
+      --neutral:  #94a3b8;
+      --down:     #ef4444;
+      --warn:     #ef4444;
+      --warn-dim: rgba(239, 68, 68, 0.15);
+      --amber:    #f59e0b;
+      --amber-dim:rgba(245, 158, 11, 0.15);
+
+      --text:       #f8fafc;
+      --muted:      #94a3b8;
+      --muted2:     #cbd5e1;
+      --text-inv:   #0f172a;
+
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+      --shadow:    0 4px 12px rgba(0,0,0,0.4);
+      --shadow-md: 0 12px 24px rgba(0,0,0,0.5);
+      --shadow-lg: 0 20px 40px rgba(0,0,0,0.6);
+      --shadow-xl: 0 30px 60px rgba(0,0,0,0.7);
+      --glow:      0 0 0 3px var(--accent);
+      --glow-win:  0 0 0 3px rgba(16, 185, 129, 0.3);
+      
+      --modal-backdrop: rgba(0, 0, 0, 0.8);
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -217,7 +257,7 @@ function changeAdminPage(type, delta) {
     ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--muted2); }
 
-    ::selection { background: var(--accent); color: #080c14; font-weight: 600; }
+    ::selection { background: var(--accent); color: var(--bg); font-weight: 600; }
 
     /* ─────────────────────────────────────────
        HEADER
@@ -307,7 +347,7 @@ function changeAdminPage(type, delta) {
 
     .refresh-btn.accent-btn {
       color: var(--accent);
-      border-color: rgba(0,229,160,0.3);
+      border-color: var(--win);
       background: var(--accent-dim);
     }
 
@@ -360,10 +400,10 @@ function changeAdminPage(type, delta) {
     }
 
     .admin-tab-btn.active {
-      color: #080c14;
+      color: var(--bg);
       background: var(--accent);
       border-color: var(--accent);
-      box-shadow: 0 4px 16px rgba(0, 229, 160, 0.35);
+      box-shadow: 0 4px 16px var(--win);
       font-weight: 700;
     }
 
@@ -430,7 +470,7 @@ function changeAdminPage(type, delta) {
       max-height: 90vh;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--border);
       overflow: hidden;
       animation: slideUpModal 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     }
@@ -464,17 +504,17 @@ function changeAdminPage(type, delta) {
       align-items: center;
       gap: 8px;
       padding: 4px 12px;
-      background: rgba(0, 229, 160, 0.08);
-      border: 1px solid rgba(0, 229, 160, 0.35);
+      background: var(--win-bg);
+      border: 1px solid var(--win);
       border-radius: 8px;
-      box-shadow: 0 2px 10px rgba(0, 229, 160, 0.12);
+      box-shadow: 0 2px 10px var(--win-bg);
     }
 
     .forensic-header-cmp {
       font-family: var(--font-mono);
       font-size: 18px;
       font-weight: 800;
-      color: #00e5a0;
+      color: var(--win);
       letter-spacing: -0.3px;
     }
 
@@ -482,8 +522,8 @@ function changeAdminPage(type, delta) {
       font-family: var(--font-mono);
       font-size: 11px;
       font-weight: 700;
-      color: #34d399;
-      background: rgba(16, 185, 129, 0.15);
+      color: var(--win);
+      background: var(--win-bg);
       padding: 2px 6px;
       border-radius: 4px;
     }
@@ -493,8 +533,8 @@ function changeAdminPage(type, delta) {
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background: #00e5a0;
-      box-shadow: 0 0 8px #00e5a0;
+      background: var(--win);
+      box-shadow: 0 0 8px var(--win);
       animation: livePulse 2s infinite ease-in-out;
     }
 
@@ -509,7 +549,7 @@ function changeAdminPage(type, delta) {
       font-family: var(--font-mono);
       padding: 3px 8px;
       border-radius: 6px;
-      background: rgba(255, 255, 255, 0.06);
+      background: var(--border);
       color: var(--muted);
       border: 1px solid rgba(255, 255, 255, 0.1);
       display: inline-flex;
@@ -523,9 +563,9 @@ function changeAdminPage(type, delta) {
       border-radius: 20px;
       font-size: 11px;
       font-weight: 700;
-      background: rgba(0, 229, 160, 0.15);
+      background: var(--win-bg);
       color: var(--win);
-      border: 1px solid rgba(0, 229, 160, 0.3);
+      border: 1px solid var(--win);
     }
 
     .forensic-scanner-pill {
@@ -533,9 +573,9 @@ function changeAdminPage(type, delta) {
       border-radius: 20px;
       font-size: 11px;
       font-weight: 700;
-      background: rgba(59, 130, 246, 0.15);
-      color: #60a5fa;
-      border: 1px solid rgba(59, 130, 246, 0.3);
+      background: var(--accent-dim);
+      color: var(--accent);
+      border: 1px solid var(--accent);
     }
 
     .forensic-btn-tv {
@@ -543,9 +583,9 @@ function changeAdminPage(type, delta) {
       align-items: center;
       gap: 6px;
       padding: 6px 14px;
-      background: rgba(37, 99, 235, 0.15);
-      color: #60a5fa;
-      border: 1px solid rgba(37, 99, 235, 0.35);
+      background: var(--accent-dim);
+      color: var(--accent);
+      border: 1px solid var(--accent);
       border-radius: 8px;
       font-size: 12px;
       font-weight: 700;
@@ -554,8 +594,8 @@ function changeAdminPage(type, delta) {
     }
 
     .forensic-btn-tv:hover {
-      background: rgba(37, 99, 235, 0.3);
-      border-color: #60a5fa;
+      background: var(--accent);
+      border-color: var(--accent);
       color: #ffffff;
       transform: translateY(-1px);
     }
@@ -691,7 +731,7 @@ function changeAdminPage(type, delta) {
       gap: 10px;
       margin-bottom: 14px;
       padding-bottom: 10px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      border-bottom: 1px solid var(--border);
     }
     .confluence-panel-title {
       font-size: 13px;
@@ -718,19 +758,19 @@ function changeAdminPage(type, delta) {
       gap: 14px;
     }
     .confluence-engine-card {
-      background: linear-gradient(145deg, rgba(22, 27, 38, 0.95), rgba(16, 20, 29, 0.95));
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: var(--card);
+      border: 1px solid var(--border);
       border-radius: 12px;
       padding: 16px;
       display: flex;
       flex-direction: column;
       gap: 12px;
-      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+      box-shadow: var(--shadow-md);
       transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
     }
     .confluence-engine-card:hover {
-      border-color: rgba(99, 102, 241, 0.6);
-      box-shadow: 0 8px 24px rgba(99, 102, 241, 0.18);
+      border-color: var(--accent);
+      box-shadow: var(--shadow-lg);
       transform: translateY(-2px);
     }
     .engine-card-header {
@@ -740,7 +780,7 @@ function changeAdminPage(type, delta) {
       flex-wrap: wrap;
       gap: 8px;
       padding-bottom: 10px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      border-bottom: 1px solid var(--border);
     }
     .engine-title-wrap {
       display: flex;
@@ -759,17 +799,17 @@ function changeAdminPage(type, delta) {
       font-weight: 700;
       padding: 2px 7px;
       border-radius: 12px;
-      background: rgba(59, 130, 246, 0.15);
-      color: #60a5fa;
-      border: 1px solid rgba(59, 130, 246, 0.3);
+      background: var(--accent-dim);
+      color: var(--accent);
+      border: 1px solid var(--accent);
     }
     .engine-state-pill {
       font-size: 10px;
       font-weight: 700;
       padding: 2px 8px;
       border-radius: 12px;
-      background: rgba(16, 185, 129, 0.15);
-      color: #34d399;
+      background: var(--win-bg);
+      color: var(--win);
       border: 1px solid rgba(16, 185, 129, 0.3);
     }
     .engine-score-pill {
@@ -815,8 +855,8 @@ function changeAdminPage(type, delta) {
       font-size: 11px;
     }
     .engine-tech-pill {
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: var(--bg);
+      border: 1px solid var(--border);
       padding: 3px 8px;
       border-radius: 6px;
       color: var(--muted);
@@ -825,9 +865,9 @@ function changeAdminPage(type, delta) {
       color: var(--text);
     }
     .engine-signals-box {
-      background: rgba(99, 102, 241, 0.05);
+      background: var(--accent-dim);
       border: 1px solid rgba(99, 102, 241, 0.2);
-      border-left: 3px solid #818cf8;
+      border-left: 3px solid var(--accent);
       border-radius: 6px;
       padding: 10px 12px;
       font-size: 12px;
@@ -835,7 +875,7 @@ function changeAdminPage(type, delta) {
       color: var(--text);
     }
     .engine-signals-box b {
-      color: #a5b4fc;
+      color: var(--text-inv);
     }
 
     /* ── LAYOUT ── */
@@ -1365,7 +1405,7 @@ function changeAdminPage(type, delta) {
     }
     [data-theme="dark"] .badge-stage-watch {
       background: rgba(59, 130, 246, 0.18);
-      color: #60a5fa;
+      color: var(--accent);
       border: 1px solid rgba(59, 130, 246, 0.35);
     }
 
@@ -1670,7 +1710,7 @@ function changeAdminPage(type, delta) {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
-      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
+      box-shadow:var(--shadow-lg);
       z-index: 100000 !important;
       display: none;
       overflow: hidden;
@@ -1995,10 +2035,10 @@ function changeAdminPage(type, delta) {
                 else if (cat === 'M_AND_A' || cat === 'CAPITAL_ACTION') catColor = '#4299e1';
 
                 return `
-                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:8px 0; border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding:8px 0; border-bottom:1px solid var(--border); font-size:12px;">
                     <div style="flex:1;">
                         <span style="font-family:monospace; color:#718096; margin-right:8px;">${dt}</span>
-                        <span style="background:rgba(255,255,255,0.08); color:${catColor}; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700; margin-right:6px;">${cat}</span>
+                        <span style="background:var(--border); color:${catColor}; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700; margin-right:6px;">${cat}</span>
                         <span style="color:#e2e8f0;">${hl}</span>
                         <span style="color:#718096; font-size:10px; margin-left:6px;">(${tier} | Mat: ${mat})</span>
                     </div>
@@ -2029,9 +2069,9 @@ function changeAdminPage(type, delta) {
         </div>`;
 
         modal.innerHTML = `
-        <div style="background:#11151c; border:1px solid rgba(255,255,255,0.12); border-radius:12px; max-width:880px; width:100%; max-height:90vh; overflow-y:auto; padding:24px; color:#e0e6ed; box-shadow:0 20px 50px rgba(0,0,0,0.8);">
+        <div style="background:var(--card); border:1px solid var(--border2); border-radius:12px; max-width:880px; width:100%; max-height:90vh; overflow-y:auto; padding:24px; color:var(--text); box-shadow:var(--shadow-lg);">
             <!-- Header -->
-            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; margin-bottom:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:12px; margin-bottom:16px;">
                 <div style="display:flex; align-items:center; gap:12px;">
                     <span style="font-size:24px;">🏢</span>
                     <div>
@@ -2074,7 +2114,7 @@ function changeAdminPage(type, delta) {
             </div>
 
             <!-- Executive Summary -->
-            <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:14px; margin-bottom:20px;">
+            <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:20px;">
                 <div style="font-size:11px; font-weight:700; color:#a0aec0; text-transform:uppercase; margin-bottom:6px;">🧠 Research Synthesis & Reasoning</div>
                 <div style="font-size:13px; color:#e2e8f0; line-height:1.5;">${data.executive_summary || 'No summary generated.'}</div>
                 ${data.contradiction_detected ? '<div style="margin-top:8px; padding:6px 10px; background:rgba(245,101,101,0.15); border-left:3px solid #f56565; color:#feb2b2; font-size:11px;">⚠️ <b>Contradiction Flagged:</b> Management commentary conflicts with regulatory filings or credit ratings.</div>' : ''}
@@ -2089,7 +2129,7 @@ function changeAdminPage(type, delta) {
             <!-- Chronological Event Timeline -->
             <div>
                 <div style="font-size:12px; font-weight:700; color:#cbd5e0; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:8px;">📅 Longitudinal Corporate Event Timeline</div>
-                <div style="background:#171923; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px 14px; max-height:220px; overflow-y:auto;">
+                <div style="background:var(--card2); border:1px solid var(--border); border-radius:8px; padding:10px 14px; max-height:220px; overflow-y:auto;">
                     ${timelineHtml}
                 </div>
             </div>
@@ -2101,7 +2141,7 @@ function changeAdminPage(type, delta) {
         if (!modal) {
             modal = document.createElement('div');
             modal.id = 'stock-intelligence-dossier-modal';
-            modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.85); backdrop-filter:blur(10px); display:flex; justify-content:center; align-items:center; z-index:10005; padding:20px;';
+            modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:var(--modal-backdrop); backdrop-filter:blur(10px); display:flex; justify-content:center; align-items:center; z-index:10005; padding:20px;';
             document.body.appendChild(modal);
         }
         modal.onclick = (e) => { if(e.target === modal) modal.style.display = 'none'; };
@@ -2116,8 +2156,8 @@ function changeAdminPage(type, delta) {
         }
 
         modal.innerHTML = `
-        <div style="background:#11151c; border:1px solid rgba(255,255,255,0.12); border-radius:12px; max-width:880px; width:100%; max-height:90vh; overflow-y:auto; padding:24px; color:#e0e6ed; box-shadow:0 20px 50px rgba(0,0,0,0.8);">
-            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; margin-bottom:16px;">
+        <div style="background:var(--card); border:1px solid var(--border2); border-radius:12px; max-width:880px; width:100%; max-height:90vh; overflow-y:auto; padding:24px; color:var(--text); box-shadow:var(--shadow-lg);">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:12px; margin-bottom:16px;">
                 <div style="display:flex; align-items:center; gap:10px;">
                     <span style="font-size:22px;">🏢</span>
                     <span style="font-size:18px; font-weight:800; letter-spacing:0.5px; color:#fff;">${cleanSym} — Corporate Intelligence Dossier</span>
@@ -2140,8 +2180,8 @@ function changeAdminPage(type, delta) {
             if (!res.ok || data.error) {
                 const errorMsg = data.error || `HTTP ${res.status}: ${res.statusText}`;
                 modal.innerHTML = `
-                <div style="background:#11151c; border:1px solid rgba(239,68,68,0.35); border-radius:12px; max-width:650px; width:100%; padding:24px; color:#fff; box-shadow:0 20px 50px rgba(0,0,0,0.85);">
-                    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; margin-bottom:16px;">
+                <div style="background:var(--card); border:1px solid rgba(239,68,68,0.35); border-radius:12px; max-width:650px; width:100%; padding:24px; color:#fff; box-shadow:var(--shadow-lg);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:12px; margin-bottom:16px;">
                         <div style="display:flex; align-items:center; gap:10px;">
                             <span style="font-size:22px;">🚨</span>
                             <span style="font-size:18px; font-weight:800; color:#ef4444;">Intelligence Dossier Error — ${cleanSym}</span>
@@ -2165,8 +2205,8 @@ function changeAdminPage(type, delta) {
             renderStockIntelligenceDossierModal(modal, cleanSym, data, asOf);
         } catch(err) {
             modal.innerHTML = `
-            <div style="background:#11151c; border:1px solid rgba(239,68,68,0.35); border-radius:12px; max-width:650px; width:100%; padding:24px; color:#fff; box-shadow:0 20px 50px rgba(0,0,0,0.85);">
-                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; margin-bottom:16px;">
+            <div style="background:var(--card); border:1px solid rgba(239,68,68,0.35); border-radius:12px; max-width:650px; width:100%; padding:24px; color:#fff; box-shadow:var(--shadow-lg);">
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:12px; margin-bottom:16px;">
                     <div style="display:flex; align-items:center; gap:10px;">
                         <span style="font-size:22px;">🚨</span>
                         <span style="font-size:18px; font-weight:800; color:#ef4444;">Network / Processing Error — ${cleanSym}</span>
@@ -2409,7 +2449,7 @@ function changeAdminPage(type, delta) {
               </span>
               <span id="availableCash" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
             </div>
-            <button class="refresh-btn" onclick="openDepositFundsDialog()" style="background:var(--accent); color:#080c14; font-weight:700; border:none; font-size:12px;">💰 Deposit Funds</button>
+            <button class="refresh-btn" onclick="openDepositFundsDialog()" style="background:var(--accent); color:var(--bg); font-weight:700; border:none; font-size:12px;">💰 Deposit Funds</button>
           </div>
         </div>
 
@@ -2469,7 +2509,7 @@ function changeAdminPage(type, delta) {
               <option value="sym_asc">🔤 Symbol (A-Z)</option>
             </select>
 
-            <button onclick="resetMasterFilters()" class="refresh-btn" style="padding:7px 12px; font-size:12px; font-weight:700; background:rgba(255,255,255,0.06); color:var(--muted); border:1px solid var(--border);">🔄 Reset</button>
+            <button onclick="resetMasterFilters()" class="refresh-btn" style="padding:7px 12px; font-size:12px; font-weight:700; background:var(--border); color:var(--muted); border:1px solid var(--border);">🔄 Reset</button>
             <button onclick="loadMasterSystemV2Data(true)" class="refresh-btn" style="padding:7px 14px; font-size:12px; font-weight:700; background:var(--win); color:#000; border:none;">⚡ Refresh</button>
 
             <div id="master-signals-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:700; margin-left:auto;"></div>
@@ -2559,7 +2599,7 @@ function changeAdminPage(type, delta) {
               <option value="sym_asc">🔤 Symbol (A-Z)</option>
             </select>
 
-            <button onclick="resetWatchFilters()" class="refresh-btn" style="padding:7px 12px; font-size:12px; font-weight:700; background:rgba(255,255,255,0.06); color:var(--muted); border:1px solid var(--border);">🔄 Reset</button>
+            <button onclick="resetWatchFilters()" class="refresh-btn" style="padding:7px 12px; font-size:12px; font-weight:700; background:var(--border); color:var(--muted); border:1px solid var(--border);">🔄 Reset</button>
             <button onclick="loadMasterSystemV2Data(true)" class="refresh-btn" style="padding:7px 14px; font-size:12px; font-weight:700; background:var(--amber); color:#000; border:none;">⚡ Refresh</button>
 
             <div id="stocks-watch-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:700; margin-left:auto;"></div>
@@ -2636,7 +2676,7 @@ function changeAdminPage(type, delta) {
               <option value="sym_asc">🔤 Symbol (A-Z)</option>
             </select>
 
-            <button onclick="resetInvestFilters()" class="refresh-btn" style="padding:7px 12px; font-size:12px; font-weight:700; background:rgba(255,255,255,0.06); color:var(--muted); border:1px solid var(--border);">🔄 Reset</button>
+            <button onclick="resetInvestFilters()" class="refresh-btn" style="padding:7px 12px; font-size:12px; font-weight:700; background:var(--border); color:var(--muted); border:1px solid var(--border);">🔄 Reset</button>
             <button onclick="loadMasterSystemV2Data(true)" class="refresh-btn" style="padding:7px 14px; font-size:12px; font-weight:700; background:var(--accent); color:#fff; border:none;">⚡ Refresh</button>
 
             <div id="investment-watch-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:700; margin-left:auto;"></div>
@@ -2736,7 +2776,7 @@ function changeAdminPage(type, delta) {
               <option value="score_desc">⭐ Score (High to Low)</option>
             </select>
 
-            <button onclick="resetMissedOppsFilters()" class="refresh-btn" style="padding:7px 12px; font-size:12px; font-weight:700; background:rgba(255,255,255,0.06); color:var(--muted); border:1px solid var(--border);">🔄 Reset</button>
+            <button onclick="resetMissedOppsFilters()" class="refresh-btn" style="padding:7px 12px; font-size:12px; font-weight:700; background:var(--border); color:var(--muted); border:1px solid var(--border);">🔄 Reset</button>
             <button onclick="loadNearMisses(true)" class="refresh-btn" style="padding:7px 14px; font-size:12px; font-weight:700; background:var(--accent); color:#fff; border:none;">⚡ Refresh</button>
 
             <div id="missed-opps-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:700; margin-left:auto;"></div>
@@ -3038,7 +3078,8 @@ function changeAdminPage(type, delta) {
             <option value="DAYS_DESC">Sort: Days Held (High to Low)</option>
           </select>
 
-          <input id="filterSymbol" type="text" placeholder="Search symbol…" style="width:130px">
+          <input id="filterSymbol" type="text" placeholder="Search symbol…" style="padding:6px 12px; background:var(--card2); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; width:130px;" autocomplete="off">
+          <button class="refresh-btn" onclick="resetTradeFilters()" style="margin-left:8px;padding:6px 12px; font-size:12px; font-weight:700; background:var(--border); color:var(--muted); border:1px solid var(--border); border-radius:6px;">🔄 Reset</button>
           <button id="rejectSelectedBtn" class="refresh-btn" onclick="rejectSelectedTrades()"
             style="margin-left:8px;padding:6px 12px; background:var(--warn-dim); color:var(--warn); border:1px solid var(--warn); display:none;">🚫
             Reject Selected</button>
@@ -3110,7 +3151,7 @@ function changeAdminPage(type, delta) {
         <div
           style="margin-bottom: 12px; display: flex; gap: 16px; font-size: 12px; flex-wrap: wrap; padding-bottom: 12px; border-bottom: 1px solid var(--border);">
           <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox"
-              id="filter-watching" checked onchange="renderSignalLadder()"> <span id="label-watching" style="color:#60a5fa; font-weight:600;">Watching Base (0)</span></label>
+              id="filter-watching" checked onchange="renderSignalLadder()"> <span id="label-watching" style="color:var(--accent); font-weight:600;">Watching Base (0)</span></label>
           <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox"
               id="filter-pressure" checked onchange="renderSignalLadder()"> <span id="label-pressure" style="color:#fbbf24; font-weight:600;">Pressure Building (0)</span></label>
           <label style="cursor:pointer; display:flex; align-items:center; gap:4px;"><input type="checkbox"
@@ -3198,7 +3239,7 @@ function changeAdminPage(type, delta) {
               Multi-Bucket Fundamental Compounders (Core, Growth, Quality-On-Sale, Opportunistic). Gated by Margin of Safety & ROCE > 15%.
             </div>
           </div>
-          <a href="/wealth" target="_blank" style="padding:10px 18px; background:linear-gradient(135deg,#00e5a0,#00b884); color:#0b0e14; border-radius:8px; font-weight:800; font-size:13px; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 4px 14px rgba(0,229,160,0.3);">
+          <a href="/wealth" target="_blank" style="padding:10px 18px; background:linear-gradient(135deg,var(--win),#00b884); color:#0b0e14; border-radius:8px; font-weight:800; font-size:13px; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 4px 14px var(--win);">
             🚀 Open Full Standalone Wealth Terminal (/wealth)
           </a>
         </div>
@@ -3328,7 +3369,7 @@ function changeAdminPage(type, delta) {
               </h2>
               <p style="font-size:12px; color:var(--muted); margin:4px 0 0 0;">Type any NSE/BSE ticker symbol for real-time 7-stage scanner diagnostics, health scores, and parameter deficits.</p>
             </div>
-            <button class="refresh-btn" onclick="toggleUserWatchlistDrawer()" style="background:rgba(59,130,246,0.1); color:#3b82f6; border-color:rgba(59,130,246,0.3); font-weight:700;">
+            <button class="refresh-btn" onclick="toggleUserWatchlistDrawer()" style="background:rgba(59,130,246,0.1); color:#3b82f6; border-color:var(--accent); font-weight:700;">
               <span style="font-size:14px;">⭐</span> My Watchlist (<span id="my-watchlist-count">0</span>)
             </button>
           </div>
@@ -3493,7 +3534,7 @@ function changeAdminPage(type, delta) {
             <div class="tbl-wrap" style="max-height:480px; overflow-y:auto;">
               <table class="table" style="width:100%; margin:0; border-collapse:collapse;">
                 <thead>
-                  <tr style="background:rgba(255,255,255,0.02); font-size:11px; color:var(--muted); text-transform:uppercase; border-bottom:1px solid var(--border);">
+                  <tr style="background:var(--card2); font-size:11px; color:var(--muted); text-transform:uppercase; border-bottom:1px solid var(--border);">
                     <th style="padding:10px 14px; text-align:left;">Symbol</th>
                     <th style="padding:10px 14px; text-align:left;">Scanner</th>
                     <th style="padding:10px 14px; text-align:left;">Failed Gate / Reason</th>
@@ -3514,7 +3555,7 @@ function changeAdminPage(type, delta) {
         </div>
 
         <!-- FIXED OVERLAY STOCK DIAGNOSTIC MODAL CONTAINER -->
-        <div id="stock-diagnostic-main-container" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); backdrop-filter:blur(8px); z-index:100000; justify-content:center; align-items:center; padding:20px; box-sizing:border-box;"></div>
+        <div id="stock-diagnostic-main-container" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:var(--modal-backdrop); backdrop-filter:blur(8px); z-index:100000; justify-content:center; align-items:center; padding:20px; box-sizing:border-box;"></div>
 
         <!-- PENDING USERS -->
         <div id="pendingUsersContainer" style="display:none; margin-bottom: 28px;">
@@ -4254,7 +4295,7 @@ function changeAdminPage(type, delta) {
       let html = `<span class="badge ${m[displayStatus] || 'badge-neutral'}">${displayStatus}</span>`;
       if (t && t.is_rejected && t.shadow_status && t.shadow_status !== 'SHADOW_OPEN') {
         const isWin = t.shadow_status === 'SHADOW_WIN' || t.shadow_pnl_pct >= 0;
-        const shColor = isWin ? '#00e5a0' : '#ff4d4d';
+        const shColor = isWin ? 'var(--win)' : '#ff4d4d';
         const pnlStr = t.shadow_pnl_pct != null ? (t.shadow_pnl_pct >= 0 ? '+' : '') + t.shadow_pnl_pct + '%' : '';
         const shText = isWin ? `MISSED OPPORTUNITY ${pnlStr}` : `GOOD REJECTION ${pnlStr}`;
         html += ` <span style="font-size:10px; font-weight:bold; color:${shColor}; background:rgba(0,0,0,0.06); padding:2px 6px; border-radius:4px; margin-left:4px; border:1px solid ${shColor}44;" title="Counterfactual Shadow Outcome">👻 ${shText}</span>`;
@@ -4412,7 +4453,7 @@ function changeAdminPage(type, delta) {
             const displayName = u.name || u.display_name || (u.first_name ? (u.first_name + ' ' + (u.last_name||'')) : '') || u.username || '-';
             const safeUsername = (u.username || '').replace(/'/g, "\\'");
             return `
-              <tr style="border-bottom:1px solid rgba(255,255,255,0.05);">
+              <tr style="border-bottom:1px solid var(--border);">
                 <td style="padding:10px 12px; font-weight:700; color:var(--text);">${displayName}</td>
                 <td style="padding:10px 12px; color:var(--muted); font-size:11px;">${u.email || '-'}</td>
                 <td style="padding:10px 12px; color:var(--muted); font-size:11px;">${u.mobile || '-'}</td>
@@ -4716,7 +4757,7 @@ function changeAdminPage(type, delta) {
 
         let stageBadge = '';
         if (st === 'WATCHING' || st === 'HOURLY_APPROVED') {
-          stageBadge = '<span style="background:rgba(59,130,246,0.15); color:#60a5fa; border:1px solid rgba(59,130,246,0.4); padding:2px 8px; border-radius:4px; font-weight:700; font-size:10px; display:inline-block;">WATCHING</span>';
+          stageBadge = '<span style="background:var(--accent-dim); color:var(--accent); border:1px solid rgba(59,130,246,0.4); padding:2px 8px; border-radius:4px; font-weight:700; font-size:10px; display:inline-block;">WATCHING</span>';
         } else if (st === 'PRESSURE_BUILDING' || st === 'SETUP_ARMED') {
           stageBadge = '<span style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.4); padding:2px 8px; border-radius:4px; font-weight:700; font-size:10px; display:inline-block;">⚡ PRESSURE</span>';
         } else if (st === 'ATTEMPT' || st === 'ENTRY_READY') {
@@ -4728,7 +4769,7 @@ function changeAdminPage(type, delta) {
         }
 
         const score = parseFloat(item.setup_score || item.base_score || 0);
-        let scoreColor = '#60a5fa';
+        let scoreColor = 'var(--accent)';
         if (score >= 85) scoreColor = '#4ade80';
         else if (score >= 70) scoreColor = '#fbbf24';
         const scoreBadge = `<span style="font-family:var(--font-mono); font-weight:700; color:${scoreColor}; font-size:11px;">${score > 0 ? Math.round(score) + '/100' : '—'}</span>`;
@@ -4791,7 +4832,7 @@ function changeAdminPage(type, delta) {
         } else if (st === 'PRESSURE_BUILDING' || st === 'SETUP_ARMED') {
           severityHtml = `<span style="color:#fbbf24; font-weight:700; font-size:10px; letter-spacing:0.3px;">⚡ ACCUMULATING</span>`;
         } else {
-          severityHtml = `<span style="color:#60a5fa; font-weight:700; font-size:10px; letter-spacing:0.3px;">🔍 BASE FORMING</span>`;
+          severityHtml = `<span style="color:var(--accent); font-weight:700; font-size:10px; letter-spacing:0.3px;">🔍 BASE FORMING</span>`;
         }
 
         const cmpStr = item.cmp ? '₹' + parseFloat(item.cmp).toFixed(2) : '—';
@@ -5383,7 +5424,7 @@ function getEarningsBadgeHtml(item) {
       } else if (state === 'EXTENDED') {
         return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(139,92,246,0.18); color:#a78bfa; border:1px solid rgba(139,92,246,0.4); font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:4px; cursor:pointer; margin-left:4px;" title="Extended from EMA20 (${ord} trigger). Click to view Trade Journey.">⚡ ${ord.toUpperCase()}</span>`;
       } else if (evCount > 1) {
-        return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(59,130,246,0.18); color:#60a5fa; border:1px solid rgba(59,130,246,0.4); font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:4px; cursor:pointer; margin-left:4px;" title="${ord} confirmed. Click to view Trade Journey.">⭐ ${ord.toUpperCase()}</span>`;
+        return `<span class="badge" onclick="event.stopPropagation(); showTradeJourneyModal(${t.id}, '${t.symbol}');" style="background:rgba(59,130,246,0.18); color:var(--accent); border:1px solid rgba(59,130,246,0.4); font-size:9.5px; font-weight:800; padding:1px 5px; border-radius:4px; cursor:pointer; margin-left:4px;" title="${ord} confirmed. Click to view Trade Journey.">⭐ ${ord.toUpperCase()}</span>`;
       }
       return '';
     }
@@ -5406,13 +5447,13 @@ function getEarningsBadgeHtml(item) {
           const isBlocked = (ev.event_type === 'RECORD_ONLY_NO_ADD');
           const ord = formatOrdinal(idx + 1);
           
-          const badgeColor = isPyramid ? '#10b981' : isReconfirm ? '#f59e0b' : isBlocked ? '#ef4444' : '#60a5fa';
-          const badgeBg = isPyramid ? 'rgba(16,185,129,0.15)' : isReconfirm ? 'rgba(245,158,11,0.15)' : isBlocked ? 'rgba(239,68,68,0.15)' : 'rgba(96,165,250,0.15)';
+          const badgeColor = isPyramid ? '#10b981' : isReconfirm ? '#f59e0b' : isBlocked ? '#ef4444' : 'var(--accent)';
+          const badgeBg = isPyramid ? 'var(--win-bg)' : isReconfirm ? 'rgba(245,158,11,0.15)' : isBlocked ? 'rgba(239,68,68,0.15)' : 'rgba(96,165,250,0.15)';
           const pnlColor = (ev.pnl_since_entry_pct >= 0) ? '#10b981' : '#ef4444';
           const pnlSign = (ev.pnl_since_entry_pct >= 0) ? '+' : '';
 
           return `
-            <div style="display:flex; align-items:flex-start; gap:10px; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid rgba(255,255,255,0.05); flex-wrap:wrap;">
+            <div style="display:flex; align-items:flex-start; gap:10px; margin-bottom:8px; padding-bottom:8px; border-bottom:1px solid var(--border); flex-wrap:wrap;">
               <div style="min-width:70px; font-size:10px; color:var(--muted);">${ev.event_date}</div>
               <div style="min-width:140px;">
                 <span style="display:inline-block; padding:2px 6px; border-radius:4px; font-size:9px; font-weight:800; background:${badgeBg}; color:${badgeColor}; border:1px solid ${badgeColor}40;">
@@ -5451,7 +5492,7 @@ function getEarningsBadgeHtml(item) {
       if (!modal) {
         modal = document.createElement('div');
         modal.id = modalId;
-        modal.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.7); z-index:99999; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px);';
+        modal.style.cssText = 'position:fixed; top:0; left:0; width:100vw; height:100vh; background:var(--modal-backdrop); z-index:99999; display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px);';
         document.body.appendChild(modal);
       }
       modal.innerHTML = `
@@ -6119,7 +6160,7 @@ function getEarningsBadgeHtml(item) {
           let bColor = 'rgba(178,102,255,0.3)';
           let tColor = 'var(--text)';
           if (isDowngrade) { bColor = 'var(--danger)'; tColor = 'var(--danger)'; }
-          else if (isUpgrade) { bColor = '#00e5a0'; tColor = '#00e5a0'; }
+          else if (isUpgrade) { bColor = 'var(--win)'; tColor = 'var(--win)'; }
 
           html += `
             <div style="grid-column: 1 / -1; background:var(--card2); padding:12px; border-radius:4px; border-left:4px solid ${bColor};">
@@ -6192,6 +6233,22 @@ function getEarningsBadgeHtml(item) {
     </tr></thead>
     <tbody>${buildTradeRows(trades, maxAbs, 'drill-')}</tbody>
   </table>`;
+    }
+
+    function resetTradeFilters() {
+      const dateEl = document.getElementById('filterDate');
+      const scanEl = document.getElementById('filterScanner');
+      const statEl = document.getElementById('filterStatus');
+      const sortEl = document.getElementById('filterTradeSort');
+      const symEl = document.getElementById('filterSymbol');
+
+      if (dateEl) dateEl.value = 'ALL';
+      if (scanEl) scanEl.value = '';
+      if (statEl) statEl.value = '';
+      if (sortEl) sortEl.value = 'DEFAULT';
+      if (symEl) symEl.value = '';
+      
+      renderTradeTable();
     }
 
     function renderTradeTable() {
@@ -6338,7 +6395,7 @@ function getEarningsBadgeHtml(item) {
             const expColor = isNaN(expectancy) || expectancy === 0 ? 'var(--text)' : (expectancy > 0 ? 'var(--accent)' : 'var(--warn)');
             
             const summaryHtml = `
-            <tr style="background: rgba(255,255,255,0.02); border-top: 2px solid var(--border);">
+            <tr style="background: var(--card2); border-top: 2px solid var(--border);">
                 <td colspan="14" style="padding: 20px 16px; text-align: center;">
                     <div style="display: inline-flex; gap: 48px; font-size: 13px;">
                         <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
@@ -6351,7 +6408,7 @@ function getEarningsBadgeHtml(item) {
                         </div>
                         <div style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
                             <span style="color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px;">Expectancy</span>
-                            <span style="color: ${expColor}; font-weight: 700; font-family: var(--font-mono); font-size: 15px; padding: 2px 8px; border-radius: 4px; background: rgba(255,255,255,0.05);">${expStr}</span>
+                            <span style="color: ${expColor}; font-weight: 700; font-family: var(--font-mono); font-size: 15px; padding: 2px 8px; border-radius: 4px; background: var(--border);">${expStr}</span>
                         </div>
                     </div>
                 </td>
@@ -6417,7 +6474,7 @@ function getEarningsBadgeHtml(item) {
               const matches = symbols.filter(s => s.startsWith(val)).slice(0, 50);
               if (matches.length === 0) { dropdown.style.display = 'none'; return; }
 
-              dropdown.innerHTML = matches.map(m => `<div style="padding:8px 12px; cursor:pointer; color:var(--text); border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background='transparent'" onclick="document.getElementById('aiModalTicker').value='${m}'; this.parentNode.style.display='none';">${m}</div>`).join('');
+              dropdown.innerHTML = matches.map(m => `<div style="padding:8px 12px; cursor:pointer; color:var(--text); border-bottom:1px solid var(--border); font-size:12px;" onmouseover="this.style.background='var(--card2)'" onmouseout="this.style.background='transparent'" onclick="document.getElementById('aiModalTicker').value='${m}'; this.parentNode.style.display='none';">${m}</div>`).join('');
               dropdown.style.display = 'block';
             });
 
@@ -7076,7 +7133,7 @@ function renderScannerExecutionHistory(data) {
     if (isRedStatus) {
       lcClass = 'background:rgba(255,77,109,0.25); color:#ff4d6d; border:1px solid #ff4d6d; font-weight:800;';
     } else if (r.lifecycle_status === 'RUNNING') {
-      lcClass = 'background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3);';
+      lcClass = 'background:var(--accent-dim); color:#3b82f6; border:1px solid var(--accent);';
     } else if (r.lifecycle_status === 'STOPPED' || r.lifecycle_status === 'SERVER_RESTARTED' || r.lifecycle_status === 'CANCELLED') {
       lcClass = 'background:rgba(156,163,175,0.15); color:var(--muted); border:1px solid rgba(156,163,175,0.3);';
     } else if (r.lifecycle_status === 'DEGRADED' || r.lifecycle_status === 'SKIPPED_DUPLICATE') {
@@ -7086,7 +7143,7 @@ function renderScannerExecutionHistory(data) {
     // Quality status badge
     let qClass = 'background:rgba(0,212,161,0.1); color:var(--accent);';
     if (r.quality_status === 'DEGRADED') qClass = 'background:rgba(234,179,8,0.15); color:var(--amber); font-weight:800;';
-    else if (r.quality_status === 'PARTIAL') qClass = 'background:rgba(59,130,246,0.15); color:#3b82f6;';
+    else if (r.quality_status === 'PARTIAL') qClass = 'background:var(--accent-dim); color:#3b82f6;';
 
     const startedStr = r.started_at ? new Date(r.started_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: false }) : '--';
 
@@ -7887,7 +7944,7 @@ initDashboard();
   </script>
   <!-- AI Modal -->
   <div id="aiModal"
-    style="display:none; position:fixed; z-index:9999; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.8); align-items:center; justify-content:center;">
+    style="display:none; position:fixed; z-index:9999; left:0; top:0; width:100%; height:100%; background:var(--modal-backdrop); align-items:center; justify-content:center;">
     <div
       style="background:var(--bg); border:1px solid rgba(178,102,255,0.3); border-radius:12px; width:600px; max-width:90%; padding:24px; box-shadow:0 8px 32px rgba(178,102,255,0.2);">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
@@ -8007,7 +8064,7 @@ async function generateAIModal() {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 12px;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.7);
+      box-shadow:var(--shadow-lg);
       z-index: 100000 !important;
       display: none;
       overflow: hidden;
@@ -8219,7 +8276,7 @@ setTimeout(fetchTodaysAlertsAndBlink_Admin, 2000);
   </script>
   <!-- Users Modal -->
   <div id="usersModal"
-    style="display:none; position:fixed; z-index:9999; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.8); align-items:center; justify-content:center; backdrop-filter:blur(4px);">
+    style="display:none; position:fixed; z-index:9999; left:0; top:0; width:100%; height:100%; background:var(--modal-backdrop); align-items:center; justify-content:center; backdrop-filter:blur(4px);">
     <div
       style="background:var(--bg); border:1px solid var(--border); border-radius:12px; width:90%; max-width:800px; padding:24px; box-shadow:0 10px 30px rgba(0,0,0,0.5); display:flex; flex-direction:column; max-height:85vh;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
@@ -8921,7 +8978,7 @@ async function rejectUser(id) {
 
   </script>
 <!-- Reset Password Modal -->
-<div id="resetPasswordModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center; backdrop-filter:blur(5px);">
+<div id="resetPasswordModal" style="display:none; position:fixed; inset:0; background:var(--modal-backdrop); z-index:9999; align-items:center; justify-content:center; backdrop-filter:blur(5px);">
   <div class="card" style="width:100%; max-width:400px; padding:24px; position:relative;">
     <div style="display:flex; justify-content:space-between; margin-bottom:16px;">
       <h3 style="margin:0;">Reset Password</h3>
@@ -8941,7 +8998,7 @@ async function rejectUser(id) {
 </div>
 
 <!-- DEACTIVATE USER MODAL -->
-<div id="deactivateUserModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:9999; justify-content:center; align-items:center;">
+<div id="deactivateUserModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:var(--modal-backdrop); z-index:9999; justify-content:center; align-items:center;">
   <div class="card" style="width:350px; padding:20px; border: 1px solid var(--warn);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
       <div style="font-weight:600; color:var(--warn);">Deactivate User</div>
@@ -8963,7 +9020,7 @@ async function rejectUser(id) {
 </div>
 
 <!-- EDIT USER ROLE MODAL -->
-<div id="editRoleModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.8); z-index:9999; align-items:center; justify-content:center; backdrop-filter:blur(5px);">
+<div id="editRoleModal" style="display:none; position:fixed; inset:0; background:var(--modal-backdrop); z-index:9999; align-items:center; justify-content:center; backdrop-filter:blur(5px);">
   <div class="card" style="width:100%; max-width:380px; padding:24px; position:relative; background:var(--card); border:1px solid var(--border); border-radius:12px;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
       <h3 style="margin:0; font-size:16px; font-weight:800; color:var(--text); display:flex; align-items:center; gap:8px;">
@@ -9316,7 +9373,7 @@ window.changeAdminPage = function(type, delta) {
 
 
   <!-- Custom Confirmation Modal -->
-  <div id="customConfirmModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(8px); z-index:10000; justify-content:center; align-items:center; opacity:0; transition:opacity 0.2s ease;">
+  <div id="customConfirmModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:var(--modal-backdrop); backdrop-filter:blur(8px); z-index:10000; justify-content:center; align-items:center; opacity:0; transition:opacity 0.2s ease;">
     <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; padding:24px; max-width:420px; width:90%; box-shadow:0 20px 40px rgba(0,0,0,0.4); transform:translateY(20px); transition:transform 0.2s ease;" id="customConfirmBox">
       <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
         <div style="width:40px; height:40px; border-radius:50%; background:rgba(255,170,0,0.1); color:#ffaa00; display:flex; align-items:center; justify-content:center; font-size:20px;">⚠️</div>
@@ -9331,7 +9388,7 @@ window.changeAdminPage = function(type, delta) {
   </div>
 
   <!-- Traceback / Stack Trace Modal -->
-  <div id="tracebackModal" style="display:none; position:fixed; z-index:10001; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.7); backdrop-filter:blur(5px); align-items:center; justify-content:center;">
+  <div id="tracebackModal" style="display:none; position:fixed; z-index:10001; left:0; top:0; width:100%; height:100%; background:var(--modal-backdrop); backdrop-filter:blur(5px); align-items:center; justify-content:center;">
     <div style="background:var(--card); border:1px solid rgba(255,77,109,0.3); border-radius:12px; width:800px; max-width:90%; padding:24px; box-shadow:0 8px 32px rgba(255,77,109,0.2); display:flex; flex-direction:column; max-height:85vh;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid var(--border); padding-bottom:12px;">
         <h2 id="tracebackModalTitle" style="margin:0; font-size:18px; color:var(--warn); display:flex; align-items:center; gap:8px;">⚠️ Stack Trace Details</h2>
@@ -9589,7 +9646,7 @@ function showInvalidTickerAlert(sym, errorMsg) {
     </div>
   ` : `
     <button onclick="closeDiagnosticModal(); document.getElementById('stock-search-input').focus();" 
-            style="padding:10px 24px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:8px; font-weight:700; font-size:13px; cursor:pointer; box-shadow:0 4px 12px rgba(59,130,246,0.3);">
+            style="padding:10px 24px; background:linear-gradient(135deg,#3b82f6,#8b5cf6); color:#fff; border:none; border-radius:8px; font-weight:700; font-size:13px; cursor:pointer; box-shadow:0 4px 12px var(--accent);">
       ✏️ Correct Ticker Symbol
     </button>
   `;
@@ -9617,7 +9674,7 @@ function showDiagnosticLoadingModal(sym) {
   if (!container) return;
 
   container.innerHTML = `
-    <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; max-width:550px; padding:28px; box-shadow:0 20px 50px rgba(0,0,0,0.7); position:relative;">
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; max-width:550px; padding:28px; box-shadow:var(--shadow-lg); position:relative;">
       <div style="text-align:center; padding:30px 20px;">
         <div style="font-size:36px; margin-bottom:12px; animation:spin 1s infinite linear;">⚡</div>
         <h3 style="font-size:18px; font-weight:700; color:var(--text); margin:0;">Analyzing #${sym}...</h3>
@@ -9647,7 +9704,7 @@ function showCustomConfirmModal({ title, message, icon = '🗑️', confirmText 
   if (!modal) {
     modal = document.createElement('div');
     modal.id = 'custom-confirm-modal';
-    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(8px); display:flex; justify-content:center; align-items:center; z-index:10000; padding:20px;';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:var(--modal-backdrop); backdrop-filter:blur(8px); display:flex; justify-content:center; align-items:center; z-index:10000; padding:20px;';
     document.body.appendChild(modal);
   }
 
@@ -9814,7 +9871,7 @@ function renderStockDiagnosticModal(data) {
       </div>`;
   } else {
     overallVerdictBanner = `
-      <div style="padding:12px 16px; background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.3); border-radius:10px; margin-bottom:18px; display:flex; align-items:center; justify-content:space-between;">
+      <div style="padding:12px 16px; background:rgba(59,130,246,0.1); border:1px solid var(--accent); border-radius:10px; margin-bottom:18px; display:flex; align-items:center; justify-content:space-between;">
         <div>
           <div style="font-size:14px; font-weight:800; color:#3b82f6;">🔍 OVERALL DIAGNOSTIC VERDICT: DID NOT QUALIFY ANY SCANNER (MONITORING)</div>
           <div style="font-size:12px; color:var(--text); margin-top:2px;">Stock analyzed clean. Does not currently meet active breakout/reversal setups. System is monitoring on watchlist.</div>
@@ -9826,7 +9883,7 @@ function renderStockDiagnosticModal(data) {
   const safeCompanyName = (data.company_name || data.symbol || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
 
   container.innerHTML = `
-    <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; max-width:880px; max-height:90vh; overflow-y:auto; padding:24px 28px; box-shadow:0 20px 50px rgba(0,0,0,0.7); position:relative;">
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; max-width:880px; max-height:90vh; overflow-y:auto; padding:24px 28px; box-shadow:var(--shadow-lg); position:relative;">
       <!-- Close Button for Main Screen View -->
       <button onclick="closeDiagnosticModal()" 
               style="position:absolute; top:20px; right:20px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:36px; height:36px; border-radius:50%; font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; z-index:10;"
@@ -9854,7 +9911,7 @@ function renderStockDiagnosticModal(data) {
               </button>
             ` : `
               <button id="add-to-watchlist-btn-${data.symbol}" onclick="saveToUserWatchlist('${data.symbol}', '${safeCompanyName}', ${score})" 
-                      style="padding:9px 14px; background:rgba(59,130,246,0.1); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); border-radius:8px; font-weight:700; font-size:12px; cursor:pointer; display:flex; align-items:center; gap:6px;">
+                      style="padding:9px 14px; background:rgba(59,130,246,0.1); color:#3b82f6; border:1px solid var(--accent); border-radius:8px; font-weight:700; font-size:12px; cursor:pointer; display:flex; align-items:center; gap:6px;">
                 <span>⭐</span> Add to Watchlist
               </button>
             `}
@@ -10221,7 +10278,7 @@ function _renderManualWatchlist() {
     } else if (st.includes('QUALIFIED')) {
       statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${it.symbol}')" title="Qualified Signal.">✓ ${it.last_status}</span>`;
     } else {
-      statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${it.symbol}')" title="Monitoring Mode.">🔍 ${it.last_status || 'MONITORING'}</span>`;
+      statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:var(--accent-dim); color:#3b82f6; border:1px solid var(--accent); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis('${it.symbol}')" title="Monitoring Mode.">🔍 ${it.last_status || 'MONITORING'}</span>`;
     }
 
     const cmpAge = it.cmp_updated_at ? Math.round((Date.now() - new Date(it.cmp_updated_at).getTime()) / 60000) : null;
@@ -10356,7 +10413,7 @@ function loadUserWatchlist(force = false) {
         } else if (st.includes('ALERT')) {
           statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:800; background:rgba(217,119,6,0.2); color:#d97706; border:1px solid rgba(217,119,6,0.4); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis(${idx})">🚨 ${item.last_status}</span>`;
         } else {
-          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis(${idx})">🔍 ${item.last_status}</span>`;
+          statusBadge = `<span style="font-size:10px; padding:3px 9px; border-radius:6px; font-weight:600; background:var(--accent-dim); color:#3b82f6; border:1px solid var(--accent); display:inline-flex; align-items:center; gap:4px; cursor:pointer;" onclick="openSavedWatchlistAnalysis(${idx})">🔍 ${item.last_status}</span>`;
         }
 
         const cmp = item.cmp;
@@ -10418,7 +10475,7 @@ function showAnalysisInfoModal(sym) {
   if (!modal) {
     modal = document.createElement('div');
     modal.id = 'stock-diagnostic-modal';
-    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.75); backdrop-filter:blur(8px); display:flex; justify-content:center; align-items:center; z-index:9999; padding:20px;';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:var(--modal-backdrop); backdrop-filter:blur(8px); display:flex; justify-content:center; align-items:center; z-index:9999; padding:20px;';
     document.body.appendChild(modal);
   }
 
@@ -10555,7 +10612,7 @@ function showWatchlistDeepAnalysisSummaryModal(items) {
   if (!modal) {
     modal = document.createElement('div');
     modal.id = 'watchlist-deep-summary-modal';
-    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); backdrop-filter:blur(8px); z-index:100000; display:flex; align-items:center; justify-content:center; padding:20px;';
+    modal.style.cssText = 'position:fixed; top:0; left:0; right:0; bottom:0; background:var(--modal-backdrop); backdrop-filter:blur(8px); z-index:100000; display:flex; align-items:center; justify-content:center; padding:20px;';
     document.body.appendChild(modal);
   }
 
@@ -10567,7 +10624,7 @@ function showWatchlistDeepAnalysisSummaryModal(items) {
     } else if (st.includes('QUALIFIED')) {
       badge = `<span style="font-size:10px; padding:3px 8px; border-radius:4px; font-weight:800; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4);">✓ ${it.watchlist_status}</span>`;
     } else {
-      badge = `<span style="font-size:10px; padding:3px 8px; border-radius:4px; font-weight:600; background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3);">🔍 ${it.watchlist_status}</span>`;
+      badge = `<span style="font-size:10px; padding:3px 8px; border-radius:4px; font-weight:600; background:var(--accent-dim); color:#3b82f6; border:1px solid var(--accent);">🔍 ${it.watchlist_status}</span>`;
     }
 
     const deficitText = (it.deficits && it.deficits.length > 0) ? it.deficits[0] : 'All criteria verified cleanly.';
@@ -10588,7 +10645,7 @@ function showWatchlistDeepAnalysisSummaryModal(items) {
   }).join('');
 
   modal.innerHTML = `
-    <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; max-width:850px; max-height:85vh; overflow-y:auto; padding:24px; box-shadow:0 20px 50px rgba(0,0,0,0.7); position:relative;">
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:16px; width:100%; max-width:850px; max-height:85vh; overflow-y:auto; padding:24px; box-shadow:var(--shadow-lg); position:relative;">
       <button onclick="document.getElementById('watchlist-deep-summary-modal').style.display='none'" style="position:absolute; top:20px; right:20px; background:var(--card3); border:1px solid var(--border); color:var(--text); width:32px; height:32px; border-radius:50%; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
       
       <div style="margin-bottom:20px;">
@@ -10716,7 +10773,7 @@ function renderDatabaseExplorerGrid() {
             <div style="font-family:var(--font-mono); font-size:14px; font-weight:800; color:var(--accent); word-break:break-all;">
               📁 ${t.table_name}
             </div>
-            <span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; background:rgba(255,255,255,0.06); color:var(--muted); border:1px solid var(--border); white-space:nowrap;">
+            <span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; background:var(--border); color:var(--muted); border:1px solid var(--border); white-space:nowrap;">
               ${t.category}
             </span>
           </div>
@@ -10882,7 +10939,7 @@ function renderNearMissesRows(data) {
           const color = num > 0 ? '#10b981' : (num < 0 ? '#ef4444' : 'var(--muted)');
           fwd5Html = `<span style="color:${color}; font-weight:700; font-family:var(--font-mono);">${num > 0 ? '+' : ''}${num.toFixed(1)}%</span>`;
         } else if (daysElapsed < 5) {
-          fwd5Html = `<span style="color:var(--muted); font-size:10px; font-family:var(--font-mono); background:rgba(255,255,255,0.04); padding:2px 6px; border-radius:4px; border:1px solid rgba(255,255,255,0.06);" title="Audit window pending: ${daysElapsed} of 5 days elapsed">⏳ ${daysElapsed}/5D</span>`;
+          fwd5Html = `<span style="color:var(--muted); font-size:10px; font-family:var(--font-mono); background:var(--card3); padding:2px 6px; border-radius:4px; border:1px solid var(--border);" title="Audit window pending: ${daysElapsed} of 5 days elapsed">⏳ ${daysElapsed}/5D</span>`;
         }
 
         // Return 20D formatting
@@ -10892,7 +10949,7 @@ function renderNearMissesRows(data) {
           const color = num > 0 ? '#10b981' : (num < 0 ? '#ef4444' : 'var(--muted)');
           fwd20Html = `<span style="color:${color}; font-weight:700; font-family:var(--font-mono);">${num > 0 ? '+' : ''}${num.toFixed(1)}%</span>`;
         } else if (daysElapsed < 20) {
-          fwd20Html = `<span style="color:var(--muted); font-size:10px; font-family:var(--font-mono); background:rgba(255,255,255,0.04); padding:2px 6px; border-radius:4px; border:1px solid rgba(255,255,255,0.06);" title="Audit window pending: ${daysElapsed} of 20 days elapsed">⏳ ${daysElapsed}/20D</span>`;
+          fwd20Html = `<span style="color:var(--muted); font-size:10px; font-family:var(--font-mono); background:var(--card3); padding:2px 6px; border-radius:4px; border:1px solid var(--border);" title="Audit window pending: ${daysElapsed} of 20 days elapsed">⏳ ${daysElapsed}/20D</span>`;
         }
 
         // Forward MFE formatting
@@ -10908,26 +10965,26 @@ function renderNearMissesRows(data) {
         if (item.rejection_audit) {
           const verdictStr = String(item.rejection_audit).toUpperCase();
           if (verdictStr.includes('GOOD')) {
-            statusBadge = `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:3px 8px; border-radius:6px; font-size:10px; font-weight:800;">🛡️ GOOD REJECTION (Saved Loss)</span>`;
+            statusBadge = `<span style="background:var(--win-bg); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:3px 8px; border-radius:6px; font-size:10px; font-weight:800;">🛡️ GOOD REJECTION (Saved Loss)</span>`;
           } else if (verdictStr.includes('BAD')) {
             statusBadge = `<span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding:3px 8px; border-radius:6px; font-size:10px; font-weight:800;">⚠️ BAD REJECTION (Missed Winner)</span>`;
           } else {
             statusBadge = `<span style="background:rgba(148,163,184,0.15); color:#94a3b8; border:1px solid rgba(148,163,184,0.3); padding:3px 8px; border-radius:6px; font-size:10px; font-weight:700;">⚪ ${item.rejection_audit}</span>`;
           }
         } else if (daysElapsed < 20) {
-          statusBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:3px 8px; border-radius:6px; font-size:10px; font-weight:700;">⏳ AUDITING (Day ${daysElapsed}/20)</span>`;
+          statusBadge = `<span style="background:var(--accent-dim); color:#3b82f6; border:1px solid var(--accent); padding:3px 8px; border-radius:6px; font-size:10px; font-weight:700;">⏳ AUDITING (Day ${daysElapsed}/20)</span>`;
         } else if (item.status === 'STOP_HIT') {
-          statusBadge = `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:3px 8px; border-radius:6px; font-size:10px; font-weight:800;">🛡️ SAVED LOSS</span>`;
+          statusBadge = `<span style="background:var(--win-bg); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:3px 8px; border-radius:6px; font-size:10px; font-weight:800;">🛡️ SAVED LOSS</span>`;
         } else if (item.status === 'TARGET_HIT') {
           statusBadge = `<span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding:3px 8px; border-radius:6px; font-size:10px; font-weight:800;">⚠️ MISSED WINNER</span>`;
         } else if (item.is_fallback || item.status === 'FORENSIC_EXCLUSION_FALLBACK') {
           statusBadge = `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:3px 8px; border-radius:6px; font-size:10px; font-weight:700;">🔍 EXCLUDED</span>`;
         } else {
-          statusBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:3px 8px; border-radius:6px; font-size:10px; font-weight:700;">⏳ AUDITING</span>`;
+          statusBadge = `<span style="background:var(--accent-dim); color:#3b82f6; border:1px solid var(--accent); padding:3px 8px; border-radius:6px; font-size:10px; font-weight:700;">⏳ AUDITING</span>`;
         }
 
         return `
-          <tr class="clickable-stock-row" onclick="openStockForensics('missed', ${idx})" style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;" title="Click to view full Forensic Audit &amp; Technical Radar">
+          <tr class="clickable-stock-row" onclick="openStockForensics('missed', ${idx})" style="border-bottom:1px solid var(--border); font-size:12px;" title="Click to view full Forensic Audit &amp; Technical Radar">
             <td style="padding:10px 14px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatStockSymbolLink(item.symbol)}${getEarningsBadgeHtml(item)}</td>
             <td style="padding:10px 14px;" onclick="event.stopPropagation()">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
             <td style="padding:10px 14px; font-weight:700; color:var(--text); font-family:var(--font-mono);">${formatPrice(cmpVal)}</td>
@@ -10959,13 +11016,13 @@ function renderNearMissesRows(data) {
         const statusBadge = item.is_fallback || item.status === 'FORENSIC_EXCLUSION_FALLBACK'
           ? `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🔍 FORENSIC EXCLUSION</span>`
           : (item.status === 'TARGET_HIT'
-            ? `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🎯 TARGET HIT</span>`
+            ? `<span style="background:var(--win-bg); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🎯 TARGET HIT</span>`
             : (item.status === 'STOP_HIT'
               ? `<span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🛑 STOP HIT</span>`
-              : `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">⏳ TRACKING</span>`));
+              : `<span style="background:var(--accent-dim); color:#3b82f6; border:1px solid var(--accent); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">⏳ TRACKING</span>`));
 
         return `
-          <tr class="clickable-stock-row" onclick="openStockForensics('missed', ${idx})" style="border-bottom:1px solid rgba(255,255,255,0.05); font-size:12px;" title="Click to view full Forensic Audit &amp; Technical Radar">
+          <tr class="clickable-stock-row" onclick="openStockForensics('missed', ${idx})" style="border-bottom:1px solid var(--border); font-size:12px;" title="Click to view full Forensic Audit &amp; Technical Radar">
             <td style="padding:10px 14px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}${getEarningsBadgeHtml(item)}</td>
             <td style="padding:10px 14px; color:var(--muted); font-size:11px; font-weight:600;">${formatText(item.scanner)}</td>
             <td style="padding:10px 14px; font-family:var(--font-mono); font-size:11px;">
@@ -11261,7 +11318,7 @@ function renderStocksWatchRows(data) {
   }
   tbody.innerHTML = data.map((item, idx) => {
     const stageStr = item.stage || '👁️ BASE BUILDING (Watch)';
-    let stageBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">👀 BASE BUILDING</span>`;
+    let stageBadge = `<span style="background:var(--accent-dim); color:#3b82f6; border:1px solid var(--accent); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">👀 BASE BUILDING</span>`;
     if (stageStr.includes('PRE-BREAKOUT') || stageStr.includes('ARMED')) {
       stageBadge = `<span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.35); padding:3px 8px; border-radius:6px; font-weight:800; font-size:11px;">🔥 ARMED (Pre-Breakout)</span>`;
     }
@@ -11287,7 +11344,7 @@ function renderStocksWatchRows(data) {
       } else {
         distHtml = `
           <div style="display:flex; flex-direction:column; align-items:center; gap:2px;">
-            <span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px;">👀 FORMING</span>
+            <span style="background:var(--accent-dim); color:#3b82f6; border:1px solid var(--accent); padding:2px 8px; border-radius:12px; font-weight:700; font-size:10px;">👀 FORMING</span>
             <span style="font-weight:700; color:#3b82f6; font-family:var(--font-mono); font-size:12px;">${sign}${distVal.toFixed(1)}%</span>
           </div>
         `;
@@ -11401,7 +11458,7 @@ function renderInvestmentWatchRows(data) {
   }
   tbody.innerHTML = data.map((item, idx) => {
     const stateStr = item.investment_state || 'ACCUMULATE (Buy Zone)';
-    let stateBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
+    let stateBadge = `<span style="background:var(--accent-dim); color:#3b82f6; border:1px solid var(--accent); padding:3px 8px; border-radius:6px; font-weight:700; font-size:11px;">${formatText(stateStr)}</span>`;
     if (stateStr.includes('BUY') || stateStr.includes('ACCUMULATE')) {
       stateBadge = `<span style="background:rgba(16,185,129,0.2); color:var(--win); border:1px solid rgba(16,185,129,0.45); padding:3px 8px; border-radius:6px; font-weight:800; font-size:11px;">🟢 ACCUMULATE (Buy Zone)</span>`;
     } else if (stateStr.includes('GROWTH')) {
@@ -11423,7 +11480,7 @@ function renderInvestmentWatchRows(data) {
         <td style="padding:10px 12px; font-weight:700; color:#00d4a1; font-size:11px;">💎 ${formatText(item.moat_cash_quality)}</td>
         <td style="padding:10px 12px; font-weight:700; color:${valColor}; font-size:11px;">${formatText(valGrade)}</td>
         <td style="padding:10px 12px; text-align:center;">
-          <span style="background:rgba(16,185,129,0.15); color:var(--win); border:1px solid rgba(16,185,129,0.3); padding:3px 8px; border-radius:6px; font-weight:800; font-family:var(--font-mono); font-size:11px;">
+          <span style="background:var(--win-bg); color:var(--win); border:1px solid rgba(16,185,129,0.3); padding:3px 8px; border-radius:6px; font-weight:800; font-family:var(--font-mono); font-size:11px;">
             🛡️ ${formatPct(item.margin_of_safety_pct)}
           </span>
         </td>
@@ -11556,7 +11613,7 @@ function refreshIntelligenceHealth() {
       tbody.innerHTML = feeds.map(f => {
         const isHealthy = f.is_healthy ?? (f.error_count === 0);
         const statusBadge = isHealthy 
-          ? `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.35); padding:2px 8px; border-radius:12px; font-weight:800; font-size:11px;">🟢 HEALTHY</span>`
+          ? `<span style="background:var(--win-bg); color:#10b981; border:1px solid rgba(16,185,129,0.35); padding:2px 8px; border-radius:12px; font-weight:800; font-size:11px;">🟢 HEALTHY</span>`
           : `<span style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.35); padding:2px 8px; border-radius:12px; font-weight:800; font-size:11px;">🔴 ERROR</span>`;
         return `
           <tr>
@@ -11825,9 +11882,9 @@ function renderWealthHoldingsTable(items, filterBucket) {
     const rawBucket = item.Portfolio_Bucket || (item.Core_Selected ? 'Core' : '-');
     let bucketBadge = `<span class="badge-ok" style="font-size:10px;">${formatText(rawBucket)}</span>`;
     if (rawBucket.includes('Core')) {
-      bucketBadge = `<span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">💎 Core</span>`;
+      bucketBadge = `<span style="background:var(--win-bg); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">💎 Core</span>`;
     } else if (rawBucket.includes('Growth')) {
-      bucketBadge = `<span style="background:rgba(59,130,246,0.15); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🚀 Growth</span>`;
+      bucketBadge = `<span style="background:var(--accent-dim); color:#3b82f6; border:1px solid var(--accent); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🚀 Growth</span>`;
     } else if (rawBucket.includes('Quality-On-Sale')) {
       bucketBadge = `<span style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🏷️ On Sale</span>`;
     } else if (rawBucket.includes('Opportunistic')) {
@@ -11864,7 +11921,7 @@ function renderWealthHoldingsTable(items, filterBucket) {
     } else if (signal.includes('Position Already Open')) {
       signalHtml = `
         <div style="display:flex; flex-direction:column; gap:2px;">
-          <span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px; display:inline-flex; align-items:center; gap:4px;">
+          <span style="background:var(--win-bg); color:#10b981; border:1px solid rgba(16,185,129,0.3); padding:2px 6px; border-radius:4px; font-weight:700; font-size:10px; display:inline-flex; align-items:center; gap:4px;">
             💼 OWNED: Holding Strong
           </span>
           <span style="color:var(--muted); font-size:10px;">Hold Score: ${item.Hold_Score ? Math.round(item.Hold_Score) : 55}/100</span>
@@ -12072,13 +12129,13 @@ document.addEventListener('DOMContentLoaded', () => {
     <div style="font-size:12px; color:var(--muted);">Add to your home screen for instant system control & alerts</div>
   </div>
   <div style="display:flex; gap:8px;">
-    <button onclick="triggerPWAInstall()" style="background:#00e5a0; color:#0b0e14; border:none; padding:8px 16px; border-radius:8px; font-weight:700; font-size:13px; cursor:pointer;">Install</button>
+    <button onclick="triggerPWAInstall()" style="background:var(--win); color:#0b0e14; border:none; padding:8px 16px; border-radius:8px; font-weight:700; font-size:13px; cursor:pointer;">Install</button>
     <button onclick="document.getElementById('pwa-install-banner').style.display='none'; localStorage.setItem('pwa-dismissed','1');" style="background:transparent; color:#6b7280; border:1px solid rgba(255,255,255,0.1); padding:8px 12px; border-radius:8px; font-size:13px; cursor:pointer;">✕</button>
   </div>
 </div>
 
-<div id="pwa-guide-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); backdrop-filter:blur(8px); justify-content:center; align-items:center; z-index:100000; padding:20px;">
-  <div style="background:var(--card, #1c2128); border:1px solid var(--border, rgba(255,255,255,0.15)); border-radius:16px; width:100%; max-width:440px; padding:24px; box-shadow:0 20px 50px rgba(0,0,0,0.8); position:relative; color:var(--text, #e6edf3);">
+<div id="pwa-guide-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:var(--modal-backdrop); backdrop-filter:blur(8px); justify-content:center; align-items:center; z-index:100000; padding:20px;">
+  <div style="background:var(--card, #1c2128); border:1px solid var(--border, rgba(255,255,255,0.15)); border-radius:16px; width:100%; max-width:440px; padding:24px; box-shadow:var(--shadow-lg); position:relative; color:var(--text, #e6edf3);">
     <button onclick="closePWAGuideModal()" style="position:absolute; top:16px; right:16px; background:var(--card2, #21262d); border:1px solid var(--border, rgba(255,255,255,0.1)); color:var(--text, #fff); width:32px; height:32px; border-radius:50%; font-size:14px; cursor:pointer;">✕</button>
     <div id="pwa-guide-content"></div>
   </div>
@@ -12134,26 +12191,26 @@ function showPWAGuideModal(platform) {
     content.innerHTML = `
       <div style="text-align:center; padding:10px 0;">
         <div style="font-size:40px; margin-bottom:12px;">📲</div>
-        <h3 style="font-size:18px; font-weight:800; color:var(--accent, #00e5a0); margin-bottom:12px;">Install on iPhone / iPad</h3>
+        <h3 style="font-size:18px; font-weight:800; color:var(--accent, var(--win)); margin-bottom:12px;">Install on iPhone / iPad</h3>
         <div style="text-align:left; background:var(--card2, #21262d); border:1px solid var(--border, rgba(255,255,255,0.1)); border-radius:12px; padding:16px; font-size:13px; line-height:1.6; margin-bottom:20px; color:var(--text, #e6edf3);">
           <p style="margin-bottom:10px;"><strong>Step 1:</strong> Tap the <strong>Share</strong> button <span style="font-size:18px;">⬆️</span> at the bottom of Safari.</p>
           <p style="margin-bottom:10px;"><strong>Step 2:</strong> Scroll down in the options menu.</p>
           <p style="margin-bottom:0;"><strong>Step 3:</strong> Tap <strong>"Add to Home Screen"</strong> 📲 and tap <strong>Add</strong>!</p>
         </div>
-        <button onclick="closePWAGuideModal()" style="width:100%; padding:12px; background:var(--accent, #00e5a0); color:#0b0e14; border:none; border-radius:10px; font-weight:700; font-size:14px; cursor:pointer;">Got it!</button>
+        <button onclick="closePWAGuideModal()" style="width:100%; padding:12px; background:var(--accent, var(--win)); color:#0b0e14; border:none; border-radius:10px; font-weight:700; font-size:14px; cursor:pointer;">Got it!</button>
       </div>
     `;
   } else {
     content.innerHTML = `
       <div style="text-align:center; padding:10px 0;">
         <div style="font-size:40px; margin-bottom:12px;">📲</div>
-        <h3 style="font-size:18px; font-weight:800; color:var(--accent, #00e5a0); margin-bottom:12px;">Install App on Mobile / Chrome</h3>
+        <h3 style="font-size:18px; font-weight:800; color:var(--accent, var(--win)); margin-bottom:12px;">Install App on Mobile / Chrome</h3>
         <div style="text-align:left; background:var(--card2, #21262d); border:1px solid var(--border, rgba(255,255,255,0.1)); border-radius:12px; padding:16px; font-size:13px; line-height:1.6; margin-bottom:20px; color:var(--text, #e6edf3);">
           <p style="margin-bottom:10px;"><strong>Step 1:</strong> Tap the <strong>3 Dots Menu (⋮)</strong> at the top right of Chrome.</p>
           <p style="margin-bottom:10px;"><strong>Step 2:</strong> Tap <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong> 📲.</p>
           <p style="margin-bottom:0;"><strong>Step 3:</strong> Tap <strong>Install</strong> to add the app icon to your phone!</p>
         </div>
-        <button onclick="closePWAGuideModal()" style="width:100%; padding:12px; background:var(--accent, #00e5a0); color:#0b0e14; border:none; border-radius:10px; font-weight:700; font-size:14px; cursor:pointer;">Got it!</button>
+        <button onclick="closePWAGuideModal()" style="width:100%; padding:12px; background:var(--accent, var(--win)); color:#0b0e14; border:none; border-radius:10px; font-weight:700; font-size:14px; cursor:pointer;">Got it!</button>
       </div>
     `;
   }
@@ -12562,8 +12619,8 @@ function openStockForensics(typeOrObj, index) {
     const ret = item.pnl_pct != null ? parseFloat(item.pnl_pct) : (item.live_return_pct != null ? parseFloat(item.live_return_pct) : (item.return_1d != null ? parseFloat(item.return_1d) : (entry > 0 && cmp > 0 ? ((cmp - entry) / entry * 100) : 0)));
     const sign = ret >= 0 ? '+' : '';
     chgEl.textContent = `${sign}${ret.toFixed(2)}%`;
-    chgEl.style.color = ret >= 0 ? '#34d399' : '#f87171';
-    chgEl.style.background = ret >= 0 ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)';
+    chgEl.style.color = ret >= 0 ? 'var(--win)' : '#f87171';
+    chgEl.style.background = ret >= 0 ? 'var(--win-bg)' : 'rgba(239, 68, 68, 0.15)';
   }
 
   // Header Alert Date Pill
