@@ -8911,6 +8911,11 @@ def bootstrap_admin(cur=None):
 
     except Exception as e:
         logger.exception(f"❌ bootstrap_admin failed")
+        try:
+            if cur and hasattr(cur, 'connection'):
+                cur.connection.rollback()
+        except Exception:
+            pass
 
 def create_user(username, email, mobile, password, first_name='', last_name='', role='user'):
     try:
