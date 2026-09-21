@@ -145,12 +145,13 @@ class ShortCoveringEarlyIgnitionScanner:
             return []
 
         run_ctx = None
+        candidate_watchlist = None
         try:
             run_ctx = start_scanner_execution_run(
                 scanner_name="SHORT_COVERING_5M",
                 trigger_type=trigger_type,
                 scheduler_name=scheduler_name,
-                total_stocks=len(candidate_watchlist) if candidate_watchlist else 0
+                total_stocks=0
             )
         except Exception as ctx_err:
             if "already actively running" in str(ctx_err).lower():
@@ -513,6 +514,7 @@ class ShortCoveringEarlyIgnitionScanner:
                 # [RULE 67 CHANGE-RATIONALE: ACCURATE_SEH_STOCK_ACCOUNTING]
                 # Accurately reflect fresh evaluated symbols vs incomplete (missing derivative OI)
                 # so the admin dashboard execution history displays (Fresh / Stale / Incomplete) accurately.
+                run_ctx.total_stocks = len(symbols_to_scan)
                 run_ctx.record_fresh_data(fresh_count)
                 run_ctx.record_stale_data(stale_count)
                 run_ctx.mark_incomplete(data_insufficient_count)
