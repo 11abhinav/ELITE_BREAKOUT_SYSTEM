@@ -456,6 +456,7 @@ class UpstoxInstrumentMapper:
         if len(self._symbol_map) <= len(_STATIC_SYMBOL_MAP):
             self._download_master_csv()
 
+        import re
         active_syms = set()
         for k in self._symbol_map:
             if k.startswith("NSE_FO_NEAR:"):
