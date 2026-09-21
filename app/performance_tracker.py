@@ -318,6 +318,35 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     else:
         # Fast Mode: Preserve current DB state and history
         hist_list = existing_hist
+        # [FIX: FAST_MODE_STATE_RECONSTRUCTION_v1.0]
+        # If exit_history already records T1_HIT or T2_HIT (written by a prior tracker run)
+        # but the DB status column was NOT updated (e.g. crashed between the two DB writes,
+        # or was a very old row created before partial-exit tracking), reconstruct the
+        # in-memory status and remaining_shares so that the subsequent T2/T3 guards
+        # (which check `status == "PARTIAL_WIN_1"` etc.) evaluate correctly.
+        # Without this, a trade with status="OPEN" in DB but exit_history=["T1_HIT"]
+        # would skip T2 entirely and stay "OPEN" forever.
+        if db_events:
+            if "T2_HIT" in db_events and t.get("status") not in ("PARTIAL_WIN_2", "WIN", "LOSS", "CLOSED"):
+                t["status"] = "PARTIAL_WIN_2"
+                execution_state = "PARTIAL_2_HIT"
+                t["execution_state"] = execution_state
+                # Reconstruct remaining_shares from exit_history events
+                sold_at_t1 = sum(e.get("shares", 0) for e in existing_hist if e.get("type") == "T1_HIT")
+                sold_at_t2 = sum(e.get("shares", 0) for e in existing_hist if e.get("type") == "T2_HIT")
+                reconstructed_rem = shares_bought - sold_at_t1 - sold_at_t2
+                if reconstructed_rem >= 0:
+                    t["remaining_shares"] = reconstructed_rem
+                logger.info(f"[FAST_MODE_RECONSTRUCT] {symbol} id={t['id']}: status reconstructed to PARTIAL_WIN_2 (db_events had T2_HIT but DB status was {t.get('status')!r})")
+            elif "T1_HIT" in db_events and t.get("status") not in ("PARTIAL_WIN_1", "PARTIAL_WIN_2", "WIN", "LOSS", "CLOSED"):
+                t["status"] = "PARTIAL_WIN_1"
+                execution_state = "PARTIAL_1_HIT"
+                t["execution_state"] = execution_state
+                sold_at_t1 = sum(e.get("shares", 0) for e in existing_hist if e.get("type") == "T1_HIT")
+                reconstructed_rem = shares_bought - sold_at_t1
+                if reconstructed_rem >= 0:
+                    t["remaining_shares"] = reconstructed_rem
+                logger.info(f"[FAST_MODE_RECONSTRUCT] {symbol} id={t['id']}: status reconstructed to PARTIAL_WIN_1 (db_events had T1_HIT but DB status was {t.get('status')!r})")
 
     # Build sequence of all historical ticks (from alert creation) + live price
     ticks = []

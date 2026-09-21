@@ -1390,6 +1390,7 @@ function changeAdminPage(type, delta) {
     .badge-review  { background: rgba(217,119,6,.12); color: #d97706; border: 1px solid rgba(217,119,6,.25); }
     .badge-neutral { background: var(--card3);         color: var(--muted); border: 1px solid var(--border2); }
     .badge-rejected { background: rgba(220,38,38,.07); color: #dc2626; border: 1px solid rgba(220,38,38,.15); text-decoration: line-through; opacity: 0.8; }
+    .badge-partial { background: rgba(20,184,166,.12); color: #14b8a6; border: 1px solid rgba(20,184,166,.3); font-weight: 800; }
     .badge-scanner { background: rgba(217,119,6,.1);  color: var(--amber); font-family: var(--font-mono); border: 1px solid rgba(217,119,6,.2); }
 
     /* ── STOCKS TO WATCH & INVESTMENT WATCH THEME-AWARE STYLES ── */
@@ -4382,8 +4383,10 @@ function changeAdminPage(type, delta) {
       } else if (s === 'WIN') {
         displayStatus = 'PROFIT';
       }
-      const m = { PROFIT: 'badge-win', WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', SELL_REVIEW: 'badge-review', NEUTRAL: 'badge-neutral', REJECTED: 'badge-rejected' };
-      let html = `<span class="badge ${m[displayStatus] || 'badge-neutral'}">${displayStatus}</span>`;
+      const m = { PROFIT: 'badge-win', WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', SELL_REVIEW: 'badge-review', NEUTRAL: 'badge-neutral', REJECTED: 'badge-rejected', PARTIAL_WIN_1: 'badge-partial', PARTIAL_WIN_2: 'badge-partial' };
+      if (s === 'PARTIAL_WIN_1') displayStatus = 'T1 HIT';
+      else if (s === 'PARTIAL_WIN_2') displayStatus = 'T2 HIT';
+      let html = `<span class="badge ${m[s] || m[displayStatus] || 'badge-neutral'}">${displayStatus}</span>`;
       if (t && t.is_rejected && t.shadow_status && t.shadow_status !== 'SHADOW_OPEN') {
         const isWin = t.shadow_status === 'SHADOW_WIN' || t.shadow_pnl_pct >= 0;
         const shColor = isWin ? 'var(--win)' : '#ff4d4d';
@@ -5709,8 +5712,8 @@ function getEarningsBadgeHtml(item) {
           </div>
           <div class="detail-item">
             <div class="detail-label">Exit History</div>
-            <div class="detail-val" id="eh-${id}" data-alert-id="${t.id}" style="font-size:10px; font-family:var(--font-mono); white-space:pre-wrap; word-break:break-word; color:var(--muted)">
-              Loading...
+            <div class="detail-val" id="eh-${id}" data-alert-id="${t.id}" data-preloaded="false" style="font-size:10px; font-family:var(--font-mono); white-space:pre-wrap; word-break:break-word; color:var(--muted)">
+              ${(()=>{ const _eh = t.exit_history ? (typeof t.exit_history === 'string' ? (() => { try { return JSON.parse(t.exit_history); } catch(e) { return []; } })() : t.exit_history) : []; if (_eh && _eh.length) { return _eh.map(x => { const dt = x.time || x.timestamp || ''; const dateStr = dt.substring(5,10); const timeStr = dt.substring(11,16); const pnl = x.pnl != null ? (x.pnl >= 0 ? `<span style="color:#10b981">+₹${Number(x.pnl).toFixed(2)}</span>` : `<span style="color:#ef4444">₹${Number(x.pnl).toFixed(2)}</span>`) : ''; return `<div style="margin-bottom:4px; padding:4px 6px; background:rgba(0,212,161,0.07); border-left:2px solid #14b8a6; border-radius:4px;"><span style="color:#14b8a6; font-weight:800;">${x.type||x.reason||'EVENT'}</span> <span style="color:var(--muted)">${dateStr} ${timeStr}</span> &nbsp;|&nbsp; Sold <span style="color:var(--text); font-weight:700;">${x.shares||0} shares</span> @ <span style="color:var(--accent); font-weight:700;">₹${x.price||0}</span> &nbsp;${pnl}</div>`; }).join(''); } else { return `<span style="color:var(--muted); font-style:italic;">No exit events yet — position open</span>`; } })()}
             </div>
           </div>
           <div class="detail-item">
@@ -5832,7 +5835,12 @@ function getEarningsBadgeHtml(item) {
           const finalAlertDbId = resolvedId || (ehEl.dataset.alertId ? parseInt(ehEl.dataset.alertId, 10) : null);
           if (finalAlertDbId) {
             const cacheKey = String(finalAlertDbId);
-            if (!EXIT_HISTORY_CACHE.has(cacheKey)) {
+            // If already pre-populated inline from t.exit_history, skip the API call
+            if (ehEl.dataset.preloaded === 'true') {
+              // Already rendered — nothing to do
+            } else if (EXIT_HISTORY_CACHE.has(cacheKey)) {
+              renderExitHistory(ehEl, EXIT_HISTORY_CACHE.get(cacheKey), finalAlertDbId);
+            } else {
               try {
                 const r = await fetch('/api/alert/exit_history/' + finalAlertDbId);
                 if (r.ok) {
@@ -5845,8 +5853,6 @@ function getEarningsBadgeHtml(item) {
               } catch(e) {
                 renderExitHistory(ehEl, null, finalAlertDbId);
               }
-            } else {
-              renderExitHistory(ehEl, EXIT_HISTORY_CACHE.get(cacheKey), finalAlertDbId);
             }
           } else {
             ehEl.textContent = '—';
@@ -5857,17 +5863,36 @@ function getEarningsBadgeHtml(item) {
 
     function renderExitHistory(el, eh, alertDbId) {
       if (!eh || !eh.length) {
+        // If no events from API, try reading from the pre-loaded inline HTML (already rendered)
+        // Only override if still showing the default 'No exit events yet' placeholder
+        if (el.dataset.preloaded === 'true') return;
         const trade = alertDbId ? ALL_TRADES.find(t => t.id === alertDbId) : null;
         if (trade && (trade.exit_signal || trade.exit_reason)) {
           el.innerHTML = `<span style="color:#ff4d6d; font-weight:700;">${trade.exit_signal || trade.exit_reason}</span>`;
         } else {
-          el.textContent = '—';
+          el.innerHTML = `<span style="color:var(--muted); font-style:italic;">No exit events recorded</span>`;
         }
+        el.dataset.preloaded = 'true';
         return;
       }
-      el.innerHTML = eh.map(x =>
-        `${(x.time||x.timestamp||'').substring(5,10)} ${(x.time||x.timestamp||'').substring(11,16)} | Sold ${x.shares} @ ${x.price} (${x.type||x.reason||''})`
-      ).join('<br>');
+      // Render rich exit history rows
+      el.innerHTML = eh.map(x => {
+        const dt = x.time || x.timestamp || '';
+        const dateStr = dt.substring(5,10);
+        const timeStr = dt.substring(11,16);
+        const pnl = x.pnl != null
+          ? (x.pnl >= 0
+              ? `<span style="color:#10b981">+₹${Number(x.pnl).toFixed(2)}</span>`
+              : `<span style="color:#ef4444">₹${Number(x.pnl).toFixed(2)}</span>`)
+          : '';
+        return `<div style="margin-bottom:4px; padding:4px 6px; background:rgba(0,212,161,0.07); border-left:2px solid #14b8a6; border-radius:4px;">`
+          + `<span style="color:#14b8a6; font-weight:800;">${x.type||x.reason||'EVENT'}</span> `
+          + `<span style="color:var(--muted)">${dateStr} ${timeStr}</span>`
+          + ` &nbsp;|&nbsp; Sold <span style="color:var(--text); font-weight:700;">${x.shares||0} shares</span>`
+          + ` @ <span style="color:var(--accent); font-weight:700;">₹${x.price||0}</span>`
+          + ` &nbsp;${pnl}</div>`;
+      }).join('');
+      el.dataset.preloaded = 'true';
     }
 
     // [VERSION: EXPAND_COLLAPSE_ALL_TRADES_v1.1] Implement expandAllTrades and collapseAllTrades
@@ -6054,10 +6079,10 @@ function getEarningsBadgeHtml(item) {
 
       const btn = document.getElementById('recalculateSelectedBtn');
       const originalText = btn.innerText;
-      btn.innerText = 'Recalculating...';
       btn.disabled = true;
 
       try {
+        btn.innerText = '⏳ Resetting...';
         const res = await fetch('/api/alert/recalculate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -6066,16 +6091,37 @@ function getEarningsBadgeHtml(item) {
         if (res.ok) {
           ids.forEach(cid => {
             EXIT_HISTORY_CACHE.delete(String(cid));
-            if (expandedIds.has(cid)) expandedIds.delete(cid);
+            expandedIds.delete(String(cid));
             const trade = ALL_TRADES.find(t => t.id === cid);
             if (trade) resetTradeToOpen(trade);
           });
-          showCustomToast(`Triggered rebuild for ${ids.length} trade(s).`, 'success');
           document.getElementById('selectAllTrades').checked = false;
           updateBulkActionsVisibility();
           renderTradeTable();
+          showCustomToast(`Reset ${ids.length} trade(s). Rebuilding now — refreshing in 6s...`, 'success');
+          // Poll for fresh data after rebuild (performance tracker runs async)
+          btn.innerText = '⏳ Rebuilding...';
+          await new Promise(r => setTimeout(r, 6000));
+          try {
+            const perfRes = await fetch('/data/performance_data.json?_=' + Date.now());
+            if (perfRes.ok) {
+              const fresh = await perfRes.json();
+              if (fresh && fresh.trades) {
+                // Merge updated trades back into ALL_TRADES
+                ids.forEach(cid => {
+                  const updated = fresh.trades.find(t => t.id === cid);
+                  const idx = ALL_TRADES.findIndex(t => t.id === cid);
+                  if (updated && idx !== -1) ALL_TRADES[idx] = updated;
+                  EXIT_HISTORY_CACHE.delete(String(cid));
+                });
+                renderTradeTable();
+                showCustomToast('✅ Recalculation complete — trades updated.', 'success');
+              }
+            }
+          } catch(pe) { /* silent — data will refresh on next auto-poll */ }
         } else {
-          showCustomToast('Error recalculating trades.', 'error');
+          const errData = await res.json().catch(() => ({}));
+          showCustomToast('Error: ' + (errData.error || 'Recalculation failed.'), 'error');
         }
       } catch (e) {
         showCustomToast('Network error while recalculating trades.', 'error');

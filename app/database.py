@@ -3810,7 +3810,10 @@ def get_all_alerts(limit: int = None) -> list[dict]:
                     COALESCE(a.distinct_patterns_count, 1)          AS distinct_patterns_count,
                     COALESCE(a.confirmation_quality, 'INITIAL')     AS confirmation_quality,
                     COALESCE(a.last_event_type, 'NEW_ENTRY')        AS last_event_type,
-                    a.last_event_date
+                    a.last_event_date,
+                    a.execution_state,
+                    a.actual_entry_price,
+                    a.cmp_updated_at
                 FROM alerts a
                 ORDER BY a.alert_time DESC
             """
