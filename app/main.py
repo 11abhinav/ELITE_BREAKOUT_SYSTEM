@@ -2750,6 +2750,10 @@ def _trigger_short_covering_5m(trigger_type="SCHEDULED", scheduler_name="CRON"):
             from short_covering.short_covering_scanner import short_covering_scanner
         except ImportError:
             from app.short_covering.short_covering_scanner import short_covering_scanner
+            
+        from database import upsert_scanner_health
+        upsert_scanner_health("SHORT_COVERING_5M", status="RUNNING", error_msg="Intraday 5m scan in progress...")
+        
         alerts = short_covering_scanner.run_5m_scan_cycle(trigger_type=trigger_type, scheduler_name=scheduler_name)
         return {"total_count": len(alerts), "processed_count": len(alerts), "type": "INTRADAY_IGNITION"}
     except Exception as e:
