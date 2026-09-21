@@ -595,9 +595,12 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 t["closed_at"] = ts_str
                 t["exit_price"] = exit_p
                 t["execution_state"] = execution_state
-                if "T1_HIT" not in db_events:
+                # [FIX BUG-2: T1_FULL_EXIT_WIN_SENTINEL]
+                # Use a separate sentinel "T1_WIN" so update_alert_outcome is NOT blocked
+                # by the earlier "T1_HIT" db_events guard (which was already set above).
+                if "T1_WIN" not in db_events:
                     update_alert_outcome(t["id"], "WIN", exit_p, p_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT", execution_state=execution_state)
-                    db_events.add("T1_HIT")
+                    db_events.add("T1_WIN")
                 continue
 
         status = t["status"]
@@ -645,9 +648,12 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 t["closed_at"] = ts_str
                 t["exit_price"] = exit_p
                 t["execution_state"] = execution_state
-                if "T2_HIT" not in db_events:
+                # [FIX BUG-3: T2_FULL_EXIT_WIN_SENTINEL]
+                # Use a separate sentinel "T2_WIN" so update_alert_outcome is NOT blocked
+                # by the earlier "T2_HIT" db_events guard (which was already set above).
+                if "T2_WIN" not in db_events:
                     update_alert_outcome(t["id"], "WIN", exit_p, p_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="TARGET_HIT", execution_state=execution_state)
-                    db_events.add("T2_HIT")
+                    db_events.add("T2_WIN")
                 continue
 
         status = t["status"]
@@ -1172,8 +1178,12 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             t["current_price"] = round(cur_p, 2)
             t["cmp_updated_at"] = now_ist.strftime('%Y-%m-%d %H:%M:%S')
             if not t["_db_closed"]:
-                # Calculate live unrealized P&L
-                if ep and ep > 0:
+                # [FIX BUG-5: PARTIAL_WIN_PNL_PRESERVATION]
+                # For PARTIAL_WIN trades, process_trade_history computes a composite PnL
+                # (realized from earlier exit + floating on remaining shares). Do NOT overwrite
+                # that with a naive (cur_p - ep)/ep calculation which ignores partial exits.
+                _is_partial = t.get("status") in ("PARTIAL_WIN_1", "PARTIAL_WIN_2")
+                if ep and ep > 0 and not _is_partial:
                     live_pnl_pct = round(((cur_p - ep) / ep) * 100.0, 2)
                     t["pnl_pct"] = live_pnl_pct
                     sh_b = t.get("shares_bought") or 0
@@ -1209,10 +1219,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         # by their own fundamental exit monitors (e.g. evaluate_multibagger_exits).
         # Skip swing SL / target processing for them in performance_tracker.
         if scanner in ("MULTIBAGGER", "WEALTH", "Wealth Engine"):
-            continue
-            # pnl_pct and exit_price already populated from DB above
-            # Just refresh current_price for display; status stays locked
-            logger.debug(f"⏭️  {sym} already closed ({t['status']}) — skipping bar fetch")
+            # [FIX BUG-4: removed dead code that was unreachable after continue]
             continue
 
         # ── Counterfactual Shadow Tracking for Rejected Trades ──────────────────────
@@ -1310,9 +1317,17 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             # Legacy alert — no SL/Target at all
             t["pnl_pct"] = round((cur_p - ep) / ep * 100, 2)
 
-        t["status"] = _trade_status(
-            t["pnl_pct"], t["days_held"], t["stopped_out"], t["target_hit"]
+        # [FIX BUG-1: PARTIAL_WIN_STATUS_CLOBBER_PREVENTION]
+        # process_trade_history sets t["status"] to PARTIAL_WIN_1/2, WIN, LOSS for trades it evaluates.
+        # _trade_status() knows nothing about partial exits — it only returns OPEN/WIN/LOSS.
+        # Skip the override if a definitive status is already set to prevent clobbering.
+        _skip_status_update = t.get("status") in (
+            "PARTIAL_WIN_1", "PARTIAL_WIN_2", "WIN", "LOSS", "CLOSED", "EXPIRED"
         )
+        if not _skip_status_update:
+            t["status"] = _trade_status(
+                t["pnl_pct"], t["days_held"], t["stopped_out"], t["target_hit"]
+            )
         if t.get("is_rejected"):
             t["status"] = "REJECTED"
 
