@@ -10273,6 +10273,14 @@ def cleanup_orphaned_scanner_runs_on_boot(cur=None):
                     error_details = 'Automated boot cleanup detected unclosed RUNNING/QUEUED state from previous server process'
                 WHERE lifecycle_status IN ('RUNNING', 'QUEUED');
             """)
+            c.execute("""
+                UPDATE scanner_health
+                SET status = 'IDLE',
+                    updated_at = NOW(),
+                    error_msg = 'Server restarted. Reset to IDLE.'
+                WHERE status IN ('RUNNING', 'QUEUED', 'DOWN') 
+                  AND status NOT IN ('PAUSED', 'STOPPED');
+            """)
         except Exception as e:
             logger.warning(f"Failed to reset scanner_execution_history on boot: {e}")
 
@@ -10313,6 +10321,18 @@ def is_scanner_actively_running(scanner_name: str, exclude_run_id: str = None, c
                     WHERE lifecycle_status IN ('RUNNING', 'QUEUED')
                       AND started_at < %s;
                 """, (_PROCESS_BOOT_TIME,))
+                
+                # Also reset scanner_health to IDLE for any scanners that the watchdog caught
+                cur.execute("""
+                    UPDATE scanner_health
+                    SET status = 'IDLE',
+                        updated_at = NOW(),
+                        error_msg = 'Watchdog auto-cleaned unclosed RUNNING state from prior server process'
+                    WHERE status IN ('RUNNING', 'QUEUED') 
+                      AND updated_at < %s
+                      AND status NOT IN ('PAUSED', 'STOPPED');
+                """, (_PROCESS_BOOT_TIME,))
+                
                 # Heartbeat lease model: Stale if no heartbeat in > 10 minutes OR if hard max runtime exceeded (> 2 hours)
                 cur.execute("""
                     UPDATE scanner_execution_history
@@ -10326,6 +10346,16 @@ def is_scanner_actively_running(scanner_name: str, exclude_run_id: str = None, c
                           OR (heartbeat_at IS NULL AND started_at < NOW() - INTERVAL '10 minutes')
                           OR started_at < NOW() - INTERVAL '2 hours'
                       );
+                """)
+                
+                cur.execute("""
+                    UPDATE scanner_health
+                    SET status = 'IDLE',
+                        updated_at = NOW(),
+                        error_msg = 'Watchdog auto-cleaned stale RUNNING state with inactive heartbeat'
+                    WHERE status IN ('RUNNING', 'QUEUED') 
+                      AND updated_at < NOW() - INTERVAL '10 minutes'
+                      AND status NOT IN ('PAUSED', 'STOPPED');
                 """)
                 conn.commit()
 
