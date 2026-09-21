@@ -462,7 +462,25 @@ class UpstoxInstrumentMapper:
                 sym = k.replace("NSE_FO_NEAR:", "").strip().upper()
                 if sym and len(sym) >= 2 and not " " in sym and sym not in ("NIFTYNXT50", "NIFTYFPI"):
                     active_syms.add(sym)
-        return sorted(list(active_syms))
+                    
+        # [VERSION: SYMBOL_UNIVERSE_DEDUPLICATION_v1.0]
+        # Remove explicitly stripped duplicates that pollute the universe list
+        # E.g., if M&M exists, don't include MM. If NAM-INDIA exists, don't include NAMINDIA.
+        filtered_syms = set(active_syms)
+        for sym in active_syms:
+            clean = re.sub(r'[^A-Z0-9]', '', sym)
+            # If a symbol has special characters (e.g. M&M), remove the stripped version (MM) if it exists
+            if clean != sym and clean in filtered_syms:
+                filtered_syms.remove(clean)
+
+        # Handle manual alias duplicates (e.g. MCDOWELL being an alias for MCDOWELL-N or UNITDSPR)
+        # We know these specific bloat symbols shouldn't be in the root universe:
+        bloat_aliases = {"MCDOWELL", "MCDOWELL_N", "M_M", "BAJAJ_AUTO", "BAJAJAUTO", "L_TFH", "LTFH", "GUJGAS", "TMPV", "TMCV", "UNITDSPR", "LTF", "GMRAIRPORT"}
+        for b in bloat_aliases:
+            if b in filtered_syms:
+                filtered_syms.remove(b)
+
+        return sorted(list(filtered_syms))
 
     def get_instrument_key(self, symbol: str, allow_fallback: bool = True) -> Optional[str]:
         """Maps symbol to official Upstox instrument key."""
