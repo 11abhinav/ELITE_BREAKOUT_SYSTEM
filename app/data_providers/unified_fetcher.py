@@ -41,6 +41,7 @@ class UnifiedFetcher:
             
         providers = self.selector.get_providers(dataset_id, fetch_type="historical")
         
+        provider_errors = {}
         for provider in providers:
             if provider == "fyers":
                 try:
@@ -61,7 +62,12 @@ class UnifiedFetcher:
                             }
                         from trading_calendar import enforce_trading_day_candles
                         return enforce_trading_day_candles(df, symbol)
+                    else:
+                        err = getattr(md, "error", "No error message provided") if md else "No MarketData returned"
+                        provider_errors["fyers"] = err
+                        logger.debug(f"⚠️ [Fyers] Skipped historical {symbol}: {err}")
                 except Exception as e:
+                    provider_errors["fyers"] = str(e)
                     logger.warning(f"⚠️ [Fyers] Failed to fetch historical {symbol}: {e}")
             
             elif provider == "upstox":
@@ -84,11 +90,16 @@ class UnifiedFetcher:
                             }
                         from trading_calendar import enforce_trading_day_candles
                         return enforce_trading_day_candles(md.dataframe, symbol)
+                    else:
+                        err = getattr(md, "error", "No error message provided") if md else "No MarketData returned"
+                        provider_errors["upstox"] = err
+                        logger.debug(f"⚠️ [Upstox] Skipped historical {symbol}: {err}")
                 except Exception as e:
+                    provider_errors["upstox"] = str(e)
                     logger.warning(f"⚠️ [Upstox] Failed to fetch historical {symbol}: {e}")
 
-
-        logger.error(f"❌ Exhausted all providers for historical {symbol}")
+        error_details = ", ".join([f"{p}: {e}" for p, e in provider_errors.items()])
+        logger.error(f"❌ Exhausted all providers for historical {symbol}. Reasons: {error_details}")
         return pd.DataFrame()
 
     def fetch_live_quotes(self, symbols: list[str], consumer: str) -> dict[str, dict]:
