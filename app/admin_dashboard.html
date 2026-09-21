@@ -5884,6 +5884,20 @@ function getEarningsBadgeHtml(item) {
       renderTradeTable();
     }
 
+    function resetTradeToOpen(trade) {
+      if (trade) {
+        trade.status = 'OPEN';
+        trade.exit_signal = null;
+        trade.exit_reason = null;
+        trade.exit_history = null;
+        trade.pnl_pct = null;
+        trade.pnl_rs = null;
+        trade.exit_price = null;
+        trade.closed_at = null;
+        trade.execution_state = 'OPEN';
+      }
+    }
+
     async function rejectAlert(id) {
       const confirmed = await showCustomConfirm('Are you sure you want to REJECT this trade? Capital will be refunded and it will not count towards KPIs.');
       if (!confirmed) return;
@@ -5970,7 +5984,7 @@ function getEarningsBadgeHtml(item) {
                 trade.target_2 = resTrade.target_2;
                 trade.target_3 = resTrade.target_3;
                 if (trade.status === 'REJECTED') {
-                  trade.status = 'OPEN';
+                  resetTradeToOpen(trade);
                 }
               }
             });
@@ -6054,7 +6068,7 @@ function getEarningsBadgeHtml(item) {
             EXIT_HISTORY_CACHE.delete(String(cid));
             if (expandedIds.has(cid)) expandedIds.delete(cid);
             const trade = ALL_TRADES.find(t => t.id === cid);
-            if (trade) trade.status = 'OPEN';
+            if (trade) resetTradeToOpen(trade);
           });
           showCustomToast(`Triggered rebuild for ${ids.length} trade(s).`, 'success');
           document.getElementById('selectAllTrades').checked = false;
@@ -6081,7 +6095,7 @@ function getEarningsBadgeHtml(item) {
         });
         if (res.ok) {
           const trade = ALL_TRADES.find(t => t.id === id);
-          if (trade) trade.status = 'OPEN';
+          if (trade) resetTradeToOpen(trade);
           renderTradeTable();
           loadCapitalInfo();
         } else {
@@ -6116,7 +6130,7 @@ function getEarningsBadgeHtml(item) {
           EXIT_HISTORY_CACHE.delete(String(id));
           expandedIds.clear();
           const trade = ALL_TRADES.find(t => t.id === id);
-          if (trade) trade.status = 'OPEN';
+          if (trade) resetTradeToOpen(trade);
           renderTradeTable();
           showCustomToast('Recalculation started. Trade is now OPEN and will update shortly.', 'success');
         } else {
@@ -6164,7 +6178,7 @@ function getEarningsBadgeHtml(item) {
             trade.target_2 = data.target_2;
             trade.target_3 = data.target_3;
             if (trade.status === 'REJECTED') {
-              trade.status = 'OPEN';
+              resetTradeToOpen(trade);
             }
           }
           renderTradeTable();

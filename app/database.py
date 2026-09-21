@@ -632,6 +632,7 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_status_is_rejected ON alerts(status, is_rejected)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_evolution_state ON alerts(trade_evolution_state, alert_date DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_confirmed_active ON alerts (alert_time DESC) WHERE is_rejected = FALSE AND status IN ('OPEN', 'ACTIVE') AND scanner NOT IN ('MULTIBAGGER')")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_perf_tracker ON alerts(alert_time ASC) WHERE status IN ('OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING') AND is_rejected = FALSE AND scanner NOT IN ('MULTIBAGGER', 'WEALTH')")
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_alerts_idempotency ON alerts (idempotency_key) WHERE idempotency_key IS NOT NULL")
 
                 # 4.5. scanner_evaluation_log table
@@ -1363,6 +1364,7 @@ def init_db():
                         PRIMARY KEY (name, date)
                     )
                 """)
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_parquet_cache_name_date ON parquet_cache(name, date DESC)")
 
                 # 24b. screener_cache (Canonical fundamental data with TIMESTAMPTZ)
                 cur.execute("""
@@ -1875,6 +1877,7 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_state_updated ON scanner_candidates (state, updated_at DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_quality_score ON scanner_candidates (quality_score DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_scanner_last_eval ON scanner_candidates (scanner_name, last_evaluated_at DESC)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_eval_asc ON scanner_candidates (state, last_evaluated_at ASC NULLS FIRST)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_symbol ON scanner_candidates (symbol)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_candidates_blocker_type ON scanner_candidates (primary_blocker_type)")
 
