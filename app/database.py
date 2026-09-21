@@ -5754,7 +5754,7 @@ def acknowledge_data_fetch_health(source_name: str):
                     else:
                         targeted = impacted
                     for sc in targeted:
-                        cur.execute("UPDATE scanner_health SET is_acknowledged = TRUE, error_msg = NULL, status = 'OK' WHERE scanner_name = %s AND status NOT IN ('PAUSED', 'STOPPED')", (sc,))
+                        cur.execute("UPDATE scanner_health SET is_acknowledged = TRUE, error_msg = NULL, status = 'OK' WHERE scanner_name = %s AND status NOT IN ('PAUSED', 'STOPPED', 'RUNNING') AND status NOT LIKE 'QUEUED%%'", (sc,))
                         if cur.rowcount:
                             cleared.append(sc)
                     conn.commit()
@@ -5773,7 +5773,10 @@ def acknowledge_scanner_health(scanner_name: str):
                 cur.execute("""
                     UPDATE scanner_health
                     SET is_acknowledged = TRUE, error_msg = NULL,
-                        status = CASE WHEN status IN ('PAUSED', 'STOPPED') THEN status ELSE 'OK' END
+                        status = CASE 
+                                     WHEN status IN ('PAUSED', 'STOPPED', 'RUNNING') OR status LIKE 'QUEUED%%' THEN status 
+                                     ELSE 'OK' 
+                                 END
                     WHERE scanner_name = %s
                 """, (scanner_name,))
                 conn.commit()
@@ -6014,11 +6017,12 @@ def acknowledge_all_fetch_errors() -> bool:
                     WHERE is_acknowledged = FALSE
                 """)
 
-                # Clear scanner_health for all active scanners (mark as OK, preserving PAUSED)
+                # Clear scanner_health for all active scanners (mark as OK, preserving PAUSED, RUNNING, QUEUED)
                 cur.execute("""
                     UPDATE scanner_health
                     SET status = 'OK', is_acknowledged = TRUE, error_msg = NULL, updated_at = %s
-                    WHERE status NOT IN ('OK', 'PAUSED', 'STOPPED')
+                    WHERE status NOT IN ('OK', 'PAUSED', 'STOPPED', 'RUNNING')
+                      AND status NOT LIKE 'QUEUED%%'
                 """, (datetime.now(IST).isoformat(),))
 
                 conn.commit()
