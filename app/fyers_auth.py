@@ -376,7 +376,12 @@ def fyers_get_with_scraper_fallback(session, target_url, headers=None):
         logger.error(f"❌ Direct GET connection to {target_url} failed: {direct_err}")
         raise
 
-_auto_login_lock = threading.Lock()
+try:
+    from app.lock_utils import ProcessLock
+except ImportError:
+    from lock_utils import ProcessLock
+
+_auto_login_lock = ProcessLock("fyers_auto_login_lock")
 _last_auto_login_time = 0.0
 
 def auto_login() -> Optional[str]:
@@ -385,12 +390,45 @@ def auto_login() -> Optional[str]:
     import time
     with _auto_login_lock:
         now_ts = time.time()
+        
+        # Cross-process DB Check: See if a peer process JUST successfully updated the token while we were waiting for the lock.
+        try:
+            from database import get_system_state
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            db_state = get_system_state("fyers_access_token")
+            if db_state:
+                parsed = None
+                import json
+                if isinstance(db_state, str) and db_state.startswith("{"):
+                    try:
+                        parsed = json.loads(db_state)
+                    except Exception:
+                        pass
+                elif isinstance(db_state, dict):
+                    parsed = db_state
+                    
+                if parsed and isinstance(parsed, dict) and "updated_at" in parsed:
+                    updated_at_dt = datetime.fromisoformat(parsed["updated_at"])
+                    if (datetime.now(ZoneInfo('Asia/Kolkata')) - updated_at_dt).total_seconds() < 300:
+                        logger.info("⚡ Another process successfully completed Fyers auto-login recently. Reusing token.")
+                        token = parsed.get("token")
+                        if token:
+                            global _token_date
+                            with _token_lock:
+                                _cached_token = token
+                                _token_date = str(datetime.now(ZoneInfo('Asia/Kolkata')).date())
+                            return token
+        except Exception as e:
+            logger.warning(f"Error checking recent token update in auto_login: {e}")
+
         # Cooldown guard: Prevent sending repeated automated OTP requests within 300 seconds (5 mins)
         if now_ts - _last_auto_login_time < 300.0 and _last_auto_login_time > 0.0 and _cached_token:
             logger.warning(f"⏳ Fyers auto-login attempted within 5-minute cooldown ({int(now_ts - _last_auto_login_time)}s ago). Returning active cached token.")
             return _cached_token
 
         _last_auto_login_time = now_ts
+        clear_token(force=True)
         try:
             client_id = config.FYERS_CLIENT_ID
             secret_key = config.FYERS_SECRET_KEY

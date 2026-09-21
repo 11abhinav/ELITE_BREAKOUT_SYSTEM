@@ -918,10 +918,6 @@ class FyersFetcher(DataFetcher):
                     logger.warning(f"⚠️ Initial Fyers token test failed: {msg}")
 
             # Step 2: If we are here, initial token test failed OR token was completely missing.
-            # Regenerate token using scraper.
-            logger.info("🔄 Regenerating Fyers token using scraper...")
-            fyers_auth.clear_token(force=True)
-            
             # auto_login will generate via scraper and save to DB
             new_token = fyers_auth.auto_login()
             if not new_token:

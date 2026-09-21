@@ -171,8 +171,7 @@ class UnifiedFetcher:
                                     msg = str(resp.get("message", "")).lower() if isinstance(resp, dict) else ""
                                     if str(code) in ["-15", "-16", "401", "-401", "494"] or "valid token" in msg or "authenticate" in msg:
                                         logger.error("🚫 Fyers token invalid/expired during live quotes batch. Triggering auto-login...")
-                                        from fyers_auth import clear_token, auto_login, get_fyers_client
-                                        clear_token(force=True)
+                                        from fyers_auth import auto_login, get_fyers_client
                                         if auto_login():
                                             new_client = get_fyers_client()
                                             if new_client:
