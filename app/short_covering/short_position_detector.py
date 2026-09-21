@@ -23,11 +23,11 @@ from app.short_covering.oi_data_service import oi_data_service
 from app.short_covering.short_covering_schema import EODShortPositionCandidate
 try:
     from app.lock_utils import ProcessLock, print_scanner_start_banner, print_scanner_end_banner
-    from app.database import get_connection, upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run
+    from app.database import get_connection, upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run, insert_notification
     from app.trading_calendar import get_latest_trading_date, is_trading_day
 except ImportError:
     from lock_utils import ProcessLock, print_scanner_start_banner, print_scanner_end_banner
-    from database import get_connection, upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run
+    from database import get_connection, upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run, insert_notification
     from trading_calendar import get_latest_trading_date, is_trading_day
 
 logger = logging.getLogger(__name__)
@@ -84,10 +84,6 @@ class ShortPositionDetector:
         if not symbols:
             _empty_msg = "Dynamic F&O universe is empty — exchange master contract discovery failed or returned 0 symbols. EOD Scanner halted."
             logger.error("🚨 [SHORT_COVERING_EOD] %s", _empty_msg)
-            try:
-                from app.database import insert_notification, upsert_scanner_health
-            except ImportError:
-                from database import insert_notification, upsert_scanner_health
             try:
                 insert_notification(
                     notif_type="error",
@@ -215,7 +211,6 @@ class ShortPositionDetector:
             dur = round(time.monotonic() - _scan_start, 2)
             logger.exception("❌ [SHORT_COVERING_EOD] Scan failed: %s", exc)
             try:
-                from app.database import insert_notification
                 insert_notification(
                     notif_type="error",
                     title="🚨 Short Covering EOD Scan Failed",
