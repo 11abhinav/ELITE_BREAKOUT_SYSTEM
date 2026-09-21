@@ -71,9 +71,12 @@ def run_outcome_tracker(force: bool = False) -> Dict[str, Any]:
         if df_sym is None or df_sym.empty:
             continue
 
-        # Filter price bars after alert date
+        # Filter price bars after alert date (prevent lookahead bias for EOD)
         try:
-            df_after = df_sym[df_sym.index >= str(alert_date_val)]
+            if scanner and scanner.strip().upper() == "EOD":
+                df_after = df_sym[df_sym.index > str(alert_date_val)]
+            else:
+                df_after = df_sym[df_sym.index >= str(alert_date_val)]
         except Exception:
             df_after = df_sym
 

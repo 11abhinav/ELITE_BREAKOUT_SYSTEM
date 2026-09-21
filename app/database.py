@@ -3426,7 +3426,7 @@ def update_partial_exit(
                             SET status = %s,
                                 stop_loss = %s,
                                 remaining_shares = %s,
-                                exit_history = %s,
+                                exit_history = %s::jsonb,
                                 execution_state = %s
                             WHERE id = %s
                         """, (new_status, new_sl, remaining_shares, new_hist_json, execution_state, alert_id))
@@ -3436,7 +3436,7 @@ def update_partial_exit(
                             SET status = %s,
                                 stop_loss = %s,
                                 remaining_shares = %s,
-                                exit_history = %s
+                                exit_history = %s::jsonb
                             WHERE id = %s
                         """, (new_status, new_sl, remaining_shares, new_hist_json, alert_id))
 

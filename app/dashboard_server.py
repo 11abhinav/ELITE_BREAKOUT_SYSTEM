@@ -3428,7 +3428,7 @@ def api_todays_alerts():
         return jsonify([]), 200
 
 
-@app.route('/api/admin/reset_trades_to_open', methods=['GET', 'POST'])
+@app.route('/api/admin/reset_trades_to_open', methods=['POST'])
 def api_reset_trades_to_open():
     """Reset all closed positions to OPEN status in DB so exit monitors re-evaluate them."""
     try:
