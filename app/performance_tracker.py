@@ -1283,7 +1283,9 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                     # Find the first candle that breached the Stop Loss
                     hit_row = hist[hist["Low"] <= sl]
                     hit_time = hit_row.index[0].strftime("%Y-%m-%d %H:%M:%S") if not hit_row.empty else None
-                    t["pnl_rs"]      = t["shares_bought"] * (sl - ep) if t["shares_bought"] else 0.0
+                    # [FIX BUG-D: PARTIAL_WIN_FAST_MODE_PNL_RS]
+                    _rem_sh = t.get("remaining_shares") or t.get("shares_bought") or 0
+                    t["pnl_rs"]      = _rem_sh * (sl - ep) if _rem_sh else 0.0
                     t["closed_at"]   = hit_time
                     update_alert_outcome(t["id"], "LOSS", sl, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time, exit_signal="STOP_LOSS")
                 elif cur_p and cur_p <= sl:
@@ -1292,7 +1294,9 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                     t["exit_signal"] = "STOP_LOSS"
                     t["exit_reason"] = "STOP_LOSS"
                     t["pnl_pct"]     = round((sl - ep) / ep * 100, 2)
-                    t["pnl_rs"]      = t["shares_bought"] * (sl - ep) if t["shares_bought"] else 0.0
+                    # [FIX BUG-D: PARTIAL_WIN_FAST_MODE_PNL_RS]
+                    _rem_sh = t.get("remaining_shares") or t.get("shares_bought") or 0
+                    t["pnl_rs"]      = _rem_sh * (sl - ep) if _rem_sh else 0.0
                     hit_time = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
                     t["closed_at"]   = hit_time
                     logger.debug(f"🛑 {sym} SL HIT (LIVE) | entry={ep} sl={sl} pnl={t['pnl_pct']}%")
@@ -1305,7 +1309,9 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                 t["exit_signal"] = "STOP_LOSS"
                 t["exit_reason"] = "STOP_LOSS"
                 t["pnl_pct"]     = round((sl - ep) / ep * 100, 2)
-                t["pnl_rs"]      = t["shares_bought"] * (sl - ep) if t["shares_bought"] else 0.0
+                # [FIX BUG-D: PARTIAL_WIN_FAST_MODE_PNL_RS]
+                _rem_sh = t.get("remaining_shares") or t.get("shares_bought") or 0
+                t["pnl_rs"]      = _rem_sh * (sl - ep) if _rem_sh else 0.0
                 hit_time = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
                 t["closed_at"]   = hit_time
                 logger.debug(f"🛑 {sym} SL HIT (LIVE) | entry={ep} sl={sl} pnl={t['pnl_pct']}%")
@@ -1578,12 +1584,17 @@ def trigger_performance_rebuild(recalc_ids: list[int] = None, force: bool = Fals
     global _last_perf_rebuild_ts, _trailing_timer
     now = time.time()
 
-    def _execute_rebuild():
+    # [FIX BUG-A/I: RECALC_IDS_CLOSURE_CAPTURE]
+    # Use default-arg binding (recalc_ids=recalc_ids) to snapshot the value at definition time.
+    # This prevents stale closure capture: if _execute_rebuild is scheduled by a trailing timer
+    # fired from a DIFFERENT outer call, the recalc_ids from THIS call is preserved correctly.
+    def _execute_rebuild(recalc_ids=recalc_ids):
         global _last_perf_rebuild_ts
         t_name = threading.current_thread().name
         if not _perf_rebuild_lock.acquire(blocking=False):
             logger.info("📈 PERFORMANCE TRACKER | Rebuild already running, scheduling trailing rebuild.")
-            _schedule_trailing(delay=5.0)
+            # [FIX BUG-I] Pass the captured recalc_ids explicitly so trailing timer preserves correct IDs
+            _schedule_trailing(delay=5.0, _captured_ids=recalc_ids)
             return
         try:
             _last_perf_rebuild_ts = time.time()
@@ -1597,14 +1608,15 @@ def trigger_performance_rebuild(recalc_ids: list[int] = None, force: bool = Fals
         finally:
             _perf_rebuild_lock.release()
 
-    def _schedule_trailing(delay=None):
+    def _schedule_trailing(delay=None, _captured_ids=None):
         global _trailing_timer
         with _trailing_timer_lock:
             if _trailing_timer is not None and _trailing_timer.is_alive():
                 return
             wait_sec = delay if delay is not None else max(2.0, _perf_rebuild_cooldown - (time.time() - _last_perf_rebuild_ts))
             logger.info(f"📈 PERFORMANCE TRACKER | Scheduling trailing rebuild in {wait_sec:.1f}s to guarantee all batch alerts are included.")
-            _trailing_timer = threading.Timer(wait_sec, _execute_rebuild)
+            # Pass _captured_ids so Timer fires _execute_rebuild with correct recalc_ids
+            _trailing_timer = threading.Timer(wait_sec, _execute_rebuild, kwargs={"recalc_ids": _captured_ids})
             _trailing_timer.daemon = True
             _trailing_timer.start()
 

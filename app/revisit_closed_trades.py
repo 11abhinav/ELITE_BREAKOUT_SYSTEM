@@ -65,17 +65,23 @@ def audit_and_correct_closed_trades(rebuild_perf=False):
                 if pnl is not None:
                     correct_status = "WIN" if pnl >= 0 else "LOSS"
                     if curr_status != correct_status:
-                        with get_connection() as conn:
-                            with conn.cursor() as cur:
-                                cur.execute("""
-                                    UPDATE alerts
-                                    SET status = %s,
-                                        pnl_pct = COALESCE(pnl_pct, %s),
-                                        updated_at = CURRENT_TIMESTAMP
-                                    WHERE id = %s;
-                                """, (correct_status, pnl, alert_id))
-                            conn.commit()
-                        swing_corrected += 1
+                        # [FIX BUG-E: RACE_CONDITION_DB_WRITE_LOCK]
+                        # Previously used bare get_connection() UPDATE without _DB_WRITE_LOCK.
+                        # Now delegate to update_alert_outcome which holds _DB_WRITE_LOCK
+                        # internally, preventing race conditions with performance_tracker threads.
+                        try:
+                            from database import update_alert_outcome
+                            update_alert_outcome(
+                                alert_id=alert_id,
+                                status=correct_status,
+                                exit_price=exit_p,
+                                pnl_pct=round(pnl, 4),
+                                pnl_rs=None,
+                                exit_signal="AUDITOR_CORRECTION",
+                            )
+                            swing_corrected += 1
+                        except Exception as _upd_err:
+                            logger.warning(f"⚠️ [TRADE AUDITOR] Failed to update alert #{alert_id} ({r.get('symbol')}): {_upd_err}")
 
         logger.info(f"📊 [TRADE AUDITOR] Swing scanners pass complete (corrected {swing_corrected} generic CLOSED alerts to WIN/LOSS).")
 
