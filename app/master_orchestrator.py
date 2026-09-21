@@ -1083,6 +1083,15 @@ class MasterOrchestratorV2:
         vol = _sanitize_numeric(r.get("volume_ratio") or r.get("volume_surge"))
         rsi_val = _sanitize_numeric(r.get("rsi"))
         
+        raw_status = str(r.get("status") or "").upper()
+        trade_status = None
+        if raw_status == "WIN":
+            trade_status = "PROFIT BOOKED"
+        elif raw_status == "LOSS":
+            trade_status = "LOSS BOOKED"
+        elif raw_status == "OPEN":
+            trade_status = "OPEN POSITION"
+        
         return {
             "scanner": sc,
             "scanner_title": title,
@@ -1090,6 +1099,7 @@ class MasterOrchestratorV2:
             "state": str(r.get("breakout_type") or r.get("state") or r.get("status") or "CONFIRMED").upper(),
             "breakout_type": str(r.get("breakout_type") or r.get("pattern_name") or r.get("state") or "BREAKOUT").upper(),
             "score": score,
+            "trade_status": trade_status,
             "entry_price": entry,
             "stop_loss": sl,
             "risk_pct": risk_pct,

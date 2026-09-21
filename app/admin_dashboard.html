@@ -12594,6 +12594,14 @@ function renderConfluenceBreakdown(scannersList, metaTier, depth, item) {
           </div>
           <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
             <span class="engine-state-pill">${formatText(state)}</span>
+            ${(() => {
+                if (!sc.trade_status) return '';
+                let tsColor = 'var(--text)', tsBg = 'var(--card2)', tsBorder = 'var(--border)';
+                if (sc.trade_status === 'PROFIT BOOKED') { tsColor = 'var(--win)'; tsBorder = 'rgba(16,185,129,0.3)'; tsBg = 'rgba(16,185,129,0.05)'; }
+                else if (sc.trade_status === 'LOSS BOOKED') { tsColor = 'var(--loss)'; tsBorder = 'rgba(239,68,68,0.3)'; tsBg = 'rgba(239,68,68,0.05)'; }
+                else if (sc.trade_status === 'OPEN POSITION') { tsColor = 'var(--accent)'; tsBorder = 'rgba(37,99,235,0.3)'; tsBg = 'rgba(37,99,235,0.05)'; }
+                return `<span class="engine-state-pill" style="color:${tsColor}; border-color:${tsBorder}; background:${tsBg}; font-weight:700; font-size:10px; letter-spacing:0.5px;">${sc.trade_status}</span>`;
+            })()}
             <span class="engine-score-pill">★ Score: ${score}</span>
           </div>
         </div>
