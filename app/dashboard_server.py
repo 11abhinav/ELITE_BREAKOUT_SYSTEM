@@ -1158,13 +1158,17 @@ def api_get_near_misses():
         with _dashboard_cache_lock:
             if cache_key in _NEAR_MISSES_CACHE:
                 cached_entry = _NEAR_MISSES_CACHE[cache_key]
-                if (now_ts - cached_entry["ts"]) < 15.0:
+                if (now_ts - cached_entry["ts"]) < 30.0:
                     client_etag = request.headers.get("If-None-Match", "")
                     if client_etag and client_etag == cached_entry.get("etag"):
-                        return Response(status=304)
-                    resp = Response(cached_entry["payload"], mimetype="application/json")
-                    resp.headers["ETag"] = cached_entry.get("etag", "")
-                    resp.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
+                        return Response(status=304, headers={
+                            "ETag": cached_entry.get("etag", ""),
+                            "Cache-Control": "public, max-age=15, must-revalidate"
+                        })
+                    resp = Response(cached_entry["payload"], mimetype="application/json", headers={
+                        "ETag": cached_entry.get("etag", ""),
+                        "Cache-Control": "public, max-age=15, must-revalidate"
+                    })
                     return resp
 
     try:
@@ -1247,24 +1251,49 @@ def api_get_near_misses():
                     """, (fetch_limit,))
                     rows = [dict(r) for r in cur.fetchall()]
 
-        # High-Performance Batch Preload for RAM Live Quotes
-        symbols = [r.get("symbol") for r in rows if r.get("symbol")]
-        price_map = {}
-        try:
-            from master_orchestrator import _FAST_CMP_MEMO
-            price_map.update({s: float(_FAST_CMP_MEMO[s]) for s in symbols if s in _FAST_CMP_MEMO and float(_FAST_CMP_MEMO[s] or 0) > 0})
-        except Exception:
-            pass
+        # High-Performance RAM Price Resolution (Zero Synchronous Disk Scans)
+        # Only active Day 0-5 candidates without closed returns need live CMP.
+        active_symbols = set()
+        for r in rows:
+            logged_dt = r.get("logged_date") or r.get("logged_at")
+            days_elapsed = 0
+            if logged_dt:
+                if hasattr(logged_dt, "date"):
+                    l_date = logged_dt.date()
+                elif isinstance(logged_dt, str):
+                    try:
+                        l_date = datetime.strptime(str(logged_dt)[:10], "%Y-%m-%d").date()
+                    except Exception:
+                        l_date = None
+                else:
+                    l_date = logged_dt
+                if l_date:
+                    days_elapsed = max(0, (today_date - l_date).days)
+            r["days_elapsed"] = days_elapsed
 
-        try:
-            from price_cache import get_cached_price
-            for s in symbols:
-                if s not in price_map:
-                    cp = get_cached_price(s)
-                    if cp and float(cp) > 0:
-                        price_map[s] = float(cp)
-        except Exception:
-            pass
+            sym = r.get("symbol")
+            if sym and days_elapsed <= 5 and r.get("return_1d") is None and r.get("status") not in ("STOP_HIT", "TARGET_HIT"):
+                active_symbols.add(sym)
+
+        price_map = {}
+        if active_symbols:
+            try:
+                from master_orchestrator import _FAST_CMP_MEMO
+                for s in active_symbols:
+                    if s in _FAST_CMP_MEMO and float(_FAST_CMP_MEMO[s] or 0) > 0:
+                        price_map[s] = float(_FAST_CMP_MEMO[s])
+            except Exception:
+                pass
+
+            try:
+                from live_prices import get_cached_live_price
+                for s in active_symbols:
+                    if s not in price_map:
+                        lp = get_cached_live_price(s)
+                        if lp and float(lp) > 0:
+                            price_map[s] = float(lp)
+            except Exception:
+                pass
 
         for r in rows:
             sym = r.get("symbol")
@@ -1300,23 +1329,6 @@ def api_get_near_misses():
                     live_r = round((float(cmp_val) - float(ep)) / risk, 2)
                     r["live_mfe_r"] = max(0.0, live_r)
 
-            # Calculate days elapsed since logged_date
-            logged_dt = r.get("logged_date") or r.get("logged_at")
-            days_elapsed = 0
-            if logged_dt:
-                if hasattr(logged_dt, "date"):
-                    l_date = logged_dt.date()
-                elif isinstance(logged_dt, str):
-                    try:
-                        l_date = datetime.strptime(str(logged_dt)[:10], "%Y-%m-%d").date()
-                    except Exception:
-                        l_date = None
-                else:
-                    l_date = logged_dt
-                if l_date:
-                    days_elapsed = max(0, (today_date - l_date).days)
-            r["days_elapsed"] = days_elapsed
-
         try:
             from corporate_events import decorate_events
             rows = decorate_events(rows)
@@ -1332,9 +1344,17 @@ def api_get_near_misses():
             if len(_NEAR_MISSES_CACHE) > 100:
                 _NEAR_MISSES_CACHE.clear()
 
-        resp = Response(payload, mimetype="application/json")
-        resp.headers["ETag"] = etag_val
-        resp.headers["Cache-Control"] = "no-cache, must-revalidate, max-age=0"
+        client_etag = request.headers.get("If-None-Match", "")
+        if client_etag and client_etag == etag_val and not force_refresh:
+            return Response(status=304, headers={
+                "ETag": etag_val,
+                "Cache-Control": "public, max-age=15, must-revalidate"
+            })
+
+        resp = Response(payload, mimetype="application/json", headers={
+            "ETag": etag_val,
+            "Cache-Control": "public, max-age=15, must-revalidate"
+        })
         return resp
     except Exception as e:
         logger.error(f"Error fetching near_misses from DB: {e}")

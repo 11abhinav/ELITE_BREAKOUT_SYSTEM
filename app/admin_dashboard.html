@@ -2821,16 +2821,16 @@ function changeAdminPage(type, delta) {
 
           <!-- MULTI-DIMENSIONAL FILTER CONTROLS BAR -->
           <div class="filter-bar" style="margin-bottom:16px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; background:var(--card); padding:12px 14px; border:1px solid var(--border); border-radius:10px;">
-            <input type="text" id="filterMissedOppsInput" placeholder="🔍 Search Symbol / Gate / Reason..." oninput="filterMissedOpps()" style="min-width:180px; flex:1; padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-family:var(--font-mono);" />
+            <input type="text" id="filterMissedOppsInput" placeholder="🔍 Search Symbol / Gate / Reason..." oninput="debouncedFilterMissedOpps()" style="min-width:180px; flex:1; padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-family:var(--font-mono);" />
             
             <select id="filterMissedDays" onchange="loadNearMisses(true)" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
-              <option value="all" selected>📅 All Time (Full History)</option>
+              <option value="30" selected>Last 30 Days</option>
               <option value="1">Today (1D)</option>
               <option value="7">Last 7 Days</option>
               <option value="14">Last 14 Days</option>
-              <option value="30">Last 30 Days</option>
               <option value="90">Last 90 Days</option>
               <option value="365">Last 1 Year</option>
+              <option value="all">📅 All Time (Full History)</option>
             </select>
 
             <select id="filterMissedScanner" onchange="loadNearMisses(true)" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
@@ -2901,6 +2901,23 @@ function changeAdminPage(type, delta) {
                 <tr><td colspan="12" style="text-align:center; padding:20px; color:var(--muted);">No forensic rejection data loaded.</td></tr>
               </tbody>
             </table>
+          </div>
+
+          <!-- MISSED OPPORTUNITIES PAGINATION BAR -->
+          <div class="pagination-bar" id="missed-opps-pagination" style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; padding:10px 14px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius); flex-wrap:wrap; gap:10px;">
+            <div id="missedOppsPaginationInfo" style="font-size:12px; font-weight:600; color:var(--muted); font-family:var(--font-mono);">Showing 0-0 of 0 rejections</div>
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span style="font-size:11px; color:var(--muted); font-weight:600;">Per Page:</span>
+              <select id="missedOppsPerPageSelect" onchange="setMissedOppsPerPage(this.value)" style="background:var(--card); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:6px; font-size:11px; font-family:var(--font-mono);">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+                <option value="250">250</option>
+                <option value="all">All</option>
+              </select>
+              <button class="refresh-btn" id="missedOppsPrevBtn" onclick="changeMissedOppsPage(-1)" style="padding:5px 12px; font-size:11px;">◀ Prev</button>
+              <button class="refresh-btn" id="missedOppsNextBtn" onclick="changeMissedOppsPage(1)" style="padding:5px 12px; font-size:11px;">Next ▶</button>
+            </div>
           </div>
         </div>
       </div>
@@ -11200,6 +11217,57 @@ function renderDatabaseExplorerGrid() {
 }
 
 window._nearMissesCache = [];
+let currentMissedOppsPage = 1;
+let missedOppsPerPage = 50;
+let _lastFilteredMissedOpps = [];
+let _filterMissedDebounce = null;
+
+function debouncedFilterMissedOpps() {
+  if (_filterMissedDebounce) clearTimeout(_filterMissedDebounce);
+  _filterMissedDebounce = setTimeout(() => filterMissedOpps(), 150);
+}
+
+function setMissedOppsPerPage(val) {
+  missedOppsPerPage = val === 'all' ? 'all' : (parseInt(val, 10) || 50);
+  currentMissedOppsPage = 1;
+  renderMissedOppsCurrentPage();
+}
+
+function changeMissedOppsPage(delta) {
+  const totalItems = _lastFilteredMissedOpps.length;
+  const perPage = missedOppsPerPage === 'all' ? Math.max(1, totalItems) : missedOppsPerPage;
+  const totalPages = Math.max(1, Math.ceil(totalItems / perPage));
+  const newPage = currentMissedOppsPage + delta;
+  if (newPage >= 1 && newPage <= totalPages) {
+    currentMissedOppsPage = newPage;
+    renderMissedOppsCurrentPage();
+  }
+}
+
+function renderMissedOppsCurrentPage() {
+  const totalItems = _lastFilteredMissedOpps.length;
+  const perPage = missedOppsPerPage === 'all' ? Math.max(1, totalItems) : missedOppsPerPage;
+  const totalPages = Math.max(1, Math.ceil(totalItems / perPage));
+  if (currentMissedOppsPage > totalPages) currentMissedOppsPage = totalPages;
+  if (currentMissedOppsPage < 1) currentMissedOppsPage = 1;
+
+  const startIdx = (currentMissedOppsPage - 1) * perPage;
+  const endIdx = missedOppsPerPage === 'all' ? totalItems : Math.min(startIdx + perPage, totalItems);
+  const pageSlice = _lastFilteredMissedOpps.slice(startIdx, endIdx);
+
+  renderNearMissesRows(pageSlice, startIdx);
+
+  const infoEl = document.getElementById('missedOppsPaginationInfo');
+  if (infoEl) {
+    infoEl.textContent = totalItems === 0 
+      ? 'Showing 0-0 of 0 rejections' 
+      : `Showing ${startIdx + 1}–${endIdx} of ${totalItems} rejections (Page ${currentMissedOppsPage} of ${totalPages})`;
+  }
+  const prevBtn = document.getElementById('missedOppsPrevBtn');
+  if (prevBtn) prevBtn.disabled = (currentMissedOppsPage <= 1);
+  const nextBtn = document.getElementById('missedOppsNextBtn');
+  if (nextBtn) nextBtn.disabled = (currentMissedOppsPage >= totalPages || missedOppsPerPage === 'all');
+}
 
 function resetMissedOppsFilters() {
   const inputEl = document.getElementById('filterMissedOppsInput');
@@ -11209,7 +11277,7 @@ function resetMissedOppsFilters() {
   const gradeEl = document.getElementById('filterMissedGrade');
   const sortEl = document.getElementById('filterMissedSort');
   if (inputEl) inputEl.value = '';
-  if (daysEl) daysEl.value = 'all';
+  if (daysEl) daysEl.value = '30';
   if (scannerEl) scannerEl.value = '';
   if (verdictEl) verdictEl.value = '';
   if (gradeEl) gradeEl.value = '';
@@ -11297,21 +11365,24 @@ function filterMissedOpps(query) {
     }
   });
 
-  renderNearMissesRows(filtered);
+  _lastFilteredMissedOpps = filtered;
   const countEl = document.getElementById('missed-opps-count');
   if (countEl) countEl.innerText = `${filtered.length} of ${window._nearMissesCache.length} rejections`;
+  currentMissedOppsPage = 1;
+  renderMissedOppsCurrentPage();
 }
 
-function renderNearMissesRows(data) {
+function renderNearMissesRows(data, offset = 0) {
   const tbody = document.getElementById('near-misses-tbody');
   const lowerTbody = document.getElementById('near-misses-tbody-lower');
-  window._forensicStore.missed = Array.isArray(data) ? data : [];
+  window._forensicStore.missed = _lastFilteredMissedOpps.length > 0 ? _lastFilteredMissedOpps : (Array.isArray(data) ? data : []);
 
   if (tbody) {
     if (!Array.isArray(data) || data.length === 0) {
       tbody.innerHTML = `<tr><td colspan="12" style="text-align:center; padding:24px; color:var(--muted);">No near-miss alerts recorded in the selected window.</td></tr>`;
     } else {
       tbody.innerHTML = data.map((item, idx) => {
+        const globalIdx = offset + idx;
         const scoreVal = item.score !== undefined && item.score !== null ? item.score : (item.observed_value || '—');
         const gradeText = item.quality_grade || (typeof scoreVal === 'number' ? (scoreVal >= 75 ? 'A' : scoreVal >= 60 ? 'B' : scoreVal >= 45 ? 'C' : 'D') : '—');
         const cmpVal = item.cmp || item.entry_price;
@@ -11381,7 +11452,7 @@ function renderNearMissesRows(data) {
         }
 
         return `
-          <tr class="clickable-stock-row" onclick="openStockForensics('missed', ${idx})" style="border-bottom:1px solid var(--border); font-size:12px;" title="Click to view full Forensic Audit &amp; Technical Radar">
+          <tr class="clickable-stock-row" onclick="openStockForensics('missed', ${globalIdx})" style="border-bottom:1px solid var(--border); font-size:12px;" title="Click to view full Forensic Audit &amp; Technical Radar">
             <td style="padding:10px 14px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatStockSymbolLink(item.symbol)}${getEarningsBadgeHtml(item)}</td>
             <td style="padding:10px 14px;" onclick="event.stopPropagation()">${formatTvLink(item.tradingview_symbol, item.symbol)}</td>
             <td style="padding:10px 14px; font-weight:700; color:var(--text); font-family:var(--font-mono);">${formatPrice(cmpVal)}</td>
@@ -11404,11 +11475,14 @@ function renderNearMissesRows(data) {
     }
   }
 
-  if (lowerTbody) {
+  const isWatchlistTab = (typeof activeAdminTab !== 'undefined' && activeAdminTab === 'watchlist-users');
+  if (lowerTbody && isWatchlistTab) {
     if (!Array.isArray(data) || data.length === 0) {
       lowerTbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:24px; color:var(--muted);">No near-miss diagnostics available.</td></tr>`;
     } else {
-      lowerTbody.innerHTML = data.map((item, idx) => {
+      const lowerSlice = data.slice(0, 50);
+      lowerTbody.innerHTML = lowerSlice.map((item, idx) => {
+        const globalIdx = offset + idx;
         const deltaColor = item.delta_pct <= 3.0 ? '#ef4444' : (item.delta_pct <= 6.0 ? '#f59e0b' : '#3b82f6');
         const statusBadge = item.is_fallback || item.status === 'FORENSIC_EXCLUSION_FALLBACK'
           ? `<span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.3); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">🔍 FORENSIC EXCLUSION</span>`
@@ -11419,7 +11493,7 @@ function renderNearMissesRows(data) {
               : `<span style="background:var(--accent-dim); color:#3b82f6; border:1px solid var(--accent); padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700;">⏳ TRACKING</span>`));
 
         return `
-          <tr class="clickable-stock-row" onclick="openStockForensics('missed', ${idx})" style="border-bottom:1px solid var(--border); font-size:12px;" title="Click to view full Forensic Audit &amp; Technical Radar">
+          <tr class="clickable-stock-row" onclick="openStockForensics('missed', ${globalIdx})" style="border-bottom:1px solid var(--border); font-size:12px;" title="Click to view full Forensic Audit &amp; Technical Radar">
             <td style="padding:10px 14px; font-weight:800; color:var(--accent); font-family:var(--font-mono);">${formatText(item.symbol)}${getEarningsBadgeHtml(item)}</td>
             <td style="padding:10px 14px; color:var(--muted); font-size:11px; font-weight:600;">${formatText(item.scanner)}</td>
             <td style="padding:10px 14px; font-family:var(--font-mono); font-size:11px;">
@@ -11457,16 +11531,16 @@ function loadNearMisses(forceRefresh = false) {
   const daysTab0D = document.getElementById('filterMissedDays');
   const scannerTab0D = document.getElementById('filterMissedScanner');
 
-  let days = 'all';
+  let days = '30';
   let scanner = '';
 
   if (isTab3 && daysTab3) {
-    days = daysTab3.value || 'all';
+    days = daysTab3.value || '7';
     scanner = scannerTab3 ? scannerTab3.value : '';
     if (daysTab0D) daysTab0D.value = days;
     if (scannerTab0D) scannerTab0D.value = scanner;
   } else {
-    days = daysTab0D ? daysTab0D.value : (daysTab3 ? daysTab3.value : 'all');
+    days = daysTab0D ? daysTab0D.value : (daysTab3 ? daysTab3.value : '30');
     scanner = scannerTab0D ? scannerTab0D.value : (scannerTab3 ? scannerTab3.value : '');
     if (daysTab3) daysTab3.value = days;
     if (scannerTab3) scannerTab3.value = scanner;
@@ -11475,7 +11549,7 @@ function loadNearMisses(forceRefresh = false) {
   const cacheKey = `${days}_${scanner}`;
   const now = Date.now();
 
-  if (!forceRefresh && (now - _lastNearMissesFetchTs < 5000) && _lastNearMissesKey === cacheKey && window._nearMissesCache && window._nearMissesCache.length > 0) {
+  if (!forceRefresh && (now - _lastNearMissesFetchTs < 15000) && _lastNearMissesKey === cacheKey && window._nearMissesCache && window._nearMissesCache.length > 0) {
     filterMissedOpps();
     return;
   }
@@ -11483,7 +11557,8 @@ function loadNearMisses(forceRefresh = false) {
   _lastNearMissesFetchTs = now;
   _lastNearMissesKey = cacheKey;
 
-  fetch(`/api/near_misses?days=${encodeURIComponent(days)}&scanner=${encodeURIComponent(scanner)}&limit=5000`)
+  const fetchLimit = (days === 'all') ? 2000 : 1000;
+  fetch(`/api/near_misses?days=${encodeURIComponent(days)}&scanner=${encodeURIComponent(scanner)}&limit=${fetchLimit}`)
     .then(res => res.json())
     .then(data => {
       window._nearMissesCache = Array.isArray(data) ? data : [];
@@ -11492,6 +11567,7 @@ function loadNearMisses(forceRefresh = false) {
     .catch(err => {
       console.warn('Failed to load near misses:', err);
       window._nearMissesCache = [];
+      _lastFilteredMissedOpps = [];
       renderNearMissesRows([]);
     });
 }
