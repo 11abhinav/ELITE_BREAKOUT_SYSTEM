@@ -1175,6 +1175,21 @@ def _row_to_trade_dict(row: dict) -> dict:
     if scanner_stored: scanner  = scanner_stored
     if sig_stored:     signals  = sig_stored
 
+    exec_state = row.get("execution_state")
+    actual_entry_p = _f_num(row.get("actual_entry_price"))
+    e_mode = row.get("entry_mode") or "MARKET"
+
+    # Auto-heal any legacy or inconsistent state in-memory for all historical alerts:
+    if exec_state == "PENDING_ENTRY" and actual_entry_p is not None:
+        exec_state = "OPEN"
+    elif exec_state == "PENDING_ENTRY" and e_mode in ("MARKET", "LEGACY_UNKNOWN"):
+        exec_state = "OPEN"
+        if actual_entry_p is None:
+            actual_entry_p = entry_price
+    elif exec_state in ("OPEN", None) and actual_entry_p is None and entry_price is not None:
+        actual_entry_p = entry_price
+        exec_state = "OPEN"
+
     return {
         "id":            row["id"],          # needed for write-back
         "symbol":        symbol,
@@ -1209,9 +1224,9 @@ def _row_to_trade_dict(row: dict) -> dict:
         "exit_history":  row.get("exit_history"),
         "context":       row.get("context"),          # Diagnostic filters and context
         "is_rejected":   row.get("is_rejected", False),
-        "execution_state": row.get("execution_state"),
-        "entry_mode":     row.get("entry_mode", "MARKET"),
-        "actual_entry_price": _f_num(row.get("actual_entry_price")),
+        "execution_state": exec_state,
+        "entry_mode":     e_mode,
+        "actual_entry_price": actual_entry_p,
         "structural_failure_stop": _f_num(row.get("structural_failure_stop")),
         "exit_signal":   _extract_exit_reason(row),
         "exit_reason":   _extract_exit_reason(row),

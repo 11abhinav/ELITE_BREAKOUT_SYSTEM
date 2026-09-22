@@ -28,6 +28,39 @@ def audit_and_correct_closed_trades(rebuild_perf=False):
         wealth_restored = 0
         logger.info(f"📊 [TRADE AUDITOR] Wealth Engine pass complete (restored/updated {wealth_restored} positions).")
 
+        # 2. Comprehensive Data Integrity Auto-Heal for all raised alerts
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                # 2.1 Heals filled positions stuck in PENDING_ENTRY
+                cur.execute("""
+                    UPDATE alerts
+                    SET execution_state = 'OPEN',
+                        status = CASE WHEN status = 'PENDING_ENTRY' THEN 'OPEN' ELSE status END,
+                        entry_mode = CASE WHEN entry_mode = 'LEGACY_UNKNOWN' THEN 'CONFIRMED_BUY' ELSE entry_mode END
+                    WHERE execution_state = 'PENDING_ENTRY' AND actual_entry_price IS NOT NULL;
+                """)
+                # 2.2 Heals market / legacy alerts stuck in PENDING_ENTRY
+                cur.execute("""
+                    UPDATE alerts
+                    SET execution_state = 'OPEN',
+                        status = CASE WHEN status = 'PENDING_ENTRY' THEN 'OPEN' ELSE status END,
+                        actual_entry_price = COALESCE(actual_entry_price, entry_price)
+                    WHERE execution_state = 'PENDING_ENTRY' AND (entry_mode IN ('MARKET', 'LEGACY_UNKNOWN') OR entry_mode IS NULL);
+                """)
+                # 2.3 Populates actual_entry_price for OPEN alerts
+                cur.execute("""
+                    UPDATE alerts
+                    SET actual_entry_price = entry_price
+                    WHERE execution_state = 'OPEN' AND actual_entry_price IS NULL AND entry_price IS NOT NULL;
+                """)
+                # 2.4 Aligns terminal states
+                cur.execute("""
+                    UPDATE alerts
+                    SET execution_state = status
+                    WHERE status IN ('WIN', 'LOSS', 'CLOSED', 'EXPIRED') AND execution_state = 'PENDING_ENTRY';
+                """)
+                conn.commit()
+
         # 3. Audit Swing Scanners (EOD, MULTI_TF, REVERSAL, PULLBACK) in alerts table
         swing_corrected = 0
         with get_connection() as conn:

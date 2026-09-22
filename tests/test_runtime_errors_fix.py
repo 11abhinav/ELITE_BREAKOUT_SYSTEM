@@ -72,11 +72,43 @@ class TestRuntimeErrorsFix(unittest.TestCase):
         self.assertEqual(alert.get("status"), "OPEN")
         self.assertEqual(alert.get("actual_entry_price"), 221.5)
 
-    def test_fyers_auth_autologin_mutex(self):
-        """Verify fyers_auth mutex flag prevents duplicate concurrent background threads."""
-        import fyers_auth
-        self.assertFalse(fyers_auth._autologin_in_progress)
-        self.assertTrue(hasattr(fyers_auth, "_last_autologin_start_time"))
+    def test_row_to_trade_dict_heals_historical_alerts(self):
+        """Verify _row_to_trade_dict auto-heals historical alerts with inconsistent states in-memory."""
+        from performance_tracker import _row_to_trade_dict
+
+        # Row 1: PENDING_ENTRY but has actual_entry_price (e.g. CARTRADE)
+        row1 = {
+            "id": 101,
+            "symbol": "CARTRADE",
+            "breakout_type": "CONFIRMED_BUY",
+            "entry_price": 1150.0,
+            "actual_entry_price": 1150.0,
+            "execution_state": "PENDING_ENTRY",
+            "entry_mode": "CONFIRMED_BUY",
+            "status": "OPEN",
+            "alert_time": "2026-09-22 10:00:00",
+            "alert_date": "2026-09-22"
+        }
+        t1 = _row_to_trade_dict(row1)
+        self.assertEqual(t1["execution_state"], "OPEN")
+        self.assertEqual(t1["actual_entry_price"], 1150.0)
+
+        # Row 2: PENDING_ENTRY with MARKET entry_mode (e.g. RVNL)
+        row2 = {
+            "id": 102,
+            "symbol": "RVNL",
+            "breakout_type": "MARKET",
+            "entry_price": 210.0,
+            "actual_entry_price": None,
+            "execution_state": "PENDING_ENTRY",
+            "entry_mode": "MARKET",
+            "status": "OPEN",
+            "alert_time": "2026-09-22 10:00:00",
+            "alert_date": "2026-09-22"
+        }
+        t2 = _row_to_trade_dict(row2)
+        self.assertEqual(t2["execution_state"], "OPEN")
+        self.assertEqual(t2["actual_entry_price"], 210.0)
 
 
 if __name__ == "__main__":

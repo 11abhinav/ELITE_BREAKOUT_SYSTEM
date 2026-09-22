@@ -644,12 +644,34 @@ def init_db():
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_alerts_idempotency ON alerts (idempotency_key) WHERE idempotency_key IS NOT NULL")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_wealth_buy_alert_date ON wealth_buy_alert(alert_date)")
 
-                # Data integrity auto-heal: any alert with actual_entry_price populated must have execution_state='OPEN'
+                # Comprehensive Data integrity auto-heal for all historical alerts:
+                # 1. Filled positions cannot be stuck in PENDING_ENTRY
                 cur.execute("""
                     UPDATE alerts
                     SET execution_state = 'OPEN',
-                        status = CASE WHEN status = 'PENDING_ENTRY' THEN 'OPEN' ELSE status END
+                        status = CASE WHEN status = 'PENDING_ENTRY' THEN 'OPEN' ELSE status END,
+                        entry_mode = CASE WHEN entry_mode = 'LEGACY_UNKNOWN' THEN 'CONFIRMED_BUY' ELSE entry_mode END
                     WHERE execution_state = 'PENDING_ENTRY' AND actual_entry_price IS NOT NULL
+                """)
+                # 2. Market or legacy alerts cannot be PENDING_ENTRY - populate actual_entry_price if missing
+                cur.execute("""
+                    UPDATE alerts
+                    SET execution_state = 'OPEN',
+                        status = CASE WHEN status = 'PENDING_ENTRY' THEN 'OPEN' ELSE status END,
+                        actual_entry_price = COALESCE(actual_entry_price, entry_price)
+                    WHERE execution_state = 'PENDING_ENTRY' AND (entry_mode IN ('MARKET', 'LEGACY_UNKNOWN') OR entry_mode IS NULL)
+                """)
+                # 3. Any OPEN alert missing actual_entry_price gets entry_price
+                cur.execute("""
+                    UPDATE alerts
+                    SET actual_entry_price = entry_price
+                    WHERE execution_state = 'OPEN' AND actual_entry_price IS NULL AND entry_price IS NOT NULL
+                """)
+                # 4. Closed positions should never be stuck in PENDING_ENTRY execution_state
+                cur.execute("""
+                    UPDATE alerts
+                    SET execution_state = status
+                    WHERE status IN ('WIN', 'LOSS', 'CLOSED', 'EXPIRED') AND execution_state = 'PENDING_ENTRY'
                 """)
 
                 # 4.5. scanner_evaluation_log table
