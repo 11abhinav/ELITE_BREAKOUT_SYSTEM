@@ -249,7 +249,7 @@ var USER_PAGE_SIZE = 10;
   .detail-item{padding:12px 14px;border-right:1px solid rgba(5,150,105,.08);}
   .detail-item:last-child{border-right:none;}
   .detail-label{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px;}
-  .detail-val{font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--text);}
+  .detail-val{font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--text);word-break:break-word;overflow-wrap:break-word;}
   .detail-signals{padding:10px 14px;grid-column:1/-1;border-top:1px solid rgba(5,150,105,.08);font-family:var(--font-mono);font-size:11px;color:var(--amber);}
   .score-ring{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;font-size:11px;font-weight:700;font-family:var(--font-mono);border:2px solid;}
   .score-high{background:rgba(5,150,105,.1);color:var(--win);border-color:rgba(5,150,105,.25);}
@@ -1913,7 +1913,7 @@ function buildTradeRows(trades, maxAbs, prefix) {
         <div class="detail-panel ${isOpen?'open':'closed'}" id="dp-${id}">
           <div class="detail-item">
             <div class="detail-label">Strategy / Pattern</div>
-            <div class="detail-val" style="color:var(--accent);font-weight:700;">${(t.signals || t.category || t.scanner || 'TECHNICAL').replace(/_/g, ' ')}</div>
+            <div class="detail-val" style="color:var(--accent);font-weight:700;white-space:normal;word-break:break-word;line-height:1.4;">${(t.signals || t.category || t.scanner || 'TECHNICAL').replace(/_/g, ' ')}</div>
           </div>
           <div class="detail-item">
             <div class="detail-label">Stop Loss</div>
