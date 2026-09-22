@@ -3874,6 +3874,53 @@ def get_all_alerts(limit: int = None) -> list[dict]:
             return rows
 
 
+def get_alerts_by_ids(alert_ids: list[int]) -> list[dict]:
+    """Return specific alerts by IDs, preserving all columns required by performance tracker."""
+    if not alert_ids:
+        return []
+    init_db()
+    clean_ids = [int(i) for i in alert_ids if i is not None]
+    if not clean_ids:
+        return []
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            query = """
+                SELECT
+                    a.id, a.symbol, a.breakout_type, a.alert_time, a.alert_date,
+                    a.scanner, a.category, a.entry_price, a.stop_loss, a.initial_stop_loss,
+                    a.target_price, a.target_1, a.target_2, a.target_3,
+                    a.signals, a.score, a.rsi, a.volume_ratio,
+                    a.status, a.exit_price, a.pnl_pct, a.closed_at, a.is_rejected, a.exit_signal,
+                    a.shadow_status, a.shadow_exit_price, a.shadow_pnl_pct, a.shadow_closed_at,
+                    a.capital_allocated, a.shares_bought, a.remaining_shares, a.exit_history, a.pnl_rs, a.context,
+                    a.model_version, a.data_partition, a.current_price,
+                    COALESCE(a.earnings_flag, FALSE)                AS earnings_flag,
+                    COALESCE(a.days_to_earnings, 999)               AS days_to_earnings,
+                    a.earnings_date,
+                    COALESCE(a.earnings_severity, 'NONE')           AS earnings_severity,
+                    COALESCE(a.warning_msg, '')                     AS warning_msg,
+                    COALESCE(a.trade_evolution_state, 'INITIAL')    AS trade_evolution_state,
+                    COALESCE(a.evidence_count, 1)                   AS evidence_count,
+                    COALESCE(a.distinct_patterns_count, 1)          AS distinct_patterns_count,
+                    COALESCE(a.confirmation_quality, 'INITIAL')     AS confirmation_quality,
+                    COALESCE(a.last_event_type, 'NEW_ENTRY')        AS last_event_type,
+                    a.last_event_date,
+                    a.execution_state,
+                    a.actual_entry_price,
+                    a.entry_mode,
+                    a.cmp_updated_at
+                FROM alerts a
+                WHERE a.id = ANY(%s)
+                ORDER BY a.alert_time DESC
+            """
+            cur.execute(query, (clean_ids,))
+            rows = []
+            for row in cur.fetchall():
+                rows.append(dict(row))
+            return rows
+
+
+
 def get_alert_events(alert_id: int) -> list[dict]:
     """Retrieve all chronological Trade Journey events for a given alert."""
     init_db()

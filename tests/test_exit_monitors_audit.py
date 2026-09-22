@@ -771,5 +771,82 @@ class TestExitMonitorsAndCalendar(unittest.TestCase):
         self.assertIn(116, prioritized_ids)
         self.assertIn(190, prioritized_ids)
 
+    def test_recalculate_specific_alerts_targeted_execution(self):
+        """Verify recalculate_specific_alerts processes ONLY the requested alert IDs."""
+        from unittest.mock import patch
+        import json
+        from performance_tracker import recalculate_specific_alerts
+
+        # When alert_ids is empty, returns empty list immediately
+        self.assertEqual(recalculate_specific_alerts([]), [])
+        self.assertEqual(recalculate_specific_alerts([None]), [])
+
+        mock_alert_116 = {
+            "id": 116,
+            "symbol": "GENUSPOWER",
+            "breakout_type": "BREAKOUT",
+            "alert_time": "2026-09-07 17:51:00",
+            "alert_date": "2026-09-07",
+            "entry_price": 348.0,
+            "stop_loss": 334.51,
+            "target_1": 365.0,
+            "status": "OPEN",
+            "scanner": "MOMENTUM",
+            "shares_bought": 50,
+            "capital_allocated": 17400.0,
+        }
+        mock_alert_190 = {
+            "id": 190,
+            "symbol": "GENUSPOWER",
+            "breakout_type": "BREAKOUT",
+            "alert_time": "2026-09-17 20:29:00",
+            "alert_date": "2026-09-17",
+            "entry_price": 352.0,
+            "stop_loss": 334.51,
+            "target_1": 370.0,
+            "status": "OPEN",
+            "scanner": "MOMENTUM",
+            "shares_bought": 50,
+            "capital_allocated": 17600.0,
+        }
+
+        with patch("performance_tracker.reset_alert_for_recalculation", return_value=True) as mock_reset, \
+             patch("performance_tracker.get_alerts_by_ids", return_value=[mock_alert_116, mock_alert_190]) as mock_get, \
+             patch("performance_tracker._fetch_current_prices", return_value={"GENUSPOWER": 310.90}) as mock_prices, \
+             patch("performance_tracker._fetch_post_alert_bars", return_value=None), \
+             patch("performance_tracker.process_trade_history") as mock_process, \
+             patch("performance_tracker.get_system_state", return_value=json.dumps({"trades": [{"id": 116, "status": "OPEN"}, {"id": 190, "status": "OPEN"}, {"id": 999, "status": "OPEN", "symbol": "OTHER"}], "summary": {}})), \
+             patch("performance_tracker.save_system_state") as mock_save:
+
+            res = recalculate_specific_alerts([116, 190])
+
+            # 1. Verifies reset_alert_for_recalculation called ONLY for 116 and 190
+            self.assertEqual(mock_reset.call_count, 2)
+            mock_reset.assert_any_call(116)
+            mock_reset.assert_any_call(190)
+
+            # 2. Verifies get_alerts_by_ids called with EXACTLY [116, 190]
+            mock_get.assert_called_once_with([116, 190])
+
+            # 3. Verifies price fetched ONLY for unique symbol GENUSPOWER
+            mock_prices.assert_called_once_with(["GENUSPOWER"])
+
+            # 4. Verifies process_trade_history executed ONLY twice (for 116 and 190)
+            self.assertEqual(mock_process.call_count, 2)
+
+            # 5. Verifies returned list contains ONLY the 2 requested trades
+            self.assertEqual(len(res), 2)
+            res_ids = [t["id"] for t in res]
+            self.assertIn(116, res_ids)
+            self.assertIn(190, res_ids)
+            self.assertNotIn(999, res_ids)
+
+            # 6. Verifies system_state saved payload updated only 116 and 190, preserving trade 999
+            perf_call = [call for call in mock_save.call_args_list if call[0][0] == "performance_data"]
+            self.assertTrue(len(perf_call) > 0)
+            saved_blob = json.loads(perf_call[0][0][1])
+            saved_ids = [t["id"] for t in saved_blob["trades"]]
+            self.assertIn(999, saved_ids, "Unrelated trade 999 must be preserved untouched")
+
 if __name__ == "__main__":
     unittest.main()

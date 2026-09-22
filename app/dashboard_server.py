@@ -3576,7 +3576,7 @@ def api_reject_alert():
 @app.route('/api/alert/recalculate', methods=['POST'])
 @login_required
 def api_recalculate_alert():
-    """Admin endpoint to force a full replay calculation on multiple closed alerts."""
+    """Admin endpoint to force a targeted recalculation on specific closed alerts."""
     try:
         data = request.json or {}
         alert_ids = data.get('ids', [])
@@ -3588,44 +3588,20 @@ def api_recalculate_alert():
                 
         if not alert_ids:
             return jsonify({'error': 'No alert IDs provided'}), 400
-            
-        from database import reset_alert_for_recalculation
-        success_count = 0
-        for aid in alert_ids:
-            if reset_alert_for_recalculation(int(aid)):
-                success_count += 1
-                
-        if success_count > 0:
-            try:
-                from database import get_system_state, save_system_state
-                raw_perf = get_system_state("performance_data")
-                if raw_perf:
-                    perf_blob = json.loads(raw_perf) if isinstance(raw_perf, str) else raw_perf
-                    aid_set = set(int(a) for a in alert_ids)
-                    changed = False
-                    for tr in perf_blob.get("trades", []):
-                        if tr.get("id") in aid_set:
-                            tr["status"] = "OPEN"
-                            tr["closed_at"] = None
-                            tr["exit_price"] = None
-                            tr["exit_signal"] = None
-                            tr["exit_reason"] = None
-                            tr["stopped_out"] = False
-                            tr["target_hit"] = False
-                            tr["exit_history"] = "[]"
-                            tr["execution_state"] = "OPEN"
-                            tr["remaining_shares"] = tr.get("shares_bought", 0)
-                            changed = True
-                    if changed:
-                        save_system_state("performance_data", json.dumps(perf_blob, default=str))
-            except Exception as patch_err:
-                logger.warning(f"Failed to patch system_state performance_data on recalculate: {patch_err}")
 
-            invalidate_performance_cache()
-            # Trigger tracker to immediately rebuild these newly opened alerts
-            from performance_tracker import trigger_performance_rebuild
-            trigger_performance_rebuild(recalc_ids=[int(aid) for aid in alert_ids])
-            return jsonify({'success': True, 'count': success_count})
+        clean_ids = [int(aid) for aid in alert_ids if aid is not None]
+        if not clean_ids:
+            return jsonify({'error': 'No valid alert IDs provided'}), 400
+
+        from performance_tracker import recalculate_specific_alerts
+        updated_trades = recalculate_specific_alerts(clean_ids)
+
+        if updated_trades:
+            # Clean for JSON response
+            for tr in updated_trades:
+                tr.pop('_db_closed', None)
+                tr.pop('exit_history', None)
+            return jsonify({'success': True, 'count': len(updated_trades), 'trades': updated_trades})
         else:
             return jsonify({'error': 'Failed to recalculate: Alerts not found, or recalculation was blocked for long-term trades (Multibagger/Wealth).'}), 400
     except Exception as e:

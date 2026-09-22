@@ -33,8 +33,20 @@ from price_cache import fetch_watchlist_data
 
 
 from config import MIN_STOCK_PRICE
-from database import get_all_alerts, update_alert_outcome, update_partial_exit, upsert_scanner_health, save_system_state, get_connection
+from database import (
+    get_all_alerts,
+    get_alerts_by_ids,
+    reset_alert_for_recalculation,
+    get_system_state,
+    update_alert_outcome,
+    update_partial_exit,
+    upsert_scanner_health,
+    save_system_state,
+    get_connection,
+    update_alert_current_price,
+)
 from trading_calendar import sanitize_market_session_timestamp
+from corporate_actions import adjust_trade_for_corporate_actions
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
@@ -1084,6 +1096,328 @@ def _trade_status(
     return "OPEN"
 
 
+def _f_num(v):
+    return float(v) if v is not None else None
+
+
+def _extract_exit_price(row_dict):
+    ep = _f_num(row_dict.get("exit_price"))
+    if ep is not None and ep > 0:
+        return ep
+    eh = row_dict.get("exit_history")
+    if eh:
+        try:
+            eh_list = eh if isinstance(eh, list) else json.loads(eh)
+            if eh_list and isinstance(eh_list, list):
+                last_evt = eh_list[-1]
+                if isinstance(last_evt, dict) and last_evt.get("price"):
+                    return float(last_evt["price"])
+        except Exception:
+            pass
+    return None
+
+
+def _extract_exit_reason(row_dict):
+    sig = row_dict.get("exit_signal")
+    if sig and not str(sig).startswith("⚠️ UNVERIFIED EARNINGS"):
+        return str(sig)
+    eh = row_dict.get("exit_history")
+    if eh:
+        try:
+            eh_list = eh if isinstance(eh, list) else json.loads(eh)
+            if eh_list and isinstance(eh_list, list):
+                last_evt = eh_list[-1]
+                if isinstance(last_evt, dict) and last_evt.get("type"):
+                    return str(last_evt["type"])
+        except Exception:
+            pass
+    return ""
+
+
+def _row_to_trade_dict(row: dict) -> dict:
+    symbol = row["symbol"]
+    alert_time_raw = row.get("alert_time")
+    if hasattr(alert_time_raw, "isoformat"):
+        alert_time_str = alert_time_raw.isoformat()
+    else:
+        alert_time_str = str(alert_time_raw) if alert_time_raw else ""
+
+    alert_date_raw = row.get("alert_date")
+    if hasattr(alert_date_raw, "isoformat"):
+        alert_date_str = alert_date_raw.isoformat()[:10]
+    else:
+        alert_date_str = str(alert_date_raw)[:10] if alert_date_raw else (alert_time_str[:10] if alert_time_str else "")
+
+    alert_time  = alert_time_str or alert_time_raw
+    alert_date  = alert_date_str
+    entry_price = _f_num(row.get("entry_price"))
+
+    cat_stored     = row.get("category")
+    scanner_stored = row.get("scanner")
+    sig_stored     = row.get("signals")
+
+    category, signals, scanner = _parse_dedup_key(row.get("breakout_type") or "")
+    if cat_stored:     category = cat_stored
+    if scanner_stored: scanner  = scanner_stored
+    if sig_stored:     signals  = sig_stored
+
+    return {
+        "id":            row["id"],          # needed for write-back
+        "symbol":        symbol,
+        "scanner":       scanner,
+        "category":      category,
+        "signals":       signals,
+        "entry_date":    alert_date,
+        "alert_time":    alert_time,
+        "entry_price":   entry_price,
+        "stop_loss":     _f_num(row.get("stop_loss")),
+        "initial_stop_loss": _f_num(row.get("initial_stop_loss")),
+        "target_price":  _f_num(row.get("target_price")),
+        "target_1":      _f_num(row.get("target_1")),
+        "target_2":      _f_num(row.get("target_2")),
+        "target_3":      _f_num(row.get("target_3")),
+        "current_price": _f_num(row.get("current_price")),
+        "cmp_updated_at": row.get("cmp_updated_at").isoformat() if hasattr(row.get("cmp_updated_at"), "isoformat") else (str(row.get("cmp_updated_at")) if row.get("cmp_updated_at") else None),
+        "exit_price":    _extract_exit_price(row),   # pre-filled if already closed
+        "pnl_pct":       _f_num(row.get("pnl_pct")),      # pre-filled if already closed
+        "stopped_out":   row.get("status") == "LOSS",
+        "target_hit":    row.get("status") == "WIN",
+        "days_held":     _days_held(alert_date),
+        "status":        row.get("status") or "OPEN",
+        "shares_bought": row.get("shares_bought", 0),
+        "capital_allocated": _f_num(row.get("capital_allocated")),
+        "pnl_rs":        _f_num(row.get("pnl_rs")),
+        "score":         row.get("score"),
+        "rsi":           _f_num(row.get("rsi")),
+        "volume_ratio":  _f_num(row.get("volume_ratio")),
+        "closed_at":     row.get("closed_at"),        # ISO timestamp when SL/Target locked
+        "remaining_shares": row.get("remaining_shares") if row.get("remaining_shares") is not None else row.get("shares_bought", 0),
+        "exit_history":  row.get("exit_history"),
+        "context":       row.get("context"),          # Diagnostic filters and context
+        "is_rejected":   row.get("is_rejected", False),
+        "execution_state": row.get("execution_state"),
+        "entry_mode":     row.get("entry_mode", "MARKET"),
+        "actual_entry_price": _f_num(row.get("actual_entry_price")),
+        "structural_failure_stop": _f_num(row.get("structural_failure_stop")),
+        "exit_signal":   _extract_exit_reason(row),
+        "exit_reason":   _extract_exit_reason(row),
+        "trade_evolution_state": row.get("trade_evolution_state", "INITIAL"),
+        "evidence_count": row.get("evidence_count", 1),
+        "distinct_patterns_count": row.get("distinct_patterns_count", 1),
+        "confirmation_quality": row.get("confirmation_quality", "INITIAL"),
+        "last_event_type": row.get("last_event_type", "NEW_ENTRY"),
+        "last_event_date": str(row.get("last_event_date") or ""),
+        "_db_closed":    row.get("status") in ("WIN", "LOSS", "CLOSED"),  # internal flag
+    }
+
+
+def _recompute_summary_stats(trades: list[dict]) -> dict:
+    judged  = [t for t in trades if t.get("status") in ("WIN", "LOSS", "NEUTRAL", "CLOSED")]
+    winners = [t for t in judged if t.get("status") == "WIN" or (t.get("status") == "CLOSED" and (t.get("pnl_pct") or 0.0) > 0)]
+    losers  = [t for t in judged if t.get("status") == "LOSS" or (t.get("status") == "CLOSED" and (t.get("pnl_pct") or 0.0) <= 0)]
+    open_p  = [t for t in trades if t.get("status") in ("OPEN", "SELL_REVIEW", "TRAILING")]
+
+    pnls    = [t["pnl_pct"] for t in judged if t.get("pnl_pct") is not None]
+    win_pnl = [t["pnl_pct"] for t in winners if t.get("pnl_pct") is not None]
+    los_pnl = [t["pnl_pct"] for t in losers  if t.get("pnl_pct") is not None]
+
+    n_judged  = len(judged)
+    wr        = round(len(winners) / n_judged * 100, 1) if n_judged else 0
+    avg_ret   = round(sum(pnls) / len(pnls), 2)          if pnls     else 0
+    avg_win   = round(sum(win_pnl) / len(win_pnl), 2)    if win_pnl  else 0
+    avg_loss  = round(sum(los_pnl) / len(los_pnl), 2)    if los_pnl  else 0
+    best      = round(max(pnls), 2)                       if pnls     else 0
+    worst     = round(min(pnls), 2)                       if pnls     else 0
+    expectancy = round((wr / 100) * avg_win + (1 - wr / 100) * avg_loss, 2)
+
+    sl_closed     = [t for t in judged if t.get("stopped_out")]
+    target_closed = [t for t in judged if t.get("target_hit")]
+
+    return {
+        "total_alerts":      len(trades),
+        "judged":            n_judged,
+        "winners":           len(winners),
+        "losers":            len(losers),
+        "open_positions":    len(open_p),
+        "sl_triggered":      len(sl_closed),
+        "target_hit":        len(target_closed),
+        "win_rate":          wr,
+        "avg_return_pct":    avg_ret,
+        "avg_win_pct":       avg_win,
+        "avg_loss_pct":      avg_loss,
+        "best_trade_pct":    best,
+        "worst_trade_pct":   worst,
+        "expectancy":        expectancy,
+    }
+
+
+def recalculate_specific_alerts(alert_ids: list[int]) -> list[dict]:
+    """
+    Focused recalculation pipeline strictly for the requested alert IDs.
+    Does NOT reload all database alerts, does NOT fetch 150+ live quotes,
+    and does NOT loop over unrelated trades.
+    Synchronously evaluates only the target trades, updates DB outcomes,
+    surgically updates system_state performance_data and data/performance_data.json,
+    and returns the updated trades list.
+    """
+    if not alert_ids:
+        return []
+
+    clean_ids = [int(i) for i in alert_ids if i is not None]
+    if not clean_ids:
+        return []
+
+    logger.info(f"🎯 [TARGETED RECALC] Starting focused recalculation for alert IDs: {clean_ids}")
+    _t_start = time.perf_counter()
+
+    # 1. Reset each alert in PostgreSQL
+    for aid in clean_ids:
+        try:
+            reset_alert_for_recalculation(aid)
+        except Exception as _res_err:
+            logger.warning(f"⚠️ [TARGETED RECALC] Failed to reset alert {aid}: {_res_err}")
+
+    # 2. Fetch only the requested alerts
+    raw_alerts = get_alerts_by_ids(clean_ids)
+    if not raw_alerts:
+        logger.warning(f"⚠️ [TARGETED RECALC] No alerts found matching IDs: {clean_ids}")
+        return []
+
+    # Filter out long-term trades (Multibagger/Wealth) which cannot be swing-recalculated
+    raw_alerts = [r for r in raw_alerts if r.get("scanner") not in ("MULTIBAGGER", "WEALTH", "Wealth Engine")]
+    if not raw_alerts:
+        logger.warning("⚠️ [TARGETED RECALC] All requested alerts are long-term trades, recalculation skipped.")
+        return []
+
+    trades = [_row_to_trade_dict(r) for r in raw_alerts]
+
+    # Reset in-memory state to OPEN origin for recalculation
+    for t in trades:
+        t["_db_closed"] = False
+        t["closed_at"] = None
+        t["exit_price"] = None
+        t["exit_signal"] = None
+        t["exit_reason"] = None
+        t["stopped_out"] = False
+        t["target_hit"] = False
+        t["status"] = "OPEN"
+        t["exit_history"] = "[]"
+        t["remaining_shares"] = t.get("shares_bought", 0)
+
+    # 3. Fetch CMP for only the unique symbols involved
+    target_symbols = list({t["symbol"] for t in trades})
+    logger.info(f"📈 [TARGETED RECALC] Fetching market price for {len(target_symbols)} symbols: {target_symbols}")
+    cur_prices = _fetch_current_prices(target_symbols) or {}
+
+    now_ist = datetime.now(IST)
+
+    # 4. Process each trade with full post-alert historical bars
+    for t in trades:
+        adjust_trade_for_corporate_actions(t)
+        sym = t["symbol"]
+        ep = t.get("entry_price")
+        sl = t.get("stop_loss")
+        alert_time = t.get("alert_time")
+        cur_p = cur_prices.get(sym)
+
+        if cur_p is not None and cur_p > 0:
+            t["current_price"] = round(cur_p, 2)
+            t["cmp_updated_at"] = now_ist.strftime('%Y-%m-%d %H:%M:%S')
+            try:
+                update_alert_current_price(t["id"], cur_p)
+            except Exception:
+                pass
+
+        if sl and alert_time and (t.get("target_1") or t.get("target_price")):
+            logger.info(f"🔄 [TARGETED RECALC] Replaying ticks for {sym} (Alert #{t['id']})...")
+            hist = _fetch_post_alert_bars(sym, alert_time)
+            process_trade_history(t, hist, cur_p=cur_p if cur_p else None, is_recalculate=True)
+        elif cur_p and ep and ep > 0:
+            t["pnl_pct"] = round((cur_p - ep) / ep * 100, 2)
+
+        _skip_status_update = t.get("status") in (
+            "PARTIAL_WIN_1", "PARTIAL_WIN_2", "WIN", "LOSS", "CLOSED", "EXPIRED"
+        )
+        if not _skip_status_update:
+            t["status"] = _trade_status(
+                t.get("pnl_pct"), t.get("days_held"), t.get("stopped_out"), t.get("target_hit")
+            )
+        if t.get("is_rejected"):
+            t["status"] = "REJECTED"
+
+        # Sanitize closure fields
+        tr_status = t.get("status")
+        if tr_status in ("OPEN", "PARTIAL_WIN_1", "PARTIAL_WIN_2", "TRAILING", "SELL_REVIEW"):
+            t["closed_at"] = None
+            if tr_status == "OPEN":
+                t["exit_price"] = None
+                t["exit_signal"] = None
+                t["exit_reason"] = None
+        elif tr_status in ("WIN", "LOSS", "CLOSED"):
+            if t.get("closed_at"):
+                t["closed_at"] = sanitize_market_session_timestamp(t["closed_at"])
+
+    # 5. Surgically patch system_state: performance_data and data/performance_data.json
+    try:
+        raw_perf = get_system_state("performance_data")
+        perf_blob = json.loads(raw_perf) if isinstance(raw_perf, str) else (raw_perf or {})
+        trades_list = perf_blob.get("trades", [])
+
+        target_map = {}
+        for t in trades:
+            t_copy = dict(t)
+            t_copy.pop("_db_closed", None)
+            t_copy.pop("exit_history", None)
+            target_map[t["id"]] = t_copy
+
+        for i, existing_t in enumerate(trades_list):
+            eid = existing_t.get("id")
+            if eid in target_map:
+                trades_list[i] = target_map[eid]
+
+        perf_blob["trades"] = trades_list
+        summary = _recompute_summary_stats(trades_list)
+        perf_blob["summary"] = summary
+        perf_blob["generated_at"] = now_ist.isoformat()
+
+        def sanitize_nans(obj):
+            if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+                return None
+            elif isinstance(obj, dict):
+                return {k: sanitize_nans(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [sanitize_nans(item) for item in obj]
+            return obj
+
+        perf_blob = sanitize_nans(perf_blob)
+        summary = sanitize_nans(summary)
+
+        payload_str = json.dumps(perf_blob, default=str)
+        save_system_state("performance_summary", json.dumps(summary, default=str))
+        save_system_state("performance_generated_at", json.dumps(perf_blob["generated_at"]))
+        save_system_state("performance_data", payload_str)
+
+        perf_json_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "performance_data.json")
+        try:
+            os.makedirs(os.path.dirname(perf_json_path), exist_ok=True)
+            with open(perf_json_path, "w") as pf:
+                pf.write(payload_str)
+        except Exception as _f_err:
+            logger.warning(f"Could not write performance_data.json directly: {_f_err}")
+
+        try:
+            from dashboard_server import invalidate_performance_cache
+            invalidate_performance_cache()
+        except Exception:
+            pass
+    except Exception as _patch_err:
+        logger.exception(f"❌ [TARGETED RECALC] Failed to patch performance state: {_patch_err}")
+
+    dur = time.perf_counter() - _t_start
+    logger.info(f"✅ [TARGETED RECALC] Finished recalculating {len(trades)} trades in {dur:.2f}s (IDs: {[t['id'] for t in trades]})")
+    return trades
+
+
 # =====================================================================================
 # MAIN BUILD FUNCTION
 # =====================================================================================
@@ -1125,118 +1459,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         run_ctx.record_fresh_data(len(raw_alerts))
     stage_tracker.end_stage(f"Loaded {len(raw_alerts)} alerts from DB")
 
-    def _f(v):
-        return float(v) if v is not None else None
-
-    def _extract_exit_price(row_dict):
-        ep = _f(row_dict.get("exit_price"))
-        if ep is not None and ep > 0:
-            return ep
-        eh = row_dict.get("exit_history")
-        if eh:
-            try:
-                eh_list = eh if isinstance(eh, list) else json.loads(eh)
-                if eh_list and isinstance(eh_list, list):
-                    last_evt = eh_list[-1]
-                    if isinstance(last_evt, dict) and last_evt.get("price"):
-                        return float(last_evt["price"])
-            except Exception:
-                pass
-        return None
-
-    def _extract_exit_reason(row_dict):
-        sig = row_dict.get("exit_signal")
-        if sig and not str(sig).startswith("⚠️ UNVERIFIED EARNINGS"):
-            return str(sig)
-        eh = row_dict.get("exit_history")
-        if eh:
-            try:
-                eh_list = eh if isinstance(eh, list) else json.loads(eh)
-                if eh_list and isinstance(eh_list, list):
-                    last_evt = eh_list[-1]
-                    if isinstance(last_evt, dict) and last_evt.get("type"):
-                        return str(last_evt["type"])
-            except Exception:
-                pass
-        return ""
-
-    trades = []
-    for row in raw_alerts:
-        symbol      = row["symbol"]
-        alert_time_raw = row.get("alert_time")
-        if hasattr(alert_time_raw, "isoformat"):
-            alert_time_str = alert_time_raw.isoformat()
-        else:
-            alert_time_str = str(alert_time_raw) if alert_time_raw else ""
-
-        alert_date_raw = row.get("alert_date")
-        if hasattr(alert_date_raw, "isoformat"):
-            alert_date_str = alert_date_raw.isoformat()[:10]
-        else:
-            alert_date_str = str(alert_date_raw)[:10] if alert_date_raw else (alert_time_str[:10] if alert_time_str else "")
-
-        alert_time  = alert_time_str or alert_time_raw
-        alert_date  = alert_date_str
-
-        entry_price = _f(row.get("entry_price"))
-
-        cat_stored     = row.get("category")
-        scanner_stored = row.get("scanner")
-        sig_stored     = row.get("signals")
-
-        category, signals, scanner = _parse_dedup_key(row["breakout_type"])
-        if cat_stored:     category = cat_stored
-        if scanner_stored: scanner  = scanner_stored
-        if sig_stored:     signals  = sig_stored
-
-        trades.append({
-            "id":            row["id"],          # needed for write-back
-            "symbol":        symbol,
-            "scanner":       scanner,
-            "category":      category,
-            "signals":       signals,
-            "entry_date":    alert_date,
-            "alert_time":    alert_time,
-            "entry_price":   entry_price,
-            "stop_loss":     _f(row.get("stop_loss")),
-            "initial_stop_loss": _f(row.get("initial_stop_loss")),
-            "target_price":  _f(row.get("target_price")),
-            "target_1":      _f(row.get("target_1")),
-            "target_2":      _f(row.get("target_2")),
-            "target_3":      _f(row.get("target_3")),
-            "current_price": _f(row.get("current_price")),
-            "cmp_updated_at": row.get("cmp_updated_at").isoformat() if hasattr(row.get("cmp_updated_at"), "isoformat") else (str(row.get("cmp_updated_at")) if row.get("cmp_updated_at") else None),
-            "exit_price":    _extract_exit_price(row),   # pre-filled if already closed
-            "pnl_pct":       _f(row.get("pnl_pct")),      # pre-filled if already closed
-            "stopped_out":   row.get("status") == "LOSS",
-            "target_hit":    row.get("status") == "WIN",
-            "days_held":     _days_held(alert_date),
-            "status":        row.get("status") or "OPEN",
-            "shares_bought": row.get("shares_bought", 0),
-            "capital_allocated": _f(row.get("capital_allocated")),
-            "pnl_rs":        _f(row.get("pnl_rs")),
-            "score":         row.get("score"),
-            "rsi":           _f(row.get("rsi")),
-            "volume_ratio":  _f(row.get("volume_ratio")),
-            "closed_at":     row.get("closed_at"),        # ISO timestamp when SL/Target locked
-            "remaining_shares": row.get("remaining_shares") if row.get("remaining_shares") is not None else row.get("shares_bought", 0),
-            "exit_history":  row.get("exit_history"),
-            "context":       row.get("context"),          # Diagnostic filters and context
-            "is_rejected":   row.get("is_rejected", False),
-            "execution_state": row.get("execution_state"),
-            "entry_mode":     row.get("entry_mode", "MARKET"),
-            "actual_entry_price": _f(row.get("actual_entry_price")),
-            "structural_failure_stop": _f(row.get("structural_failure_stop")),
-            "exit_signal":   _extract_exit_reason(row),
-            "exit_reason":   _extract_exit_reason(row),
-            "trade_evolution_state": row.get("trade_evolution_state", "INITIAL"),
-            "evidence_count": row.get("evidence_count", 1),
-            "distinct_patterns_count": row.get("distinct_patterns_count", 1),
-            "confirmation_quality": row.get("confirmation_quality", "INITIAL"),
-            "last_event_type": row.get("last_event_type", "NEW_ENTRY"),
-            "last_event_date": str(row.get("last_event_date") or ""),
-            "_db_closed":    row.get("status") in ("WIN", "LOSS", "CLOSED"),  # internal flag
-        })
+    trades = [_row_to_trade_dict(row) for row in raw_alerts]
 
     if recalc_ids:
         recalc_set = set(int(x) for x in recalc_ids)
@@ -1620,44 +1843,15 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     stage_tracker.end_stage(f"Processed {len(trades)} trades")
     # ── 4. Summary stats ────────────────────────────────────────────────────────────
     stage_tracker.start_stage(4, "Summary Stats & Aggregation", "Computing win rate, P&L stats, scanner/category breakdowns")
-    judged  = [t for t in trades if t["status"] in ("WIN", "LOSS", "NEUTRAL", "CLOSED")]
-    winners = [t for t in judged if t["status"] == "WIN" or (t["status"] == "CLOSED" and (t.get("pnl_pct") or 0.0) > 0)]
-    losers  = [t for t in judged if t["status"] == "LOSS" or (t["status"] == "CLOSED" and (t.get("pnl_pct") or 0.0) <= 0)]
-    open_p  = [t for t in trades if t["status"] in ("OPEN", "SELL_REVIEW", "TRAILING")]
-
-    pnls    = [t["pnl_pct"] for t in judged if t["pnl_pct"] is not None]
-    win_pnl = [t["pnl_pct"] for t in winners if t["pnl_pct"] is not None]
-    los_pnl = [t["pnl_pct"] for t in losers  if t["pnl_pct"] is not None]
-
-    n_judged  = len(judged)
-    wr        = round(len(winners) / n_judged * 100, 1) if n_judged else 0
-    avg_ret   = round(sum(pnls) / len(pnls), 2)          if pnls     else 0
-    avg_win   = round(sum(win_pnl) / len(win_pnl), 2)    if win_pnl  else 0
-    avg_loss  = round(sum(los_pnl) / len(los_pnl), 2)    if los_pnl  else 0
-    best      = round(max(pnls), 2)                       if pnls     else 0
-    worst     = round(min(pnls), 2)                       if pnls     else 0
-    expectancy = round((wr / 100) * avg_win + (1 - wr / 100) * avg_loss, 2)
-
-    # SL vs Target breakdown
-    sl_closed     = [t for t in judged if t["stopped_out"]]
-    target_closed = [t for t in judged if t["target_hit"]]
-
-    summary = {
-        "total_alerts":      len(trades),
-        "judged":            n_judged,
-        "winners":           len(winners),
-        "losers":            len(losers),
-        "open_positions":    len(open_p),
-        "sl_triggered":      len(sl_closed),
-        "target_hit":        len(target_closed),
-        "win_rate":          wr,
-        "avg_return_pct":    avg_ret,
-        "avg_win_pct":       avg_win,
-        "avg_loss_pct":      avg_loss,
-        "best_trade_pct":    best,
-        "worst_trade_pct":   worst,
-        "expectancy":        expectancy,
-    }
+    summary = _recompute_summary_stats(trades)
+    judged  = [t for t in trades if t.get("status") in ("WIN", "LOSS", "NEUTRAL", "CLOSED")]
+    winners = [t for t in judged if t.get("status") == "WIN" or (t.get("status") == "CLOSED" and (t.get("pnl_pct") or 0.0) > 0)]
+    losers  = [t for t in judged if t.get("status") == "LOSS" or (t.get("status") == "CLOSED" and (t.get("pnl_pct") or 0.0) <= 0)]
+    open_p  = [t for t in trades if t.get("status") in ("OPEN", "SELL_REVIEW", "TRAILING")]
+    sl_closed     = [t for t in judged if t.get("stopped_out")]
+    target_closed = [t for t in judged if t.get("target_hit")]
+    wr        = summary["win_rate"]
+    avg_ret   = summary["avg_return_pct"]
 
     # ── 5. Equity curve ─────────────────────────────────────────────────────────────
     sorted_judged = sorted(judged, key=lambda t: t["entry_date"])
@@ -1896,11 +2090,18 @@ def trigger_performance_rebuild(recalc_ids: list[int] = None, force: bool = Fals
             with _pending_recalc_lock:
                 _pending_recalc_ids.clear()
             _last_perf_rebuild_ts = time.time()
-            logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | Action='Rebuilding performance metrics & trade tracker' | Recalc={active_recalc_ids}")
-            _t_start = time.perf_counter()
-            build_performance_data(force_live_fetch=True, recalc_ids=active_recalc_ids)
-            dur_s = time.perf_counter() - _t_start
-            logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Performance metrics rebuild' | Duration={dur_s:.2f}s")
+            if active_recalc_ids:
+                logger.info(f"🚀 [TARGETED WORKER START] Worker='{t_name}' | Action='Recalculating specific alerts' | Recalc={active_recalc_ids}")
+                _t_start = time.perf_counter()
+                recalculate_specific_alerts(active_recalc_ids)
+                dur_s = time.perf_counter() - _t_start
+                logger.info(f"✅ [TARGETED WORKER COMPLETE] Worker='{t_name}' | Action='Specific alerts recalculation' | Duration={dur_s:.2f}s")
+            else:
+                logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | Action='Rebuilding performance metrics & trade tracker'")
+                _t_start = time.perf_counter()
+                build_performance_data(force_live_fetch=True)
+                dur_s = time.perf_counter() - _t_start
+                logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Performance metrics rebuild' | Duration={dur_s:.2f}s")
         except Exception as e:
             logger.exception(f"❌ [BACKGROUND WORKER FAIL] Worker='{t_name}' | Action='Performance rebuild failed' | Error={e}")
         finally:

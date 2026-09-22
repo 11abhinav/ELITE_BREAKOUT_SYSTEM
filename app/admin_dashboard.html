@@ -6102,51 +6102,41 @@ function getEarningsBadgeHtml(item) {
       btn.disabled = true;
 
       try {
-        btn.innerText = '⏳ Resetting...';
+        btn.innerText = '⏳ Recalculating...';
         const res = await fetch('/api/alert/recalculate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ids: ids })
         });
         if (res.ok) {
-          ids.forEach(cid => {
-            EXIT_HISTORY_CACHE.delete(String(cid));
-            expandedIds.delete(String(cid));
-            const trade = ALL_TRADES.find(t => t.id === cid);
-            if (trade) resetTradeToOpen(trade);
-          });
-          document.getElementById('selectAllTrades').checked = false;
-          updateBulkActionsVisibility();
-          renderTradeTable();
-          showCustomToast(`Reset ${ids.length} trade(s). Rebuilding now — refreshing in 6s...`, 'success');
-          // Poll for fresh data after rebuild (performance tracker runs async)
-          btn.innerText = '⏳ Rebuilding...';
-          await new Promise(r => setTimeout(r, 6000));
-          try {
-            const perfRes = await fetch('/data/performance_data.json?_=' + Date.now());
-            if (perfRes.ok) {
-              const fresh = await perfRes.json();
-              if (fresh && fresh.trades) {
-                // Merge updated trades back into ALL_TRADES
-                ids.forEach(cid => {
-                  const updated = fresh.trades.find(t => t.id === cid);
-                  const idx = ALL_TRADES.findIndex(t => t.id === cid);
-                  if (updated && idx !== -1) {
-                    if (updated.status === 'OPEN') {
-                      updated.closed_at = null;
-                      updated.exit_price = null;
-                      updated.exit_signal = null;
-                      updated.exit_reason = null;
-                    }
-                    ALL_TRADES[idx] = updated;
-                  }
-                  EXIT_HISTORY_CACHE.delete(String(cid));
-                });
-                renderTradeTable();
-                showCustomToast('✅ Recalculation complete — trades updated.', 'success');
+          const resData = await res.json().catch(() => ({}));
+          const returnedTrades = resData.trades || [];
+          if (returnedTrades.length > 0) {
+            returnedTrades.forEach(updated => {
+              const cid = updated.id;
+              EXIT_HISTORY_CACHE.delete(String(cid));
+              expandedIds.delete(String(cid));
+              const idx = ALL_TRADES.findIndex(t => t.id === cid);
+              if (idx !== -1) {
+                ALL_TRADES[idx] = updated;
               }
-            }
-          } catch(pe) { /* silent — data will refresh on next auto-poll */ }
+            });
+            document.getElementById('selectAllTrades').checked = false;
+            updateBulkActionsVisibility();
+            renderTradeTable();
+            showCustomToast(`✅ Successfully recalculated ${returnedTrades.length} trade(s).`, 'success');
+          } else {
+            ids.forEach(cid => {
+              EXIT_HISTORY_CACHE.delete(String(cid));
+              expandedIds.delete(String(cid));
+              const trade = ALL_TRADES.find(t => t.id === cid);
+              if (trade) resetTradeToOpen(trade);
+            });
+            document.getElementById('selectAllTrades').checked = false;
+            updateBulkActionsVisibility();
+            renderTradeTable();
+            showCustomToast(`Reset ${ids.length} trade(s).`, 'success');
+          }
         } else {
           const errData = await res.json().catch(() => ({}));
           showCustomToast('Error: ' + (errData.error || 'Recalculation failed.'), 'error');
@@ -6201,12 +6191,21 @@ function getEarningsBadgeHtml(item) {
           body: JSON.stringify({ id: id })
         });
         if (res.ok) {
+          const resData = await res.json().catch(() => ({}));
           EXIT_HISTORY_CACHE.delete(String(id));
           expandedIds.clear();
-          const trade = ALL_TRADES.find(t => t.id === id);
-          if (trade) resetTradeToOpen(trade);
-          renderTradeTable();
-          showCustomToast('Recalculation started. Trade is now OPEN and will update shortly.', 'success');
+          if (resData.trades && resData.trades.length > 0) {
+            const updated = resData.trades[0];
+            const idx = ALL_TRADES.findIndex(t => t.id === id);
+            if (idx !== -1) ALL_TRADES[idx] = updated;
+            renderTradeTable();
+            showCustomToast(`✅ Alert #${id} recalculated: ${updated.status}`, 'success');
+          } else {
+            const trade = ALL_TRADES.find(t => t.id === id);
+            if (trade) resetTradeToOpen(trade);
+            renderTradeTable();
+            showCustomToast('Recalculation complete.', 'success');
+          }
         } else {
           showCustomToast('Failed to recalculate trade.', 'error');
         }
