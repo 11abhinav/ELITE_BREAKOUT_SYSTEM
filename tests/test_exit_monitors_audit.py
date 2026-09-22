@@ -312,5 +312,92 @@ class TestExitMonitorsAndCalendar(unittest.TestCase):
         self.assertEqual(eh[0]["price"], 309.85)
         self.assertEqual(eh[0]["time"], "2026-09-18 09:30:00")
 
+    def test_process_lock_context_manager(self):
+        """Verify ProcessLockImpl supports the context manager protocol ('with lock:')."""
+        from lock_utils import ProcessLock
+        lock = ProcessLock("unit_test_ctx_lock")
+        self.assertFalse(lock.locked())
+        with lock:
+            self.assertTrue(lock.locked())
+        self.assertFalse(lock.locked())
+
+    def test_trading_calendar_is_trading_day_types(self):
+        """Verify TradingCalendar.is_trading_day accepts string, date, datetime, and Timestamp."""
+        from trading_calendar import default_trading_calendar
+        # Monday 2026-09-21 is a trading day
+        self.assertTrue(default_trading_calendar.is_trading_day("2026-09-21"))
+        self.assertTrue(default_trading_calendar.is_trading_day(date(2026, 9, 21)))
+        self.assertTrue(default_trading_calendar.is_trading_day(datetime(2026, 9, 21, 10, 30)))
+        self.assertTrue(default_trading_calendar.is_trading_day(pd.Timestamp("2026-09-21 10:30:00")))
+
+        # Sunday 2026-09-20 is a weekend
+        self.assertFalse(default_trading_calendar.is_trading_day("2026-09-20"))
+        self.assertFalse(default_trading_calendar.is_trading_day(date(2026, 9, 20)))
+        self.assertFalse(default_trading_calendar.is_trading_day(datetime(2026, 9, 20, 10, 30)))
+        self.assertFalse(default_trading_calendar.is_trading_day(pd.Timestamp("2026-09-20 10:30:00")))
+
+    def test_enforce_trading_day_candles_daily_vs_intraday(self):
+        """
+        Verify enforce_trading_day_candles does NOT purge valid daily (1d) candles
+        even when timestamps are 00:00:00 or 05:30:00, but DOES purge midnight ghost
+        bars in intraday datasets.
+        """
+        from trading_calendar import enforce_trading_day_candles
+
+        # 1. Daily DataFrame (1 bar per date, 10 trading days, midnight timestamps 00:00:00)
+        daily_dates = [
+            "2026-09-01 00:00:00", "2026-09-02 00:00:00", "2026-09-03 00:00:00",
+            "2026-09-04 00:00:00", "2026-09-07 00:00:00", "2026-09-08 00:00:00",
+            "2026-09-09 00:00:00", "2026-09-10 00:00:00", "2026-09-11 00:00:00",
+            "2026-09-21 09:55:00"  # Live bar appended
+        ]
+        df_daily = pd.DataFrame({
+            "Date": daily_dates,
+            "Open": [100.0 + i for i in range(len(daily_dates))],
+            "High": [105.0 + i for i in range(len(daily_dates))],
+            "Low": [95.0 + i for i in range(len(daily_dates))],
+            "Close": [102.0 + i for i in range(len(daily_dates))],
+            "Volume": [1000 * (i + 1) for i in range(len(daily_dates))]
+        })
+        cleaned_daily = enforce_trading_day_candles(df_daily, "TEST_DAILY")
+        self.assertEqual(len(cleaned_daily), len(daily_dates), "Daily bars must NOT be purged as off-hours")
+
+        # 2. Intraday DataFrame (Multiple bars per date, has 00:00:00 ghost bar + market hour bars)
+        intraday_dates = [
+            "2026-09-21 00:00:00",  # Midnight ghost bar -> MUST be purged
+            "2026-09-21 09:15:00",
+            "2026-09-21 09:30:00",
+            "2026-09-21 10:00:00",
+            "2026-09-21 15:30:00",
+            "2026-09-21 16:00:00",  # Post-market bar -> MUST be purged
+        ]
+        df_intraday = pd.DataFrame({
+            "Date": intraday_dates,
+            "Open": [200.0] * len(intraday_dates),
+            "High": [205.0] * len(intraday_dates),
+            "Low": [195.0] * len(intraday_dates),
+            "Close": [202.0] * len(intraday_dates),
+            "Volume": [500] * len(intraday_dates)
+        })
+        cleaned_intraday = enforce_trading_day_candles(df_intraday, "TEST_INTRADAY")
+        self.assertEqual(len(cleaned_intraday), 4, "Midnight and post-market bars in intraday data must be purged")
+
+    def test_corporate_actions_get_bulk_split_factor_kwargs(self):
+        """Verify get_bulk_split_factor accepts both entry_date and entry_d."""
+        from corporate_actions import get_bulk_split_factor
+        # Calling with entry_date
+        f1 = get_bulk_split_factor("RELIANCE", entry_date=date(2025, 1, 1))
+        # Calling with entry_d alias
+        f2 = get_bulk_split_factor("RELIANCE", entry_d=date(2025, 1, 1))
+        self.assertEqual(f1, f2)
+        self.assertIsInstance(f1, float)
+
+    def test_diagnostics_startup_check(self):
+        """Verify startup diagnostics run without throwing exceptions."""
+        from diagnostics import run_startup_diagnostics
+        res = run_startup_diagnostics()
+        self.assertTrue(res.get("storage_ok"), "Storage check should succeed")
+        self.assertTrue(res.get("calendar_ok"), "Calendar check should succeed")
+
 if __name__ == "__main__":
     unittest.main()

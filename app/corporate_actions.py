@@ -79,12 +79,17 @@ def _load_bulk_split_map(force: bool = False) -> Dict[str, List]:
     return _BULK_SPLIT_MAP
 
 
-def get_bulk_split_factor(symbol: str, entry_date: date, exit_date: Optional[date] = None) -> float:
+def get_bulk_split_factor(symbol: str, entry_date: Optional[date] = None, exit_date: Optional[date] = None, **kwargs) -> float:
     """Fast per-symbol split factor lookup from the pre-loaded bulk map.
     Zero DB calls — reads from in-memory dict loaded by _load_bulk_split_map().
     Used by CorporateActionContributor.contribute() to avoid 200+ DB queries per request.
     Returns 1.0 (no adjustment) if entry_date is None or invalid (e.g. watchlist items without trade date).
     """
+    if entry_date is None and "entry_d" in kwargs:
+        entry_date = kwargs["entry_d"]
+    if exit_date is None and "exit_d" in kwargs:
+        exit_date = kwargs["exit_d"]
+
     if not symbol:
         return 1.0
     # Guard: entry_date must be a valid date object for comparisons below.

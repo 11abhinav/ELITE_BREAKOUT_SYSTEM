@@ -1514,7 +1514,7 @@ def evaluate_open_positions(portfolio_df, portfolio_dict):
                 # holding global_scanner_lock for 110s and delaying MULTI_TF scans.
                 from corporate_actions import get_bulk_split_factor
                 entry_date_obj = _coerce_to_date(r.get("entry_date"))
-                cum_factor = get_bulk_split_factor(sym, entry_d=entry_date_obj)
+                cum_factor = get_bulk_split_factor(sym, entry_date=entry_date_obj)
                 if cum_factor > 1.0:
                             _split_detected = True
                             logger.warning(

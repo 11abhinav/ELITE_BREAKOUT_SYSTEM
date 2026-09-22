@@ -5,7 +5,7 @@
 
 import logging
 from datetime import datetime, date, timedelta
-from typing import Union, Set, Optional
+from typing import Union, Set, Optional, Any
 import pytz
 import pandas as pd
 
@@ -43,9 +43,11 @@ class TradingCalendar:
     def __init__(self, holidays: Optional[Set[date]] = None):
         self.holidays = holidays if holidays is not None else NSE_HOLIDAYS_2026
 
-    def is_trading_day(self, dt: Union[datetime, date]) -> bool:
+    def is_trading_day(self, dt: Union[datetime, date, str, Any]) -> bool:
         """Returns True if the given date is a valid trading session (not Saturday, Sunday, or Holiday)."""
-        d = dt.date() if isinstance(dt, datetime) else dt
+        d = self._parse_date(dt)
+        if d is None:
+            return False
         if d.weekday() >= 5:  # Saturday or Sunday
             return False
         if d in self.holidays:
@@ -84,13 +86,18 @@ class TradingCalendar:
         return -trading_days if reverse else trading_days
 
     @staticmethod
-    def _parse_date(val: Union[datetime, date, str]) -> Optional[date]:
+    def _parse_date(val: Union[datetime, date, str, Any]) -> Optional[date]:
         if val is None:
             return None
         if isinstance(val, date) and not isinstance(val, datetime):
             return val
         if isinstance(val, datetime):
             return val.date()
+        if hasattr(val, "date") and callable(getattr(val, "date")):
+            try:
+                return val.date()
+            except Exception:
+                pass
         if isinstance(val, str):
             clean_str = val.strip().split("T")[0].split(" ")[0]
             try:
@@ -346,9 +353,14 @@ def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
         is_holiday = ts_series.dt.date.isin(default_trading_calendar.holidays)
 
         # 3. Off-market hours (midnight ghost bars, pre/post market outside 09:15-15:30 IST)
-        # Apply only when data has intraday timestamps (non-zero hours/minutes)
-        has_intraday_times = bool((ts_series.dt.hour != 0).any() or (ts_series.dt.minute != 0).any())
-        if has_intraday_times:
+        # Off-market filtering strictly applies to INTRADAY datasets (5m, 15m, 30m, 1h).
+        # Daily EOD datasets (at most 1 bar per day, or 2 if today has a live bar appended)
+        # have timestamps at 00:00:00, 05:30:00, or 15:30:00 by exchange/provider convention.
+        # Daily candles must NEVER be purged as "off-market" hours.
+        valid_dates = ts_series.dt.date.dropna()
+        date_counts = valid_dates.value_counts()
+        is_intraday_dataset = bool((date_counts > 2).any() or (len(valid_dates) > 5 and date_counts.mean() > 1.5))
+        if is_intraday_dataset:
             is_off_hours = (ts_series.dt.time < time_cls(9, 15)) | (ts_series.dt.time > time_cls(15, 30))
         else:
             is_off_hours = pd.Series(False, index=df.index)

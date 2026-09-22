@@ -11,7 +11,10 @@ import time
 logger = logging.getLogger(__name__)
 
 import threading
-import psycopg2
+try:
+    import psycopg2
+except ImportError:
+    psycopg2 = None
 import zlib
 
 from zoneinfo import ZoneInfo
@@ -473,6 +476,13 @@ class ProcessLockImpl:
     def is_locked(self) -> bool:
         """Alias for locked()."""
         return bool(self.is_acquired)
+
+    def __enter__(self):
+        self.acquire(blocking=True)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.release()
 
 
 def release_global_lock_if_held_by(scanner_name: str):

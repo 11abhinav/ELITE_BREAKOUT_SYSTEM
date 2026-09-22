@@ -773,17 +773,21 @@ def get_access_token() -> str:
         _autologin_attempted_date = now_date
         logger.info(f"No valid Fyers token for today found in DB or locally. Triggering background auto-login for today ({now_date})...")
         def _bg_auto_login():
-            token = auto_login()
-            if token:
-                global _cached_token, _token_date
-                with _token_lock:
-                    _cached_token = token
-                    _token_date = now_date
-            else:
-                global _last_autologin_fail_time
+            try:
+                token = auto_login()
+                if token:
+                    global _cached_token, _token_date
+                    with _token_lock:
+                        _cached_token = token
+                        _token_date = now_date
+                else:
+                    global _last_autologin_fail_time
+                    _last_autologin_fail_time = time.time()
+                    dispatch_fyers_reauth_notification("Fyers access token could not be generated automatically.")
+                    logger.error(f"❌ [FYERS AUTH ERROR] Auto-login failed — please authenticate via /fyers/login.")
+            except Exception as _bg_err:
                 _last_autologin_fail_time = time.time()
-                dispatch_fyers_reauth_notification("Fyers access token could not be generated automatically.")
-                logger.error(f"❌ [FYERS AUTH ERROR] Auto-login failed — please authenticate via /fyers/login.")
+                logger.error(f"❌ [FYERS AUTH ERROR] Background auto-login encountered exception: {_bg_err}")
         
         threading.Thread(target=_bg_auto_login, name="FyersAutoLogin", daemon=True).start()
         return None
