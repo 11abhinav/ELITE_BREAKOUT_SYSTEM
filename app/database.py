@@ -3467,6 +3467,7 @@ def update_alert_outcome(
     Called by performance_tracker — writes back so future runs skip bar downloads
     for already-closed positions.
     """
+    from trading_calendar import sanitize_market_session_timestamp, is_valid_market_session_timestamp
     if closed_at is None:
         from market_utils import is_market_open
         now = datetime.now(IST)
@@ -3476,6 +3477,8 @@ def update_alert_outcome(
             from trading_calendar import get_latest_trading_date
             last_d = get_latest_trading_date()
             closed_at = f"{last_d} 15:30:00"
+    else:
+        closed_at = sanitize_market_session_timestamp(closed_at)
     with _DB_WRITE_LOCK:
         with get_connection() as conn:
             success = False
@@ -3720,6 +3723,18 @@ def reset_alert_for_recalculation(alert_id: int) -> bool:
                             remaining_shares = %s
                         WHERE id = %s
                     """, (reset_sl, shares_bought, shares_bought, alert_id))
+
+                    try:
+                        cur.execute("""
+                            UPDATE alert_outcomes
+                            SET exit_timestamp = NULL,
+                                exit_reason = 'OPEN',
+                                realized_rr = NULL,
+                                unrealized_rr_at_expiry = NULL
+                            WHERE alert_id = %s
+                        """, (alert_id,))
+                    except Exception:
+                        pass
 
                     new_state = {"status": "OPEN", "execution_state": "OPEN", "stop_loss": reset_sl, "remaining_shares": shares_bought, "exit_history": None}
                     cur.execute("INSERT INTO trade_audit_log (alert_id, action, old_state, new_state) VALUES (%s, %s, %s, %s)",

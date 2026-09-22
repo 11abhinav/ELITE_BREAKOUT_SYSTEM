@@ -34,6 +34,7 @@ from price_cache import fetch_watchlist_data
 
 from config import MIN_STOCK_PRICE
 from database import get_all_alerts, update_alert_outcome, update_partial_exit, upsert_scanner_health, save_system_state
+from trading_calendar import sanitize_market_session_timestamp
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
@@ -373,6 +374,14 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
         t["remaining_shares"] = shares_bought
         hist_list = []
         t["exit_history"] = "[]"
+        t["exit_price"] = None
+        t["exit_signal"] = None
+        t["exit_reason"] = None
+        t["closed_at"] = None
+        t["stopped_out"] = False
+        t["target_hit"] = False
+        t["pnl_pct"] = None
+        t["pnl_rs"] = None
         db_events = set()
     else:
         # Live 5-Minute Exit Monitor: Preserve current active DB state, ratcheted SL, and remaining shares
@@ -1130,6 +1139,20 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             "_db_closed":    row.get("status") in ("WIN", "LOSS", "CLOSED"),  # internal flag
         })
 
+    if recalc_ids:
+        recalc_set = set(int(x) for x in recalc_ids)
+        for t in trades:
+            if t["id"] in recalc_set:
+                t["_db_closed"] = False
+                t["closed_at"] = None
+                t["exit_price"] = None
+                t["exit_signal"] = None
+                t["exit_reason"] = None
+                t["stopped_out"] = False
+                t["target_hit"] = False
+                t["status"] = "OPEN"
+                t["exit_history"] = "[]"
+
     # ── 2. Fetch current prices ──────────────────────────────────────────────────────
     unique_symbols = list({t["symbol"] for t in trades})
     stage_tracker.start_stage(2, "Fetch Current Market Prices", f"Fetching live prices for {len(unique_symbols)} unique symbols")
@@ -1214,7 +1237,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     now_ist = datetime.now(IST)
     market_open_ist = now_ist.replace(hour=9, minute=15, second=0, microsecond=0)
     for t in trades:
-        if t["_db_closed"] or t["entry_price"] is None or not t["stop_loss"] or not (t.get("target_price") or t.get("target_1")) or not t["alert_time"]:
+        is_target_recalc = bool(recalc_ids is not None and t["id"] in recalc_ids)
+        if (t["_db_closed"] and not is_target_recalc) or t["entry_price"] is None or not t["stop_loss"] or not (t.get("target_price") or t.get("target_1")) or not t["alert_time"]:
             continue
 
         if recalc_ids is not None and t["id"] not in recalc_ids:
@@ -1224,8 +1248,11 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         if isinstance(alert_time_val, datetime):
             alert_dt_ist = alert_time_val.astimezone(IST) if alert_time_val.tzinfo else alert_time_val.replace(tzinfo=IST)
         else:
-            alert_dt_naive = datetime.fromisoformat(str(alert_time_val).replace("Z", "+00:00"))
-            alert_dt_ist = alert_dt_naive.astimezone(IST) if alert_dt_naive.tzinfo else alert_dt_naive.replace(tzinfo=IST)
+            try:
+                alert_dt_naive = datetime.fromisoformat(str(alert_time_val).replace("Z", "+00:00").replace(" IST", ""))
+                alert_dt_ist = alert_dt_naive.astimezone(IST) if alert_dt_naive.tzinfo else alert_dt_naive.replace(tzinfo=IST)
+            except Exception:
+                alert_dt_ist = now_ist
 
         alert_date = alert_dt_ist.date()
         if alert_date == now_ist.date() and now_ist < market_open_ist:
@@ -1333,7 +1360,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             logger.warning(f"⚠️ [PERFORMANCE TRACKER] {sym}: No live price available. Will attempt Tier-2 bar evaluation.")
 
         # ── Already closed in DB — no bar download needed ────────────────────────
-        if t["_db_closed"]:
+        is_target_recalc = bool(do_tick_replay and recalc_ids is not None and t["id"] in recalc_ids)
+        if t["_db_closed"] and not is_target_recalc:
             # pnl_pct and exit_price already populated from DB above
             # Just refresh current_price for display; status stays locked
             logger.debug(f"⏭️  {sym} already closed ({t['status']}) — skipping bar fetch")
@@ -1410,7 +1438,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                     t["pnl_pct"]     = round((sl - ep) / ep * 100, 2)
                     # Find the first candle that breached the Stop Loss
                     hit_row = hist[hist["Low"] <= sl]
-                    hit_time = hit_row.index[0].strftime("%Y-%m-%d %H:%M:%S") if not hit_row.empty else None
+                    raw_hit_time = hit_row.index[0].strftime("%Y-%m-%d %H:%M:%S") if not hit_row.empty else None
+                    hit_time = sanitize_market_session_timestamp(raw_hit_time or datetime.now(IST))
                     # [FIX BUG-D: PARTIAL_WIN_FAST_MODE_PNL_RS]
                     _rem_sh = t.get("remaining_shares") or t.get("shares_bought") or 0
                     t["pnl_rs"]      = _rem_sh * (sl - ep) if _rem_sh else 0.0
@@ -1425,7 +1454,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                     # [FIX BUG-D: PARTIAL_WIN_FAST_MODE_PNL_RS]
                     _rem_sh = t.get("remaining_shares") or t.get("shares_bought") or 0
                     t["pnl_rs"]      = _rem_sh * (sl - ep) if _rem_sh else 0.0
-                    hit_time = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+                    hit_time = sanitize_market_session_timestamp(datetime.now(IST))
                     t["closed_at"]   = hit_time
                     logger.debug(f"🛑 {sym} SL HIT (LIVE) | entry={ep} sl={sl} pnl={t['pnl_pct']}%")
                     update_alert_outcome(t["id"], "LOSS", sl, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time, exit_signal="STOP_LOSS")
@@ -1440,7 +1469,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                 # [FIX BUG-D: PARTIAL_WIN_FAST_MODE_PNL_RS]
                 _rem_sh = t.get("remaining_shares") or t.get("shares_bought") or 0
                 t["pnl_rs"]      = _rem_sh * (sl - ep) if _rem_sh else 0.0
-                hit_time = datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+                hit_time = sanitize_market_session_timestamp(datetime.now(IST))
                 t["closed_at"]   = hit_time
                 logger.debug(f"🛑 {sym} SL HIT (LIVE) | entry={ep} sl={sl} pnl={t['pnl_pct']}%")
                 update_alert_outcome(t["id"], "LOSS", sl, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time, exit_signal="STOP_LOSS")
@@ -1606,6 +1635,19 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         trades = decorate_events(trades)
     except Exception as _ce_err:
         logger.debug(f"Corporate event decoration warning in performance tracker: {_ce_err}")
+
+    # Defense-in-depth sanitization of trade closure timestamps and fields
+    for tr in trades:
+        tr_status = tr.get("status")
+        if tr_status in ("OPEN", "PARTIAL_WIN_1", "PARTIAL_WIN_2", "TRAILING", "SELL_REVIEW"):
+            tr["closed_at"] = None
+            if tr_status == "OPEN":
+                tr["exit_price"] = None
+                tr["exit_signal"] = None
+                tr["exit_reason"] = None
+        elif tr_status in ("WIN", "LOSS", "CLOSED"):
+            if tr.get("closed_at"):
+                tr["closed_at"] = sanitize_market_session_timestamp(tr["closed_at"])
 
     payload = {
         "generated_at": datetime.now(IST).isoformat(),

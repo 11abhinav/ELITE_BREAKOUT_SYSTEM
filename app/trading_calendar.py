@@ -230,6 +230,77 @@ def is_valid_market_session_timestamp(val: Union[datetime, str, pd.Timestamp]) -
         return False
 
 
+def sanitize_market_session_timestamp(val: Union[datetime, str, pd.Timestamp, None], fallback_date: Optional[date] = None) -> str:
+    """
+    CRITICAL HARD GLOBAL INVARIANT: STRICT MARKET SESSION TIMESTAMP SANITIZATION.
+    Guarantees that ANY timestamp produced or persisted for trade closures (closed_at, exit_timestamp):
+    1. Is strictly in Asia/Kolkata (IST) timezone.
+    2. Belongs strictly to an official NSE/BSE trading day (Monday to Friday, non-holiday).
+    3. Belongs strictly to active market session hours (09:15:00 to 15:30:00 IST).
+    4. If date-only (e.g. "2026-09-18"), snaps to session close: "2026-09-18 15:30:00".
+    5. If off-market or midnight (e.g. "2026-09-22 00:34:00" or weekend), snaps to 15:30:00 of the
+       latest valid trading date on or strictly prior to that moment.
+    6. Returns a standardized string in "YYYY-MM-DD HH:MM:SS" format.
+    """
+    if val is None or pd.isna(val):
+        target_d = fallback_date or datetime.now(IST).date()
+        latest_d = get_latest_trading_date(target_d)
+        return f"{latest_d} 15:30:00"
+
+    val_str = str(val).strip()
+    if not val_str:
+        target_d = fallback_date or datetime.now(IST).date()
+        latest_d = get_latest_trading_date(target_d)
+        return f"{latest_d} 15:30:00"
+
+    # Date-only check: YYYY-MM-DD
+    if len(val_str) == 10 and val_str.count("-") == 2 and not ("T" in val_str or " " in val_str or ":" in val_str):
+        try:
+            d = date.fromisoformat(val_str)
+            latest_d = get_latest_trading_date(d)
+            return f"{latest_d} 15:30:00"
+        except Exception:
+            pass
+
+    try:
+        if isinstance(val, (datetime, pd.Timestamp)):
+            dt = val
+        else:
+            clean_str = val_str.replace("Z", "+00:00").replace(" IST", "")
+            dt = pd.to_datetime(clean_str)
+
+        if hasattr(dt, "tzinfo") and dt.tzinfo is not None:
+            dt_ist = dt.astimezone(IST)
+        elif hasattr(dt, "tz") and dt.tz is not None:
+            dt_ist = dt.tz_convert(IST)
+        else:
+            dt_ist = IST.localize(pd.to_datetime(dt).to_pydatetime())
+
+        d = dt_ist.date()
+        t = dt_ist.time()
+
+        if default_trading_calendar.is_trading_day(d):
+            if time_cls(9, 15) <= t <= time_cls(15, 30):
+                return dt_ist.strftime("%Y-%m-%d %H:%M:%S")
+            elif t < time_cls(9, 15):
+                # Pre-market / midnight: previous session close
+                prev_d = get_previous_trading_date(d)
+                return f"{prev_d} 15:30:00"
+            else:
+                # Post-market: today's session close
+                return f"{d} 15:30:00"
+        else:
+            # Weekend / exchange holiday: latest valid trading session close
+            latest_d = get_latest_trading_date(d)
+            return f"{latest_d} 15:30:00"
+    except Exception as e:
+        logger.warning(f"Failed to sanitize market session timestamp '{val}': {e}. Falling back to latest session close.")
+        target_d = fallback_date or datetime.now(IST).date()
+        latest_d = get_latest_trading_date(target_d)
+        return f"{latest_d} 15:30:00"
+
+
+
 def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
     """
     CRITICAL HARD GLOBAL INVARIANT: TRADING SESSION CANDLE ENFORCEMENT — SYSTEM-WIDE.

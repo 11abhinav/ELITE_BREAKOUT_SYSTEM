@@ -220,5 +220,97 @@ class TestExitMonitorsAndCalendar(unittest.TestCase):
         cleaned_df = enforce_trading_day_candles(df_corrupt, "CORRUPT_TEST")
         self.assertEqual(len(cleaned_df), 2, "NaT row must be purged")
 
+    def test_sanitize_market_session_timestamp(self):
+        from trading_calendar import sanitize_market_session_timestamp
+
+        # 1. Midnight timestamp (e.g. 2026-09-22 00:34:00 Tuesday) -> snaps to previous trading session close (2026-09-21 15:30:00 Monday)
+        sanitized_midnight = sanitize_market_session_timestamp("2026-09-22 00:34:00")
+        self.assertEqual(sanitized_midnight, "2026-09-21 15:30:00")
+
+        # 2. Date-only (e.g. 2026-09-18) -> snaps to that day's session close (2026-09-18 15:30:00)
+        sanitized_date = sanitize_market_session_timestamp("2026-09-18")
+        self.assertEqual(sanitized_date, "2026-09-18 15:30:00")
+
+        # 3. Weekend timestamp (Sunday 2026-09-20 12:00:00) -> snaps to latest valid trading day (Friday 2026-09-18 15:30:00)
+        sanitized_weekend = sanitize_market_session_timestamp("2026-09-20 12:00:00")
+        self.assertEqual(sanitized_weekend, "2026-09-18 15:30:00")
+
+        # 4. Valid intraday timestamp (Tuesday 2026-09-22 11:30:00) -> strictly preserved
+        sanitized_intraday = sanitize_market_session_timestamp("2026-09-22 11:30:00")
+        self.assertEqual(sanitized_intraday, "2026-09-22 11:30:00")
+
+        # 5. Post-market timestamp (Tuesday 2026-09-22 18:00:00) -> snaps to today's session close (2026-09-22 15:30:00)
+        sanitized_post = sanitize_market_session_timestamp("2026-09-22 18:00:00")
+        self.assertEqual(sanitized_post, "2026-09-22 15:30:00")
+
+    def test_recalculate_clears_stale_exit_state(self):
+        """
+        Verify that a trade previously closed as WIN with exit_price and closed_at (e.g. 00:34:00)
+        is completely cleared of terminal fields when recalculating, so if only T1 hits,
+        closed_at is None and position stays open as PARTIAL_WIN_1.
+        """
+        from performance_tracker import process_trade_history
+        import json
+
+        alert_time = "2026-09-17 20:29:00"
+        trade = {
+            "id": 99997,
+            "symbol": "GENUSPOWER",
+            "entry_price": 303.85,
+            "stop_loss": 300.85,
+            "initial_stop_loss": 300.85,
+            "target_1": 309.85,
+            "target_2": 313.56,
+            "target_3": 319.56,
+            "shares_bought": 100,
+            "remaining_shares": 100,
+            "capital_allocated": 30385.0,
+            # Stale closure fields from previous flawed run
+            "status": "WIN",
+            "execution_state": "WIN",
+            "exit_price": 310.9,
+            "closed_at": "2026-09-22 00:34:00",
+            "target_hit": True,
+            "stopped_out": False,
+            "pnl_pct": 2.32,
+            "pnl_rs": 705.0,
+            "alert_time": alert_time,
+            "exit_history": "[]"
+        }
+
+        # Market bars starting from next trading morning (2026-09-18 09:15)
+        # Price reaches 310.00 (hits T1 309.85), but never reaches T2 (313.56) or SL (300.85)
+        candles = [
+            IST.localize(datetime(2026, 9, 18, 9, 15)),
+            IST.localize(datetime(2026, 9, 18, 9, 30)),
+            IST.localize(datetime(2026, 9, 18, 10, 0)),
+        ]
+        hist = pd.DataFrame({
+            "Open": [304.0, 306.0, 309.0],
+            "High": [305.0, 310.0, 311.0],  # Hits T1 at 310.0
+            "Low":  [303.0, 305.0, 308.0],
+            "Close": [305.0, 309.0, 310.5],
+            "Volume": [10000, 15000, 12000]
+        }, index=pd.DatetimeIndex(candles))
+
+        process_trade_history(trade, hist, cur_p=310.5, is_recalculate=True)
+
+        # 1. State must be PARTIAL_WIN_1, not WIN
+        self.assertEqual(trade["status"], "PARTIAL_WIN_1")
+        self.assertEqual(trade["execution_state"], "PARTIAL_1_HIT")
+
+        # 2. closed_at MUST BE None (not 00:34:00 or any midnight timestamp!)
+        self.assertIsNone(trade["closed_at"], "Open/partial position must have closed_at = None")
+
+        # 3. target_hit must be False
+        self.assertFalse(trade["target_hit"], "target_hit must be False while position is still active")
+
+        # 4. Exit history must contain exactly 1 event (T1_HIT) with valid session timestamp
+        eh = json.loads(trade["exit_history"])
+        self.assertEqual(len(eh), 1)
+        self.assertEqual(eh[0]["type"], "T1_HIT")
+        self.assertEqual(eh[0]["price"], 309.85)
+        self.assertEqual(eh[0]["time"], "2026-09-18 09:30:00")
+
 if __name__ == "__main__":
     unittest.main()

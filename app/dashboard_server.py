@@ -35,6 +35,7 @@ from data_fetch_status import mark_success, mark_failure
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
+from trading_calendar import sanitize_market_session_timestamp
 
 from decimal import Decimal
 import numpy as np
@@ -1381,7 +1382,7 @@ def _build_instant_performance_fallback():
                 "target_2": _safe_f(row.get("target_2")),
                 "target_3": _safe_f(row.get("target_3")),
                 "current_price": cp,
-                "exit_price": xp,
+                "exit_price": xp if st != "OPEN" else None,
                 "pnl_pct": pnl,
                 "pnl_rs": pnl_rs,
                 "status": st,
@@ -1394,7 +1395,7 @@ def _build_instant_performance_fallback():
                 "earnings_severity": row.get("earnings_severity"),
                 "warning_msg": row.get("warning_msg"),
                 "execution_state": row.get("execution_state"),
-                "closed_at": str(row.get("closed_at") or "") if row.get("closed_at") else None,
+                "closed_at": sanitize_market_session_timestamp(row.get("closed_at")) if (st in ("WIN", "LOSS", "CLOSED") and row.get("closed_at")) else None,
             })
 
         judged = [t for t in trades if t["status"] in ("WIN", "LOSS", "CLOSED")]
@@ -1507,8 +1508,28 @@ def performance_json():
                         recent_db_alerts = cur.fetchall()
 
                 missing_trades = []
+                trades_by_id = {t.get("id"): t for t in trades_list if t.get("id") is not None}
+                has_reconciled_updates = False
                 for r in recent_db_alerts:
-                    if r["id"] not in known_ids:
+                    aid = r["id"]
+                    if aid in trades_by_id:
+                        t_existing = trades_by_id[aid]
+                        db_status = r.get("status") or "OPEN"
+                        # If DB status is OPEN (e.g. alert was reset for recalculation), sync state immediately!
+                        if db_status == "OPEN" and t_existing.get("status") != "OPEN":
+                            t_existing["status"] = "OPEN"
+                            t_existing["closed_at"] = None
+                            t_existing["exit_price"] = None
+                            t_existing["exit_signal"] = None
+                            t_existing["exit_reason"] = None
+                            t_existing["stopped_out"] = False
+                            t_existing["target_hit"] = False
+                            t_existing["exit_history"] = "[]"
+                            t_existing["execution_state"] = "OPEN"
+                            has_reconciled_updates = True
+                        elif db_status in ("WIN", "LOSS", "CLOSED") and t_existing.get("closed_at"):
+                            t_existing["closed_at"] = sanitize_market_session_timestamp(t_existing["closed_at"])
+                    elif aid not in known_ids:
                         def _safe_float(v):
                             return float(v) if v is not None else None
                         ep_val = _safe_float(r.get("entry_price"))
@@ -1549,7 +1570,7 @@ def performance_json():
                             "target_3": _safe_float(r.get("target_3")),
                             "current_price": cp_val,
                             "cmp_updated_at": cmp_ts_str,
-                            "exit_price": xp_val,
+                            "exit_price": xp_val if st_val != "OPEN" else None,
                             "pnl_pct": pnl_val,
                             "pnl_rs": pnl_rs_val,
                             "status": st_val,
@@ -1562,12 +1583,18 @@ def performance_json():
                             "earnings_severity": r.get("earnings_severity"),
                             "warning_msg": r.get("warning_msg"),
                             "execution_state": r.get("execution_state"),
-                            "closed_at": str(r.get("closed_at") or "") if r.get("closed_at") else None,
+                            "closed_at": sanitize_market_session_timestamp(r.get("closed_at")) if (st_val in ("WIN", "LOSS", "CLOSED") and r.get("closed_at")) else None,
                         })
 
-                if missing_trades:
-                    # Prepend missing alerts so trade table immediately shows newly fired alerts
-                    perf_dict["trades"] = missing_trades + trades_list
+                if missing_trades or has_reconciled_updates:
+                    if missing_trades:
+                        perf_dict["trades"] = missing_trades + trades_list
+                    # Defense-in-depth on all trades:
+                    for tr in perf_dict["trades"]:
+                        if tr.get("status") in ("OPEN", "PARTIAL_WIN_1", "PARTIAL_WIN_2", "TRAILING", "SELL_REVIEW"):
+                            tr["closed_at"] = None
+                            if tr.get("status") == "OPEN":
+                                tr["exit_price"] = None
                     if "summary" in perf_dict and isinstance(perf_dict["summary"], dict):
                         perf_dict["summary"]["total_alerts"] = len(perf_dict["trades"])
                         perf_dict["summary"]["open_positions"] = len([t for t in perf_dict["trades"] if t.get("status") == "OPEN"])
@@ -3569,6 +3596,30 @@ def api_recalculate_alert():
                 success_count += 1
                 
         if success_count > 0:
+            try:
+                from database import get_system_state, save_system_state
+                raw_perf = get_system_state("performance_data")
+                if raw_perf:
+                    perf_blob = json.loads(raw_perf) if isinstance(raw_perf, str) else raw_perf
+                    aid_set = set(int(a) for a in alert_ids)
+                    changed = False
+                    for tr in perf_blob.get("trades", []):
+                        if tr.get("id") in aid_set:
+                            tr["status"] = "OPEN"
+                            tr["closed_at"] = None
+                            tr["exit_price"] = None
+                            tr["exit_signal"] = None
+                            tr["exit_reason"] = None
+                            tr["stopped_out"] = False
+                            tr["target_hit"] = False
+                            tr["exit_history"] = "[]"
+                            tr["execution_state"] = "OPEN"
+                            changed = True
+                    if changed:
+                        save_system_state("performance_data", json.dumps(perf_blob, default=str))
+            except Exception as patch_err:
+                logger.warning(f"Failed to patch system_state performance_data on recalculate: {patch_err}")
+
             invalidate_performance_cache()
             # Trigger tracker to immediately rebuild these newly opened alerts
             from performance_tracker import trigger_performance_rebuild

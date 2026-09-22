@@ -5,6 +5,7 @@
 
 import logging
 import time
+import json
 import pandas as pd
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -12,6 +13,7 @@ from typing import Dict, Any
 
 from database import get_connection, IST
 from price_cache import fetch_unified_historical
+from trading_calendar import sanitize_market_session_timestamp
 
 logger = logging.getLogger("outcome_tracker")
 
@@ -136,14 +138,23 @@ def run_outcome_tracker(force: bool = False) -> Dict[str, Any]:
                     if is_closed:
                         db_status = "WIN" if (realized_rr and realized_rr > 0 and exit_reason != "SAME_BAR_CONFLICT_SL") else "LOSS"
                         calc_exit_price = float(t1) if exit_reason == "T1_HIT" else float(sl)
+                        clean_closed_at = sanitize_market_session_timestamp(exit_timestamp) if exit_timestamp else f"{today_str} 15:30:00"
                         cur.execute("""
                             UPDATE alerts
                             SET status = %s,
                                 exit_price = COALESCE(exit_price, %s),
                                 exit_signal = COALESCE(exit_signal, %s),
-                                closed_at = NOW()
+                                closed_at = %s
                             WHERE id = %s
-                        """, (db_status, calc_exit_price, exit_reason, alert_id))
+                        """, (db_status, calc_exit_price, exit_reason, clean_closed_at, alert_id))
+
+                        # Ensure exit_history is populated if null so closed trades never show 'No exit events yet'
+                        exit_evt = json.dumps([{"type": exit_reason, "price": calc_exit_price, "time": clean_closed_at}])
+                        cur.execute("""
+                            UPDATE alerts
+                            SET exit_history = COALESCE(exit_history, %s::jsonb)
+                            WHERE id = %s
+                        """, (exit_evt, alert_id))
 
                         cur.execute("""
                             UPDATE alert_outcomes

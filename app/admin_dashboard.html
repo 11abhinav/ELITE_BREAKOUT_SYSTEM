@@ -24,7 +24,7 @@ function parseToISTDate(ts) {
       str += '+05:30';
     }
   } else if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-    str += 'T00:00:00+05:30';
+    str += 'T15:30:00+05:30';
   }
   const d = new Date(str);
   return isNaN(d.getTime()) ? null : d;
@@ -4344,8 +4344,21 @@ function changeAdminPage(type, delta) {
     // Format closed_at ISO timestamp as "DD Mon HH:MM" (24h IST)
     const fmtClosedAt = ts => {
       if (!ts) return '—';
-      const d = parseToISTDate(ts);
+      let d = parseToISTDate(ts);
       if (!d) return String(ts);
+      // Defense-in-depth: if hours/minutes fall outside official market session (09:15-15:30 IST), clamp to session close 15:30
+      const parts = new Intl.DateTimeFormat('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: false
+      }).formatToParts(d);
+      const h = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
+      const m = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
+      if (h < 9 || (h === 9 && m < 15) || h > 15 || (h === 15 && m > 30)) {
+        const dateStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+        d = new Date(`${dateStr}T15:30:00+05:30`);
+      }
       return d.toLocaleString('en-IN', {
         timeZone: 'Asia/Kolkata',
         day: '2-digit',
@@ -6116,7 +6129,15 @@ function getEarningsBadgeHtml(item) {
                 ids.forEach(cid => {
                   const updated = fresh.trades.find(t => t.id === cid);
                   const idx = ALL_TRADES.findIndex(t => t.id === cid);
-                  if (updated && idx !== -1) ALL_TRADES[idx] = updated;
+                  if (updated && idx !== -1) {
+                    if (updated.status === 'OPEN') {
+                      updated.closed_at = null;
+                      updated.exit_price = null;
+                      updated.exit_signal = null;
+                      updated.exit_reason = null;
+                    }
+                    ALL_TRADES[idx] = updated;
+                  }
                   EXIT_HISTORY_CACHE.delete(String(cid));
                 });
                 renderTradeTable();
