@@ -634,6 +634,7 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_confirmed_active ON alerts (alert_time DESC) WHERE is_rejected = FALSE AND status IN ('OPEN', 'ACTIVE') AND scanner NOT IN ('MULTIBAGGER')")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_perf_tracker ON alerts(alert_time ASC) WHERE status IN ('OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING') AND is_rejected = FALSE AND scanner NOT IN ('MULTIBAGGER', 'WEALTH')")
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_alerts_idempotency ON alerts (idempotency_key) WHERE idempotency_key IS NOT NULL")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_wealth_buy_alert_date ON wealth_buy_alert(alert_date)")
 
                 # 4.5. scanner_evaluation_log table
                 cur.execute("""
@@ -11188,9 +11189,8 @@ def reset_all_positions_to_open() -> int:
 def invalidate_performance_cache():
     """Invalidate cached performance metrics in memory or DB."""
     try:
-        from dashboard_server import _PERF_CACHE
-        if isinstance(_PERF_CACHE, dict):
-            _PERF_CACHE.clear()
+        import dashboard_server
+        dashboard_server.invalidate_performance_cache()
     except Exception:
         pass
     try:

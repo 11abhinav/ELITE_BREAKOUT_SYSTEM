@@ -4491,10 +4491,10 @@ function changeAdminPage(type, delta) {
         });
     }
 
-    async function loadData() {
-      const t = new Date().getTime();
+    async function loadData(forceRebuild = false) {
       try {
-        const r = await fetch('/data/performance_data.json?t=' + t, { cache: 'no-store' });
+        const url = forceRebuild ? `/data/performance_data.json?rebuild=true&t=${Date.now()}` : '/data/performance_data.json';
+        const r = await fetch(url, { cache: forceRebuild ? 'no-store' : 'default' });
         if (r.ok) return await r.json();
       } catch (e) {
         console.warn('Failed to load performance data from /data/performance_data.json', e);
@@ -5665,7 +5665,7 @@ function getEarningsBadgeHtml(item) {
 
         const cleanSym = (t.symbol || '').replace('.NS', '').replace('.BO', '').trim();
         return `
-    <tr class="main-row${isOpen ? ' open' : ''}" id="mr-${id}" onclick="toggleDetail('${id}', '${t.symbol}', '${key}', ${t.id})" style="${rowHighlightStyle}">
+    <tr class="main-row${isOpen ? ' open' : ''}" id="mr-${id}" data-id="${t.id || ''}" data-symbol="${cleanSym}" onclick="toggleDetail('${id}', '${t.symbol}', '${key}', ${t.id})" style="${rowHighlightStyle}">
       <td onclick="event.stopPropagation();" style="text-align:center; width:24px;">${checkboxHtml}</td>
       <td style="text-align:center; width:24px;">${isOpen ? '\u25bc' : '\u25b6'}</td>
       <td style="font-weight:700;color:var(--text);letter-spacing:-.3px">
@@ -6767,9 +6767,12 @@ function getEarningsBadgeHtml(item) {
       renderCategoryStats();
     }
 
-    document.addEventListener('DOMContentLoaded', () => {
+    let _adminTickersLoaded = false;
+    function loadAdminTickersAutocomplete() {
+      if (_adminTickersLoaded) return;
+      _adminTickersLoaded = true;
 
-      // Fetch all NSE tickers for autocomplete
+      // Fetch all NSE tickers for autocomplete (deferred)
       fetch('/api/all_tickers')
         .then(res => res.json())
         .then(symbols => {
@@ -6824,6 +6827,19 @@ function getEarningsBadgeHtml(item) {
           }
         })
         .catch(err => console.error("Failed to load ticker list", err));
+    }
+
+    // Defer ticker loading until search input focus or idle to eliminate page-load blocking
+    document.addEventListener('DOMContentLoaded', () => {
+      const searchBox = document.getElementById('searchBox');
+      if (searchBox) searchBox.addEventListener('focus', loadAdminTickersAutocomplete, { once: true });
+      const aiInput = document.getElementById('aiModalTicker');
+      if (aiInput) aiInput.addEventListener('focus', loadAdminTickersAutocomplete, { once: true });
+      if (window.requestIdleCallback) {
+        window.requestIdleCallback(() => setTimeout(loadAdminTickersAutocomplete, 4000));
+      } else {
+        setTimeout(loadAdminTickersAutocomplete, 4000);
+      }
     });
 
     document.addEventListener('click', e => {
@@ -8624,22 +8640,26 @@ async function fetchTodaysAlertsAndBlink_Admin(){
         playLoudNotificationSound();
         triggerAlertFlashing();
     }
-    isFirstAdminAlertFetch = false;
+    if (!Array.isArray(data) || data.length === 0) return;
+
     data.forEach(alert=>{
-      document.querySelectorAll('tr[data-id]').forEach(tr=>{
-        if(tr.dataset.id == alert.id && !tr.dataset.blinkInit){
-          tr.dataset.blinkInit = "true";
-          if(!alert.seen_by_admin) {
-              tr.classList.add('alert-blink');
-          }
-          tr.addEventListener('click', async ()=>{
-            if(tr.classList.contains('alert-blink')){
-              tr.classList.remove('alert-blink');
-              try{ await fetch('/api/alert/mark_seen', {method:'POST',headers:{'Content-Type':'application/json'}, body:JSON.stringify({id: alert.id, role: 'admin'})}); }catch(e){}
-            }
-          }, {once:true});
+      const cleanSym = (alert.symbol || '').replace('.NS', '').replace('.BO', '').trim();
+      let tr = alert.id ? document.querySelector(`tr[data-id="${alert.id}"]`) : null;
+      if (!tr && cleanSym) {
+        tr = document.querySelector(`tr[data-symbol="${cleanSym}"]`);
+      }
+      if(tr && !tr.dataset.blinkInit){
+        tr.dataset.blinkInit = "true";
+        if(!alert.seen_by_admin) {
+            tr.classList.add('alert-blink');
         }
-      });
+        tr.addEventListener('click', async ()=>{
+          if(tr.classList.contains('alert-blink')){
+            tr.classList.remove('alert-blink');
+            try{ await fetch('/api/alert/mark_seen', {method:'POST',headers:{'Content-Type':'application/json'}, body:JSON.stringify({id: alert.id, role: 'admin'})}); }catch(e){}
+          }
+        }, {once:true});
+      }
     });
   }catch(e){console.warn('fetchTodaysAlerts_Admin failed', e)}
   setTimeout(fetchTodaysAlertsAndBlink_Admin, ALERT_FETCH_INTERVAL_ADMIN);
@@ -9835,7 +9855,12 @@ function preloadMasterSymbolsList() {
     })
     .catch(err => console.warn('Master symbols preload failed:', err));
 }
-document.addEventListener('DOMContentLoaded', preloadMasterSymbolsList);
+// Defer master symbols preload until after initial dashboard render
+if (window.requestIdleCallback) {
+  window.requestIdleCallback(() => setTimeout(preloadMasterSymbolsList, 4000));
+} else {
+  setTimeout(preloadMasterSymbolsList, 4000);
+}
 
 function handleStockSearchInput(val) {
   const dropdown = document.getElementById('stock-autocomplete-dropdown');
