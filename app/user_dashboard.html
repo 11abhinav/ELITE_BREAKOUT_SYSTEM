@@ -219,10 +219,13 @@ var USER_PAGE_SIZE = 10;
   tbody tr{border-bottom:1px solid var(--border);transition:background .08s;}
   tbody tr:last-child{border-bottom:none;}
   tbody tr:hover{background:var(--card2);}
-  tbody td{padding:8px 10px;white-space:nowrap;font-family:var(--font-mono);font-size:12px;color:var(--text);vertical-align:middle;}
+  tbody td{padding:8px 10px;white-space:normal;word-break:break-word;overflow-wrap:break-word;font-family:var(--font-mono);font-size:12px;color:var(--text);vertical-align:middle;}
+  /* Utility: force single-line for numeric/price/date columns */
+  .nowrap{white-space:nowrap!important;}
+  .col-opt { word-break: break-word; }
   @media(max-width: 992px) {
     thead th, tbody td { padding: 5px 6px !important; font-size: 11px !important; }
-    .col-opt { display: none !important; }
+    .col-opt { display: none !important; word-break: break-word; }
     .pnl-wrap { gap: 4px !important; }
     .pnl-bar-track { width: 30px !important; }
     .pnl-text { min-width: 42px !important; font-size: 10.5px !important; }
@@ -1903,7 +1906,7 @@ function buildTradeRows(trades, maxAbs, prefix) {
         ${sc}
         <div style="font-size:9px; color:var(--muted); white-space:nowrap; margin-top:2px;">${t.alert_time || t.entry_date ? fmtDetailTime(t.alert_time || t.entry_date) : ''}</div>
       </td>
-      <td class="col-opt" style="color:var(--muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-body)">${t.category||'—'}</td>
+      <td class="col-opt" style="color:var(--muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;word-break:break-word;font-family:var(--font-body)">${t.category||'—'}</td>
       <td class="col-opt" style="text-align:right;">${fmt(t.capital_allocated)}</td>
       <td class="col-opt" style="text-align:right;">${t.shares_bought||'\u2014'}</td>
       <td class="col-opt" style="color:var(--muted); text-align:center;">${t.days_held!=null?t.days_held+'d':'—'}</td>
