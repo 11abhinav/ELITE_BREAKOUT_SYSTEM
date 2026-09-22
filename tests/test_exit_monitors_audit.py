@@ -183,6 +183,42 @@ class TestExitMonitorsAndCalendar(unittest.TestCase):
         self.assertIn("last_mb_exit or (now - last_mb_exit).total_seconds() >= 300", content)
         self.assertIn('"MULTIBAGGER_EXIT", status="OK",\n            last_success=datetime.now(IST).isoformat(),\n            scheduled_for="Every 5min (market hours)"', content)
         self.assertIn("time.sleep(300)", content)
+        self.assertIn('"MULTIBAGGER_EXIT":    15,       # runs every 5 min during market hours', content)
+
+    def test_edge_case_timestamps_and_corrupt_data(self):
+        import numpy as np
+        from trading_calendar import is_valid_market_session_timestamp, enforce_trading_day_candles
+
+        # Edge cases: None, NaT, NaN, empty strings, invalid text
+        self.assertFalse(is_valid_market_session_timestamp(None))
+        self.assertFalse(is_valid_market_session_timestamp(pd.NaT))
+        self.assertFalse(is_valid_market_session_timestamp(np.nan))
+        self.assertFalse(is_valid_market_session_timestamp(""))
+        self.assertFalse(is_valid_market_session_timestamp("   "))
+        self.assertFalse(is_valid_market_session_timestamp("gibberish-not-a-date"))
+
+        # Boundary tests on a trading day (Tuesday 2026-09-22)
+        # 09:14:59 (pre-market) -> False
+        self.assertFalse(is_valid_market_session_timestamp(IST.localize(datetime(2026, 9, 22, 9, 14, 59))))
+        # 09:15:00 (market open) -> True
+        self.assertTrue(is_valid_market_session_timestamp(IST.localize(datetime(2026, 9, 22, 9, 15, 0))))
+        # 15:30:00 (market close) -> True
+        self.assertTrue(is_valid_market_session_timestamp(IST.localize(datetime(2026, 9, 22, 15, 30, 0))))
+        # 15:30:01 (post-market) -> False
+        self.assertFalse(is_valid_market_session_timestamp(IST.localize(datetime(2026, 9, 22, 15, 30, 1))))
+
+        # Test enforce_trading_day_candles with NaT / corrupt rows
+        mixed_idx = pd.to_datetime([
+            "2026-09-22 09:30:00",
+            "NaT",
+            "2026-09-22 14:00:00"
+        ])
+        df_corrupt = pd.DataFrame({
+            "Open": [100.0, 101.0, 102.0],
+            "Close": [101.0, 102.0, 103.0]
+        }, index=mixed_idx)
+        cleaned_df = enforce_trading_day_candles(df_corrupt, "CORRUPT_TEST")
+        self.assertEqual(len(cleaned_df), 2, "NaT row must be purged")
 
 if __name__ == "__main__":
     unittest.main()

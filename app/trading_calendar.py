@@ -195,30 +195,39 @@ def is_valid_market_session_timestamp(val: Union[datetime, str, pd.Timestamp]) -
     2. An official NSE/BSE trading day (not an exchange holiday)
     3. Official NSE/BSE active trading session hours: 09:15 to 15:30 IST.
     """
-    if val is None:
+    if val is None or pd.isna(val):
         return False
     if isinstance(val, str):
+        val_str = val.strip()
+        if not val_str:
+            return False
         try:
-            val = pd.to_datetime(val)
+            val = pd.to_datetime(val_str)
+            if pd.isna(val):
+                return False
         except Exception:
             return False
-    if hasattr(val, "tzinfo"):
-        if val.tzinfo is None:
-            val = IST.localize(val)
-        else:
-            val = val.astimezone(IST)
-    elif isinstance(val, pd.Timestamp):
-        if val.tz is None:
-            val = val.tz_localize(IST)
-        else:
-            val = val.tz_convert(IST)
 
-    d = val.date()
-    if not default_trading_calendar.is_trading_day(d):
+    try:
+        if hasattr(val, "tzinfo"):
+            if val.tzinfo is None:
+                val = IST.localize(val)
+            else:
+                val = val.astimezone(IST)
+        elif isinstance(val, pd.Timestamp):
+            if val.tz is None:
+                val = val.tz_localize(IST)
+            else:
+                val = val.tz_convert(IST)
+
+        d = val.date()
+        if not default_trading_calendar.is_trading_day(d):
+            return False
+
+        t = val.time()
+        return time_cls(9, 15) <= t <= time_cls(15, 30)
+    except Exception:
         return False
-
-    t = val.time()
-    return time_cls(9, 15) <= t <= time_cls(15, 30)
 
 
 def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
@@ -273,7 +282,10 @@ def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
         else:
             is_off_hours = pd.Series(False, index=df.index)
 
-        is_invalid = is_weekend | is_holiday | is_off_hours
+        # 4. Corrupt / NaT timestamps
+        is_corrupt = ts_series.isna()
+
+        is_invalid = is_weekend | is_holiday | is_off_hours | is_corrupt
         if is_invalid.any():
             dropped_count = int(is_invalid.sum())
             sym_tag = f" for {symbol}" if symbol else ""
@@ -291,6 +303,7 @@ def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
             if is_weekend.any(): reasons.append(f"{int(is_weekend.sum())} weekend")
             if is_holiday.any(): reasons.append(f"{int(is_holiday.sum())} holiday")
             if is_off_hours.any(): reasons.append(f"{int(is_off_hours.sum())} off-market/midnight")
+            if is_corrupt.any(): reasons.append(f"{int(is_corrupt.sum())} corrupt/NaT")
             reason_str = ", ".join(reasons)
 
             logger.warning(

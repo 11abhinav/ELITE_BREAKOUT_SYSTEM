@@ -1967,6 +1967,7 @@ def check_scanner_staleness(now):
         "MULTI_TF":            25,       # runs every 15 min (aligned to closed 15m candles)
         "MULTI_TF_5M":         15,       # runs every 5 min
         "PERFORMANCE_TRACKER": 15,       # runs every 5 min
+        "MULTIBAGGER_EXIT":    15,       # runs every 5 min during market hours
         "WEALTH_EXIT":         15,       # runs every 5 min during market hours
         "SHORT_COVERING_5M":   15,       # runs every 5 min during market hours
         "SHORT_COVERING":      15,       # runs every 5 min during market hours

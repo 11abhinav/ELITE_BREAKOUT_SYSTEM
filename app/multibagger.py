@@ -2234,6 +2234,8 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
     # All evaluations proceed normally using the latest valid Friday (or trading day) 15:30 candle.
     # Weekend candles themselves are purged at data ingestion / price_cache / trading_calendar layers.
     logger.info("🔍 Running Exit Monitor for open MULTIBAGGER positions...")
+    from trading_calendar import is_weekend_date, default_trading_calendar, get_latest_trading_date
+    from market_utils import is_market_open
     cache_updated = False
     try:
         from psycopg2.extras import RealDictCursor
@@ -2295,7 +2297,6 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                 current_price = price_data.price
 
                 # [VERSION: MULTIBAGGER_EXIT_FRESHNESS_v1.0] Exit freshness validation (fail closed)
-                from trading_calendar import is_weekend_date, default_trading_calendar
                 last_trade_date = getattr(price_data, "last_trade_date", None)
                 if not last_trade_date:
                     logger.warning(f"⚠️ {symbol}: SELL_REVIEW: Trade date unavailable")
@@ -2485,11 +2486,9 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                         try:
                             # Generate valid trading session closed_at timestamp
                             now_dt = datetime.now(IST)
-                            from market_utils import is_market_open
                             if is_market_open(now_dt):
                                 closed_at_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
                             else:
-                                from trading_calendar import get_latest_trading_date
                                 last_d = get_latest_trading_date(str(last_trade_date)[:10] if last_trade_date else None)
                                 closed_at_str = f"{last_d} 15:30:00"
 
