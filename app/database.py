@@ -6205,107 +6205,28 @@ def acknowledge_all_fetch_errors() -> bool:
                 return False
 
 def deposit_funds(amount: float) -> float:
-    """Deposit funds. Returns new total capital."""
-    init_db()
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            try:
-                # Insert deposit transaction
-                cur.execute("""
-                    INSERT INTO capital_history (transaction_type, amount, description)
-                    VALUES ('DEPOSIT', %s, 'User deposit via admin dashboard')
-                """, (amount,))
-
-                # Get total capital (base + all deposits)
-                cur.execute("""
-                    SELECT COALESCE(SUM(amount), 0) FROM capital_history
-                    WHERE transaction_type IN ('BASE_CAPITAL', 'DEPOSIT')
-                """)
-                result = cur.fetchone()
-                total_capital = result[0] if result else 0
-
-                conn.commit()
-                logger.info(f"✓ Deposited ₹{amount}. New total capital: ₹{total_capital}")
-                return total_capital
-            except Exception as e:
-                conn.rollback()
-                logger.exception(f"❌ deposit_funds failed for amount={amount}")
-                raise
+    """
+    [VERSION: CAPITAL_BUCKET_v2.0] DEPRECATED — capital tracking removed.
+    Returns 0.0. capital_history writes are disabled.
+    """
+    logger.warning("⚠️ deposit_funds called but capital tracking is disabled (CAPITAL_BUCKET_v2.0). No-op.")
+    return 0.0
 
 def get_capital_info() -> dict:
-    """Returns total capital, deployed capital in open trades, available cash, and deposit metrics."""
-    init_db()
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            try:
-                # Check if base capital exists, if not initialize with 500000
-                cur.execute("""
-                    SELECT COALESCE(SUM(amount), 0) FROM capital_history
-                    WHERE transaction_type = 'BASE_CAPITAL'
-                """)
-                row1 = cur.fetchone()
-                base = float((row1[0] if row1 else 0.0) or 0.0)
-
-                if base == 0:
-                    # Initialize with default base capital
-                    cur.execute("""
-                        INSERT INTO capital_history (transaction_type, amount, created_at)
-                        VALUES ('BASE_CAPITAL', 500000, NOW())
-                    """)
-                    conn.commit()
-                    base = 500000.0
-
-                # Get total deposits (excluding base)
-                cur.execute("""
-                    SELECT COALESCE(SUM(amount), 0) FROM capital_history
-                    WHERE transaction_type = 'DEPOSIT'
-                """)
-                row2 = cur.fetchone()
-                deposited = float((row2[0] if row2 else 0.0) or 0.0)
-
-                # Get total capital
-                cur.execute("""
-                    SELECT COALESCE(SUM(amount), 0) FROM capital_history
-                    WHERE transaction_type IN ('BASE_CAPITAL', 'DEPOSIT')
-                """)
-                row3 = cur.fetchone()
-                total = float((row3[0] if row3 else 0.0) or 0.0)
-
-                # Get capital allocated to active open trades
-                cur.execute("""
-                    SELECT COALESCE(SUM(COALESCE(capital_allocated, COALESCE(shares_bought, 1) * COALESCE(entry_price, 0))), 0),
-                           COUNT(*)
-                    FROM alerts
-                    WHERE status IN ('OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING')
-                       OR status NOT IN ('WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED')
-                """)
-                row4 = cur.fetchone()
-                allocated = float((row4[0] if row4 and len(row4) > 0 else 0.0) or 0.0)
-                open_count = int((row4[1] if row4 and len(row4) > 1 else 0) or 0)
-
-                available_cash = max(0.0, total - allocated)
-                used_pct = round((allocated / total * 100), 1) if total > 0 else 0.0
-
-                return {
-                    "base_capital": base,
-                    "total_deposited": deposited,
-                    "total_capital": total,
-                    "allocated_capital": allocated,
-                    "available_cash": available_cash,
-                    "used_pct": used_pct,
-                    "open_trades_count": open_count
-                }
-            except Exception:
-                logger.exception("❌ get_capital_info failed")
-                return {
-                    "base_capital": 500000.0,
-                    "total_deposited": 0.0,
-                    "total_capital": 500000.0,
-                    "allocated_capital": 0.0,
-                    "available_cash": 500000.0,
-                    "used_pct": 0.0,
-                    "open_trades_count": 0
-                }
+    """
+    [VERSION: CAPITAL_BUCKET_v2.0] Stub — capital tracking removed.
+    Returns a zeroed-out structure so any existing API callers don't crash.
+    capital_history reads are disabled.
+    """
+    return {
+        "base_capital": 0.0,
+        "total_deposited": 0.0,
+        "total_capital": 0.0,
+        "allocated_capital": 0.0,
+        "available_cash": 0.0,
+        "used_pct": 0.0,
+        "open_trades_count": 0
+    }
 
 def get_all_data_fetch_health() -> list:
     """Return all rows from data_fetch_health as list of dicts."""
@@ -8759,113 +8680,85 @@ def sweep_stale_breakout_watchlist():
     return counts
 
 def reject_alert(alert_id: int):
-    """Marks an alert as rejected and refunds its allocated capital."""
+    """Marks an alert as rejected. [CAPITAL_BUCKET_v2.0] No capital_history writes."""
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT is_rejected, capital_allocated FROM alerts WHERE id = %s", (alert_id,))
+            cur.execute("SELECT is_rejected FROM alerts WHERE id = %s", (alert_id,))
             row = cur.fetchone()
             if not row:
                 return False
-            is_rejected, capital_allocated = row
-            if is_rejected:
+            if row[0]:
                 return True
-
             cur.execute("UPDATE alerts SET is_rejected = TRUE, status = 'REJECTED' WHERE id = %s", (alert_id,))
-
-            cap = float(capital_allocated) if capital_allocated else 0.0
-            if cap > 0:
-                cur.execute(
-                    "INSERT INTO capital_history (transaction_type, amount, description) VALUES (%s, %s, %s)",
-                    ('trade_refund', cap, f"Refund for rejected alert #{alert_id}")
-                )
         conn.commit()
     return True
 
 def reject_multiple_alerts(alert_ids: list):
-    """Marks multiple alerts as rejected and refunds their allocated capital."""
+    """Marks multiple alerts as rejected. [CAPITAL_BUCKET_v2.0] No capital_history writes."""
     if not alert_ids:
         return True
     with get_connection() as conn:
         with conn.cursor() as cur:
             for alert_id in alert_ids:
-                cur.execute("SELECT is_rejected, capital_allocated FROM alerts WHERE id = %s", (alert_id,))
+                cur.execute("SELECT is_rejected FROM alerts WHERE id = %s", (alert_id,))
                 row = cur.fetchone()
-                if not row:
+                if not row or row[0]:
                     continue
-                is_rejected, capital_allocated = row
-                if is_rejected:
-                    continue
-
                 cur.execute("UPDATE alerts SET is_rejected = TRUE, status = 'REJECTED' WHERE id = %s", (alert_id,))
-
-                cap = float(capital_allocated) if capital_allocated else 0.0
-                if cap > 0:
-                    cur.execute(
-                        "INSERT INTO capital_history (transaction_type, amount, description) VALUES (%s, %s, %s)",
-                        ('trade_refund', cap, f"Refund for rejected alert #{alert_id}")
-                    )
         conn.commit()
     return True
 
 def accept_alert(alert_id: int):
-    """Marks an alert as accepted (not rejected) and deducts its allocated capital."""
+    """Marks an alert as accepted (not rejected). [CAPITAL_BUCKET_v2.0] No capital_history writes."""
     with get_connection() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT is_rejected, capital_allocated FROM alerts WHERE id = %s", (alert_id,))
+            cur.execute("SELECT is_rejected FROM alerts WHERE id = %s", (alert_id,))
             row = cur.fetchone()
             if not row:
                 return False
-            is_rejected, capital_allocated = row
-            if not is_rejected:
+            if not row[0]:
                 return True
-
             cur.execute("UPDATE alerts SET is_rejected = FALSE WHERE id = %s", (alert_id,))
-
-            cap = float(capital_allocated) if capital_allocated else 0.0
-            if cap > 0:
-                cur.execute(
-                    "INSERT INTO capital_history (transaction_type, amount, description) VALUES (%s, %s, %s)",
-                    ('trade_deduct', -cap, f"Deduction for re-accepted alert #{alert_id}")
-                )
         conn.commit()
     return True
 
 def reallocate_capital(alert_id: int):
     """
-    Manually recalculates and reallocates capital to an existing alert.
-    Useful if it originally fired when cash was negative and allocated 0.
+    [VERSION: CAPITAL_BUCKET_v2.0] Recalculates capital for an alert using the
+    score-based fixed bucket model (≥85→₹1L, 70-84→₹50k, <70→₹25k).
+    No available-cash check. No capital_history writes.
     """
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
-                # Fetch current details
-                cur.execute("SELECT entry_price, stop_loss, target_price, score, capital_allocated, status, exit_price, scanner, context FROM alerts WHERE id = %s", (alert_id,))
+                cur.execute(
+                    "SELECT entry_price, stop_loss, target_price, score, status, exit_price, scanner, context "
+                    "FROM alerts WHERE id = %s", (alert_id,)
+                )
                 row = cur.fetchone()
                 if not row:
                     return False
 
-                entry_price, stop_loss, target_price, score, old_cap, status, exit_price, scanner, context_str = row
+                entry_price, stop_loss, target_price, score, status, exit_price, scanner, context_str = row
 
-                # Auto-fill missing Stop Loss and Target Price
-                entry_price = float(entry_price) if entry_price else 0.0
-                stop_loss = float(stop_loss) if stop_loss else 0.0
+                entry_price  = float(entry_price)  if entry_price  else 0.0
+                stop_loss    = float(stop_loss)    if stop_loss    else 0.0
                 target_price = float(target_price) if target_price else 0.0
 
                 if scanner in ('MULTIBAGGER', 'WEALTH', 'Wealth Engine'):
-                    msg = f"Blocked reallocation for {scanner} alert #{alert_id}. Long-term investments do not support automatic reallocation or SL modification."
+                    msg = (f"Blocked reallocation for {scanner} alert #{alert_id}. "
+                           "Long-term investments do not support automatic reallocation.")
                     logger.warning(f"⚠️ {msg}")
-                    from database import insert_notification
                     insert_notification('error', 'Reallocation Blocked', msg)
                     return False
 
+                # ── Scanner-aware SL fallback ──
                 if entry_price > 0 and stop_loss <= 0:
-                    # ── SCANNER-AWARE FALLBACK LOGIC ──
                     import json
-                    fallback_sl = entry_price * 0.90  # Ultimate 10% safety net
+                    fallback_sl = entry_price * 0.90
                     try:
                         ctx = json.loads(context_str) if context_str else {}
                         if scanner == "MULTI_TF":
-                            # Explicit final_sl is often stored here
                             f_sl = float(ctx.get("final_sl", 0))
                             if f_sl > 0:
                                 fallback_sl = f_sl
@@ -8878,153 +8771,120 @@ def reallocate_capital(alert_id: int):
                     stop_loss = fallback_sl
 
                 if entry_price > 0 and stop_loss > 0 and target_price <= 0:
-                    risk_per_share = entry_price - stop_loss
-                    target_price = entry_price + (risk_per_share * 2)  # Default 1:2 R:R if missing
+                    target_price = entry_price + (entry_price - stop_loss) * 2
 
-                # Temporarily free the current margin from the DB view so portfolio_engine sees it
-                if old_cap > 0:
-                    cur.execute("UPDATE alerts SET capital_allocated = 0 WHERE id = %s", (alert_id,))
-                    conn.commit()
+                # ── Score-bucket allocation (no cash check) ──
+                from portfolio_engine import calculate_score_bucket_allocation
+                new_cap, new_shares = calculate_score_bucket_allocation(entry_price, score or 0)
 
-                from portfolio_engine import calculate_trade_allocation
-                new_cap, new_shares = calculate_trade_allocation(entry_price, stop_loss, score or 80)
-
-                # Update the alert with the newly calculated amounts, plus the patched SL/Target, and ensure it's not marked rejected
                 cur.execute(
-                    # Rule: SL-001
-                    "UPDATE alerts SET capital_allocated = %s, shares_bought = %s, stop_loss = %s, target_price = %s, is_rejected = FALSE WHERE id = %s",
+                    "UPDATE alerts SET capital_allocated = %s, shares_bought = %s, "
+                    "stop_loss = %s, target_price = %s, is_rejected = FALSE WHERE id = %s",
                     (new_cap, new_shares, stop_loss, target_price, alert_id)
                 )
 
-                # If the trade is already closed (WIN/LOSS), retroactively fix its realized PnL in Rupees
+                # Retroactively fix realized PnL for closed trades
                 if status in ('WIN', 'LOSS') and exit_price is not None:
-                    new_pnl_rs = new_shares * (exit_price - entry_price)
+                    new_pnl_rs = new_shares * (float(exit_price) - entry_price)
                     cur.execute("UPDATE alerts SET pnl_rs = %s WHERE id = %s", (new_pnl_rs, alert_id))
 
-                # Adjust the capital_history by recording the net difference
-                net_change = old_cap - new_cap
-                if net_change != 0:
-                    tx_type = 'trade_refund' if net_change > 0 else 'trade_deduct'
-                    desc = f"Reallocation diff for alert #{alert_id}"
-                    cur.execute(
-                        "INSERT INTO capital_history (transaction_type, amount, description) VALUES (%s, %s, %s)",
-                        (tx_type, net_change, desc)
-                    )
-
                 conn.commit()
+                logger.info(f"✅ reallocate_capital #{alert_id}: ₹{new_cap:,.0f}, {new_shares} shares")
                 return True
-    except Exception as e:
+    except Exception:
         logger.exception(f"❌ Failed to reallocate capital for alert {alert_id}")
         return False
 
 def reallocate_capital_multiple(alert_ids: list):
     """
-    Allocates capital to multiple trades at once, distributing the available cash
-    evenly amongst them so one trade doesn't eat the entire budget.
+    [VERSION: CAPITAL_BUCKET_v2.0] Assigns score-based fixed capital bucket to each
+    trade independently (≥85→₹1L, 70-84→₹50k, <70→₹25k).
+    No available-cash split. No capital_history writes.
     """
-    if not alert_ids: return []
+    if not alert_ids:
+        return []
 
-    from portfolio_engine import get_portfolio_state, RISK_PERCENT, MAX_POSITION_PCT
-    import math
+    from portfolio_engine import calculate_score_bucket_allocation
+    import json
 
     with get_connection() as conn:
         with conn.cursor() as cur:
             format_strings = ','.join(['%s'] * len(alert_ids))
-            cur.execute(f"SELECT id, entry_price, stop_loss, target_price, score, capital_allocated, status, exit_price, scanner, context, initial_stop_loss, target_1, target_2, target_3, target_4 FROM alerts WHERE id IN ({format_strings})", tuple(alert_ids))
+            cur.execute(
+                f"SELECT id, entry_price, stop_loss, target_price, score, status, exit_price, "
+                f"scanner, context, initial_stop_loss, target_1, target_2, target_3, target_4 "
+                f"FROM alerts WHERE id IN ({format_strings})",
+                tuple(alert_ids)
+            )
             rows = cur.fetchall()
-
-            if not rows: return []
-
-            # Free up existing capital from these trades so they pool into available_margin
-            for r in rows:
-                if r[5] and float(r[5]) > 0:
-                    cur.execute("UPDATE alerts SET capital_allocated = 0 WHERE id = %s", (r[0],))
-            conn.commit()
-
-            # Get portfolio state (now includes the freed up capital)
-            state = get_portfolio_state()
-            total_equity = state["total_equity"]
-            available_margin = state["available_margin"]
-
-            num_trades = len(rows)
-            cash_budget_per_trade = available_margin / num_trades
+            if not rows:
+                return []
 
             results = []
 
             for row in rows:
-                a_id, entry_price, stop_loss, target_price, score, old_cap, status, exit_price, scanner, context_str, initial_sl, t1, t2, t3 = row
+                a_id, entry_price, stop_loss, target_price, score, status, exit_price, \
+                    scanner, context_str, initial_sl, t1, t2, t3, t4 = row
 
-                entry_price = float(entry_price) if entry_price else 0.0
-                stop_loss = float(stop_loss) if stop_loss else 0.0
+                entry_price  = float(entry_price)  if entry_price  else 0.0
+                stop_loss    = float(stop_loss)    if stop_loss    else 0.0
                 target_price = float(target_price) if target_price else 0.0
 
                 if scanner in ('MULTIBAGGER', 'WEALTH', 'Wealth Engine'):
-                    msg = f"Blocked reallocation for {scanner} alert #{a_id}. Long-term investments do not support automatic reallocation or SL modification."
+                    msg = (f"Blocked reallocation for {scanner} alert #{a_id}. "
+                           "Long-term investments do not support automatic reallocation.")
                     logger.warning(f"⚠️ {msg}")
-                    from database import insert_notification
                     insert_notification('error', 'Reallocation Blocked', msg)
                     continue
 
+                # ── Scanner-aware SL fallback ──
                 if entry_price > 0 and stop_loss <= 0:
-                    import json
                     fallback_sl = entry_price * 0.90
                     try:
                         ctx = json.loads(context_str) if context_str else {}
                         if scanner == "MULTI_TF":
                             f_sl = float(ctx.get("final_sl", 0))
-                            if f_sl > 0: fallback_sl = f_sl
+                            if f_sl > 0:
+                                fallback_sl = f_sl
                         elif scanner == "EOD":
                             atr = float(ctx.get("technicals", {}).get("atr20", 0))
-                            if atr > 0: fallback_sl = entry_price - (2.0 * atr)
+                            if atr > 0:
+                                fallback_sl = entry_price - (2.0 * atr)
                     except Exception:
                         pass
                     stop_loss = fallback_sl
 
                 if entry_price > 0 and stop_loss > 0 and target_price <= 0:
-                    risk_per_share = entry_price - stop_loss
-                    target_price = entry_price + (risk_per_share * 2)
+                    target_price = entry_price + (entry_price - stop_loss) * 2
 
-                base_risk_percent = RISK_PERCENT
-                risk_percent = min(0.05, base_risk_percent * 2) if (score and score >= 90) else base_risk_percent
-                per_trade_risk = total_equity * risk_percent
-
-                per_share_risk = abs(entry_price - stop_loss)
-                if per_share_risk <= 0:
-                    shares_to_buy = 0
-                else:
-                    shares_by_risk = math.floor(per_trade_risk / per_share_risk)
-                    max_allocation = total_equity * MAX_POSITION_PCT
-                    capital_required = shares_by_risk * entry_price
-                    if capital_required > max_allocation:
-                        shares_by_risk = math.floor(max_allocation / entry_price)
-
-                    shares_by_cash = math.floor(cash_budget_per_trade / entry_price)
-                    shares_to_buy = max(0, min(shares_by_risk, shares_by_cash))
-
-                new_cap = float(shares_to_buy * entry_price)
+                # ── Score-bucket allocation (independent per trade, no cash check) ──
+                new_cap, shares_to_buy = calculate_score_bucket_allocation(entry_price, score or 0)
 
                 cur.execute(
-                    "UPDATE alerts SET capital_allocated = %s, shares_bought = %s, stop_loss = %s, target_price = %s, is_rejected = FALSE WHERE id = %s",
+                    "UPDATE alerts SET capital_allocated = %s, shares_bought = %s, "
+                    "stop_loss = %s, target_price = %s, is_rejected = FALSE WHERE id = %s",
                     (new_cap, shares_to_buy, stop_loss, target_price, a_id)
                 )
 
                 if status in ('WIN', 'LOSS') and exit_price is not None:
                     exit_price_val = float(exit_price) if exit_price else 0.0
-                    new_pnl_rs = float(exit_price_val - entry_price) * shares_to_buy
+                    new_pnl_rs = (exit_price_val - entry_price) * shares_to_buy
                     cur.execute("UPDATE alerts SET pnl_rs = %s WHERE id = %s", (new_pnl_rs, a_id))
 
                 results.append({
-                    "id": a_id,
+                    "id":               a_id,
                     "capital_allocated": new_cap,
-                    "shares_bought": shares_to_buy,
-                    "stop_loss": stop_loss,
-                    "target_price": target_price,
+                    "shares_bought":    shares_to_buy,
+                    "stop_loss":        stop_loss,
+                    "target_price":     target_price,
                     "initial_stop_loss": float(initial_sl) if initial_sl else None,
                     "target_1": float(t1) if t1 else None,
                     "target_2": float(t2) if t2 else None,
-                    "target_3": float(t3) if t3 else None
+                    "target_3": float(t3) if t3 else None,
                 })
+
             conn.commit()
+            logger.info(f"✅ reallocate_capital_multiple: processed {len(results)}/{len(alert_ids)} alerts")
             return results
 
 

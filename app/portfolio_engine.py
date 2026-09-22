@@ -1,194 +1,145 @@
 """
-PortfolioEngine — Capital allocation via Risk Units.
+PortfolioEngine — Score-based fixed capital bucket allocation.
 
-Answers: "Which of the ranked trades can we actually afford?"
+[VERSION: CAPITAL_BUCKET_v2.0]
+New model replaces the old risk-unit / available-cash sizing.
+Each entered trade gets a fixed capital bucket based purely on its confidence score:
+  score >= 85  → ₹1,00,000  (High Conviction)
+  score 70-84  → ₹50,000    (Medium Conviction)
+  score < 70   → ₹25,000    (Standard)
 
-Separation of Concerns:
-  TradeRankingEngine → "Which trades are best?"
-  PortfolioEngine    → "Which of these can we actually afford?"
-
-Returns a rich allocation dict on each funding decision.
+No total-capital limit. No available-cash check. No capital_history dependency.
+shares_bought = floor(bucket / entry_price)
 """
 import logging
+from math import floor
+from typing import Tuple
 
 logger = logging.getLogger(__name__)
 
+# ── Score bucket thresholds ────────────────────────────────────────────────────
+BUCKET_HIGH   = 100_000.0   # ₹1,00,000 — score >= 85
+BUCKET_MEDIUM =  50_000.0   # ₹50,000   — score 70-84
+BUCKET_LOW    =  25_000.0   # ₹25,000   — score < 70
 
+SCORE_HIGH_THRESHOLD   = 85
+SCORE_MEDIUM_THRESHOLD = 70
+
+
+def get_score_bucket(score) -> float:
+    """Return the fixed capital bucket for a given score."""
+    s = float(score) if score else 0.0
+    if s >= SCORE_HIGH_THRESHOLD:
+        return BUCKET_HIGH
+    elif s >= SCORE_MEDIUM_THRESHOLD:
+        return BUCKET_MEDIUM
+    else:
+        return BUCKET_LOW
+
+
+def calculate_score_bucket_allocation(entry_price: float, score) -> Tuple[float, int]:
+    """
+    [VERSION: CAPITAL_BUCKET_v2.0] Score-based fixed bucket allocation.
+    Returns (capital_allocated, shares_bought).
+
+    Rules:
+      - score >= 85 → ₹1,00,000
+      - score 70-84 → ₹50,000
+      - score < 70  → ₹25,000
+      - shares_bought = floor(bucket / entry_price)
+      - No available-cash check; no capital_history dependency.
+    """
+    try:
+        entry_price = float(entry_price)
+        score_val = float(score) if score else 0.0
+    except (TypeError, ValueError):
+        return 0.0, 0
+
+    if entry_price <= 0:
+        return 0.0, 0
+
+    bucket = get_score_bucket(score_val)
+    shares = floor(bucket / entry_price)
+
+    if shares <= 0:
+        return 0.0, 0
+
+    capital = float(shares * entry_price)
+    logger.info(
+        f"💼 ScoreBucket | score={score_val} → bucket=₹{bucket:,.0f} | "
+        f"entry=₹{entry_price:.2f} → {shares} shares | capital=₹{capital:,.2f}"
+    )
+    return capital, shares
+
+
+# ── Legacy alias: calculate_trade_allocation (import-compat with database.py) ──
+def calculate_trade_allocation(entry_price: float, stop_loss: float = 0.0, score=80) -> Tuple[float, int]:
+    """
+    [VERSION: CAPITAL_BUCKET_v2.0] Legacy name → delegates to score bucket.
+    stop_loss parameter retained for call-site compatibility but ignored.
+    """
+    return calculate_score_bucket_allocation(entry_price, score)
+
+
+# ── Stub: get_portfolio_state (import-compat) ──────────────────────────────────
+def get_portfolio_state() -> dict:
+    """
+    [VERSION: CAPITAL_BUCKET_v2.0] Stub — capital tracking removed.
+    Returns zeroed-out structure so any remaining callers don't crash.
+    """
+    return {
+        "total_equity":     0.0,
+        "available_margin": 0.0,
+        "deployed_margin":  0.0,
+    }
+
+
+# ── Legacy constants (import-compat) ──────────────────────────────────────────
+BASE_CAPITAL     = 0.0
+RISK_PERCENT     = 0.0
+MAX_POSITION_PCT = 0.0
+
+
+# =====================================================================================
+# PortfolioEngine class (retained for import compatibility)
+# =====================================================================================
 class PortfolioEngine:
 
     @staticmethod
     def _get_current_open_risk_pct() -> float:
-        """
-        Returns current open risk as a % of account across all live positions.
-        V1: stub — returns 0.0.
-        V2: query broker/DB for open positions and sum their risk %.
-        """
         return 0.0
 
     @staticmethod
-    def execute_ranked_candidates(ranked_candidates: list, policy: dict) -> list[dict]:
+    def execute_ranked_candidates(ranked_candidates: list, policy: dict = None) -> list:
         """
-        Allocates capital to the top-ranked candidates until risk budget is consumed.
-
-        Modifies candidates in-place:
-          - FUNDED           → funded, allocation dict attached
-          - (else left as QUALIFIED for OpportunityManager to mark REJECTED_CAPITAL)
-
-        Returns list of allocation dicts for the funded candidates.
+        [VERSION: CAPITAL_BUCKET_v2.0] With unlimited capital and fixed score buckets,
+        all ranked candidates are funded based on their individual confidence/score.
         """
         if not ranked_candidates:
             return []
 
-        risk_cfg      = policy.get("risk", {})
-        max_open_risk = risk_cfg.get("max_open_risk", 6.0)     # % of account
-        risk_mult     = risk_cfg.get("multiplier",    1.0)
-        max_new_pos   = risk_cfg.get("max_new_positions", 5)
-
-        current_risk    = PortfolioEngine._get_current_open_risk_pct()
-        remaining_risk  = max_open_risk - current_risk
-        base_risk_trade = 1.0 * risk_mult                      # % per trade
-
-        logger.info(
-            f"💼 PortfolioEngine | "
-            f"max_open={max_open_risk:.1f}% | current={current_risk:.1f}% | "
-            f"remaining={remaining_risk:.2f}% | risk_per_trade={base_risk_trade:.2f}% | "
-            f"max_new={max_new_pos}"
-        )
-
         allocations = []
-        funded_count = 0
-
         for c in ranked_candidates:
             symbol = c.get("symbol", "?")
-            rank   = c.get("ranking_breakdown", {}).get("global_rank", "?")
-            cand_mult = float(c.get("risk_multiplier", 1.0))
-            trade_risk = base_risk_trade * cand_mult
-
-            if funded_count >= max_new_pos:
-                logger.info(f"⏭️  {symbol} (Rank {rank}) — max new positions reached ({max_new_pos})")
-                continue
-
-            if remaining_risk < trade_risk:
-                logger.info(
-                    f"⏭️  {symbol} (Rank {rank}) — "
-                    f"insufficient risk capacity ({remaining_risk:.2f}% < {trade_risk:.2f}%)"
-                )
-                continue
-
-            # ── Fund this trade ─────────────────────────────────────────────
-            remaining_risk -= trade_risk
-            funded_count   += 1
+            ep = float(c.get("entry_price") or 0.0)
+            score = int(c.get("technical_score") or c.get("score") or 80)
+            cap, shares = calculate_score_bucket_allocation(ep, score)
 
             allocation = {
-                "status":         "FUNDED",
-                "risk_used":      round(trade_risk, 4),
-                "remaining_risk": round(remaining_risk, 4),
-                "risk_multiplier": round(cand_mult, 2),
-                # allocation in currency requires account size — placeholder for V2
-                "allocation_pct": round(trade_risk, 4),
+                "status": "FUNDED",
+                "capital": cap,
+                "shares": shares,
+                "risk_used": 0.0,
+                "remaining_risk": 999.0,
+                "allocation_pct": 0.0,
             }
-
-            c["status"]     = "FUNDED"
+            c["status"] = "FUNDED"
             c["allocation"] = allocation
+            c["capital_allocated"] = cap
+            c["shares_bought"] = shares
             allocations.append(allocation)
+            logger.info(f"✅ PortfolioEngine: {symbol} FUNDED via score bucket (score={score}, ₹{cap:,.0f}, {shares} shares)")
 
-            logger.info(
-                f"✅ {symbol} FUNDED (Rank {rank}) | "
-                f"risk_used={trade_risk:.2f}% (mult={cand_mult:.2f}x) | remaining={remaining_risk:.2f}%"
-            )
-
-        logger.info(
-            f"💼 PortfolioEngine complete: {funded_count} funded, "
-            f"{len(ranked_candidates) - funded_count} awaiting capacity decision."
-        )
         return allocations
 
-# =====================================================================================
-# LEGACY V1 METHODS (Required by database.py for UI/Admin and recalculation endpoints)
-# =====================================================================================
-from typing import Tuple
-from math import floor
-from database import get_connection, get_capital_info
 
-BASE_CAPITAL = 500000.0
-RISK_PERCENT = 0.01  # 1% of total equity risked per trade
-MAX_POSITION_PCT = 0.03  # hard cap on capital allocated to a single trade (3% of equity)
-
-def get_portfolio_state() -> dict:
-    """
-    Returns the exact current state of the Live Portfolio:
-    - total_equity (Realized)
-    - available_margin
-    - deployed_margin
-    """
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            # 1. Total realized PnL
-            cur.execute("SELECT COALESCE(SUM(pnl_rs), 0) FROM alerts WHERE status IN ('WIN', 'LOSS') AND is_rejected = FALSE")
-            r1 = cur.fetchone()
-            realized_pnl = float((r1[0] if r1 else 0.0) or 0.0)
-            
-            # 2. Total allocated capital in open trades
-            cur.execute("SELECT COALESCE(SUM(capital_allocated), 0) FROM alerts WHERE status = 'OPEN' AND is_rejected = FALSE")
-            r2 = cur.fetchone()
-            deployed_margin = float((r2[0] if r2 else 0.0) or 0.0)
-            
-    cap_info = get_capital_info()
-    base_capital = cap_info.get("total_capital", BASE_CAPITAL)
-    total_equity = base_capital + realized_pnl
-    available_margin = total_equity - deployed_margin
-    
-    return {
-        "total_equity": total_equity,
-        "available_margin": available_margin,
-        "deployed_margin": deployed_margin,
-    }
-
-def calculate_trade_allocation(entry_price: float, stop_loss: float, score: int = 80) -> Tuple[float, int]:
-    """
-    Legacy Risk-based sizing (institutional style) for fallback / UI usage.
-    Returns (capital_allocated, shares_bought)
-    """
-    try:
-        entry_price = float(entry_price)
-        stop_loss = float(stop_loss)
-    except Exception:
-        stop_loss = 0.0
-
-    if entry_price <= 0:
-        return 0.0, 0
-        
-    if stop_loss <= 0:
-        stop_loss = entry_price * 0.90
-
-    state = get_portfolio_state()
-    total_equity = state["total_equity"]
-    available_margin = state["available_margin"]
-
-    base_risk_percent = RISK_PERCENT
-    risk_percent = min(0.05, base_risk_percent * 2) if score >= 90 else base_risk_percent
-    per_trade_risk = total_equity * risk_percent
-
-    per_share_risk = abs(entry_price - stop_loss)
-    if per_share_risk <= 0:
-        return 0.0, 0
-
-    shares_by_risk = floor(per_trade_risk / per_share_risk)
-    if shares_by_risk <= 0:
-        return 0.0, 0
-
-    capital_required = shares_by_risk * entry_price
-
-    max_allocation = total_equity * MAX_POSITION_PCT
-    if capital_required > max_allocation:
-        shares_by_risk = floor(max_allocation / entry_price)
-        capital_required = shares_by_risk * entry_price
-
-    if capital_required > available_margin:
-        shares_by_cash = floor(available_margin / entry_price)
-        shares_to_buy = max(0, min(shares_by_risk, shares_by_cash))
-    else:
-        shares_to_buy = int(shares_by_risk)
-
-    final_capital = float(shares_to_buy * entry_price)
-    return final_capital, shares_to_buy

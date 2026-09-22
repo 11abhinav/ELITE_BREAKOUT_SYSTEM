@@ -1397,6 +1397,7 @@ function changeAdminPage(type, delta) {
     .badge-rejected { background: rgba(220,38,38,.07); color: #dc2626; border: 1px solid rgba(220,38,38,.15); text-decoration: line-through; opacity: 0.8; }
     .badge-partial { background: rgba(20,184,166,.12); color: #14b8a6; border: 1px solid rgba(20,184,166,.3); font-weight: 800; }
     .badge-scanner { background: rgba(217,119,6,.1);  color: var(--amber); font-family: var(--font-mono); border: 1px solid rgba(217,119,6,.2); }
+    .badge-pending { background: rgba(234,179,8,.12); color: #d97706; border: 1px solid rgba(234,179,8,.3); font-weight: 700; }
 
     /* ── STOCKS TO WATCH & INVESTMENT WATCH THEME-AWARE STYLES ── */
     .badge-stage-watch {
@@ -2083,8 +2084,10 @@ function changeAdminPage(type, delta) {
     function formatStockSymbolLink(sym) {
       const clean = (sym || '').replace('NSE:', '').replace('.NS', '').replace('.BO', '').trim();
       if (!clean || clean === '-') return '-';
-      const url = `https://in.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(clean)}`;
-      return `<a href="${url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="color:var(--accent); font-weight:800; text-decoration:none;" title="Open ${clean} Chart on TradingView">${clean} 📈</a>`;
+      return `<span style="display:inline-flex; align-items:center; gap:5px;">
+        <span style="font-weight:800; color:var(--accent);">${clean}</span>
+        ${getBrokerChartLinks(clean, true)}
+      </span>`;
     }
 
     function formatTvLink(tvSym, textSym) {
@@ -2098,7 +2101,8 @@ function changeAdminPage(type, delta) {
     window._STOCK_INTELLIGENCE_CACHE = window._STOCK_INTELLIGENCE_CACHE || {};
 
     window.renderStockIntelligenceDossierModal = function(modal, cleanSym, data, asOf=null) {
-        const tvUrl = `https://in.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(cleanSym)}`;
+        const dhanUrl = `https://tv.dhan.co/chart/?symbol=NSE:${encodeURIComponent(cleanSym)}`;
+        const fyersUrl = `https://trade.fyers.in/popout/index.html?symbol=NSE:${encodeURIComponent(cleanSym)}-EQ&resolution=D&theme=dark`;
         const verdict = data.net_verdict || 'NEUTRAL';
         let verdictBadge = '<span style="background:#2d3748; color:#cbd5e0; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:700;">⚪ NEUTRAL</span>';
         if (verdict === 'STRONG_TAILWIND' || verdict === 'STRONGLY_BULLISH_CATALYST') verdictBadge = '<span style="background:rgba(72,187,120,0.2); color:#48bb78; border:1px solid #48bb78; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:700;">🟢 STRONG TAILWIND</span>';
@@ -2172,9 +2176,10 @@ function changeAdminPage(type, delta) {
                 <div style="display:flex; align-items:center; gap:12px;">
                     <span style="font-size:24px;">🏢</span>
                     <div>
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <a href="${tvUrl}" target="_blank" rel="noopener noreferrer" style="font-size:20px; font-weight:800; color:#00d4a1; text-decoration:none;" title="Open ${cleanSym} Chart on TradingView">${cleanSym} ↗</a>
-                            <span style="font-size:12px; color:#a0aec0;">(TradingView)</span>
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                            <span style="font-size:20px; font-weight:800; color:#00d4a1;">${cleanSym}</span>
+                            <a href="${dhanUrl}" target="_blank" rel="noopener noreferrer" style="font-size:11px; font-weight:700; color:#fff; background:linear-gradient(135deg,#1a73e8,#0d5dbf); padding:3px 9px; border-radius:5px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;" title="Open ${cleanSym} on Dhan Chart">🅓 Dhan ↗</a>
+                            <a href="${fyersUrl}" target="_blank" rel="noopener noreferrer" style="font-size:11px; font-weight:700; color:#fff; background:linear-gradient(135deg,#e8471a,#bf2e0d); padding:3px 9px; border-radius:5px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;" title="Open ${cleanSym} on Fyers Chart">🅕 Fyers ↗</a>
                         </div>
                         <div style="font-size:11px; color:#718096; margin-top:2px;">As of: ${data.as_of_time || new Date().toISOString()} | Safety Gate: ${hardGate}</div>
                     </div>
@@ -4417,17 +4422,22 @@ function changeAdminPage(type, delta) {
     const fmt = v => v != null ? '₹' + Number(v).toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—';
     const badgeHtml = (s, t) => {
       let displayStatus = s;
-      if (s === 'CLOSED' && t && t.pnl_pct != null) {
+      if (t && t.execution_state === 'PENDING_ENTRY') {
+        displayStatus = 'PENDING';
+      } else if (s === 'CLOSED' && t && t.pnl_pct != null) {
         displayStatus = t.pnl_pct >= 0 ? 'PROFIT' : 'LOSS';
       } else if (s === 'WIN') {
         displayStatus = 'PROFIT';
-      } else if (s === 'OPEN' && t && (t.remaining_shares === 0 || (t.shares_bought && t.remaining_shares <= 0))) {
+      } else if (s === 'OPEN' && t && t.shares_bought > 0 && (t.remaining_shares === 0 || t.remaining_shares <= 0)) {
+        // Only show PROFIT/LOSS for alerts that were actually entered (shares_bought > 0).
+        // Alerts with shares_bought=0/null are un-entered (awaiting breakout trigger) — keep them as OPEN.
         displayStatus = (t.pnl_pct != null && t.pnl_pct >= 0) || (t.pnl_rs != null && t.pnl_rs >= 0) ? 'PROFIT' : 'LOSS';
       }
-      const m = { PROFIT: 'badge-win', WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', SELL_REVIEW: 'badge-review', NEUTRAL: 'badge-neutral', REJECTED: 'badge-rejected', PARTIAL_WIN_1: 'badge-partial', PARTIAL_WIN_2: 'badge-partial' };
+      const m = { PROFIT: 'badge-win', WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', SELL_REVIEW: 'badge-review', NEUTRAL: 'badge-neutral', REJECTED: 'badge-rejected', PARTIAL_WIN_1: 'badge-partial', PARTIAL_WIN_2: 'badge-partial', PENDING: 'badge-pending' };
       if (s === 'PARTIAL_WIN_1') displayStatus = 'T1 HIT';
       else if (s === 'PARTIAL_WIN_2') displayStatus = 'T2 HIT';
-      let html = `<span class="badge ${m[s] || m[displayStatus] || 'badge-neutral'}">${displayStatus}</span>`;
+      else if (displayStatus === 'PENDING') displayStatus = '⏳ PENDING';
+      let html = `<span class="badge ${m[s] || m[displayStatus] || (t && m[t.execution_state]) || 'badge-neutral'}" ${displayStatus === '⏳ PENDING' ? 'title="Awaiting Breakout Trigger (CMP < Entry)"' : ''}>${displayStatus}</span>`;
       if (t && t.is_rejected && t.shadow_status && t.shadow_status !== 'SHADOW_OPEN') {
         const isWin = t.shadow_status === 'SHADOW_WIN' || t.shadow_pnl_pct >= 0;
         const shColor = isWin ? 'var(--win)' : '#ff4d4d';
@@ -4459,13 +4469,9 @@ function changeAdminPage(type, delta) {
 
     // ── LOAD DATA
     function openChart(symbol, cmp) {
-      const a = document.createElement('a');
-      a.href = 'https://in.tradingview.com/chart/?symbol=NSE:' + symbol;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      // Opens Dhan chart by default (primary broker)
+      const clean = (symbol || '').replace('NSE:','').replace('.NS','').replace('.BO','');
+      window.open('https://tv.dhan.co/chart/?symbol=NSE:' + encodeURIComponent(clean), '_blank');
     }
 
     function fetchNews(symbol, containerId, btnId) {
@@ -5517,6 +5523,9 @@ function getEarningsBadgeHtml(item) {
 
 
     function calcFloatingPnl(t) {
+      if (t && t.execution_state === 'PENDING_ENTRY') {
+        return { totalRs: 0, totalPct: 0 };
+      }
       let realizedRs = (t.pnl_rs != null && t.pnl_rs !== 0 && (t.status === 'WIN' || t.status === 'LOSS' || (t.status && t.status.startsWith('PARTIAL_WIN')))) ? t.pnl_rs : 0;
       if ((t.status === 'WIN' || t.status === 'LOSS' || t.status === 'CLOSED') && (t.pnl_rs == null || t.pnl_rs === 0)) {
         if (t.exit_price && t.entry_price && t.shares_bought) {
@@ -5661,7 +5670,10 @@ function getEarningsBadgeHtml(item) {
         const isSL = (t.status === 'LOSS' || t.exit_signal === 'STOP_LOSS' || (t.exit_reason && (t.exit_reason.includes('SL') || t.exit_reason.includes('STOP_LOSS'))) || (pnlData && pnlData.totalPct < -0.001) || (t.remaining_shares === 0 && pnlData && pnlData.totalPct < 0) || (t.stop_loss > 0 && (t.current_price || t.exit_price) > 0 && (t.current_price || t.exit_price) <= t.stop_loss));
 
         let rowHighlightStyle = '';
-        if (isProfit) {
+        if (t.execution_state === 'PENDING_ENTRY') {
+          // Do not highlight as profit or SL while pending entry
+          rowHighlightStyle = '';
+        } else if (isProfit) {
           rowHighlightStyle = 'background-color: rgba(0, 212, 161, 0.08); border-left: 3px solid #00d4a1;';
         } else if (isSL) {
           rowHighlightStyle = 'background-color: rgba(255, 77, 109, 0.08); border-left: 3px solid #ff4d6d;';
@@ -5755,7 +5767,7 @@ function getEarningsBadgeHtml(item) {
           <div class="detail-item">
             <div class="detail-label">Exit History</div>
             <div class="detail-val" id="eh-${id}" data-alert-id="${t.id}" data-preloaded="false" style="font-size:10px; font-family:var(--font-mono); white-space:pre-wrap; word-break:break-word; color:var(--muted)">
-              ${(()=>{ const _eh = t.exit_history ? (typeof t.exit_history === 'string' ? (() => { try { return JSON.parse(t.exit_history); } catch(e) { return []; } })() : t.exit_history) : []; if (_eh && _eh.length) { return _eh.map(x => { const dt = x.time || x.timestamp || ''; const dateStr = dt.substring(5,10); const timeStr = dt.substring(11,16); const pnl = x.pnl != null ? (x.pnl >= 0 ? `<span style="color:#10b981">+₹${Number(x.pnl).toFixed(2)}</span>` : `<span style="color:#ef4444">₹${Number(x.pnl).toFixed(2)}</span>`) : ''; return `<div style="margin-bottom:4px; padding:4px 6px; background:rgba(0,212,161,0.07); border-left:2px solid #14b8a6; border-radius:4px;"><span style="color:#14b8a6; font-weight:800;">${x.type||x.reason||'EVENT'}</span> <span style="color:var(--muted)">${dateStr} ${timeStr}</span> &nbsp;|&nbsp; Sold <span style="color:var(--text); font-weight:700;">${x.shares||0} shares</span> @ <span style="color:var(--accent); font-weight:700;">₹${x.price||0}</span> &nbsp;${pnl}</div>`; }).join(''); } else { return `<span style="color:var(--muted); font-style:italic;">No exit events yet — position open</span>`; } })()}
+              ${(()=>{ const _eh = t.exit_history ? (typeof t.exit_history === 'string' ? (() => { try { return JSON.parse(t.exit_history); } catch(e) { return []; } })() : t.exit_history) : []; if (_eh && _eh.length) { return _eh.map(x => { const dt = x.time || x.timestamp || ''; const dateStr = dt.substring(5,10); const timeStr = dt.substring(11,16); const pnl = x.pnl != null ? (x.pnl >= 0 ? `<span style="color:#10b981">+₹${Number(x.pnl).toFixed(2)}</span>` : `<span style="color:#ef4444">₹${Number(x.pnl).toFixed(2)}</span>`) : ''; return `<div style="margin-bottom:4px; padding:4px 6px; background:rgba(0,212,161,0.07); border-left:2px solid #14b8a6; border-radius:4px;"><span style="color:#14b8a6; font-weight:800;">${x.type||x.reason||'EVENT'}</span> <span style="color:var(--muted)">${dateStr} ${timeStr}</span> &nbsp;|&nbsp; Sold <span style="color:var(--text); font-weight:700;">${x.shares||0} shares</span> @ <span style="color:var(--accent); font-weight:700;">₹${x.price||0}</span> &nbsp;${pnl}</div>`; }).join(''); } else { return `<span style="color:var(--muted); font-style:italic;">${t.execution_state === 'PENDING_ENTRY' ? '⏳ Awaiting Breakout Trigger @ ' + fmt(t.entry_price) : 'No exit events yet — position open'}</span>`; } })()}
             </div>
           </div>
           <div class="detail-item">
@@ -5777,7 +5789,8 @@ function getEarningsBadgeHtml(item) {
           <div class="detail-item">
             <div class="detail-label">Actions</div>
             <div class="detail-val" style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
-              <button onclick="event.stopPropagation(); window.open('https://in.tradingview.com/chart/?symbol=NSE:${t.symbol}', '_blank')" style="background:var(--accent); color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; width:max-content; white-space:nowrap;">📊 TradingView Chart ↗</button>
+              <button onclick="event.stopPropagation(); window.open('https://tv.dhan.co/chart/?symbol=NSE:${t.symbol}', '_blank')" style="background:linear-gradient(135deg,#1a73e8,#0d5dbf); color:#fff; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; width:max-content; white-space:nowrap;">🅓 Dhan Chart ↗</button>
+              <button onclick="event.stopPropagation(); window.open('https://trade.fyers.in/popout/index.html?symbol=NSE:${t.symbol}-EQ&resolution=D&theme=dark', '_blank')" style="background:linear-gradient(135deg,#e8471a,#bf2e0d); color:#fff; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; width:max-content; white-space:nowrap;">🅕 Fyers Chart ↗</button>
               ${t.status === 'REJECTED'
             ? `<button onclick="acceptAlert(${t.id})" style="background:#00d4a1; color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; width:max-content; white-space:nowrap; margin-top: 4px;">✅ Re-Accept Trade</button>`
             : `<button onclick="reallocateCapital(event, ${t.id})" style="background:#4a90e2; color:var(--text-inv); border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; width:max-content; white-space:nowrap; margin-top: 4px;">💰 Allocate Capital</button>
@@ -6140,7 +6153,7 @@ function getEarningsBadgeHtml(item) {
       }
       if (ids.length === 0) return;
 
-      const confirmed = await showCustomConfirm(`Are you sure you want to ALLOCATE capital for ${ids.length} selected trades across all pages? This will read your current Cash In Hand and distribute it evenly.`);
+      const confirmed = await showCustomConfirm(`Assign score-based capital bucket (≥85→₹1L / 70-84→₹50k / <70→₹25k) to ${ids.length} selected trade(s)?`);
       if (!confirmed) return;
 
       const btn = document.getElementById('allocateSelectedBtn');
@@ -6178,7 +6191,6 @@ function getEarningsBadgeHtml(item) {
           document.getElementById('selectAllTrades').checked = false;
           updateBulkActionsVisibility();
           renderTradeTable();
-          loadCapitalInfo();
         } else {
           showCustomToast('Failed to allocate trades.', 'error');
         }
@@ -6199,7 +6211,7 @@ function getEarningsBadgeHtml(item) {
       }
       if (ids.length === 0) return;
 
-      const confirmed = await showCustomConfirm(`Are you sure you want to REJECT ${ids.length} selected trades across all pages? Capital will be refunded and they will not count towards KPIs.`);
+      const confirmed = await showCustomConfirm(`Are you sure you want to REJECT ${ids.length} selected trades?`);
       if (!confirmed) return;
 
       const btn = document.getElementById('rejectSelectedBtn');
@@ -6222,7 +6234,6 @@ function getEarningsBadgeHtml(item) {
           document.getElementById('selectAllTrades').checked = false;
           updateBulkActionsVisibility();
           renderTradeTable();
-          loadCapitalInfo();
         } else {
           showCustomToast('Failed to reject trades.', 'error');
         }
@@ -6307,7 +6318,7 @@ function getEarningsBadgeHtml(item) {
     }
 
     async function acceptAlert(id) {
-      const confirmed = await showCustomConfirm('Are you sure you want to RE-ACCEPT this trade? Capital will be deducted.');
+      const confirmed = await showCustomConfirm('Are you sure you want to RE-ACCEPT this trade?');
       if (!confirmed) return;
       try {
         const res = await fetch('/api/alert/accept', {
@@ -6319,7 +6330,6 @@ function getEarningsBadgeHtml(item) {
           const trade = ALL_TRADES.find(t => t.id === id);
           if (trade) resetTradeToOpen(trade);
           renderTradeTable();
-          loadCapitalInfo();
         } else {
           showCustomToast('Failed to accept trade.', 'error');
         }
@@ -6379,7 +6389,7 @@ function getEarningsBadgeHtml(item) {
     }
 
     async function reallocateCapital(event, id) {
-      const confirmed = await showCustomConfirm('Are you sure you want to recalculate and allocate capital for this trade? It will read your current Cash In Hand.');
+      const confirmed = await showCustomConfirm('Assign score-based capital bucket (≥85→₹1L / 70-84→₹50k / <70→₹25k) to this trade?');
       if (!confirmed) return;
       const btn = event.target || event.srcElement;
       let oldText = 'Allocate Capital';
@@ -6413,7 +6423,6 @@ function getEarningsBadgeHtml(item) {
             }
           }
           renderTradeTable();
-          loadCapitalInfo();
         } else {
           showCustomToast('Failed to allocate capital.', 'error');
         }
@@ -6625,6 +6634,10 @@ function getEarningsBadgeHtml(item) {
             if (cd < todayStart) return false;
         } else if (st === 'PARTIAL_WIN') {
             if (!t.status || !t.status.startsWith('PARTIAL_WIN')) return false;
+        } else if (st === 'PENDING_ENTRY') {
+            if (t.execution_state !== 'PENDING_ENTRY') return false;
+        } else if (st === 'OPEN') {
+            if (t.status !== 'OPEN' || t.execution_state === 'PENDING_ENTRY') return false;
         } else if (st && t.status !== st) {
             return false;
         }
@@ -6663,9 +6676,11 @@ function getEarningsBadgeHtml(item) {
         if (sortSel === 'CAPITAL_DESC') return (b.capital_allocated || 0) - (a.capital_allocated || 0);
         if (sortSel === 'DAYS_DESC') return (b.days_held || 0) - (a.days_held || 0);
         if (sortCol === 'status') {
-          const p = { 'OPEN': 0, 'PARTIAL_WIN_1': 0, 'PARTIAL_WIN_2': 0, 'WIN': 1, 'LOSS': 2, 'NEUTRAL': 3 };
-          const pA = p[a.status] ?? 4;
-          const pB = p[b.status] ?? 4;
+          const p = { 'PENDING': -1, 'OPEN': 0, 'PARTIAL_WIN_1': 0, 'PARTIAL_WIN_2': 0, 'WIN': 1, 'LOSS': 2, 'NEUTRAL': 3 };
+          const sA = (a.execution_state === 'PENDING_ENTRY') ? 'PENDING' : a.status;
+          const sB = (b.execution_state === 'PENDING_ENTRY') ? 'PENDING' : b.status;
+          const pA = p[sA] ?? 4;
+          const pB = p[sB] ?? 4;
           if (pA !== pB) return sortDir * (pA - pB);
           // Secondary sort by date (newest first)
           const dA = a.alert_time || a.entry_date || '';
@@ -6689,6 +6704,7 @@ function getEarningsBadgeHtml(item) {
       const recalcFilteredLabel = document.getElementById('recalcFilteredLabel');
       if (recalcFilteredLabel) {
         if (st === 'OPEN') recalcFilteredLabel.innerText = 'Recalculate All Open';
+        else if (st === 'PENDING_ENTRY') recalcFilteredLabel.innerText = 'Recalculate All Pending';
         else if (st === 'WIN') recalcFilteredLabel.innerText = 'Recalculate All Win';
         else if (st === 'LOSS') recalcFilteredLabel.innerText = 'Recalculate All Loss';
         else if (st) recalcFilteredLabel.innerText = `Recalculate All ${st}`;
@@ -6892,7 +6908,8 @@ function getEarningsBadgeHtml(item) {
       
       // Hardcode all possible status combinations so they are always filterable
       const predefinedStatuses = [
-        { val: 'OPEN', label: 'Open' },
+        { val: 'OPEN', label: 'Open (Active)' },
+        { val: 'PENDING_ENTRY', label: 'Pending Entry (Awaiting Breakout)' },
         { val: 'WIN', label: 'Win (Full Profit)' },
         { val: 'PARTIAL_WIN', label: 'Partial Win' },
         { val: 'LOSS', label: 'Loss (Stopped Out)' },
@@ -7097,8 +7114,10 @@ function getEarningsBadgeHtml(item) {
       let currentEquity = cap;
 
       closedTrades.forEach(t => {
-        let allocPct = (t.score >= 90) ? 0.15 : 0.10;
-        let capitalForTrade = currentEquity * allocPct;
+        // [VERSION: CAPITAL_BUCKET_v2.0] Use score-based fixed bucket per trade
+        let capitalForTrade = (t.capital_allocated && parseFloat(t.capital_allocated) > 0)
+          ? parseFloat(t.capital_allocated)
+          : (t.score >= 85 ? 100000 : t.score >= 70 ? 50000 : 25000);
         let simulatedProfit = capitalForTrade * ((t.pnl_pct || 0) / 100);
         currentEquity += simulatedProfit;
       });
@@ -7110,8 +7129,10 @@ function getEarningsBadgeHtml(item) {
       let openTrades = ALL_TRADES.filter(t => openStatuses.includes(t.status) || !['WIN', 'LOSS', 'NEUTRAL', 'CLOSED', 'REJECTED'].includes(t.status));
       openTrades.forEach(t => {
         if (t.current_price == null || t.current_price === 0) return;
-        let allocPct = (t.score >= 90) ? 0.15 : 0.10;
-        let capitalForTrade = currentEquity * allocPct;
+        // [VERSION: CAPITAL_BUCKET_v2.0] Use score-based fixed bucket per trade
+        let capitalForTrade = (t.capital_allocated && parseFloat(t.capital_allocated) > 0)
+          ? parseFloat(t.capital_allocated)
+          : (t.score >= 85 ? 100000 : t.score >= 70 ? 50000 : 25000);
         let pnlData = calcFloatingPnl(t);
         let simulatedFloating = capitalForTrade * (pnlData.totalPct / 100);
         totalFloating += simulatedFloating;
@@ -7159,44 +7180,12 @@ function getEarningsBadgeHtml(item) {
       });
     }
 
-    async function loadCapitalInfo() {
-      try {
-        const response = await fetch('/api/capital_info');
-        if (!response.ok) {
-          console.warn('Capital info response not ok:', response.status);
-          return;
-        }
-        const data = await response.json();
+    // [VERSION: CAPITAL_BUCKET_v2.0] loadCapitalInfo disabled — capital tracking removed.
+    async function loadCapitalInfo() { /* no-op */ }
 
-        const bcEls = document.querySelectorAll('#baseCapital, .baseCapital');
-        bcEls.forEach(el => {
-          el.textContent = '₹' + Math.round(data.base_capital).toLocaleString('en-IN');
-          el.style.color = 'var(--text)';
-        });
 
-        const tcEls = document.querySelectorAll('#totalCapital, .totalCapital');
-        tcEls.forEach(el => {
-          el.textContent = '₹' + Math.round(data.total_capital).toLocaleString('en-IN');
-          el.style.color = data.total_deposited > 0 ? 'var(--green)' : 'var(--text)';
-        });
-
-        GLOBAL_CAPITAL = data.total_capital || 500000;
-        if (typeof updateSim === 'function') updateSim();
-      } catch (e) {
-        console.error('Error loading capital info:', e);
-      }
-    }
-
-    async function forceSyncCash() {
-      const btn = document.querySelector('button[title="Re-verify and sync cash"]');
-      if (btn) btn.style.transform = 'rotate(180deg)';
-      if (btn) btn.style.transition = 'transform 0.3s ease';
-
-      await loadCapitalInfo();
-      await doRefresh(true);
-
-      if (btn) setTimeout(() => { btn.style.transform = 'rotate(0deg)'; }, 300);
-    }
+    // [VERSION: CAPITAL_BUCKET_v2.0] forceSyncCash disabled — capital tracking removed.
+    async function forceSyncCash() { /* no-op */ }
 
     function toggleTheme() {
       const current = document.documentElement.getAttribute('data-theme');
@@ -7927,45 +7916,10 @@ async function clearAllErrors() {
   }
 }
 
-function openDepositFundsDialog() {
-  document.getElementById('depositFundsModal').style.display = 'flex';
-  document.getElementById('depositAmount').focus();
-}
-
-function closeDepositFundsDialog() {
-  document.getElementById('depositFundsModal').style.display = 'none';
-  document.getElementById('depositAmount').value = '';
-}
-
-async function submitDepositFunds() {
-  const amount = parseFloat(document.getElementById('depositAmount').value);
-  if (isNaN(amount) || amount <= 0) {
-    showCustomToast('Please enter a valid amount', 'info');
-    return;
-  }
-  
-  try {
-    const response = await fetch('/api/deposit_funds', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({amount: amount})
-    });
-    
-    if (response.ok) {
-      const result = await response.json();
-      closeDepositFundsDialog();
-      showCustomToast(`✓ Deposited ₹${ amount.toLocaleString('en-IN') }. Total Capital: ₹${ Math.round(result.total_capital).toLocaleString('en-IN') } `, 'success');
-      loadCapitalInfo();
-      updateSim();
-    } else {
-      const error = await response.json();
-      showCustomToast('Error: ' + (error.error || 'Failed to deposit funds'), 'error');
-    }
-  } catch (e) {
-    console.error('Error depositing funds:', e);
-    showCustomToast('Error depositing funds', 'error');
-  }
-}
+// [VERSION: CAPITAL_BUCKET_v2.0] Deposit funds removed — capital tracking disabled.
+function openDepositFundsDialog() { console.warn('Deposit funds disabled in CAPITAL_BUCKET_v2.0'); }
+function closeDepositFundsDialog() {}
+async function submitDepositFunds() {}
 
 // ── MAIN
 async function initDashboard() {
@@ -9746,8 +9700,9 @@ function renderMultibaggerWatchlist() {
         <td><span class="score-badge ${getScoreCls(cis)}">${cis.toFixed(1)}</span></td>
         <td style="font-size:11px;">${bucket}</td>
         <td style="font-size:10px; line-height:1.2; max-width:110px; white-space:normal; color:var(--muted);">${notes}</td>
-        <td style="text-align: center;">
-          <a href="https://www.tradingview.com/chart/?symbol=NSE:${sym}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-weight: 600; cursor: pointer;" title="Open on TradingView">📊 TV</a>
+        <td style="text-align: center; white-space:nowrap;">
+          <a href="https://tv.dhan.co/chart/?symbol=NSE:${sym}" target="_blank" rel="noopener noreferrer" style="color:#4a9eff; text-decoration:none; font-weight:700; font-size:10px; margin-right:4px;" title="Open on Dhan">🅓 Dhan</a>
+          <a href="https://trade.fyers.in/popout/index.html?symbol=NSE:${sym}-EQ&resolution=D&theme=dark" target="_blank" rel="noopener noreferrer" style="color:#ff6b4a; text-decoration:none; font-weight:700; font-size:10px;" title="Open on Fyers">🅕 Fyers</a>
         </td>
       </tr>
     `;
@@ -10533,10 +10488,21 @@ function _fetchWatchlist(forceRefresh = false) {
 }
 
 
-// [VERSION: CMP_MASTER_v1.0] Open symbol on TradingView in new tab
+// [VERSION: CMP_MASTER_v2.0] Shared broker chart link helper
+function getBrokerChartLinks(symbol, compact) {
+  const clean = (symbol || '').replace('NSE:','').replace('.NS','').replace('.BO','').trim();
+  const dhanUrl = 'https://tv.dhan.co/chart/?symbol=NSE:' + encodeURIComponent(clean);
+  const fyersUrl = 'https://trade.fyers.in/popout/index.html?symbol=NSE:' + encodeURIComponent(clean) + '-EQ&resolution=D&theme=dark';
+  const pad = compact ? '2px 6px' : '4px 10px';
+  const fs  = compact ? '10px' : '11px';
+  return `<a href="${dhanUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="background:linear-gradient(135deg,#1a73e8,#0d5dbf); color:#fff; padding:${pad}; border-radius:4px; font-size:${fs}; font-weight:700; text-decoration:none; display:inline-flex; align-items:center; gap:3px;" title="Open on Dhan Chart">🅓</a>
+         <a href="${fyersUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="background:linear-gradient(135deg,#e8471a,#bf2e0d); color:#fff; padding:${pad}; border-radius:4px; font-size:${fs}; font-weight:700; text-decoration:none; display:inline-flex; align-items:center; gap:3px;" title="Open on Fyers Chart">🅕</a>`;
+}
+
+// [VERSION: CMP_MASTER_v2.0] Open symbol on Dhan chart in new tab (legacy compat)
 function openInTradingView(symbol) {
-  const tv_sym = encodeURIComponent('NSE:' + symbol.replace('.NS','').replace('.BO',''));
-  window.open('https://www.tradingview.com/chart/?symbol=' + tv_sym, '_blank');
+  const clean = (symbol || '').replace('.NS','').replace('.BO','');
+  window.open('https://tv.dhan.co/chart/?symbol=NSE:' + encodeURIComponent(clean), '_blank');
 }
 
 // [VERSION: MWL_SORT_v1.0] Sort state for manual watchlist
@@ -13117,9 +13083,11 @@ function openStockForensics(typeOrObj, index) {
     }
   }
 
-  const tvBtn = document.getElementById('fm-tv-btn');
-  if (tvBtn) {
-    tvBtn.href = `https://in.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(tvSym)}`;
+  const tvBtnContainer = document.getElementById('fm-tv-btn-container');
+  if (tvBtnContainer) {
+    const dhanUrl = `https://tv.dhan.co/chart/?symbol=NSE:${encodeURIComponent(tvSym)}`;
+    const fyersUrl = `https://trade.fyers.in/popout/index.html?symbol=NSE:${encodeURIComponent(tvSym)}-EQ&resolution=D&theme=dark`;
+    tvBtnContainer.innerHTML = `<a id="fm-dhan-btn" href="${dhanUrl}" target="_blank" class="forensic-btn-tv" style="background:linear-gradient(135deg,#1a73e8,#0d5dbf); margin-right:6px;">🅓 Dhan ↗</a><a id="fm-fyers-btn" href="${fyersUrl}" target="_blank" class="forensic-btn-tv" style="background:linear-gradient(135deg,#e8471a,#bf2e0d);">🅕 Fyers ↗</a>`;
   }
 
   // Render Multi-Scanner Confluence Panel IMMEDIATELY
@@ -13241,9 +13209,10 @@ document.addEventListener('keydown', function(e) {
         <span id="fm-header-alert-date" class="engine-date-pill" style="display:none;">📅 —</span>
       </div>
       <div style="display:flex; align-items:center; gap:10px;">
-        <a id="fm-tv-btn" href="#" target="_blank" class="forensic-btn-tv">
-          📈 Open in TradingView ↗
-        </a>
+        <span id="fm-tv-btn-container" style="display:inline-flex; gap:6px; align-items:center;">
+          <a id="fm-dhan-btn" href="#" target="_blank" class="forensic-btn-tv" style="background:linear-gradient(135deg,#1a73e8,#0d5dbf);">🅓 Dhan ↗</a>
+          <a id="fm-fyers-btn" href="#" target="_blank" class="forensic-btn-tv" style="background:linear-gradient(135deg,#e8471a,#bf2e0d);">🅕 Fyers ↗</a>
+        </span>
         <button class="forensic-modal-close" onclick="closeStockForensicModal()" title="Close (Esc)">✕</button>
       </div>
     </div>
