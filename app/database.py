@@ -3774,6 +3774,97 @@ def reset_alert_for_recalculation(alert_id: int) -> bool:
                 if not success:
                     conn.rollback()
 
+
+def reset_alerts_for_recalculation(alert_ids: list[int]) -> list[int]:
+    """
+    Batch-resets multiple alerts back to OPEN state for full replay in a single atomic transaction.
+    Restores stop_loss to initial_stop_loss, clears exit history and PnL.
+    Returns list of successfully reset alert IDs.
+    """
+    if not alert_ids:
+        return []
+    clean_ids = [int(i) for i in alert_ids if i is not None]
+    if not clean_ids:
+        return []
+
+    with _DB_WRITE_LOCK:
+        with get_connection() as conn:
+            success = False
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT id, status, stop_loss, initial_stop_loss, shares_bought, scanner, entry_price, capital_allocated
+                        FROM alerts
+                        WHERE id = ANY(%s)
+                    """, (clean_ids,))
+                    rows = cur.fetchall()
+                    if not rows:
+                        return []
+
+                    recalc_ids = []
+                    audit_records = []
+                    for row in rows:
+                        aid, old_status, current_sl, initial_sl, shares_bought, scanner_name, entry_price, capital_allocated = row
+                        if scanner_name in ('MULTIBAGGER', 'WEALTH'):
+                            continue
+
+                        reset_sl = initial_sl if initial_sl else current_sl
+                        if not shares_bought or shares_bought <= 0:
+                            ep = float(entry_price) if entry_price and float(entry_price) > 0 else 100.0
+                            cap = float(capital_allocated) if capital_allocated and float(capital_allocated) > 0 else 20000.0
+                            shares_bought = max(1, int(cap / ep))
+
+                        cur.execute("""
+                            UPDATE alerts
+                            SET status = 'OPEN',
+                                execution_state = 'OPEN',
+                                stop_loss = %s,
+                                exit_price = NULL,
+                                pnl_pct = NULL,
+                                pnl_rs = NULL,
+                                closed_at = NULL,
+                                exit_history = NULL,
+                                exit_signal = NULL,
+                                shares_bought = %s,
+                                remaining_shares = %s
+                            WHERE id = %s
+                        """, (reset_sl, shares_bought, shares_bought, aid))
+
+                        recalc_ids.append(aid)
+                        new_state = {"status": "OPEN", "execution_state": "OPEN", "stop_loss": reset_sl, "remaining_shares": shares_bought, "exit_history": None}
+                        audit_records.append((aid, 'RECALCULATE_RESET', json.dumps({"status": old_status}, default=str), json.dumps(new_state, default=str)))
+
+                    if recalc_ids:
+                        try:
+                            cur.execute("""
+                                UPDATE alert_outcomes
+                                SET exit_timestamp = NULL,
+                                    exit_reason = 'OPEN',
+                                    realized_rr = NULL,
+                                    unrealized_rr_at_expiry = NULL
+                                WHERE alert_id = ANY(%s)
+                            """, (recalc_ids,))
+                        except Exception:
+                            pass
+
+                        for aid, action, old_s, new_s in audit_records:
+                            try:
+                                cur.execute("INSERT INTO trade_audit_log (alert_id, action, old_state, new_state) VALUES (%s, %s, %s, %s)",
+                                            (aid, action, old_s, new_s))
+                            except Exception:
+                                pass
+
+                    conn.commit()
+                    success = True
+                    logger.info(f"🔄 Successfully batch-reset {len(recalc_ids)} alerts to OPEN for recalculation: {recalc_ids}")
+                    return recalc_ids
+            except Exception as e:
+                logger.exception(f"❌ reset_alerts_for_recalculation failed for ids={clean_ids}: {e}")
+                return []
+            finally:
+                if not success:
+                    conn.rollback()
+
 def check_recent_alert(symbol: str, scanner: str, breakout_type: str, lookback_minutes: int, new_score: int = 0) -> bool:
     """
     Returns True if a duplicate alert exists within the cooldown window.

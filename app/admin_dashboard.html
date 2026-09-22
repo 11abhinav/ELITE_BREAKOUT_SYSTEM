@@ -3183,6 +3183,10 @@ function changeAdminPage(type, delta) {
           <button id="recalculateSelectedBtn" class="refresh-btn" onclick="recalculateSelectedTrades()"
             style="margin-left:8px;padding:6px 12px; background:var(--card2); color:var(--text); border:1px solid var(--border); display:none; font-weight:600;">🔄
             Recalculate Selected</button>
+          <button id="recalculateAllFilteredBtn" class="refresh-btn" onclick="recalculateAllFilteredTrades()"
+            style="margin-left:8px;padding:6px 12px; background:rgba(0,212,161,0.12); color:var(--accent); border:1px solid var(--accent); font-weight:700;"
+            title="Recalculate all trades matching the current filter across all pages (ignoring pagination)">⚡
+            <span id="recalcFilteredLabel">Recalculate All Filtered</span> (<span id="recalcFilteredCount">0</span>)</button>
           <button id="allocateSelectedBtn" class="refresh-btn" onclick="allocateSelectedTrades()"
             style="margin-left:8px;padding:6px 12px; background:var(--accent); color:#000; border:1px solid var(--accent); display:none; font-weight:600;">💰
             Allocate Selected</button>
@@ -5647,9 +5651,10 @@ function getEarningsBadgeHtml(item) {
         }
 
         const isLongTerm = (t.scanner === 'MULTIBAGGER' || t.scanner === 'WEALTH');
+        const isChecked = (typeof SELECTED_TRADE_IDS !== 'undefined' && SELECTED_TRADE_IDS.has(t.id)) ? 'checked' : '';
         const checkboxHtml = isLongTerm ? 
             `<span title="Cannot recalculate long-term trades" style="color:var(--muted); font-size:10px;">—</span>` : 
-            `<input type="checkbox" class="trade-checkbox" value="${t.id}" onchange="updateBulkActionsVisibility()">`;
+            `<input type="checkbox" class="trade-checkbox" value="${t.id}" ${isChecked} onchange="toggleTradeSelection(this, ${t.id})">`;
 
         let eventMarkHtml = getEarningsBadgeHtml(t);
         let evolutionBadge = getEvolutionBadgeHtml(t);
@@ -5966,42 +5971,160 @@ function getEarningsBadgeHtml(item) {
       }
     }
 
+    const SELECTED_TRADE_IDS = new Set();
+
+    function toggleTradeSelection(cb, id) {
+      if (cb.checked) {
+        SELECTED_TRADE_IDS.add(id);
+      } else {
+        SELECTED_TRADE_IDS.delete(id);
+      }
+      updateBulkActionsVisibility();
+    }
+
     function toggleAllTrades(source) {
+      const filtered = window._currentFilteredTrades || ALL_TRADES || [];
+      const validTrades = filtered.filter(t => t.scanner !== 'MULTIBAGGER' && t.scanner !== 'WEALTH');
+      if (source.checked) {
+        validTrades.forEach(t => SELECTED_TRADE_IDS.add(t.id));
+        const filterDesc = getActiveFilterDescription();
+        showCustomToast(`Selected all ${validTrades.length} trade(s) matching [${filterDesc}] across all pages (ignoring pagination).`, 'info');
+      } else {
+        validTrades.forEach(t => SELECTED_TRADE_IDS.delete(t.id));
+      }
       const checkboxes = document.querySelectorAll('.trade-checkbox');
       checkboxes.forEach(cb => {
-        // Only select checkboxes that are currently visible/rendered
-        if (cb.closest('tr').style.display !== 'none') {
-          cb.checked = source.checked;
-        }
+        const cid = parseInt(cb.value);
+        cb.checked = SELECTED_TRADE_IDS.has(cid);
       });
       updateBulkActionsVisibility();
     }
 
     function updateBulkActionsVisibility() {
-      const checked = document.querySelectorAll('.trade-checkbox:checked');
+      const count = SELECTED_TRADE_IDS.size;
       const rejBtn = document.getElementById('rejectSelectedBtn');
       const allocBtn = document.getElementById('allocateSelectedBtn');
       const recalcBtn = document.getElementById('recalculateSelectedBtn');
       
-      if (checked.length > 0) {
-        if (rejBtn) { rejBtn.style.display = 'inline-block'; rejBtn.innerText = `🚫 Reject (${checked.length})`; }
-        if (allocBtn) { allocBtn.style.display = 'inline-block'; allocBtn.innerText = `💰 Allocate (${checked.length})`; }
-        if (recalcBtn) { recalcBtn.style.display = 'inline-block'; recalcBtn.innerText = `🔄 Recalculate (${checked.length})`; }
+      const filtered = window._currentFilteredTrades || ALL_TRADES || [];
+      const validTrades = filtered.filter(t => t.scanner !== 'MULTIBAGGER' && t.scanner !== 'WEALTH');
+
+      if (count > 0) {
+        const isAll = (validTrades.length > 0 && count === validTrades.length && count > tradesPerPage);
+        const suffix = isAll ? ` (${count} All Pages)` : ` (${count})`;
+        if (rejBtn) { rejBtn.style.display = 'inline-block'; rejBtn.innerText = `🚫 Reject${suffix}`; }
+        if (allocBtn) { allocBtn.style.display = 'inline-block'; allocBtn.innerText = `💰 Allocate${suffix}`; }
+        if (recalcBtn) { recalcBtn.style.display = 'inline-block'; recalcBtn.innerText = `🔄 Recalculate${suffix}`; }
       } else {
         if (rejBtn) rejBtn.style.display = 'none';
         if (allocBtn) allocBtn.style.display = 'none';
         if (recalcBtn) recalcBtn.style.display = 'none';
       }
+
+      const selectAll = document.getElementById('selectAllTrades');
+      if (selectAll) {
+        selectAll.checked = validTrades.length > 0 && validTrades.every(t => SELECTED_TRADE_IDS.has(t.id));
+      }
+      const recalcFilteredCount = document.getElementById('recalcFilteredCount');
+      if (recalcFilteredCount) {
+        recalcFilteredCount.innerText = validTrades.length;
+      }
+      const recalcFilteredLabel = document.getElementById('recalcFilteredLabel');
+      if (recalcFilteredLabel) {
+        const st = document.getElementById('filterStatus')?.value;
+        if (st === 'OPEN') recalcFilteredLabel.innerText = 'Recalculate All Open';
+        else if (st === 'WIN') recalcFilteredLabel.innerText = 'Recalculate All Win';
+        else if (st === 'LOSS') recalcFilteredLabel.innerText = 'Recalculate All Loss';
+        else if (st) recalcFilteredLabel.innerText = `Recalculate All ${st}`;
+        else recalcFilteredLabel.innerText = 'Recalculate All Filtered';
+      }
+    }
+
+    function getActiveFilterDescription() {
+      const parts = [];
+      const sc = document.getElementById('filterScanner')?.value;
+      const st = document.getElementById('filterStatus')?.value;
+      const sym = (document.getElementById('filterSymbol')?.value || '').trim();
+      const dateFilt = document.getElementById('filterDate')?.value;
+      if (st) parts.push(`Status: ${st}`);
+      if (sc) parts.push(`Scanner: ${sc}`);
+      if (sym) parts.push(`Symbol: ${sym}`);
+      if (dateFilt && dateFilt !== 'ALL') parts.push(`Date: ${dateFilt}`);
+      if (typeof activeKpi !== 'undefined' && activeKpi && activeKpi !== 'total') parts.push(`KPI: ${activeKpi}`);
+      return parts.length ? parts.join(', ') : 'All Positions';
+    }
+
+    async function recalculateAllFilteredTrades() {
+      const filtered = window._currentFilteredTrades || ALL_TRADES || [];
+      const validTrades = filtered.filter(t => t.scanner !== 'MULTIBAGGER' && t.scanner !== 'WEALTH');
+      const ids = validTrades.map(t => t.id);
+      if (!ids.length) {
+        showCustomToast('No recalculable trades matching current filter.', 'info');
+        return;
+      }
+
+      const filterDesc = getActiveFilterDescription();
+      const confirmed = await showCustomConfirm(`Force historical recalculation for ALL ${ids.length} trade(s) matching filter [${filterDesc}] across ALL pages (ignoring pagination)?`);
+      if (!confirmed) return;
+
+      const btn = document.getElementById('recalculateAllFilteredBtn');
+      const originalText = btn ? btn.innerText : '';
+      if (btn) {
+        btn.innerText = `⏳ Recalculating (${ids.length})...`;
+        btn.disabled = true;
+      }
+
+      try {
+        const res = await fetch('/api/alert/recalculate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: ids })
+        });
+        if (res.ok) {
+          const resData = await res.json().catch(() => ({}));
+          const returnedTrades = resData.trades || [];
+          if (returnedTrades.length > 0) {
+            returnedTrades.forEach(updated => {
+              const cid = updated.id;
+              EXIT_HISTORY_CACHE.delete(String(cid));
+              expandedIds.delete(String(cid));
+              const idx = ALL_TRADES.findIndex(t => t.id === cid);
+              if (idx !== -1) {
+                ALL_TRADES[idx] = updated;
+              }
+            });
+          }
+          SELECTED_TRADE_IDS.clear();
+          const selectAll = document.getElementById('selectAllTrades');
+          if (selectAll) selectAll.checked = false;
+          updateBulkActionsVisibility();
+          renderTradeTable();
+          showCustomToast(`✅ Successfully recalculated all ${ids.length} filtered trade(s).`, 'success');
+        } else {
+          const errData = await res.json().catch(() => ({}));
+          showCustomToast('Error: ' + (errData.error || 'Recalculation failed.'), 'error');
+        }
+      } catch (e) {
+        console.error(e);
+        showCustomToast('Network error while recalculating filtered trades.', 'error');
+      } finally {
+        if (btn) {
+          btn.innerText = originalText;
+          btn.disabled = false;
+        }
+      }
     }
 
     async function allocateSelectedTrades() {
-      const checkboxes = document.querySelectorAll('.trade-checkbox:checked');
-      if (checkboxes.length === 0) return;
+      let ids = Array.from(SELECTED_TRADE_IDS);
+      if (!ids.length) {
+        const checkboxes = document.querySelectorAll('.trade-checkbox:checked');
+        ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
+      }
+      if (ids.length === 0) return;
 
-      const confirmed = await showCustomConfirm(`Are you sure you want to ALLOCATE capital for ${checkboxes.length} selected trades? This will read your current Cash In Hand and distribute it evenly.`);
+      const confirmed = await showCustomConfirm(`Are you sure you want to ALLOCATE capital for ${ids.length} selected trades across all pages? This will read your current Cash In Hand and distribute it evenly.`);
       if (!confirmed) return;
-
-      const ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
 
       const btn = document.getElementById('allocateSelectedBtn');
       const oldText = btn.innerText;
@@ -6034,6 +6157,7 @@ function getEarningsBadgeHtml(item) {
               }
             });
           }
+          SELECTED_TRADE_IDS.clear();
           document.getElementById('selectAllTrades').checked = false;
           updateBulkActionsVisibility();
           renderTradeTable();
@@ -6051,13 +6175,15 @@ function getEarningsBadgeHtml(item) {
     }
 
     async function rejectSelectedTrades() {
-      const checkboxes = document.querySelectorAll('.trade-checkbox:checked');
-      if (checkboxes.length === 0) return;
+      let ids = Array.from(SELECTED_TRADE_IDS);
+      if (!ids.length) {
+        const checkboxes = document.querySelectorAll('.trade-checkbox:checked');
+        ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
+      }
+      if (ids.length === 0) return;
 
-      const confirmed = await showCustomConfirm(`Are you sure you want to REJECT ${checkboxes.length} selected trades? Capital will be refunded and they will not count towards KPIs.`);
+      const confirmed = await showCustomConfirm(`Are you sure you want to REJECT ${ids.length} selected trades across all pages? Capital will be refunded and they will not count towards KPIs.`);
       if (!confirmed) return;
-
-      const ids = Array.from(checkboxes).map(cb => parseInt(cb.value));
 
       const btn = document.getElementById('rejectSelectedBtn');
       const oldText = btn.innerText;
@@ -6075,6 +6201,7 @@ function getEarningsBadgeHtml(item) {
             const trade = ALL_TRADES.find(t => t.id === id);
             if (trade) trade.status = 'REJECTED';
           });
+          SELECTED_TRADE_IDS.clear();
           document.getElementById('selectAllTrades').checked = false;
           updateBulkActionsVisibility();
           renderTradeTable();
@@ -6092,17 +6219,27 @@ function getEarningsBadgeHtml(item) {
     }
 
     async function recalculateSelectedTrades() {
-      const checked = Array.from(document.querySelectorAll('.trade-checkbox:checked'));
-      const ids = checked.map(cb => parseInt(cb.value));
+      let ids = Array.from(SELECTED_TRADE_IDS);
+      if (!ids.length) {
+        const checked = Array.from(document.querySelectorAll('.trade-checkbox:checked'));
+        ids = checked.map(cb => parseInt(cb.value));
+      }
       if (!ids.length) return;
-      if (!await showCustomConfirm(`Are you sure you want to force a full historical recalculation on ${ids.length} selected trade(s)?`)) return;
+      const filtered = window._currentFilteredTrades || ALL_TRADES || [];
+      const isAll = (filtered.length > 0 && ids.length === filtered.length && ids.length > tradesPerPage);
+      const confirmMsg = isAll
+        ? `Are you sure you want to force a full historical recalculation on ALL ${ids.length} trade(s) across all pages (ignoring pagination)?`
+        : (ids.length > 1
+            ? `Are you sure you want to force a full historical recalculation on ${ids.length} selected trade(s)?`
+            : `Are you sure you want to force a full historical recalculation on trade #${ids[0]}?`);
+      if (!await showCustomConfirm(confirmMsg)) return;
 
       const btn = document.getElementById('recalculateSelectedBtn');
       const originalText = btn.innerText;
       btn.disabled = true;
 
       try {
-        btn.innerText = '⏳ Recalculating...';
+        btn.innerText = `⏳ Recalculating (${ids.length})...`;
         const res = await fetch('/api/alert/recalculate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -6121,6 +6258,7 @@ function getEarningsBadgeHtml(item) {
                 ALL_TRADES[idx] = updated;
               }
             });
+            SELECTED_TRADE_IDS.clear();
             document.getElementById('selectAllTrades').checked = false;
             updateBulkActionsVisibility();
             renderTradeTable();
@@ -6132,6 +6270,7 @@ function getEarningsBadgeHtml(item) {
               const trade = ALL_TRADES.find(t => t.id === cid);
               if (trade) resetTradeToOpen(trade);
             });
+            SELECTED_TRADE_IDS.clear();
             document.getElementById('selectAllTrades').checked = false;
             updateBulkActionsVisibility();
             renderTradeTable();
@@ -6142,10 +6281,12 @@ function getEarningsBadgeHtml(item) {
           showCustomToast('Error: ' + (errData.error || 'Recalculation failed.'), 'error');
         }
       } catch (e) {
+        console.error(e);
         showCustomToast('Network error while recalculating trades.', 'error');
+      } finally {
+        btn.innerText = originalText;
+        btn.disabled = false;
       }
-      btn.innerText = originalText;
-      btn.disabled = false;
     }
 
     async function acceptAlert(id) {
@@ -6426,6 +6567,10 @@ function getEarningsBadgeHtml(item) {
       if (sortEl) sortEl.value = 'DEFAULT';
       if (symEl) symEl.value = '';
       
+      if (typeof SELECTED_TRADE_IDS !== 'undefined') SELECTED_TRADE_IDS.clear();
+      const selectAll = document.getElementById('selectAllTrades');
+      if (selectAll) selectAll.checked = false;
+      updateBulkActionsVisibility();
       renderTradeTable();
     }
 
@@ -6520,6 +6665,23 @@ function getEarningsBadgeHtml(item) {
       const maxAbs = Math.max(...ALL_TRADES.map(t => Math.abs(t.pnl_pct || 0)), 1);
       const tc = document.getElementById('tradeCount');
       if (tc) tc.textContent = `${filtered.length} trade${filtered.length !== 1 ? 's' : ''}`;
+
+      const validRecalcTrades = filtered.filter(t => t.scanner !== 'MULTIBAGGER' && t.scanner !== 'WEALTH');
+      const recalcFilteredCount = document.getElementById('recalcFilteredCount');
+      if (recalcFilteredCount) recalcFilteredCount.innerText = validRecalcTrades.length;
+      const recalcFilteredLabel = document.getElementById('recalcFilteredLabel');
+      if (recalcFilteredLabel) {
+        if (st === 'OPEN') recalcFilteredLabel.innerText = 'Recalculate All Open';
+        else if (st === 'WIN') recalcFilteredLabel.innerText = 'Recalculate All Win';
+        else if (st === 'LOSS') recalcFilteredLabel.innerText = 'Recalculate All Loss';
+        else if (st) recalcFilteredLabel.innerText = `Recalculate All ${st}`;
+        else recalcFilteredLabel.innerText = 'Recalculate All Filtered';
+      }
+
+      const selectAll = document.getElementById('selectAllTrades');
+      if (selectAll) {
+        selectAll.checked = validRecalcTrades.length > 0 && validRecalcTrades.every(t => SELECTED_TRADE_IDS.has(t.id));
+      }
       
       const body = document.getElementById('tradeBody');
       const pInfo = document.getElementById('tradePaginationInfo');

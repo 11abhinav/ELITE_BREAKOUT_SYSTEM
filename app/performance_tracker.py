@@ -37,6 +37,7 @@ from database import (
     get_all_alerts,
     get_alerts_by_ids,
     reset_alert_for_recalculation,
+    reset_alerts_for_recalculation,
     get_system_state,
     update_alert_outcome,
     update_partial_exit,
@@ -1215,7 +1216,7 @@ def _recompute_summary_stats(trades: list[dict]) -> dict:
     judged  = [t for t in trades if t.get("status") in ("WIN", "LOSS", "NEUTRAL", "CLOSED")]
     winners = [t for t in judged if t.get("status") == "WIN" or (t.get("status") == "CLOSED" and (t.get("pnl_pct") or 0.0) > 0)]
     losers  = [t for t in judged if t.get("status") == "LOSS" or (t.get("status") == "CLOSED" and (t.get("pnl_pct") or 0.0) <= 0)]
-    open_p  = [t for t in trades if t.get("status") in ("OPEN", "SELL_REVIEW", "TRAILING")]
+    open_p  = [t for t in trades if t.get("status") in ("OPEN", "SELL_REVIEW", "TRAILING", "PARTIAL_WIN_1", "PARTIAL_WIN_2")]
 
     pnls    = [t["pnl_pct"] for t in judged if t.get("pnl_pct") is not None]
     win_pnl = [t["pnl_pct"] for t in winners if t.get("pnl_pct") is not None]
@@ -1270,12 +1271,16 @@ def recalculate_specific_alerts(alert_ids: list[int]) -> list[dict]:
     logger.info(f"🎯 [TARGETED RECALC] Starting focused recalculation for alert IDs: {clean_ids}")
     _t_start = time.perf_counter()
 
-    # 1. Reset each alert in PostgreSQL
-    for aid in clean_ids:
-        try:
-            reset_alert_for_recalculation(aid)
-        except Exception as _res_err:
-            logger.warning(f"⚠️ [TARGETED RECALC] Failed to reset alert {aid}: {_res_err}")
+    # 1. Reset alerts in PostgreSQL (using atomic batch reset)
+    try:
+        reset_alerts_for_recalculation(clean_ids)
+    except Exception as _res_err:
+        logger.warning(f"⚠️ [TARGETED RECALC] Batch reset failed: {_res_err}, falling back to per-alert reset")
+        for aid in clean_ids:
+            try:
+                reset_alert_for_recalculation(aid)
+            except Exception:
+                pass
 
     # 2. Fetch only the requested alerts
     raw_alerts = get_alerts_by_ids(clean_ids)
@@ -1311,6 +1316,43 @@ def recalculate_specific_alerts(alert_ids: list[int]) -> list[dict]:
 
     now_ist = datetime.now(IST)
 
+    # 3b. Batch-prefetch historical bars across target symbols
+    # Group unique symbols by interval (5m, 1h, 1d) so all symbols are fetched in ONE single batch API request per interval
+    interval_syms = {}
+    interval_max_days = {}
+    for t in trades:
+        alert_time_val = t.get("alert_time")
+        if not alert_time_val or not t.get("stop_loss") or not (t.get("target_1") or t.get("target_price")):
+            continue
+        if isinstance(alert_time_val, datetime):
+            alert_dt_ist = alert_time_val.astimezone(IST) if alert_time_val.tzinfo else alert_time_val.replace(tzinfo=IST)
+        else:
+            try:
+                alert_dt_naive = datetime.fromisoformat(str(alert_time_val).replace("Z", "+00:00").replace(" IST", ""))
+                alert_dt_ist = alert_dt_naive.astimezone(IST) if alert_dt_naive.tzinfo else alert_dt_naive.replace(tzinfo=IST)
+            except Exception:
+                alert_dt_ist = now_ist
+        alert_date = alert_dt_ist.date()
+        days_since = (now_ist.date() - alert_date).days
+        period_days = max(days_since + 2, 5)
+        interval = "5m" if period_days <= 59 else ("1h" if period_days <= 720 else "1d")
+        interval_syms.setdefault(interval, set()).add(t["symbol"])
+        interval_max_days[interval] = max(interval_max_days.get(interval, 5), period_days)
+
+    prefetched_bars = {}
+    for interval, syms in interval_syms.items():
+        max_d = interval_max_days[interval]
+        if interval == "5m":
+            max_d = min(max_d, 59)
+        elif interval == "1h":
+            max_d = min(max_d, 720)
+        period_str = f"{max_d}d"
+        df_request = pd.DataFrame({"Stock": list(syms)})
+        logger.info(f"📊 [TARGETED RECALC] Batch-fetching {interval} bars for {len(syms)} symbols ({period_str})")
+        batch_res = fetch_watchlist_data(df_request, interval=interval, period=period_str, requester="recalculate_specific_alerts")
+        if batch_res:
+            prefetched_bars.update(batch_res)
+
     # 4. Process each trade with full post-alert historical bars
     for t in trades:
         adjust_trade_for_corporate_actions(t)
@@ -1330,7 +1372,8 @@ def recalculate_specific_alerts(alert_ids: list[int]) -> list[dict]:
 
         if sl and alert_time and (t.get("target_1") or t.get("target_price")):
             logger.info(f"🔄 [TARGETED RECALC] Replaying ticks for {sym} (Alert #{t['id']})...")
-            hist = _fetch_post_alert_bars(sym, alert_time)
+            pre_hist = prefetched_bars.get(sym) if sym in prefetched_bars else None
+            hist = _fetch_post_alert_bars(sym, alert_time, prefetched_hist=pre_hist)
             process_trade_history(t, hist, cur_p=cur_p if cur_p else None, is_recalculate=True)
         elif cur_p and ep and ep > 0:
             t["pnl_pct"] = round((cur_p - ep) / ep * 100, 2)

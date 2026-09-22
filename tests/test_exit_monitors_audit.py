@@ -810,7 +810,8 @@ class TestExitMonitorsAndCalendar(unittest.TestCase):
             "capital_allocated": 17600.0,
         }
 
-        with patch("performance_tracker.reset_alert_for_recalculation", return_value=True) as mock_reset, \
+        with patch("performance_tracker.reset_alerts_for_recalculation", return_value=[116, 190]) as mock_batch_reset, \
+             patch("performance_tracker.reset_alert_for_recalculation", return_value=True) as mock_reset, \
              patch("performance_tracker.get_alerts_by_ids", return_value=[mock_alert_116, mock_alert_190]) as mock_get, \
              patch("performance_tracker._fetch_current_prices", return_value={"GENUSPOWER": 310.90}) as mock_prices, \
              patch("performance_tracker._fetch_post_alert_bars", return_value=None), \
@@ -820,10 +821,8 @@ class TestExitMonitorsAndCalendar(unittest.TestCase):
 
             res = recalculate_specific_alerts([116, 190])
 
-            # 1. Verifies reset_alert_for_recalculation called ONLY for 116 and 190
-            self.assertEqual(mock_reset.call_count, 2)
-            mock_reset.assert_any_call(116)
-            mock_reset.assert_any_call(190)
+            # 1. Verifies reset_alerts_for_recalculation called with EXACTLY [116, 190]
+            mock_batch_reset.assert_called_once_with([116, 190])
 
             # 2. Verifies get_alerts_by_ids called with EXACTLY [116, 190]
             mock_get.assert_called_once_with([116, 190])
@@ -844,7 +843,7 @@ class TestExitMonitorsAndCalendar(unittest.TestCase):
             # 6. Verifies system_state saved payload updated only 116 and 190, preserving trade 999
             perf_call = [call for call in mock_save.call_args_list if call[0][0] == "performance_data"]
             self.assertTrue(len(perf_call) > 0)
-            saved_blob = json.loads(perf_call[0][0][1])
+            saved_blob = json.loads(perf_call[-1][0][1])
             saved_ids = [t["id"] for t in saved_blob["trades"]]
             self.assertIn(999, saved_ids, "Unrelated trade 999 must be preserved untouched")
 
