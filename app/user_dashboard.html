@@ -1093,6 +1093,17 @@ function playDing() {
         </div>
         <select id="filterStatus">
           <option value="">All status</option>
+          <option value="OPEN">Open (Active)</option>
+          <option value="PENDING_ENTRY">Pending Entry (Awaiting Breakout)</option>
+          <option value="WIN">Win (Full Profit)</option>
+          <option value="PARTIAL_WIN">Partial Win</option>
+          <option value="LOSS">Loss (Stopped Out)</option>
+          <option value="CLOSED_TODAY">Closed Today</option>
+          <option value="REJECTED">Rejected</option>
+          <option value="SELL_REVIEW">Sell Review</option>
+          <option value="EXPIRED">Expired</option>
+          <option value="NEUTRAL">Neutral</option>
+          <option value="CLOSED">Closed (Other)</option>
         </select>
         <select id="filterCategory"><option value="">All categories</option></select>
         <input id="filterSymbol" type="text" placeholder="Search symbol…" style="width:130px">
@@ -2542,6 +2553,10 @@ function renderTradeTable() {
     if (selectedScanners.length > 0 && !selectedScanners.includes(t.scanner)) return false;
     if (st === 'PARTIAL_WIN') {
         if (!t.status || !t.status.startsWith('PARTIAL_WIN')) return false;
+    } else if (st === 'PENDING_ENTRY' || st === 'PENDING') {
+        if (t.execution_state !== 'PENDING_ENTRY') return false;
+    } else if (st === 'OPEN') {
+        if (t.status !== 'OPEN' || t.execution_state === 'PENDING_ENTRY') return false;
     } else if (st && t.status !== st) return false;
     if (!st && t.status === 'REJECTED') return false; 
     if (cat && t.category !== cat) return false;
@@ -2567,9 +2582,11 @@ function renderTradeTable() {
   window._currentFilteredTrades = filtered;
   filtered = [...filtered].sort((a,b) => {
     if (sortCol === 'status') {
-      const p = { 'OPEN': 0, 'WIN': 1, 'LOSS': 2, 'NEUTRAL': 3 };
-      const pA = p[a.status] ?? 4;
-      const pB = p[b.status] ?? 4;
+      const p = { 'PENDING': -1, 'OPEN': 0, 'WIN': 1, 'LOSS': 2, 'NEUTRAL': 3 };
+      const sA = (a.execution_state === 'PENDING_ENTRY') ? 'PENDING' : a.status;
+      const sB = (b.execution_state === 'PENDING_ENTRY') ? 'PENDING' : b.status;
+      const pA = p[sA] ?? 4;
+      const pB = p[sB] ?? 4;
       if (pA !== pB) return sortDir * (pA - pB);
       // Secondary sort by date (newest first)
       const dA = a.alert_time || a.entry_date || '';
@@ -2663,7 +2680,20 @@ let _userFilterSymDebounce = null;
 function populateFilters(trades) {
   const scanners = [...new Set(trades.map(t=>t.scanner).filter(Boolean))].sort();
   const cats     = [...new Set(trades.map(t=>t.category).filter(Boolean))].sort();
-  const statuses = [...new Set(trades.map(t=>t.status).filter(Boolean))].sort();
+  
+  const predefinedStatuses = [
+    { val: 'OPEN', label: 'Open (Active)' },
+    { val: 'PENDING_ENTRY', label: 'Pending Entry (Awaiting Breakout)' },
+    { val: 'WIN', label: 'Win (Full Profit)' },
+    { val: 'PARTIAL_WIN', label: 'Partial Win' },
+    { val: 'LOSS', label: 'Loss (Stopped Out)' },
+    { val: 'CLOSED_TODAY', label: 'Closed Today' },
+    { val: 'REJECTED', label: 'Rejected' },
+    { val: 'SELL_REVIEW', label: 'Sell Review' },
+    { val: 'EXPIRED', label: 'Expired' },
+    { val: 'NEUTRAL', label: 'Neutral' },
+    { val: 'CLOSED', label: 'Closed (Other)' }
+  ];
   
   const cEl = document.getElementById('filterCategory');
   const stEl = document.getElementById('filterStatus');
@@ -2684,7 +2714,7 @@ function populateFilters(trades) {
   if(stEl) while(stEl.options.length > 1) stEl.remove(1);
   
   if(cEl) cats.forEach(c => { const o=document.createElement('option'); o.value=c; o.textContent=c; cEl.appendChild(o); });
-  if(stEl) statuses.forEach(st => { const o=document.createElement('option'); o.value=st; o.textContent=st; stEl.appendChild(o); });
+  if(stEl) predefinedStatuses.forEach(st => { const o=document.createElement('option'); o.value=st.val; o.textContent=st.label; stEl.appendChild(o); });
 }
 
 function renderCategoryStats() {

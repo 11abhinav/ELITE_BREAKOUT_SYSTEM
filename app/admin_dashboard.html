@@ -3187,6 +3187,17 @@ function changeAdminPage(type, delta) {
           </select>
           <select id="filterStatus">
             <option value="">All status</option>
+            <option value="OPEN">Open (Active)</option>
+            <option value="PENDING_ENTRY">Pending Entry (Awaiting Breakout)</option>
+            <option value="WIN">Win (Full Profit)</option>
+            <option value="PARTIAL_WIN">Partial Win</option>
+            <option value="LOSS">Loss (Stopped Out)</option>
+            <option value="CLOSED_TODAY">Closed Today</option>
+            <option value="REJECTED">Rejected</option>
+            <option value="SELL_REVIEW">Sell Review</option>
+            <option value="EXPIRED">Expired</option>
+            <option value="NEUTRAL">Neutral</option>
+            <option value="CLOSED">Closed (Other)</option>
           </select>
           <select id="filterTradeSort" onchange="renderTrades()">
             <option value="DEFAULT">Sort: Default (Newest First)</option>
