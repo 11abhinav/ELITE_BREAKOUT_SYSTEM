@@ -2101,7 +2101,7 @@ function changeAdminPage(type, delta) {
     window._STOCK_INTELLIGENCE_CACHE = window._STOCK_INTELLIGENCE_CACHE || {};
 
     window.renderStockIntelligenceDossierModal = function(modal, cleanSym, data, asOf=null) {
-        const dhanUrl = `https://tv.dhan.co/chart/?symbol=NSE:${encodeURIComponent(cleanSym)}`;
+        const tvUrl = `https://in.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(cleanSym)}`;
         const fyersUrl = `https://trade.fyers.in/popout/index.html?symbol=NSE:${encodeURIComponent(cleanSym)}-EQ&resolution=D&theme=dark`;
         const verdict = data.net_verdict || 'NEUTRAL';
         let verdictBadge = '<span style="background:#2d3748; color:#cbd5e0; padding:4px 10px; border-radius:20px; font-size:12px; font-weight:700;">⚪ NEUTRAL</span>';
@@ -2178,7 +2178,7 @@ function changeAdminPage(type, delta) {
                     <div>
                         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                             <span style="font-size:20px; font-weight:800; color:#00d4a1;">${cleanSym}</span>
-                            <a href="${dhanUrl}" target="_blank" rel="noopener noreferrer" style="font-size:11px; font-weight:700; color:#fff; background:linear-gradient(135deg,#1a73e8,#0d5dbf); padding:3px 9px; border-radius:5px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;" title="Open ${cleanSym} on Dhan Chart">🅓 Dhan ↗</a>
+                            <a href="${tvUrl}" target="_blank" rel="noopener noreferrer" style="font-size:11px; font-weight:700; color:#fff; background:linear-gradient(135deg,#2962ff,#1e53e5); padding:3px 9px; border-radius:5px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;" title="Open ${cleanSym} on TradingView Chart">📈 TradingView ↗</a>
                             <a href="${fyersUrl}" target="_blank" rel="noopener noreferrer" style="font-size:11px; font-weight:700; color:#fff; background:linear-gradient(135deg,#e8471a,#bf2e0d); padding:3px 9px; border-radius:5px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;" title="Open ${cleanSym} on Fyers Chart">🅕 Fyers ↗</a>
                         </div>
                         <div style="font-size:11px; color:#718096; margin-top:2px;">As of: ${data.as_of_time || new Date().toISOString()} | Safety Gate: ${hardGate}</div>
@@ -4480,9 +4480,9 @@ function changeAdminPage(type, delta) {
 
     // ── LOAD DATA
     function openChart(symbol, cmp) {
-      // Opens Dhan chart by default (primary broker)
+      // Opens TradingView chart
       const clean = (symbol || '').replace('NSE:','').replace('.NS','').replace('.BO','');
-      window.open('https://tv.dhan.co/chart/?symbol=NSE:' + encodeURIComponent(clean), '_blank');
+      window.open('https://in.tradingview.com/chart/?symbol=NSE:' + encodeURIComponent(clean), '_blank');
     }
 
     function fetchNews(symbol, containerId, btnId) {
@@ -5800,7 +5800,7 @@ function getEarningsBadgeHtml(item) {
           <div class="detail-item">
             <div class="detail-label">Actions</div>
             <div class="detail-val" style="margin-top:6px; display:flex; flex-direction:column; gap:6px;">
-              <button onclick="event.stopPropagation(); window.open('https://tv.dhan.co/chart/?symbol=NSE:${t.symbol}', '_blank')" style="background:linear-gradient(135deg,#1a73e8,#0d5dbf); color:#fff; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; width:max-content; white-space:nowrap;">🅓 Dhan Chart ↗</button>
+              <button onclick="event.stopPropagation(); window.open('https://in.tradingview.com/chart/?symbol=NSE:${t.symbol}', '_blank')" style="background:linear-gradient(135deg,#2962ff,#1e53e5); color:#fff; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; width:max-content; white-space:nowrap;">📈 TradingView Chart ↗</button>
               <button onclick="event.stopPropagation(); window.open('https://trade.fyers.in/popout/index.html?symbol=NSE:${t.symbol}-EQ&resolution=D&theme=dark', '_blank')" style="background:linear-gradient(135deg,#e8471a,#bf2e0d); color:#fff; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; width:max-content; white-space:nowrap;">🅕 Fyers Chart ↗</button>
               ${t.status === 'REJECTED'
             ? `<button onclick="acceptAlert(${t.id})" style="background:#00d4a1; color:#000; border:none; padding:4px 10px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; width:max-content; white-space:nowrap; margin-top: 4px;">✅ Re-Accept Trade</button>`
@@ -9712,7 +9712,7 @@ function renderMultibaggerWatchlist() {
         <td style="font-size:11px;">${bucket}</td>
         <td style="font-size:10px; line-height:1.2; max-width:110px; white-space:normal; color:var(--muted);">${notes}</td>
         <td style="text-align: center; white-space:nowrap;">
-          <a href="https://tv.dhan.co/chart/?symbol=NSE:${sym}" target="_blank" rel="noopener noreferrer" style="color:#4a9eff; text-decoration:none; font-weight:700; font-size:10px; margin-right:4px;" title="Open on Dhan">🅓 Dhan</a>
+          <a href="https://in.tradingview.com/chart/?symbol=NSE:${sym}" target="_blank" rel="noopener noreferrer" style="color:#2962ff; text-decoration:none; font-weight:700; font-size:10px; margin-right:4px;" title="Open on TradingView">📈 TV</a>
           <a href="https://trade.fyers.in/popout/index.html?symbol=NSE:${sym}-EQ&resolution=D&theme=dark" target="_blank" rel="noopener noreferrer" style="color:#ff6b4a; text-decoration:none; font-weight:700; font-size:10px;" title="Open on Fyers">🅕 Fyers</a>
         </td>
       </tr>
@@ -10502,18 +10502,18 @@ function _fetchWatchlist(forceRefresh = false) {
 // [VERSION: CMP_MASTER_v2.0] Shared broker chart link helper
 function getBrokerChartLinks(symbol, compact) {
   const clean = (symbol || '').replace('NSE:','').replace('.NS','').replace('.BO','').trim();
-  const dhanUrl = 'https://tv.dhan.co/chart/?symbol=NSE:' + encodeURIComponent(clean);
+  const tvUrl = 'https://in.tradingview.com/chart/?symbol=NSE:' + encodeURIComponent(clean);
   const fyersUrl = 'https://trade.fyers.in/popout/index.html?symbol=NSE:' + encodeURIComponent(clean) + '-EQ&resolution=D&theme=dark';
   const pad = compact ? '2px 6px' : '4px 10px';
   const fs  = compact ? '10px' : '11px';
-  return `<a href="${dhanUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="background:linear-gradient(135deg,#1a73e8,#0d5dbf); color:#fff; padding:${pad}; border-radius:4px; font-size:${fs}; font-weight:700; text-decoration:none; display:inline-flex; align-items:center; gap:3px;" title="Open on Dhan Chart">🅓</a>
+  return `<a href="${tvUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="background:linear-gradient(135deg,#2962ff,#1e53e5); color:#fff; padding:${pad}; border-radius:4px; font-size:${fs}; font-weight:700; text-decoration:none; display:inline-flex; align-items:center; gap:3px;" title="Open on TradingView Chart">📈 TV</a>
          <a href="${fyersUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="background:linear-gradient(135deg,#e8471a,#bf2e0d); color:#fff; padding:${pad}; border-radius:4px; font-size:${fs}; font-weight:700; text-decoration:none; display:inline-flex; align-items:center; gap:3px;" title="Open on Fyers Chart">🅕</a>`;
 }
 
-// [VERSION: CMP_MASTER_v2.0] Open symbol on Dhan chart in new tab (legacy compat)
+// [VERSION: CMP_MASTER_v2.0] Open symbol on TradingView chart in new tab
 function openInTradingView(symbol) {
   const clean = (symbol || '').replace('.NS','').replace('.BO','');
-  window.open('https://tv.dhan.co/chart/?symbol=NSE:' + encodeURIComponent(clean), '_blank');
+  window.open('https://in.tradingview.com/chart/?symbol=NSE:' + encodeURIComponent(clean), '_blank');
 }
 
 // [VERSION: MWL_SORT_v1.0] Sort state for manual watchlist
@@ -13096,9 +13096,9 @@ function openStockForensics(typeOrObj, index) {
 
   const tvBtnContainer = document.getElementById('fm-tv-btn-container');
   if (tvBtnContainer) {
-    const dhanUrl = `https://tv.dhan.co/chart/?symbol=NSE:${encodeURIComponent(tvSym)}`;
+    const tvUrl = `https://in.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(tvSym)}`;
     const fyersUrl = `https://trade.fyers.in/popout/index.html?symbol=NSE:${encodeURIComponent(tvSym)}-EQ&resolution=D&theme=dark`;
-    tvBtnContainer.innerHTML = `<a id="fm-dhan-btn" href="${dhanUrl}" target="_blank" class="forensic-btn-tv" style="background:linear-gradient(135deg,#1a73e8,#0d5dbf); margin-right:6px;">🅓 Dhan ↗</a><a id="fm-fyers-btn" href="${fyersUrl}" target="_blank" class="forensic-btn-tv" style="background:linear-gradient(135deg,#e8471a,#bf2e0d);">🅕 Fyers ↗</a>`;
+    tvBtnContainer.innerHTML = `<a id="fm-tv-btn" href="${tvUrl}" target="_blank" class="forensic-btn-tv" style="background:linear-gradient(135deg,#2962ff,#1e53e5); margin-right:6px;">📈 TradingView ↗</a><a id="fm-fyers-btn" href="${fyersUrl}" target="_blank" class="forensic-btn-tv" style="background:linear-gradient(135deg,#e8471a,#bf2e0d);">🅕 Fyers ↗</a>`;
   }
 
   // Render Multi-Scanner Confluence Panel IMMEDIATELY
@@ -13221,7 +13221,7 @@ document.addEventListener('keydown', function(e) {
       </div>
       <div style="display:flex; align-items:center; gap:10px;">
         <span id="fm-tv-btn-container" style="display:inline-flex; gap:6px; align-items:center;">
-          <a id="fm-dhan-btn" href="#" target="_blank" class="forensic-btn-tv" style="background:linear-gradient(135deg,#1a73e8,#0d5dbf);">🅓 Dhan ↗</a>
+          <a id="fm-tv-btn" href="#" target="_blank" class="forensic-btn-tv" style="background:linear-gradient(135deg,#2962ff,#1e53e5);">📈 TradingView ↗</a>
           <a id="fm-fyers-btn" href="#" target="_blank" class="forensic-btn-tv" style="background:linear-gradient(135deg,#e8471a,#bf2e0d);">🅕 Fyers ↗</a>
         </span>
         <button class="forensic-modal-close" onclick="closeStockForensicModal()" title="Close (Esc)">✕</button>
