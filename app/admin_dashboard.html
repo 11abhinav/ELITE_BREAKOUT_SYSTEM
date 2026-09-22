@@ -4400,6 +4400,8 @@ function changeAdminPage(type, delta) {
         displayStatus = t.pnl_pct >= 0 ? 'PROFIT' : 'LOSS';
       } else if (s === 'WIN') {
         displayStatus = 'PROFIT';
+      } else if (s === 'OPEN' && t && (t.remaining_shares === 0 || (t.shares_bought && t.remaining_shares <= 0))) {
+        displayStatus = (t.pnl_pct != null && t.pnl_pct >= 0) || (t.pnl_rs != null && t.pnl_rs >= 0) ? 'PROFIT' : 'LOSS';
       }
       const m = { PROFIT: 'badge-win', WIN: 'badge-win', LOSS: 'badge-loss', OPEN: 'badge-open', SELL_REVIEW: 'badge-review', NEUTRAL: 'badge-neutral', REJECTED: 'badge-rejected', PARTIAL_WIN_1: 'badge-partial', PARTIAL_WIN_2: 'badge-partial' };
       if (s === 'PARTIAL_WIN_1') displayStatus = 'T1 HIT';
@@ -5634,8 +5636,8 @@ function getEarningsBadgeHtml(item) {
 
         // [RULE 67 CHANGE-RATIONALE]: Row highlight per user instruction:
         // Only profit trades in green, and SL trades in red; neutral / breakeven (0.00%) remain unhighlighted.
-        const isProfit = (t.status === 'WIN' || t.status === 'PROFIT' || (t.status && t.status.startsWith('PARTIAL_WIN')) || t.exit_signal === 'TARGET' || (pnlData && pnlData.totalPct > 0.001));
-        const isSL = (t.status === 'LOSS' || t.exit_signal === 'STOP_LOSS' || (t.exit_reason && (t.exit_reason.includes('SL') || t.exit_reason.includes('STOP_LOSS'))) || (pnlData && pnlData.totalPct < -0.001) || (t.stop_loss > 0 && (t.current_price || t.exit_price) > 0 && (t.current_price || t.exit_price) <= t.stop_loss));
+        const isProfit = (t.status === 'WIN' || t.status === 'PROFIT' || (t.status && t.status.startsWith('PARTIAL_WIN')) || t.exit_signal === 'TARGET' || (pnlData && pnlData.totalPct > 0.001) || (t.remaining_shares === 0 && pnlData && pnlData.totalPct >= 0));
+        const isSL = (t.status === 'LOSS' || t.exit_signal === 'STOP_LOSS' || (t.exit_reason && (t.exit_reason.includes('SL') || t.exit_reason.includes('STOP_LOSS'))) || (pnlData && pnlData.totalPct < -0.001) || (t.remaining_shares === 0 && pnlData && pnlData.totalPct < 0) || (t.stop_loss > 0 && (t.current_price || t.exit_price) > 0 && (t.current_price || t.exit_price) <= t.stop_loss));
 
         let rowHighlightStyle = '';
         if (isProfit) {

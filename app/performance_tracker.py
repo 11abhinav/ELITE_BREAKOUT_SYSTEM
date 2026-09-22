@@ -260,14 +260,10 @@ def _fetch_recent_bars(symbol: str, n_days: int = 7, interval: str = "1h",
         if prefetched is not None and isinstance(prefetched, pd.DataFrame) and not prefetched.empty:
             hist = prefetched.copy()
         else:
-            df_request = pd.DataFrame({"Stock": [symbol]})
-            raw_dict = fetch_watchlist_data(
-                df_request,
-                interval=interval,
-                period=f"{n_days}d",
-                requester="performance_tracker_tier2"
-            )
-            hist = raw_dict.get(symbol) if raw_dict else None
+            # [PERF OPTIMIZATION] Do not perform individual synchronous broker fetches inside
+            # the trade loop. Pre-fetching is handled in batch upfront. If not prefetched,
+            # return None so the trade falls back to real-time CMP evaluation without stalling.
+            return None
 
         from core_enums import ProviderResult
         if hist is None or isinstance(hist, ProviderResult) or (hasattr(hist, 'empty') and hist.empty):
@@ -1256,6 +1252,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                 t["status"] = "OPEN"
                 t["exit_history"] = "[]"
                 t["remaining_shares"] = t.get("shares_bought", 0)
+        # Prioritize recalculation target alerts to the front of the list for immediate execution
+        trades.sort(key=lambda tr: 0 if tr["id"] in recalc_set else 1)
 
     # ── 2. Fetch current prices ──────────────────────────────────────────────────────
     unique_symbols = list({t["symbol"] for t in trades})
@@ -1544,8 +1542,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                 process_trade_history(t, hist, cur_p=cur_p if (is_open and cur_p) else None, is_recalculate=True)
             elif is_open:
                 # Normal 5-minute exit monitor loop during active market hours
-                # Evaluates live price cur_p + recent session bars without destroying existing partial-win states
-                hist = _fetch_recent_bars(sym, n_days=3, interval="5m", prefetched=tier2_prefetch.get(sym))
+                # In targeted recalc mode (do_tick_replay=True), only evaluate non-recalc open trades against cur_p
+                hist = tier2_prefetch.get(sym) if (not do_tick_replay and tier2_prefetch) else None
                 process_trade_history(t, hist, cur_p=cur_p if cur_p else None, is_recalculate=False)
 
         elif sl and alert_time:

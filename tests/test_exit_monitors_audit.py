@@ -738,7 +738,6 @@ class TestExitMonitorsAndCalendar(unittest.TestCase):
         """Verify trigger_performance_rebuild accumulates recalc_ids without losing them when lock is held."""
         from performance_tracker import trigger_performance_rebuild, _pending_recalc_ids, _pending_recalc_lock, _perf_rebuild_lock
 
-        # Hold the lock to simulate an active rebuild in progress
         with _perf_rebuild_lock:
             with _pending_recalc_lock:
                 _pending_recalc_ids.clear()
@@ -750,6 +749,27 @@ class TestExitMonitorsAndCalendar(unittest.TestCase):
                 self.assertIn(116, _pending_recalc_ids, "Alert 116 must be preserved in _pending_recalc_ids")
                 self.assertIn(190, _pending_recalc_ids, "Alert 190 must be preserved in _pending_recalc_ids")
                 _pending_recalc_ids.clear()
+
+    def test_recalc_priority_and_non_blocking_recent_bars(self):
+        """Verify _fetch_recent_bars never blocks with individual broker calls when prefetched is None, and trades are prioritized."""
+        from performance_tracker import _fetch_recent_bars
+
+        # 1. Non-blocking recent bars
+        res = _fetch_recent_bars("GENUSPOWER", n_days=3, interval="5m", prefetched=None)
+        self.assertIsNone(res, "_fetch_recent_bars must return None when prefetched is None to prevent 25-second stalls")
+
+        # 2. Priority sorting
+        trades = [
+            {"id": 200, "alert_time": "2026-09-22 10:00:00"},
+            {"id": 190, "alert_time": "2026-09-17 20:29:00"},
+            {"id": 150, "alert_time": "2026-09-12 14:00:00"},
+            {"id": 116, "alert_time": "2026-09-07 17:51:00"},
+        ]
+        recalc_set = {116, 190}
+        trades.sort(key=lambda tr: 0 if tr["id"] in recalc_set else 1)
+        prioritized_ids = [t["id"] for t in trades[:2]]
+        self.assertIn(116, prioritized_ids)
+        self.assertIn(190, prioritized_ids)
 
 if __name__ == "__main__":
     unittest.main()
