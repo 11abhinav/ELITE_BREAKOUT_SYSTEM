@@ -3425,7 +3425,18 @@ def update_partial_exit(
                     if isinstance(exit_hist, str):
                         exit_hist = json.loads(exit_hist)
 
-                    exit_hist.append(exit_event)
+                    # Deduplicate by event type: if an event of this type already exists, update it in place
+                    event_type = exit_event.get("type") if isinstance(exit_event, dict) else None
+                    existing_idx = None
+                    if event_type and isinstance(exit_hist, list):
+                        for idx, e in enumerate(exit_hist):
+                            if isinstance(e, dict) and e.get("type") == event_type:
+                                existing_idx = idx
+                                break
+                    if existing_idx is not None:
+                        exit_hist[existing_idx] = exit_event
+                    else:
+                        exit_hist.append(exit_event)
                     new_hist_json = json.dumps(exit_hist, default=str)
 
                     if execution_state:
@@ -3468,7 +3479,8 @@ def update_alert_outcome(
     pnl_rs: float = None,
     closed_at: Optional[str] = None,
     exit_signal: Optional[str] = None,
-    execution_state: str = None
+    execution_state: str = None,
+    exit_history: list = None
 ) -> None:
     """
     Lock in the final outcome of a trade once SL or Target is hit.
@@ -3509,6 +3521,8 @@ def update_alert_outcome(
                         elif pnl_pct is not None and cap:
                             pnl_rs = round((pnl_pct / 100.0) * cap, 2)
 
+                    hist_json = json.dumps(exit_history, default=str) if exit_history is not None else None
+
                     # Note: We allow overwriting OPEN or any PARTIAL_WIN_x
                     if execution_state:
                         cur.execute("""
@@ -3520,10 +3534,11 @@ def update_alert_outcome(
                                 closed_at   = %s,
                                 exit_signal = %s,
                                 remaining_shares = 0,
-                                execution_state = %s
+                                execution_state = %s,
+                                exit_history = COALESCE(%s::jsonb, exit_history)
                             WHERE id = %s
                             AND status NOT IN ('WIN', 'LOSS', 'EXPIRED', 'NEUTRAL', 'CLOSED', 'REJECTED')
-                        """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, execution_state, alert_id))
+                        """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, execution_state, hist_json, alert_id))
                     else:
                         cur.execute("""
                             UPDATE alerts
@@ -3533,13 +3548,14 @@ def update_alert_outcome(
                                 pnl_rs      = %s,
                                 closed_at   = %s,
                                 exit_signal = %s,
-                                remaining_shares = 0
+                                remaining_shares = 0,
+                                exit_history = COALESCE(%s::jsonb, exit_history)
                             WHERE id = %s
                             AND status NOT IN ('WIN', 'LOSS', 'EXPIRED', 'NEUTRAL', 'CLOSED', 'REJECTED')
-                        """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, alert_id))
+                        """, (status, exit_price, pnl_pct, pnl_rs, closed_at, exit_signal, hist_json, alert_id))
 
                     if cur.rowcount:
-                        new_state = {"status": status, "exit_price": exit_price, "pnl_pct": pnl_pct, "pnl_rs": pnl_rs}
+                        new_state = {"status": status, "exit_price": exit_price, "pnl_pct": pnl_pct, "pnl_rs": pnl_rs, "exit_history": exit_history}
                         cur.execute("INSERT INTO trade_audit_log (alert_id, action, old_state, new_state) VALUES (%s, %s, %s, %s)",
                                     (alert_id, 'FINAL_EXIT', json.dumps(old_state, default=str), json.dumps(new_state, default=str)))
                         conn.commit()

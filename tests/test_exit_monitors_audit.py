@@ -477,5 +477,193 @@ class TestExitMonitorsAndCalendar(unittest.TestCase):
         self.assertEqual(trade_legacy["status"], "LOSS", "Legacy alert must close with status LOSS")
         self.assertTrue(trade_legacy["stopped_out"], "Legacy alert stopped_out must be True")
 
+    def test_small_quantity_share_division_and_full_close(self):
+        """Verify that a 4-share trade correctly scales 1 at T1, 1 at T2, and remaining 2 at T3, and cleanly closes."""
+        from performance_tracker import process_trade_history, _calc_shares_to_sell
+        import json
+
+        # 1. Direct unit test of _calc_shares_to_sell
+        cfg = [20, 30, 50]
+        s1 = _calc_shares_to_sell(shares_bought=4, rem_shares=4, target_idx=0, exit_config=cfg, has_next_target=True, has_future_target_after_next=True)
+        self.assertEqual(s1, 1, "T1 must sell 1 share (reserving 2 for T2 and T3)")
+        s2 = _calc_shares_to_sell(shares_bought=4, rem_shares=3, target_idx=1, exit_config=cfg, has_next_target=True, has_future_target_after_next=False)
+        self.assertEqual(s2, 1, "T2 must sell 1 share (reserving 1 for T3)")
+        s3 = _calc_shares_to_sell(shares_bought=4, rem_shares=2, target_idx=2, exit_config=cfg, has_next_target=False)
+        self.assertEqual(s3, 2, "T3 must sell all remaining 2 shares")
+
+        # 1 share total
+        s_single = _calc_shares_to_sell(shares_bought=1, rem_shares=1, target_idx=0, exit_config=cfg, has_next_target=True, has_future_target_after_next=True)
+        self.assertEqual(s_single, 1, "Single share trade must sell 1 share at T1")
+
+        # 2. End-to-end replay test for GENUSPOWER setup: 4 shares, Entry: 303.85, T1: 309.85, T2: 313.56, T3: 319.56
+        trade_genus = {
+            "id": 99991,
+            "symbol": "GENUSPOWER",
+            "scanner": "MULTI_TF",
+            "entry_mode": "MARKET",
+            "execution_state": "OPEN",
+            "entry_price": 303.85,
+            "actual_entry_price": 303.85,
+            "stop_loss": 300.85,
+            "initial_stop_loss": 300.85,
+            "target_1": 309.85,
+            "target_2": 313.56,
+            "target_3": 319.56,
+            "shares_bought": 4,
+            "remaining_shares": 4,
+            "capital_allocated": 1215.4,
+            "status": "OPEN",
+            "alert_time": "2026-09-17 20:29:00",
+            "exit_history": "[]"
+        }
+
+        # First candle breaches T1 (high=310.9) but not T2
+        df_t1 = pd.DataFrame({
+            "Open": [305.0],
+            "High": [310.9],  # T1 breached
+            "Low":  [304.0],
+            "Close": [310.0],
+            "Volume": [20000]
+        }, index=pd.DatetimeIndex([IST.localize(datetime(2026, 9, 22, 14, 45))]))
+
+        process_trade_history(trade_genus, hist=df_t1, cur_p=310.9, is_recalculate=True)
+
+        self.assertEqual(trade_genus["status"], "PARTIAL_WIN_1", "Position must be PARTIAL_WIN_1 after T1 hit")
+        self.assertEqual(trade_genus["remaining_shares"], 3, "Position must have 3 shares remaining after T1")
+        eh1 = json.loads(trade_genus["exit_history"])
+        self.assertEqual(len(eh1), 1, "Must have exactly 1 exit event for T1")
+        self.assertEqual(eh1[0]["type"], "T1_HIT")
+        self.assertEqual(eh1[0]["shares"], 1, "Must have sold exactly 1 share at T1")
+
+        # Second candle reaches T2 (high=314.0)
+        df_t2 = pd.DataFrame({
+            "Open": [305.0, 310.0],
+            "High": [310.9, 314.0],  # Candle 1 hits T1 (309.85), Candle 2 hits T2 (313.56)
+            "Low":  [304.0, 310.0],  # Low 310.0 stays above SL
+            "Close": [310.0, 313.8],
+            "Volume": [20000, 25000]
+        }, index=pd.DatetimeIndex([
+            IST.localize(datetime(2026, 9, 22, 14, 45)),
+            IST.localize(datetime(2026, 9, 22, 14, 50))
+        ]))
+
+        process_trade_history(trade_genus, hist=df_t2, cur_p=313.8, is_recalculate=True)
+        self.assertEqual(trade_genus["status"], "PARTIAL_WIN_2", "Position must be PARTIAL_WIN_2 after T2 hit")
+        self.assertEqual(trade_genus["remaining_shares"], 2, "Position must have 2 shares remaining after T2")
+        eh2 = json.loads(trade_genus["exit_history"])
+        self.assertEqual(len(eh2), 2, "Must have exactly 2 exit events (T1_HIT and T2_HIT)")
+        self.assertEqual(eh2[1]["type"], "T2_HIT")
+        self.assertEqual(eh2[1]["shares"], 1, "Must have sold exactly 1 share at T2")
+
+        # Third candle reaches T3 (high=320.0) -> Full close as WIN!
+        df_t3 = pd.DataFrame({
+            "Open": [305.0, 310.0, 314.0],
+            "High": [310.9, 314.0, 320.0],  # Candle 3 hits T3 (319.56)
+            "Low":  [304.0, 310.0, 314.0],
+            "Close": [310.0, 313.8, 319.8],
+            "Volume": [20000, 25000, 30000]
+        }, index=pd.DatetimeIndex([
+            IST.localize(datetime(2026, 9, 22, 14, 45)),
+            IST.localize(datetime(2026, 9, 22, 14, 50)),
+            IST.localize(datetime(2026, 9, 22, 14, 55))
+        ]))
+
+        process_trade_history(trade_genus, hist=df_t3, cur_p=319.8, is_recalculate=True)
+        self.assertEqual(trade_genus["status"], "WIN", "Position must close cleanly as WIN after all shares sold at T3")
+        self.assertEqual(trade_genus["remaining_shares"], 0, "Position must have 0 remaining shares")
+        self.assertTrue(trade_genus["target_hit"], "target_hit must be True")
+        self.assertIsNotNone(trade_genus["closed_at"], "closed_at must be populated")
+        eh3 = json.loads(trade_genus["exit_history"])
+        self.assertEqual(len(eh3), 3, "Must have 3 exit events total")
+        self.assertEqual(eh3[2]["shares"], 2, "Must have sold final 2 shares at T3")
+
+    def test_single_share_trade_closes_as_win_on_t1(self):
+        """Verify that a 1-share trade cleanly and immediately closes as WIN when T1 is hit."""
+        from performance_tracker import process_trade_history
+
+        trade_single = {
+            "id": 99992,
+            "symbol": "ONE_SHARE_CO",
+            "scanner": "MULTI_TF",
+            "entry_mode": "MARKET",
+            "execution_state": "OPEN",
+            "entry_price": 100.0,
+            "actual_entry_price": 100.0,
+            "stop_loss": 95.0,
+            "initial_stop_loss": 95.0,
+            "target_1": 105.0,
+            "target_2": 110.0,
+            "target_3": 115.0,
+            "shares_bought": 1,
+            "remaining_shares": 1,
+            "capital_allocated": 100.0,
+            "status": "OPEN",
+            "alert_time": "2026-09-22 10:00:00",
+            "exit_history": "[]"
+        }
+
+        df = pd.DataFrame({
+            "Open": [102.0],
+            "High": [106.0],  # T1 hit
+            "Low":  [101.0],
+            "Close": [105.5],
+            "Volume": [1000]
+        }, index=pd.DatetimeIndex([IST.localize(datetime(2026, 9, 22, 10, 15))]))
+
+        process_trade_history(trade_single, hist=df, cur_p=105.5, is_recalculate=True)
+        self.assertEqual(trade_single["status"], "WIN", "Single share trade must close as WIN, not remain OPEN or PARTIAL_WIN")
+        self.assertEqual(trade_single["remaining_shares"], 0, "Remaining shares must be 0")
+        self.assertTrue(trade_single["target_hit"], "target_hit must be True")
+        self.assertIsNotNone(trade_single["closed_at"])
+
+    def test_exit_history_deduplication_defense_in_depth(self):
+        """Verify that existing duplicate events in DB exit_history are sanitized and never duplicated."""
+        from performance_tracker import process_trade_history
+        import json
+
+        # Simulate corrupt DB state with duplicate T1_HIT events (like in the bug)
+        corrupted_hist = [
+            {"type": "T1_HIT", "price": 309.85, "shares": 1, "pnl": 6.0, "time": "2026-09-22 14:45:00"},
+            {"type": "T1_HIT", "price": 311.15, "shares": 1, "pnl": 7.3, "time": "2026-09-22 14:47:00"}
+        ]
+        trade = {
+            "id": 99993,
+            "symbol": "GENUSPOWER",
+            "scanner": "MULTI_TF",
+            "entry_mode": "MARKET",
+            "execution_state": "PARTIAL_1_HIT",
+            "entry_price": 303.85,
+            "actual_entry_price": 303.85,
+            "stop_loss": 304.76,
+            "initial_stop_loss": 300.85,
+            "target_1": 309.85,
+            "target_2": 313.56,
+            "target_3": 319.56,
+            "shares_bought": 4,
+            "remaining_shares": 3,
+            "capital_allocated": 1215.4,
+            "status": "PARTIAL_WIN_1",
+            "alert_time": "2026-09-17 20:29:00",
+            "exit_history": json.dumps(corrupted_hist)
+        }
+
+        # Run live exit monitor (is_recalculate=False) with current price between T1 and T2
+        df = pd.DataFrame({
+            "Open": [310.0],
+            "High": [311.5],
+            "Low":  [309.5],
+            "Close": [311.0],
+            "Volume": [15000]
+        }, index=pd.DatetimeIndex([IST.localize(datetime(2026, 9, 22, 14, 55))]))
+
+        process_trade_history(trade, hist=df, cur_p=311.0, is_recalculate=False)
+
+        # After processing, history must be deduplicated
+        eh = json.loads(trade["exit_history"]) if isinstance(trade["exit_history"], str) else trade["exit_history"]
+        t1_events = [e for e in eh if e.get("type") == "T1_HIT"]
+        self.assertEqual(len(t1_events), 1, "Duplicate T1_HIT events must be deduplicated to exactly 1")
+        self.assertEqual(trade["remaining_shares"], 3, "Remaining shares must correctly be 3 (4 bought - 1 sold at T1)")
+        self.assertEqual(trade["status"], "PARTIAL_WIN_1")
+
 if __name__ == "__main__":
     unittest.main()

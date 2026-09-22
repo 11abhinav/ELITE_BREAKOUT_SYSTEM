@@ -3614,6 +3614,7 @@ def api_recalculate_alert():
                             tr["target_hit"] = False
                             tr["exit_history"] = "[]"
                             tr["execution_state"] = "OPEN"
+                            tr["remaining_shares"] = tr.get("shares_bought", 0)
                             changed = True
                     if changed:
                         save_system_state("performance_data", json.dumps(perf_blob, default=str))
@@ -3673,7 +3674,19 @@ def api_get_exit_history(alert_id):
                 if row and row['exit_history']:
                     history = row['exit_history']
                     if isinstance(history, str):
-                        return Response(history, mimetype="application/json")
+                        history = json.loads(history)
+                    if isinstance(history, list):
+                        seen = set()
+                        deduped = []
+                        for h in history:
+                            if isinstance(h, dict):
+                                t_type = h.get("type")
+                                if t_type:
+                                    if t_type in seen:
+                                        continue
+                                    seen.add(t_type)
+                            deduped.append(h)
+                        history = deduped
                     return jsonify(history)
                     
         return jsonify([]), 200
