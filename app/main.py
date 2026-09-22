@@ -423,7 +423,7 @@ def _run_multibagger_exit_single():
         upsert_scanner_health(
             "MULTIBAGGER_EXIT", status="OK",
             last_success=datetime.now(IST).isoformat(),
-            scheduled_for="Every 15min (market hours)",
+            scheduled_for="Every 5min (market hours)",
             duration_seconds=duration_sec
         )
         telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_COMPLETE")
@@ -438,7 +438,7 @@ def _run_multibagger_exit_single():
         try:
             if run_ctx:
                 complete_scanner_execution_run(run_ctx, exception=e)
-            upsert_scanner_health("MULTIBAGGER_EXIT", status="DOWN", error_msg=str(e)[:500], scheduled_for="Every 15min (market hours)")
+            upsert_scanner_health("MULTIBAGGER_EXIT", status="DOWN", error_msg=str(e)[:500], scheduled_for="Every 5min (market hours)")
         except Exception:
             pass
 
@@ -1728,8 +1728,8 @@ def run_system_scheduler():
                 #   - safe_run_wealth_market_hours: last_wealth_market_run throttle + is_scanner_stopped
                 import threading as _threading
 
-                # 1. Multibagger Exit Monitor (every 15 mins)
-                if not last_mb_exit or (now - last_mb_exit).total_seconds() >= 900:
+                # 1. Multibagger Exit Monitor (every 5 mins)
+                if not last_mb_exit or (now - last_mb_exit).total_seconds() >= 300:
                     last_mb_exit = datetime.now(IST)  # set before thread start to prevent double-fire
                     _threading.Thread(
                         target=_run_multibagger_exit_single,
@@ -2104,7 +2104,7 @@ from ai_worker import run_worker_loop as run_ai_loop
 from pledge_worker import worker_loop as run_pledge_loop
 
 def run_multibagger_exit_monitor():
-    """Independent background daemon to monitor multibagger exits every 15 minutes."""
+    """Independent background daemon to monitor multibagger exits every 5 minutes."""
     from database import upsert_scanner_health
     from market_utils import is_market_open
     from multibagger import run_standalone_exit_monitor
@@ -2125,7 +2125,7 @@ def run_multibagger_exit_monitor():
                 upsert_scanner_health(
                     "MULTIBAGGER_EXIT", status="OK",
                     last_success=datetime.now(IST).isoformat(),
-                    scheduled_for="Every 15min (market hours)"
+                    scheduled_for="Every 5min (market hours)"
                 )
                 telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_COMPLETE")
             except Exception as e:
@@ -2135,12 +2135,12 @@ def run_multibagger_exit_monitor():
                 telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_FAILED", error=str(e))
                 if "actively running" not in str(e):
                     try:
-                        upsert_scanner_health("MULTIBAGGER_EXIT", status="DOWN", error_msg=str(e)[:500], scheduled_for="Every 15min (market hours)")
+                        upsert_scanner_health("MULTIBAGGER_EXIT", status="DOWN", error_msg=str(e)[:500], scheduled_for="Every 5min (market hours)")
                     except Exception:
                         pass
         else:
             logger.debug("⏸️ [MULTIBAGGER_EXIT] Market closed — skipping exit check")
-        time.sleep(900)
+        time.sleep(300)
 
 
 def _run_multibagger_scanner_single():

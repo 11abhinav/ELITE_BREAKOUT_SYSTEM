@@ -145,6 +145,22 @@ def get_previous_trading_date(val: Optional[Union[datetime, date, str]] = None) 
     return curr
 
 
+def get_next_trading_date(val: Optional[Union[datetime, date, str]] = None) -> date:
+    """
+    Resolves to the valid trading session date strictly after the given date.
+    E.g. Friday -> Monday, day before holiday -> next business day.
+    """
+    if val is None:
+        curr = datetime.now(IST).date()
+    else:
+        curr = TradingCalendar._parse_date(val) or datetime.now(IST).date()
+
+    curr += timedelta(days=1)
+    while not default_trading_calendar.is_trading_day(curr):
+        curr += timedelta(days=1)
+    return curr
+
+
 def is_weekend_date(val: Union[datetime, date, str]) -> bool:
     """
     Returns True if the given date/timestamp lands on a Saturday (5) or Sunday (6).
@@ -170,18 +186,48 @@ def is_market_candle_eligible(val: Union[datetime, date, str]) -> bool:
     return default_trading_calendar.is_trading_day(d)
 
 
+from datetime import time as time_cls
+
+def is_valid_market_session_timestamp(val: Union[datetime, str, pd.Timestamp]) -> bool:
+    """
+    CRITICAL INVARIANT: Returns True ONLY if the given timestamp belongs to:
+    1. A valid weekday (Monday to Friday, Saturday=0, Sunday=0)
+    2. An official NSE/BSE trading day (not an exchange holiday)
+    3. Official NSE/BSE active trading session hours: 09:15 to 15:30 IST.
+    """
+    if val is None:
+        return False
+    if isinstance(val, str):
+        try:
+            val = pd.to_datetime(val)
+        except Exception:
+            return False
+    if hasattr(val, "tzinfo"):
+        if val.tzinfo is None:
+            val = IST.localize(val)
+        else:
+            val = val.astimezone(IST)
+    elif isinstance(val, pd.Timestamp):
+        if val.tz is None:
+            val = val.tz_localize(IST)
+        else:
+            val = val.tz_convert(IST)
+
+    d = val.date()
+    if not default_trading_calendar.is_trading_day(d):
+        return False
+
+    t = val.time()
+    return time_cls(9, 15) <= t <= time_cls(15, 30)
+
+
 def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
     """
-    CRITICAL HARD GLOBAL INVARIANT: WEEKEND CANDLE BAN — SYSTEM-WIDE.
-    - Weekend timestamps are forbidden as market-candle data, but weekend execution is permitted.
-    - All scanners, exit monitors, performance engines, and other consumers operate normally
-      using the latest valid NSE/BSE trading-session candle (e.g. Friday 15:30).
-    - Saturday (weekday 5) and Sunday (weekday 6) candles must NEVER be fetched, accepted,
-      evaluated, stored as valid market candles, or used for any trading decision anywhere in the system.
-
-    Purges any row whose timestamp lands on Saturday or Sunday.
-    Logs warning with latest valid trading candle and confirms execution continues.
-    Returns cleaned DataFrame containing ONLY official trading session data.
+    CRITICAL HARD GLOBAL INVARIANT: TRADING SESSION CANDLE ENFORCEMENT — SYSTEM-WIDE.
+    - Weekend timestamps (Saturday = 0, Sunday = 0) are strictly forbidden.
+    - Official NSE/BSE exchange holidays are strictly forbidden.
+    - Off-market / midnight ghost bars outside 09:15–15:30 IST are strictly purged for intraday data.
+    - Returns cleaned DataFrame containing ONLY official trading session data in IST.
     """
     if df is None or not hasattr(df, "empty") or df.empty:
         return df
@@ -201,7 +247,8 @@ def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
             else:
                 ts_series = ts_series.dt.tz_localize("Asia/Kolkata")
         elif isinstance(df.index, pd.DatetimeIndex):
-            ts_series = df.index.tz_convert("Asia/Kolkata") if df.index.tz is not None else df.index.tz_localize("Asia/Kolkata")
+            dt_idx = df.index.tz_convert("Asia/Kolkata") if df.index.tz is not None else df.index.tz_localize("Asia/Kolkata")
+            ts_series = pd.Series(dt_idx, index=df.index)
         else:
             ts_series = pd.to_datetime(df.index, errors="coerce")
             if hasattr(ts_series.dt, "tz") and ts_series.dt.tz is not None:
@@ -212,24 +259,43 @@ def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
         if ts_series is None or len(ts_series) == 0:
             return df
 
-        # Saturday = 5, Sunday = 6
-        is_weekend = (ts_series.dt.weekday >= 5) if hasattr(ts_series, "dt") else (ts_series.weekday >= 5)
-        if is_weekend.any():
-            dropped_count = int(is_weekend.sum())
+        # 1. Saturday = 5, Sunday = 6
+        is_weekend = (ts_series.dt.weekday >= 5)
+
+        # 2. Official NSE market holidays
+        is_holiday = ts_series.dt.date.isin(default_trading_calendar.holidays)
+
+        # 3. Off-market hours (midnight ghost bars, pre/post market outside 09:15-15:30 IST)
+        # Apply only when data has intraday timestamps (non-zero hours/minutes)
+        has_intraday_times = bool((ts_series.dt.hour != 0).any() or (ts_series.dt.minute != 0).any())
+        if has_intraday_times:
+            is_off_hours = (ts_series.dt.time < time_cls(9, 15)) | (ts_series.dt.time > time_cls(15, 30))
+        else:
+            is_off_hours = pd.Series(False, index=df.index)
+
+        is_invalid = is_weekend | is_holiday | is_off_hours
+        if is_invalid.any():
+            dropped_count = int(is_invalid.sum())
             sym_tag = f" for {symbol}" if symbol else ""
-            df_clean = df[~is_weekend].copy()
+            df_clean = df[~is_invalid].copy()
             latest_valid_str = "None"
             if not df_clean.empty:
                 if time_col and time_col in df_clean.columns:
-                    latest_valid_str = str(df_clean[time_col].iloc[-1])[:16]
+                    latest_valid_str = str(df_clean[time_col].iloc[-1])[:19]
                 elif isinstance(df_clean.index, pd.DatetimeIndex):
-                    latest_valid_str = str(df_clean.index[-1])[:16]
+                    latest_valid_str = str(df_clean.index[-1])[:19]
                 else:
-                    latest_valid_str = str(df_clean.index[-1])[:16]
+                    latest_valid_str = str(df_clean.index[-1])[:19]
+
+            reasons = []
+            if is_weekend.any(): reasons.append(f"{int(is_weekend.sum())} weekend")
+            if is_holiday.any(): reasons.append(f"{int(is_holiday.sum())} holiday")
+            if is_off_hours.any(): reasons.append(f"{int(is_off_hours.sum())} off-market/midnight")
+            reason_str = ", ".join(reasons)
 
             logger.warning(
-                f"🚫 [WEEKEND CANDLE BAN] Purged {dropped_count} invalid weekend candle(s){sym_tag}. "
-                f"Latest valid trading candle: {latest_valid_str}. Continuing using latest valid trading-day data."
+                f"🚫 [TRADING SESSION ENFORCEMENT] Purged {dropped_count} invalid candle(s){sym_tag} ({reason_str}). "
+                f"Latest valid trading candle: {latest_valid_str}. Continuing using valid trading session data."
             )
             if not isinstance(df_clean.index, pd.DatetimeIndex):
                 df_clean = df_clean.reset_index(drop=True)
@@ -237,7 +303,7 @@ def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
                 df_clean.attrs = dict(df.attrs)
             return df_clean
     except Exception as err:
-        logger.error(f"❌ [WEEKEND CANDLE BAN] Error enforcing weekend ban on candles: {err}")
+        logger.error(f"❌ [TRADING SESSION ENFORCEMENT] Error enforcing session rules on candles: {err}")
 
     return df
 

@@ -155,11 +155,13 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], pr
         alert_date = alert_dt_ist.date()
 
         # If the alert was recorded after market close (e.g. delayed run or EOD),
-        # the entry is effectively the next trading day. We advance to the next day at 09:15
+        # the entry is effectively the next trading day. We advance to the next official trading day at 09:15
         # instead of replacing the time on the same day (which would incorrectly test that day's intraday dips).
         if alert_dt_ist.time() >= time_cls(15, 30):
-            alert_dt_ist = (alert_dt_ist + timedelta(days=1)).replace(hour=9, minute=15, second=0, microsecond=0)
-
+            from trading_calendar import get_next_trading_date
+            next_t_date = get_next_trading_date(alert_dt_ist.date())
+            alert_dt_ist = alert_dt_ist.replace(year=next_t_date.year, month=next_t_date.month, day=next_t_date.day, hour=9, minute=15, second=0, microsecond=0)
+            alert_date = next_t_date
 
         # Guard: if alert is from today and market hasn't opened yet (before 09:15 IST),
         # no 5m bars exist — return None immediately to avoid yfinance "delisted" noise.
@@ -201,6 +203,12 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], pr
         if not {"High", "Low", "Close"}.issubset(hist.columns):
             return None
 
+        # Enforce trading day candles (purges weekends, official NSE holidays, and off-market candles)
+        from trading_calendar import enforce_trading_day_candles
+        hist = enforce_trading_day_candles(hist, symbol)
+        if hist is None or hist.empty:
+            return None
+
         # Find datetime column
         date_col = next((c for c in ["Datetime", "Date", "index"] if c in hist.columns), None)
         if date_col is None:
@@ -218,8 +226,9 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], pr
             idx = idx.tz_convert("Asia/Kolkata")
         hist.index = idx
 
-        # Drop all candles that opened before the alert timestamp
+        # Drop all candles that opened before the alert timestamp (ZERO LOOK-BEHIND)
         hist = hist[hist.index >= alert_dt_ist].copy()
+        hist = hist[~hist.index.duplicated(keep='first')].sort_index()
 
         return hist if not hist.empty else None
 
@@ -283,21 +292,23 @@ def _fetch_recent_bars(symbol: str, n_days: int = 7, interval: str = "1h",
 
 import json
 
-def evaluate_trade_exits(t: dict, hist: pd.DataFrame = None, cur_p: float = None):
+def evaluate_trade_exits(t: dict, hist: pd.DataFrame = None, cur_p: float = None, is_recalculate: bool = False):
     """Evaluates trade exits against price history bars (alias for process_trade_history)."""
     if cur_p is None and hist is not None and not hist.empty:
         cur_p = float(hist.iloc[-1].get("Close", hist.iloc[-1].get("close", 0.0)))
-    return process_trade_history(t, hist, cur_p or 0.0)
+    return process_trade_history(t, hist, cur_p or 0.0, is_recalculate=is_recalculate)
 
-def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
+def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalculate: bool = False):
     """
-    State Machine Evaluator for Partial Exits (Full Replay Architecture).
-    Walks forward through historical ticks from alert creation and executes trailing SLs and limits.
+    State Machine Evaluator for Partial Exits (Point-in-Time Replay & Exit Monitor).
+    - If is_recalculate=True: Resets in-memory state to alert origin and replays tick by tick forward.
+    - If is_recalculate=False (live 5-min exit monitor): Evaluates against current active state (ratcheted SL, remaining shares).
     Deduplicates database writes by checking existing exit_history.
     Adjusts cost basis and SL/targets for any stock splits or bonus corporate actions.
     """
     from database import update_partial_exit, update_alert_outcome
     from corporate_actions import adjust_trade_for_corporate_actions
+    from trading_calendar import default_trading_calendar, enforce_trading_day_candles, is_valid_market_session_timestamp
     import json
     from datetime import datetime
     import pandas as pd
@@ -348,7 +359,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
     structural_failure_stop = t.get("structural_failure_stop")
 
     # ── Initialize State ───────────────────────────────────────────────────────
-    if hist is not None:
+    if is_recalculate:
         # Full Replay Mode: Reset state to beginning of time
         initial_sl = t.get("initial_stop_loss")
         if not initial_sl or initial_sl == 0:
@@ -364,28 +375,18 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
         t["exit_history"] = "[]"
         db_events = set()
     else:
-        # Fast Mode: Preserve current DB state and history
+        # Live 5-Minute Exit Monitor: Preserve current active DB state, ratcheted SL, and remaining shares
         hist_list = existing_hist
-        # [FIX: FAST_MODE_STATE_RECONSTRUCTION_v1.0]
-        # If exit_history already records T1_HIT or T2_HIT (written by a prior tracker run)
-        # but the DB status column was NOT updated (e.g. crashed between the two DB writes,
-        # or was a very old row created before partial-exit tracking), reconstruct the
-        # in-memory status and remaining_shares so that the subsequent T2/T3 guards
-        # (which check `status == "PARTIAL_WIN_1"` etc.) evaluate correctly.
-        # Without this, a trade with status="OPEN" in DB but exit_history=["T1_HIT"]
-        # would skip T2 entirely and stay "OPEN" forever.
         if db_events:
             if "T2_HIT" in db_events and t.get("status") not in ("PARTIAL_WIN_2", "WIN", "LOSS", "CLOSED"):
                 t["status"] = "PARTIAL_WIN_2"
                 execution_state = "PARTIAL_2_HIT"
                 t["execution_state"] = execution_state
-                # Reconstruct remaining_shares from exit_history events
                 sold_at_t1 = sum(e.get("shares", 0) for e in existing_hist if e.get("type") == "T1_HIT")
                 sold_at_t2 = sum(e.get("shares", 0) for e in existing_hist if e.get("type") == "T2_HIT")
                 reconstructed_rem = shares_bought - sold_at_t1 - sold_at_t2
                 if reconstructed_rem >= 0:
                     t["remaining_shares"] = reconstructed_rem
-                logger.info(f"[FAST_MODE_RECONSTRUCT] {symbol} id={t['id']}: status reconstructed to PARTIAL_WIN_2 (db_events had T2_HIT but DB status was {t.get('status')!r})")
             elif "T1_HIT" in db_events and t.get("status") not in ("PARTIAL_WIN_1", "PARTIAL_WIN_2", "WIN", "LOSS", "CLOSED"):
                 t["status"] = "PARTIAL_WIN_1"
                 execution_state = "PARTIAL_1_HIT"
@@ -394,38 +395,64 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
                 reconstructed_rem = shares_bought - sold_at_t1
                 if reconstructed_rem >= 0:
                     t["remaining_shares"] = reconstructed_rem
-                logger.info(f"[FAST_MODE_RECONSTRUCT] {symbol} id={t['id']}: status reconstructed to PARTIAL_WIN_1 (db_events had T1_HIT but DB status was {t.get('status')!r})")
+
+    # Parse alert timestamp in IST for strict zero look-behind point-in-time causality
+    alert_time_val = t.get("alert_time")
+    alert_dt_ist = None
+    if alert_time_val:
+        if isinstance(alert_time_val, datetime):
+            alert_dt_ist = alert_time_val.astimezone(IST) if alert_time_val.tzinfo else alert_time_val.replace(tzinfo=IST)
+        else:
+            try:
+                alert_dt_naive = datetime.fromisoformat(str(alert_time_val).replace("Z", "+00:00").replace(" IST", ""))
+                alert_dt_ist = alert_dt_naive.astimezone(IST) if alert_dt_naive.tzinfo else alert_dt_naive.replace(tzinfo=IST)
+            except Exception:
+                pass
+
+    if alert_dt_ist and alert_dt_ist.time() >= time_cls(15, 30):
+        from trading_calendar import get_next_trading_date
+        next_d = get_next_trading_date(alert_dt_ist.date())
+        alert_dt_ist = alert_dt_ist.replace(year=next_d.year, month=next_d.month, day=next_d.day, hour=9, minute=15, second=0, microsecond=0)
 
     # Build sequence of all historical ticks (from alert creation) + live price
     ticks = []
     if hist is not None and not hist.empty:
-        # [RULE 67 CHANGE-RATIONALE: CRITICAL WEEKEND CANDLE BAN]
-        # Saturday and Sunday candles must NEVER be accepted, evaluated, or used for performance/P&L.
-        from trading_calendar import enforce_trading_day_candles
         hist = enforce_trading_day_candles(hist, symbol)
-        # Prevent Fyers API glitches from causing time-travel by ensuring chronological order and no duplicates
         hist = hist[~hist.index.duplicated(keep='first')].sort_index()
         for ts, row in hist.iterrows():
             ts_dt = pd.to_datetime(ts)
-            if ts_dt.weekday() >= 5:
+            if hasattr(ts_dt, "tz") and ts_dt.tz is not None:
+                ts_dt_ist = ts_dt.tz_convert(IST)
+            else:
+                ts_dt_ist = ts_dt.tz_localize(IST)
+
+            # 1. Point-in-Time Causality: Never evaluate candles prior to alert entry
+            if alert_dt_ist and ts_dt_ist < alert_dt_ist:
                 continue
-            # [BUG FIX: MIDNIGHT_TICK_GUARD v1.0] Only accept candles that fall inside NSE/BSE
-            # market hours (09:15–15:30 IST). Intraday 5m/1h feeds can include pre-market or
-            # midnight ghost bars (data provider artefacts). Using such a bar for SL/target
-            # evaluation would book exits at prices that never existed in the live market.
-            ts_time = ts_dt.time()
+
+            # 2. Weekday check (Saturday=0, Sunday=0)
+            if ts_dt_ist.weekday() >= 5:
+                continue
+
+            # 3. Official NSE exchange holiday check
+            if not default_trading_calendar.is_trading_day(ts_dt_ist.date()):
+                continue
+
+            # 4. Strict market session hours: 09:15-15:30 IST
+            ts_time = ts_dt_ist.time()
             if not (time_cls(9, 15) <= ts_time <= time_cls(15, 30)):
                 continue
-            ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
+
+            ts_str = ts_dt_ist.strftime("%Y-%m-%d %H:%M:%S")
             vol = float(row.get("Volume", 0.0))
             close_p = float(row.get("Close", float(row["High"])))
             ticks.append((ts_str, float(row["Open"]), float(row["Low"]), float(row["High"]), close_p, vol))
+
     if cur_p:
         now_dt = datetime.now(IST)
         now_time = now_dt.time()
-        # [BUG FIX: MIDNIGHT_TICK_GUARD v1.0] Only inject live price during valid market hours
-        # to prevent off-hours background runs from triggering midnight exits.
-        if now_dt.weekday() < 5 and time_cls(9, 15) <= now_time <= time_cls(15, 30):
+        # [BUG FIX: MIDNIGHT_TICK_GUARD] Only inject live price during active market hours
+        if default_trading_calendar.is_trading_day(now_dt.date()) and (time_cls(9, 15) <= now_time <= time_cls(15, 30)):
             now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
             ticks.append((now_str, cur_p, cur_p, cur_p, cur_p, 0.0))
     # ── State Validation & Fallback ──
@@ -527,7 +554,9 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
 
             execution_state = "GAP_LOSS"
-            final_status = "LOSS"
+            # [BUG FIX: WIN_LOSS_NOTIFICATION_MISMATCH v1.0]
+            # Follow cumulative realized P&L sign
+            final_status = "WIN" if total_pnl_rs > 0 else "LOSS"
 
             if "GAP_LOSS" not in db_events:
                 update_partial_exit(t["id"], final_status, sl, rem_shares, 0, pnl_rs_event, event, execution_state)
@@ -1174,7 +1203,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     stage_tracker.end_stage(f"Fetched prices for {len(current_prices)} symbols | market_open={is_open}")
     # ── 3. Per-trade SL + Target detection via post-alert intraday bars ─────────────
     stage_tracker.start_stage(3, "SL/Target Detection & Trade Processing", f"Processing {len(trades)} trades for SL/target hits")
-    if is_open and not fast_mode:
+    do_tick_replay = bool(recalc_ids is not None and len(recalc_ids) > 0)
+    if (is_open or do_tick_replay) and not fast_mode:
         logger.info("📉 Checking SL / Target levels via post-alert intraday bars...")
     else:
         logger.info("⏭️ Skipping SL/Target intraday bar checks (fast_mode or market closed)")
@@ -1211,14 +1241,11 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
 
     prefetched_data = {}
 
-    # USER DIRECTIVE: Tick-by-tick history fetch MUST ONLY happen for explicitly passed recalc_ids.
-    # Normal performance loop just checks the current live price.
-    do_tick_replay = (recalc_ids is not None and len(recalc_ids) > 0)
-
     if is_open and not do_tick_replay:
         logger.info(f"⚡ FAST EVALUATION: Processing open trades using live prices only (No historical replay).")
 
-    if is_open and do_tick_replay and fetch_groups:
+    # Replay prefetch works ANY TIME (market open or closed) when recalculation is requested
+    if do_tick_replay and fetch_groups:
         for (interval, period_str), syms in fetch_groups.items():
             syms_preview = ",".join(syms[:5]) + ("..." if len(syms) > 5 else "")
             logger.info(f"📦 Pre-fetching batch history for {len(syms)} active trades [{syms_preview}] ({interval}/{period_str}) to prevent API spam...")
@@ -1355,23 +1382,18 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         if sl and alert_time and (t.get("target_1") or t.get("target_price")):
             # ── V2 Multi-Stage Target & Trail Processing ─────────────────────────
             hist = None
-            if is_open and do_tick_replay:
+            is_recalc = bool(do_tick_replay and recalc_ids is not None and t["id"] in recalc_ids)
+            if is_recalc:
                 # Tier 1: Full historical replay from alert date (explicit recalculate)
-                if t["id"] in recalc_ids:
-                    logger.info(f"🔄 Recalculating {sym} (Alert #{t['id']}) - Replaying historical ticks...")
-                    pre_hist = prefetched_data.get(sym) if sym in prefetched_data else None
-                    hist = _fetch_post_alert_bars(sym, alert_time, prefetched_hist=pre_hist)
-            elif is_open and not do_tick_replay:
-                # [BUG FIX: SL_MISS_ON_BREACH_DAY_v1.0] Tier 2: Use recent 7d/1h bars.
-                # This ensures that if the live price was unavailable on the actual breach day,
-                # we still catch it from the OHLCV bar and record the real breach timestamp.
-                hist = _fetch_recent_bars(sym, n_days=7, interval="1h",
-                                          prefetched=tier2_prefetch.get(sym))
-                if hist is not None:
-                    logger.debug(f"[TIER2] {sym}: Using {len(hist)} recent bars for SL/target check")
-
-            # If market is open, pass cur_p so the latest real-time tick is appended after bars
-            process_trade_history(t, hist, cur_p=cur_p if (is_open and cur_p) else None)
+                logger.info(f"🔄 Recalculating {sym} (Alert #{t['id']}) - Replaying historical ticks from alert time...")
+                pre_hist = prefetched_data.get(sym) if sym in prefetched_data else None
+                hist = _fetch_post_alert_bars(sym, alert_time, prefetched_hist=pre_hist)
+                process_trade_history(t, hist, cur_p=cur_p if (is_open and cur_p) else None, is_recalculate=True)
+            elif is_open:
+                # Normal 5-minute exit monitor loop during active market hours
+                # Evaluates live price cur_p + recent session bars without destroying existing partial-win states
+                hist = _fetch_recent_bars(sym, n_days=3, interval="5m", prefetched=tier2_prefetch.get(sym))
+                process_trade_history(t, hist, cur_p=cur_p if cur_p else None, is_recalculate=False)
 
         elif sl and alert_time:
             # SL only (no target stored — legacy or partial row)

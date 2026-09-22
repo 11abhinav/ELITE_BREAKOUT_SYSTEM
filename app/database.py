@@ -3468,7 +3468,14 @@ def update_alert_outcome(
     for already-closed positions.
     """
     if closed_at is None:
-        closed_at = datetime.now(IST).isoformat()
+        from market_utils import is_market_open
+        now = datetime.now(IST)
+        if is_market_open(now):
+            closed_at = now.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            from trading_calendar import get_latest_trading_date
+            last_d = get_latest_trading_date()
+            closed_at = f"{last_d} 15:30:00"
     with _DB_WRITE_LOCK:
         with get_connection() as conn:
             success = False
@@ -7549,8 +7556,16 @@ def close_position_atomic(symbol: str, exit_price: float, exit_reason: str, posi
                         updated = cur.rowcount >= 1
                     else:
                         now = datetime.now(IST)
-                        exit_date = now.date()
-                        exit_time = now
+                        from market_utils import is_market_open
+                        from datetime import time as time_cls
+                        if is_market_open(now):
+                            exit_date = now.date()
+                            exit_time = now
+                        else:
+                            from trading_calendar import get_latest_trading_date
+                            last_d = get_latest_trading_date()
+                            exit_date = last_d
+                            exit_time = datetime.combine(last_d, time_cls(15, 30)).replace(tzinfo=IST)
 
                         # Determine PnL outcome (WIN vs LOSS)
                         cur.execute("""

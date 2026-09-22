@@ -2303,9 +2303,9 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                         _persist_sell_review(alert_id, "SELL_REVIEW: Trade date unavailable")
                     continue
 
-                # [CRITICAL WEEKEND CANDLE BAN]: Prohibit weekend candles from driving exit decisions
-                if is_weekend_date(last_trade_date):
-                    logger.warning(f"🚫 [EXIT MONITOR] {symbol}: Rejected weekend trade date ({last_trade_date}). Evaluation skipped to prevent false exit.")
+                # [CRITICAL WEEKEND & HOLIDAY BAN]: Prohibit non-trading session prices from driving exit decisions
+                if is_weekend_date(last_trade_date) or not default_trading_calendar.is_trading_day(str(last_trade_date)[:10]):
+                    logger.warning(f"🚫 [EXIT MONITOR] {symbol}: Rejected non-trading date ({last_trade_date}). Evaluation skipped to prevent false exit.")
                     continue
 
                 try:
@@ -2483,12 +2483,23 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                         close_success = False
                     else:
                         try:
+                            # Generate valid trading session closed_at timestamp
+                            now_dt = datetime.now(IST)
+                            from market_utils import is_market_open
+                            if is_market_open(now_dt):
+                                closed_at_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+                            else:
+                                from trading_calendar import get_latest_trading_date
+                                last_d = get_latest_trading_date(str(last_trade_date)[:10] if last_trade_date else None)
+                                closed_at_str = f"{last_d} 15:30:00"
+
                             update_alert_outcome(
                                 alert_id=alert_id,
                                 status=final_status,
                                 exit_price=current_price,
                                 pnl_pct=calc_ret,
                                 pnl_rs=0.0,  # We don't track position size natively in alerts table without wealth engine
+                                closed_at=closed_at_str,
                                 exit_signal=exit_reason
                             )
                             close_success = True
