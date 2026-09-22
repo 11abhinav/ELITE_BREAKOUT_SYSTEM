@@ -233,6 +233,54 @@ def _fetch_post_alert_bars(symbol: str, alert_time_val: Union[str, datetime], pr
         return None
 
 
+def _fetch_recent_bars(symbol: str, n_days: int = 7, interval: str = "1h",
+                       prefetched: "Optional[pd.DataFrame]" = None) -> "Optional[pd.DataFrame]":
+    """
+    [BUG FIX: SL_MISS_ON_BREACH_DAY_v1.0]
+    Fetch the most recent N calendar days of bars for background SL/target monitoring.
+
+    Unlike _fetch_post_alert_bars (which anchors from alert date and can be heavy for old
+    alerts), this always fetches a fixed small window — used in the normal 5-minute
+    background run to catch SL breaches that happened in the last N trading days.
+
+    When a pre-fetched batch result is provided (via prefetched_data), it is used directly
+    to avoid redundant API calls.
+    """
+    try:
+        if prefetched is not None and isinstance(prefetched, pd.DataFrame) and not prefetched.empty:
+            hist = prefetched.copy()
+        else:
+            df_request = pd.DataFrame({"Stock": [symbol]})
+            raw_dict = fetch_watchlist_data(
+                df_request,
+                interval=interval,
+                period=f"{n_days}d",
+                requester="performance_tracker_tier2"
+            )
+            hist = raw_dict.get(symbol) if raw_dict else None
+
+        from core_enums import ProviderResult
+        if hist is None or isinstance(hist, ProviderResult) or (hasattr(hist, 'empty') and hist.empty):
+            return None
+
+        # Localise index to IST
+        from trading_calendar import enforce_trading_day_candles
+        hist = enforce_trading_day_candles(hist, symbol)
+        idx = hist.index
+        if hasattr(idx, 'tz'):
+            if idx.tz is None:
+                hist.index = idx.tz_localize("Asia/Kolkata")
+            else:
+                hist.index = idx.tz_convert("Asia/Kolkata")
+
+        hist = hist[~hist.index.duplicated(keep='first')].sort_index()
+        return hist if not hist.empty else None
+
+    except Exception as e:
+        logger.debug(f"[TIER2_HIST] {symbol}: Recent bar fetch failed: {e}")
+        return None
+
+
 import json
 
 def evaluate_trade_exits(t: dict, hist: pd.DataFrame = None, cur_p: float = None):
@@ -1179,6 +1227,38 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             if batch_res:
                 prefetched_data.update(batch_res)
 
+    # [BUG FIX: SL_MISS_ON_BREACH_DAY_v1.0] Tier-2 batch prefetch for normal background runs.
+    # In recalc mode, each trade already gets a full replay via _fetch_post_alert_bars.
+    # In normal mode, the old code used ONLY the live price tick — meaning any SL breach
+    # that happened on a day when live price was unavailable (API timeout, rate-limit) was
+    # silently skipped, sometimes for many days, and eventually recorded with 'now()' timestamp.
+    # Fix: Batch-fetch the last 7 days of 1h bars for ALL non-closed OPEN trades. This is a
+    # small, fast window (7×8 = 56 bars per symbol, single batch call) that reliably catches
+    # any breach in the last week and records the ACTUAL breach candle timestamp as closed_at.
+    tier2_prefetch: dict = {}
+    if is_open and not do_tick_replay:
+        open_syms = list({
+            t["symbol"] for t in trades
+            if not t["_db_closed"]
+            and t["entry_price"] is not None
+            and t["stop_loss"]
+            and (t.get("target_1") or t.get("target_price"))
+            and t["alert_time"]
+            and t.get("scanner") not in ("MULTIBAGGER", "WEALTH", "Wealth Engine")
+            and not t.get("is_rejected")
+        })
+        if open_syms:
+            try:
+                syms_preview = ",".join(open_syms[:5]) + ("..." if len(open_syms) > 5 else "")
+                logger.info(f"📦 [TIER2] Batch-fetching 7d/1h bars for {len(open_syms)} OPEN trades [{syms_preview}] to catch missed SL breaches...")
+                df_req = pd.DataFrame({"Stock": open_syms})
+                tier2_batch = fetch_watchlist_data(df_req, interval="1h", period="7d", requester="performance_tracker_tier2")
+                if tier2_batch:
+                    tier2_prefetch.update(tier2_batch)
+                    logger.info(f"✅ [TIER2] Got bars for {len(tier2_prefetch)}/{len(open_syms)} symbols")
+            except Exception as _t2_err:
+                logger.warning(f"⚠️ [TIER2] Batch prefetch failed (will fall back to cur_p only): {_t2_err}")
+
     for t in trades:
         # [PERF] Yield the GIL so the Flask Dashboard server can handle incoming API requests
         # preventing 504 Gateway Timeouts during heavy performance tracking loops.
@@ -1219,16 +1299,11 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                 except Exception as e:
                     logger.warning(f"Failed to persist current_price for trade id {t['id']}: {e}")
         elif is_open and not t["_db_closed"]:
-            # [VERSION: EXIT_MONITOR_MISSING_PRICE_FIX_v1.0]
-            # Safely skip instead of triggering false SL hits if live price fails
-            logger.error(f"🚨 [PERFORMANCE TRACKER] {sym}: No live price available. Skipping evaluation to prevent false exit.")
-            try:
-                from telegram_engine import queue_telegram_message
-                msg = f"🚨 <b>Exit Monitor Error</b>\nUnable to fetch live price for {sym}. Skipping performance tracking evaluation to prevent false exit. Providers may be rate-limited."
-                queue_telegram_message(msg, symbol=sym)
-            except Exception:
-                pass
-            continue
+            # [BUG FIX: SL_MISS_ON_BREACH_DAY_v1.0]
+            # Previously: hard 'continue' here caused 7-day silent skips when live price failed.
+            # Now: fall through to Tier-2 historical bar evaluation instead of skipping.
+            # Only log a warning — do not telegram/skip. The Tier-2 hist block below will handle it.
+            logger.warning(f"⚠️ [PERFORMANCE TRACKER] {sym}: No live price available. Will attempt Tier-2 bar evaluation.")
 
         # ── Already closed in DB — no bar download needed ────────────────────────
         if t["_db_closed"]:
@@ -1281,12 +1356,21 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             # ── V2 Multi-Stage Target & Trail Processing ─────────────────────────
             hist = None
             if is_open and do_tick_replay:
+                # Tier 1: Full historical replay from alert date (explicit recalculate)
                 if t["id"] in recalc_ids:
                     logger.info(f"🔄 Recalculating {sym} (Alert #{t['id']}) - Replaying historical ticks...")
                     pre_hist = prefetched_data.get(sym) if sym in prefetched_data else None
                     hist = _fetch_post_alert_bars(sym, alert_time, prefetched_hist=pre_hist)
+            elif is_open and not do_tick_replay:
+                # [BUG FIX: SL_MISS_ON_BREACH_DAY_v1.0] Tier 2: Use recent 7d/1h bars.
+                # This ensures that if the live price was unavailable on the actual breach day,
+                # we still catch it from the OHLCV bar and record the real breach timestamp.
+                hist = _fetch_recent_bars(sym, n_days=7, interval="1h",
+                                          prefetched=tier2_prefetch.get(sym))
+                if hist is not None:
+                    logger.debug(f"[TIER2] {sym}: Using {len(hist)} recent bars for SL/target check")
 
-            # If market is open, pass cur_p so the latest real-time tick is evaluated at the end of the historical sequence
+            # If market is open, pass cur_p so the latest real-time tick is appended after bars
             process_trade_history(t, hist, cur_p=cur_p if (is_open and cur_p) else None)
 
         elif sl and alert_time:
