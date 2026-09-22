@@ -4083,6 +4083,7 @@ def reset_closed_positions_to_open() -> dict:
                 cur.execute("""
                     UPDATE alerts
                     SET status = 'OPEN',
+                        execution_state = 'OPEN',
                         exit_price = NULL,
                         pnl_pct = NULL,
                         pnl_rs = NULL,
