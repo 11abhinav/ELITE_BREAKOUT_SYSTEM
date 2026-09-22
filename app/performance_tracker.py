@@ -535,21 +535,34 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
                 close_str = f"{now_dt.date()} 15:30:00"
                 ticks.append((close_str, cur_p, cur_p, cur_p, cur_p, 0.0))
     # ── State Validation & Fallback ──
-    # Auto-heal: Market orders and legacy alerts should be OPEN, not stuck in PENDING_ENTRY
-    if execution_state == "PENDING_ENTRY" and (entry_mode in ("MARKET", "LEGACY_UNKNOWN") or not entry_mode):
-        execution_state = "OPEN"
-        t["execution_state"] = "OPEN"
-        if t.get("status") in (None, "PENDING_ENTRY"):
-            t["status"] = "OPEN"
-        if actual_entry_price is None:
-            actual_entry_price = t.get("entry_price")
-            t["actual_entry_price"] = actual_entry_price
-        try:
-            with get_connection() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("UPDATE alerts SET execution_state = 'OPEN', status = 'OPEN', actual_entry_price = COALESCE(actual_entry_price, %s) WHERE id = %s", (actual_entry_price, t["id"]))
-        except Exception as e:
-            logger.error(f"❌ [PERF_TRACKER] Auto-heal DB update failed for {symbol}: {e}")
+    # Auto-heal:
+    # 1. If an alert has actual_entry_price populated, the position was entered! Auto-heal execution_state to OPEN.
+    # 2. Market orders and legacy alerts should be OPEN, not stuck in PENDING_ENTRY.
+    if execution_state == "PENDING_ENTRY":
+        should_heal = False
+        if actual_entry_price is not None:
+            should_heal = True
+        elif entry_mode in ("MARKET", "LEGACY_UNKNOWN") or not entry_mode:
+            should_heal = True
+            if actual_entry_price is None:
+                actual_entry_price = t.get("entry_price")
+                t["actual_entry_price"] = actual_entry_price
+
+        if should_heal:
+            logger.info(f"🔄 [PERF_TRACKER] Auto-healing {symbol} from PENDING_ENTRY to OPEN (entry_mode={entry_mode}, actual_entry_price={actual_entry_price})")
+            execution_state = "OPEN"
+            t["execution_state"] = "OPEN"
+            if t.get("status") in (None, "PENDING_ENTRY"):
+                t["status"] = "OPEN"
+            try:
+                with get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "UPDATE alerts SET execution_state = 'OPEN', status = CASE WHEN status = 'PENDING_ENTRY' THEN 'OPEN' ELSE status END, actual_entry_price = COALESCE(actual_entry_price, %s) WHERE id = %s",
+                            (actual_entry_price, t["id"])
+                        )
+            except Exception as e:
+                logger.error(f"❌ [PERF_TRACKER] Auto-heal DB update failed for {symbol}: {e}")
 
     if execution_state == "OPEN" and actual_entry_price is None:
         if t.get("entry_price") is not None:
@@ -566,8 +579,8 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
             logger.error(f"❌ [PERF_TRACKER] DATA_INTEGRITY_ERROR: {symbol} is OPEN but missing actual_entry_price and entry_price. Safe-rejecting evaluation.")
             return
     if execution_state == "PENDING_ENTRY" and actual_entry_price is not None:
-        logger.error(f"❌ [PERF_TRACKER] DATA_INTEGRITY_ERROR: {symbol} is PENDING_ENTRY but has actual_entry_price populated. Safe-rejecting evaluation.")
-        return
+        execution_state = "OPEN"
+        t["execution_state"] = "OPEN"
 
     for ts_str, open_p, low, high, close_p, vol in ticks:
         # [RULE 67 CHANGE-RATIONALE: CRITICAL WEEKEND CANDLE BAN]

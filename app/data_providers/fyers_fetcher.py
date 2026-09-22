@@ -542,7 +542,8 @@ class FyersFetcher(DataFetcher):
                 try:
                     client = fyers_auth.get_fyers_client()
                     if not client:
-                        logger.error("Fyers API client is uninitialized. Generate a token via /fyers/login.")
+                        if attempt == 0:
+                            logger.warning("⚠️ Fyers API client is uninitialized. Generate a token via /fyers/login.")
                         from core_exceptions import ProviderError
                         raise ProviderError("Fyers Authentication Required")
 

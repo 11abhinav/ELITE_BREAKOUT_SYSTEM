@@ -46,13 +46,16 @@ class TradingCalendar:
     def is_trading_day(self, dt: Union[datetime, date, str, Any]) -> bool:
         """Returns True if the given date is a valid trading session (not Saturday, Sunday, or Holiday)."""
         d = self._parse_date(dt)
-        if d is None:
+        if d is None or not hasattr(d, "weekday"):
             return False
-        if d.weekday() >= 5:  # Saturday or Sunday
+        try:
+            if d.weekday() >= 5:  # Saturday or Sunday
+                return False
+            if d in self.holidays:
+                return False
+            return True
+        except Exception:
             return False
-        if d in self.holidays:
-            return False
-        return True
 
     def days_between(self, start: Union[datetime, date, str], end: Union[datetime, date, str]) -> int:
         """
@@ -95,15 +98,34 @@ class TradingCalendar:
             return val.date()
         if hasattr(val, "date") and callable(getattr(val, "date")):
             try:
-                return val.date()
+                res = val.date()
+                if isinstance(res, date):
+                    return res
             except Exception:
                 pass
         if isinstance(val, str):
             clean_str = val.strip().split("T")[0].split(" ")[0]
+            for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%Y/%m/%d", "%d/%m/%Y", "%Y%m%d"):
+                try:
+                    return datetime.strptime(clean_str, fmt).date()
+                except Exception:
+                    continue
             try:
-                return datetime.strptime(clean_str, "%Y-%m-%d").date()
+                import pandas as pd
+                parsed = pd.to_datetime(clean_str, errors="coerce")
+                if parsed is not None and not pd.isna(parsed):
+                    return parsed.date()
             except Exception:
-                return None
+                pass
+            return None
+        try:
+            import pandas as pd
+            if not pd.isna(val):
+                parsed = pd.to_datetime(val, errors="coerce")
+                if parsed is not None and not pd.isna(parsed):
+                    return parsed.date()
+        except Exception:
+            pass
         return None
 
 
@@ -173,9 +195,12 @@ def is_weekend_date(val: Union[datetime, date, str]) -> bool:
     Returns True if the given date/timestamp lands on a Saturday (5) or Sunday (6).
     """
     d = TradingCalendar._parse_date(val)
-    if d is None:
+    if d is None or not hasattr(d, "weekday"):
         return False
-    return d.weekday() >= 5
+    try:
+        return d.weekday() >= 5
+    except Exception:
+        return False
 
 
 def is_market_candle_eligible(val: Union[datetime, date, str]) -> bool:
@@ -186,11 +211,14 @@ def is_market_candle_eligible(val: Union[datetime, date, str]) -> bool:
     Exchange holidays are non-trading days.
     """
     d = TradingCalendar._parse_date(val)
-    if d is None:
+    if d is None or not hasattr(d, "weekday"):
         return False
-    if d.weekday() >= 5:
+    try:
+        if d.weekday() >= 5:
+            return False
+        return default_trading_calendar.is_trading_day(d)
+    except Exception:
         return False
-    return default_trading_calendar.is_trading_day(d)
 
 
 from datetime import time as time_cls

@@ -2305,12 +2305,12 @@ def run_exit_monitor(price_data_map: dict, cache: dict, is_test_mode: bool = Fal
                     continue
 
                 # [CRITICAL WEEKEND & HOLIDAY BAN]: Prohibit non-trading session prices from driving exit decisions
-                if is_weekend_date(last_trade_date) or not default_trading_calendar.is_trading_day(str(last_trade_date)[:10]):
+                if is_weekend_date(last_trade_date) or not default_trading_calendar.is_trading_day(last_trade_date):
                     logger.warning(f"🚫 [EXIT MONITOR] {symbol}: Rejected non-trading date ({last_trade_date}). Evaluation skipped to prevent false exit.")
                     continue
 
                 try:
-                    bus_days = default_trading_calendar.days_between(str(last_trade_date)[:10], datetime.now(IST).date())
+                    bus_days = default_trading_calendar.days_between(last_trade_date, datetime.now(IST).date())
                     if bus_days >= 10:
                         stale_reason = f"SELL_REVIEW: Stale Price Data. Last trade was {last_trade_date} ({bus_days} trading sessions ago). Stock may be suspended or delisted."
                         logger.warning(f"⚠️ {symbol}: {stale_reason}")

@@ -99,7 +99,11 @@ class UnifiedFetcher:
                     logger.warning(f"⚠️ [Upstox] Failed to fetch historical {symbol}: {e}")
 
         error_details = ", ".join([f"{p}: {e}" for p, e in provider_errors.items()])
-        logger.error(f"❌ Exhausted all providers for historical {symbol}. Reasons: {error_details}")
+        is_expected_miss = any("auth" in str(e).lower() or "uninitialized" in str(e).lower() for e in provider_errors.values())
+        if is_expected_miss or any(s in str(symbol).upper() for s in ("NIFTY", "BANKNIFTY", "SENSEX", "INDIAVIX")):
+            logger.warning(f"⚠️ Exhausted providers for historical {symbol} (fallback/unauthenticated): {error_details}")
+        else:
+            logger.error(f"❌ Exhausted all providers for historical {symbol}. Reasons: {error_details}")
         return pd.DataFrame()
 
     def fetch_live_quotes(self, symbols: list[str], consumer: str) -> dict[str, dict]:

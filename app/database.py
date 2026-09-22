@@ -272,7 +272,15 @@ def get_connection(timeout: int = 20):
     try:
         yield conn
     except Exception as e:
-        if not (isinstance(e, RuntimeError) and "actively running" in str(e).lower()):
+        is_conn_drop = False
+        if isinstance(e, OperationalError):
+            err_msg = str(e).lower()
+            if any(k in err_msg for k in ("closed the connection", "connection reset", "broken pipe", "terminating connection", "server terminated abnormally")):
+                is_conn_drop = True
+
+        if is_conn_drop:
+            logger.warning(f"⚠️ DB connection closed/dropped by server: {e}")
+        elif not (isinstance(e, RuntimeError) and "actively running" in str(e).lower()):
             logger.exception(f"🔴 DB operation failed: {e}")
         if conn:
             try:
@@ -9949,10 +9957,9 @@ def bulk_update_cmp(prices: dict) -> bool:
     import time
     from psycopg2.extras import execute_values
 
-    max_retries = 3
+    max_retries = 5
     for attempt in range(max_retries):
         try:
-            init_db()
             with get_connection() as conn:
                 with conn.cursor() as cur:
                     execute_values(
@@ -9974,7 +9981,7 @@ def bulk_update_cmp(prices: dict) -> bool:
         except Exception as e:
             err_str = str(e).lower()
             if ("deadlock" in err_str or "lock" in err_str or "could not serialize" in err_str or "connection" in err_str or "closed" in err_str or "terminated" in err_str) and attempt < max_retries - 1:
-                backoff = 0.05 * (2 ** attempt) + random.uniform(0.02, 0.08)
+                backoff = 0.1 * (2 ** attempt) + random.uniform(0.05, 0.15)
                 logger.warning(f"⚠️ [CMP] Transient error during bulk_update_cmp (attempt {attempt+1}/{max_retries}), retrying in {backoff:.3f}s: {e}")
                 time.sleep(backoff)
                 continue
