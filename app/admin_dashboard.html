@@ -2528,30 +2528,14 @@ function changeAdminPage(type, delta) {
         <div style="display:flex; justify-content:flex-start; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:16px;">
           <!-- PORTFOLIO METRICS -->
           <div style="display:flex; flex-wrap:wrap; gap:12px;">
-            <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
-              <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Base Capital:</span>
-              <span id="baseCapital" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
-            </div>
-            <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
-              <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Total Capital:</span>
-              <span id="totalCapital" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
-            </div>
-            <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
+            <div style="padding:6px 14px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
               <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Booked P/L:</span>
-              <span id="realBookedPnl" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
+              <span class="realBookedPnl" id="realBookedPnl" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
             </div>
-            <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
+            <div style="padding:6px 14px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
               <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">MTM P/L:</span>
-              <span id="realOpenPnl" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
+              <span class="realOpenPnl" id="realOpenPnl" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
             </div>
-            <div style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
-              <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; display:flex; align-items:center; gap:6px;">
-                Available Cash:
-                <button onclick="forceSyncCash()" title="Re-verify and sync cash" style="background:none;border:none;cursor:pointer;font-size:12px;padding:2px;border-radius:4px;color:var(--accent);display:flex;align-items:center;justify-content:center;transition:background 0.2s;">🔄</button>
-              </span>
-              <span id="availableCash" style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
-            </div>
-            <button class="refresh-btn" onclick="openDepositFundsDialog()" style="background:var(--accent); color:var(--bg); font-weight:700; border:none; font-size:12px;">💰 Deposit Funds</button>
           </div>
         </div>
 
@@ -3106,47 +3090,18 @@ function changeAdminPage(type, delta) {
         <!-- PORTFOLIO METRICS -->
         <div style="display:flex; flex-wrap:wrap; gap:12px;">
           <div
-            style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
-            <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Base
-              Capital:</span>
-            <span id="baseCapital"
-              style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
-          </div>
-          <div
-            style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
-            <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Total
-              Capital:</span>
-            <span id="totalCapital"
-              style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
-          </div>
-          <div
-            style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
+            style="padding:6px 14px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
             <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Booked
               P/L:</span>
-            <span id="realBookedPnl"
+            <span class="realBookedPnl"
               style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
           </div>
           <div
-            style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
+            style="padding:6px 14px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
             <span style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">MTM P/L:</span>
-            <span id="realOpenPnl"
+            <span class="realOpenPnl"
               style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
           </div>
-          <div
-            style="padding:6px 12px; background:var(--card); border:1px solid var(--border); border-radius:6px; display:flex; align-items:center; gap:8px;">
-            <span
-              style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase; display:flex; align-items:center; gap:6px;">
-              Available Cash:
-              <button onclick="forceSyncCash()" title="Re-verify and sync cash"
-                style="background:none;border:none;cursor:pointer;font-size:12px;padding:2px;border-radius:4px;color:var(--accent);display:flex;align-items:center;justify-content:center;transition:background 0.2s;"
-                onmouseover="this.style.background='rgba(139,92,246,0.2)'"
-                onmouseout="this.style.background='none'">🔄</button>
-            </span>
-            <span id="availableCash"
-              style="font-family:var(--font-mono); font-weight:700; font-size:14px; color:var(--text);">—</span>
-          </div>
-          <button class="refresh-btn" onclick="openDepositFundsDialog()"
-            style="background:var(--accent); color:var(--text-inv); border:none; font-size:12px;">💰 Deposit Funds</button>
         </div>
       </div>
 
@@ -3328,25 +3283,6 @@ function changeAdminPage(type, delta) {
         <div class="drill-body" id="drill-body"></div>
       </div>
 
-      <!-- DEPOSIT FUNDS MODAL -->
-      <div id="depositFundsModal"
-        style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">
-        <div
-          style="background:var(--card); border:1px solid var(--border); border-radius:12px; padding:24px; max-width:400px; width:90%; box-sizing:border-box; box-shadow:0 10px 40px rgba(0,0,0,0.2);">
-          <div style="font-size:18px; font-weight:700; margin-bottom:16px; color:var(--text);">Deposit Funds</div>
-          <div style="margin-bottom:16px;">
-            <label style="font-size:12px; color:var(--muted); font-weight:600; display:block; margin-bottom:8px;">Amount to Deposit (₹)</label>
-            <input id="depositAmount" type="number" placeholder="Enter amount" min="0" step="1000"
-              style="width:100%; padding:10px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text); font-family:var(--font-mono); font-size:14px;" />
-          </div>
-          <div style="display:flex; gap:8px; justify-content:flex-end;">
-            <button onclick="closeDepositFundsDialog()"
-              style="padding:8px 16px; background:var(--border); border:none; border-radius:6px; cursor:pointer; color:var(--text); font-weight:600;">Cancel</button>
-            <button onclick="submitDepositFunds()"
-              style="padding:8px 16px; background:var(--accent); border:none; border-radius:6px; cursor:pointer; color:var(--text-inv); font-weight:600;">Deposit</button>
-          </div>
-        </div>
-      </div>
       </div>
       <!-- END TAB 1: SIGNALS & ALL TRADES -->
 
@@ -7149,54 +7085,91 @@ function getEarningsBadgeHtml(item) {
         totalFloating += simulatedFloating;
       });
 
+      // ── ACCURATE BOOKED P/L & MTM P/L CALCULATION ──
+      let realBookedPnl = 0;
+      let realOpenPnl = 0;
+
+      const closedStatuses = ['WIN', 'LOSS', 'CLOSED'];
+      const activeStatuses = ['OPEN', 'HOURLY_APPROVED', 'DAILY_APPROVED', 'PROMOTED_CONVICTION', 'PARTIAL_WIN_1', 'PARTIAL_WIN_2', 'SELL_REVIEW', 'TRAILING', 'ACTIVE'];
+
+      ALL_TRADES.forEach(t => {
+        if (!t) return;
+        const status = (t.status || '').toUpperCase();
+        const isPending = t.execution_state === 'PENDING_ENTRY' || status === 'PENDING';
+        if (isPending || status === 'REJECTED' || status === 'NEUTRAL') {
+          return; // Pending/rejected/neutral trades have 0 booked and 0 MTM
+        }
+
+        const effEntry = parseFloat(t.actual_entry_price || t.entry_price || 0);
+        const sharesBought = parseFloat(t.shares_bought || 0);
+        const exitPrice = parseFloat(t.exit_price || 0);
+        const curPrice = parseFloat(t.current_price || effEntry);
+        const capAlloc = parseFloat(t.capital_allocated) || (t.score >= 85 ? 100000 : t.score >= 70 ? 50000 : 25000);
+
+        // 1. Fully Closed Trades -> Booked P/L
+        if (closedStatuses.includes(status)) {
+          let tradeBooked = 0;
+          if (t.pnl_rs != null && t.pnl_rs !== 0) {
+            tradeBooked = parseFloat(t.pnl_rs);
+          } else if (exitPrice > 0 && effEntry > 0 && sharesBought > 0) {
+            tradeBooked = (exitPrice - effEntry) * sharesBought;
+          } else if (t.pnl_pct != null) {
+            tradeBooked = (parseFloat(t.pnl_pct) / 100.0) * capAlloc;
+          }
+          realBookedPnl += tradeBooked;
+          return;
+        }
+
+        // 2. Active / Open Trades (including partial wins)
+        if (activeStatuses.includes(status)) {
+          // 2a. Realized portion from partial exits (e.g. T1 hit, T2 hit)
+          let partialBooked = 0;
+          let exitHist = [];
+          if (t.exit_history) {
+            try {
+              exitHist = typeof t.exit_history === 'string' ? JSON.parse(t.exit_history) : t.exit_history;
+            } catch (e) { exitHist = []; }
+          }
+          if (Array.isArray(exitHist) && exitHist.length > 0) {
+            exitHist.forEach(ev => {
+              if (ev && ev.pnl != null) {
+                partialBooked += parseFloat(ev.pnl) || 0;
+              }
+            });
+          }
+          realBookedPnl += partialBooked;
+
+          // 2b. Floating MTM from remaining active shares
+          let remShares = null;
+          if (t.remaining_shares !== undefined && t.remaining_shares !== null) {
+            remShares = parseFloat(t.remaining_shares);
+          } else if (sharesBought > 0) {
+            remShares = sharesBought;
+          } else if (effEntry > 0 && capAlloc > 0) {
+            remShares = Math.floor(capAlloc / effEntry);
+          }
+
+          if (remShares != null && remShares > 0 && effEntry > 0 && curPrice > 0) {
+            realOpenPnl += (curPrice - effEntry) * remShares;
+          } else if (t.pnl_rs != null && partialBooked === 0) {
+            realOpenPnl += parseFloat(t.pnl_rs) || 0;
+          }
+        }
+      });
+
       const rbEls = document.querySelectorAll('#realBookedPnl, .realBookedPnl');
       if (rbEls.length > 0) {
-        let realBookedPnl = 0;
-        closedTrades.forEach(t => {
-          realBookedPnl += (t.pnl_rs || 0);
-        });
         const formatted = (realBookedPnl >= 0 ? '+' : '') + '₹' + Math.round(realBookedPnl).toLocaleString('en-IN');
         const col = realBookedPnl >= 0 ? 'var(--green)' : 'var(--red)';
         rbEls.forEach(el => { el.textContent = formatted; el.style.color = col; });
       }
       const roEls = document.querySelectorAll('#realOpenPnl, .realOpenPnl');
       if (roEls.length > 0) {
-        let realOpenPnl = 0;
-        openTrades.forEach(t => {
-          if (t.shares_bought && t.current_price) {
-            realOpenPnl += (t.current_price - t.entry_price) * t.shares_bought;
-          } else if (t.pnl_rs) {
-            realOpenPnl += t.pnl_rs;
-          }
-        });
         const formatted = (realOpenPnl >= 0 ? '+' : '') + '₹' + Math.round(realOpenPnl).toLocaleString('en-IN');
         const col = realOpenPnl >= 0 ? 'var(--green)' : 'var(--red)';
         roEls.forEach(el => { el.textContent = formatted; el.style.color = col; });
       }
-
-      // Calculate Available Cash (Total Equity - Deployed Capital)
-      let deployedCapital = 0;
-      openTrades.forEach(t => {
-        let capAlloc = t.capital_allocated || (t.entry_price && t.shares_bought ? t.entry_price * t.shares_bought : 50000);
-        deployedCapital += capAlloc;
-      });
-
-      let realizedEquity = cap + (closedTrades.reduce((sum, t) => sum + (t.pnl_rs || 0), 0));
-      let availableCash = Math.max(0, realizedEquity - deployedCapital);
-
-      const acEls = document.querySelectorAll('#availableCash, .availableCash');
-      acEls.forEach(el => {
-        el.textContent = '₹' + Math.round(availableCash).toLocaleString('en-IN');
-        el.style.color = 'var(--text)';
-      });
     }
-
-    // [VERSION: CAPITAL_BUCKET_v2.0] loadCapitalInfo disabled — capital tracking removed.
-    async function loadCapitalInfo() { /* no-op */ }
-
-
-    // [VERSION: CAPITAL_BUCKET_v2.0] forceSyncCash disabled — capital tracking removed.
-    async function forceSyncCash() { /* no-op */ }
 
     function toggleTheme() {
       const current = document.documentElement.getAttribute('data-theme');
@@ -7927,10 +7900,6 @@ async function clearAllErrors() {
   }
 }
 
-// [VERSION: CAPITAL_BUCKET_v2.0] Deposit funds removed — capital tracking disabled.
-function openDepositFundsDialog() { console.warn('Deposit funds disabled in CAPITAL_BUCKET_v2.0'); }
-function closeDepositFundsDialog() {}
-async function submitDepositFunds() {}
 
 // ── MAIN
 async function initDashboard() {
