@@ -665,5 +665,91 @@ class TestExitMonitorsAndCalendar(unittest.TestCase):
         self.assertEqual(trade["remaining_shares"], 3, "Remaining shares must correctly be 3 (4 bought - 1 sold at T1)")
         self.assertEqual(trade["status"], "PARTIAL_WIN_1")
 
+    def test_genuspower_daily_candle_sl_recalculate_and_post_market_tick(self):
+        """Verify Alert 116 (GENUSPOWER, Entry: 337.45, SL: 334.51) correctly registers SL_HIT on daily EOD bars and post-market live ticks."""
+        from performance_tracker import process_trade_history
+
+        # 1. Daily EOD candles replay (timestamps at 00:00:00 IST)
+        trade_daily = {
+            "id": 116,
+            "symbol": "GENUSPOWER",
+            "scanner": "MULTI_TF",
+            "entry_mode": "MARKET",
+            "execution_state": "OPEN",
+            "entry_price": 337.45,
+            "actual_entry_price": 337.45,
+            "stop_loss": 334.51,
+            "initial_stop_loss": 334.51,
+            "target_1": 343.33,
+            "target_2": 346.96,
+            "target_3": 352.84,
+            "shares_bought": 59,
+            "remaining_shares": 59,
+            "capital_allocated": 19909.55,
+            "status": "OPEN",
+            "alert_time": "2026-09-07 17:51:00",
+            "exit_history": "[]"
+        }
+
+        # Daily EOD candle with midnight 00:00:00 timestamp (typical from parquet / yfinance)
+        df_daily = pd.DataFrame({
+            "Open": [337.0],
+            "High": [338.2],
+            "Low":  [331.85],  # Breaches SL 334.51!
+            "Close": [333.65],
+            "Volume": [25000]
+        }, index=pd.DatetimeIndex([IST.localize(datetime(2026, 9, 8, 0, 0, 0))]))
+
+        process_trade_history(trade_daily, hist=df_daily, cur_p=310.90, is_recalculate=True)
+        self.assertEqual(trade_daily["status"], "LOSS", "GENUSPOWER must close as LOSS on daily candle replay")
+        self.assertEqual(trade_daily["exit_signal"], "STOP_LOSS")
+        self.assertEqual(trade_daily["exit_price"], 334.51)
+        self.assertEqual(trade_daily["remaining_shares"], 0)
+        self.assertTrue(trade_daily["stopped_out"])
+
+        # 2. Live evaluation with cur_p = 310.90 (when evaluated after market hours or with no hist)
+        trade_live = {
+            "id": 116,
+            "symbol": "GENUSPOWER",
+            "scanner": "MULTI_TF",
+            "entry_mode": "MARKET",
+            "execution_state": "OPEN",
+            "entry_price": 337.45,
+            "actual_entry_price": 337.45,
+            "stop_loss": 334.51,
+            "initial_stop_loss": 334.51,
+            "target_1": 343.33,
+            "target_2": 346.96,
+            "target_3": 352.84,
+            "shares_bought": 59,
+            "remaining_shares": 59,
+            "capital_allocated": 19909.55,
+            "status": "OPEN",
+            "alert_time": "2026-09-07 17:51:00",
+            "exit_history": "[]"
+        }
+        process_trade_history(trade_live, hist=None, cur_p=310.90, is_recalculate=False)
+        self.assertEqual(trade_live["status"], "LOSS", "Live cur_p 310.90 < SL 334.51 must close position as LOSS")
+        self.assertIn(trade_live["exit_signal"], ("STOP_LOSS", "GAP_LOSS"))
+        self.assertTrue(trade_live["exit_price"] <= 334.51)
+        self.assertEqual(trade_live["remaining_shares"], 0)
+
+    def test_pending_recalc_ids_thread_safe_accumulation(self):
+        """Verify trigger_performance_rebuild accumulates recalc_ids without losing them when lock is held."""
+        from performance_tracker import trigger_performance_rebuild, _pending_recalc_ids, _pending_recalc_lock, _perf_rebuild_lock
+
+        # Hold the lock to simulate an active rebuild in progress
+        with _perf_rebuild_lock:
+            with _pending_recalc_lock:
+                _pending_recalc_ids.clear()
+
+            trigger_performance_rebuild(recalc_ids=[116], force=False)
+            trigger_performance_rebuild(recalc_ids=[190], force=False)
+
+            with _pending_recalc_lock:
+                self.assertIn(116, _pending_recalc_ids, "Alert 116 must be preserved in _pending_recalc_ids")
+                self.assertIn(190, _pending_recalc_ids, "Alert 190 must be preserved in _pending_recalc_ids")
+                _pending_recalc_ids.clear()
+
 if __name__ == "__main__":
     unittest.main()

@@ -487,6 +487,10 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
             else:
                 ts_dt_ist = ts_dt.tz_localize(IST)
 
+            # If daily EOD bar (00:00:00 or 05:30:00 by provider convention), normalize timestamp to session close 15:30:00
+            if ts_dt_ist.time() in (time_cls(0, 0), time_cls(5, 30)):
+                ts_dt_ist = ts_dt_ist.replace(hour=15, minute=30, second=0, microsecond=0)
+
             # 1. Point-in-Time Causality: Never evaluate candles prior to alert entry
             if alert_dt_ist and ts_dt_ist < alert_dt_ist:
                 continue
@@ -509,13 +513,18 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
             close_p = float(row.get("Close", float(row["High"])))
             ticks.append((ts_str, float(row["Open"]), float(row["Low"]), float(row["High"]), close_p, vol))
 
-    if cur_p:
+    if cur_p and cur_p > 0:
         now_dt = datetime.now(IST)
         now_time = now_dt.time()
-        # [BUG FIX: MIDNIGHT_TICK_GUARD] Only inject live price during active market hours
-        if default_trading_calendar.is_trading_day(now_dt.date()) and (time_cls(9, 15) <= now_time <= time_cls(15, 30)):
-            now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
-            ticks.append((now_str, cur_p, cur_p, cur_p, cur_p, 0.0))
+        # [BUG FIX: MIDNIGHT_TICK_GUARD] Only inject live price during active market hours or as session close post-market
+        if default_trading_calendar.is_trading_day(now_dt.date()):
+            if time_cls(9, 15) <= now_time <= time_cls(15, 30):
+                now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+                ticks.append((now_str, cur_p, cur_p, cur_p, cur_p, 0.0))
+            elif now_time > time_cls(15, 30):
+                # Post-market on trading day: inject as today's official 15:30:00 session close
+                close_str = f"{now_dt.date()} 15:30:00"
+                ticks.append((close_str, cur_p, cur_p, cur_p, cur_p, 0.0))
     # ── State Validation & Fallback ──
     # Auto-heal: Market orders and legacy alerts should be OPEN, not stuck in PENDING_ENTRY
     if execution_state == "PENDING_ENTRY" and (entry_mode in ("MARKET", "LEGACY_UNKNOWN") or not entry_mode):
@@ -1376,19 +1385,40 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             if batch_res:
                 prefetched_data.update(batch_res)
 
+    # ── Fast-Path Live Price Exit Evaluation ──
+    # Evaluate open trades against live CMP first (fetched in Step 2).
+    # If CMP has breached SL or T1, execute exit immediately in milliseconds so
+    # actionable SL hits (like GENUSPOWER) never get stalled behind 15-minute broker batch fetches.
+    fast_evaluated_syms = set()
+    if is_open and not do_tick_replay:
+        for t in trades:
+            if t["_db_closed"]:
+                continue
+            sym = t["symbol"]
+            cur_p = current_prices.get(sym)
+            if cur_p is None or cur_p <= 0:
+                continue
+            sl = t.get("stop_loss")
+            t1 = t.get("target_1") or t.get("target_price")
+            if sl and ((sl > 0 and cur_p <= sl) or (t1 and cur_p >= t1)):
+                try:
+                    process_trade_history(t, hist=None, cur_p=cur_p, is_recalculate=False)
+                    if t.get("status") in ("WIN", "LOSS", "CLOSED"):
+                        t["_db_closed"] = True
+                        fast_evaluated_syms.add(sym)
+                except Exception as _fe_err:
+                    logger.debug(f"[FAST_EVAL] Live exit check failed for {sym}: {_fe_err}")
+
     # [BUG FIX: SL_MISS_ON_BREACH_DAY_v1.0] Tier-2 batch prefetch for normal background runs.
     # In recalc mode, each trade already gets a full replay via _fetch_post_alert_bars.
-    # In normal mode, the old code used ONLY the live price tick — meaning any SL breach
-    # that happened on a day when live price was unavailable (API timeout, rate-limit) was
-    # silently skipped, sometimes for many days, and eventually recorded with 'now()' timestamp.
-    # Fix: Batch-fetch the last 7 days of 1h bars for ALL non-closed OPEN trades. This is a
-    # small, fast window (7×8 = 56 bars per symbol, single batch call) that reliably catches
-    # any breach in the last week and records the ACTUAL breach candle timestamp as closed_at.
+    # In normal mode, trades not already closed by the fast live evaluation pass above
+    # may need recent 1h bars to detect missed breaches during broker/offline downtime.
     tier2_prefetch: dict = {}
     if is_open and not do_tick_replay:
         open_syms = list({
             t["symbol"] for t in trades
             if not t["_db_closed"]
+            and t["symbol"] not in fast_evaluated_syms
             and t["entry_price"] is not None
             and t["stop_loss"]
             and (t.get("target_1") or t.get("target_price"))
@@ -1840,6 +1870,8 @@ _last_perf_rebuild_ts = 0.0
 _perf_rebuild_cooldown = 15.0
 _trailing_timer = None
 _trailing_timer_lock = threading.Lock()
+_pending_recalc_ids: set[int] = set()
+_pending_recalc_lock = threading.Lock()
 
 def trigger_performance_rebuild(recalc_ids: list[int] = None, force: bool = False):
     """
@@ -1849,23 +1881,26 @@ def trigger_performance_rebuild(recalc_ids: list[int] = None, force: bool = Fals
     global _last_perf_rebuild_ts, _trailing_timer
     now = time.time()
 
-    # [FIX BUG-A/I: RECALC_IDS_CLOSURE_CAPTURE]
-    # Use default-arg binding (recalc_ids=recalc_ids) to snapshot the value at definition time.
-    # This prevents stale closure capture: if _execute_rebuild is scheduled by a trailing timer
-    # fired from a DIFFERENT outer call, the recalc_ids from THIS call is preserved correctly.
-    def _execute_rebuild(recalc_ids=recalc_ids):
+    if recalc_ids:
+        with _pending_recalc_lock:
+            _pending_recalc_ids.update(int(i) for i in recalc_ids if i is not None)
+
+    def _execute_rebuild():
         global _last_perf_rebuild_ts
         t_name = threading.current_thread().name
+        with _pending_recalc_lock:
+            active_recalc_ids = list(_pending_recalc_ids) if _pending_recalc_ids else None
         if not _perf_rebuild_lock.acquire(blocking=False):
             logger.info("📈 PERFORMANCE TRACKER | Rebuild already running, scheduling trailing rebuild.")
-            # [FIX BUG-I] Pass the captured recalc_ids explicitly so trailing timer preserves correct IDs
-            _schedule_trailing(delay=5.0, _captured_ids=recalc_ids)
+            _schedule_trailing(delay=5.0)
             return
         try:
+            with _pending_recalc_lock:
+                _pending_recalc_ids.clear()
             _last_perf_rebuild_ts = time.time()
-            logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | Action='Rebuilding performance metrics & trade tracker'")
+            logger.info(f"🚀 [BACKGROUND WORKER START] Worker='{t_name}' | Action='Rebuilding performance metrics & trade tracker' | Recalc={active_recalc_ids}")
             _t_start = time.perf_counter()
-            build_performance_data(force_live_fetch=True, recalc_ids=recalc_ids)
+            build_performance_data(force_live_fetch=True, recalc_ids=active_recalc_ids)
             dur_s = time.perf_counter() - _t_start
             logger.info(f"✅ [BACKGROUND WORKER COMPLETE] Worker='{t_name}' | Action='Performance metrics rebuild' | Duration={dur_s:.2f}s")
         except Exception as e:
@@ -1873,15 +1908,15 @@ def trigger_performance_rebuild(recalc_ids: list[int] = None, force: bool = Fals
         finally:
             _perf_rebuild_lock.release()
 
-    def _schedule_trailing(delay=None, _captured_ids=None):
+    def _schedule_trailing(delay=None):
         global _trailing_timer
         with _trailing_timer_lock:
-            if _trailing_timer is not None and _trailing_timer.is_alive():
+            cur_th = threading.current_thread()
+            if _trailing_timer is not None and _trailing_timer.is_alive() and cur_th != _trailing_timer:
                 return
             wait_sec = delay if delay is not None else max(2.0, _perf_rebuild_cooldown - (time.time() - _last_perf_rebuild_ts))
             logger.info(f"📈 PERFORMANCE TRACKER | Scheduling trailing rebuild in {wait_sec:.1f}s to guarantee all batch alerts are included.")
-            # Pass _captured_ids so Timer fires _execute_rebuild with correct recalc_ids
-            _trailing_timer = threading.Timer(wait_sec, _execute_rebuild, kwargs={"recalc_ids": _captured_ids})
+            _trailing_timer = threading.Timer(wait_sec, _execute_rebuild)
             _trailing_timer.daemon = True
             _trailing_timer.start()
 

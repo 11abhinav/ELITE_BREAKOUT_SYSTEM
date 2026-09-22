@@ -2702,9 +2702,16 @@ def _trigger_performance_tracker():
     if is_scanner_stopped("PERFORMANCE_TRACKER"):
         logger.info("⏸️ [PERFORMANCE_TRACKER] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
         return {"total_count": 0, "processed_count": 0}
-    from performance_tracker import build_performance_data
-    build_performance_data(force_live_fetch=True)
-    return {"total_count": 1, "processed_count": 1}
+    if not _perf_tracker_lock.acquire(blocking=False):
+        logger.info("⏳ PERFORMANCE_TRACKER is already actively running. Skipping manual/auto-recovery trigger.")
+        return {"total_count": 0, "processed_count": 0}
+    try:
+        from performance_tracker import build_performance_data
+        build_performance_data(force_live_fetch=True)
+        return {"total_count": 1, "processed_count": 1}
+    finally:
+        if _perf_tracker_lock.locked():
+            _perf_tracker_lock.release()
 
 def _trigger_multibagger_exit():
     from database import is_scanner_stopped

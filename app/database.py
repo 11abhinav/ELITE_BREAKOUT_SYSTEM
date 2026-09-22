@@ -9833,9 +9833,9 @@ def bulk_update_cmp(prices: dict) -> bool:
             return True
         except Exception as e:
             err_str = str(e).lower()
-            if ("deadlock" in err_str or "lock" in err_str or "could not serialize" in err_str) and attempt < max_retries - 1:
+            if ("deadlock" in err_str or "lock" in err_str or "could not serialize" in err_str or "connection" in err_str or "closed" in err_str or "terminated" in err_str) and attempt < max_retries - 1:
                 backoff = 0.05 * (2 ** attempt) + random.uniform(0.02, 0.08)
-                logger.warning(f"⚠️ [CMP] Deadlock/contention during bulk_update_cmp (attempt {attempt+1}/{max_retries}), retrying in {backoff:.3f}s: {e}")
+                logger.warning(f"⚠️ [CMP] Transient error during bulk_update_cmp (attempt {attempt+1}/{max_retries}), retrying in {backoff:.3f}s: {e}")
                 time.sleep(backoff)
                 continue
             logger.error(f"❌ bulk_update_cmp failed: {e}")
