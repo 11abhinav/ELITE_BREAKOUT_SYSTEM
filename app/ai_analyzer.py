@@ -180,11 +180,13 @@ def analyze_concall_text(text: str) -> dict:
     from gemini_key_manager import get_active_gemini_key, mark_gemini_key_exhausted
 
     # Fallback Chain 1: Exhaustively attempt with ALL available Gemini Keys & Models
+    attempted_keys = set()
     while True:
         curr_key = get_active_gemini_key()
-        if not curr_key:
+        if not curr_key or curr_key in attempted_keys:
             logger.warning("🚨 [GEMINI ALL EXHAUSTED] All configured Gemini keys have hit verified rate limits.")
             break
+        attempted_keys.add(curr_key)
 
         masked_key = f"{curr_key[:4]}...{curr_key[-4:]}" if len(curr_key) > 8 else "GEMINI_KEY"
         discovered = _discover_supported_models(curr_key)
@@ -391,10 +393,12 @@ Analyst Revision Score: {analyst_consensus.get('analyst_revision_score', 50)}/10
     ai_result = None
     from gemini_key_manager import get_active_gemini_key, mark_gemini_key_exhausted
 
+    attempted_keys = set()
     while True:
         curr_key = get_active_gemini_key()
-        if not curr_key:
+        if not curr_key or curr_key in attempted_keys:
             break
+        attempted_keys.add(curr_key)
 
         masked_key = f"{curr_key[:4]}...{curr_key[-4:]}" if len(curr_key) > 8 else "GEMINI_KEY"
         discovered = _discover_supported_models(curr_key)

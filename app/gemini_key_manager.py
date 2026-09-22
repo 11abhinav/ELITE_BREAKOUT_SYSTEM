@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import threading
+import time
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from zoneinfo import ZoneInfo
@@ -13,6 +14,7 @@ _cache_lock = threading.Lock()
 _blacklisted_gemini_keys_ram = {}
 _active_gemini_key_ram = None
 _gemini_keys_initialized = False
+_last_preflight_probe_ts: float = 0.0
 
 def _get_exhausted_gemini_keys_file():
     return os.path.join(DATA_DIR, "exhausted_gemini_keys.json")
@@ -153,19 +155,38 @@ def _is_gemini_key_exhausted(key: str) -> bool:
 def revalidate_single_key_live(key: str) -> bool:
     """
     [RULE 67 - LIVE PRE-FLIGHT PROBE]:
-    Directly queries Google's /v1beta/models endpoint to test whether the key has valid quota right now.
+    Directly tests whether the key has valid content generation quota right now.
+    Checks:
+    1. Key must NOT have been blacklisted in the last 15 minutes (avoids rapid flapping).
+    2. Probes countTokens endpoint (which validates actual model API quota, unlike /models).
     Returns True if Google responds with HTTP 200 (quota available / key active), False otherwise.
     """
     if not key:
         return False
     try:
+        # Check if key was blacklisted recently (< 15 mins ago)
+        now_dt = datetime.now(ZoneInfo('Asia/Kolkata'))
+        with _cache_lock:
+            entry = _blacklisted_gemini_keys_ram.get(key)
+            if entry and isinstance(entry, dict):
+                exhausted_at = entry.get("exhausted_at", "")
+                if exhausted_at:
+                    try:
+                        ex_dt = datetime.fromisoformat(exhausted_at)
+                        if (now_dt - ex_dt) < timedelta(minutes=15):
+                            return False
+                    except Exception:
+                        pass
+
         import requests
-        url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
+        # Test actual generation quota using countTokens on gemini-2.0-flash
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:countTokens?key={key}"
         headers = {
             "x-goog-api-key": key,
             "Content-Type": "application/json"
         }
-        resp = requests.get(url, headers=headers, timeout=6)
+        payload = {"contents": [{"parts": [{"text": "probe"}]}]}
+        resp = requests.post(url, headers=headers, json=payload, timeout=6)
         if resp.status_code == 200:
             return True
         elif resp.status_code == 429:
@@ -313,6 +334,13 @@ def get_active_gemini_key() -> str:
     # 3. PRE-FLIGHT LIVE REVALIDATION:
     # All keys are currently marked blacklisted. Before giving up and alerting admin,
     # actively test all keys against Google's API to see if any key has recovered.
+    # Enforce a strict 5-minute (300s) cooldown between probe passes to prevent spinning.
+    global _last_preflight_probe_ts
+    now_ts = time.time()
+    if (now_ts - _last_preflight_probe_ts) < 300.0:
+        return ""
+
+    _last_preflight_probe_ts = now_ts
     logger.info(f"🔍 [GEMINI PRE-FLIGHT PROBE] All {len(keys)} key(s) are blacklisted in cache. Probing Google API live before throwing admin alert...")
     for k in keys:
         masked = f"{k[:4]}...{k[-4:]}" if len(k) > 8 else k
