@@ -399,5 +399,83 @@ class TestExitMonitorsAndCalendar(unittest.TestCase):
         self.assertTrue(res.get("storage_ok"), "Storage check should succeed")
         self.assertTrue(res.get("calendar_ok"), "Calendar check should succeed")
 
+    def test_market_and_legacy_entry_mode_auto_heal_and_sl_exit(self):
+        """Verify that MARKET and LEGACY_UNKNOWN trades in PENDING_ENTRY state (e.g. RVNL) auto-heal to OPEN and exit on SL hit."""
+        from performance_tracker import process_trade_history
+
+        # 1. Simulate RVNL alert: MARKET entry, PENDING_ENTRY execution_state
+        trade_rvnl = {
+            "id": 88888,
+            "symbol": "RVNL",
+            "scanner": "SHORT_COVERING_5M",
+            "entry_mode": "MARKET",
+            "execution_state": "PENDING_ENTRY",
+            "entry_price": 212.42,
+            "stop_loss": 211.29,
+            "initial_stop_loss": 211.29,
+            "target_1": 216.0,
+            "target_2": 220.0,
+            "target_3": 225.0,
+            "shares_bought": 100,
+            "remaining_shares": 100,
+            "capital_allocated": 21242.0,
+            "status": "OPEN",
+            "alert_time": "2026-09-22 11:45:00",
+            "exit_history": "[]"
+        }
+
+        # Create candle where price drops to 210.50 (breaching SL 211.29)
+        candles = [
+            IST.localize(datetime(2026, 9, 22, 11, 50)),
+        ]
+        df_rvnl = pd.DataFrame({
+            "Open": [212.0],
+            "High": [212.5],
+            "Low":  [210.5],  # SL breached!
+            "Close": [210.8],
+            "Volume": [100000]
+        }, index=pd.DatetimeIndex(candles))
+
+        process_trade_history(trade_rvnl, hist=df_rvnl, cur_p=210.50, is_recalculate=False)
+
+        # Assert RVNL is NOT rejected in limbo; it must transition to SL_HIT / LOSS
+        self.assertEqual(trade_rvnl["execution_state"], "SL_HIT", "RVNL must transition from PENDING_ENTRY to SL_HIT")
+        self.assertEqual(trade_rvnl["status"], "LOSS", "RVNL must close with status LOSS")
+        self.assertTrue(trade_rvnl["stopped_out"], "RVNL stopped_out must be True")
+        self.assertIsNotNone(trade_rvnl["closed_at"], "RVNL closed_at must be populated")
+        self.assertEqual(trade_rvnl["remaining_shares"], 0, "Remaining shares must be 0")
+
+        # 2. Simulate Legacy Alert with LEGACY_UNKNOWN entry_mode in PENDING_ENTRY state
+        trade_legacy = {
+            "id": 88889,
+            "symbol": "TATASTEEL",
+            "scanner": "BREAKOUT",
+            "entry_mode": "LEGACY_UNKNOWN",
+            "execution_state": "PENDING_ENTRY",
+            "entry_price": 150.0,
+            "stop_loss": 145.0,
+            "initial_stop_loss": 145.0,
+            "target_1": 160.0,
+            "shares_bought": 50,
+            "remaining_shares": 50,
+            "capital_allocated": 7500.0,
+            "status": "OPEN",
+            "alert_time": "2026-09-22 10:00:00",
+            "exit_history": "[]"
+        }
+        df_legacy = pd.DataFrame({
+            "Open": [149.0],
+            "High": [151.0],
+            "Low":  [144.0],  # Breaches SL 145.0
+            "Close": [144.5],
+            "Volume": [50000]
+        }, index=pd.DatetimeIndex([IST.localize(datetime(2026, 9, 22, 10, 15))]))
+
+        process_trade_history(trade_legacy, hist=df_legacy, cur_p=144.50, is_recalculate=False)
+
+        self.assertEqual(trade_legacy["execution_state"], "SL_HIT", "Legacy alert must transition to SL_HIT")
+        self.assertEqual(trade_legacy["status"], "LOSS", "Legacy alert must close with status LOSS")
+        self.assertTrue(trade_legacy["stopped_out"], "Legacy alert stopped_out must be True")
+
 if __name__ == "__main__":
     unittest.main()

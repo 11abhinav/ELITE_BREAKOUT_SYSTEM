@@ -33,7 +33,7 @@ from price_cache import fetch_watchlist_data
 
 
 from config import MIN_STOCK_PRICE
-from database import get_all_alerts, update_alert_outcome, update_partial_exit, upsert_scanner_health, save_system_state
+from database import get_all_alerts, update_alert_outcome, update_partial_exit, upsert_scanner_health, save_system_state, get_connection
 from trading_calendar import sanitize_market_session_timestamp
 
 logger = logging.getLogger(__name__)
@@ -368,7 +368,10 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
         else:
             t["stop_loss"] = initial_sl
 
-        execution_state = "OPEN" if execution_state != "PENDING_ENTRY" else "PENDING_ENTRY"
+        if entry_mode in ("MARKET", "LEGACY_UNKNOWN") or not entry_mode:
+            execution_state = "OPEN"
+        else:
+            execution_state = "OPEN" if execution_state != "PENDING_ENTRY" else "PENDING_ENTRY"
         t["execution_state"] = execution_state
         t["status"] = execution_state
         t["remaining_shares"] = shares_bought
@@ -465,13 +468,28 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
             now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
             ticks.append((now_str, cur_p, cur_p, cur_p, cur_p, 0.0))
     # ── State Validation & Fallback ──
+    # Auto-heal: Market orders and legacy alerts should be OPEN, not stuck in PENDING_ENTRY
+    if execution_state == "PENDING_ENTRY" and (entry_mode in ("MARKET", "LEGACY_UNKNOWN") or not entry_mode):
+        execution_state = "OPEN"
+        t["execution_state"] = "OPEN"
+        if t.get("status") in (None, "PENDING_ENTRY"):
+            t["status"] = "OPEN"
+        if actual_entry_price is None:
+            actual_entry_price = t.get("entry_price")
+            t["actual_entry_price"] = actual_entry_price
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE alerts SET execution_state = 'OPEN', status = 'OPEN', actual_entry_price = COALESCE(actual_entry_price, %s) WHERE id = %s", (actual_entry_price, t["id"]))
+        except Exception as e:
+            logger.error(f"❌ [PERF_TRACKER] Auto-heal DB update failed for {symbol}: {e}")
+
     if execution_state == "OPEN" and actual_entry_price is None:
         if t.get("entry_price") is not None:
             actual_entry_price = t["entry_price"]
             t["actual_entry_price"] = actual_entry_price
             # Async backfill in DB to fix data integrity
             try:
-                from database import get_connection
                 with get_connection() as conn:
                     with conn.cursor() as cur:
                         cur.execute("UPDATE alerts SET actual_entry_price = %s WHERE id = %s AND actual_entry_price IS NULL", (actual_entry_price, t["id"]))
@@ -521,10 +539,11 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
                 if low <= t["entry_price"]:
                     is_triggered = True
                     fill_price = min(t["entry_price"], open_p)
-            elif entry_mode == "MARKET" or entry_mode == "LEGACY_UNKNOWN":
-                logger.error(f"❌ [PERF_TRACKER] INVALID_ENTRY_STATE: {symbol} has entry_mode={entry_mode} but execution_state=PENDING_ENTRY. Safe-rejecting transition to OPEN.")
-                # Flag as invalid and continue without transitioning
-                continue
+            elif entry_mode in ("MARKET", "LEGACY_UNKNOWN") or not entry_mode:
+                # Market orders and legacy alerts enter immediately upon alert trigger
+                is_triggered = True
+                fill_price = actual_entry_price or t.get("entry_price") or open_p
+                logger.info(f"⚡ [PERF_TRACKER] Immediate entry transition to OPEN for {symbol} (mode={entry_mode}) at ₹{fill_price:.2f}")
 
             if is_triggered and fill_price is not None:
                 # The condition happened! Transition to OPEN and continue evaluation.
@@ -535,7 +554,6 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
                 actual_entry_price = fill_price
                 if "ENTRY_TRIGGERED" not in db_events:
                     try:
-                        from database import get_connection
                         with get_connection() as conn:
                             with conn.cursor() as cur:
                                 cur.execute("UPDATE alerts SET execution_state = 'OPEN', status = 'OPEN', actual_entry_price = %s WHERE id = %s", (fill_price, t["id"]))
@@ -1127,6 +1145,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             "context":       row.get("context"),          # Diagnostic filters and context
             "is_rejected":   row.get("is_rejected", False),
             "execution_state": row.get("execution_state"),
+            "entry_mode":     row.get("entry_mode", "MARKET"),
+            "actual_entry_price": _f(row.get("actual_entry_price")),
             "structural_failure_stop": _f(row.get("structural_failure_stop")),
             "exit_signal":   _extract_exit_reason(row),
             "exit_reason":   _extract_exit_reason(row),

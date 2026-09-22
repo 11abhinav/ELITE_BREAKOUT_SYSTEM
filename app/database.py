@@ -3139,7 +3139,15 @@ def save_alert_if_new(
         rvol_diurnal_val = float(cand_ctx.get("rvol_diurnal")) if cand_ctx.get("rvol_diurnal") is not None else None
         rvol_rolling_val = float(cand_ctx.get("rvol_rolling") or volume_ratio or 1.0)
 
-        eff_actual_entry_price = actual_entry_price if actual_entry_price is not None else entry_price
+        # Determine initial execution state based on entry mode
+        initial_execution_state = kwargs.get("execution_state")
+        if not initial_execution_state:
+            if entry_mode in ("BREAKOUT_TRIGGER", "LIMIT_PULLBACK"):
+                initial_execution_state = "PENDING_ENTRY"
+            else:
+                initial_execution_state = "OPEN"
+
+        eff_actual_entry_price = actual_entry_price if actual_entry_price is not None else (entry_price if initial_execution_state == "OPEN" else None)
         today_date = datetime.now(IST).date()
         cur.execute("""
             INSERT INTO alerts
@@ -3151,13 +3159,13 @@ def save_alert_if_new(
                 evaluation_id, scanner_run_id, trade_evolution_state, evidence_count, distinct_patterns_count,
                 confirmation_quality, last_event_type, last_event_date, execution_status, execution_block_reason,
                 rvol_diurnal, rvol_rolling)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'PENDING_ENTRY', %s, %s, 'INITIAL', 1, 1, 'INITIAL', 'NEW_ENTRY', %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'INITIAL', 1, 1, 'INITIAL', 'NEW_ENTRY', %s, %s, %s, %s, %s)
             RETURNING id;
         """, (symbol, breakout_type, alert_time, today_date.strftime('%Y-%m-%d'), source_trading_date, alert_fingerprint, scanner, category,
             entry_price, stop_loss, stop_loss, target_price, target_1, target_2, target_3, target_4,
             signals, score, rsi, volume_ratio, context_str, capital_allocated, shares_bought, shares_bought,
             model_version, bayesian_regime, weights_str, data_partition, cash_in_hand or 0.0, entry_price,
-            structural_failure_stop, target_quality_score, entry_mode, eff_actual_entry_price,
+            structural_failure_stop, target_quality_score, entry_mode, eff_actual_entry_price, initial_execution_state,
             evaluation_id, scanner_run_id, today_date, execution_status, execution_block_reason,
             rvol_diurnal_val, rvol_rolling_val))
         row = cur.fetchone()
@@ -3835,6 +3843,7 @@ def get_all_alerts(limit: int = None) -> list[dict]:
                     a.last_event_date,
                     a.execution_state,
                     a.actual_entry_price,
+                    a.entry_mode,
                     a.cmp_updated_at
                 FROM alerts a
                 ORDER BY a.alert_time DESC
@@ -4898,7 +4907,7 @@ def get_alert_by_symbol(symbol: str) -> Optional[Dict[str, Any]]:
                            COALESCE(a.distinct_patterns_count, 1)                   AS distinct_patterns_count,
                            COALESCE(a.confirmation_quality, 'INITIAL')              AS confirmation_quality,
                            COALESCE(a.last_event_type, 'NEW_ENTRY')                 AS last_event_type,
-                           a.execution_state, a.execution_status
+                           a.execution_state, a.execution_status, a.entry_mode
                     FROM alerts a
                     WHERE UPPER(a.symbol) = %s
                     ORDER BY a.id DESC LIMIT 1
@@ -4970,7 +4979,7 @@ def get_alerts_for_symbol(symbol: str) -> list[dict]:
                            COALESCE(a.distinct_patterns_count, 1)                   AS distinct_patterns_count,
                            COALESCE(a.confirmation_quality, 'INITIAL')              AS confirmation_quality,
                            COALESCE(a.last_event_type, 'NEW_ENTRY')                 AS last_event_type,
-                           a.execution_state, a.execution_status
+                           a.execution_state, a.execution_status, a.entry_mode
                     FROM alerts a
                     WHERE UPPER(a.symbol) = %s
                     ORDER BY a.id DESC LIMIT 20
