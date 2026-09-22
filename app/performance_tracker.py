@@ -361,14 +361,23 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             ts_dt = pd.to_datetime(ts)
             if ts_dt.weekday() >= 5:
                 continue
+            # [BUG FIX: MIDNIGHT_TICK_GUARD v1.0] Only accept candles that fall inside NSE/BSE
+            # market hours (09:15–15:30 IST). Intraday 5m/1h feeds can include pre-market or
+            # midnight ghost bars (data provider artefacts). Using such a bar for SL/target
+            # evaluation would book exits at prices that never existed in the live market.
+            ts_time = ts_dt.time()
+            if not (time_cls(9, 15) <= ts_time <= time_cls(15, 30)):
+                continue
             ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
             vol = float(row.get("Volume", 0.0))
             close_p = float(row.get("Close", float(row["High"])))
             ticks.append((ts_str, float(row["Open"]), float(row["Low"]), float(row["High"]), close_p, vol))
     if cur_p:
         now_dt = datetime.now(IST)
-        # Strictly prohibit weekend candles from current price injection
-        if now_dt.weekday() < 5:
+        now_time = now_dt.time()
+        # [BUG FIX: MIDNIGHT_TICK_GUARD v1.0] Only inject live price during valid market hours
+        # to prevent off-hours background runs from triggering midnight exits.
+        if now_dt.weekday() < 5 and time_cls(9, 15) <= now_time <= time_cls(15, 30):
             now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
             ticks.append((now_str, cur_p, cur_p, cur_p, cur_p, 0.0))
     # ── State Validation & Fallback ──
@@ -396,6 +405,10 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
         # Never evaluate entry, exit, or calculate P&L from a Saturday or Sunday candle.
         t_tick = pd.to_datetime(ts_str)
         if t_tick.weekday() >= 5:
+            continue
+        # [BUG FIX: MIDNIGHT_TICK_GUARD v1.0] Defense-in-depth: also reject any tick that
+        # slipped through the build phase and falls outside 09:15–15:30 IST.
+        if not (time_cls(9, 15) <= t_tick.time() <= time_cls(15, 30)):
             continue
 
         if t["status"] in ("WIN", "LOSS", "CLOSED", "REJECTED"):
@@ -494,7 +507,13 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             pnl_rs_event = rem_shares * (exit_p - effective_entry)
             event = {"type": "SL_HIT", "price": exit_p, "shares": rem_shares, "pnl": round(pnl_rs_event, 2), "time": ts_str}
 
-            final_status = "WIN" if "PARTIAL" in status else "LOSS"
+            # [BUG FIX: WIN_LOSS_NOTIFICATION_MISMATCH v1.0]
+            # Previously used "PARTIAL" in status to decide WIN — this was wrong.
+            # A trade that had T1 booked (PARTIAL_WIN_1) but whose remaining position
+            # then hits SL with a larger loss has a NEGATIVE cumulative P&L → it is a LOSS.
+            # The correct signal is the SIGN of the cumulative realized P&L across all legs.
+            _projected_pnl = sum(e["pnl"] for e in hist_list) + pnl_rs_event
+            final_status = "WIN" if _projected_pnl > 0 else "LOSS"
             execution_state = "SL_HIT"
 
             hist_list.append(event)
@@ -526,7 +545,10 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float):
             pnl_rs_event = rem_shares * (exit_p - effective_entry)
             event = {"type": "STRUCT_FAIL", "price": exit_p, "shares": rem_shares, "pnl": round(pnl_rs_event, 2), "time": ts_str}
 
-            final_status = "WIN" if "PARTIAL" in status else "LOSS"
+            # [BUG FIX: WIN_LOSS_NOTIFICATION_MISMATCH v1.0]
+            # Same fix as SL_HIT: use cumulative P&L sign, not status string.
+            _projected_pnl = sum(e["pnl"] for e in hist_list) + pnl_rs_event
+            final_status = "WIN" if _projected_pnl > 0 else "LOSS"
             execution_state = "STRUCT_FAIL"
 
             hist_list.append(event)

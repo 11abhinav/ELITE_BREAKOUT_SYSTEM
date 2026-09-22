@@ -23,6 +23,72 @@ def is_market_open(now_dt: datetime = None) -> bool:
     current_time = now_dt.time()
     return dt_time(9, 15) <= current_time <= dt_time(15, 30)
 
+def is_valid_price_tick(ts, check_calendar: bool = False) -> bool:
+    """
+    [BUG FIX: MIDNIGHT_TICK_GUARD v1.0]
+    Returns True ONLY if *ts* falls within valid NSE/BSE market hours:
+      - Monday–Friday (weekday 0-4, not Saturday=5 or Sunday=6)
+      - 09:15 IST <= time <= 15:30 IST
+
+    This is the CANONICAL market-hours guard for all price tick validation.
+    Call this on every data bar before using its OHLCV for exit/entry decisions.
+
+    Args:
+        ts: datetime, pd.Timestamp, or ISO string.
+        check_calendar: If True, additionally verifies the date is an official
+                        NSE/BSE trading day (no holidays). Defaults to False for
+                        performance — weekend + time filter already rejects >99% of
+                        invalid ticks without the calendar lookup overhead.
+
+    Returns:
+        True if tick is from a valid market session, False otherwise.
+    """
+    from datetime import datetime as _dt
+    try:
+        if isinstance(ts, str):
+            ts_dt = _dt.fromisoformat(ts.replace("Z", "+00:00"))
+        else:
+            ts_dt = ts
+
+        # Convert to IST if timezone-aware, otherwise treat as IST
+        try:
+            import pandas as pd
+            ts_dt = pd.to_datetime(ts_dt)
+            if ts_dt.tzinfo is not None:
+                ts_dt = ts_dt.tz_convert("Asia/Kolkata")
+            else:
+                ts_dt = ts_dt.tz_localize("Asia/Kolkata")
+            weekday = ts_dt.weekday()
+            tick_time = ts_dt.time()
+        except Exception:
+            # Fallback: parse as naive and attach IST
+            ts_naive = _dt.fromisoformat(str(ts)[:19]) if not isinstance(ts, _dt) else ts
+            ts_dt = ts_naive.replace(tzinfo=IST)
+            weekday = ts_dt.weekday()
+            tick_time = ts_dt.time()
+
+        # Reject weekends
+        if weekday >= 5:
+            return False
+
+        # Reject ticks outside market session 09:15–15:30 IST
+        if not (dt_time(9, 15) <= tick_time <= dt_time(15, 30)):
+            return False
+
+        # Optional: reject NSE/BSE holidays
+        if check_calendar:
+            try:
+                from trading_calendar import default_trading_calendar
+                if not default_trading_calendar.is_trading_day(ts_dt):
+                    return False
+            except Exception:
+                pass  # Calendar check is best-effort; do not reject on failure
+
+        return True
+    except Exception:
+        return False
+
+
 def is_within_custom_hours(start_time: dt_time, end_time: dt_time, now_dt: datetime = None) -> bool:
     """
     Returns True if the current time is between start_time and end_time on an official trading day.
