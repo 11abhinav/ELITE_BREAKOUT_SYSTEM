@@ -644,35 +644,6 @@ def init_db():
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_alerts_idempotency ON alerts (idempotency_key) WHERE idempotency_key IS NOT NULL")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_wealth_buy_alert_date ON wealth_buy_alert(alert_date)")
 
-                # Comprehensive Data integrity auto-heal for all historical alerts:
-                # 1. Filled positions cannot be stuck in PENDING_ENTRY
-                cur.execute("""
-                    UPDATE alerts
-                    SET execution_state = 'OPEN',
-                        status = CASE WHEN status = 'PENDING_ENTRY' THEN 'OPEN' ELSE status END,
-                        entry_mode = CASE WHEN entry_mode = 'LEGACY_UNKNOWN' THEN 'CONFIRMED_BUY' ELSE entry_mode END
-                    WHERE execution_state = 'PENDING_ENTRY' AND actual_entry_price IS NOT NULL
-                """)
-                # 2. Market or legacy alerts cannot be PENDING_ENTRY - populate actual_entry_price if missing
-                cur.execute("""
-                    UPDATE alerts
-                    SET execution_state = 'OPEN',
-                        status = CASE WHEN status = 'PENDING_ENTRY' THEN 'OPEN' ELSE status END,
-                        actual_entry_price = COALESCE(actual_entry_price, entry_price)
-                    WHERE execution_state = 'PENDING_ENTRY' AND (entry_mode IN ('MARKET', 'LEGACY_UNKNOWN') OR entry_mode IS NULL)
-                """)
-                # 3. Any OPEN alert missing actual_entry_price gets entry_price
-                cur.execute("""
-                    UPDATE alerts
-                    SET actual_entry_price = entry_price
-                    WHERE execution_state = 'OPEN' AND actual_entry_price IS NULL AND entry_price IS NOT NULL
-                """)
-                # 4. Closed positions should never be stuck in PENDING_ENTRY execution_state
-                cur.execute("""
-                    UPDATE alerts
-                    SET execution_state = status
-                    WHERE status IN ('WIN', 'LOSS', 'CLOSED', 'EXPIRED') AND execution_state = 'PENDING_ENTRY'
-                """)
 
                 # 4.5. scanner_evaluation_log table
                 cur.execute("""
@@ -815,11 +786,7 @@ def init_db():
                         created_at TIMESTAMPTZ DEFAULT NOW()
                     )
                 """)
-                cur.execute("ALTER TABLE alert_events ALTER COLUMN pattern TYPE TEXT")
-                cur.execute("ALTER TABLE alert_events ALTER COLUMN scanner TYPE TEXT")
-                cur.execute("ALTER TABLE alert_events ALTER COLUMN event_type TYPE TEXT")
-                cur.execute("ALTER TABLE alert_events ALTER COLUMN confirmation_quality TYPE TEXT")
-                cur.execute("ALTER TABLE alert_events ALTER COLUMN reason_code TYPE TEXT")
+
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_alert_id ON alert_events(alert_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_symbol_date ON alert_events(symbol, event_date)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_event_type ON alert_events(event_type)")
@@ -2010,23 +1977,6 @@ def init_db():
                 except Exception as _sc_create_err:
                     logger.debug(f"Short covering watchlist create notice: {_sc_create_err}")
 
-                # Migrate each numeric column individually so one failure doesn't abort the rest.
-                # USING cast required when converting NUMERIC(6,2) -> DOUBLE PRECISION.
-                _sc_watchlist_cols = [
-                    "close_price", "oi_buildup_5d_pct", "short_buildup_ratio",
-                    "rsi_14", "support_level", "overhead_resistance",
-                    "atr_14", "buildup_quality_score",
-                ]
-                for _col in _sc_watchlist_cols:
-                    try:
-                        cur.execute(
-                            f"ALTER TABLE short_covering_watchlist "
-                            f"ALTER COLUMN {_col} TYPE DOUBLE PRECISION "
-                            f"USING {_col}::DOUBLE PRECISION;"
-                        )
-                    except Exception as _sc_alt_err:
-                        logger.warning(f"short_covering_watchlist ALTER {_col}: {_sc_alt_err}")
-
                 try:
                     cur.execute("""
                         CREATE TABLE IF NOT EXISTS short_covering_alerts (
@@ -2052,20 +2002,6 @@ def init_db():
                 except Exception as _sc_alerts_create_err:
                     logger.debug(f"Short covering alerts create notice: {_sc_alerts_create_err}")
 
-                _sc_alerts_cols = [
-                    "ignition_price", "vwap", "stop_loss", "initial_target",
-                    "risk_reward_ratio", "excess_oi_contraction",
-                    "volume_surge_ratio", "ignition_score",
-                ]
-                for _col in _sc_alerts_cols:
-                    try:
-                        cur.execute(
-                            f"ALTER TABLE short_covering_alerts "
-                            f"ALTER COLUMN {_col} TYPE DOUBLE PRECISION "
-                            f"USING {_col}::DOUBLE PRECISION;"
-                        )
-                    except Exception as _sc_alt_err:
-                        logger.warning(f"short_covering_alerts ALTER {_col}: {_sc_alt_err}")
 
 
                 # 45. Universal Corporate & Analyst Intelligence Dossier Engine
