@@ -644,6 +644,14 @@ def init_db():
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_alerts_idempotency ON alerts (idempotency_key) WHERE idempotency_key IS NOT NULL")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_wealth_buy_alert_date ON wealth_buy_alert(alert_date)")
 
+                # Data integrity auto-heal: any alert with actual_entry_price populated must have execution_state='OPEN'
+                cur.execute("""
+                    UPDATE alerts
+                    SET execution_state = 'OPEN',
+                        status = CASE WHEN status = 'PENDING_ENTRY' THEN 'OPEN' ELSE status END
+                    WHERE execution_state = 'PENDING_ENTRY' AND actual_entry_price IS NOT NULL
+                """)
+
                 # 4.5. scanner_evaluation_log table
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS scanner_evaluation_log (
@@ -3157,7 +3165,10 @@ def save_alert_if_new(
             else:
                 initial_execution_state = "OPEN"
 
-        eff_actual_entry_price = actual_entry_price if actual_entry_price is not None else (entry_price if initial_execution_state == "OPEN" else None)
+        if initial_execution_state == "PENDING_ENTRY":
+            eff_actual_entry_price = None
+        else:
+            eff_actual_entry_price = actual_entry_price if actual_entry_price is not None else entry_price
         today_date = datetime.now(IST).date()
         cur.execute("""
             INSERT INTO alerts

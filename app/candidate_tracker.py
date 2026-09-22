@@ -572,6 +572,7 @@ def confirm_candidate(
                 entry_price, actual_entry_price, stop_loss, target_1, target_2,
                 risk_reward_ratio, quality_score,
                 reasoning, metadata, idempotency_key,
+                execution_state, status, entry_mode,
                 created_at
             )
             VALUES (
@@ -579,6 +580,7 @@ def confirm_candidate(
                 %(entry_price)s, COALESCE(%(actual_entry_price)s, %(entry_price)s), %(stop_loss)s, %(target_1)s, %(target_2)s,
                 %(risk_reward_ratio)s, %(quality_score)s,
                 %(reasoning)s, %(metadata)s::jsonb, %(idempotency_key)s,
+                'OPEN', 'OPEN', 'CONFIRMED_BUY',
                 %(now)s
             )
             ON CONFLICT (idempotency_key) DO NOTHING
