@@ -351,6 +351,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
 
     # Adjust trade for stock splits / bonus issues prior to evaluating exits
     adjust_trade_for_corporate_actions(t)
+    notify = not is_recalculate
 
     t1 = t.get("target_1")
     t2 = t.get("target_2")
@@ -666,7 +667,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
             final_status = "WIN" if total_pnl_rs > 0 else "LOSS"
 
             if "GAP_LOSS" not in db_events:
-                update_alert_outcome(t["id"], final_status, exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="GAP_LOSS", execution_state=execution_state, exit_history=hist_list)
+                update_alert_outcome(t["id"], final_status, exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="GAP_LOSS", execution_state=execution_state, exit_history=hist_list, notify=notify)
                 db_events.add("GAP_LOSS")
 
             t["status"] = final_status
@@ -703,7 +704,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
             total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
 
             if "SL_HIT" not in db_events:
-                update_alert_outcome(t["id"], final_status, exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="STOP_LOSS", execution_state=execution_state, exit_history=hist_list)
+                update_alert_outcome(t["id"], final_status, exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="STOP_LOSS", execution_state=execution_state, exit_history=hist_list, notify=notify)
                 db_events.add("SL_HIT")
 
             t["status"] = final_status
@@ -737,7 +738,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
             total_pnl_pct = round((total_pnl_rs / cap) * 100, 2) if cap > 0 else 0.0
 
             if "STRUCT_FAIL" not in db_events:
-                update_alert_outcome(t["id"], final_status, exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="STRUCTURAL_FAIL", execution_state=execution_state, exit_history=hist_list)
+                update_alert_outcome(t["id"], final_status, exit_p, total_pnl_pct, pnl_rs=total_pnl_rs, closed_at=ts_str, exit_signal="STRUCTURAL_FAIL", execution_state=execution_state, exit_history=hist_list, notify=notify)
                 db_events.add("STRUCT_FAIL")
 
             t["status"] = final_status
@@ -799,7 +800,8 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
                         t["id"], "WIN", exit_p, p_pct,
                         pnl_rs=total_pnl_rs, closed_at=ts_str,
                         exit_signal="TARGET_HIT", execution_state=execution_state,
-                        exit_history=hist_list
+                        exit_history=hist_list,
+                        notify=notify
                     )
                     db_events.add("T1_HIT")
                     db_events.add("T1_WIN")
@@ -864,7 +866,8 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
                         t["id"], "WIN", exit_p, p_pct,
                         pnl_rs=total_pnl_rs, closed_at=ts_str,
                         exit_signal="TARGET_HIT", execution_state=execution_state,
-                        exit_history=hist_list
+                        exit_history=hist_list,
+                        notify=notify
                     )
                     db_events.add("T2_HIT")
                     db_events.add("T2_WIN")
@@ -913,7 +916,8 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
                     t["id"], "WIN", exit_p, p_pct,
                     pnl_rs=total_pnl_rs, closed_at=ts_str,
                     exit_signal="TARGET_HIT", execution_state=execution_state,
-                    exit_history=hist_list
+                    exit_history=hist_list,
+                    notify=notify
                 )
                 db_events.add("T3_HIT")
             continue
@@ -1861,7 +1865,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                     _rem_sh = t.get("remaining_shares") or t.get("shares_bought") or 0
                     t["pnl_rs"]      = _rem_sh * (sl - ep) if _rem_sh else 0.0
                     t["closed_at"]   = hit_time
-                    update_alert_outcome(t["id"], "LOSS", sl, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time, exit_signal="STOP_LOSS")
+                    update_alert_outcome(t["id"], "LOSS", sl, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time, exit_signal="STOP_LOSS", notify=False)
                 elif cur_p and cur_p <= sl:
                     t["stopped_out"] = True
                     t["exit_price"]  = sl
@@ -1874,7 +1878,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                     hit_time = sanitize_market_session_timestamp(datetime.now(IST))
                     t["closed_at"]   = hit_time
                     logger.debug(f"🛑 {sym} SL HIT (LIVE) | entry={ep} sl={sl} pnl={t['pnl_pct']}%")
-                    update_alert_outcome(t["id"], "LOSS", sl, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time, exit_signal="STOP_LOSS")
+                    update_alert_outcome(t["id"], "LOSS", sl, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time, exit_signal="STOP_LOSS", notify=False)
                 elif cur_p:
                     t["pnl_pct"] = round((cur_p - ep) / ep * 100, 2)
             elif cur_p and cur_p <= sl:
@@ -1889,7 +1893,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
                 hit_time = sanitize_market_session_timestamp(datetime.now(IST))
                 t["closed_at"]   = hit_time
                 logger.debug(f"🛑 {sym} SL HIT (LIVE) | entry={ep} sl={sl} pnl={t['pnl_pct']}%")
-                update_alert_outcome(t["id"], "LOSS", sl, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time, exit_signal="STOP_LOSS")
+                update_alert_outcome(t["id"], "LOSS", sl, t["pnl_pct"], pnl_rs=t["pnl_rs"], closed_at=hit_time, exit_signal="STOP_LOSS", notify=False)
             elif cur_p:
                 t["pnl_pct"] = round((cur_p - ep) / ep * 100, 2)
 

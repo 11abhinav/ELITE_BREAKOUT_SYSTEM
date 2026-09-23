@@ -8970,7 +8970,7 @@ async function fetchNotifications() {
             const unseenClass = !n.is_seen ? 'unseen' : '';
             
             html += `
-    <div class="notification-item ${unseenClass}" onclick="markNotificationSeen(${n.id}, '${n.symbol}', \`${n.title ? n.title.replace(/`/g, '') : ''}\`)">
+    <div class="notification-item ${unseenClass}" onclick="markNotificationSeen(${n.id}, '${n.symbol}', \`${n.title ? n.title.replace(/`/g, '') : ''}\`, ${n.alert_id || 'null'})">
                     <div class="notification-item-title ${typeClass}">${n.title}</div>
                     <button class="clear-notif-btn" onclick="event.stopPropagation(); clearNotification(${n.id})" title="Clear notification">✕</button>
                     <div class="notification-item-msg">${n.message}</div>
@@ -9011,7 +9011,7 @@ async function clearNotification(id) {
     } catch(e) { console.error('Failed to clear notification', e); }
 }
 
-async function markNotificationSeen(id, symbol, title) {
+async function markNotificationSeen(id, symbol, title, alertId) {
     try {
         if (id) {
             await fetch(`/api/notifications/mark_seen/${id}`, {method: 'POST'});
@@ -9057,12 +9057,75 @@ async function markNotificationSeen(id, symbol, title) {
         const catInput = document.getElementById('filterCategory');
         if (catInput) catInput.value = '';
 
-        if (symbol && symbol !== 'null' && symbol !== 'None' && symbol !== 'undefined') {
+        if (alertId && alertId !== 'null' && alertId !== 'None' && alertId !== 'undefined') {
+            await hydrateAndHighlightAlert(alertId, symbol, true);
+        } else if (symbol && symbol !== 'null' && symbol !== 'None' && symbol !== 'undefined') {
             await hydrateAndHighlightSymbol(symbol, true);
         }
     } catch (e) {
         console.error(e);
     }
+}
+
+// Exact Alert ID Hydrator: Prevents symbol collision across multiple trade cycles of same stock
+async function hydrateAndHighlightAlert(alertId, symbol, shouldScroll = true) {
+    if (!alertId) {
+        if (symbol) hydrateAndHighlightSymbol(symbol, shouldScroll);
+        return;
+    }
+    const aid = parseInt(alertId, 10);
+    const sym = (symbol || '').trim().toUpperCase();
+
+    // 1. If alert already present in memory, filter and highlight immediately
+    const existing = ALL_TRADES.find(t => t.id === aid);
+    if (existing) {
+        if (existing.symbol) {
+            const filterInput = document.getElementById('filterSymbol');
+            if (filterInput) filterInput.value = existing.symbol.toUpperCase();
+        }
+        renderTradeTable();
+        if (shouldScroll) highlightAlertRow(aid, sym);
+    }
+
+    // 2. Query direct DB by alert ID to guarantee exact trade state and avoid symbol collision
+    try {
+        const res = await fetch('/api/alert/by_id/' + encodeURIComponent(aid), {
+            headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+        });
+        if (res.ok) {
+            const trade = await res.json();
+            if (trade && trade.id) {
+                const idx = ALL_TRADES.findIndex(t => t.id === trade.id);
+                if (idx >= 0) {
+                    ALL_TRADES[idx] = {...ALL_TRADES[idx], ...trade};
+                } else {
+                    ALL_TRADES.unshift(trade);
+                }
+                populateFilters(ALL_TRADES);
+                if (trade.symbol) {
+                    const filterInput = document.getElementById('filterSymbol');
+                    if (filterInput) filterInput.value = trade.symbol.toUpperCase();
+                }
+                renderTradeTable();
+                if (shouldScroll) highlightAlertRow(aid, trade.symbol);
+            }
+        }
+    } catch (err) {
+        console.warn('Real-time DB fetch for alert ID failed:', err);
+    }
+}
+
+function highlightAlertRow(alertId, symbol) {
+    const row = document.querySelector(`tr[data-id="${alertId}"]`);
+    if (row) {
+        row.scrollIntoView({behavior: 'smooth', block: 'center'});
+        row.style.transition = 'background-color 0.5s';
+        const originalBg = row.style.backgroundColor;
+        row.style.backgroundColor = 'rgba(139, 92, 246, 0.4)';
+        setTimeout(() => row.style.backgroundColor = originalBg, 1500);
+        return;
+    }
+    if (symbol) highlightSymbolRow(symbol);
 }
 
 // [RULE 67 CHANGE-RATIONALE]: Real-time live DB trade alert hydrator.
@@ -9089,7 +9152,9 @@ async function hydrateAndHighlightSymbol(symbol, shouldScroll = true) {
         if (res.ok) {
             const trade = await res.json();
             if (trade && trade.symbol) {
-                const idx = ALL_TRADES.findIndex(t => (t.symbol || '').toUpperCase() === sym);
+                const idx = trade.id 
+                    ? ALL_TRADES.findIndex(t => t.id === trade.id)
+                    : ALL_TRADES.findIndex(t => (t.symbol || '').toUpperCase() === sym);
                 if (idx >= 0) {
                     ALL_TRADES[idx] = {...ALL_TRADES[idx], ...trade};
                 } else {
@@ -9195,6 +9260,7 @@ window.addEventListener('DOMContentLoaded', () => {
     const urlParams = new URLSearchParams(window.location.search);
     const watchlistSym = urlParams.get('watchlist_sym');
     const sym = urlParams.get('sym');
+    const alertId = urlParams.get('alert_id');
     const tab = urlParams.get('tab');
 
     if (tab && typeof switchAdminTab === 'function') {
@@ -9206,6 +9272,19 @@ window.addEventListener('DOMContentLoaded', () => {
             if (typeof switchAdminTab === 'function') switchAdminTab('watchlist-users');
             openSavedWatchlistAnalysis(watchlistSym);
         }, 600);
+    } else if (alertId) {
+        const filterDate = document.getElementById('filterDate');
+        if (filterDate) filterDate.value = 'ALL';
+        const filterScanner = document.getElementById('filterScanner');
+        if (filterScanner) filterScanner.value = '';
+        const filterStatus = document.getElementById('filterStatus');
+        if (filterStatus) filterStatus.value = '';
+        const catInput = document.getElementById('filterCategory');
+        if (catInput) catInput.value = '';
+        setTimeout(() => {
+            if (typeof switchAdminTab === 'function') switchAdminTab('signals-trades');
+            hydrateAndHighlightAlert(alertId, sym, true);
+        }, 300);
     } else if (sym) {
         const filterDate = document.getElementById('filterDate');
         if (filterDate) filterDate.value = 'ALL';
@@ -12672,8 +12751,8 @@ if (isIOS && !isInStandaloneMode && !localStorage.getItem('ios-hint-dismissed'))
 
       navigator.serviceWorker.addEventListener('message', event => {
         if (event.data && event.data.type === 'NOTIFICATION_CLICK') {
-          const { symbol, title } = event.data;
-          markNotificationSeen(null, symbol, title);
+          const { symbol, title, alert_id } = event.data;
+          markNotificationSeen(null, symbol, title, alert_id);
         }
       });
     });

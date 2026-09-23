@@ -177,6 +177,12 @@ self.addEventListener('notificationclick', event => {
 
   let targetUrl = event.notification.data?.url || '/';
   const symbol = event.notification.data?.symbol || '';
+  const alertId = event.notification.data?.alert_id || null;
+
+  if (alertId && !targetUrl.includes('alert_id=')) {
+    const separator = targetUrl.includes('?') ? '&' : '?';
+    targetUrl = `${targetUrl}${separator}alert_id=${encodeURIComponent(alertId)}`;
+  }
   if (symbol && !targetUrl.includes('sym=')) {
     const separator = targetUrl.includes('?') ? '&' : '?';
     targetUrl = `${targetUrl}${separator}sym=${encodeURIComponent(symbol)}`;
@@ -190,7 +196,8 @@ self.addEventListener('notificationclick', event => {
             client.postMessage({
               type: 'NOTIFICATION_CLICK',
               symbol: symbol,
-              title: event.notification.title || ''
+              title: event.notification.title || '',
+              alert_id: alertId
             });
           } catch(e) {}
           return client.focus().then(c => {

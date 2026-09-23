@@ -1611,7 +1611,7 @@ async function fetchNotifications() {
             const unseenClass = !n.is_seen ? 'unseen' : '';
             
             html += `
-                <div class="notification-item ${unseenClass}" onclick="markNotificationSeen(${n.id}, '${n.symbol}', \`${n.title ? n.title.replace(/`/g, '') : ''}\`)">
+                <div class="notification-item ${unseenClass}" onclick="markNotificationSeen(${n.id}, '${n.symbol}', \`${n.title ? n.title.replace(/`/g, '') : ''}\`, ${n.alert_id || 'null'})">
                     <div class="notification-item-title ${typeClass}">${n.title}</div>
                     <button class="clear-notif-btn" onclick="event.stopPropagation(); clearNotification(${n.id})" title="Clear notification">✕</button>
                     <div class="notification-item-msg">${n.message}</div>

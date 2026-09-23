@@ -111,6 +111,7 @@ def audit_and_correct_closed_trades(rebuild_perf=False):
                                 pnl_pct=round(pnl, 4),
                                 pnl_rs=None,
                                 exit_signal="AUDITOR_CORRECTION",
+                                notify=False,
                             )
                             swing_corrected += 1
                         except Exception as _upd_err:

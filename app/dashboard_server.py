@@ -808,9 +808,9 @@ def get_notifications():
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 if user_role == 'admin':
                     cur.execute('''
-                        SELECT id, type, title, message, symbol, is_seen, created_at 
+                        SELECT id, type, title, message, symbol, alert_id, is_seen, created_at 
                         FROM (
-                            SELECT id, type, title, message, symbol, is_seen, created_at 
+                            SELECT id, type, title, message, symbol, alert_id, is_seen, created_at 
                             FROM global_notifications
                             ORDER BY created_at DESC
                             LIMIT 200
@@ -825,9 +825,9 @@ def get_notifications():
                 else:
                     # User role: ONLY stock alerts & watchlist analysis notifications
                     cur.execute('''
-                        SELECT id, type, title, message, symbol, is_seen, created_at 
+                        SELECT id, type, title, message, symbol, alert_id, is_seen, created_at 
                         FROM (
-                            SELECT id, type, title, message, symbol, is_seen, created_at 
+                            SELECT id, type, title, message, symbol, alert_id, is_seen, created_at 
                             FROM global_notifications
                             ORDER BY created_at DESC
                             LIMIT 200
@@ -3634,6 +3634,32 @@ def api_alert_by_symbol(symbol: str):
         })
     except Exception as e:
         logger.exception(f"❌ /api/alert/by_symbol/{symbol} failed")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/alert/by_id/<int:alert_id>', methods=['GET'])
+@login_required
+def api_alert_by_id(alert_id: int):
+    """Fast real-time direct DB lookup for a specific alert ID.
+    Prevents symbol collisions and ensures clicking an exit notification loads the exact trade alert."""
+    try:
+        from database import get_alert_by_id
+        trade = get_alert_by_id(alert_id)
+        if not trade:
+            return jsonify({"success": False, "trade": None, "message": f"No alert found for ID {alert_id}"}), 404
+
+        is_admin = session.get('role') in ('admin', 'superuser')
+        if not is_admin and trade.get('is_rejected', False):
+            return jsonify({"success": False, "trade": None, "message": "Alert not visible"}), 403
+
+        payload = json.dumps(serialize_datetimes(trade))
+        return Response(payload, mimetype="application/json", headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        })
+    except Exception as e:
+        logger.exception(f"❌ /api/alert/by_id/{alert_id} failed")
         return jsonify({"success": False, "error": str(e)}), 500
 
 

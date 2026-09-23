@@ -57,7 +57,7 @@ def get_vapid_keys():
     _VAPID_KEYPAIR_CACHE = (fallback_pub, fallback_priv)
     return fallback_pub, fallback_priv
 
-def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", bypass_throttle: bool = False):
+def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", bypass_throttle: bool = False, alert_id: int = None):
     """Send a web push notification to all subscribed users. Throttles duplicates by default."""
     cache = _get_push_throttle()
     now = time.time()
@@ -68,7 +68,7 @@ def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", by
         del cache[k]
         
     # Throttle key includes title, symbol, and body snippet so DIFFERENT stock alerts are never blocked!
-    throttle_key = f"{title}:{symbol}:{body[:50]}" if symbol else f"{title}:{body[:50]}"
+    throttle_key = f"{title}:{symbol}:{alert_id}:{body[:50]}" if alert_id else (f"{title}:{symbol}:{body[:50]}" if symbol else f"{title}:{body[:50]}")
     if not bypass_throttle and throttle_key in cache:
         logger.info(f"🔕 Throttling duplicate push notification: '{throttle_key}'")
         return
@@ -103,7 +103,8 @@ def send_push_to_all(title: str, body: str, url: str = "/", symbol: str = "", by
         "title": title,
         "body": body,
         "url": url,
-        "symbol": symbol
+        "symbol": symbol,
+        "alert_id": alert_id
     })
 
     sent_count = 0

@@ -325,7 +325,7 @@ _INIT_LOCK = threading.Lock()
 
 
 
-def _insert_notification_sync(notif_type: str, title: str, message: str, symbol: str = None):
+def _insert_notification_sync(notif_type: str, title: str, message: str, symbol: str = None, alert_id: int = None):
     # [SUPPRESSION RULE] Do not create notifications for routine scanner completions per admin requirement
     title_lower = (title or "").lower()
     if any(k in title_lower for k in [
@@ -341,9 +341,9 @@ def _insert_notification_sync(notif_type: str, title: str, message: str, symbol:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute('''
-                    INSERT INTO global_notifications (type, title, message, symbol)
-                    VALUES (%s, %s, %s, %s)
-                ''', (notif_type, title, message, symbol))
+                    INSERT INTO global_notifications (type, title, message, symbol, alert_id)
+                    VALUES (%s, %s, %s, %s, %s)
+                ''', (notif_type, title, message, symbol, alert_id))
             conn.commit()
 
         # [EVENT-DRIVEN CACHE INVALIDATION] Invalidate all in-memory dashboard caches immediately
@@ -356,7 +356,7 @@ def _insert_notification_sync(notif_type: str, title: str, message: str, symbol:
         # [REAL-TIME WEB SSE DISPATCH] Notify web dashboards immediately
         try:
             from dashboard_server import notify_stream_clients
-            notify_stream_clients("notification", {"symbol": symbol, "title": title, "type": notif_type})
+            notify_stream_clients("notification", {"symbol": symbol, "title": title, "type": notif_type, "alert_id": alert_id})
         except Exception:
             pass
 
@@ -367,16 +367,17 @@ def _insert_notification_sync(notif_type: str, title: str, message: str, symbol:
                 title=title,
                 body=message,
                 url="/admin" if notif_type in ("error", "warning") else "/",
-                symbol=symbol or ""
+                symbol=symbol or "",
+                alert_id=alert_id
             )
         except Exception as push_err:
             logger.debug(f"WebPush dispatch skipped for admin notification: {push_err}")
     except Exception as e:
         logger.exception(f"Failed to insert notification")
 
-def insert_notification(notif_type: str, title: str, message: str, symbol: str = None):
+def insert_notification(notif_type: str, title: str, message: str, symbol: str = None, alert_id: int = None):
     import threading
-    threading.Thread(target=_insert_notification_sync, args=(notif_type, title, message, symbol), daemon=True).start()
+    threading.Thread(target=_insert_notification_sync, args=(notif_type, title, message, symbol, alert_id), daemon=True).start()
 
 class _AdvisoryLockGuard:
     def __init__(self):
@@ -1402,6 +1403,8 @@ def init_db():
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_global_notif_created ON global_notifications(created_at DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_global_notif_type ON global_notifications(type, created_at DESC)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_global_notif_seen ON global_notifications(is_seen, created_at DESC)")
+                cur.execute("ALTER TABLE global_notifications ADD COLUMN IF NOT EXISTS alert_id INTEGER")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_global_notif_alert_id ON global_notifications(alert_id) WHERE alert_id IS NOT NULL")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_fetch_errors_unack ON fetch_errors(occurrences DESC, last_seen DESC) WHERE is_acknowledged = FALSE")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_system_logs_unack ON system_logs(created_at DESC) WHERE is_acknowledged = FALSE")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_symbol_id ON alerts(symbol, id DESC)")
@@ -3216,7 +3219,7 @@ def save_alert_if_new(
                 logger.error(f"Failed to snapshot alert_outcome for alert {alert_id}: {oe}")
 
             msg = f'{symbol} | {category} | Buy: ₹{entry_price} | SL: ₹{stop_loss} | T1: ₹{target_1}'
-            insert_notification('buy', f'Buy Alert / {scanner}', msg, symbol)
+            insert_notification('buy', f'Buy Alert / {scanner}', msg, symbol, alert_id=alert_id)
 
             # Trigger web push notification
             try:
@@ -3459,7 +3462,8 @@ def update_alert_outcome(
     closed_at: Optional[str] = None,
     exit_signal: Optional[str] = None,
     execution_state: str = None,
-    exit_history: list = None
+    exit_history: list = None,
+    notify: bool = True
 ) -> None:
     """
     Lock in the final outcome of a trade once SL or Target is hit.
@@ -3541,14 +3545,15 @@ def update_alert_outcome(
                         success = True
 
                         logger.info(f"🔒 Alert {alert_id} locked as {status} | exit={exit_price} pnl={pnl_pct}%")
-                        # Fetch symbol to send notification
-                        cur.execute("SELECT symbol FROM alerts WHERE id = %s", (alert_id,))
-                        row_sym = cur.fetchone()
-                        if row_sym:
-                            sym = row_sym[0]
-                            p_str = f"₹{pnl_rs:.2f}" if pnl_rs is not None else f"{pnl_pct:.2f}%"
-                            msg = f"{sym} | Exit: ₹{exit_price:.2f} | P&L: {p_str}"
-                            insert_notification('sell', f'Exit Alert ({status})', msg, sym)
+                        if notify:
+                            # Fetch symbol to send notification
+                            cur.execute("SELECT symbol FROM alerts WHERE id = %s", (alert_id,))
+                            row_sym = cur.fetchone()
+                            if row_sym:
+                                sym = row_sym[0]
+                                p_str = f"₹{pnl_rs:.2f}" if pnl_rs is not None else f"{pnl_pct:.2f}%"
+                                msg = f"{sym} | Exit: ₹{exit_price:.2f} | P&L: {p_str}"
+                                insert_notification('sell', f'Exit Alert ({status})', msg, sym, alert_id=alert_id)
             except Exception:
                 logger.exception(f"❌ update_alert_outcome failed for alert_id={alert_id}")
             finally:
@@ -3698,7 +3703,6 @@ def reset_alert_for_recalculation(alert_id: int) -> bool:
                         msg = f"Blocked recalculation for {scanner_name} alert #{alert_id}. Long-term investments do not support tick-by-tick replays or trailing SLs."
                         logger.warning(f"⚠️ {msg}")
                         # Show notification to Admin
-                        from database import insert_notification
                         insert_notification('error', 'Recalculation Blocked', msg)
                         return False
 
@@ -5083,6 +5087,80 @@ def get_alert_by_symbol(symbol: str) -> Optional[Dict[str, Any]]:
                 return None
             except Exception as e:
                 logger.debug(f"get_alert_by_symbol failed for {sym_clean}: {e}")
+                return None
+
+def get_alert_by_id(alert_id: int) -> Optional[Dict[str, Any]]:
+    """Fast direct real-time DB fetch for a specific alert ID.
+    Guarantees exact hydration with all trade details when a user clicks a notification
+    associated with an explicit alert, preventing symbol collisions across multiple trades."""
+    if not alert_id:
+        return None
+    try:
+        aid = int(alert_id)
+    except Exception:
+        return None
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            try:
+                cur.execute("""
+                    SELECT a.id, a.symbol, a.breakout_type, a.alert_time::text as alert_time, a.alert_date::text as alert_date,
+                           a.scanner, a.category, a.entry_price, a.actual_entry_price, a.stop_loss, a.initial_stop_loss,
+                           a.target_1, a.target_2, a.target_3, a.target_4, a.target_price, a.remaining_shares, a.signals,
+                           a.score::int as score, a.status, a.seen_by_user, a.seen_by_admin, a.is_rejected, a.exit_signal,
+                           COALESCE(a.current_price, a.entry_price)                 AS current_price,
+                           COALESCE(a.pnl_pct, 0.0)                                 AS pnl_pct,
+                           COALESCE(a.pnl_rs, 0.0)                                  AS pnl_rs,
+                           a.exit_price,
+                           COALESCE(a.earnings_flag, FALSE)                         AS earnings_flag,
+                           COALESCE(a.days_to_earnings, 999)                        AS days_to_earnings,
+                           a.earnings_date,
+                           COALESCE(a.earnings_severity, 'NONE')                    AS earnings_severity,
+                           COALESCE(a.warning_msg, '')                              AS warning_msg,
+                           COALESCE(a.trade_evolution_state, 'INITIAL')             AS trade_evolution_state,
+                           COALESCE(a.evidence_count, 1)                            AS evidence_count,
+                           COALESCE(a.distinct_patterns_count, 1)                   AS distinct_patterns_count,
+                           COALESCE(a.confirmation_quality, 'INITIAL')              AS confirmation_quality,
+                           COALESCE(a.last_event_type, 'NEW_ENTRY')                 AS last_event_type,
+                           a.execution_state, a.execution_status, a.entry_mode
+                    FROM alerts a
+                    WHERE a.id = %s
+                """, (aid,))
+                row = cur.fetchone()
+                if row:
+                    return dict(row)
+
+                # Fallback to wealth_buy_alert if not in alerts
+                cur.execute("""
+                    SELECT w.id, w.symbol, w.breakout_type, w.alert_time::text as alert_time, w.alert_date::text as alert_date,
+                           w.breakout_type as scanner, w.portfolio_bucket as category, w.alert_price as entry_price,
+                           NULL::real as stop_loss, NULL::real as initial_stop_loss, NULL::real as target_1, NULL::real as target_2,
+                           NULL::real as target_3, NULL::real as target_4, NULL::real as target_price, NULL::int as remaining_shares,
+                           w.entry_signal as signals, w.fm_score::int as score,
+                           CASE WHEN w.is_closed THEN 'CLOSED' ELSE 'OPEN' END as status,
+                           FALSE as seen_by_user, FALSE as seen_by_admin, FALSE as is_rejected, w.exit_signal,
+                           COALESCE(w.alert_price, 0.0)                             AS current_price,
+                           0.0                                                      AS pnl_pct,
+                           0.0                                                      AS pnl_rs,
+                           NULL::real                                               AS exit_price,
+                           FALSE                                                    AS earnings_flag,
+                           999                                                      AS days_to_earnings,
+                           NULL::DATE                                               AS earnings_date,
+                           'NONE'::TEXT                                             AS earnings_severity,
+                           ''                                                       AS warning_msg,
+                           'INITIAL'::TEXT                                          AS trade_evolution_state,
+                           1::INT                                                   AS evidence_count,
+                           1::INT                                                   AS distinct_patterns_count,
+                           'INITIAL'::TEXT                                          AS confirmation_quality,
+                           'NEW_ENTRY'::TEXT                                        AS last_event_type
+                    FROM wealth_buy_alert w
+                    WHERE w.id = %s
+                """, (aid,))
+                wrow = cur.fetchone()
+                if wrow:
+                    return dict(wrow)
+                return None
+            except Exception as e:
+                logger.debug(f"get_alert_by_id failed for ID {aid}: {e}")
                 return None
 
 
