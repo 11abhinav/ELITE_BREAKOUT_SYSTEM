@@ -336,6 +336,66 @@ def sanitize_market_session_timestamp(val: Union[datetime, str, pd.Timestamp, No
 
 
 
+def robust_to_kolkata_series(s):
+    """
+    Robustly normalizes Series, DatetimeIndex, or Index of timestamps/strings to Asia/Kolkata timezone.
+    Guarantees ZERO false NaT conversions when encountering mixed tz-aware and tz-naive elements.
+    """
+    if s is None or len(s) == 0:
+        return s
+
+    import pandas as pd
+    from pytz import timezone
+    ist = timezone("Asia/Kolkata")
+
+    # 1. Pure DatetimeIndex fast paths
+    if isinstance(s, pd.DatetimeIndex):
+        if s.tz is None:
+            return s.tz_localize(ist)
+        elif str(s.tz) in ("Asia/Kolkata", "Asia/Calcutta"):
+            return s
+        else:
+            return s.tz_convert(ist)
+
+    # 2. Pure datetime64 Series fast paths
+    if hasattr(s, "dt") and pd.api.types.is_datetime64_any_dtype(s):
+        if s.dt.tz is None:
+            return s.dt.tz_localize(ist)
+        elif str(s.dt.tz) in ("Asia/Kolkata", "Asia/Calcutta"):
+            return s
+        else:
+            return s.dt.tz_convert(ist)
+
+    # 3. Object Series / Index with mixed strings or Timestamps
+    try:
+        dt_s = pd.to_datetime(s, errors="raise")
+        if hasattr(dt_s, "dt"):
+            if dt_s.dt.tz is not None:
+                return dt_s.dt.tz_convert(ist)
+            return dt_s.dt.tz_localize(ist)
+        else:
+            if getattr(dt_s, "tz", None) is not None:
+                return dt_s.tz_convert(ist)
+            return dt_s.tz_localize(ist)
+    except Exception:
+        # Fallback element-by-element parser for mixed timezone-aware and timezone-naive values
+        def _parse_item(x):
+            if pd.isna(x):
+                return pd.NaT
+            if isinstance(x, pd.Timestamp):
+                return x.tz_localize(ist) if x.tz is None else x.tz_convert(ist)
+            try:
+                ts = pd.to_datetime(x)
+                return ts.tz_localize(ist) if ts.tz is None else ts.tz_convert(ist)
+            except Exception:
+                return pd.NaT
+
+        parsed = [_parse_item(x) for x in s]
+        if isinstance(s, pd.Series):
+            return pd.Series(parsed, index=s.index)
+        return pd.DatetimeIndex(parsed)
+
+
 def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
     """
     CRITICAL HARD GLOBAL INVARIANT: TRADING SESSION CANDLE ENFORCEMENT — SYSTEM-WIDE.
@@ -356,23 +416,15 @@ def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
 
     try:
         if time_col is not None:
-            ts_series = pd.to_datetime(df[time_col], errors="coerce")
-            if hasattr(ts_series.dt, "tz") and ts_series.dt.tz is not None:
-                ts_series = ts_series.dt.tz_convert("Asia/Kolkata")
-            else:
-                ts_series = ts_series.dt.tz_localize("Asia/Kolkata")
-        elif isinstance(df.index, pd.DatetimeIndex):
-            dt_idx = df.index.tz_convert("Asia/Kolkata") if df.index.tz is not None else df.index.tz_localize("Asia/Kolkata")
-            ts_series = pd.Series(dt_idx, index=df.index)
+            ts_series = robust_to_kolkata_series(df[time_col])
         else:
-            ts_series = pd.to_datetime(df.index, errors="coerce")
-            if hasattr(ts_series.dt, "tz") and ts_series.dt.tz is not None:
-                ts_series = ts_series.dt.tz_convert("Asia/Kolkata")
-            else:
-                ts_series = ts_series.dt.tz_localize("Asia/Kolkata")
+            ts_series = robust_to_kolkata_series(df.index)
 
         if ts_series is None or len(ts_series) == 0:
             return df
+
+        if not hasattr(ts_series, "dt"):
+            ts_series = pd.Series(ts_series, index=df.index)
 
         # 1. Saturday = 5, Sunday = 6
         is_weekend = (ts_series.dt.weekday >= 5)
@@ -401,14 +453,8 @@ def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
             dropped_count = int(is_invalid.sum())
             sym_tag = f" for {symbol}" if symbol else ""
             df_clean = df[~is_invalid].copy()
-            latest_valid_str = "None"
-            if not df_clean.empty:
-                if time_col and time_col in df_clean.columns:
-                    latest_valid_str = str(df_clean[time_col].iloc[-1])[:19]
-                elif isinstance(df_clean.index, pd.DatetimeIndex):
-                    latest_valid_str = str(df_clean.index[-1])[:19]
-                else:
-                    latest_valid_str = str(df_clean.index[-1])[:19]
+            valid_ts = ts_series[~is_invalid]
+            latest_valid_str = str(valid_ts.iloc[-1])[:19] if not valid_ts.empty else "None"
 
             reasons = []
             if is_weekend.any(): reasons.append(f"{int(is_weekend.sum())} weekend")
@@ -421,11 +467,22 @@ def enforce_trading_day_candles(df, symbol: str = "") -> "pd.DataFrame":
                 f"🚫 [TRADING SESSION ENFORCEMENT] Purged {dropped_count} invalid candle(s){sym_tag} ({reason_str}). "
                 f"Latest valid trading candle: {latest_valid_str}. Continuing using valid trading session data."
             )
-            if not isinstance(df_clean.index, pd.DatetimeIndex):
+            if time_col and time_col in df_clean.columns:
+                df_clean[time_col] = valid_ts
+            elif not valid_ts.empty:
+                df_clean.index = pd.DatetimeIndex(valid_ts)
+            else:
                 df_clean = df_clean.reset_index(drop=True)
+
             if hasattr(df, "attrs"):
                 df_clean.attrs = dict(df.attrs)
             return df_clean
+        else:
+            # Maintain clean DatetimeIndex if index was object with timestamps
+            if time_col is None and not isinstance(df.index, pd.DatetimeIndex) and len(ts_series) == len(df):
+                df = df.copy()
+                df.index = pd.DatetimeIndex(ts_series)
+
     except Exception as err:
         logger.error(f"❌ [TRADING SESSION ENFORCEMENT] Error enforcing session rules on candles: {err}")
 

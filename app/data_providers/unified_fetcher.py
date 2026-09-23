@@ -15,6 +15,22 @@ logger = logging.getLogger(__name__)
 
 # Resource-specific lock for all external provider fetches
 network_fetch_lock = threading.Lock()
+_fyers_reauth_lock = threading.Lock()
+_last_fyers_reauth_ts = 0.0
+
+CORPORATE_ACTION_ALIASES = {
+    "TATAMOTORS": "TMPV",
+    "M-M": "M&M",
+    "M_M": "M&M",
+    "M-MFIN": "M&MFIN",
+    "M_MFIN": "M&MFIN",
+    "J-KBANK": "J&KBANK",
+    "J_KBANK": "J&KBANK",
+    "L-TFH": "L&TFH",
+    "L_TFH": "L&TFH",
+    "GVT-D": "GVT&D",
+    "GVT_D": "GVT&D",
+}
 
 class UnifiedFetcher:
     """
@@ -28,7 +44,14 @@ class UnifiedFetcher:
 
     def fetch_historical(self, symbol: str, interval: str, period: str, consumer: str) -> Optional[pd.DataFrame]:
         from config import NON_EQUITY_BLOCKLIST
+        orig_symbol = symbol
         clean_sym = str(symbol).replace('.NS', '').replace('.BO', '').replace('BSE:', '').replace('NSE:', '').strip().upper()
+        if clean_sym in CORPORATE_ACTION_ALIASES:
+            aliased = CORPORATE_ACTION_ALIASES[clean_sym]
+            suffix = ".NS" if str(symbol).endswith(".NS") else (".BO" if str(symbol).endswith(".BO") else "")
+            symbol = f"{aliased}{suffix}"
+            logger.info(f"ℹ️ [UnifiedFetcher] Corporate action alias mapped '{orig_symbol}' -> '{symbol}'")
+
         if clean_sym in NON_EQUITY_BLOCKLIST:
             logger.info(f"ℹ️ Skipping non-equity trust {symbol} in UnifiedFetcher")
             return pd.DataFrame()
@@ -99,11 +122,16 @@ class UnifiedFetcher:
                     logger.warning(f"⚠️ [Upstox] Failed to fetch historical {symbol}: {e}")
 
         error_details = ", ".join([f"{p}: {e}" for p, e in provider_errors.items()])
-        is_expected_miss = any("auth" in str(e).lower() or "uninitialized" in str(e).lower() for e in provider_errors.values())
-        if is_expected_miss or any(s in str(symbol).upper() for s in ("NIFTY", "BANKNIFTY", "SENSEX", "INDIAVIX")):
-            logger.warning(f"⚠️ Exhausted providers for historical {symbol} (fallback/unauthenticated): {error_details}")
+        is_expected_miss = (
+            any("auth" in str(e).lower() or "uninitialized" in str(e).lower() for e in provider_errors.values())
+            or clean_sym in CORPORATE_ACTION_ALIASES
+            or orig_symbol in CORPORATE_ACTION_ALIASES
+            or any(s in str(symbol).upper() for s in ("NIFTY", "BANKNIFTY", "SENSEX", "INDIAVIX"))
+        )
+        if is_expected_miss:
+            logger.warning(f"⚠️ Exhausted providers for historical {orig_symbol} (fallback/unauthenticated/corporate action): {error_details}")
         else:
-            logger.error(f"❌ Exhausted all providers for historical {symbol}. Reasons: {error_details}")
+            logger.error(f"❌ Exhausted all providers for historical {orig_symbol}. Reasons: {error_details}")
         return pd.DataFrame()
 
     def fetch_live_quotes(self, symbols: list[str], consumer: str) -> dict[str, dict]:
@@ -173,6 +201,17 @@ class UnifiedFetcher:
                                                     results[orig] = {"v": {"cmd": {"c": val}}}
                                                     results[clean_orig] = {"v": {"cmd": {"c": val}}}
                                                     results[clean_orig + ".NS"] = {"v": {"cmd": {"c": val}}}
+                                                    for alias_k, alias_v in CORPORATE_ACTION_ALIASES.items():
+                                                        if alias_v == clean_orig:
+                                                            results[alias_k] = {"v": {"cmd": {"c": val}}}
+                                                            results[alias_k + ".NS"] = {"v": {"cmd": {"c": val}}}
+                                                            pending.discard(alias_k)
+                                                            pending.discard(alias_k + ".NS")
+                                                        elif alias_k == clean_orig:
+                                                            results[alias_v] = {"v": {"cmd": {"c": val}}}
+                                                            results[alias_v + ".NS"] = {"v": {"cmd": {"c": val}}}
+                                                            pending.discard(alias_v)
+                                                            pending.discard(alias_v + ".NS")
                                                     pending.discard(orig)
                                                     pending.discard(clean_orig)
                                                     pending.discard(clean_orig + ".NS")
@@ -185,32 +224,56 @@ class UnifiedFetcher:
                                     code = resp.get("code") if isinstance(resp, dict) else None
                                     msg = str(resp.get("message", "")).lower() if isinstance(resp, dict) else ""
                                     if str(code) in ["-15", "-16", "401", "-401", "494"] or "valid token" in msg or "authenticate" in msg:
-                                        logger.error("🚫 Fyers token invalid/expired during live quotes batch. Triggering auto-login...")
-                                        from fyers_auth import auto_login, get_fyers_client
-                                        if auto_login():
-                                            new_client = get_fyers_client()
-                                            if new_client:
-                                                resp2 = new_client.quotes({"symbols": fyers_symbols_str})
-                                                if resp2 and isinstance(resp2, dict) and resp2.get("s") == "ok":
-                                                    success_count = 0
-                                                    for item in resp2.get("d", []):
-                                                        if item.get("s") == "ok" and "v" in item and "lp" in item["v"]:
-                                                            sym_name = item.get("n")
-                                                            orig = fyers_map.get(sym_name)
-                                                            if orig:
-                                                                val = item["v"]["lp"]
-                                                                clean_orig = orig.replace(".NS", "").replace(".BO", "")
-                                                                with results_lock:
-                                                                    results[orig] = {"v": {"cmd": {"c": val}}}
-                                                                    results[clean_orig] = {"v": {"cmd": {"c": val}}}
-                                                                    results[clean_orig + ".NS"] = {"v": {"cmd": {"c": val}}}
-                                                                    pending.discard(orig)
-                                                                    pending.discard(clean_orig)
-                                                                    pending.discard(clean_orig + ".NS")
-                                                                logger.debug(f"✅ [Fyers] Successfully fetched live quote for {orig} ({sym_name}) on RETRY: ₹{val:.2f}")
-                                                                success_count += 1
-                                                    if success_count > 0:
-                                                        logger.info(f"✅ [Fyers] Fetched {success_count}/{len(fyers_map)} quotes successfully on RETRY.")
+                                        global _last_fyers_reauth_ts
+                                        new_client = None
+                                        with _fyers_reauth_lock:
+                                            import time as _t
+                                            _now = _t.time()
+                                            if _now - _last_fyers_reauth_ts > 30.0:
+                                                logger.info("🔄 Fyers daily token expired during live quotes batch. Initiating automated re-authentication...")
+                                                from fyers_auth import auto_login, get_fyers_client
+                                                if auto_login():
+                                                    _last_fyers_reauth_ts = _t.time()
+                                                    new_client = get_fyers_client()
+                                                else:
+                                                    logger.error("❌ Fyers automated re-authentication failed during live quotes batch.")
+                                            else:
+                                                from fyers_auth import get_fyers_client
+                                                new_client = get_fyers_client()
+
+                                        if new_client:
+                                            resp2 = new_client.quotes({"symbols": fyers_symbols_str})
+                                            if resp2 and isinstance(resp2, dict) and resp2.get("s") == "ok":
+                                                success_count = 0
+                                                for item in resp2.get("d", []):
+                                                    if item.get("s") == "ok" and "v" in item and "lp" in item["v"]:
+                                                        sym_name = item.get("n")
+                                                        orig = fyers_map.get(sym_name)
+                                                        if orig:
+                                                            val = item["v"]["lp"]
+                                                            clean_orig = orig.replace(".NS", "").replace(".BO", "")
+                                                            with results_lock:
+                                                                results[orig] = {"v": {"cmd": {"c": val}}}
+                                                                results[clean_orig] = {"v": {"cmd": {"c": val}}}
+                                                                results[clean_orig + ".NS"] = {"v": {"cmd": {"c": val}}}
+                                                                for alias_k, alias_v in CORPORATE_ACTION_ALIASES.items():
+                                                                    if alias_v == clean_orig:
+                                                                        results[alias_k] = {"v": {"cmd": {"c": val}}}
+                                                                        results[alias_k + ".NS"] = {"v": {"cmd": {"c": val}}}
+                                                                        pending.discard(alias_k)
+                                                                        pending.discard(alias_k + ".NS")
+                                                                    elif alias_k == clean_orig:
+                                                                        results[alias_v] = {"v": {"cmd": {"c": val}}}
+                                                                        results[alias_v + ".NS"] = {"v": {"cmd": {"c": val}}}
+                                                                        pending.discard(alias_v)
+                                                                        pending.discard(alias_v + ".NS")
+                                                                pending.discard(orig)
+                                                                pending.discard(clean_orig)
+                                                                pending.discard(clean_orig + ".NS")
+                                                            logger.debug(f"✅ [Fyers] Successfully fetched live quote for {orig} ({sym_name}) on RETRY: ₹{val:.2f}")
+                                                            success_count += 1
+                                                if success_count > 0:
+                                                    logger.info(f"✅ [Fyers] Fetched {success_count}/{len(fyers_map)} quotes successfully on RETRY.")
                         except Exception as e:
                             logger.warning(f"⚠️ [Fyers] Batch quote fetch failed: {e}")
 

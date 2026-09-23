@@ -328,13 +328,17 @@ class FyersFetcher(DataFetcher):
         norm = self._normalize_symbol(raw)
         if norm and norm.endswith("-INDEX"):
             return [norm]
-        _ampersand_map = {
+        _corporate_alias_map = {
+            "TATAMOTORS": "TMPV",
             "M_M": "M&M", "M-M": "M&M",
             "M_MFIN": "M&MFIN", "M-MFIN": "M&MFIN",
             "J_KBANK": "J&KBANK", "J-KBANK": "J&KBANK",
+            "L_TFH": "L&TFH", "L-TFH": "L&TFH",
+            "GVT_D": "GVT&D", "GVT-D": "GVT&D",
+            "T_IPOWER": "T&IPOWER", "T-IPOWER": "T&IPOWER",
         }
-        if raw in _ampersand_map:
-            raw = _ampersand_map[raw]
+        if raw in _corporate_alias_map:
+            raw = _corporate_alias_map[raw]
 
         is_bse_pref = raw.startswith("BSE:") or raw.endswith(".BO")
 
@@ -349,6 +353,9 @@ class FyersFetcher(DataFetcher):
             if base.endswith(suffix):
                 base = base[:-len(suffix)]
                 break
+
+        if base in _corporate_alias_map:
+            base = _corporate_alias_map[base]
 
         # Check if known in BSE mappings
         try:

@@ -49,18 +49,22 @@ def compute_ohlcv_hash(df: pd.DataFrame) -> str:
         return ""
 
 def _normalize_ts_to_kolkata(s):
-    """Normalize Series or DatetimeIndex to Asia/Kolkata timezone without false UTC shifts on naive timestamps."""
+    """Normalize Series or DatetimeIndex to Asia/Kolkata timezone without false UTC shifts or NaT conversions on mixed timestamps."""
     if s is None:
         return s
-    dt_s = pd.to_datetime(s, errors='coerce')
-    if hasattr(dt_s, 'dt'):
-        if dt_s.dt.tz is not None:
-            return dt_s.dt.tz_convert('Asia/Kolkata')
-        return dt_s.dt.tz_localize('Asia/Kolkata')
-    else:
-        if getattr(dt_s, 'tz', None) is not None:
-            return dt_s.tz_convert('Asia/Kolkata')
-        return dt_s.tz_localize('Asia/Kolkata')
+    try:
+        from trading_calendar import robust_to_kolkata_series
+        return robust_to_kolkata_series(s)
+    except Exception:
+        dt_s = pd.to_datetime(s, errors='coerce')
+        if hasattr(dt_s, 'dt'):
+            if dt_s.dt.tz is not None:
+                return dt_s.dt.tz_convert('Asia/Kolkata')
+            return dt_s.dt.tz_localize('Asia/Kolkata')
+        else:
+            if getattr(dt_s, 'tz', None) is not None:
+                return dt_s.tz_convert('Asia/Kolkata')
+            return dt_s.tz_localize('Asia/Kolkata')
 
 
 def validate_ohlcv_structure(df: pd.DataFrame) -> tuple[bool, str]:
