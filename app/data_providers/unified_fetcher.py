@@ -56,6 +56,15 @@ class UnifiedFetcher:
             logger.info(f"ℹ️ Skipping non-equity trust {symbol} in UnifiedFetcher")
             return pd.DataFrame()
 
+        # [FIX 2026-09-23: HEG SPAM — PROVIDER_UNAVAILABLE_SYMBOLS gate]
+        # Symbols confirmed absent from all provider master contracts (Fyers NSE_CM + BSE_CM + Upstox).
+        # Fast-fail with WARNING (not ERROR) to suppress 40+ identical error entries per day.
+        # These are genuine equities — not blocked from scanners, just unfetchable until re-listed.
+        from config import PROVIDER_UNAVAILABLE_SYMBOLS
+        if clean_sym in PROVIDER_UNAVAILABLE_SYMBOLS:
+            logger.warning(f"⚠️ [{consumer}] {clean_sym} is in PROVIDER_UNAVAILABLE_SYMBOLS — absent from all provider master contracts. Skipping fetch. Remove from list once re-verified.")
+            return pd.DataFrame()
+
         logger.info(f"[{consumer}] Fetching {symbol} ({interval} / {period}) via UnifiedFetcher")
         
         dataset_id = f"price_{interval}"

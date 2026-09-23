@@ -74,6 +74,21 @@ NON_EQUITY_BLOCKLIST = {
     "EMBASSY", "MINDSPACE", "BROOKFIELD", "NEXUS"
 }
 
+# [VERSION: PROVIDER_UNAVAILABLE_SYMBOLS_v1.0] Symbols confirmed absent from ALL provider master contracts.
+# [RULE 67 CHANGE-RATIONALE: HEG SPAM FIX — 2026-09-23]
+# HEG (HEG Limited) fired 40+ ERROR logs on 2026-09-23 across both Fyers and Upstox:
+#   - Fyers: NSE:HEG-EQ, BSE:HEG-EQ, NSE:HEG-SM, NSE:HEG-ST, NSE:HEG-BE all rejected.
+#   - Upstox: HTTP 400 on all attempts.
+# Root cause: Live Fyers NSE_CM.csv + BSE_CM.csv (fetched 2026-09-23) do NOT contain HEG
+# in any series. The Aug-27 cached entry "NSE:HEG-EQ" is stale. HEG may have moved to a
+# non-CM segment (e.g., SME Emerge, Trade-to-Trade T2T), been suspended, or renamed.
+# These symbols ARE equities (not InvIT/REIT) so they must NOT go into NON_EQUITY_BLOCKLIST.
+# Instead, they are fast-failed here with a WARNING (not ERROR) so the scanner continues
+# cleanly while zero error spam is generated. Review and remove once re-listed/re-verified.
+PROVIDER_UNAVAILABLE_SYMBOLS = {
+    "HEG",       # Absent from Fyers NSE_CM.csv + BSE_CM.csv as of 2026-09-23; Upstox HTTP 400
+}
+
 # =====================================================================================
 # RESILIENCE / FALLBACK CONFIGURATION
 # =====================================================================================
