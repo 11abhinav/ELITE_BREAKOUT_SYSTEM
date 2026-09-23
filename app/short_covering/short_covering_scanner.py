@@ -387,8 +387,8 @@ class ShortCoveringEarlyIgnitionScanner:
                                 try:
                                     from near_miss_tracker import log_near_miss
                                     last_close = float(df_5m["close"].iloc[-1]) if df_5m is not None and len(df_5m) > 0 else None
-                                    sl_val = round(last_close * 0.985, 2) if last_close else None
-                                    t1_val = round(last_close * 1.03, 2) if last_close else None
+                                    sl_val = round(last_close * 0.990, 2) if last_close else None
+                                    t1_val = round(last_close * 1.015, 2) if last_close else None
                                     log_near_miss(
                                         symbol=symbol,
                                         scanner="SHORT_COVERING_5M",
@@ -911,16 +911,64 @@ class ShortCoveringEarlyIgnitionScanner:
         else:
             grade = "C"
 
-        ignition_low = float(cur_bar["low"])
-        stop_loss = round(min(ignition_low, cur_vwap * 0.996), 2)
-        risk_per_share = max(cur_close - stop_loss, cur_close * 0.005)
+        # ── Realistic Intraday SL / Target Mechanics (Anti-Whipsaw & Multi-Stage) ──
+        # 1. 5m ATR calculation (True Range over last up to 14 bars)
+        atr_5m = None
+        if len(past_bars) >= 2 and "high" in past_bars.columns and "low" in past_bars.columns:
+            prev_c = past_bars["close"].shift(1)
+            tr = pd.concat([
+                past_bars["high"] - past_bars["low"],
+                (past_bars["high"] - prev_c).abs(),
+                (past_bars["low"] - prev_c).abs()
+            ], axis=1).max(axis=1)
+            atr_5m = float(tr.tail(14).mean())
+        if not atr_5m or np.isnan(atr_5m) or atr_5m <= 0:
+            atr_5m = cur_close * 0.005  # 0.5% default fallback
 
-        if eod_candidate and eod_candidate.overhead_resistance > cur_close:
-            target = round(float(eod_candidate.overhead_resistance), 2)
+        # 2. Structural base anchor: lowest low of recent 3 bars (consolidation/ignition base)
+        recent_base_low = float(past_bars["low"].tail(3).min()) if "low" in past_bars.columns and len(past_bars) >= 2 else float(cur_bar["low"])
+
+        # 3. Institutional VWAP support floor
+        vwap_floor = cur_vwap * 0.9975  # 0.25% buffer below VWAP
+        if cur_close >= cur_vwap * 1.003:
+            raw_sl = max(recent_base_low, vwap_floor)
         else:
-            target = round(cur_close + (risk_per_share * 2.0), 2)
+            raw_sl = recent_base_low
 
-        rr_ratio = round((target - cur_close) / risk_per_share, 2)
+        # 4. Anti-hunt buffer (0.15% of price or 0.25x 5m ATR)
+        anti_hunt_buf = max(cur_close * 0.0015, atr_5m * 0.25)
+        sl_candidate = raw_sl - anti_hunt_buf
+
+        # 5. Strict Intraday Risk Clamping (Min floor 0.60%, Max ceiling 1.75%)
+        min_sl = cur_close * (1.0 - 0.0175)  # Max allowable risk 1.75%
+        max_sl = cur_close * (1.0 - 0.0060)  # Min risk floor 0.60%
+        stop_loss = round(min(max(sl_candidate, min_sl), max_sl), 2)
+        risk_per_share = max(round(cur_close - stop_loss, 2), round(cur_close * 0.0060, 2))
+
+        # 6. Target 1 (Scalp / De-risking — 1.4R):
+        # Quick momentum target (+1.2% to +1.8%). If session high is between 1.15R and 1.6R, anchor to session high.
+        session_high = float(past_bars["high"].max()) if "high" in past_bars.columns else cur_high
+        t1_natural = cur_close + (risk_per_share * 1.40)
+        if session_high > cur_close and 1.15 <= ((session_high - cur_close) / risk_per_share) <= 1.60:
+            target_1 = round(session_high * 1.001, 2)
+        else:
+            target_1 = round(t1_natural, 2)
+
+        # 7. Target 2 (Runner / Squeeze Continuation — 2.5R):
+        # Full squeeze extension (+2.5% to +4.0%), capped at +4.5% intraday.
+        t2_natural = cur_close + (risk_per_share * 2.50)
+        t2_cap = cur_close * 1.045
+        if eod_candidate and (cur_close * 1.020 <= float(eod_candidate.overhead_resistance) <= t2_cap):
+            target_2 = round(float(eod_candidate.overhead_resistance), 2)
+        else:
+            target_2 = round(min(t2_natural, t2_cap), 2)
+
+        # Strict target hierarchy assurance: target_2 must exceed target_1 by at least 0.5R
+        if target_2 <= target_1 + (risk_per_share * 0.5):
+            target_2 = round(target_1 + (risk_per_share * 1.1), 2)
+
+        target = target_1  # Initial target alias for backwards compatibility
+        rr_ratio = round((target_1 - cur_close) / risk_per_share, 2)
         rs_pct = round(price_change_5m_pct - 0.10, 2)
 
         signal = ShortCoveringSignal(
@@ -932,7 +980,9 @@ class ShortCoveringEarlyIgnitionScanner:
             alert_latency_minutes=latency_minutes,
             vwap=cur_vwap,
             stop_loss=stop_loss,
-            initial_target=target,
+            initial_target=target_1,
+            target_1=target_1,
+            target_2=target_2,
             risk_reward_ratio=float(rr_ratio),
             excess_oi_contraction=float(excess_oi_contraction),
             oi_contraction_session_pct=float(oi_change_session_pct),
@@ -947,10 +997,10 @@ class ShortCoveringEarlyIgnitionScanner:
         )
         logger.info(
             "🚨 [SC_5M] %s | ✅ CONFIRMED_IGNITION | grade=%s | score=%.1f"
-            " | entry=₹%.2f SL=₹%.2f target=₹%.2f RR=%.2f"
+            " | entry=₹%.2f SL=₹%.2f T1=₹%.2f T2=₹%.2f RR=%.2f"
             " | vol=%.2fx excess_oi=%+.2f%% latency=%.0fm"
             " | reasons: %s",
-            symbol, grade, min(100.0, score), cur_close, stop_loss, target, rr_ratio,
+            symbol, grade, min(100.0, score), cur_close, stop_loss, target_1, target_2, rr_ratio,
             vol_surge_ratio,
             excess_oi_contraction if not pd.isna(excess_oi_contraction) else 0.0,
             latency_minutes, " | ".join(reasons),
@@ -1061,6 +1111,8 @@ class ShortCoveringEarlyIgnitionScanner:
                             vwap DOUBLE PRECISION,
                             stop_loss DOUBLE PRECISION,
                             initial_target DOUBLE PRECISION,
+                            target_1 DOUBLE PRECISION,
+                            target_2 DOUBLE PRECISION,
                             risk_reward_ratio DOUBLE PRECISION,
                             excess_oi_contraction DOUBLE PRECISION,
                             volume_surge_ratio DOUBLE PRECISION,
@@ -1070,20 +1122,24 @@ class ShortCoveringEarlyIgnitionScanner:
                             state VARCHAR(30) DEFAULT 'CONFIRMED_IGNITION',
                             created_at TIMESTAMPTZ DEFAULT NOW()
                         );
+                        ALTER TABLE short_covering_alerts ADD COLUMN IF NOT EXISTS target_1 DOUBLE PRECISION;
+                        ALTER TABLE short_covering_alerts ADD COLUMN IF NOT EXISTS target_2 DOUBLE PRECISION;
                         CREATE INDEX IF NOT EXISTS idx_sc_alerts_time ON short_covering_alerts(alert_time);
                         CREATE INDEX IF NOT EXISTS idx_sc_alerts_symbol ON short_covering_alerts(symbol);
                     """)
                     import json
                     for a in alerts:
+                        t1_val = float(getattr(a, "target_1", 0.0) or a.initial_target)
+                        t2_val = float(getattr(a, "target_2", 0.0) or (t1_val * 1.02))
                         cur.execute("""
                             INSERT INTO short_covering_alerts (
                                 symbol, alert_time, ignition_price, vwap, stop_loss,
-                                initial_target, risk_reward_ratio, excess_oi_contraction,
+                                initial_target, target_1, target_2, risk_reward_ratio, excess_oi_contraction,
                                 volume_surge_ratio, ignition_score, grade, reasons, state
-                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         """, (
                             a.symbol, a.timestamp, a.ignition_price, a.vwap, a.stop_loss,
-                            a.initial_target, a.risk_reward_ratio, a.excess_oi_contraction,
+                            t1_val, t1_val, t2_val, a.risk_reward_ratio, a.excess_oi_contraction,
                             a.volume_surge_ratio, a.ignition_score, a.grade,
                             json.dumps(a.reasons), a.state.value if hasattr(a.state, "value") else str(a.state)
                         ))
@@ -1103,6 +1159,8 @@ class ShortCoveringEarlyIgnitionScanner:
                         if a.excess_oi_contraction is not None
                         else f"Short Covering Ignition [{a.grade}]"
                     )
+                    t1_val = float(getattr(a, "target_1", 0.0) or a.initial_target) if (getattr(a, "target_1", 0.0) or a.initial_target) else None
+                    t2_val = float(getattr(a, "target_2", 0.0) or (t1_val * 1.02 if t1_val else 0.0)) if (getattr(a, "target_2", 0.0) or t1_val) else None
                     _save_fn(
                         symbol=a.symbol,
                         breakout_type=f"SHORT_COVERING_IGNITION_{a.grade}",
@@ -1111,9 +1169,9 @@ class ShortCoveringEarlyIgnitionScanner:
                         category="SHORT_COVERING",
                         entry_price=float(a.ignition_price) if a.ignition_price else None,
                         stop_loss=float(a.stop_loss) if a.stop_loss else None,
-                        target_1=float(a.initial_target) if a.initial_target else None,
-                        target_2=float(a.initial_target * 1.05) if a.initial_target else None,
-                        target_price=float(a.initial_target) if a.initial_target else None,
+                        target_1=t1_val,
+                        target_2=t2_val,
+                        target_price=t1_val,
                         signals=signals_str,
                         score=int(round(float(a.ignition_score) + 1e-5)) if a.ignition_score else 70,
                         volume_ratio=float(a.volume_surge_ratio) if a.volume_surge_ratio else 1.0,

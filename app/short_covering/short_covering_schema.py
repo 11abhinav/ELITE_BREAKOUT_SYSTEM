@@ -150,6 +150,8 @@ class ShortCoveringSignal(BaseModelCompat):
     vwap: float = 0.0
     stop_loss: float = 0.0
     initial_target: float = 0.0
+    target_1: float = 0.0
+    target_2: float = 0.0
     risk_reward_ratio: float = 0.0
     excess_oi_contraction: float = 0.0
     oi_contraction_session_pct: float = 0.0
