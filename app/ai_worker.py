@@ -245,9 +245,9 @@ def run_worker_loop():
     """Infinite loop that scans the watchlist CSV and fetches AI concall reports."""
     from database import upsert_scanner_health, get_ai_concall_stats
     from config import WATCHLIST_PATH
-    
+
     logger.info("🤖 AI Worker Thread Started. Monitoring watchlist for missing caches...")
-    
+
     # [VERSION: AI_WORKER_PROGRESS_v1.0] Calculate initial dynamic counts on boot
     try:
         symbols_set = set()
@@ -255,7 +255,7 @@ def run_worker_loop():
             df = pd.read_parquet(WATCHLIST_PATH)
             if "Stock" in df.columns:
                 symbols_set.update(df["Stock"].dropna().unique().tolist())
-                
+
         excluded_paths = [
             os.path.join(os.path.dirname(WATCHLIST_PATH), 'elite_fundamental_watchlist_excluded.csv'),
             os.path.join(os.path.dirname(WATCHLIST_PATH), 'elite_fundamental_watchlist-excluded.csv'),
@@ -270,11 +270,11 @@ def run_worker_loop():
                         break
                 except Exception:
                     pass
-                    
+
         idx_symbols = fetch_constituents()
         if idx_symbols:
             symbols_set.update(idx_symbols)
-            
+
         from config import NON_EQUITY_BLOCKLIST
         symbols = [s for s in list(symbols_set) if str(s).strip().upper() not in NON_EQUITY_BLOCKLIST]
         total_watch = len(symbols)
@@ -284,9 +284,14 @@ def run_worker_loop():
         logger.warning(f"Failed to calculate boot progress stats: {e}")
         total_watch = 0
         processed_count = 0
-        
+
     upsert_scanner_health("AI Worker", "IDLE", today_alerts=processed_count, processed_count=processed_count, total_count=total_watch, error_msg="Status: Booting up")
-    
+
+    # [FIX 2026-09-23: DUPLICATE PUSH THROTTLE]
+    # Track when we last sent the DOWN notification so that a 1h sleep cycle never fires it twice.
+    # The crash-handler path checks this before sending its own push.
+    _last_down_push_ts: float = 0.0
+
     while True:
         # Re-calculate on each loop iteration
         try:
@@ -295,7 +300,7 @@ def run_worker_loop():
                 df = pd.read_parquet(WATCHLIST_PATH)
                 if "Stock" in df.columns:
                     symbols_set.update(df["Stock"].dropna().unique().tolist())
-                    
+
             for f in excluded_paths:
                 if os.path.exists(f):
                     try:
@@ -305,11 +310,11 @@ def run_worker_loop():
                             break
                     except Exception:
                         pass
-                        
+
             idx_symbols = fetch_constituents()
             if idx_symbols:
                 symbols_set.update(idx_symbols)
-                
+
             symbols = list(symbols_set)
             total_watch = len(symbols)
             stats = get_ai_concall_stats(symbols)
@@ -318,28 +323,20 @@ def run_worker_loop():
             logger.warning(f"Failed to calculate loop progress stats: {e}")
             total_watch = total_watch or 0
             processed_count = processed_count or 0
-            
+
+        # GUARD 1: Admin stopped
         from database import is_scanner_stopped
         if is_scanner_stopped("AI Worker"):
             upsert_scanner_health("AI Worker", "STOPPED", today_alerts=processed_count, processed_count=processed_count, total_count=total_watch, error_msg="Stopped by Admin")
             time.sleep(60)
             continue
 
-        from gemini_key_manager import get_active_gemini_key
-        if not get_active_gemini_key():
-            # [RULE 67 - FIX RATIONALE]: Updated warning and health message to 1-day blacklist.
-            logger.warning("🚨 [AI WORKER DOWN] All Gemini API keys are blacklisted/exhausted for the next 1 day (24h). Marking AI Worker DOWN and sleeping 1h.")
-            upsert_scanner_health("AI Worker", "DOWN", today_alerts=processed_count, processed_count=processed_count, total_count=total_watch, error_msg="DOWN: All Gemini API keys exhausted (1-day blacklist)")
-            try:
-                from database import insert_notification
-                from push_service import send_push_to_all
-                insert_notification("admin", "❌ AI WORKER DOWN", "All Gemini API keys are marked exhausted for the next 1 day. AI Worker marked DOWN.")
-                send_push_to_all("❌ AI WORKER DOWN", "All Gemini API keys exhausted. AI Worker marked DOWN.")
-            except Exception as notif_err:
-                logger.warning(f"Failed to send AI key exhaustion notifications: {notif_err}")
-            time.sleep(3600)
-            continue
-
+        # GUARD 2: Window check — MUST run before the API-key check.
+        # [FIX 2026-09-23: SCHEDULE BUG] commit 3f22c0bc placed get_active_gemini_key() BEFORE
+        # is_in_window(), causing DOWN notifications and 1h sleeps on WEEKDAYS whenever keys were
+        # exhausted.  The worker is Sat-Sun only; on Mon-Fri it must silently sleep 300s and never
+        # fire any notification.  Swapping the order here enforces the correct schedule: the key
+        # check is only reached when we are genuinely inside the active window.
         now_ist = datetime.now(IST_ZONE)
         if not is_in_window(now_ist):
             win_desc = get_active_window_description(now_ist)
@@ -348,18 +345,42 @@ def run_worker_loop():
             time.sleep(300)
             continue
 
+        # GUARD 3: API key availability — only reached inside the active Sat-Sun window.
+        # [FIX 2026-09-23: DUPLICATE PUSH THROTTLE] Send the DOWN push at most once per 1h sleep
+        # cycle by checking _last_down_push_ts.  The crash-handler below also checks this sentinel
+        # so it cannot fire a second push in the same cycle.
+        from gemini_key_manager import get_active_gemini_key
+        if not get_active_gemini_key():
+            # [RULE 67 - FIX RATIONALE]: Updated warning and health message to 1-day blacklist.
+            logger.warning("🚨 [AI WORKER DOWN] All Gemini API keys are blacklisted/exhausted for the next 1 day (24h). Marking AI Worker DOWN and sleeping 1h.")
+            upsert_scanner_health("AI Worker", "DOWN", today_alerts=processed_count, processed_count=processed_count, total_count=total_watch, error_msg="DOWN: All Gemini API keys exhausted (1-day blacklist)")
+            try:
+                from database import insert_notification
+                from push_service import send_push_to_all
+                # Only push if we haven't already pushed within this 1h sleep window
+                if time.monotonic() - _last_down_push_ts > 3500:
+                    insert_notification("admin", "❌ AI WORKER DOWN", "All Gemini API keys are marked exhausted for the next 1 day. AI Worker marked DOWN.")
+                    send_push_to_all("❌ AI WORKER DOWN", "All Gemini API keys exhausted. AI Worker marked DOWN.")
+                    _last_down_push_ts = time.monotonic()
+                else:
+                    logger.info("🔕 [AI WORKER] DOWN notification suppressed — already sent within this 1h sleep cycle.")
+            except Exception as notif_err:
+                logger.warning(f"Failed to send AI key exhaustion notifications: {notif_err}")
+            time.sleep(3600)
+            continue
+
         try:
             stats_scan = run_ai_worker_scan_once()
             status = "IDLE"
             error_msg = f"Last: Finished | Total: {stats_scan.get('total_count', 'N/A')}"
-            
+
             # Recalculate after running scan
             try:
                 stats = get_ai_concall_stats(symbols)
                 processed_count = stats.get("total_cached", 0)
             except Exception:
                 pass
-                
+
             upsert_scanner_health("AI Worker", status, last_success=datetime.now(IST_ZONE).isoformat(), today_alerts=processed_count, processed_count=processed_count, total_count=total_watch, error_msg=error_msg)
         except RuntimeError:
             # Already running manually
@@ -371,10 +392,16 @@ def run_worker_loop():
                 from database import insert_notification
                 from push_service import send_push_to_all
                 insert_notification("admin", f"❌ AI WORKER CRASHED (DOWN)", f"Error: {str(e)[:200]}")
-                send_push_to_all("❌ AI WORKER DOWN", f"Crash: {str(e)[:100]}")
+                # [FIX 2026-09-23: DUPLICATE PUSH THROTTLE] Only send crash push if the keys-exhausted
+                # path has NOT already sent a DOWN notification within this iteration.
+                if time.monotonic() - _last_down_push_ts > 30:
+                    send_push_to_all("❌ AI WORKER DOWN", f"Crash: {str(e)[:100]}")
+                    _last_down_push_ts = time.monotonic()
+                else:
+                    logger.info("🔕 [AI WORKER] Crash push suppressed — DOWN notification already sent this cycle.")
             except Exception as outer_e:
                 logger.exception(f"Failed to send crash notifications: {outer_e}")
-            
+
         time.sleep(300)
 
 def start_worker():
@@ -386,3 +413,4 @@ def start_worker():
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     run_worker_loop()
+
