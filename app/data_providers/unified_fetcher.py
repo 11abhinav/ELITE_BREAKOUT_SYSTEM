@@ -56,15 +56,6 @@ class UnifiedFetcher:
             logger.info(f"ℹ️ Skipping non-equity trust {symbol} in UnifiedFetcher")
             return pd.DataFrame()
 
-        # [FIX 2026-09-23: HEG SPAM — PROVIDER_UNAVAILABLE_SYMBOLS gate]
-        # Symbols confirmed absent from all provider master contracts (Fyers NSE_CM + BSE_CM + Upstox).
-        # Fast-fail with WARNING (not ERROR) to suppress 40+ identical error entries per day.
-        # These are genuine equities — not blocked from scanners, just unfetchable until re-listed.
-        from config import PROVIDER_UNAVAILABLE_SYMBOLS
-        if clean_sym in PROVIDER_UNAVAILABLE_SYMBOLS:
-            logger.warning(f"⚠️ [{consumer}] {clean_sym} is in PROVIDER_UNAVAILABLE_SYMBOLS — absent from all provider master contracts. Skipping fetch. Remove from list once re-verified.")
-            return pd.DataFrame()
-
         logger.info(f"[{consumer}] Fetching {symbol} ({interval} / {period}) via UnifiedFetcher")
         
         dataset_id = f"price_{interval}"
@@ -131,6 +122,45 @@ class UnifiedFetcher:
                     logger.warning(f"⚠️ [Upstox] Failed to fetch historical {symbol}: {e}")
 
         error_details = ", ".join([f"{p}: {e}" for p, e in provider_errors.items()])
+
+        # [FIX 2026-09-23: YAHOO THIRD-TIER FALLBACK]
+        # Fyers and Upstox both maintain master contract CSVs that exclude certain NSE segments:
+        # T2T (Trade-to-Trade / BE series), recently relisted/renamed stocks, or newly admitted
+        # scrips not yet in their CDN refresh cycle.  HEG is a confirmed example — absent from
+        # live Fyers NSE_CM.csv, BSE_CM.csv, and Upstox complete.csv.gz as of 2026-09-23, but
+        # fully available on Yahoo Finance (HEG.NS, last price ₹248.5).
+        # Yahoo Finance is authoritative for NSE equities regardless of trading segment.
+        # Only attempt Yahoo if both primary providers have already failed.
+        if provider_errors:
+            try:
+                from price_provider import PriceProvider
+                yf_sym = f"{clean_sym}.NS"
+                yf_provider = PriceProvider()
+                yf_result = yf_provider.fetch_batch([yf_sym], period=period, interval=interval)
+                df_yf = yf_result.get(yf_sym)
+                if df_yf is None:
+                    # Try .BO suffix as fallback for BSE-primary stocks
+                    yf_sym_bse = f"{clean_sym}.BO"
+                    yf_result_bse = yf_provider.fetch_batch([yf_sym_bse], period=period, interval=interval)
+                    df_yf = yf_result_bse.get(yf_sym_bse)
+                    if df_yf is not None and not df_yf.empty:
+                        yf_sym = yf_sym_bse
+
+                if df_yf is not None and not df_yf.empty:
+                    logger.info(
+                        f"✅ [Yahoo] Third-tier fallback succeeded for {orig_symbol} ({yf_sym}) — "
+                        f"{len(df_yf)} rows. Primary providers failed: {error_details}"
+                    )
+                    from trading_calendar import enforce_trading_day_candles
+                    return enforce_trading_day_candles(df_yf, orig_symbol)
+                else:
+                    provider_errors["yahoo"] = f"Empty DataFrame for {yf_sym}"
+                    logger.debug(f"⚠️ [Yahoo] No data for {yf_sym}")
+            except Exception as yf_err:
+                provider_errors["yahoo"] = str(yf_err)
+                logger.debug(f"⚠️ [Yahoo] Third-tier fallback failed for {orig_symbol}: {yf_err}")
+
+        error_details = ", ".join([f"{p}: {e}" for p, e in provider_errors.items()])
         is_expected_miss = (
             any("auth" in str(e).lower() or "uninitialized" in str(e).lower() for e in provider_errors.values())
             or clean_sym in CORPORATE_ACTION_ALIASES
@@ -142,6 +172,7 @@ class UnifiedFetcher:
         else:
             logger.error(f"❌ Exhausted all providers for historical {orig_symbol}. Reasons: {error_details}")
         return pd.DataFrame()
+
 
     def fetch_live_quotes(self, symbols: list[str], consumer: str) -> dict[str, dict]:
         """
