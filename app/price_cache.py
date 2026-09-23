@@ -73,27 +73,74 @@ def validate_ohlcv_structure(df: pd.DataFrame) -> tuple[bool, str]:
     1. Timestamp monotonicity (strictly increasing timestamps).
     2. Price sanity (High >= Low, Open & Close within Low/High bounds, Volume >= 0).
     3. Non-empty DataFrame.
+
+    [RULE 67 CHANGE-RATIONALE: FIX NON_MONOTONIC_TIMESTAMPS FALSE POSITIVES — 2026-09-23]
+    Root cause: The previous implementation used pd.to_datetime(..., errors='coerce') which
+    silently converted mixed pytz vs ZoneInfo timezone-aware timestamps (produced when
+    pd.concat() merges Fyers live data with cached Parquet data) into NaT.  NaT sorts
+    AFTER all valid timestamps, so is_monotonic_increasing() returned False on an otherwise
+    perfectly ordered dataset → 79x false-positive NON_MONOTONIC_TIMESTAMPS rejections in
+    production logs (2026-09-23 10:44–11:45 IST).
+
+    Commit 68a38c44 (2026-09-23 09:17) introduced robust_to_kolkata_series() and applied it
+    to enforce_trading_day_candles() and _normalize_ts_to_kolkata(), but this function was
+    inadvertently left with the old errors='coerce' pattern.  This change completes that fix.
+
+    Guard order:
+      1. robust_to_kolkata_series() — zero false NaT on mixed-tz input.
+      2. UNPARSEABLE_TIMESTAMPS check — reject only if genuinely unparseable values exist
+         (real NaT, not coercion artifacts).
+      3. WEEKEND_CANDLES_PROHIBITED check — same as before.
+      4. NON_MONOTONIC_TIMESTAMPS check — only fires on truly non-monotonic series now.
     """
     if df is None or df.empty:
         return False, "EMPTY_DATAFRAME"
-        
+
     try:
         # [RULE 67 CHANGE-RATIONALE: CRITICAL WEEKEND CANDLE BAN]
         # Saturday and Sunday candles must NEVER be fetched, accepted, evaluated, or stored as valid market candles.
         time_col = 'Date' if 'Date' in df.columns else ('Datetime' if 'Datetime' in df.columns else None)
-        if time_col:
-            ts_series = pd.to_datetime(df[time_col], errors='coerce')
-        elif isinstance(df.index, pd.DatetimeIndex):
-            ts_series = df.index
-        else:
-            ts_series = pd.to_datetime(df.index, errors='coerce')
 
-        if ts_series is not None and len(ts_series) > 0:
-            is_weekend = (ts_series.dt.weekday >= 5) if hasattr(ts_series, 'dt') else (ts_series.weekday >= 5)
-            if is_weekend.any():
-                return False, "WEEKEND_CANDLES_PROHIBITED"
+        # [FIX 2026-09-23] Use robust_to_kolkata_series() instead of pd.to_datetime(errors='coerce').
+        # robust_to_kolkata_series() uses element-by-element parsing as a fallback, guaranteeing
+        # that no valid mixed-tz timestamp is coerced to NaT.  Only genuinely unparseable values
+        # (e.g. corrupted strings) will remain as NaT.
+        try:
+            from trading_calendar import robust_to_kolkata_series
+            if time_col:
+                ts_series = robust_to_kolkata_series(df[time_col])
+            elif isinstance(df.index, pd.DatetimeIndex):
+                ts_series = df.index
+            else:
+                ts_series = robust_to_kolkata_series(df.index)
+        except Exception:
+            # Safety net: fall back to the old path rather than crashing validation entirely
+            if time_col:
+                ts_series = pd.to_datetime(df[time_col], errors='coerce')
+            elif isinstance(df.index, pd.DatetimeIndex):
+                ts_series = df.index
+            else:
+                ts_series = pd.to_datetime(df.index, errors='coerce')
 
-        # 1. Monotonicity
+        # Ensure ts_series is a pd.Series so .dt and .is_monotonic_increasing work uniformly
+        if isinstance(ts_series, pd.DatetimeIndex):
+            ts_series = ts_series.to_series(index=df.index)
+
+        if ts_series is None or len(ts_series) == 0:
+            return False, "EMPTY_TIMESTAMP_SERIES"
+
+        # 0. Guard: genuinely unparseable timestamps (real NaT, not coercion artifacts).
+        #    If robust_to_kolkata_series() still produced NaT, the source data is corrupt.
+        nat_count = int(ts_series.isna().sum())
+        if nat_count > 0:
+            return False, f"UNPARSEABLE_TIMESTAMPS_{nat_count}_OF_{len(ts_series)}"
+
+        # 1. Weekend candle ban
+        is_weekend = ts_series.dt.weekday >= 5
+        if is_weekend.any():
+            return False, "WEEKEND_CANDLES_PROHIBITED"
+
+        # 2. Monotonicity — only reached if series is fully parseable and tz-normalised
         if not ts_series.is_monotonic_increasing:
             return False, "NON_MONOTONIC_TIMESTAMPS"
             
