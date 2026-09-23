@@ -167,14 +167,6 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
             from pledge_scraper import get_scraper_api_key, mark_key_exhausted_today
             scraper_key = get_scraper_api_key()
 
-            if not scraper_key:
-                logger.warning("⚠️ No valid SCRAPERAPI_KEY found. Falling back to latest available DB Bhavcopy.")
-                latest = get_latest_bhavcopy_cache()
-                if latest:
-                    registry.put(registry_key, latest)
-                    return latest
-                return {}
-
             response = None
             last_err_msg = None
             
@@ -205,8 +197,26 @@ def fetch_delivery_data(trading_date: date, skip_db_save: bool = False) -> dict[
                     last_err_msg = str(scraper_err)
                     logger.warning(f"ScraperAPI Bhavcopy fetch failed: {scraper_err}")
 
+            # Direct fetch fallback if no scraper_key or ScraperAPI failed
             if response is None:
-                logger.warning(f"⚠️ Attempt {attempt} failed via ScraperAPI. Retrying...")
+                try:
+                    logger.info(f"🔄 Requesting Bhavcopy CSV directly from NSE: {target_url}")
+                    direct_headers = {
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.5',
+                    }
+                    d_resp = session.get(target_url, headers=direct_headers, timeout=FETCH_TIMEOUT)
+                    if d_resp is not None and d_resp.status_code == 200 and len(d_resp.text) > 1000 and not ("<html" in d_resp.text.lower() or "<body" in d_resp.text.lower()):
+                        response = d_resp
+                    elif d_resp is not None and d_resp.status_code == 404:
+                        logger.info(f"ℹ️ Bhavcopy {date_str} returned 404 on direct fetch.")
+                        break
+                except Exception as direct_err:
+                    logger.warning(f"Direct NSE Bhavcopy fetch failed: {direct_err}")
+
+            if response is None:
+                logger.warning(f"⚠️ Attempt {attempt} failed via ScraperAPI and direct fetch. Retrying...")
                 if attempt == MAX_RETRIES and last_err_msg:
                     try:
                         mark_failure('nse_bhavcopy', last_err_msg)

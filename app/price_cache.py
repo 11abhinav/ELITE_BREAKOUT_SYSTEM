@@ -1192,10 +1192,11 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         fb_df = uf.fetch_historical(sym_to_fb, interval, period, consumer="price_cache_fallback")
                         if fb_df is not None and not fb_df.empty:
                             from validation.report import MarketData, DataQualityReport
+                            from validation.result import ValidationStatus
                             return sym_to_fb, MarketData(
                                 dataframe=fb_df,
                                 source=fb_df.attrs.get("provider", "fallback"),
-                                quality_report=DataQualityReport(is_valid=True, quality_score=100.0, status="VALID", issues=[]),
+                                quality_report=DataQualityReport(is_valid=True, quality_score=100, critical_failures=(), warnings=(), status=ValidationStatus.VALID),
                                 stale=False,
                                 used_fallback=True
                             )
@@ -1305,7 +1306,10 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                         reject_reason = None
                         is_delta_fetch = bool(range_from)
                         is_full_fetch = (group_key == "FULL")
-                        op_mode = "INCREMENTAL_MERGE" if (cached_df is not None and not cached_df.empty and not is_full_fetch) else "FULL_REPLACE"
+                        # When cached_df exists and remote data contains newer or fresh bars, treat as INCREMENTAL_MERGE
+                        # so that pd.concat([cached_df, new_df]).drop_duplicates(...) merges the newer bars cleanly
+                        # without triggering HISTORICAL_SHRINK on shorter windows (e.g. 1y remote vs 2y cache).
+                        op_mode = "INCREMENTAL_MERGE" if (cached_df is not None and not cached_df.empty and (has_newer_bars or remote_is_current or not is_full_fetch)) else "FULL_REPLACE"
 
                         if new_report:
                             q_score = getattr(new_report, 'quality_score', 100)
@@ -1314,13 +1318,12 @@ def _download_all_robust(watchlist: pd.DataFrame, period: str, interval: str, re
                             elif getattr(new_report, 'is_valid', True) is False:
                                 reject_reason = "INVALID_QUALITY_REPORT"
                             elif (op_mode == "FULL_REPLACE" and 
+                                  not (has_newer_bars or remote_is_current) and
                                   interval.lower() in ("1d", "daily") and 
                                   getattr(new_report, 'row_count', 0) < cached_row_count * (1.0 - MAX_HISTORY_SHRINK)):
                                 # [RULE 67 CHANGE-RATIONALE]:
-                                # Restrict HISTORICAL_SHRINK checks strictly to daily data. 
-                                # For intraday intervals, short full fetches (e.g. 5d window) naturally 
-                                # return fewer rows than the cache capacity (e.g. 750), leading to false-positive 
-                                # rejects and persistent stale data deadlock warnings.
+                                # Restrict HISTORICAL_SHRINK checks strictly to daily data where remote data is NOT newer.
+                                # If remote data has newer bars, concat will grow/maintain the cache without losing history.
                                 reject_reason = "HISTORICAL_SHRINK"
 
                         if reject_reason:

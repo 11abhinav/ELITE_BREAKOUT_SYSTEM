@@ -126,7 +126,7 @@ class UnifiedFetcher:
         # [FIX 2026-09-23: YAHOO THIRD-TIER FALLBACK]
         # Fyers and Upstox both maintain master contract CSVs that exclude certain NSE segments:
         # T2T (Trade-to-Trade / BE series), recently relisted/renamed stocks, or newly admitted
-        # scrips not yet in their CDN refresh cycle.  HEG is a confirmed example — absent from
+        # scrips not yet in their CDN refresh cycle. HEG is a confirmed example — absent from
         # live Fyers NSE_CM.csv, BSE_CM.csv, and Upstox complete.csv.gz as of 2026-09-23, but
         # fully available on Yahoo Finance (HEG.NS, last price ₹248.5).
         # Yahoo Finance is authoritative for NSE equities regardless of trading segment.
@@ -134,19 +134,35 @@ class UnifiedFetcher:
         if provider_errors:
             try:
                 from price_provider import PriceProvider
-                yf_sym = f"{clean_sym}.NS"
+                from core_enums import ProviderResult
+
+                # Yahoo Finance API constraints:
+                # Intraday intervals (1m, 2m, 5m, 15m, 30m, 60m, 1h) have strict max period limits on Yahoo.
+                # 1m -> max 7d. 2m..1h -> max 60d. Daily (1d) supports years.
+                # If callers pass '1y' for 5m, clamp to Yahoo's supported max period so Yahoo does not reject it.
+                yf_period = period
+                if interval in ("1m",):
+                    if yf_period not in ("1d", "5d", "7d"):
+                        yf_period = "7d"
+                elif interval in ("2m", "5m", "15m", "30m", "60m", "1h"):
+                    if any(p in str(yf_period).lower() for p in ("1y", "2y", "3y", "5y", "10y", "ytd", "max", "365d", "6mo", "3mo")):
+                        yf_period = "60d"
+
                 yf_provider = PriceProvider()
-                yf_result = yf_provider.fetch_batch([yf_sym], period=period, interval=interval)
-                df_yf = yf_result.get(yf_sym)
-                if df_yf is None:
-                    # Try .BO suffix as fallback for BSE-primary stocks
+                yf_sym = f"{clean_sym}.NS"
+                yf_result = yf_provider.fetch_batch([yf_sym], period=yf_period, interval=interval)
+                df_yf = yf_result.get(yf_sym) if yf_result else None
+
+                # If NSE (.NS) did not return a valid DataFrame, try BSE (.BO) fallback
+                if not (isinstance(df_yf, pd.DataFrame) and not df_yf.empty):
                     yf_sym_bse = f"{clean_sym}.BO"
-                    yf_result_bse = yf_provider.fetch_batch([yf_sym_bse], period=period, interval=interval)
-                    df_yf = yf_result_bse.get(yf_sym_bse)
-                    if df_yf is not None and not df_yf.empty:
+                    yf_result_bse = yf_provider.fetch_batch([yf_sym_bse], period=yf_period, interval=interval)
+                    df_yf_bse = yf_result_bse.get(yf_sym_bse) if yf_result_bse else None
+                    if isinstance(df_yf_bse, pd.DataFrame) and not df_yf_bse.empty:
+                        df_yf = df_yf_bse
                         yf_sym = yf_sym_bse
 
-                if df_yf is not None and not df_yf.empty:
+                if isinstance(df_yf, pd.DataFrame) and not df_yf.empty:
                     logger.info(
                         f"✅ [Yahoo] Third-tier fallback succeeded for {orig_symbol} ({yf_sym}) — "
                         f"{len(df_yf)} rows. Primary providers failed: {error_details}"
@@ -154,18 +170,22 @@ class UnifiedFetcher:
                     from trading_calendar import enforce_trading_day_candles
                     return enforce_trading_day_candles(df_yf, orig_symbol)
                 else:
-                    provider_errors["yahoo"] = f"Empty DataFrame for {yf_sym}"
-                    logger.debug(f"⚠️ [Yahoo] No data for {yf_sym}")
+                    err_reason = df_yf.name if isinstance(df_yf, ProviderResult) else "No data returned"
+                    provider_errors["yahoo"] = f"{err_reason} for {yf_sym}"
+                    logger.debug(f"⚠️ [Yahoo] No data for {yf_sym}: {err_reason}")
             except Exception as yf_err:
                 provider_errors["yahoo"] = str(yf_err)
                 logger.debug(f"⚠️ [Yahoo] Third-tier fallback failed for {orig_symbol}: {yf_err}")
 
         error_details = ", ".join([f"{p}: {e}" for p, e in provider_errors.items()])
+        from config import PROVIDER_UNAVAILABLE_SYMBOLS
         is_expected_miss = (
             any("auth" in str(e).lower() or "uninitialized" in str(e).lower() for e in provider_errors.values())
             or clean_sym in CORPORATE_ACTION_ALIASES
             or orig_symbol in CORPORATE_ACTION_ALIASES
             or any(s in str(symbol).upper() for s in ("NIFTY", "BANKNIFTY", "SENSEX", "INDIAVIX"))
+            or clean_sym in PROVIDER_UNAVAILABLE_SYMBOLS
+            or orig_symbol in PROVIDER_UNAVAILABLE_SYMBOLS
         )
         if is_expected_miss:
             logger.warning(f"⚠️ Exhausted providers for historical {orig_symbol} (fallback/unauthenticated/corporate action): {error_details}")
