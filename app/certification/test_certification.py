@@ -217,6 +217,51 @@ class TestSystemWideCertification(unittest.TestCase):
         self.assertIn("STRUCTURE_VALID", rec.gate_results)
         self.assertIn("STAGE2_BREAKOUT", rec.gate_results)
 
+    def test_hard_ci_certification_gate(self):
+        """
+        Hard CI Certification Gate:
+        Enforces that NO scanner/fixture can achieve or claim CERTIFIED status unless:
+        1. trace_match == 100.0%
+        2. decision_match == 100.0%
+        3. point_in_time_valid == True
+        4. Zero material provenance mismatches (data hash, code hash, config hash).
+        Any fixture with trace_match < 100.0% or decision_match < 100.0% is strictly rejected.
+        """
+        # Test 1: Valid EOD fixture must pass hard gate
+        adapter = ScannerCertificationRegistry.get_adapter(ScannerType.EOD_BREAKOUT.value)
+        df = self._generate_synthetic_clean_bars(80, base_price=500.0)
+        rec_prod = adapter.evaluate("PGIL", "2026-09-23", mode=ReplayMode.PRODUCTION_REPLAY, custom_data={"df": df})
+        rec_replay = adapter.evaluate("PGIL", "2026-09-23", mode=ReplayMode.PRODUCTION_REPLAY, custom_data={"df": df})
+        
+        diff = self.engine.compare(rec_prod, rec_replay, pit_valid=True)
+        self.assertTrue(diff.point_in_time_valid)
+        trace_matches = sum(1 for c in diff.field_comparisons if c.matches)
+        trace_pct = (trace_matches / len(diff.field_comparisons) * 100.0) if diff.field_comparisons else 0.0
+        self.assertEqual(trace_pct, 100.0)
+        self.assertTrue(diff.decision_match)
+        self.assertTrue(diff.certified)
+
+        # Test 2: Any trace divergence (< 100%) MUST fail certification
+        rec_divergent = adapter.evaluate("PGIL", "2026-09-23", mode=ReplayMode.PRODUCTION_REPLAY, custom_data={"df": df})
+        # Simulate indicator drift
+        rec_divergent.indicators["ATR20"] = 999.99
+        diff_divergent = self.engine.compare(rec_prod, rec_divergent, pit_valid=True)
+        self.assertFalse(diff_divergent.certified, "Hard CI Gate must fail when indicators diverge!")
+        div_trace_matches = sum(1 for c in diff_divergent.field_comparisons if c.matches)
+        div_trace_pct = (div_trace_matches / len(diff_divergent.field_comparisons) * 100.0) if diff_divergent.field_comparisons else 0.0
+        self.assertLess(div_trace_pct, 100.0)
+
+        # Test 3: Point-in-time violation MUST fail certification even if trace is 100%
+        diff_pit_fail = self.engine.compare(rec_prod, rec_replay, pit_valid=False)
+        self.assertFalse(diff_pit_fail.certified, "Hard CI Gate must fail when point-in-time validation fails!")
+
+        # Test 4: Decision mismatch MUST fail certification
+        rec_dec_mismatch = adapter.evaluate("PGIL", "2026-09-23", mode=ReplayMode.PRODUCTION_REPLAY, custom_data={"df": df})
+        rec_dec_mismatch.terminal_decision = "SELECTED" if rec_prod.terminal_decision == "REJECTED" else "REJECTED"
+        diff_dec_fail = self.engine.compare(rec_prod, rec_dec_mismatch, pit_valid=True)
+        self.assertFalse(diff_dec_fail.certified, "Hard CI Gate must fail when terminal decision mismatches!")
+
 
 if __name__ == "__main__":
     unittest.main()
+

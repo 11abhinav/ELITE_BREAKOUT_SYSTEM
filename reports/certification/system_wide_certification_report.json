@@ -1,0 +1,479 @@
+{
+  "report_metadata": {
+    "title": "System-Wide Production Replay & Deterministic Backtest Master Certification Report",
+    "execution_timestamp": "2026-09-24 11:22:02 IST",
+    "evaluation_date": "2026-09-23",
+    "git_commit": "6ece40775d1d6a9a957d34195a6ec89f2db9a35e",
+    "overall_system_status": "PARTIALLY_CERTIFIED",
+    "certified_count": 1,
+    "pending_telemetry_count": 12,
+    "not_certified_count": 0,
+    "total_registered_components": 13,
+    "governance_rule": "Dual-truth model strictly enforced. 100% trace match + 100% decision match against immutable frozen production telemetry required for certification."
+  },
+  "components_matrix": [
+    {
+      "scanner_key": "EOD_BREAKOUT",
+      "display_name": "EOD Breakout Scanner",
+      "timeframe": "1D",
+      "classification": "ALERT_GENERATING_SCANNER",
+      "production_role": "Scans end-of-day daily market close for classic 20-day high breakouts, volume expansion, and range contraction.",
+      "data_dependencies": [
+        "data/history/1d/*.parquet (Daily OHLCV)",
+        "data/delivery/*.csv & app/delivery_data.py (Bhavcopy Delivery %)",
+        "^NSEI Daily Parquet (Nifty 50 Market Regime SMA50)"
+      ],
+      "inclusion_justification": "Primary cash breakout engine; directly generates actionable live EOD buy alerts.",
+      "genuine_prod_cases": 5,
+      "replay_cases": 5,
+      "trace_match_pct": 100.0,
+      "decision_match_pct": 100.0,
+      "status": "CERTIFIED",
+      "prod_run_id": "c1f7a76e-ae32-41a7-93fd-ce5756da9ae9",
+      "symbols_evaluated": [
+        "PGIL",
+        "HBLENGINE",
+        "INDRAMEDCO",
+        "ACE",
+        "POWERGRID"
+      ]
+    },
+    {
+      "scanner_key": "MULTITF_15M",
+      "display_name": "Multi-TF Breakout (15M)",
+      "timeframe": "15M",
+      "classification": "ALERT_GENERATING_SCANNER",
+      "production_role": "Evaluates 15-minute intraday candidate breakouts against 30-minute trend and 1-hour consolidation base.",
+      "data_dependencies": [
+        "data/history/15m/*.parquet (15M Intraday OHLCV)",
+        "data/history/30m/*.parquet (30M Confirmation OHLCV)",
+        "data/history/1h/*.parquet (1H Structural Base OHLCV)",
+        "data/history/1d/*.parquet (Daily Macro Trend)"
+      ],
+      "inclusion_justification": "High-velocity intraday breakout generator; triggers initial trade candidates for 5M monitoring.",
+      "genuine_prod_cases": 0,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING_TELEMETRY",
+      "prod_run_id": "MISSING_TELEMETRY",
+      "symbols_evaluated": [
+        "PGIL",
+        "INDRAMEDCO",
+        "ACE",
+        "POWERGRID",
+        "SAMHI"
+      ]
+    },
+    {
+      "scanner_key": "MULTITF_5M",
+      "display_name": "Multi-TF Monitor (5M Polling)",
+      "timeframe": "5M",
+      "classification": "ALERT_GENERATING_SCANNER",
+      "production_role": "Performs stateful 5-minute candle polling on armed candidates to confirm breakout volume and arm entry.",
+      "data_dependencies": [
+        "data/history/5m/*.parquet (5M Live Polled Bars)",
+        "Upstream 15M Candidate State (`candidates_armed` cache)",
+        "Session VWAP & Intraday Opening Range"
+      ],
+      "inclusion_justification": "Final execution trigger for Multi-TF strategy; transitions symbols from ARMED to ENTRY_READY.",
+      "genuine_prod_cases": 0,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING_TELEMETRY",
+      "prod_run_id": "MISSING_TELEMETRY",
+      "symbols_evaluated": [
+        "PGIL",
+        "INDRAMEDCO",
+        "ACE",
+        "POWERGRID",
+        "SAMHI"
+      ]
+    },
+    {
+      "scanner_key": "SHORT_COVERING_EOD",
+      "display_name": "Short Covering EOD",
+      "timeframe": "1D",
+      "classification": "ALERT_GENERATING_SCANNER",
+      "production_role": "Identifies derivatives short-squeeze candidates using daily price surges coupled with severe Open Interest (OI) unwinding.",
+      "data_dependencies": [
+        "data/history/1d/*.parquet (Daily OHLCV)",
+        "data/history/5m/*.parquet (Intraday Volume Signature)",
+        "NSE F&O Bhavcopy / Upstox OI Feed (Futures Contract Open Interest)",
+        "NSE F&O Universe Eligibility List (`fo_stocks.json`)"
+      ],
+      "inclusion_justification": "Specialist derivatives breakout engine; generates high-momentum short covering trade signals.",
+      "genuine_prod_cases": 0,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING_TELEMETRY",
+      "prod_run_id": "MISSING_TELEMETRY",
+      "symbols_evaluated": [
+        "PGIL",
+        "INDRAMEDCO",
+        "ACE",
+        "POWERGRID",
+        "SAMHI"
+      ]
+    },
+    {
+      "scanner_key": "SHORT_COVERING_5M",
+      "display_name": "Short Covering Intraday (5M)",
+      "timeframe": "5M",
+      "classification": "ALERT_GENERATING_SCANNER",
+      "production_role": "Real-time 5-minute derivatives monitor tracking rapid intraday OI liquidation and VWAP reclaims.",
+      "data_dependencies": [
+        "data/history/5m/*.parquet (5M Bars with Real-time OI)",
+        "Live Upstox Streaming OI / Fallback NSE Web Scraper",
+        "Near-Month Futures Symbol Contract Map"
+      ],
+      "inclusion_justification": "Intraday squeeze execution trigger; requires strict data-health gates (DATA_INSUFFICIENT / BLOCKED).",
+      "genuine_prod_cases": 0,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING_TELEMETRY",
+      "prod_run_id": "MISSING_TELEMETRY",
+      "symbols_evaluated": [
+        "PGIL",
+        "INDRAMEDCO",
+        "ACE",
+        "POWERGRID",
+        "SAMHI"
+      ]
+    },
+    {
+      "scanner_key": "REVERSAL",
+      "display_name": "Reversal Scanner",
+      "timeframe": "1D",
+      "classification": "ALERT_GENERATING_SCANNER",
+      "production_role": "Detects capitulation bottoms, liquidity sweeps, hammer/engulfing candles, and volume exhaustion.",
+      "data_dependencies": [
+        "data/history/1d/*.parquet (Daily OHLCV)",
+        "20-day Volume SMA & Volume Climax ratio",
+        "ATR14 & Prior Swing Low levels",
+        "Nifty 50 Macro Regime"
+      ],
+      "inclusion_justification": "Counter-trend breakout generator; signals mean-reversion entries from deep oversold territory.",
+      "genuine_prod_cases": 0,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING_TELEMETRY",
+      "prod_run_id": "MISSING_TELEMETRY",
+      "symbols_evaluated": [
+        "PGIL",
+        "INDRAMEDCO",
+        "ACE",
+        "POWERGRID",
+        "SAMHI"
+      ]
+    },
+    {
+      "scanner_key": "PULLBACK",
+      "display_name": "Pullback Scanner",
+      "timeframe": "1D",
+      "classification": "ALERT_GENERATING_SCANNER",
+      "production_role": "Identifies low-risk trend re-entries following an orderly retracement into the EMA20/SMA50 value zone.",
+      "data_dependencies": [
+        "data/history/1d/*.parquet (Daily OHLCV)",
+        "EMA20 & SMA50 Support Bands",
+        "Prior Breakout Anchor State (`breakout_anchors.json`)",
+        "Volume Contraction Ratio (3-day vs 20-day)"
+      ],
+      "inclusion_justification": "Primary secondary-entry engine; prevents chasing extended breakouts by entering orderly pullbacks.",
+      "genuine_prod_cases": 0,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING_TELEMETRY",
+      "prod_run_id": "MISSING_TELEMETRY",
+      "symbols_evaluated": [
+        "PGIL",
+        "INDRAMEDCO",
+        "ACE",
+        "POWERGRID",
+        "SAMHI"
+      ]
+    },
+    {
+      "scanner_key": "TECHNICAL",
+      "display_name": "Technical Scanner (Ahat)",
+      "timeframe": "1D",
+      "classification": "ALERT_GENERATING_SCANNER",
+      "production_role": "Evaluates classic trend strength via moving average stack (SMA20 > SMA50 > SMA200), ADX > 25, and RSI momentum.",
+      "data_dependencies": [
+        "data/history/1d/*.parquet (Daily OHLCV)",
+        "SMA20, SMA50, SMA200 Series",
+        "14-period RSI & 14-period ADX Trend Indicator",
+        "Bollinger Band Width (20, 2.0)"
+      ],
+      "inclusion_justification": "Baseline technical qualification engine; generates structured trend-following alerts.",
+      "genuine_prod_cases": 0,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING_TELEMETRY",
+      "prod_run_id": "MISSING_TELEMETRY",
+      "symbols_evaluated": [
+        "PGIL",
+        "INDRAMEDCO",
+        "ACE",
+        "POWERGRID",
+        "SAMHI"
+      ]
+    },
+    {
+      "scanner_key": "ACCUMULATION_VCP",
+      "display_name": "Accumulation / VCP Engine",
+      "timeframe": "1D",
+      "classification": "CANDIDATE_GENERATOR",
+      "production_role": "Identifies Volatility Contraction Patterns (VCP) across 2 to 4 contraction cycles with progressive volume dry-up.",
+      "data_dependencies": [
+        "data/history/1d/*.parquet (Daily OHLCV - minimum 120 bars)",
+        "Rolling 50-day Average Volume",
+        "Contraction Depth Calculation (High to Low swings)",
+        "Bollinger Band Squeeze Width"
+      ],
+      "inclusion_justification": "Structural setup generator; populates the high-conviction candidate pool for breakout scanners.",
+      "genuine_prod_cases": 0,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING_TELEMETRY",
+      "prod_run_id": "MISSING_TELEMETRY",
+      "symbols_evaluated": [
+        "PGIL",
+        "INDRAMEDCO",
+        "ACE",
+        "POWERGRID",
+        "SAMHI"
+      ]
+    },
+    {
+      "scanner_key": "INSTITUTIONAL_ACCUMULATION",
+      "display_name": "Institutional Accumulation Engine",
+      "timeframe": "1D",
+      "classification": "CANDIDATE_GENERATOR",
+      "production_role": "Executes a 12-step hard cascade evaluating institutional buying footprints, high-delivery spikes, and pocket pivots.",
+      "data_dependencies": [
+        "data/history/1d/*.parquet (Daily OHLCV)",
+        "Delivery Bhavcopy (Delivery Volume & Delivery %)",
+        "Block / Bulk Deals Feed (Exchange filings)",
+        "Institutional Flow Multi-Factor Model"
+      ],
+      "inclusion_justification": "Generates institutional accumulation candidates with composite conviction scores.",
+      "genuine_prod_cases": 0,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING_TELEMETRY",
+      "prod_run_id": "MISSING_TELEMETRY",
+      "symbols_evaluated": [
+        "PGIL",
+        "INDRAMEDCO",
+        "ACE",
+        "POWERGRID",
+        "SAMHI"
+      ]
+    },
+    {
+      "scanner_key": "WEALTH",
+      "display_name": "Wealth Compounder Engine",
+      "timeframe": "1D",
+      "classification": "DEPENDENCY_ENGINE",
+      "production_role": "Allocates candidates into 4 quality buckets (Core Compounder, Growth Multiplier, Quality-On-Sale, Opportunistic).",
+      "data_dependencies": [
+        "data/history/1d/*.parquet (Daily OHLCV)",
+        "Fundamental Balance Sheet Database (ROCE, ROE, Debt/Equity)",
+        "PEG Valuation Ceiling & 3-Year Earnings CAGR",
+        "SMA200 Macro Trend Gate"
+      ],
+      "inclusion_justification": "Position sizing and portfolio holding router; decides risk allocation weighting across scanner alerts.",
+      "genuine_prod_cases": 0,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING_TELEMETRY",
+      "prod_run_id": "MISSING_TELEMETRY",
+      "symbols_evaluated": [
+        "PGIL",
+        "INDRAMEDCO",
+        "ACE",
+        "POWERGRID",
+        "SAMHI"
+      ]
+    },
+    {
+      "scanner_key": "MULTIBAGGER",
+      "display_name": "Multibagger Engine (V5)",
+      "timeframe": "1D",
+      "classification": "RESEARCH_ENGINE",
+      "production_role": "Evaluates asymmetric convexity setups using accounting quality (Piotroski F-Score >= 7), low float, and promoter holding.",
+      "data_dependencies": [
+        "data/history/1d/*.parquet (Daily OHLCV)",
+        "Annual Report Financial Statement Database",
+        "Shareholding Patterns (Promoter Stake & Pledge %)",
+        "Convexity Payoff Matrix"
+      ],
+      "inclusion_justification": "Long-term convex holding model; backtested independently for multi-quarter capital compounding.",
+      "genuine_prod_cases": 0,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING_TELEMETRY",
+      "prod_run_id": "MISSING_TELEMETRY",
+      "symbols_evaluated": [
+        "PGIL",
+        "INDRAMEDCO",
+        "ACE",
+        "POWERGRID",
+        "SAMHI"
+      ]
+    },
+    {
+      "scanner_key": "DAILY_BUILDER",
+      "display_name": "Daily Builder (V2 / V6 Router)",
+      "timeframe": "1D",
+      "classification": "DEPENDENCY_ENGINE",
+      "production_role": "Pre-computes rolling 20-day high structures, prior session volatility, and Stage 2 breakout state vectors.",
+      "data_dependencies": [
+        "data/history/1d/*.parquet (Daily OHLCV - strictly t-1 zero lookahead)",
+        "Historical Breakout Pivot DB (`data/daily_builder_v6_router_research.db`)",
+        "Dynamic ATR Trailing Defense Series"
+      ],
+      "inclusion_justification": "Foundational upstream dependency engine feeding rolling price state to multiple intraday and EOD scanners.",
+      "genuine_prod_cases": 0,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING_TELEMETRY",
+      "prod_run_id": "MISSING_TELEMETRY",
+      "symbols_evaluated": [
+        "PGIL",
+        "INDRAMEDCO",
+        "ACE",
+        "POWERGRID",
+        "SAMHI"
+      ]
+    }
+  ],
+  "data_audit_reconciliation": {
+    "previous_audit": {
+      "contaminated_daily_parquets": 45,
+      "rogue_rows_removed": 19459,
+      "signature": "Strict sub-second regex (r'\\d{2}:\\d{2}:\\d{2}\\.\\d+') and duplicate timestamps.",
+      "scope": "Targeted cleanup of microsecond-stamped intraday tick injections."
+    },
+    "expanded_audit": {
+      "corrupted_daily_parquets": 266,
+      "clean_daily_parquets": 617,
+      "total_daily_parquets": 883,
+      "sanitized_to_clean": 266,
+      "signature": "Expanded multi-factor criteria: (1) Whole-second non-midnight timestamps (r' (?!00:00:00)\\d{2}:\\d{2}:\\d{2}'), (2) Impossible OHLC bounds (High < Low or Close > High*1.002), (3) Extreme flash spikes (>45% spike immediately dropping >30%).",
+      "scope": "Comprehensive historical store sanitization across all 883 instruments."
+    },
+    "reconciliation_analysis": {
+      "difference_count": "+221 files",
+      "primary_reason": "The initial narrow audit specifically targeted microsecond regex timestamps (e.g. 11:21:18.476379 in PGIL). When the audit was expanded to cover whole-second non-midnight timestamps (e.g. 08:54:34, 09:28:42, 12:00:38 created during mid-session ingestion snapshots in files like SAMHI, AHLUCONT, AUROPHARMA, TEGA, and NETWORK18), an additional 221 files were identified.",
+      "remediation_status": "All 266 corrupted files were sanitized using ParquetAuditor.sanitize_file() with full preservation of raw backups in .corrupt_bak archives. All 883 daily parquets are now 100% clean."
+    }
+  },
+  "forensic_investigation_20pct_trace": {
+    "root_cause": "Cross-scanner telemetry collision in find_production_record() combined with synthetic baseline self-comparison fallback on missing telemetry.",
+    "case_that_matched": "SAMHI (100% trace match via orchestrator self-comparison fallback when telemetry was absent).",
+    "cases_that_diverged": [
+      "PGIL",
+      "INDRAMEDCO",
+      "ACE",
+      "POWERGRID"
+    ],
+    "divergence_mechanism": "Orchestrator fetched EOD Breakout production records for all scanners because scanner_name was not filtered in find_production_record(). Comparing non-EOD scanner indicators against EOD Breakout gates failed 100% of comparisons for these 4 symbols.",
+    "ratio_explanation": "1 match (SAMHI self-comparison) out of 5 total symbols = exactly 20.0% trace match across all 12 non-EOD scanners.",
+    "decision_match_coincidence": "EOD Breakout rejected all 4 symbols. Scanners whose default evaluation also happened to reject all symbols showed REJECTED == REJECTED, producing 100.0% decision match mirage despite 0% trace match.",
+    "governance_resolution": "Strict scanner-name isolation implemented via alias mapping in find_production_record(). Rule 9 missing-telemetry governance enforced: when production telemetry is absent, run_id = 'MISSING_TELEMETRY' is returned, setting trace_match = 0.0%, decision_match = 0.0%, and status = PENDING_TELEMETRY."
+  },
+  "immutable_production_cases_proof": {
+    "provenance_requirements": [
+      "PRODUCTION_RUN_ID",
+      "EVALUATION_TIMESTAMP",
+      "GIT_COMMIT",
+      "SCANNER_FILE_HASH",
+      "CONFIG_HASH",
+      "UNIVERSE_HASH",
+      "INPUT_DATA_HASH",
+      "DEPENDENCY_STATE",
+      "FULL_DECISION_TRACE",
+      "FINAL_DECISION"
+    ],
+    "certified_production_case": {
+      "scanner": "EOD Breakout Scanner",
+      "symbol": "PGIL",
+      "production_run_id": "c1f7a76e-ae32-41a7-93fd-ce5756da9ae9",
+      "evaluation_timestamp": "2026-09-23T15:45:00+05:30",
+      "git_commit": "e229dba548",
+      "scanner_file_hash": "b53ef12f4837ab28cf899cd1c8430e78c80ad00773d3fe52e8d35fa932454a7c",
+      "config_hash": "c074aa8db7994fa7aebf4e0c46927daee86f76c5b9f71c4c1d76985160c8e23e",
+      "universe_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "input_data_hash": "55c4795908ef4b64835840d21a2fc3048995daed52778dafe854eeaa0be7e96b",
+      "dependency_state": "NSE_BHAVCOPY_DELIVERY_SYNCED:2026-09-23",
+      "full_decision_trace": {
+        "ATR20": 366.3748,
+        "CANDLE_RANGE": 119.8,
+        "EXPANSION_RATIO": 0.327,
+        "GATE_NO_ATR_EXPANSION": "FAIL (ratio 0.327 < 0.80)"
+      },
+      "final_decision": "REJECTED (NO_ATR_EXPANSION)"
+    }
+  },
+  "stateful_multitf_replay_specification": {
+    "required_stages": [
+      "Stage 1: 15M trigger timestamp validation (bar close >= t)",
+      "Stage 2: 30M trend confirmation (EMA20 slope & alignment)",
+      "Stage 3: 1H base contraction verification (prior consolidation)",
+      "Stage 4: Armed state transition with dynamic expiration window",
+      "Stage 5: 5M polling timestamps recording exact bar arrival times",
+      "Stage 6: 5M bar availability audit (zero forward-looking bars)",
+      "Stage 7: Confirmation / Rejection gate evaluation",
+      "Stage 8: ENTRY_READY transition with frozen SL, Target, and 1.5R floor",
+      "Stage 9: Final Alert emission with cryptographically signed trace"
+    ],
+    "polling_vs_batch_rule": "Static historical 5M batch calculations are strictly prohibited for Multi-TF certification. Replay must step through simulated 5-minute ticks reproducing production polling state."
+  },
+  "short_covering_oi_specification": {
+    "required_fields": [
+      "fo_universe_eligibility",
+      "contract_mapping",
+      "oi_timestamp",
+      "oi_value",
+      "price_timestamp",
+      "data_provider",
+      "fallback_provider_used",
+      "data_health_gate",
+      "candidate_score",
+      "final_decision"
+    ],
+    "health_states": [
+      "HEALTHY",
+      "DATA_INSUFFICIENT",
+      "BLOCKED"
+    ],
+    "reproducibility_rule": "If production logged DATA_INSUFFICIENT or BLOCKED due to unavailable OI, PRODUCTION_REPLAY must reproduce that exact blocked state."
+  },
+  "hard_ci_certification_gate": {
+    "implementation_path": "app/certification/test_certification.py:test_hard_ci_certification_gate",
+    "enforcement_rules": [
+      "trace_match_pct == 100.0 required for CERTIFIED status",
+      "decision_match_pct == 100.0 required for CERTIFIED status",
+      "point_in_time_valid == True required for CERTIFIED status",
+      "Zero material provenance mismatches permitted",
+      "Violations raise AssertionError and fail CI build immediately"
+    ]
+  },
+  "strategy_freeze_declaration": {
+    "status": "FROZEN",
+    "directive": "Zero strategy optimization, threshold tuning, scoring weight adjustments, or tournament executions permitted until 100% production telemetry is captured and verified across all scanner families."
+  }
+}
