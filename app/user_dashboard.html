@@ -1838,14 +1838,24 @@ function changeTradePage(delta) {
 }
 
 function getEarningsBadgeHtml(item) {
-  // Earnings Calendar removed. Only show corporate action (split) badges from event_badges.
-  if (!item || !Array.isArray(item.event_badges) || item.event_badges.length === 0) return '';
-  for (const b of item.event_badges) {
-    if (b.type === 'corporate_action' && b.label) {
-      return `<span class="badge" style="background:rgba(147,51,234,0.25); color:#c084fc; border:1px solid rgba(147,51,234,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="${b.label}">🔀 ${b.label}</span>`;
+  let html = '';
+  if (item && Array.isArray(item.event_badges)) {
+    for (const b of item.event_badges) {
+      if (b.type === 'corporate_action' && b.label) {
+        html += `<span class="badge" style="background:rgba(147,51,234,0.25); color:#c084fc; border:1px solid rgba(147,51,234,0.5); font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap;" title="${b.label}">🔀 ${b.label}</span>`;
+      }
     }
   }
-  return '';
+  const isStrongBear = item && (
+    item.bayesian_regime === 'STRONG_BEAR' ||
+    item.market_regime === 'STRONG_BEAR' ||
+    (item.context && (item.context.market_regime === 'STRONG_BEAR' || item.context.strong_bear_market || (typeof item.context.warning === 'string' && item.context.warning.includes('STRONG BEAR')))) ||
+    (Array.isArray(item.warnings) && item.warnings.some(w => typeof w === 'string' && (w.includes('STRONG_BEAR') || w.includes('STRONG BEAR'))))
+  );
+  if (isStrongBear) {
+    html += `<span class="strong-bear-badge" style="background:rgba(239,68,68,0.2); color:#ef4444; border:1px solid #ef4444; font-size:9px; font-weight:800; margin-left:6px; padding:2px 6px; border-radius:4px; font-family:var(--font-mono); white-space:nowrap; animation: strongBearBlink 1s infinite; display:inline-block;" title="Alert raised during STRONG BEAR market regime">⚠️ STRONG BEAR MARKET</span>`;
+  }
+  return html;
 }
 
 
@@ -3277,9 +3287,10 @@ async function generateAIModal() {
 
 <style>
 .alert-blink{animation: blink 1s step-end infinite; background: rgba(255,235,59,0.08);}
-.today-alert-blink{animation: todayBlink 0.8s step-end infinite; background: rgba(139,92,246,0.12); box-shadow: inset 0 0 8px rgba(139,92,246,0.2);}
+.today-alert-blink{background: rgba(139,92,246,0.12);}
 @keyframes blink{50%{opacity:0.3}}
-@keyframes todayBlink{0%{opacity:1; box-shadow: inset 0 0 8px rgba(139,92,246,0.3)}50%{opacity:0.5; box-shadow: inset 0 0 3px rgba(139,92,246,0.1)}100%{opacity:1; box-shadow: inset 0 0 8px rgba(139,92,246,0.3)}}
+@keyframes todayBlink{0%,100%{opacity:1}50%{opacity:0.8}}
+@keyframes strongBearBlink{0%,100%{opacity:1; transform:scale(1);}50%{opacity:0.25; transform:scale(0.97);}}
 
   /* Notification Center Styles */
   .notification-bell-container {
@@ -3556,11 +3567,9 @@ async function fetchTodaysAlertsAndBlink_User(){
         const alertDate = (alert.alert_time || alert.entry_date || '').slice(0, 10);
         const isToday = alertDate === todayStr;
         
-        // Apply blinking - only for unseen alerts
+        // Apply blinking - only for unseen past alerts (today's alert blinking removed per directive)
         if(!alert.seen_by_user) {
-          if(isToday) {
-            tr.classList.add('today-alert-blink');
-          } else {
+          if(!isToday) {
             tr.classList.add('alert-blink');
           }
         }

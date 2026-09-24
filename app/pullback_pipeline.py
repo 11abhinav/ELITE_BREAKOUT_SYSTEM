@@ -594,34 +594,18 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
     logger.info(f"📊 Market Regime: {market_regime}")
 
     if market_regime == "STRONG_BEAR":
-        logger.info("🛑 STRONG_BEAR regime detected — Pullback scanner disabled entirely.")
-        upsert_scanner_health("PULLBACK", status="OK", today_alerts=0, error_msg="Disabled in STRONG_BEAR regime")
-        try:
-            from watchlist_cache import get_watchlist
-            wl = get_watchlist()
-            tot_count = len(wl) if wl is not None and not wl.empty else 0
-        except Exception:
-            tot_count = 0
-        if run_ctx:
-            if tot_count > 0:
-                run_ctx.set_total_stocks(tot_count)
-                run_ctx.fresh_count = tot_count
-            run_ctx.set_stop_reason("Disabled in STRONG_BEAR regime")
-        return {
-            "total_count": tot_count,
-            "processed_count": 0,
-            "today_alerts": 0
-        }
+        logger.warning("⚠️ STRONG_BEAR regime detected — Pullback scanner continuing execution with explicit STRONG_BEAR market warning tagging.")
 
     regime_thresholds = {
         "STRONG_BULL": 74.0,
         "BULL": 74.0,
-        "WEAK_BULL": 74.0,     # [FIX: EXPLICIT] Was missing — fell to default 76.0. Aligning with BULL tier.
+        "WEAK_BULL": 74.0,     # Explicit threshold aligning with BULL tier
         "NEUTRAL": 76.0,
-        "SIDEWAYS": 76.0,      # [FIX: EXPLICIT] Was missing — fell to default 76.0. Now explicit.
-        "RANGEBOUND": 76.0,    # [FIX: EXPLICIT] Was missing — fell to default 76.0. Now explicit.
+        "SIDEWAYS": 76.0,      # Explicit threshold
+        "RANGEBOUND": 76.0,    # Explicit threshold
         "WEAK_BEAR": 80.0,
         "BEAR": 80.0,
+        "STRONG_BEAR": 80.0,   # Process normally in STRONG_BEAR with explicit warning tag
     }
     required_threshold = regime_thresholds.get(market_regime, 76.0)
 
@@ -1177,7 +1161,9 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             has_prior_eod=has_prior_eod,
             has_prior_multi=has_prior_multi,
             is_full_high_takeover=getattr(c.trigger, "is_full_high_takeover", False),
-            is_bullish_engulfing=getattr(c.trigger, "is_bullish_engulfing", False)
+            is_bullish_engulfing=getattr(c.trigger, "is_bullish_engulfing", False),
+            depth_pct=getattr(c.structure, "depth_pct", 30.0),
+            impulse_pct=getattr(getattr(c.structure, "impulse", None), "gain_pct", 10.0)
         )
         c.base_score = score_breakdown["base_score"]
         c.final_score = score_breakdown["final_score"]
@@ -1385,6 +1371,9 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             context={
                 "config_version": c.config_version,
                 "source_trading_date": str(source_trading_date),
+                "market_regime": market_regime,
+                "strong_bear_market": (market_regime == "STRONG_BEAR"),
+                "warning": "STRONG BEAR MARKET" if market_regime == "STRONG_BEAR" else None,
                 "structure": {
                     "depth_pct": c.structure.depth_pct,
                     "duration_bars": c.structure.duration_bars,
@@ -1406,6 +1395,7 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             rs_percentile=rs_pct_val,
             sector_name=sector_name_val,
             regime_score=float(MarketRegimeEngine.get_regime_context().get("market_score", 80.0)),
+            bayesian_regime=market_regime,
             entry_mode="LIMIT_PULLBACK",
             source_trading_date=source_trading_date
         )
@@ -1437,8 +1427,9 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
             )
             try:
                 from telegram_engine import send_telegram_message
+                bear_hdr = "⚠️ <b>WARNING: STRONG BEAR MARKET REGIME</b> ⚠️\n\n" if market_regime == "STRONG_BEAR" else ""
                 msg = (
-                    f"↪️ <b>PULLBACK CONTINUATION ALERT</b> ↪️\n\n"
+                    f"{bear_hdr}↪️ <b>PULLBACK CONTINUATION ALERT</b> ↪️\n\n"
                     f"📌 <b>Symbol:</b> #{c.symbol}\n"
                     f"💰 <b>Entry Price:</b> ₹{entry_val:.2f}\n"
                     f"🛑 <b>Stop Loss:</b> ₹{sl_result.get('stop_loss', 0):.2f}\n"
