@@ -747,28 +747,78 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
     # 1. Load cached parquets and verify last_trade_date against expected completed trading session.
     # 2. For any symbol missing or stale (< expected trading date), fetch delta, merge, and persist.
     if not is_market_open(ist_now):
-        from price_cache import get_cached_df, fetch_unified_historical
+        from price_cache import get_cached_df, _write_single_parquet_and_meta, DATA_DIR
+        from market_utils import get_expected_latest_closed_daily_bar
         from concurrent.futures import ThreadPoolExecutor, as_completed
         disk_results = {}
         missing_or_stale_syms = []
         cached_fallback_map = {}
 
+        expected_closed_date = get_expected_latest_closed_daily_bar(ist_now)
+
+        # Check for Bhavcopy in data_registry or DeliveryDataManager to stitch today's bar if post-market
+        bhavcopy_df = None
+        try:
+            from data_registry import registry
+            full_bhavcopy_key = f"bhavcopy_full_{expected_closed_date.isoformat()}"
+            bhavcopy_df = registry.get(full_bhavcopy_key)
+            if bhavcopy_df is None or bhavcopy_df.empty:
+                from delivery_data import DeliveryDataManager
+                DeliveryDataManager.get_delivery_data(expected_closed_date)
+                bhavcopy_df = registry.get(full_bhavcopy_key)
+            if bhavcopy_df is not None and not bhavcopy_df.empty:
+                logger.info(f"🧵 [MULTIBAGGER] Bhavcopy available for {expected_closed_date} ({len(bhavcopy_df)} symbols). Enabling instant daily bar stitching.")
+        except Exception as _bhav_err:
+            logger.debug(f"[MB] Bhavcopy lookup error: {_bhav_err}")
+
         def _load_single(s):
             df_sym = get_cached_df(s, interval="1d", period="1y")
             if df_sym is not None and not df_sym.empty:
+                # If Bhavcopy is available and df_sym is missing today's bar, stitch today's bar
+                try:
+                    t_col = 'Date' if 'Date' in df_sym.columns else ('Datetime' if 'Datetime' in df_sym.columns else None)
+                    last_val = df_sym[t_col].iloc[-1] if t_col else df_sym.index[-1]
+                    last_dt = pd.to_datetime(last_val).date()
+                    if last_dt < expected_closed_date and bhavcopy_df is not None and not bhavcopy_df.empty:
+                        clean_s = s.replace('.NS', '').replace('.BO', '').strip()
+                        match_rows = bhavcopy_df[bhavcopy_df['SYMBOL'] == clean_s]
+                        if not match_rows.empty:
+                            row = match_rows.iloc[0]
+                            new_row = {
+                                'Open': float(row['OPEN']),
+                                'High': float(row['HIGH']),
+                                'Low': float(row['LOW']),
+                                'Close': float(row['CLOSE']),
+                                'Volume': float(row['TOTTRDQTY'])
+                            }
+                            if isinstance(df_sym.index, pd.DatetimeIndex):
+                                new_idx = pd.to_datetime(expected_closed_date)
+                                if df_sym.index.tz is not None:
+                                    new_idx = new_idx.tz_localize(df_sym.index.tz)
+                                df_sym.loc[new_idx] = pd.Series(new_row)
+                            else:
+                                tc = t_col or 'Date'
+                                new_row[tc] = pd.to_datetime(expected_closed_date)
+                                df_sym = pd.concat([df_sym, pd.DataFrame([new_row])], ignore_index=True)
+                            h_dir = os.path.join(DATA_DIR, "history", "1d")
+                            _write_single_parquet_and_meta(h_dir, s, df_sym, None)
+                except Exception as _st_err:
+                    logger.debug(f"[MB] Error stitching Bhavcopy for {s}: {_st_err}")
+
                 parsed_spd = _parse_single_symbol_price_data(s, df_sym, ist_now, strip_forming=False)
                 if parsed_spd is not None:
-                    is_stale = _is_stale_trade_date(getattr(parsed_spd, 'last_trade_date', ''))
-                    return s, parsed_spd, is_stale
+                    trade_date_str = str(getattr(parsed_spd, 'last_trade_date', ''))[:10]
+                    needs_refresh = (trade_date_str < str(expected_closed_date))
+                    return s, parsed_spd, needs_refresh
             return s, None, True
 
         with ThreadPoolExecutor(max_workers=24) as executor:
             futures = [executor.submit(_load_single, s) for s in symbols]
             for future in as_completed(futures):
-                s, parsed_spd, is_stale = future.result()
+                s, parsed_spd, needs_refresh = future.result()
                 if parsed_spd is not None:
                     cached_fallback_map[s] = parsed_spd
-                    if not is_stale:
+                    if not needs_refresh:
                         disk_results[s] = parsed_spd
                     else:
                         missing_or_stale_syms.append(s)
@@ -778,25 +828,26 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
         if missing_or_stale_syms:
             logger.info(f"⚡ [MULTIBAGGER DATA ACQUISITION] {len(disk_results)}/{len(symbols)} fresh stocks loaded from cache. "
                         f"Fetching missing/stale data for {len(missing_or_stale_syms)} ticker(s) via Upstox→Fyers→Yahoo chain...")
-            # [VERSION: MB_UNIFIED_FETCH_v2.0]
-            # Use per-symbol UnifiedFetcher (Upstox primary → Fyers secondary → Yahoo last resort)
-            # instead of fetch_unified_historical which relies on the Fyers batch API and silently
-            # drops symbols not in the Fyers instrument master (cause of the 322-symbol gap on 2026-09-24).
             import concurrent.futures as _cf
             from data_providers.unified_fetcher import UnifiedFetcher as _UF
+            uf = _UF()
 
             def _fetch_one_stale(sym: str):
                 try:
-                    uf = _UF()
                     df = uf.fetch_historical(sym, "1d", "1y", consumer="multibagger_stale")
                     if df is not None and not df.empty:
+                        try:
+                            h_dir = os.path.join(DATA_DIR, "history", "1d")
+                            _write_single_parquet_and_meta(h_dir, sym, df, None)
+                        except Exception as _werr:
+                            logger.debug(f"[MB] Failed to persist cache for {sym}: {_werr}")
                         spd = _parse_single_symbol_price_data(sym, df, ist_now, strip_forming=False)
                         return sym, spd
                 except Exception as _fe:
                     logger.debug(f"[MB] UnifiedFetcher failed for {sym}: {_fe}")
                 return sym, None
 
-            _uf_workers = min(20, max(1, len(missing_or_stale_syms)))
+            _uf_workers = min(15, max(1, len(missing_or_stale_syms)))
             try:
                 with _cf.ThreadPoolExecutor(max_workers=_uf_workers) as _uf_exec:
                     _uf_results = list(_uf_exec.map(_fetch_one_stale, missing_or_stale_syms))
@@ -807,24 +858,30 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
                         ok_count += 1
                 logger.info(f"⚡ [MB UNIFIED FETCH] {ok_count}/{len(missing_or_stale_syms)} stale symbols resolved "
                             f"(Upstox/Fyers/Yahoo). {len(missing_or_stale_syms)-ok_count} still missing after all providers.")
+                if ok_count > 0:
+                    try:
+                        from database import advance_interval_generation, upload_history_bundle_to_db, submit_background_upload
+                        new_gen = advance_interval_generation("1d")
+                        logger.info(f"⚡ [PRICE_CACHE] Mutated 1d cache with {ok_count} newly resolved symbols (gen={new_gen}). Scheduling background bundle persistence.")
+                        submit_background_upload(lambda: upload_history_bundle_to_db("1d"))
+                    except Exception as _hb_err:
+                        logger.debug(f"History bundle auto-upload submission: {_hb_err}")
             except Exception as _m_err:
                 logger.warning(f"Failed to fetch stale symbols via UnifiedFetcher pool in multibagger: {_m_err}")
-
 
         # For any symbols that could not be updated with live delta, preserve cached fallback data
         for s in symbols:
             if s not in disk_results and s in cached_fallback_map:
                 disk_results[s] = cached_fallback_map[s]
 
-        from market_utils import get_expected_latest_closed_daily_bar
-        expected_closed_date = str(get_expected_latest_closed_daily_bar())
+        expected_closed_date_str = str(expected_closed_date)
         fresh_count = sum(1 for spd in disk_results.values() if not _is_stale_trade_date(getattr(spd, 'last_trade_date', '')))
         stale_remaining = len(symbols) - fresh_count
         logger.info(
             f"\n================================================================================\n"
             f"📊 [MARKET DATA ACQUISITION & FRESHNESS AUDIT]\n"
             f"================================================================================\n"
-            f"  • EXPECTED CLOSED DATE          : {expected_closed_date}\n"
+            f"  • EXPECTED CLOSED DATE          : {expected_closed_date_str}\n"
             f"  • TOTAL UNIVERSE CONSTITUENTS   : {len(symbols)}\n"
             f"  • SYMBOLS REQUIRING REFRESH     : {len(missing_or_stale_syms)}\n"
             f"  • FRESH AFTER MERGE             : {fresh_count}\n"
@@ -1714,10 +1771,14 @@ def _is_stale_trade_date(last_trade_date, max_business_days=3):
         return True  # No date => treat as stale
     try:
         from market_utils import get_expected_latest_closed_daily_bar
+        from trading_calendar import default_trading_calendar
         clean_date_str = str(last_trade_date)[:10]
         trade_dt = datetime.strptime(clean_date_str, "%Y-%m-%d").date()
         expected_closed_date = get_expected_latest_closed_daily_bar()
-        return trade_dt < expected_closed_date
+        if trade_dt >= expected_closed_date:
+            return False
+        diff_days = default_trading_calendar.days_between(trade_dt, expected_closed_date)
+        return diff_days > max_business_days
     except Exception as exc:
         logger.warning(f"Unable to validate trade date {last_trade_date}: {exc}")
         return True  # Fail closed on error => treat as stale
