@@ -217,6 +217,7 @@ class DifferenceEngine:
             symbol=prod_record.symbol,
             scanner_name=prod_record.scanner_name,
             evaluation_date=prod_record.evaluation_date,
+            replay_mode=replay_record.replay_mode,
             certified=certified,
             first_divergence=first_divergence,
             root_input_divergence=root_input_divergence,

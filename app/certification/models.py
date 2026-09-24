@@ -1,11 +1,43 @@
 # app/certification/models.py
 """
 Data models and schemas for Exact Production Replay & Deterministic Backtest Certification.
+Supports multi-scanner architectures, dual replay modes (PRODUCTION_REPLAY vs CLEAN_HISTORICAL_REPLAY),
+lifecycle tracing, and data health tracking.
 """
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, date
+from enum import Enum
 from typing import Any, Dict, List, Optional
 import json
+
+
+class ReplayMode(str, Enum):
+    """
+    Mode 1: PRODUCTION_REPLAY -> 'Can we reproduce exactly what production did using exact production snapshot?'
+    Mode 2: CLEAN_HISTORICAL_REPLAY -> 'What would production have done if historical data was completely sanitized?'
+    """
+    PRODUCTION_REPLAY = "PRODUCTION_REPLAY"
+    CLEAN_HISTORICAL_REPLAY = "CLEAN_HISTORICAL_REPLAY"
+
+
+class ScannerCertificationStatus(str, Enum):
+    """Overall certification grading status."""
+    NOT_CERTIFIED = "NOT_CERTIFIED"
+    PARTIALLY_CERTIFIED = "PARTIALLY_CERTIFIED"
+    FULLY_CERTIFIED = "FULLY_CERTIFIED"
+
+
+class ScannerType(str, Enum):
+    """Registered production scanner modules."""
+    EOD_BREAKOUT = "EOD_BREAKOUT"
+    MULTITF_15M = "MULTITF_15M"
+    MULTITF_5M = "MULTITF_5M"
+    SHORT_COVERING_EOD = "SHORT_COVERING_EOD"
+    SHORT_COVERING_5M = "SHORT_COVERING_5M"
+    REVERSAL = "REVERSAL"
+    PULLBACK = "PULLBACK"
+    TECHNICAL = "TECHNICAL"
+    ACCUMULATION_VCP = "ACCUMULATION_VCP"
 
 
 @dataclass
@@ -15,7 +47,7 @@ class Tolerances:
     percentage: float = 0.01
     ratio: float = 0.0001
     score: float = 0.01
-    # Gate results, rejection reasons, and decisions MUST be EXACT (no tolerance)
+    # Gate results, rejection reasons, and decisions MUST be EXACT (zero tolerance)
 
 
 @dataclass
@@ -32,6 +64,8 @@ class FrozenDataSnapshot:
     delivery_source: Optional[str] = None
     market_regime: Optional[str] = None
     evaluated_at: Optional[str] = None
+    timeframe: str = "1d"
+    raw_data_json: Optional[str] = None  # Exact serialized input rows if captured
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -47,6 +81,45 @@ class GateAuditResult:
     threshold: Optional[float] = None
     operator: Optional[str] = None
     reason: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class MultiTFLifecycleTrace:
+    """Detailed lifecycle progression for multi-timeframe scanners."""
+    symbol: str
+    h15_timestamp: Optional[str] = None
+    h15_candidate_created: bool = False
+    h15_trigger_level: Optional[float] = None
+    h15_validated: bool = False
+    m5_polling_states: List[Dict[str, Any]] = field(default_factory=list)
+    m5_confirmed: bool = False
+    entry_ready: bool = False
+    stop_loss: Optional[float] = None
+    target_1: Optional[float] = None
+    target_2: Optional[float] = None
+    final_alert_fired: bool = False
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class ShortCoveringDataHealth:
+    """Data health audit state for Short Covering F&O scanner."""
+    symbol: str
+    in_fo_universe: bool = True
+    futures_contract: Optional[str] = None
+    oi_source: Optional[str] = None
+    oi_available: bool = True
+    price_source: Optional[str] = None
+    m5_data_source: Optional[str] = None
+    health_status: str = "HEALTHY"  # HEALTHY / DATA_INSUFFICIENT / BLOCKED
+    provider_fallback_used: bool = False
+    oi_change_pct: Optional[float] = None
+    price_change_pct: Optional[float] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -77,6 +150,9 @@ class ProductionDecisionRecord:
     alert_generated: bool
     rejection_reason: Optional[str] = None
     primary_gate: Optional[str] = None
+    replay_mode: str = ReplayMode.PRODUCTION_REPLAY.value
+    multitf_trace: Optional[MultiTFLifecycleTrace] = None
+    short_covering_health: Optional[ShortCoveringDataHealth] = None
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -106,6 +182,12 @@ class ProductionDecisionRecord:
             elif isinstance(g_val, GateAuditResult):
                 gate_results[g_name] = g_val
 
+        mtf_data = data.get("multitf_trace")
+        multitf_trace = MultiTFLifecycleTrace(**mtf_data) if isinstance(mtf_data, dict) else mtf_data
+
+        sc_data = data.get("short_covering_health")
+        short_covering_health = ShortCoveringDataHealth(**sc_data) if isinstance(sc_data, dict) else sc_data
+
         return cls(
             symbol=data["symbol"],
             scanner_name=data["scanner_name"],
@@ -126,6 +208,9 @@ class ProductionDecisionRecord:
             alert_generated=bool(data.get("alert_generated", False)),
             rejection_reason=data.get("rejection_reason"),
             primary_gate=data.get("primary_gate"),
+            replay_mode=data.get("replay_mode", ReplayMode.PRODUCTION_REPLAY.value),
+            multitf_trace=multitf_trace,
+            short_covering_health=short_covering_health
         )
 
 
@@ -138,7 +223,7 @@ class FieldDelta:
     delta: Optional[float] = None
     tolerance: Optional[float] = None
     matches: bool = True
-    category: str = "INDICATOR"  # METADATA, CONFIG, DATA, INDICATOR, GATE, SCORE, DECISION
+    category: str = "INDICATOR"  # METADATA, CONFIG, DATA, INDICATOR, GATE, SCORE, DECISION, LIFECYCLE, HEALTH
 
 
 @dataclass
@@ -147,7 +232,8 @@ class DifferentialReport:
     symbol: str
     scanner_name: str
     evaluation_date: str
-    certified: bool
+    replay_mode: str = "PRODUCTION_REPLAY"
+    certified: bool = False
     first_divergence: Optional[str] = None
     root_input_divergence: Optional[str] = None
     downstream_impact: List[str] = field(default_factory=list)
@@ -159,7 +245,24 @@ class DifferentialReport:
     gates_match: bool = True
     decision_match: bool = True
     point_in_time_valid: bool = True
+    lifecycle_match: bool = True
+    health_match: bool = True
     summary: str = ""
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class ScannerMatrixRow:
+    """Single row in the Master Scanner Certification Matrix."""
+    scanner: str
+    mode: str
+    production_cases: int
+    replay_cases: int
+    trace_match_pct: float
+    decision_match_pct: float
+    status: str  # CERTIFIED / PARTIAL / NOT_CERTIFIED
 
     def to_dict(self) -> dict:
         return asdict(self)
