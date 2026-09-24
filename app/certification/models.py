@@ -251,6 +251,7 @@ class DifferentialReport:
     point_in_time_valid: bool = True
     lifecycle_match: bool = True
     health_match: bool = True
+    primary_mismatch_category: Optional[str] = None
     summary: str = ""
 
     def to_dict(self) -> dict:

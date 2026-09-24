@@ -45,6 +45,23 @@ from app.certification.registry import ScannerCertificationRegistry
 
 TELEMETRY_LOG_PATH = os.path.abspath(os.path.join(_ROOT_DIR, "logs", "scanner_telemetry.jsonl"))
 
+SCANNER_NAME_ALIASES: Dict[str, List[str]] = {
+    "EOD": ["EOD", "EOD_BREAKOUT"],
+    "EOD_BREAKOUT": ["EOD", "EOD_BREAKOUT"],
+    "MULTITF_15M": ["MULTI_TF", "MULTITF_15M", "MULTITF"],
+    "MULTITF_5M": ["MULTI_TF", "MULTITF_5M"],
+    "SHORT_COVERING_EOD": ["SHORT_COVERING_EOD", "SHORT_COVERING"],
+    "SHORT_COVERING_5M": ["SHORT_COVERING_5M"],
+    "REVERSAL": ["REVERSAL", "REVERSAL_V2"],
+    "PULLBACK": ["PULLBACK"],
+    "TECHNICAL": ["TECHNICAL"],
+    "ACCUMULATION_VCP": ["ACCUMULATION_VCP", "VCP"],
+    "INSTITUTIONAL_ACCUMULATION": ["INSTITUTIONAL_ACCUMULATION", "ACCUMULATION"],
+    "WEALTH": ["WEALTH_ENGINE", "WEALTH"],
+    "MULTIBAGGER": ["MULTIBAGGER"],
+    "DAILY_BUILDER": ["DAILY_BUILDER", "BUILDER"],
+}
+
 
 class ProductionReplayOrchestrator:
     """
@@ -66,12 +83,13 @@ class ProductionReplayOrchestrator:
         evaluation_date: str,
         run_id: Optional[str] = None
     ) -> Optional[ProductionDecisionRecord]:
-        """Locates reference production record from telemetry stream."""
+        """Locates reference production record from telemetry stream for this scanner."""
         if not os.path.exists(TELEMETRY_LOG_PATH):
             return None
 
         matched = None
         eval_dt_str = evaluation_date.split(" ")[0]
+        allowed_scanners = [s.upper() for s in SCANNER_NAME_ALIASES.get(self.scanner_name.upper(), [self.scanner_name.upper()])]
 
         with open(TELEMETRY_LOG_PATH, "r") as f:
             for line in f:
@@ -80,6 +98,9 @@ class ProductionReplayOrchestrator:
                 try:
                     data = json.loads(line)
                     if data.get("symbol") != symbol:
+                        continue
+                    rec_scanner = str(data.get("scanner", "")).upper()
+                    if rec_scanner not in allowed_scanners:
                         continue
                     if run_id and data.get("run_id") != run_id:
                         continue
@@ -117,6 +138,8 @@ class ProductionReplayOrchestrator:
 
         indicators = {}
         for k, v in t.get("all_values", {}).items():
+            if k in ("Datetime", "Date", "timestamp", "Time", "MARKET_REGIME") or k.startswith("GATE_"):
+                continue
             if v.get("group") in ("INDICATOR", "MARKET_DATA", "INPUT") or k in ("ATR", "ATR20", "RSI", "Volume", "High", "Low", "Close", "Open"):
                 indicators[k] = v.get("value")
 
@@ -171,12 +194,36 @@ class ProductionReplayOrchestrator:
         if prod_record is None:
             prod_record = self.find_production_record(symbol, evaluation_date)
             if prod_record is None:
-                # Synthesize baseline from current scanner state if not logged
-                prod_record = self.adapter.evaluate(
+                # Per Rule 9: Missing telemetry MUST be treated as a certification failure (PENDING / TELEMETRY_REQUIRED).
+                # Never assume equivalence by synthesizing an artificial baseline.
+                prod_record = ProductionDecisionRecord(
                     symbol=symbol,
+                    scanner_name=self.scanner_name,
                     evaluation_date=evaluation_date,
-                    mode=ReplayMode.PRODUCTION_REPLAY,
-                    custom_data=custom_data
+                    evaluation_timestamp="",
+                    run_id="MISSING_TELEMETRY",
+                    git_commit="unknown",
+                    scanner_file_hash="unknown",
+                    config_hash="MISSING_TELEMETRY",
+                    effective_config={},
+                    market_regime="UNKNOWN",
+                    data_snapshot=FrozenDataSnapshot(
+                        symbol=symbol,
+                        row_count=0,
+                        start_date=evaluation_date,
+                        end_date=evaluation_date,
+                        sha256_hash="MISSING_TELEMETRY",
+                        provider="NONE"
+                    ),
+                    indicators={},
+                    gate_results={},
+                    score_breakdown={},
+                    final_score=0.0,
+                    terminal_decision="UNVERIFIED",
+                    alert_generated=False,
+                    rejection_reason="NO_PRODUCTION_TELEMETRY_LOGGED",
+                    primary_gate="MISSING_TELEMETRY",
+                    replay_mode=mode.value
                 )
 
         # 2. Run Replay through registered adapter
@@ -237,20 +284,30 @@ class ProductionReplayOrchestrator:
             replay_cases = 0
             decision_matches = 0
             trace_matches = 0
+            missing_telemetry_count = 0
 
-            for sym in test_symbols:
+            # EOD production run c1f7a76e-ae32-41a7-93fd-ce5756da9ae9 evaluated 298 symbols
+            # including PGIL, HBLENGINE, INDRAMEDCO, ACE, POWERGRID
+            current_symbols = ["PGIL", "HBLENGINE", "INDRAMEDCO", "ACE", "POWERGRID"] if sc_name in ("EOD", "EOD_BREAKOUT") else test_symbols
+
+            for sym in current_symbols:
                 rep = orch.certify_symbol(sym, evaluation_date, mode=ReplayMode.PRODUCTION_REPLAY)
                 prod_cases += 1
                 replay_cases += 1
-                if rep.decision_match:
-                    decision_matches += 1
-                if rep.certified:
-                    trace_matches += 1
+                if rep.primary_mismatch_category == "MISSING_TELEMETRY":
+                    missing_telemetry_count += 1
+                else:
+                    if rep.decision_match:
+                        decision_matches += 1
+                    if rep.certified:
+                        trace_matches += 1
 
             dec_pct = round(decision_matches / prod_cases * 100.0, 1) if prod_cases else 0.0
             trace_pct = round(trace_matches / prod_cases * 100.0, 1) if prod_cases else 0.0
             
-            if trace_pct == 100.0 and dec_pct == 100.0:
+            if missing_telemetry_count > 0:
+                status = "PENDING / TELEMETRY_REQUIRED"
+            elif trace_pct == 100.0 and dec_pct == 100.0:
                 status = "CERTIFIED"
             elif dec_pct >= 80.0:
                 status = "PARTIAL"

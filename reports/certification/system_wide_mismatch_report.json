@@ -1,0 +1,1987 @@
+{
+  "report_metadata": {
+    "title": "Master Scanner Certification Forensic Mismatch Analysis",
+    "generated_at": "2026-09-24 10:49:13 IST",
+    "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+    "evaluation_date": "2026-09-23",
+    "governance_status": "PARTIALLY_CERTIFIED",
+    "certified_scanners": 1,
+    "total_scanners": 13,
+    "summary": "Forensic audit explaining and eliminating the 20% trace-match pattern, enforcing strict Rule 9 missing-telemetry governance, and attesting EOD Breakout 100% trace certification."
+  },
+  "master_matrix": [
+    {
+      "scanner": "EOD Breakout",
+      "mode": "1D",
+      "production_cases": 5,
+      "replay_cases": 5,
+      "trace_match_pct": 100.0,
+      "decision_match_pct": 100.0,
+      "status": "CERTIFIED"
+    },
+    {
+      "scanner": "Multi-TF 15M",
+      "mode": "15M",
+      "production_cases": 5,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING / TELEMETRY_REQUIRED"
+    },
+    {
+      "scanner": "Multi-TF 5M",
+      "mode": "5M",
+      "production_cases": 5,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING / TELEMETRY_REQUIRED"
+    },
+    {
+      "scanner": "Short Covering EOD",
+      "mode": "1D",
+      "production_cases": 5,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING / TELEMETRY_REQUIRED"
+    },
+    {
+      "scanner": "Short Covering 5M",
+      "mode": "5M",
+      "production_cases": 5,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING / TELEMETRY_REQUIRED"
+    },
+    {
+      "scanner": "Reversal",
+      "mode": "1D",
+      "production_cases": 5,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING / TELEMETRY_REQUIRED"
+    },
+    {
+      "scanner": "Pullback",
+      "mode": "1D",
+      "production_cases": 5,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING / TELEMETRY_REQUIRED"
+    },
+    {
+      "scanner": "Technical",
+      "mode": "1D",
+      "production_cases": 5,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING / TELEMETRY_REQUIRED"
+    },
+    {
+      "scanner": "Accumulation / VCP",
+      "mode": "1D",
+      "production_cases": 5,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING / TELEMETRY_REQUIRED"
+    },
+    {
+      "scanner": "Institutional Accumulation",
+      "mode": "1D",
+      "production_cases": 5,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING / TELEMETRY_REQUIRED"
+    },
+    {
+      "scanner": "Wealth Engine",
+      "mode": "1D",
+      "production_cases": 5,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING / TELEMETRY_REQUIRED"
+    },
+    {
+      "scanner": "Multibagger Engine",
+      "mode": "1D",
+      "production_cases": 5,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING / TELEMETRY_REQUIRED"
+    },
+    {
+      "scanner": "Daily Builder",
+      "mode": "1D",
+      "production_cases": 5,
+      "replay_cases": 5,
+      "trace_match_pct": 0.0,
+      "decision_match_pct": 0.0,
+      "status": "PENDING / TELEMETRY_REQUIRED"
+    }
+  ],
+  "mismatch_taxonomy_summary": {
+    "DATA_DIFFERENCE": 1,
+    "MISSING_TELEMETRY": 60,
+    "POINT_IN_TIME_VIOLATION": 0,
+    "CONFIG_DIFFERENCE": 0,
+    "CODE_VERSION_DIFFERENCE": 0,
+    "DATA_PROVIDER_DIFFERENCE": 0,
+    "TIMEZONE_DIFFERENCE": 0,
+    "DATA_FRESHNESS": 0,
+    "CALCULATION_DIFFERENCE": 0,
+    "GATE_LOGIC_DIFFERENCE": 0,
+    "STATE_DIFFERENCE": 0,
+    "DEPENDENCY_DIFFERENCE": 0,
+    "POLLING/LIFECYCLE_DIFFERENCE": 0,
+    "SYMBOL_MAPPING_DIFFERENCE": 0,
+    "UNKNOWN": 0
+  },
+  "forensic_cases": [
+    {
+      "scanner": "EOD Breakout",
+      "scanner_code": "EOD",
+      "mode": "1D",
+      "symbol": "PGIL",
+      "date": "2026-09-23",
+      "production_run_id": "c1f7a76e-ae32-41a7-93fd-ce5756da9ae9",
+      "replay_run_id": "replay_EOD_PGIL_2026-09-23",
+      "first_divergence": "NONE",
+      "root_input_divergence": "None (Full Trace Equivalence)",
+      "downstream_impact": [
+        "NONE"
+      ],
+      "final_decision": "CERTIFIED",
+      "rejection_reason": "NO_ATR_EXPANSION_FAIL",
+      "primary_category": "NONE",
+      "likely_root_cause": "EXACT_REPRODUCIBILITY_VERIFIED: Production and replay execution traces, indicators, gates, and decisions are 100% equivalent.",
+      "evidence": "All 37 field comparisons matched within strict numerical and categorical tolerances. Replay exactly follows production.",
+      "adapter_provenance": {
+        "module": "certification.adapters.eod_scanner_adapter",
+        "production_function": "eod_scanner.evaluate_symbol / _check_eod_conditions",
+        "source_file": "app/eod_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "b8b209e00bcb73a3"
+      }
+    },
+    {
+      "scanner": "EOD Breakout",
+      "scanner_code": "EOD",
+      "mode": "1D",
+      "symbol": "HBLENGINE",
+      "date": "2026-09-23",
+      "production_run_id": "c1f7a76e-ae32-41a7-93fd-ce5756da9ae9",
+      "replay_run_id": "replay_EOD_HBLENGINE_2026-09-23",
+      "first_divergence": "NONE",
+      "root_input_divergence": "None (Full Trace Equivalence)",
+      "downstream_impact": [
+        "NONE"
+      ],
+      "final_decision": "CERTIFIED",
+      "rejection_reason": "WEAK_SIGNALS",
+      "primary_category": "NONE",
+      "likely_root_cause": "EXACT_REPRODUCIBILITY_VERIFIED: Production and replay execution traces, indicators, gates, and decisions are 100% equivalent.",
+      "evidence": "All 37 field comparisons matched within strict numerical and categorical tolerances. Replay exactly follows production.",
+      "adapter_provenance": {
+        "module": "certification.adapters.eod_scanner_adapter",
+        "production_function": "eod_scanner.evaluate_symbol / _check_eod_conditions",
+        "source_file": "app/eod_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "b8b209e00bcb73a3"
+      }
+    },
+    {
+      "scanner": "EOD Breakout",
+      "scanner_code": "EOD",
+      "mode": "1D",
+      "symbol": "INDRAMEDCO",
+      "date": "2026-09-23",
+      "production_run_id": "c1f7a76e-ae32-41a7-93fd-ce5756da9ae9",
+      "replay_run_id": "replay_EOD_INDRAMEDCO_2026-09-23",
+      "first_divergence": "NONE",
+      "root_input_divergence": "None (Full Trace Equivalence)",
+      "downstream_impact": [
+        "NONE"
+      ],
+      "final_decision": "CERTIFIED",
+      "rejection_reason": "WEAK_SIGNALS",
+      "primary_category": "NONE",
+      "likely_root_cause": "EXACT_REPRODUCIBILITY_VERIFIED: Production and replay execution traces, indicators, gates, and decisions are 100% equivalent.",
+      "evidence": "All 37 field comparisons matched within strict numerical and categorical tolerances. Replay exactly follows production.",
+      "adapter_provenance": {
+        "module": "certification.adapters.eod_scanner_adapter",
+        "production_function": "eod_scanner.evaluate_symbol / _check_eod_conditions",
+        "source_file": "app/eod_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "b8b209e00bcb73a3"
+      }
+    },
+    {
+      "scanner": "EOD Breakout",
+      "scanner_code": "EOD",
+      "mode": "1D",
+      "symbol": "ACE",
+      "date": "2026-09-23",
+      "production_run_id": "c1f7a76e-ae32-41a7-93fd-ce5756da9ae9",
+      "replay_run_id": "replay_EOD_ACE_2026-09-23",
+      "first_divergence": "NONE",
+      "root_input_divergence": "None (Full Trace Equivalence)",
+      "downstream_impact": [
+        "NONE"
+      ],
+      "final_decision": "CERTIFIED",
+      "rejection_reason": "WEAK_SIGNALS",
+      "primary_category": "NONE",
+      "likely_root_cause": "EXACT_REPRODUCIBILITY_VERIFIED: Production and replay execution traces, indicators, gates, and decisions are 100% equivalent.",
+      "evidence": "All 37 field comparisons matched within strict numerical and categorical tolerances. Replay exactly follows production.",
+      "adapter_provenance": {
+        "module": "certification.adapters.eod_scanner_adapter",
+        "production_function": "eod_scanner.evaluate_symbol / _check_eod_conditions",
+        "source_file": "app/eod_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "b8b209e00bcb73a3"
+      }
+    },
+    {
+      "scanner": "EOD Breakout",
+      "scanner_code": "EOD",
+      "mode": "1D",
+      "symbol": "POWERGRID",
+      "date": "2026-09-23",
+      "production_run_id": "c1f7a76e-ae32-41a7-93fd-ce5756da9ae9",
+      "replay_run_id": "replay_EOD_POWERGRID_2026-09-23",
+      "first_divergence": "NONE",
+      "root_input_divergence": "None (Full Trace Equivalence)",
+      "downstream_impact": [
+        "NONE"
+      ],
+      "final_decision": "CERTIFIED",
+      "rejection_reason": "WEAK_SIGNALS",
+      "primary_category": "NONE",
+      "likely_root_cause": "EXACT_REPRODUCIBILITY_VERIFIED: Production and replay execution traces, indicators, gates, and decisions are 100% equivalent.",
+      "evidence": "All 37 field comparisons matched within strict numerical and categorical tolerances. Replay exactly follows production.",
+      "adapter_provenance": {
+        "module": "certification.adapters.eod_scanner_adapter",
+        "production_function": "eod_scanner.evaluate_symbol / _check_eod_conditions",
+        "source_file": "app/eod_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "b8b209e00bcb73a3"
+      }
+    },
+    {
+      "scanner": "Multi-TF 15M",
+      "scanner_code": "MULTITF_15M",
+      "mode": "15M",
+      "symbol": "PGIL",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_MULTITF_15M_PGIL_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'MULTITF_15M' on symbol 'PGIL' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'MULTITF_15M' did not log production telemetry records for symbol 'PGIL' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['MULTI_TF', 'MULTITF_15M', 'MULTITF'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.multi_tf_scanner_adapter",
+        "production_function": "multi_tf_scanner.run_scanner_cycle / evaluate_multitf",
+        "source_file": "app/multi_tf_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "24ffc365520a15ca"
+      }
+    },
+    {
+      "scanner": "Multi-TF 15M",
+      "scanner_code": "MULTITF_15M",
+      "mode": "15M",
+      "symbol": "SAMHI",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_MULTITF_15M_SAMHI_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'MULTITF_15M' on symbol 'SAMHI' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'MULTITF_15M' did not log production telemetry records for symbol 'SAMHI' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['MULTI_TF', 'MULTITF_15M', 'MULTITF'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.multi_tf_scanner_adapter",
+        "production_function": "multi_tf_scanner.run_scanner_cycle / evaluate_multitf",
+        "source_file": "app/multi_tf_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "24ffc365520a15ca"
+      }
+    },
+    {
+      "scanner": "Multi-TF 15M",
+      "scanner_code": "MULTITF_15M",
+      "mode": "15M",
+      "symbol": "INDRAMEDCO",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_MULTITF_15M_INDRAMEDCO_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'MULTITF_15M' on symbol 'INDRAMEDCO' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'MULTITF_15M' did not log production telemetry records for symbol 'INDRAMEDCO' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['MULTI_TF', 'MULTITF_15M', 'MULTITF'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.multi_tf_scanner_adapter",
+        "production_function": "multi_tf_scanner.run_scanner_cycle / evaluate_multitf",
+        "source_file": "app/multi_tf_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "24ffc365520a15ca"
+      }
+    },
+    {
+      "scanner": "Multi-TF 15M",
+      "scanner_code": "MULTITF_15M",
+      "mode": "15M",
+      "symbol": "ACE",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_MULTITF_15M_ACE_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'MULTITF_15M' on symbol 'ACE' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'MULTITF_15M' did not log production telemetry records for symbol 'ACE' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['MULTI_TF', 'MULTITF_15M', 'MULTITF'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.multi_tf_scanner_adapter",
+        "production_function": "multi_tf_scanner.run_scanner_cycle / evaluate_multitf",
+        "source_file": "app/multi_tf_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "24ffc365520a15ca"
+      }
+    },
+    {
+      "scanner": "Multi-TF 15M",
+      "scanner_code": "MULTITF_15M",
+      "mode": "15M",
+      "symbol": "POWERGRID",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_MULTITF_15M_POWERGRID_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'MULTITF_15M' on symbol 'POWERGRID' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'MULTITF_15M' did not log production telemetry records for symbol 'POWERGRID' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['MULTI_TF', 'MULTITF_15M', 'MULTITF'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.multi_tf_scanner_adapter",
+        "production_function": "multi_tf_scanner.run_scanner_cycle / evaluate_multitf",
+        "source_file": "app/multi_tf_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "24ffc365520a15ca"
+      }
+    },
+    {
+      "scanner": "Multi-TF 5M",
+      "scanner_code": "MULTITF_5M",
+      "mode": "5M",
+      "symbol": "PGIL",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_MULTITF_5M_PGIL_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'MULTITF_5M' on symbol 'PGIL' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'MULTITF_5M' did not log production telemetry records for symbol 'PGIL' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['MULTI_TF', 'MULTITF_5M'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.multi_tf_scanner_adapter",
+        "production_function": "multi_tf_scanner.poll_5m_confirmation",
+        "source_file": "app/multi_tf_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "24ffc365520a15ca"
+      }
+    },
+    {
+      "scanner": "Multi-TF 5M",
+      "scanner_code": "MULTITF_5M",
+      "mode": "5M",
+      "symbol": "SAMHI",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_MULTITF_5M_SAMHI_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'MULTITF_5M' on symbol 'SAMHI' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'MULTITF_5M' did not log production telemetry records for symbol 'SAMHI' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['MULTI_TF', 'MULTITF_5M'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.multi_tf_scanner_adapter",
+        "production_function": "multi_tf_scanner.poll_5m_confirmation",
+        "source_file": "app/multi_tf_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "24ffc365520a15ca"
+      }
+    },
+    {
+      "scanner": "Multi-TF 5M",
+      "scanner_code": "MULTITF_5M",
+      "mode": "5M",
+      "symbol": "INDRAMEDCO",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_MULTITF_5M_INDRAMEDCO_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'MULTITF_5M' on symbol 'INDRAMEDCO' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'MULTITF_5M' did not log production telemetry records for symbol 'INDRAMEDCO' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['MULTI_TF', 'MULTITF_5M'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.multi_tf_scanner_adapter",
+        "production_function": "multi_tf_scanner.poll_5m_confirmation",
+        "source_file": "app/multi_tf_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "24ffc365520a15ca"
+      }
+    },
+    {
+      "scanner": "Multi-TF 5M",
+      "scanner_code": "MULTITF_5M",
+      "mode": "5M",
+      "symbol": "ACE",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_MULTITF_5M_ACE_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'MULTITF_5M' on symbol 'ACE' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'MULTITF_5M' did not log production telemetry records for symbol 'ACE' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['MULTI_TF', 'MULTITF_5M'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.multi_tf_scanner_adapter",
+        "production_function": "multi_tf_scanner.poll_5m_confirmation",
+        "source_file": "app/multi_tf_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "24ffc365520a15ca"
+      }
+    },
+    {
+      "scanner": "Multi-TF 5M",
+      "scanner_code": "MULTITF_5M",
+      "mode": "5M",
+      "symbol": "POWERGRID",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_MULTITF_5M_POWERGRID_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'MULTITF_5M' on symbol 'POWERGRID' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'MULTITF_5M' did not log production telemetry records for symbol 'POWERGRID' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['MULTI_TF', 'MULTITF_5M'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.multi_tf_scanner_adapter",
+        "production_function": "multi_tf_scanner.poll_5m_confirmation",
+        "source_file": "app/multi_tf_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "24ffc365520a15ca"
+      }
+    },
+    {
+      "scanner": "Short Covering EOD",
+      "scanner_code": "SHORT_COVERING_EOD",
+      "mode": "1D",
+      "symbol": "PGIL",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_SHORT_COVERING_EOD_PGIL_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'SHORT_COVERING_EOD' on symbol 'PGIL' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'SHORT_COVERING_EOD' did not log production telemetry records for symbol 'PGIL' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['SHORT_COVERING_EOD', 'SHORT_COVERING'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.short_covering_scanner_adapter",
+        "production_function": "short_covering_scanner.evaluate_fo_short_covering",
+        "source_file": "app/short_covering_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "FILE_NOT_FOUND"
+      }
+    },
+    {
+      "scanner": "Short Covering EOD",
+      "scanner_code": "SHORT_COVERING_EOD",
+      "mode": "1D",
+      "symbol": "SAMHI",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_SHORT_COVERING_EOD_SAMHI_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'SHORT_COVERING_EOD' on symbol 'SAMHI' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'SHORT_COVERING_EOD' did not log production telemetry records for symbol 'SAMHI' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['SHORT_COVERING_EOD', 'SHORT_COVERING'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.short_covering_scanner_adapter",
+        "production_function": "short_covering_scanner.evaluate_fo_short_covering",
+        "source_file": "app/short_covering_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "FILE_NOT_FOUND"
+      }
+    },
+    {
+      "scanner": "Short Covering EOD",
+      "scanner_code": "SHORT_COVERING_EOD",
+      "mode": "1D",
+      "symbol": "INDRAMEDCO",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_SHORT_COVERING_EOD_INDRAMEDCO_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'SHORT_COVERING_EOD' on symbol 'INDRAMEDCO' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'SHORT_COVERING_EOD' did not log production telemetry records for symbol 'INDRAMEDCO' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['SHORT_COVERING_EOD', 'SHORT_COVERING'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.short_covering_scanner_adapter",
+        "production_function": "short_covering_scanner.evaluate_fo_short_covering",
+        "source_file": "app/short_covering_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "FILE_NOT_FOUND"
+      }
+    },
+    {
+      "scanner": "Short Covering EOD",
+      "scanner_code": "SHORT_COVERING_EOD",
+      "mode": "1D",
+      "symbol": "ACE",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_SHORT_COVERING_EOD_ACE_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'SHORT_COVERING_EOD' on symbol 'ACE' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'SHORT_COVERING_EOD' did not log production telemetry records for symbol 'ACE' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['SHORT_COVERING_EOD', 'SHORT_COVERING'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.short_covering_scanner_adapter",
+        "production_function": "short_covering_scanner.evaluate_fo_short_covering",
+        "source_file": "app/short_covering_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "FILE_NOT_FOUND"
+      }
+    },
+    {
+      "scanner": "Short Covering EOD",
+      "scanner_code": "SHORT_COVERING_EOD",
+      "mode": "1D",
+      "symbol": "POWERGRID",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_SHORT_COVERING_EOD_POWERGRID_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'SHORT_COVERING_EOD' on symbol 'POWERGRID' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'SHORT_COVERING_EOD' did not log production telemetry records for symbol 'POWERGRID' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['SHORT_COVERING_EOD', 'SHORT_COVERING'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.short_covering_scanner_adapter",
+        "production_function": "short_covering_scanner.evaluate_fo_short_covering",
+        "source_file": "app/short_covering_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "FILE_NOT_FOUND"
+      }
+    },
+    {
+      "scanner": "Short Covering 5M",
+      "scanner_code": "SHORT_COVERING_5M",
+      "mode": "5M",
+      "symbol": "PGIL",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_SHORT_COVERING_5M_PGIL_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'SHORT_COVERING_5M' on symbol 'PGIL' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'SHORT_COVERING_5M' did not log production telemetry records for symbol 'PGIL' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['SHORT_COVERING_5M'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.short_covering_5m_adapter",
+        "production_function": "short_covering_5m.evaluate_intraday_unwinding",
+        "source_file": "app/short_covering_5m.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "FILE_NOT_FOUND"
+      }
+    },
+    {
+      "scanner": "Short Covering 5M",
+      "scanner_code": "SHORT_COVERING_5M",
+      "mode": "5M",
+      "symbol": "SAMHI",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_SHORT_COVERING_5M_SAMHI_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'SHORT_COVERING_5M' on symbol 'SAMHI' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'SHORT_COVERING_5M' did not log production telemetry records for symbol 'SAMHI' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['SHORT_COVERING_5M'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.short_covering_5m_adapter",
+        "production_function": "short_covering_5m.evaluate_intraday_unwinding",
+        "source_file": "app/short_covering_5m.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "FILE_NOT_FOUND"
+      }
+    },
+    {
+      "scanner": "Short Covering 5M",
+      "scanner_code": "SHORT_COVERING_5M",
+      "mode": "5M",
+      "symbol": "INDRAMEDCO",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_SHORT_COVERING_5M_INDRAMEDCO_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'SHORT_COVERING_5M' on symbol 'INDRAMEDCO' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'SHORT_COVERING_5M' did not log production telemetry records for symbol 'INDRAMEDCO' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['SHORT_COVERING_5M'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.short_covering_5m_adapter",
+        "production_function": "short_covering_5m.evaluate_intraday_unwinding",
+        "source_file": "app/short_covering_5m.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "FILE_NOT_FOUND"
+      }
+    },
+    {
+      "scanner": "Short Covering 5M",
+      "scanner_code": "SHORT_COVERING_5M",
+      "mode": "5M",
+      "symbol": "ACE",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_SHORT_COVERING_5M_ACE_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'SHORT_COVERING_5M' on symbol 'ACE' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'SHORT_COVERING_5M' did not log production telemetry records for symbol 'ACE' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['SHORT_COVERING_5M'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.short_covering_5m_adapter",
+        "production_function": "short_covering_5m.evaluate_intraday_unwinding",
+        "source_file": "app/short_covering_5m.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "FILE_NOT_FOUND"
+      }
+    },
+    {
+      "scanner": "Short Covering 5M",
+      "scanner_code": "SHORT_COVERING_5M",
+      "mode": "5M",
+      "symbol": "POWERGRID",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_SHORT_COVERING_5M_POWERGRID_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'SHORT_COVERING_5M' on symbol 'POWERGRID' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'SHORT_COVERING_5M' did not log production telemetry records for symbol 'POWERGRID' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['SHORT_COVERING_5M'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.short_covering_5m_adapter",
+        "production_function": "short_covering_5m.evaluate_intraday_unwinding",
+        "source_file": "app/short_covering_5m.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "FILE_NOT_FOUND"
+      }
+    },
+    {
+      "scanner": "Reversal",
+      "scanner_code": "REVERSAL",
+      "mode": "1D",
+      "symbol": "PGIL",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_REVERSAL_PGIL_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'REVERSAL' on symbol 'PGIL' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'REVERSAL' did not log production telemetry records for symbol 'PGIL' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['REVERSAL', 'REVERSAL_V2'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.reversal_scanner_adapter",
+        "production_function": "reversal_scanner.evaluate_reversal_symbol / reversal_engine",
+        "source_file": "app/reversal_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "204ed0f5abf30f0b"
+      }
+    },
+    {
+      "scanner": "Reversal",
+      "scanner_code": "REVERSAL",
+      "mode": "1D",
+      "symbol": "SAMHI",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_REVERSAL_SAMHI_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'REVERSAL' on symbol 'SAMHI' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'REVERSAL' did not log production telemetry records for symbol 'SAMHI' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['REVERSAL', 'REVERSAL_V2'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.reversal_scanner_adapter",
+        "production_function": "reversal_scanner.evaluate_reversal_symbol / reversal_engine",
+        "source_file": "app/reversal_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "204ed0f5abf30f0b"
+      }
+    },
+    {
+      "scanner": "Reversal",
+      "scanner_code": "REVERSAL",
+      "mode": "1D",
+      "symbol": "INDRAMEDCO",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_REVERSAL_INDRAMEDCO_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'REVERSAL' on symbol 'INDRAMEDCO' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'REVERSAL' did not log production telemetry records for symbol 'INDRAMEDCO' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['REVERSAL', 'REVERSAL_V2'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.reversal_scanner_adapter",
+        "production_function": "reversal_scanner.evaluate_reversal_symbol / reversal_engine",
+        "source_file": "app/reversal_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "204ed0f5abf30f0b"
+      }
+    },
+    {
+      "scanner": "Reversal",
+      "scanner_code": "REVERSAL",
+      "mode": "1D",
+      "symbol": "ACE",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_REVERSAL_ACE_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'REVERSAL' on symbol 'ACE' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'REVERSAL' did not log production telemetry records for symbol 'ACE' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['REVERSAL', 'REVERSAL_V2'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.reversal_scanner_adapter",
+        "production_function": "reversal_scanner.evaluate_reversal_symbol / reversal_engine",
+        "source_file": "app/reversal_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "204ed0f5abf30f0b"
+      }
+    },
+    {
+      "scanner": "Reversal",
+      "scanner_code": "REVERSAL",
+      "mode": "1D",
+      "symbol": "POWERGRID",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_REVERSAL_POWERGRID_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'REVERSAL' on symbol 'POWERGRID' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'REVERSAL' did not log production telemetry records for symbol 'POWERGRID' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['REVERSAL', 'REVERSAL_V2'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.reversal_scanner_adapter",
+        "production_function": "reversal_scanner.evaluate_reversal_symbol / reversal_engine",
+        "source_file": "app/reversal_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "204ed0f5abf30f0b"
+      }
+    },
+    {
+      "scanner": "Pullback",
+      "scanner_code": "PULLBACK",
+      "mode": "1D",
+      "symbol": "PGIL",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_PULLBACK_PGIL_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'PULLBACK' on symbol 'PGIL' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'PULLBACK' did not log production telemetry records for symbol 'PGIL' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['PULLBACK'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.pullback_pipeline_adapter",
+        "production_function": "pullback_pipeline.evaluate_pullback / pullback_engine",
+        "source_file": "app/pullback_pipeline.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "0516869761a547e8"
+      }
+    },
+    {
+      "scanner": "Pullback",
+      "scanner_code": "PULLBACK",
+      "mode": "1D",
+      "symbol": "SAMHI",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_PULLBACK_SAMHI_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'PULLBACK' on symbol 'SAMHI' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'PULLBACK' did not log production telemetry records for symbol 'SAMHI' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['PULLBACK'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.pullback_pipeline_adapter",
+        "production_function": "pullback_pipeline.evaluate_pullback / pullback_engine",
+        "source_file": "app/pullback_pipeline.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "0516869761a547e8"
+      }
+    },
+    {
+      "scanner": "Pullback",
+      "scanner_code": "PULLBACK",
+      "mode": "1D",
+      "symbol": "INDRAMEDCO",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_PULLBACK_INDRAMEDCO_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'PULLBACK' on symbol 'INDRAMEDCO' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'PULLBACK' did not log production telemetry records for symbol 'INDRAMEDCO' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['PULLBACK'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.pullback_pipeline_adapter",
+        "production_function": "pullback_pipeline.evaluate_pullback / pullback_engine",
+        "source_file": "app/pullback_pipeline.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "0516869761a547e8"
+      }
+    },
+    {
+      "scanner": "Pullback",
+      "scanner_code": "PULLBACK",
+      "mode": "1D",
+      "symbol": "ACE",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_PULLBACK_ACE_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'PULLBACK' on symbol 'ACE' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'PULLBACK' did not log production telemetry records for symbol 'ACE' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['PULLBACK'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.pullback_pipeline_adapter",
+        "production_function": "pullback_pipeline.evaluate_pullback / pullback_engine",
+        "source_file": "app/pullback_pipeline.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "0516869761a547e8"
+      }
+    },
+    {
+      "scanner": "Pullback",
+      "scanner_code": "PULLBACK",
+      "mode": "1D",
+      "symbol": "POWERGRID",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_PULLBACK_POWERGRID_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'PULLBACK' on symbol 'POWERGRID' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'PULLBACK' did not log production telemetry records for symbol 'POWERGRID' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['PULLBACK'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.pullback_pipeline_adapter",
+        "production_function": "pullback_pipeline.evaluate_pullback / pullback_engine",
+        "source_file": "app/pullback_pipeline.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "0516869761a547e8"
+      }
+    },
+    {
+      "scanner": "Technical",
+      "scanner_code": "TECHNICAL",
+      "mode": "1D",
+      "symbol": "PGIL",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_TECHNICAL_PGIL_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'TECHNICAL' on symbol 'PGIL' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'TECHNICAL' did not log production telemetry records for symbol 'PGIL' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['TECHNICAL'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.technical_scanner_adapter",
+        "production_function": "technical_scanner.evaluate_technical_momentum",
+        "source_file": "app/technical_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "dbd5327887e69560"
+      }
+    },
+    {
+      "scanner": "Technical",
+      "scanner_code": "TECHNICAL",
+      "mode": "1D",
+      "symbol": "SAMHI",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_TECHNICAL_SAMHI_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'TECHNICAL' on symbol 'SAMHI' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'TECHNICAL' did not log production telemetry records for symbol 'SAMHI' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['TECHNICAL'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.technical_scanner_adapter",
+        "production_function": "technical_scanner.evaluate_technical_momentum",
+        "source_file": "app/technical_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "dbd5327887e69560"
+      }
+    },
+    {
+      "scanner": "Technical",
+      "scanner_code": "TECHNICAL",
+      "mode": "1D",
+      "symbol": "INDRAMEDCO",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_TECHNICAL_INDRAMEDCO_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'TECHNICAL' on symbol 'INDRAMEDCO' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'TECHNICAL' did not log production telemetry records for symbol 'INDRAMEDCO' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['TECHNICAL'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.technical_scanner_adapter",
+        "production_function": "technical_scanner.evaluate_technical_momentum",
+        "source_file": "app/technical_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "dbd5327887e69560"
+      }
+    },
+    {
+      "scanner": "Technical",
+      "scanner_code": "TECHNICAL",
+      "mode": "1D",
+      "symbol": "ACE",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_TECHNICAL_ACE_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'TECHNICAL' on symbol 'ACE' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'TECHNICAL' did not log production telemetry records for symbol 'ACE' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['TECHNICAL'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.technical_scanner_adapter",
+        "production_function": "technical_scanner.evaluate_technical_momentum",
+        "source_file": "app/technical_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "dbd5327887e69560"
+      }
+    },
+    {
+      "scanner": "Technical",
+      "scanner_code": "TECHNICAL",
+      "mode": "1D",
+      "symbol": "POWERGRID",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_TECHNICAL_POWERGRID_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'TECHNICAL' on symbol 'POWERGRID' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'TECHNICAL' did not log production telemetry records for symbol 'POWERGRID' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['TECHNICAL'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.technical_scanner_adapter",
+        "production_function": "technical_scanner.evaluate_technical_momentum",
+        "source_file": "app/technical_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "dbd5327887e69560"
+      }
+    },
+    {
+      "scanner": "Accumulation / VCP",
+      "scanner_code": "ACCUMULATION_VCP",
+      "mode": "1D",
+      "symbol": "PGIL",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_ACCUMULATION_VCP_PGIL_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'ACCUMULATION_VCP' on symbol 'PGIL' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'ACCUMULATION_VCP' did not log production telemetry records for symbol 'PGIL' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['ACCUMULATION_VCP', 'VCP'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.accumulation_scanner_adapter",
+        "production_function": "accumulation_scanner.evaluate_vcp_compression",
+        "source_file": "app/accumulation_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "ad76b04fac82d6c7"
+      }
+    },
+    {
+      "scanner": "Accumulation / VCP",
+      "scanner_code": "ACCUMULATION_VCP",
+      "mode": "1D",
+      "symbol": "SAMHI",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_ACCUMULATION_VCP_SAMHI_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'ACCUMULATION_VCP' on symbol 'SAMHI' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'ACCUMULATION_VCP' did not log production telemetry records for symbol 'SAMHI' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['ACCUMULATION_VCP', 'VCP'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.accumulation_scanner_adapter",
+        "production_function": "accumulation_scanner.evaluate_vcp_compression",
+        "source_file": "app/accumulation_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "ad76b04fac82d6c7"
+      }
+    },
+    {
+      "scanner": "Accumulation / VCP",
+      "scanner_code": "ACCUMULATION_VCP",
+      "mode": "1D",
+      "symbol": "INDRAMEDCO",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_ACCUMULATION_VCP_INDRAMEDCO_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'ACCUMULATION_VCP' on symbol 'INDRAMEDCO' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'ACCUMULATION_VCP' did not log production telemetry records for symbol 'INDRAMEDCO' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['ACCUMULATION_VCP', 'VCP'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.accumulation_scanner_adapter",
+        "production_function": "accumulation_scanner.evaluate_vcp_compression",
+        "source_file": "app/accumulation_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "ad76b04fac82d6c7"
+      }
+    },
+    {
+      "scanner": "Accumulation / VCP",
+      "scanner_code": "ACCUMULATION_VCP",
+      "mode": "1D",
+      "symbol": "ACE",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_ACCUMULATION_VCP_ACE_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'ACCUMULATION_VCP' on symbol 'ACE' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'ACCUMULATION_VCP' did not log production telemetry records for symbol 'ACE' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['ACCUMULATION_VCP', 'VCP'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.accumulation_scanner_adapter",
+        "production_function": "accumulation_scanner.evaluate_vcp_compression",
+        "source_file": "app/accumulation_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "ad76b04fac82d6c7"
+      }
+    },
+    {
+      "scanner": "Accumulation / VCP",
+      "scanner_code": "ACCUMULATION_VCP",
+      "mode": "1D",
+      "symbol": "POWERGRID",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_ACCUMULATION_VCP_POWERGRID_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'ACCUMULATION_VCP' on symbol 'POWERGRID' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'ACCUMULATION_VCP' did not log production telemetry records for symbol 'POWERGRID' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['ACCUMULATION_VCP', 'VCP'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.accumulation_scanner_adapter",
+        "production_function": "accumulation_scanner.evaluate_vcp_compression",
+        "source_file": "app/accumulation_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "ad76b04fac82d6c7"
+      }
+    },
+    {
+      "scanner": "Institutional Accumulation",
+      "scanner_code": "INSTITUTIONAL_ACCUMULATION",
+      "mode": "1D",
+      "symbol": "PGIL",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_INSTITUTIONAL_ACCUMULATION_PGIL_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'INSTITUTIONAL_ACCUMULATION' on symbol 'PGIL' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'INSTITUTIONAL_ACCUMULATION' did not log production telemetry records for symbol 'PGIL' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['INSTITUTIONAL_ACCUMULATION', 'ACCUMULATION'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.accumulation_pipeline_adapter",
+        "production_function": "accumulation_pipeline.evaluate_institutional_flow",
+        "source_file": "app/accumulation_pipeline.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "09c4ca6d93e3e7d6"
+      }
+    },
+    {
+      "scanner": "Institutional Accumulation",
+      "scanner_code": "INSTITUTIONAL_ACCUMULATION",
+      "mode": "1D",
+      "symbol": "SAMHI",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_INSTITUTIONAL_ACCUMULATION_SAMHI_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'INSTITUTIONAL_ACCUMULATION' on symbol 'SAMHI' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'INSTITUTIONAL_ACCUMULATION' did not log production telemetry records for symbol 'SAMHI' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['INSTITUTIONAL_ACCUMULATION', 'ACCUMULATION'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.accumulation_pipeline_adapter",
+        "production_function": "accumulation_pipeline.evaluate_institutional_flow",
+        "source_file": "app/accumulation_pipeline.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "09c4ca6d93e3e7d6"
+      }
+    },
+    {
+      "scanner": "Institutional Accumulation",
+      "scanner_code": "INSTITUTIONAL_ACCUMULATION",
+      "mode": "1D",
+      "symbol": "INDRAMEDCO",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_INSTITUTIONAL_ACCUMULATION_INDRAMEDCO_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'INSTITUTIONAL_ACCUMULATION' on symbol 'INDRAMEDCO' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'INSTITUTIONAL_ACCUMULATION' did not log production telemetry records for symbol 'INDRAMEDCO' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['INSTITUTIONAL_ACCUMULATION', 'ACCUMULATION'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.accumulation_pipeline_adapter",
+        "production_function": "accumulation_pipeline.evaluate_institutional_flow",
+        "source_file": "app/accumulation_pipeline.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "09c4ca6d93e3e7d6"
+      }
+    },
+    {
+      "scanner": "Institutional Accumulation",
+      "scanner_code": "INSTITUTIONAL_ACCUMULATION",
+      "mode": "1D",
+      "symbol": "ACE",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_INSTITUTIONAL_ACCUMULATION_ACE_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'INSTITUTIONAL_ACCUMULATION' on symbol 'ACE' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'INSTITUTIONAL_ACCUMULATION' did not log production telemetry records for symbol 'ACE' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['INSTITUTIONAL_ACCUMULATION', 'ACCUMULATION'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.accumulation_pipeline_adapter",
+        "production_function": "accumulation_pipeline.evaluate_institutional_flow",
+        "source_file": "app/accumulation_pipeline.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "09c4ca6d93e3e7d6"
+      }
+    },
+    {
+      "scanner": "Institutional Accumulation",
+      "scanner_code": "INSTITUTIONAL_ACCUMULATION",
+      "mode": "1D",
+      "symbol": "POWERGRID",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_INSTITUTIONAL_ACCUMULATION_POWERGRID_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'INSTITUTIONAL_ACCUMULATION' on symbol 'POWERGRID' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'INSTITUTIONAL_ACCUMULATION' did not log production telemetry records for symbol 'POWERGRID' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['INSTITUTIONAL_ACCUMULATION', 'ACCUMULATION'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.accumulation_pipeline_adapter",
+        "production_function": "accumulation_pipeline.evaluate_institutional_flow",
+        "source_file": "app/accumulation_pipeline.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "09c4ca6d93e3e7d6"
+      }
+    },
+    {
+      "scanner": "Wealth Engine",
+      "scanner_code": "WEALTH",
+      "mode": "1D",
+      "symbol": "PGIL",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_WEALTH_PGIL_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'WEALTH' on symbol 'PGIL' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'WEALTH' did not log production telemetry records for symbol 'PGIL' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['WEALTH_ENGINE', 'WEALTH'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.wealth_engine_adapter",
+        "production_function": "wealth_engine.evaluate_wealth_candidates",
+        "source_file": "app/wealth_engine.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "4b1eccaca8553719"
+      }
+    },
+    {
+      "scanner": "Wealth Engine",
+      "scanner_code": "WEALTH",
+      "mode": "1D",
+      "symbol": "SAMHI",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_WEALTH_SAMHI_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'WEALTH' on symbol 'SAMHI' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'WEALTH' did not log production telemetry records for symbol 'SAMHI' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['WEALTH_ENGINE', 'WEALTH'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.wealth_engine_adapter",
+        "production_function": "wealth_engine.evaluate_wealth_candidates",
+        "source_file": "app/wealth_engine.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "4b1eccaca8553719"
+      }
+    },
+    {
+      "scanner": "Wealth Engine",
+      "scanner_code": "WEALTH",
+      "mode": "1D",
+      "symbol": "INDRAMEDCO",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_WEALTH_INDRAMEDCO_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'WEALTH' on symbol 'INDRAMEDCO' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'WEALTH' did not log production telemetry records for symbol 'INDRAMEDCO' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['WEALTH_ENGINE', 'WEALTH'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.wealth_engine_adapter",
+        "production_function": "wealth_engine.evaluate_wealth_candidates",
+        "source_file": "app/wealth_engine.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "4b1eccaca8553719"
+      }
+    },
+    {
+      "scanner": "Wealth Engine",
+      "scanner_code": "WEALTH",
+      "mode": "1D",
+      "symbol": "ACE",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_WEALTH_ACE_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'WEALTH' on symbol 'ACE' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'WEALTH' did not log production telemetry records for symbol 'ACE' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['WEALTH_ENGINE', 'WEALTH'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.wealth_engine_adapter",
+        "production_function": "wealth_engine.evaluate_wealth_candidates",
+        "source_file": "app/wealth_engine.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "4b1eccaca8553719"
+      }
+    },
+    {
+      "scanner": "Wealth Engine",
+      "scanner_code": "WEALTH",
+      "mode": "1D",
+      "symbol": "POWERGRID",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_WEALTH_POWERGRID_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'WEALTH' on symbol 'POWERGRID' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'WEALTH' did not log production telemetry records for symbol 'POWERGRID' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['WEALTH_ENGINE', 'WEALTH'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.wealth_engine_adapter",
+        "production_function": "wealth_engine.evaluate_wealth_candidates",
+        "source_file": "app/wealth_engine.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "4b1eccaca8553719"
+      }
+    },
+    {
+      "scanner": "Multibagger Engine",
+      "scanner_code": "MULTIBAGGER",
+      "mode": "1D",
+      "symbol": "PGIL",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_MULTIBAGGER_PGIL_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'MULTIBAGGER' on symbol 'PGIL' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'MULTIBAGGER' did not log production telemetry records for symbol 'PGIL' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['MULTIBAGGER'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.multibagger_adapter",
+        "production_function": "multibagger.evaluate_multibagger_symbol",
+        "source_file": "app/multibagger.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "8a345124b42e25f0"
+      }
+    },
+    {
+      "scanner": "Multibagger Engine",
+      "scanner_code": "MULTIBAGGER",
+      "mode": "1D",
+      "symbol": "SAMHI",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_MULTIBAGGER_SAMHI_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'MULTIBAGGER' on symbol 'SAMHI' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'MULTIBAGGER' did not log production telemetry records for symbol 'SAMHI' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['MULTIBAGGER'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.multibagger_adapter",
+        "production_function": "multibagger.evaluate_multibagger_symbol",
+        "source_file": "app/multibagger.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "8a345124b42e25f0"
+      }
+    },
+    {
+      "scanner": "Multibagger Engine",
+      "scanner_code": "MULTIBAGGER",
+      "mode": "1D",
+      "symbol": "INDRAMEDCO",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_MULTIBAGGER_INDRAMEDCO_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'MULTIBAGGER' on symbol 'INDRAMEDCO' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'MULTIBAGGER' did not log production telemetry records for symbol 'INDRAMEDCO' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['MULTIBAGGER'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.multibagger_adapter",
+        "production_function": "multibagger.evaluate_multibagger_symbol",
+        "source_file": "app/multibagger.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "8a345124b42e25f0"
+      }
+    },
+    {
+      "scanner": "Multibagger Engine",
+      "scanner_code": "MULTIBAGGER",
+      "mode": "1D",
+      "symbol": "ACE",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_MULTIBAGGER_ACE_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'MULTIBAGGER' on symbol 'ACE' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'MULTIBAGGER' did not log production telemetry records for symbol 'ACE' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['MULTIBAGGER'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.multibagger_adapter",
+        "production_function": "multibagger.evaluate_multibagger_symbol",
+        "source_file": "app/multibagger.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "8a345124b42e25f0"
+      }
+    },
+    {
+      "scanner": "Multibagger Engine",
+      "scanner_code": "MULTIBAGGER",
+      "mode": "1D",
+      "symbol": "POWERGRID",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_MULTIBAGGER_POWERGRID_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'MULTIBAGGER' on symbol 'POWERGRID' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'MULTIBAGGER' did not log production telemetry records for symbol 'POWERGRID' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['MULTIBAGGER'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.multibagger_adapter",
+        "production_function": "multibagger.evaluate_multibagger_symbol",
+        "source_file": "app/multibagger.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "8a345124b42e25f0"
+      }
+    },
+    {
+      "scanner": "Daily Builder",
+      "scanner_code": "DAILY_BUILDER",
+      "mode": "1D",
+      "symbol": "PGIL",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_DAILY_BUILDER_PGIL_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'DAILY_BUILDER' on symbol 'PGIL' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'DAILY_BUILDER' did not log production telemetry records for symbol 'PGIL' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['DAILY_BUILDER', 'BUILDER'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.daily_builder_adapter",
+        "production_function": "daily_builder.evaluate_daily_builder_signals",
+        "source_file": "app/daily_builder.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "b79f9375ab6870ce"
+      }
+    },
+    {
+      "scanner": "Daily Builder",
+      "scanner_code": "DAILY_BUILDER",
+      "mode": "1D",
+      "symbol": "SAMHI",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_DAILY_BUILDER_SAMHI_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'DAILY_BUILDER' on symbol 'SAMHI' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'DAILY_BUILDER' did not log production telemetry records for symbol 'SAMHI' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['DAILY_BUILDER', 'BUILDER'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.daily_builder_adapter",
+        "production_function": "daily_builder.evaluate_daily_builder_signals",
+        "source_file": "app/daily_builder.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "b79f9375ab6870ce"
+      }
+    },
+    {
+      "scanner": "Daily Builder",
+      "scanner_code": "DAILY_BUILDER",
+      "mode": "1D",
+      "symbol": "INDRAMEDCO",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_DAILY_BUILDER_INDRAMEDCO_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'DAILY_BUILDER' on symbol 'INDRAMEDCO' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'DAILY_BUILDER' did not log production telemetry records for symbol 'INDRAMEDCO' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['DAILY_BUILDER', 'BUILDER'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.daily_builder_adapter",
+        "production_function": "daily_builder.evaluate_daily_builder_signals",
+        "source_file": "app/daily_builder.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "b79f9375ab6870ce"
+      }
+    },
+    {
+      "scanner": "Daily Builder",
+      "scanner_code": "DAILY_BUILDER",
+      "mode": "1D",
+      "symbol": "ACE",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_DAILY_BUILDER_ACE_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'DAILY_BUILDER' on symbol 'ACE' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'DAILY_BUILDER' did not log production telemetry records for symbol 'ACE' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['DAILY_BUILDER', 'BUILDER'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.daily_builder_adapter",
+        "production_function": "daily_builder.evaluate_daily_builder_signals",
+        "source_file": "app/daily_builder.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "b79f9375ab6870ce"
+      }
+    },
+    {
+      "scanner": "Daily Builder",
+      "scanner_code": "DAILY_BUILDER",
+      "mode": "1D",
+      "symbol": "POWERGRID",
+      "date": "2026-09-23",
+      "production_run_id": "MISSING_TELEMETRY",
+      "replay_run_id": "replay_DAILY_BUILDER_POWERGRID_2026-09-23",
+      "first_divergence": "PRODUCTION_TELEMETRY_MISSING",
+      "root_input_divergence": "Zero production telemetry records found for scanner 'DAILY_BUILDER' on symbol 'POWERGRID' for date '2026-09-23' in logs/scanner_telemetry.jsonl",
+      "downstream_impact": [
+        "PRODUCTION_TELEMETRY_MISSING",
+        "EXECUTION_TRACE_UNVERIFIABLE",
+        "DECISION_UNVERIFIED"
+      ],
+      "final_decision": "REJECTED_OR_UNVERIFIED",
+      "rejection_reason": "UNVERIFIED",
+      "primary_category": "MISSING_TELEMETRY",
+      "likely_root_cause": "MISSING_PRODUCTION_TELEMETRY: Scanner 'DAILY_BUILDER' did not log production telemetry records for symbol 'POWERGRID' on '2026-09-23' in logs/scanner_telemetry.jsonl.",
+      "evidence": "Queried logs/scanner_telemetry.jsonl for scanner tags ['DAILY_BUILDER', 'BUILDER'] on date 2026-09-23. Zero records matched. Under Rule 9, equivalence cannot be assumed; status is PENDING / TELEMETRY_REQUIRED.",
+      "adapter_provenance": {
+        "module": "certification.adapters.daily_builder_adapter",
+        "production_function": "daily_builder.evaluate_daily_builder_signals",
+        "source_file": "app/daily_builder.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "b79f9375ab6870ce"
+      }
+    },
+    {
+      "scanner": "EOD Breakout (Clean Historical Replay)",
+      "scanner_code": "EOD_CLEAN_REPLAY",
+      "mode": "1D",
+      "symbol": "PGIL",
+      "date": "2026-09-23",
+      "production_run_id": "c1f7a76e-ae32-41a7-93fd-ce5756da9ae9",
+      "replay_run_id": "clean_historical_replay_PGIL_2026-09-23",
+      "first_divergence": "DATA_SHA256",
+      "root_input_divergence": "Input DataFrame mismatch: Row count (29 vs 243) or SHA256 (PROD_TELEMETRY_SNAPSHOT vs 5cb7cd9d8d8db0c1)",
+      "downstream_impact": [
+        "DATA_SHA256",
+        "GATE_EVALUATION"
+      ],
+      "final_decision": "REJECTED",
+      "rejection_reason": "BASE_TIGHTNESS_FAIL (Replay) vs NO_ATR_EXPANSION_FAIL (Prod)",
+      "primary_category": "DATA_DIFFERENCE",
+      "likely_root_cause": "HISTORICAL_PARQUET_CONTAMINATION: Production evaluated before data sanitization, reading 45 rogue duplicate bars with ATR20=366.37 (ATR expansion 0.33 < 0.80 -> NO_ATR_EXPANSION). Clean historical data has ATR20=56.35 (ATR expansion 2.13 -> passes ATR expansion, fails BASE_TIGHTNESS).",
+      "evidence": "Raw data backup data/history/1d/PGIL.parquet.corrupt_bak reproduces ATR20=366.3748 exactly, while sanitized parquet yields ATR20=56.3500.",
+      "adapter_provenance": {
+        "module": "certification.adapters.eod_adapter",
+        "production_function": "eod_scanner.evaluate_symbol",
+        "source_file": "app/eod_scanner.py",
+        "git_commit": "b5c8d42cf0b34ed3612441d8a0eba88912c961ba",
+        "file_hash": "b8b209e00bcb73a3"
+      }
+    }
+  ]
+}

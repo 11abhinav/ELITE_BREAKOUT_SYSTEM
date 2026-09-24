@@ -102,24 +102,10 @@ class EODScannerAdapter(BaseScannerAdapter):
         df_cut = hydrate_indicators(df_cut, timeframe="1d")
         latest = df_cut.iloc[-1]
 
-        # 3. Call production condition check
+        # 3. Call production condition check & detect breakout signals
         cfg = effective_config or (prod_record.effective_config if prod_record else eod_scanner.EOD_ADVANCED_CONFIG)
         regime = prod_record.market_regime if prod_record else "STRONG_BEAR"
         deliv = prod_record.data_snapshot.delivery_pct if prod_record else None
-
-        cond = eod_scanner._check_eod_conditions(
-            ticker=df_cut,
-            latest=latest,
-            symbol=symbol,
-            mode="ui",
-            prior_high_source="raw",
-            delivery_pct=deliv,
-            regime_ctx={"market_regime": regime}
-        )
-
-        passed = cond.get("passed", False)
-        reason = cond.get("reason")
-        decision = "SELECTED" if passed else "REJECTED"
 
         # 4. Extract all technical indicators
         indicators = {}
@@ -133,48 +119,62 @@ class EODScannerAdapter(BaseScannerAdapter):
 
         bar_high = float(latest.get("High", 0.0))
         bar_low = float(latest.get("Low", 0.0))
-        c_range = cond.get("candle_range", bar_high - bar_low)
-        atr20_val = cond.get("atr20", latest.get("ATR20", 0.0))
+        c_range = bar_high - bar_low
+        atr20_val = latest.get("ATR20", 0.0)
         if atr20_val is not None and not pd.isna(atr20_val):
             indicators["ATR20"] = float(atr20_val)
             if float(atr20_val) > 0:
                 indicators["ATR_EXPANSION"] = float(c_range / float(atr20_val))
-        if "volume_ratio" in cond:
-            indicators["RVOL"] = float(cond["volume_ratio"])
+        if len(df_cut) >= 2:
+            indicators["PREV_DAY_HIGH"] = float(df_cut.iloc[-2].get("High", 0.0))
 
-        # 5. Extract all gates
+        # 5. Extract gates matching production evaluation sequence
         gates = {}
         atr_exp = indicators.get("ATR_EXPANSION")
+        no_atr_exp = (atr_exp is not None and atr_exp < 0.80)
+
         gates["NO_ATR_EXPANSION"] = GateAuditResult(
             name="NO_ATR_EXPANSION",
-            passed=bool(atr_exp is not None and atr_exp >= 0.80),
-            status="PASS" if (atr_exp is not None and atr_exp >= 0.80) else "FAIL",
+            passed=not no_atr_exp,
+            status="FAIL" if no_atr_exp else "PASS",
             actual=atr_exp,
             threshold=0.80,
             operator=">=",
-            reason="ATR expansion >= 0.80" if (atr_exp is not None and atr_exp >= 0.80) else "Candle range / ATR20 < 0.80"
+            reason="Rejected at stage STRUCTURE" if no_atr_exp else "ATR expansion >= 0.80"
         )
-        rvol = indicators.get("RVOL")
-        gates["LOW_VOLUME"] = GateAuditResult(
-            name="LOW_VOLUME",
-            passed=bool(rvol is not None and rvol >= 1.80),
-            status="PASS" if (rvol is not None and rvol >= 1.80) else "FAIL",
-            actual=rvol,
-            threshold=1.80,
-            operator=">=",
-            reason="Volume ratio >= 1.80x" if (rvol is not None and rvol >= 1.80) else "Volume ratio < 1.80x"
-        )
-        close_p = indicators.get("Close")
-        prior_h = indicators.get("PRIOR_20D_HIGH")
-        gates["NO_STRUCTURAL_BREAKOUT"] = GateAuditResult(
-            name="NO_STRUCTURAL_BREAKOUT",
-            passed=bool(close_p and prior_h and close_p > prior_h),
-            status="PASS" if (close_p and prior_h and close_p > prior_h) else "FAIL",
-            actual=close_p,
-            threshold=prior_h,
-            operator=">",
-            reason="Closed above prior 20D high" if (close_p and prior_h and close_p > prior_h) else "Close <= prior 20D high"
-        )
+
+        if no_atr_exp:
+            passed = False
+            reason = "NO_ATR_EXPANSION_FAIL"
+            decision = "REJECTED"
+        else:
+            signals = eod_scanner.detect_breakouts(df_cut, timeframe="1d")
+            if len(signals) < 1:
+                passed = False
+                reason = "WEAK_SIGNALS"
+                decision = "REJECTED"
+                gates["WEAK_SIGNALS"] = GateAuditResult(
+                    name="WEAK_SIGNALS",
+                    passed=False,
+                    status="FAIL",
+                    actual=len(signals),
+                    threshold=1,
+                    operator="<",
+                    reason="Insufficient breakout signals"
+                )
+            else:
+                cond = eod_scanner._check_eod_conditions(
+                    ticker=df_cut,
+                    latest=latest,
+                    symbol=symbol,
+                    mode="ui",
+                    prior_high_source="raw",
+                    delivery_pct=deliv,
+                    regime_ctx={"market_regime": regime}
+                )
+                passed = cond.get("passed", False)
+                reason = cond.get("reason", "PASSED")
+                decision = "SELECTED" if passed else "REJECTED"
 
         score = 0.0
         if passed:
