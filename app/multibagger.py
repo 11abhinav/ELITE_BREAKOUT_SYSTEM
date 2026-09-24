@@ -776,17 +776,40 @@ def batch_download_market_data(symbols: list, session=None, run_ctx=None) -> dic
                     missing_or_stale_syms.append(s)
 
         if missing_or_stale_syms:
-            logger.info(f"⚡ [MULTIBAGGER DATA ACQUISITION] {len(disk_results)}/{len(symbols)} fresh stocks loaded from cache. Fetching missing/stale delta for {len(missing_or_stale_syms)} ticker(s)...")
+            logger.info(f"⚡ [MULTIBAGGER DATA ACQUISITION] {len(disk_results)}/{len(symbols)} fresh stocks loaded from cache. "
+                        f"Fetching missing/stale data for {len(missing_or_stale_syms)} ticker(s) via Upstox→Fyers→Yahoo chain...")
+            # [VERSION: MB_UNIFIED_FETCH_v2.0]
+            # Use per-symbol UnifiedFetcher (Upstox primary → Fyers secondary → Yahoo last resort)
+            # instead of fetch_unified_historical which relies on the Fyers batch API and silently
+            # drops symbols not in the Fyers instrument master (cause of the 322-symbol gap on 2026-09-24).
+            import concurrent.futures as _cf
+            from data_providers.unified_fetcher import UnifiedFetcher as _UF
+
+            def _fetch_one_stale(sym: str):
+                try:
+                    uf = _UF()
+                    df = uf.fetch_historical(sym, "1d", "1y", consumer="multibagger_stale")
+                    if df is not None and not df.empty:
+                        spd = _parse_single_symbol_price_data(sym, df, ist_now, strip_forming=False)
+                        return sym, spd
+                except Exception as _fe:
+                    logger.debug(f"[MB] UnifiedFetcher failed for {sym}: {_fe}")
+                return sym, None
+
+            _uf_workers = min(20, max(1, len(missing_or_stale_syms)))
             try:
-                missing_dict = fetch_unified_historical(missing_or_stale_syms, interval="1d", period="1y", requester="multibagger")
-                if missing_dict:
-                    for ms, m_df in missing_dict.items():
-                        if m_df is not None and not m_df.empty:
-                            m_spd = _parse_single_symbol_price_data(ms, m_df, ist_now, strip_forming=False)
-                            if m_spd is not None:
-                                disk_results[ms] = m_spd
+                with _cf.ThreadPoolExecutor(max_workers=_uf_workers) as _uf_exec:
+                    _uf_results = list(_uf_exec.map(_fetch_one_stale, missing_or_stale_syms))
+                ok_count = 0
+                for ms, m_spd in _uf_results:
+                    if m_spd is not None:
+                        disk_results[ms] = m_spd
+                        ok_count += 1
+                logger.info(f"⚡ [MB UNIFIED FETCH] {ok_count}/{len(missing_or_stale_syms)} stale symbols resolved "
+                            f"(Upstox/Fyers/Yahoo). {len(missing_or_stale_syms)-ok_count} still missing after all providers.")
             except Exception as _m_err:
-                logger.warning(f"Failed to batch fetch missing symbols in multibagger: {_m_err}")
+                logger.warning(f"Failed to fetch stale symbols via UnifiedFetcher pool in multibagger: {_m_err}")
+
 
         # For any symbols that could not be updated with live delta, preserve cached fallback data
         for s in symbols:

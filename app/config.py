@@ -759,28 +759,33 @@ STRUCTURAL_STOP = {
 # =====================================================================================
 
 # ── DATA PROVIDER SETTINGS ──────────────────────────────────────────────────────────
-DATA_PROVIDER = os.getenv("DATA_PROVIDER", "fyers")  # fyers, yfinance, or kite
+DATA_PROVIDER = os.getenv("DATA_PROVIDER", "upstox")  # upstox (primary), fyers (secondary)
 
 # [VERSION: V5_ACQUISITION_ROUTING_V1.0] Provider routing policy and capabilities configuration
 ROUTING_POLICY_VERSION = 2
 
+# [VERSION: PROVIDER_ROUTING_UPSTOX_PRIMARY_v2.0]
+# Upstox is the primary provider (ISIN-based instrument key lookup, reliable token, ~0.1s/symbol).
+# Fyers is secondary fallback (batch-capable but subject to Cloudflare bans on auto-login).
+# Yahoo Finance is NEVER in the routing policy — it is invoked as a last resort exclusively
+# inside UnifiedFetcher.fetch_historical() after BOTH Upstox and Fyers have failed.
 PROVIDER_ROUTING_POLICY = {
-    "price_1d":  ["fyers", "upstox"],
-    "price_1wk": ["fyers", "upstox"],
-    "price_1mo": ["fyers", "upstox"],
+    "price_1d":  ["upstox", "fyers"],
+    "price_1wk": ["upstox", "fyers"],
+    "price_1mo": ["upstox", "fyers"],
 
-    "price_1h":  ["fyers", "upstox"],
-    "price_30m": ["fyers", "upstox"],
-    "price_15m": ["fyers", "upstox"],
-    "price_5m":  ["fyers", "upstox"],
-    "price_1m":  ["fyers", "upstox"],
+    "price_1h":  ["upstox", "fyers"],
+    "price_30m": ["upstox", "fyers"],
+    "price_15m": ["upstox", "fyers"],
+    "price_5m":  ["upstox", "fyers"],
+    "price_1m":  ["upstox", "fyers"],
 
-    # Fyers & Upstox for live quotes
-    "live_quotes": ["fyers", "upstox"],
+    # Upstox & Fyers for live quotes
+    "live_quotes": ["upstox", "fyers"],
 
     "bhavcopy_delivery": ["nse_bhavcopy", "bse_bhavcopy"],
     "promoter_pledge":   ["bse_corporate", "nse_corporate"],
-    "default": ["fyers", "upstox"]
+    "default": ["upstox", "fyers"]
 }
 
 PROVIDER_CAPABILITIES = {

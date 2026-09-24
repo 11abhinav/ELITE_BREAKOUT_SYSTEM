@@ -66,34 +66,7 @@ class UnifiedFetcher:
         
         provider_errors = {}
         for provider in providers:
-            if provider == "fyers":
-                try:
-                    md = self.fyers.get_ohlcv(symbol, interval=interval, period=period)
-                    df = getattr(md, "dataframe", getattr(md, "df", None))
-                    if df is not None and not df.empty:
-                        logger.info(f"✅ [Fyers] Successfully fetched historical {symbol}")
-                        entry = self.registry.get_entry(dataset_id)
-                        if entry:
-                            entry.provider_used = "fyers"
-                            is_fallback = entry.preferred_provider and provider != entry.preferred_provider
-                            df.attrs = {
-                                "dataset": dataset_id,
-                                "provider": provider,
-                                "preferred_provider": entry.preferred_provider,
-                                "fallback_used": bool(is_fallback),
-                                "fetch_timestamp": datetime.now(IST).isoformat()
-                            }
-                        from trading_calendar import enforce_trading_day_candles
-                        return enforce_trading_day_candles(df, symbol)
-                    else:
-                        err = getattr(md, "error", "No error message provided") if md else "No MarketData returned"
-                        provider_errors["fyers"] = err
-                        logger.debug(f"⚠️ [Fyers] Skipped historical {symbol}: {err}")
-                except Exception as e:
-                    provider_errors["fyers"] = str(e)
-                    logger.warning(f"⚠️ [Fyers] Failed to fetch historical {symbol}: {e}")
-            
-            elif provider == "upstox":
+            if provider == "upstox":
                 try:
                     from market_data.providers.upstox_provider import UpstoxProvider
                     upstox_fetcher = UpstoxProvider(auth_service=None)
@@ -120,6 +93,34 @@ class UnifiedFetcher:
                 except Exception as e:
                     provider_errors["upstox"] = str(e)
                     logger.warning(f"⚠️ [Upstox] Failed to fetch historical {symbol}: {e}")
+
+            elif provider == "fyers":
+                try:
+                    md = self.fyers.get_ohlcv(symbol, interval=interval, period=period)
+                    df = getattr(md, "dataframe", getattr(md, "df", None))
+                    if df is not None and not df.empty:
+                        logger.info(f"✅ [Fyers] Successfully fetched historical {symbol}")
+                        entry = self.registry.get_entry(dataset_id)
+                        if entry:
+                            entry.provider_used = "fyers"
+                            is_fallback = entry.preferred_provider and provider != entry.preferred_provider
+                            df.attrs = {
+                                "dataset": dataset_id,
+                                "provider": provider,
+                                "preferred_provider": entry.preferred_provider,
+                                "fallback_used": bool(is_fallback),
+                                "fetch_timestamp": datetime.now(IST).isoformat()
+                            }
+                        from trading_calendar import enforce_trading_day_candles
+                        return enforce_trading_day_candles(df, symbol)
+                    else:
+                        err = getattr(md, "error", "No error message provided") if md else "No MarketData returned"
+                        provider_errors["fyers"] = err
+                        logger.debug(f"⚠️ [Fyers] Skipped historical {symbol}: {err}")
+                except Exception as e:
+                    provider_errors["fyers"] = str(e)
+                    logger.warning(f"⚠️ [Fyers] Failed to fetch historical {symbol}: {e}")
+
 
         error_details = ", ".join([f"{p}: {e}" for p, e in provider_errors.items()])
 
