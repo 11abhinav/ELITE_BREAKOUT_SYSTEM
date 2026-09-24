@@ -60,49 +60,57 @@ class PullbackScannerAdapter(BaseScannerAdapter):
         if df is None or len(df) < 50:
             return self._build_empty(symbol, evaluation_date, mode, "DATA_INSUFFICIENT")
 
+        # Slice strictly to evaluation date (vectorized)
+        eval_dt_str = evaluation_date.split(" ")[0]
         time_col = next((c for c in ["Datetime", "Date", "timestamp"] if c in df.columns), None)
         if time_col:
-            eval_dt = datetime.strptime(evaluation_date.split(" ")[0], "%Y-%m-%d").date()
-            dt_s = pd.to_datetime(df[time_col], utc=True)
-            df = df[dt_s.apply(lambda x: x.astimezone(IST).date() <= eval_dt)].copy()
+            dt_str_series = df[time_col].astype(str).str[:10]
+            df = df[dt_str_series <= eval_dt_str].copy()
+        elif isinstance(df.index, pd.DatetimeIndex):
+            dt_str_series = df.index.astype(str).str[:10]
+            df = df[dt_str_series <= eval_dt_str].copy()
 
-        df = hydrate_indicators(df, timeframe="1d")
-        latest = df.iloc[-1]
+        if len(df) < 15:
+            return self._build_empty(symbol, evaluation_date, mode, "DATA_INSUFFICIENT")
 
-        close_p = float(latest.get("Close", 0.0))
-        open_p = float(latest.get("Open", 0.0))
-        low_p = float(latest.get("Low", 0.0))
-        ema20 = float(latest.get("EMA20", 0.0))
-        sma50 = float(latest.get("SMA50", 0.0))
-        atr20 = float(latest.get("ATR20", close_p * 0.025))
+        regime = prod_record.market_regime if prod_record else "NEUTRAL"
+        import pullback_pipeline
+        eval_res = pullback_pipeline.evaluate_pullback_symbol(
+            symbol=symbol,
+            df=df,
+            fund_data=custom_data.get("fund_data") if custom_data else None,
+            regime_ctx={"current_regime": regime, "market_regime": regime}
+        )
 
-        # Pullback gates
-        primary_uptrend = (close_p > sma50) and (ema20 > sma50)
-        # Pullback into value zone: within 1.0 ATR of EMA20
-        dist_ema20_atr = abs(close_p - ema20) / atr20 if atr20 > 0 else 0.0
-        in_value_zone = (dist_ema20_atr <= 1.0)
-        # Support holds: low did not slice more than 0.5 ATR below EMA20
-        support_held = (low_p >= ema20 - 0.5 * atr20)
-        # Bounce confirmation: close >= open
-        bounce_confirmed = (close_p >= open_p)
-
-        passed = primary_uptrend and in_value_zone and support_held and bounce_confirmed
+        passed = eval_res.get("qualified", False)
         decision = "SELECTED" if passed else "REJECTED"
-        reason = "VALID_PULLBACK" if passed else ("NOT_IN_UPTREND" if not primary_uptrend else ("OUTSIDE_VALUE_ZONE" if not in_value_zone else ("SUPPORT_BROKEN" if not support_held else "BEARISH_CANDLE")))
+        reasons_list = eval_res.get("reasons", [])
+        reason = reasons_list[0] if reasons_list else ("VALID_PULLBACK" if passed else "REJECTED")
+        score = float(eval_res.get("score", 0.0))
 
         gates = {
-            "PRIMARY_UPTREND": GateAuditResult("PRIMARY_UPTREND", primary_uptrend, "PASS" if primary_uptrend else "FAIL", close_p, sma50, ">", "Close & EMA20 > SMA50"),
-            "VALUE_ZONE_DEPTH": GateAuditResult("VALUE_ZONE_DEPTH", in_value_zone, "PASS" if in_value_zone else "FAIL", dist_ema20_atr, 1.0, "<=", "Within 1.0 ATR of EMA20"),
-            "SUPPORT_HOLD": GateAuditResult("SUPPORT_HOLD", support_held, "PASS" if support_held else "FAIL", low_p, ema20 - 0.5 * atr20, ">=", "Low defended EMA20 buffer"),
-            "BOUNCE_CONFIRMATION": GateAuditResult("BOUNCE_CONFIRMATION", bounce_confirmed, "PASS" if bounce_confirmed else "FAIL", close_p, open_p, ">=", "Bullish bounce bar")
+            "PULLBACK_QUALIFIED": GateAuditResult(
+                name="PULLBACK_QUALIFIED",
+                passed=passed,
+                status="PASS" if passed else "FAIL",
+                actual=score,
+                threshold=75.0,
+                operator=">=",
+                reason=reason
+            )
         }
+
+        latest = df.iloc[-1]
+        close_p = float(latest.get("Close", 0.0))
+        ema20 = float(latest.get("EMA20", 0.0)) if "EMA20" in latest else 0.0
+        sma50 = float(latest.get("SMA50", 0.0)) if "SMA50" in latest else 0.0
+        atr20 = float(latest.get("ATR20", 0.0)) if "ATR20" in latest else 0.0
 
         indicators = {
             "Close": close_p,
             "EMA20": ema20,
             "SMA50": sma50,
-            "ATR20": atr20,
-            "DIST_EMA20_ATR": round(dist_ema20_atr, 2)
+            "ATR20": atr20
         }
 
         snap = FrozenDataSnapshot(

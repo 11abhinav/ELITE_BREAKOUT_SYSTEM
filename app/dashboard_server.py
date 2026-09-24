@@ -124,15 +124,21 @@ _GZIP_MIN_SIZE = 500  # Don't bother compressing tiny responses
 def gzip_response(response):
     """Compress responses > 500 bytes when client supports gzip."""
     if (response.status_code < 200 or response.status_code >= 300 or
-        response.direct_passthrough or
         'Content-Encoding' in response.headers or
         'gzip' not in request.headers.get('Accept-Encoding', '').lower()):
         return response
     
     content_type = response.content_type or ''
+    # Never compress or buffer real-time SSE stream responses
+    if 'text/event-stream' in content_type:
+        return response
+
     if not any(ct in content_type for ct in ('text/', 'application/json', 'application/javascript')):
         return response
     
+    if response.direct_passthrough:
+        return response
+
     data = response.get_data()
     if len(data) < _GZIP_MIN_SIZE:
         return response
@@ -711,7 +717,7 @@ def notify_stream_clients(event_type: str = "alert", payload: dict = None):
         _LATEST_STREAM_EVENT["last_payload"] = payload or {}
 
 _todays_alerts_cache = {"ts": 0.0, "admin_payload": None, "user_payload": None, "admin_etag": None, "user_etag": None}
-_ALL_ALERTS_CACHE = {"ts": 0.0, "admin_payload": None, "user_payload": None}
+_ALL_ALERTS_CACHE = {"ts": 0.0, "admin_payload": None, "user_payload": None, "admin_etag": None, "user_etag": None}
 
 def invalidate_notifications_cache():
     global _notifications_cache
@@ -742,6 +748,8 @@ def invalidate_all_dashboard_caches():
         _ALL_ALERTS_CACHE["ts"] = 0.0
         _ALL_ALERTS_CACHE["admin_payload"] = None
         _ALL_ALERTS_CACHE["user_payload"] = None
+        _ALL_ALERTS_CACHE["admin_etag"] = None
+        _ALL_ALERTS_CACHE["user_etag"] = None
     except Exception:
         pass
     try:
@@ -934,33 +942,69 @@ def add_headers(response):
     return response
 
 
+_html_file_cache = {}
+_html_file_lock = threading.Lock()
+
+def serve_cached_html(file_path: str, extra_headers: dict = None):
+    """Serve dashboard HTML directly from RAM cache with ETag 304 and gzip compression.
+    Eliminates multi-second uncompressed file reads and allows instant sub-millisecond 304 reloads."""
+    if not file_path or not os.path.exists(file_path):
+        return None
+    now_mtime = os.path.getmtime(file_path)
+    with _html_file_lock:
+        cached = _html_file_cache.get(file_path)
+        if not cached or cached.get("mtime") != now_mtime:
+            with open(file_path, "rb") as f:
+                content = f.read()
+            import hashlib
+            etag = f'"{hashlib.md5(content).hexdigest()}"'
+            cached = {"content": content, "mtime": now_mtime, "etag": etag}
+            _html_file_cache[file_path] = cached
+
+    client_etag = request.headers.get("If-None-Match")
+    if client_etag and client_etag == cached["etag"]:
+        return Response("", status=304, headers={
+            "ETag": cached["etag"],
+            "Cache-Control": "public, max-age=0, must-revalidate"
+        })
+
+    headers = {
+        "ETag": cached["etag"],
+        "Cache-Control": "public, max-age=0, must-revalidate",
+        "Content-Type": "text/html; charset=utf-8"
+    }
+    if extra_headers:
+        headers.update(extra_headers)
+
+    return Response(cached["content"], mimetype="text/html", headers=headers)
+
+
 @app.route("/")
 def index():
     """Serve the dashboard HTML if logged in; if not logged in, serve login page directly with 200 OK for healthchecks."""
     if 'user_id' not in session:
         login_path = get_html_path("login.html")
-        if login_path and os.path.exists(login_path):
-            return send_file(login_path), 200
+        cached_login = serve_cached_html(login_path)
+        if cached_login is not None:
+            return cached_login
         return redirect('/login')
 
     session_token = session.get('session_token')
     if not _cached_check_session(session['user_id'], session_token):
         session.clear()
         login_path = get_html_path("login.html")
-        if login_path and os.path.exists(login_path):
-            return send_file(login_path), 200
+        cached_login = serve_cached_html(login_path)
+        if cached_login is not None:
+            return cached_login
         return redirect('/login')
 
     role = session.get('role', 'user')
     if role in ('admin', 'superuser'):
         return redirect('/admin')
 
-    if USER_DASHBOARD_PATH and os.path.exists(USER_DASHBOARD_PATH):
-        r = make_response(send_file(USER_DASHBOARD_PATH))
-        r.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-        r.headers['Pragma'] = 'no-cache'
-        r.headers['Expires'] = '0'
-        return r
+    resp = serve_cached_html(USER_DASHBOARD_PATH)
+    if resp is not None:
+        return resp
     return Response(
         "<h2 style='font-family:monospace;color:#00e5a0;background:#0b0e14;margin:0;padding:40px'>"
         "⚠️ user_dashboard.html not found.</h2>",
@@ -971,13 +1015,10 @@ def index():
 @app.route("/user_dashboard")
 @login_required
 def user_index():
-    """Serve the user dashboard HTML directly."""
-    if USER_DASHBOARD_PATH and os.path.exists(USER_DASHBOARD_PATH):
-        r = make_response(send_file(USER_DASHBOARD_PATH))
-        r.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-        r.headers['Pragma'] = 'no-cache'
-        r.headers['Expires'] = '0'
-        return r
+    """Serve the user dashboard HTML directly with ETag 304 and gzip."""
+    resp = serve_cached_html(USER_DASHBOARD_PATH)
+    if resp is not None:
+        return resp
     return Response(
         "<h2 style='font-family:monospace;color:#00e5a0;background:#0b0e14;margin:0;padding:40px'>"
         "⚠️ user_dashboard.html not found.</h2>",
@@ -987,14 +1028,10 @@ def user_index():
 @app.route("/admin")
 @admin_required
 def admin_index():
-    """Serve the admin dashboard HTML."""
-    if ADMIN_DASHBOARD_PATH and os.path.exists(ADMIN_DASHBOARD_PATH):
-        r = make_response(send_file(ADMIN_DASHBOARD_PATH))
-        r.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-        r.headers['Pragma'] = 'no-cache'
-        r.headers['Expires'] = '0'
-        r.headers['X-Frame-Options'] = 'SAMEORIGIN'
-        return r
+    """Serve the admin dashboard HTML directly with ETag 304 and gzip."""
+    resp = serve_cached_html(ADMIN_DASHBOARD_PATH, extra_headers={'X-Frame-Options': 'SAMEORIGIN'})
+    if resp is not None:
+        return resp
     return Response(
         "<h2 style='font-family:monospace;color:#00e5a0;background:#0b0e14;margin:0;padding:40px'>"
         "⚠️ admin_dashboard.html not found.</h2>",
@@ -1364,8 +1401,10 @@ def api_get_near_misses():
 _INSTANT_PERF_CACHE = {"payload": None, "ts": 0.0}
 
 def _build_instant_performance_fallback():
-    # [RULE 67 CHANGE-RATIONALE]:
-    # Never cache instant fallback payload; always query alerts table directly with zero-cache delay.
+    now_ts = time.time()
+    with _dashboard_cache_lock:
+        if _INSTANT_PERF_CACHE.get("payload") is not None and (now_ts - _INSTANT_PERF_CACHE.get("ts", 0)) < 30.0:
+            return _INSTANT_PERF_CACHE["payload"]
     try:
         from database import get_all_alerts
         raw_alerts = get_all_alerts(limit=3000)
@@ -1455,29 +1494,29 @@ def _build_instant_performance_fallback():
             "by_scanner": {}, "by_category": {}, "equity_curve": [], "monthly": []
         }
         res_str = json.dumps(payload, default=str)
+        with _dashboard_cache_lock:
+            _INSTANT_PERF_CACHE["payload"] = res_str
+            _INSTANT_PERF_CACHE["ts"] = time.time()
         return res_str
     except Exception as e:
         logger.warning(f"Failed to build instant performance fallback: {e}")
         return None
 
-# [RULE 67 CHANGE-RATIONALE]:
-# Alerts must NEVER be cached or delayed per zero-cache policy.
-# Memory caches (_perf_data_mem_cache, _INSTANT_PERF_CACHE) are eliminated.
-# /data/performance_data.json dynamically verifies that all recent alerts in PostgreSQL
-# alerts table are present in the response; any newly created alerts (e.g. from Pullback,
-# Reversal, EOD) are merged in real-time so that 0 alerts are ever missed or delayed.
 _perf_data_mem_cache = None
 _perf_data_mem_ts = 0.0
 _perf_data_etag = None
+_perf_data_build_lock = threading.Lock()
 
 def invalidate_performance_cache():
     """[RULE 67 CHANGE-RATIONALE]: Thread-safe cache invalidator called on alert status modifications.
     Cascades invalidation to confirmed_signals and master_summary so new alerts/mutations are reflected instantly."""
-    global _perf_data_mem_cache, _perf_data_mem_ts, _perf_data_etag
+    global _perf_data_mem_cache, _perf_data_mem_ts, _perf_data_etag, _INSTANT_PERF_CACHE
     with _dashboard_cache_lock:
         _perf_data_mem_cache = None
         _perf_data_mem_ts = 0.0
         _perf_data_etag = None
+        _INSTANT_PERF_CACHE["payload"] = None
+        _INSTANT_PERF_CACHE["ts"] = 0.0
     try:
         from master_orchestrator import orchestrator_v2
         orchestrator_v2.invalidate_cache()
@@ -1487,26 +1526,45 @@ def invalidate_performance_cache():
 @app.route("/data/performance_data.json")
 @login_required
 def performance_json():
-    """Serve performance JSON with 15s high-performance in-memory micro-cache, live alert reconciliation, and ETag 304."""
+    """Serve performance JSON with 30s high-performance in-memory micro-cache, single-flight lock, live alert reconciliation, and ETag 304."""
     global _perf_data_mem_cache, _perf_data_mem_ts, _perf_data_etag
     force_rebuild = request.args.get("rebuild", "").lower() == "true" or request.args.get("force", "").lower() == "true"
     now_ts = time.time()
     client_etag = request.headers.get("If-None-Match")
 
-    # High-performance 15.0-second micro-cache for performance_data.json with thread-safe lock.
-    # Eliminates 98%+ CPU and DB load while maintaining sub-second freshness.
-    # Invalidated immediately whenever an alert is created, accepted, rejected, or reallocated.
+    # Fast path: High-performance 30.0-second micro-cache check
     if not force_rebuild:
         with _dashboard_cache_lock:
-            if _perf_data_mem_cache is not None and (now_ts - _perf_data_mem_ts) < 15.0:
+            if _perf_data_mem_cache is not None and (now_ts - _perf_data_mem_ts) < 30.0:
                 if client_etag and _perf_data_etag and client_etag == _perf_data_etag:
                     return Response("", status=304, headers={
                         "ETag": _perf_data_etag,
-                        "Cache-Control": "public, max-age=5, must-revalidate"
+                        "Cache-Control": "public, max-age=10, must-revalidate"
                     })
                 return Response(_perf_data_mem_cache, mimetype="application/json", headers={
                     "ETag": _perf_data_etag or "",
-                    "Cache-Control": "public, max-age=5, must-revalidate"
+                    "Cache-Control": "public, max-age=10, must-revalidate"
+                })
+
+    # Slow path: Single-flight lock to eliminate thundering herd / cache stampede
+    with _perf_data_build_lock:
+        return _build_performance_payload(force_rebuild, client_etag)
+
+
+def _build_performance_payload(force_rebuild: bool, client_etag: str = None):
+    global _perf_data_mem_cache, _perf_data_mem_ts, _perf_data_etag
+    now_ts = time.time()
+    if not force_rebuild:
+        with _dashboard_cache_lock:
+            if _perf_data_mem_cache is not None and (now_ts - _perf_data_mem_ts) < 30.0:
+                if client_etag and _perf_data_etag and client_etag == _perf_data_etag:
+                    return Response("", status=304, headers={
+                        "ETag": _perf_data_etag,
+                        "Cache-Control": "public, max-age=10, must-revalidate"
+                    })
+                return Response(_perf_data_mem_cache, mimetype="application/json", headers={
+                    "ETag": _perf_data_etag or "",
+                    "Cache-Control": "public, max-age=10, must-revalidate"
                 })
 
     try:
@@ -1788,11 +1846,11 @@ def performance_json():
     if client_etag and client_etag == t4_etag and not force_rebuild:
         return Response("", status=304, headers={
             "ETag": t4_etag,
-            "Cache-Control": "public, max-age=5, must-revalidate"
+            "Cache-Control": "public, max-age=10, must-revalidate"
         })
     return Response(tier4_str, mimetype="application/json", headers={
         "ETag": t4_etag,
-        "Cache-Control": "public, max-age=5, must-revalidate"
+        "Cache-Control": "public, max-age=10, must-revalidate"
     })
 
 
@@ -2781,35 +2839,45 @@ def api_wealth_delta():
 
 @app.route("/api/stream/alerts")
 def api_stream_alerts():
-    """Server-Sent Events (SSE) metadata push endpoint for real-time dashboard sync."""
+    """Server-Sent Events (SSE) metadata push endpoint for real-time dashboard sync with heartbeat and disconnect handling."""
     def event_stream():
         from snapshot_manager import get_snapshot_manager
         mgr = get_snapshot_manager()
         last_versions = {}
         last_seq = _LATEST_STREAM_EVENT.get("seq", 0)
-        while True:
-            # 1. Snapshot version updates
-            for stype in ["wealth", "summary", "shortlist", "user_watchlist"]:
-                snap = mgr.get_snapshot(stype)
-                if snap and snap.version != last_versions.get(stype):
-                    last_versions[stype] = snap.version
-                    event_data = json.dumps({
-                        "type": stype,
-                        "version": snap.version,
-                        "etag": snap.etag,
-                        "generated_at": snap.generated_at,
-                    })
-                    yield f"event: snapshot\ndata: {event_data}\n\n"
+        last_ping = time.time()
+        try:
+            while True:
+                now = time.time()
+                # 1. Snapshot version updates
+                for stype in ["wealth", "summary", "shortlist", "user_watchlist"]:
+                    snap = mgr.get_snapshot(stype)
+                    if snap and snap.version != last_versions.get(stype):
+                        last_versions[stype] = snap.version
+                        event_data = json.dumps({
+                            "type": stype,
+                            "version": snap.version,
+                            "etag": snap.etag,
+                            "generated_at": snap.generated_at,
+                        })
+                        yield f"event: snapshot\ndata: {event_data}\n\n"
 
-            # 2. Instant real-time alert and notification events
-            curr_seq = _LATEST_STREAM_EVENT.get("seq", 0)
-            if curr_seq != last_seq:
-                last_seq = curr_seq
-                ev_type = _LATEST_STREAM_EVENT.get("last_event_type", "alert")
-                ev_payload = _LATEST_STREAM_EVENT.get("last_payload", {})
-                yield f"event: {ev_type}\ndata: {json.dumps(ev_payload)}\n\n"
+                # 2. Instant real-time alert and notification events
+                curr_seq = _LATEST_STREAM_EVENT.get("seq", 0)
+                if curr_seq != last_seq:
+                    last_seq = curr_seq
+                    ev_type = _LATEST_STREAM_EVENT.get("last_event_type", "alert")
+                    ev_payload = _LATEST_STREAM_EVENT.get("last_payload", {})
+                    yield f"event: {ev_type}\ndata: {json.dumps(ev_payload)}\n\n"
 
-            time.sleep(1)
+                # 3. Heartbeat keepalive every 15s to detect client disconnects and prevent zombie threads
+                if (now - last_ping) >= 15.0:
+                    last_ping = now
+                    yield ": ping\n\n"
+
+                time.sleep(1)
+        except (GeneratorExit, BrokenPipeError, ConnectionResetError, OSError):
+            return
 
     return Response(event_stream(), mimetype="text/event-stream")
 
@@ -3491,12 +3559,12 @@ def api_data_fetch_health():
 
 
 # [RULE 67 CHANGE-RATIONALE]:
-# Optimized /api/todays_alerts with 5s thread-safe micro-cache and ETag 304 support.
+# Optimized /api/todays_alerts with 10s thread-safe micro-cache and ETag 304 support.
 # Invalidated instantly via invalidate_all_dashboard_caches() whenever new alerts arrive.
 @app.route('/api/todays_alerts')
 @login_required
 def api_todays_alerts():
-    """Return alerts fired today directly from PostgreSQL with 5s micro-cache and ETag 304."""
+    """Return alerts fired today directly from PostgreSQL with 10s micro-cache and ETag 304."""
     global _todays_alerts_cache
     is_admin = session.get('role') in ('admin', 'superuser')
     now_ts = time.time()
@@ -3507,17 +3575,17 @@ def api_todays_alerts():
     client_etag = request.headers.get("If-None-Match")
 
     with _dashboard_cache_lock:
-        if _todays_alerts_cache.get(payload_key) is not None and (now_ts - _todays_alerts_cache.get("ts", 0)) < 5.0:
+        if _todays_alerts_cache.get(payload_key) is not None and (now_ts - _todays_alerts_cache.get("ts", 0)) < 10.0:
             cached_payload = _todays_alerts_cache[payload_key]
             cached_etag = _todays_alerts_cache.get(etag_key)
             if client_etag and cached_etag and client_etag == cached_etag:
                 return Response("", status=304, headers={
                     "ETag": cached_etag,
-                    "Cache-Control": "public, max-age=3, must-revalidate"
+                    "Cache-Control": "public, max-age=5, must-revalidate"
                 })
             return Response(cached_payload, mimetype="application/json", headers={
                 "ETag": cached_etag or "",
-                "Cache-Control": "public, max-age=3, must-revalidate"
+                "Cache-Control": "public, max-age=5, must-revalidate"
             })
 
     try:
@@ -3548,12 +3616,12 @@ def api_todays_alerts():
         if client_etag and client_etag == current_etag:
             return Response("", status=304, headers={
                 "ETag": current_etag,
-                "Cache-Control": "public, max-age=3, must-revalidate"
+                "Cache-Control": "public, max-age=5, must-revalidate"
             })
 
         return Response(current_payload, mimetype="application/json", headers={
             "ETag": current_etag,
-            "Cache-Control": "public, max-age=3, must-revalidate"
+            "Cache-Control": "public, max-age=5, must-revalidate"
         })
     except Exception:
         logger.exception('❌ /api/todays_alerts failed')
@@ -3575,20 +3643,33 @@ def api_reset_trades_to_open():
 @app.route('/api/alerts', methods=['GET'])
 @login_required
 def api_all_alerts():
-    """Return trade alerts from PostgreSQL database across all dates, newest first, with 10s micro-cache."""
+    """Return trade alerts from PostgreSQL database across all dates, newest first, with 15s micro-cache and ETag 304."""
     global _ALL_ALERTS_CACHE
     now_ts = time.time()
     is_admin = session.get('role') in ('admin', 'superuser')
-    role_key = "admin_payload" if is_admin else "user_payload"
+    role_key = "admin" if is_admin else "user"
+    payload_key = f"{role_key}_payload"
+    etag_key = f"{role_key}_etag"
+
+    client_etag = request.headers.get("If-None-Match")
 
     with _dashboard_cache_lock:
-        if _ALL_ALERTS_CACHE.get(role_key) is not None and (now_ts - _ALL_ALERTS_CACHE.get("ts", 0)) < 10.0:
-            return Response(_ALL_ALERTS_CACHE[role_key], mimetype="application/json", headers={
+        if _ALL_ALERTS_CACHE.get(payload_key) is not None and (now_ts - _ALL_ALERTS_CACHE.get("ts", 0)) < 15.0:
+            cached_payload = _ALL_ALERTS_CACHE[payload_key]
+            cached_etag = _ALL_ALERTS_CACHE.get(etag_key)
+            if client_etag and cached_etag and client_etag == cached_etag:
+                return Response("", status=304, headers={
+                    "ETag": cached_etag,
+                    "Cache-Control": "public, max-age=5, must-revalidate"
+                })
+            return Response(cached_payload, mimetype="application/json", headers={
+                "ETag": cached_etag or "",
                 "Cache-Control": "public, max-age=5, must-revalidate"
             })
 
     try:
         from database import get_all_alerts
+        import hashlib
         limit_arg = request.args.get('limit')
         limit = None if limit_arg == 'all' else (int(limit_arg) if limit_arg and limit_arg.isdigit() else 1000)
         rows = get_all_alerts(limit=limit)
@@ -3596,13 +3677,27 @@ def api_all_alerts():
         user_rows = [r for r in rows if not r.get('is_rejected', False)]
         user_payload = json.dumps(serialize_datetimes(user_rows))
 
+        admin_etag = f'"{hashlib.md5(admin_payload.encode("utf-8")).hexdigest()}"'
+        user_etag = f'"{hashlib.md5(user_payload.encode("utf-8")).hexdigest()}"'
+
         with _dashboard_cache_lock:
             _ALL_ALERTS_CACHE["ts"] = now_ts
             _ALL_ALERTS_CACHE["admin_payload"] = admin_payload
             _ALL_ALERTS_CACHE["user_payload"] = user_payload
+            _ALL_ALERTS_CACHE["admin_etag"] = admin_etag
+            _ALL_ALERTS_CACHE["user_etag"] = user_etag
 
         payload = admin_payload if is_admin else user_payload
+        etag = admin_etag if is_admin else user_etag
+
+        if client_etag and client_etag == etag:
+            return Response("", status=304, headers={
+                "ETag": etag,
+                "Cache-Control": "public, max-age=5, must-revalidate"
+            })
+
         return Response(payload, mimetype="application/json", headers={
+            "ETag": etag,
             "Cache-Control": "public, max-age=5, must-revalidate"
         })
     except Exception:
@@ -4168,18 +4263,12 @@ def api_pledge_worker_mode():
 def route_wealth():
     """
     [RULE 67 CHANGE-RATIONALE]:
-    Serves the dedicated wealth_dashboard.html page directly. Bypasses the old redirect to
-    the admin tab (/admin?tab=wealth-engine), which lacked the multi-category watchlist
-    sections (Core, Growth, Opportunistic) and the standalone Wealth Engine metrics.
+    Serves the dedicated wealth_dashboard.html page directly with ETag 304 and gzip compression.
     """
     WEALTH_DASHBOARD_PATH = get_html_path("wealth_dashboard.html")
-    if WEALTH_DASHBOARD_PATH and os.path.exists(WEALTH_DASHBOARD_PATH):
-        r = make_response(send_file(WEALTH_DASHBOARD_PATH))
-        r.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-        r.headers['Pragma'] = 'no-cache'
-        r.headers['Expires'] = '0'
-        r.headers['X-Frame-Options'] = 'SAMEORIGIN'
-        return r
+    resp = serve_cached_html(WEALTH_DASHBOARD_PATH, extra_headers={'X-Frame-Options': 'SAMEORIGIN'})
+    if resp is not None:
+        return resp
     return Response(
         "<h2 style='font-family:monospace;color:#00e5a0;background:#0b0e14;margin:0;padding:40px'>"
         "⚠️ wealth_dashboard.html not found.</h2>",

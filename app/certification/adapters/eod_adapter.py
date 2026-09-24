@@ -54,13 +54,30 @@ class EODScannerAdapter(BaseScannerAdapter):
         df = None
         if custom_data and "df" in custom_data:
             df = custom_data["df"]
+        elif os.getenv("BACKTEST_DATA_SOURCE", "").upper() == "UPSTOX" or os.getenv("USE_UPSTOX_PROVIDER", "").lower() == "true":
+            if not os.environ.get("UPSTOX_ACCESS_TOKEN"):
+                env_file = os.path.join(_ROOT_DIR, ".env")
+                if os.path.exists(env_file):
+                    with open(env_file) as f:
+                        for line in f:
+                            if line.startswith("UPSTOX_ACCESS_TOKEN="):
+                                os.environ["UPSTOX_ACCESS_TOKEN"] = line.split("=", 1)[1].strip()
+                                break
+            try:
+                from market_data.providers.upstox_provider import UpstoxProvider
+                provider = UpstoxProvider()
+                md = provider.get_ohlcv(symbol, interval="1d", period="1y")
+                df = getattr(md, "dataframe", None)
+            except Exception:
+                df = None
         elif mode == ReplayMode.PRODUCTION_REPLAY and prod_record and prod_record.data_snapshot.raw_data_json:
             import json
             df = pd.read_json(prod_record.data_snapshot.raw_data_json)
         elif mode == ReplayMode.PRODUCTION_REPLAY and os.path.exists(os.path.join(_ROOT_DIR, "data", "history", "1d", f"{symbol}.parquet.corrupt_bak")):
             # If production evaluated before sanitization, the backup has the exact historical state
             df = pd.read_parquet(os.path.join(_ROOT_DIR, "data", "history", "1d", f"{symbol}.parquet.corrupt_bak"))
-        else:
+        
+        if df is None:
             # Clean historical replay uses current clean parquet
             parquet_path = os.path.join(_ROOT_DIR, "data", "history", "1d", f"{symbol}.parquet")
             if os.path.exists(parquet_path):
@@ -92,9 +109,14 @@ class EODScannerAdapter(BaseScannerAdapter):
         # 2. Slice strictly up to evaluation date
         time_col = next((c for c in ["Datetime", "Date", "timestamp"] if c in df.columns), None)
         if time_col:
-            eval_dt = datetime.strptime(evaluation_date.split(" ")[0], "%Y-%m-%d").date()
-            dt_s = pd.to_datetime(df[time_col], utc=True)
-            mask = dt_s.apply(lambda x: x.astimezone(IST).date() <= eval_dt)
+            eval_dt_str = evaluation_date.split(" ")[0]
+            dt_str_series = df[time_col].astype(str).str[:10]
+            mask = dt_str_series <= eval_dt_str
+            df_cut = df[mask].copy()
+        elif isinstance(df.index, pd.DatetimeIndex):
+            eval_dt_str = evaluation_date.split(" ")[0]
+            dt_str_series = df.index.astype(str).str[:10]
+            mask = dt_str_series <= eval_dt_str
             df_cut = df[mask].copy()
         else:
             df_cut = df.copy()
@@ -143,55 +165,25 @@ class EODScannerAdapter(BaseScannerAdapter):
             reason="Rejected at stage STRUCTURE" if no_atr_exp else "ATR expansion >= 0.80"
         )
 
-        if no_atr_exp:
-            passed = False
-            reason = "NO_ATR_EXPANSION_FAIL"
-            decision = "REJECTED"
-        else:
-            signals = eod_scanner.detect_breakouts(df_cut, timeframe="1d")
-            if len(signals) < 1:
-                passed = False
-                reason = "WEAK_SIGNALS"
-                decision = "REJECTED"
-                gates["WEAK_SIGNALS"] = GateAuditResult(
-                    name="WEAK_SIGNALS",
-                    passed=False,
-                    status="FAIL",
-                    actual=len(signals),
-                    threshold=1,
-                    operator="<",
-                    reason="Insufficient breakout signals"
-                )
-            else:
-                cond = eod_scanner._check_eod_conditions(
-                    ticker=df_cut,
-                    latest=latest,
-                    symbol=symbol,
-                    mode="ui",
-                    prior_high_source="raw",
-                    delivery_pct=deliv,
-                    regime_ctx={"market_regime": regime}
-                )
-                passed = cond.get("passed", False)
-                reason = cond.get("reason", "PASSED")
-                decision = "SELECTED" if passed else "REJECTED"
+        eval_res = eod_scanner.evaluate_eod_symbol(
+            symbol=symbol,
+            df=df_cut,
+            regime_ctx={"market_regime": regime}
+        )
+        passed = eval_res.get("qualified", False)
+        decision = "SELECTED" if passed else "REJECTED"
+        reason = eval_res.get("reasons", ["UNKNOWN"])[0] if eval_res.get("reasons") else "PASSED"
+        score = eval_res.get("score", 0.0)
 
-        score = 0.0
-        if passed:
-            signals = eod_scanner.detect_breakouts(df_cut, timeframe="1d")
-            score, _, _ = eod_scanner.calculate_score(
-                category="EQUITY",
-                breakout_count=len(signals),
-                rsi=indicators.get("RSI", 50.0) or 50.0,
-                volume_ratio=indicators.get("RVOL", 1.8) or 1.8,
-                breakout_signals=signals,
-                ticker=df_cut,
-                latest=latest,
-                symbol=symbol,
-                timeframe="1d",
-                atr_val=indicators.get("ATR20", 0.0),
-                regime_ctx={"market_regime": regime}
-            )
+        gates["EOD_QUALIFICATION"] = GateAuditResult(
+            name="EOD_QUALIFICATION",
+            passed=passed,
+            status="PASS" if passed else "FAIL",
+            actual=score,
+            threshold=82.0,
+            operator=">=",
+            reason=reason
+        )
 
         cfg_hash, clean_cfg = get_config_hash(cfg)
 

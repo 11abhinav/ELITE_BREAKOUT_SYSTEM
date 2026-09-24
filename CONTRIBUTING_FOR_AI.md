@@ -1,3 +1,5 @@
+,\
+
 # CONTRIBUTING_FOR_AI
 
 This document outlines the **non-negotiable rules** for any AI system or agent operating on the Elite Breakout System codebase. You must read and abide by these rules before generating code, refactoring logic, or running tests.

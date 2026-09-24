@@ -48,10 +48,28 @@ class TechnicalScannerAdapter(BaseScannerAdapter):
     ) -> ProductionDecisionRecord:
         from technical_indicators import hydrate_indicators
 
+        if not os.environ.get("UPSTOX_ACCESS_TOKEN"):
+            env_file = os.path.join(_ROOT_DIR, ".env")
+            if os.path.exists(env_file):
+                with open(env_file) as f:
+                    for line in f:
+                        if line.startswith("UPSTOX_ACCESS_TOKEN="):
+                            os.environ["UPSTOX_ACCESS_TOKEN"] = line.split("=", 1)[1].strip()
+                            break
+
         df = None
         if custom_data and "df" in custom_data:
             df = custom_data["df"]
-        else:
+        elif os.getenv("BACKTEST_DATA_SOURCE", "").upper() == "UPSTOX" or os.getenv("USE_UPSTOX_PROVIDER", "").lower() == "true":
+            try:
+                from market_data.providers.upstox_provider import UpstoxProvider
+                provider = UpstoxProvider()
+                md = provider.get_ohlcv(symbol, interval="1d", period="1y")
+                df = getattr(md, "dataframe", None)
+            except Exception:
+                df = None
+
+        if df is None:
             p = os.path.join(_ROOT_DIR, "data", "history", "1d", f"{symbol}.parquet")
             if os.path.exists(p):
                 df = pd.read_parquet(p)
@@ -59,33 +77,68 @@ class TechnicalScannerAdapter(BaseScannerAdapter):
         if df is None or len(df) < 50:
             return self._build_empty(symbol, evaluation_date, mode, "DATA_INSUFFICIENT")
 
+        # Slice strictly to evaluation date (vectorized)
+        eval_dt_str = evaluation_date.split(" ")[0]
         time_col = next((c for c in ["Datetime", "Date", "timestamp"] if c in df.columns), None)
         if time_col:
-            eval_dt = datetime.strptime(evaluation_date.split(" ")[0], "%Y-%m-%d").date()
-            dt_s = pd.to_datetime(df[time_col], utc=True)
-            df = df[dt_s.apply(lambda x: x.astimezone(IST).date() <= eval_dt)].copy()
+            dt_str_series = df[time_col].astype(str).str[:10]
+            df = df[dt_str_series <= eval_dt_str].copy()
+        elif isinstance(df.index, pd.DatetimeIndex):
+            dt_str_series = df.index.astype(str).str[:10]
+            df = df[dt_str_series <= eval_dt_str].copy()
 
-        df = hydrate_indicators(df, timeframe="1d")
+        if len(df) < 50:
+            return self._build_empty(symbol, evaluation_date, mode, "DATA_INSUFFICIENT")
+
+        import technical_scanner
+        setup_res, trace = technical_scanner.detect_technical_setup(
+            df=df,
+            symbol=symbol,
+            return_trace=True
+        )
+
+        passed = setup_res is not None and bool(setup_res.get("passed", True))
+        pattern_name = (setup_res.get("primary_pattern") or setup_res.get("pattern") or setup_res.get("pattern_name", "NONE")) if setup_res else "NO_PATTERN"
+        score = float(setup_res.get("score", 0.0)) if setup_res else 0.0
+
+        # Hard Production Invariant: Only APPROVED_TECHNICAL_PATTERNS can generate alerts
+        from regime_pattern_policy import APPROVED_TECHNICAL_PATTERNS
+        if pattern_name not in APPROVED_TECHNICAL_PATTERNS:
+            passed = False
+            decision = "REJECTED"
+            reason = f"UNAPPROVED_PATTERN_{pattern_name}"
+        else:
+            decision = "SELECTED" if passed else "REJECTED"
+            reason = f"PATTERN_{pattern_name}" if passed else (trace.get("terminal_rejection_reason", "NO_VALID_SETUP"))
+
         latest = df.iloc[-1]
-
         close_p = float(latest.get("Close", 0.0))
-        ema9 = float(latest.get("EMA9", 0.0))
-        ema20 = float(latest.get("EMA20", 0.0))
-        sma50 = float(latest.get("SMA50", 0.0))
+        ema9 = float(latest.get("EMA9", 0.0)) if "EMA9" in latest else 0.0
+        ema20 = float(latest.get("EMA20", 0.0)) if "EMA20" in latest else 0.0
+        sma50 = float(latest.get("SMA50", 0.0)) if "SMA50" in latest else 0.0
         sma200 = float(latest.get("SMA200", 0.0)) if "SMA200" in latest else 0.0
-        rsi = float(latest.get("RSI", 50.0))
+        rsi = float(latest.get("RSI", 50.0)) if "RSI" in latest else 50.0
 
-        # Technical Gates
-        ma_alignment = (close_p > ema20) and (ema20 > sma50)
-        rsi_bullish = (55.0 <= rsi <= 75.0)
-
-        passed = ma_alignment and rsi_bullish
-        decision = "SELECTED" if passed else "REJECTED"
-        reason = "TECHNICAL_ALIGNMENT_PASS" if passed else ("MA_NOT_ALIGNED" if not ma_alignment else "RSI_OUT_OF_RANGE")
-
+        ma_aligned = bool((close_p >= sma50) if sma50 > 0 else True)
         gates = {
-            "MA_ALIGNMENT": GateAuditResult("MA_ALIGNMENT", ma_alignment, "PASS" if ma_alignment else "FAIL", ema20, sma50, ">", "EMA20 > SMA50"),
-            "RSI_BULLISH": GateAuditResult("RSI_BULLISH", rsi_bullish, "PASS" if rsi_bullish else "FAIL", rsi, 55.0, ">=", "RSI in 55-75 range")
+            "TECHNICAL_PATTERN_QUALIFIED": GateAuditResult(
+                name="TECHNICAL_PATTERN_QUALIFIED",
+                passed=passed,
+                status="PASS" if passed else "FAIL",
+                actual=score,
+                threshold=70.0,
+                operator=">=",
+                reason=reason
+            ),
+            "MA_ALIGNMENT": GateAuditResult(
+                name="MA_ALIGNMENT",
+                passed=ma_aligned,
+                status="PASS" if ma_aligned else "FAIL",
+                actual=close_p,
+                threshold=sma50,
+                operator=">=",
+                reason="CLOSE_GE_SMA50" if ma_aligned else "CLOSE_LT_SMA50"
+            )
         }
 
         indicators = {
@@ -94,7 +147,11 @@ class TechnicalScannerAdapter(BaseScannerAdapter):
             "EMA20": ema20,
             "SMA50": sma50,
             "SMA200": sma200,
-            "RSI": rsi
+            "RSI": rsi,
+            "Pattern": pattern_name,
+            "Tier": setup_res.get("tier", "NONE") if setup_res else "NONE",
+            "StopLoss": setup_res.get("stop_loss", 0.0) if setup_res else 0.0,
+            "Target1": setup_res.get("target_1", 0.0) if setup_res else 0.0,
         }
 
         snap = FrozenDataSnapshot(
@@ -104,6 +161,8 @@ class TechnicalScannerAdapter(BaseScannerAdapter):
             end_date=evaluation_date,
             sha256_hash=get_dataframe_hash(df)
         )
+
+        sb = setup_res.get("score_breakdown", {"score": score if passed else 0.0}) if (passed and setup_res) else {"score": 0.0}
 
         return ProductionDecisionRecord(
             symbol=symbol,
@@ -119,8 +178,8 @@ class TechnicalScannerAdapter(BaseScannerAdapter):
             data_snapshot=snap,
             indicators=indicators,
             gate_results=gates,
-            score_breakdown={"score": 80.0 if passed else 0.0},
-            final_score=80.0 if passed else 0.0,
+            score_breakdown=sb,
+            final_score=score if passed else 0.0,
             terminal_decision=decision,
             alert_generated=passed,
             rejection_reason=reason,

@@ -327,10 +327,12 @@ class UpstoxInstrumentMapper:
                 self._last_download_ts = time.time()
                 self._is_downloading = False
 
-            # Persist to disk
+            # Persist to disk atomically
             os.makedirs(os.path.dirname(_CACHE_FILE), exist_ok=True)
-            with open(_CACHE_FILE, "w") as f:
+            tmp_cache = _CACHE_FILE + ".tmp"
+            with open(tmp_cache, "w") as f:
                 json.dump(new_map, f)
+            os.replace(tmp_cache, _CACHE_FILE)
 
             # Persist to DB
             try:

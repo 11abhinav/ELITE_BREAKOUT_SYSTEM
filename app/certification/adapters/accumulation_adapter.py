@@ -59,34 +59,52 @@ class AccumulationVCPAdapter(BaseScannerAdapter):
         if df is None or len(df) < 50:
             return self._build_empty(symbol, evaluation_date, mode, "DATA_INSUFFICIENT")
 
+        # Slice strictly to evaluation date (vectorized)
+        eval_dt_str = evaluation_date.split(" ")[0]
         time_col = next((c for c in ["Datetime", "Date", "timestamp"] if c in df.columns), None)
         if time_col:
-            eval_dt = datetime.strptime(evaluation_date.split(" ")[0], "%Y-%m-%d").date()
-            dt_s = pd.to_datetime(df[time_col], utc=True)
-            df = df[dt_s.apply(lambda x: x.astimezone(IST).date() <= eval_dt)].copy()
+            dt_str_series = df[time_col].astype(str).str[:10]
+            df = df[dt_str_series <= eval_dt_str].copy()
+        elif isinstance(df.index, pd.DatetimeIndex):
+            dt_str_series = df.index.astype(str).str[:10]
+            df = df[dt_str_series <= eval_dt_str].copy()
 
-        df = hydrate_indicators(df, timeframe="1d")
+        if len(df) < 50:
+            return self._build_empty(symbol, evaluation_date, mode, "DATA_INSUFFICIENT")
+
+        import accumulation_scanner
+        scanner = accumulation_scanner.AccumulationScanner()
+        eval_res = scanner.evaluate_symbol(
+            symbol=symbol,
+            df=df,
+            fund_data=custom_data.get("fund_data") if custom_data else None,
+            run_id=f"ACCUM_REPLAY_{symbol}_{eval_dt_str}"
+        )
+
+        passed = (eval_res.get("status") == "QUALIFIED")
+        decision = "SELECTED" if passed else "REJECTED"
+        reason = eval_res.get("reason", "ACCUMULATION_ARMED" if passed else "REJECTED")
+        score = float(eval_res.get("score", 0.0))
+
         latest = df.iloc[-1]
-
         close_p = float(latest.get("Close", 0.0))
-        bb_width_pctile = float(latest.get("BB_WIDTH_PCTILE", 0.50))
-        base_width = float(latest.get("BASE_WIDTH", 0.20))
-        vcp_tightening = bool(latest.get("VCP_TIGHTENING", False))
+        bb_width_pctile = float(latest.get("BB_WIDTH_PCTILE", 0.50)) if "BB_WIDTH_PCTILE" in latest else 0.50
+        base_width = float(latest.get("BASE_WIDTH", 0.20)) if "BASE_WIDTH" in latest else 0.20
+        vcp_tightening = bool(latest.get("VCP_TIGHTENING", False)) if "VCP_TIGHTENING" in latest else False
         vol = float(latest.get("Volume", 0.0))
         avg_vol = float(df["Volume"].iloc[-21:-1].mean()) if len(df) >= 22 else vol
         vol_ratio = vol / avg_vol if avg_vol > 0 else 1.0
 
-        # Accumulation / VCP gates
-        is_tight_base = (bb_width_pctile <= 0.40) or (base_width <= 0.15)
-        volume_dryup = (vol_ratio <= 0.70) or vcp_tightening
-
-        passed = is_tight_base and volume_dryup
-        decision = "SELECTED" if passed else "REJECTED"
-        reason = "VCP_ACCUMULATION_ARMED" if passed else ("BASE_TOO_LOOSE" if not is_tight_base else "NO_VOLUME_DRYUP")
-
         gates = {
-            "BASE_COMPRESSION": GateAuditResult("BASE_COMPRESSION", is_tight_base, "PASS" if is_tight_base else "FAIL", bb_width_pctile, 0.40, "<=", "BB width percentile <= 0.40"),
-            "VOLUME_DRYUP": GateAuditResult("VOLUME_DRYUP", volume_dryup, "PASS" if volume_dryup else "FAIL", vol_ratio, 0.70, "<=", "Volume contracted during tight base")
+            "ACCUMULATION_QUALIFIED": GateAuditResult(
+                name="ACCUMULATION_QUALIFIED",
+                passed=passed,
+                status="PASS" if passed else "FAIL",
+                actual=score,
+                threshold=4.0,
+                operator=">=",
+                reason=reason
+            )
         }
 
         indicators = {

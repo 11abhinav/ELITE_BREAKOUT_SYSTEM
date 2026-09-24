@@ -446,25 +446,30 @@ def detect_wyckoff_spring_type_2(
     else:
         op = opens[t]
 
-    prior_support = np.min(lows[t - 30 : t - 15])
-    spring_slice = lows[t - 15 : t - 5]
-    if len(spring_slice) == 0: return False
-    spring_low = np.min(spring_slice)
-    if not (spring_low < prior_support and spring_low >= prior_support * 0.95): return False
-
-    spring_idx = t - 15 + np.argmin(spring_slice)
-    spring_vol = volumes[spring_idx]
-
-    # Secondary test at [t-3, t]
-    test_slice = lows[t - 3 : t + 1]
-    test_low = np.min(test_slice)
-    if test_low < spring_low: return False # Test must hold spring low
-
-    # Reclaim and volume dry on test
-    reclaim_ok = bool(closes[t] > prior_support and closes[t] > op)
     vol_sma20 = np.mean(volumes[t - 20 : t])
     vol_ok = bool(vol_sma20 > 0 and volumes[t] >= vol_sma20 * 1.10)
-    return bool(reclaim_ok and vol_ok)
+    if not vol_ok:
+        return False
+
+    for offset in (15, 12, 10, 8):
+        prior_support = np.min(lows[t - 30 : t - offset])
+        spring_slice = lows[t - offset : t - 4]
+        if len(spring_slice) == 0:
+            continue
+        spring_low = np.min(spring_slice)
+        if not (spring_low < prior_support and spring_low >= prior_support * 0.94):
+            continue
+
+        test_slice = lows[t - 3 : t + 1]
+        test_low = np.min(test_slice)
+        if test_low < spring_low:
+            continue
+
+        reclaim_ok = bool(closes[t] > prior_support and closes[t] > op)
+        if reclaim_ok:
+            return True
+
+    return False
 
 
 def detect_falling_wedge_reversal(

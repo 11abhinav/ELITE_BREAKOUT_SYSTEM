@@ -60,74 +60,57 @@ class ReversalScannerAdapter(BaseScannerAdapter):
         if df is None or len(df) < 20:
             return self._build_empty(symbol, evaluation_date, mode, "DATA_INSUFFICIENT")
 
-        # Slice to evaluation date
+        # Slice strictly to evaluation date (vectorized)
+        eval_dt_str = evaluation_date.split(" ")[0]
         time_col = next((c for c in ["Datetime", "Date", "timestamp"] if c in df.columns), None)
         if time_col:
-            eval_dt = datetime.strptime(evaluation_date.split(" ")[0], "%Y-%m-%d").date()
-            dt_s = pd.to_datetime(df[time_col], utc=True)
-            df = df[dt_s.apply(lambda x: x.astimezone(IST).date() <= eval_dt)].copy()
+            dt_str_series = df[time_col].astype(str).str[:10]
+            df = df[dt_str_series <= eval_dt_str].copy()
+        elif isinstance(df.index, pd.DatetimeIndex):
+            dt_str_series = df.index.astype(str).str[:10]
+            df = df[dt_str_series <= eval_dt_str].copy()
 
-        df = hydrate_indicators(df, timeframe="1d")
+        if len(df) < 20:
+            return self._build_empty(symbol, evaluation_date, mode, "DATA_INSUFFICIENT")
+
+        regime = prod_record.market_regime if prod_record else "NEUTRAL"
+        import reversal_scanner
+        eval_res = reversal_scanner.evaluate_reversal_symbol(
+            symbol=symbol,
+            ticker=df,
+            fund_data=custom_data.get("fund_data") if custom_data else None,
+            regime_ctx={"current_regime": regime, "trend": regime}
+        )
+
+        passed = eval_res.get("qualified", False)
+        decision = "SELECTED" if passed else "REJECTED"
+        reasons_list = eval_res.get("reasons", [])
+        reason = reasons_list[0] if reasons_list else ("VALID_REVERSAL" if passed else "REJECTED")
+        score = float(eval_res.get("score", 0.0))
+
         latest = df.iloc[-1]
-        prev = df.iloc[-2]
-
         close_p = float(latest.get("Close", 0.0))
-        open_p = float(latest.get("Open", 0.0))
-        high_p = float(latest.get("High", 0.0))
-        low_p = float(latest.get("Low", 0.0))
-        rsi_val = float(latest.get("RSI", 50.0))
+        rsi_val = float(latest.get("RSI", 50.0)) if "RSI" in latest else 50.0
         vol = float(latest.get("Volume", 0.0))
         avg_vol = float(df["Volume"].iloc[-21:-1].mean()) if len(df) >= 22 else vol
         vol_ratio = vol / avg_vol if avg_vol > 0 else 1.0
 
-        # Reversal conditions: Hammer / Bullish Engulfing after selloff + RSI oversold recovery
-        is_hammer = (close_p > open_p) and ((open_p - low_p) >= 2.0 * abs(close_p - open_p)) and ((high_p - close_p) <= 0.2 * (high_p - low_p))
-        is_engulfing = (close_p > open_p) and (float(prev.get("Close", 0.0)) < float(prev.get("Open", 0.0))) and (close_p >= float(prev.get("High", 0.0))) and (open_p <= float(prev.get("Low", 0.0)))
-        has_candle_pattern = is_hammer or is_engulfing
-
-        rsi_oversold_recovery = (rsi_val >= 30.0 and float(prev.get("RSI", rsi_val)) < 30.0) or (rsi_val <= 38.0)
-        volume_exhaustion = (vol_ratio >= 1.50)
-
-        passed = has_candle_pattern and rsi_oversold_recovery and volume_exhaustion
-        decision = "SELECTED" if passed else "REJECTED"
-        reason = "VALID_REVERSAL" if passed else ("NO_REVERSAL_CANDLE" if not has_candle_pattern else ("RSI_NOT_OVERSOLD" if not rsi_oversold_recovery else "LOW_EXHAUSTION_VOLUME"))
-
         gates = {
-            "REVERSAL_CANDLE_PATTERN": GateAuditResult(
-                name="REVERSAL_CANDLE_PATTERN",
-                passed=has_candle_pattern,
-                status="PASS" if has_candle_pattern else "FAIL",
-                actual=1.0 if has_candle_pattern else 0.0,
-                threshold=1.0,
-                operator="==",
-                reason="Bullish hammer or engulfing candle" if has_candle_pattern else "No reversal candle pattern"
-            ),
-            "RSI_OVERSOLD_RECOVERY": GateAuditResult(
-                name="RSI_OVERSOLD_RECOVERY",
-                passed=rsi_oversold_recovery,
-                status="PASS" if rsi_oversold_recovery else "FAIL",
-                actual=rsi_val,
-                threshold=38.0,
-                operator="<=",
-                reason="RSI in oversold recovery zone" if rsi_oversold_recovery else "RSI not in oversold zone"
-            ),
-            "EXHAUSTION_VOLUME": GateAuditResult(
-                name="EXHAUSTION_VOLUME",
-                passed=volume_exhaustion,
-                status="PASS" if volume_exhaustion else "FAIL",
-                actual=vol_ratio,
-                threshold=1.50,
+            "REVERSAL_QUALIFIED": GateAuditResult(
+                name="REVERSAL_QUALIFIED",
+                passed=passed,
+                status="PASS" if passed else "FAIL",
+                actual=score,
+                threshold=75.0,
                 operator=">=",
-                reason="Exhaustion volume >= 1.50x" if volume_exhaustion else "Volume ratio < 1.50x"
+                reason=reason
             )
         }
 
         indicators = {
             "Close": close_p,
             "RSI": rsi_val,
-            "RVOL": vol_ratio,
-            "IS_HAMMER": is_hammer,
-            "IS_ENGULFING": is_engulfing
+            "RVOL": vol_ratio
         }
 
         snap = FrozenDataSnapshot(

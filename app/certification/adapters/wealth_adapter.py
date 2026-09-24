@@ -68,9 +68,13 @@ class WealthScannerAdapter(BaseScannerAdapter):
         # 2. Slice strictly up to evaluation date
         time_col = next((c for c in ["Datetime", "Date", "timestamp"] if c in df_daily.columns), None)
         if time_col:
-            eval_dt = datetime.strptime(evaluation_date.split(" ")[0], "%Y-%m-%d").date()
-            dt_s = pd.to_datetime(df_daily[time_col], utc=True).dt.tz_convert(IST).dt.date
-            df_daily = df_daily[dt_s <= eval_dt].copy()
+            eval_dt_str = evaluation_date.split(" ")[0]
+            dt_str_series = df_daily[time_col].astype(str).str[:10]
+            df_daily = df_daily[dt_str_series <= eval_dt_str].copy()
+        elif isinstance(df_daily.index, pd.DatetimeIndex):
+            eval_dt_str = evaluation_date.split(" ")[0]
+            dt_str_series = df_daily.index.astype(str).str[:10]
+            df_daily = df_daily[dt_str_series <= eval_dt_str].copy()
 
         if len(df_daily) < 15:
             return self._build_empty_record(symbol, evaluation_date, mode, "INSUFFICIENT_BARS_FOR_WEALTH")

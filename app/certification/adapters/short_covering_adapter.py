@@ -83,6 +83,18 @@ class ShortCoveringScannerAdapter(BaseScannerAdapter):
             if os.path.exists(p5):
                 df_5m = pd.read_parquet(p5)
 
+        # If data is present, slice strictly up to evaluation_date
+        if df_5m is not None and not df_5m.empty:
+            time_col = next((c for c in ["timestamp", "Datetime", "Date", "date"] if c in df_5m.columns), None)
+            if time_col:
+                eval_dt_str = evaluation_date.split(" ")[0]
+                dt_str_series = df_5m[time_col].astype(str).str[:10]
+                df_5m = df_5m[dt_str_series <= eval_dt_str].copy()
+            elif isinstance(df_5m.index, pd.DatetimeIndex):
+                eval_dt_str = evaluation_date.split(" ")[0]
+                dt_str_series = df_5m.index.astype(str).str[:10]
+                df_5m = df_5m[dt_str_series <= eval_dt_str].copy()
+
         # If data is insufficient or missing
         if df_5m is None or len(df_5m) < 2:
             health = ShortCoveringDataHealth(

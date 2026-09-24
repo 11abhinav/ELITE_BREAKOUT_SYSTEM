@@ -80,52 +80,71 @@ class MultiTFScannerAdapter(BaseScannerAdapter):
         if df_daily is None or df_daily.empty:
             return self._build_empty_record(symbol, evaluation_date, mode, "MISSING_DAILY_DATA")
 
-        # 2. Slice strictly up to evaluation date
+        # 2. Slice strictly up to evaluation date (vectorized)
+        eval_dt_str = evaluation_date.split(" ")[0]
         time_col = next((c for c in ["Datetime", "Date", "timestamp"] if c in df_daily.columns), None)
         if time_col:
-            eval_dt = datetime.strptime(evaluation_date.split(" ")[0], "%Y-%m-%d").date()
-            dt_s = pd.to_datetime(df_daily[time_col], utc=True)
-            df_daily = df_daily[dt_s.apply(lambda x: x.astimezone(IST).date() <= eval_dt)].copy()
+            dt_str_series = df_daily[time_col].astype(str).str[:10]
+            df_daily = df_daily[dt_str_series <= eval_dt_str].copy()
+        elif isinstance(df_daily.index, pd.DatetimeIndex):
+            dt_str_series = df_daily.index.astype(str).str[:10]
+            df_daily = df_daily[dt_str_series <= eval_dt_str].copy()
+
+        if len(df_daily) < 20:
+            return self._build_empty_record(symbol, evaluation_date, mode, "DATA_INSUFFICIENT")
+
+        # Load 1h / 15m if available
+        df_1h = None
+        p1h = os.path.join(_ROOT_DIR, "data", "history", "1h", f"{symbol}.parquet")
+        if os.path.exists(p1h):
+            try:
+                raw_1h = pd.read_parquet(p1h)
+                tcol = next((c for c in ["Datetime", "Date", "timestamp"] if c in raw_1h.columns), None)
+                if tcol:
+                    df_1h = raw_1h[raw_1h[tcol].astype(str).str[:10] <= eval_dt_str].copy()
+                elif isinstance(raw_1h.index, pd.DatetimeIndex):
+                    df_1h = raw_1h[raw_1h.index.astype(str).str[:10] <= eval_dt_str].copy()
+            except Exception:
+                df_1h = None
+
+        # Build synthetic weekly from daily for weekly thesis check
+        try:
+            w_df = df_daily.copy()
+            if time_col and not isinstance(w_df.index, pd.DatetimeIndex):
+                w_df.index = pd.to_datetime(w_df[time_col], utc=True)
+            df_weekly = w_df.resample('W-FRI').agg({
+                'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
+            }).dropna()
+        except Exception:
+            df_weekly = df_daily
+
+        # Evaluate via production Multi-TF V2 Engine
+        mtf_res = multi_tf_engine.evaluate_multi_tf_v2_symbol(
+            symbol=symbol,
+            weekly_df=df_weekly,
+            daily_df=df_daily,
+            hourly_df=df_1h if df_1h is not None else df_daily
+        )
+
+        final_alert = (mtf_res.get("state") in ("PROVISIONAL_BREAKOUT", "CONFIRMED_BREAKOUT"))
+        decision = "SELECTED" if final_alert else "REJECTED"
+        rejection_reason = mtf_res.get("reason", "CONFIRMED" if final_alert else "NO_VALID_SETUP")
 
         df_daily = hydrate_indicators(df_daily, timeframe="1d")
         latest_daily = df_daily.iloc[-1]
-
-        # 3. Multi-TF Phase Evaluation
         close_p = float(latest_daily.get("Close", 0.0))
         atr20 = float(latest_daily.get("ATR20", close_p * 0.025))
         prior_high = float(latest_daily.get("PRIOR_20D_HIGH", latest_daily.get("HIGH_20D", close_p)))
 
-        # Evaluate lifecycle progression
-        h15_created = (close_p >= prior_high * 0.985)
-        h15_validated = (close_p >= prior_high)
-        m5_confirmed = False
-        final_alert = False
-
-        m5_polling = []
-        if df_5m is not None and not df_5m.empty:
-            # Replay 5m polling cycle
-            sub_5m = df_5m.tail(6)
-            for idx, r in sub_5m.iterrows():
-                r_c = float(r.get("Close", 0.0))
-                r_v = float(r.get("Volume", 0.0))
-                is_conf = (r_c > prior_high and r_v > 0)
-                m5_polling.append({
-                    "timestamp": str(idx),
-                    "close": r_c,
-                    "volume": r_v,
-                    "confirmed": is_conf
-                })
-                if is_conf:
-                    m5_confirmed = True
-
-        final_alert = (h15_validated and m5_confirmed)
-        decision = "SELECTED" if final_alert else "REJECTED"
-        rejection_reason = "CONFIRMED" if final_alert else ("5M_UNCONFIRMED" if h15_validated else "15M_BREAKOUT_INCOMPLETE")
+        h15_created = bool(close_p >= prior_high * 0.985)
+        h15_validated = bool(close_p >= prior_high)
+        m5_confirmed = final_alert
 
         sl = round(close_p - 1.5 * atr20, 2)
         tgt_1 = round(close_p + 2.0 * atr20, 2)
         tgt_2 = round(close_p + 3.5 * atr20, 2)
 
+        m5_polling = []
         lifecycle = MultiTFLifecycleTrace(
             symbol=symbol,
             h15_timestamp=f"{evaluation_date} 15:15:00 IST",

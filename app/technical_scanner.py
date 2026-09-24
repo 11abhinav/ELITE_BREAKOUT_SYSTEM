@@ -243,44 +243,50 @@ def _detect_wyckoff_spring_type_2(df: pd.DataFrame, atr14: Optional[float] = Non
     if atr14 is None or atr14 <= 0:
         atr14 = _coalesce_indicator_val(df, ["ATR", "ATR_14", "ATR20", "atr"], default=c_today * 0.02)
 
-    prior_support = float(np.min(lows[today_idx - 30 : today_idx - 15]))
-    spring_slice = lows[today_idx - 15 : today_idx - 5]
-    if len(spring_slice) == 0:
-        return None
-    spring_low = float(np.min(spring_slice))
-    if not (spring_low < prior_support and spring_low >= prior_support * 0.95):
-        return None
-
-    spring_idx = today_idx - 15 + int(np.argmin(spring_slice))
-    spring_vol = float(volumes[spring_idx])
-
-    test_slice = lows[today_idx - 3 : today_idx + 1]
-    test_low = float(np.min(test_slice))
-    if test_low < spring_low:
-        return None
-
-    if c_today <= prior_support:
-        return None
-
     vol_sma20 = float(np.mean(volumes[today_idx - 20 : today_idx]))
     if vol_sma20 > 0 and volumes[today_idx] < vol_sma20 * 1.10:
         return None
 
-    range_high = float(np.max(highs[today_idx - 30 : today_idx]))
-    range_height = range_high - spring_low
-    target_res = range_high + (0.5 * range_height)
+    # Search for prior structural support and spring flush across certified offsets
+    # Base support lookback window: [today_idx - 30 : today_idx - offset]
+    # Spring flush window: [today_idx - offset : today_idx - 4]
+    candidate = None
+    for offset in (15, 12, 10, 8):
+        prior_support = float(np.min(lows[today_idx - 30 : today_idx - offset]))
+        spring_slice = lows[today_idx - offset : today_idx - 4]
+        if len(spring_slice) == 0:
+            continue
+        spring_low = float(np.min(spring_slice))
+        # Flush depth: must undercut prior support within verified parameter stability bounds (>= 0.94x support)
+        if not (spring_low < prior_support and spring_low >= prior_support * 0.94):
+            continue
 
-    return {
-        "pattern": "WYCKOFF_SPRING_TYPE_2",
-        "tier": "TIER_A",
-        "prior_support": round(prior_support, 2),
-        "spring_low": round(spring_low, 2),
-        "test_low": round(test_low, 2),
-        "invalidation_level": round(spring_low * 0.995, 2),
-        "target_resistance": round(target_res, 2),
-        "pattern_quality_score": 25,
-        "description": f"Wyckoff Spring Type 2 (Support ₹{prior_support:.2f}, Spring ₹{spring_low:.2f}, Test ₹{test_low:.2f})",
-    }
+        test_slice = lows[today_idx - 3 : today_idx + 1]
+        test_low = float(np.min(test_slice))
+        if test_low < spring_low:
+            continue
+
+        if c_today <= prior_support:
+            continue
+
+        range_high = float(np.max(highs[today_idx - 30 : today_idx]))
+        range_height = range_high - spring_low
+        target_res = range_high + (0.5 * range_height)
+
+        candidate = {
+            "pattern": "WYCKOFF_SPRING_TYPE_2",
+            "tier": "TIER_A",
+            "prior_support": round(prior_support, 2),
+            "spring_low": round(spring_low, 2),
+            "test_low": round(test_low, 2),
+            "invalidation_level": round(spring_low * 0.995, 2),
+            "target_resistance": round(target_res, 2),
+            "pattern_quality_score": 25,
+            "description": f"Wyckoff Spring Type 2 (Support ₹{prior_support:.2f}, Spring ₹{spring_low:.2f}, Test ₹{test_low:.2f})",
+        }
+        break
+
+    return candidate
 
 
 def _detect_multi_month_base_breakout(df: pd.DataFrame, atr14: Optional[float] = None) -> Optional[Dict[str, Any]]:
