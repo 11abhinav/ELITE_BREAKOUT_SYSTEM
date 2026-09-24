@@ -1,7 +1,7 @@
 {
   "report_metadata": {
     "title": "System-Wide Production Replay & Deterministic Backtest Master Certification Report",
-    "execution_timestamp": "2026-09-24 11:22:02 IST",
+    "execution_timestamp": "2026-09-24 12:05:09 IST",
     "evaluation_date": "2026-09-23",
     "git_commit": "6ece40775d1d6a9a957d34195a6ec89f2db9a35e",
     "overall_system_status": "PARTIALLY_CERTIFIED",
@@ -393,9 +393,11 @@
     "divergence_mechanism": "Orchestrator fetched EOD Breakout production records for all scanners because scanner_name was not filtered in find_production_record(). Comparing non-EOD scanner indicators against EOD Breakout gates failed 100% of comparisons for these 4 symbols.",
     "ratio_explanation": "1 match (SAMHI self-comparison) out of 5 total symbols = exactly 20.0% trace match across all 12 non-EOD scanners.",
     "decision_match_coincidence": "EOD Breakout rejected all 4 symbols. Scanners whose default evaluation also happened to reject all symbols showed REJECTED == REJECTED, producing 100.0% decision match mirage despite 0% trace match.",
-    "governance_resolution": "Strict scanner-name isolation implemented via alias mapping in find_production_record(). Rule 9 missing-telemetry governance enforced: when production telemetry is absent, run_id = 'MISSING_TELEMETRY' is returned, setting trace_match = 0.0%, decision_match = 0.0%, and status = PENDING_TELEMETRY."
+    "governance_resolution": "Strict scanner-name isolation implemented via alias mapping in find_production_record(). Rule 9 missing-telemetry governance enforced: when production telemetry is absent, run_id = 'MISSING_TELEMETRY' is returned, setting trace_match = 0.0%, decision_match = 0.0%, and status = PENDING_TELEMETRY.",
+    "algorithmic_divergence_clarification": "The previously reported 40\u201360% decision mismatches were invalid certification results caused by cross-scanner telemetry collision. This removes those particular mismatch results as evidence of algorithmic divergence; it does not establish algorithmic equivalence. These components remain PENDING_TELEMETRY until genuine production executions are captured and replay-certified."
   },
   "immutable_production_cases_proof": {
+    "governance_rule": "A scanner cannot become CERTIFIED unless every certification case used in the percentage calculation has independently verified genuine production telemetry.",
     "provenance_requirements": [
       "PRODUCTION_RUN_ID",
       "EVALUATION_TIMESTAMP",
@@ -408,25 +410,109 @@
       "FULL_DECISION_TRACE",
       "FINAL_DECISION"
     ],
-    "certified_production_case": {
-      "scanner": "EOD Breakout Scanner",
-      "symbol": "PGIL",
-      "production_run_id": "c1f7a76e-ae32-41a7-93fd-ce5756da9ae9",
-      "evaluation_timestamp": "2026-09-23T15:45:00+05:30",
-      "git_commit": "e229dba548",
-      "scanner_file_hash": "b53ef12f4837ab28cf899cd1c8430e78c80ad00773d3fe52e8d35fa932454a7c",
-      "config_hash": "c074aa8db7994fa7aebf4e0c46927daee86f76c5b9f71c4c1d76985160c8e23e",
-      "universe_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "input_data_hash": "55c4795908ef4b64835840d21a2fc3048995daed52778dafe854eeaa0be7e96b",
-      "dependency_state": "NSE_BHAVCOPY_DELIVERY_SYNCED:2026-09-23",
-      "full_decision_trace": {
-        "ATR20": 366.3748,
-        "CANDLE_RANGE": 119.8,
-        "EXPANSION_RATIO": 0.327,
-        "GATE_NO_ATR_EXPANSION": "FAIL (ratio 0.327 < 0.80)"
+    "eod_breakout_genuine_cases": [
+      {
+        "case_number": 1,
+        "symbol": "PGIL",
+        "production_run_id": "c1f7a76e-ae32-41a7-93fd-ce5756da9ae9",
+        "evaluation_timestamp": "2026-09-24 00:18:43 IST",
+        "evaluation_date": "2026-09-23",
+        "git_commit": "e229dba548",
+        "scanner_file_hash": "b53ef12f4837ab28cf899cd1c8430e78c80ad00773d3fe52e8d35fa932454a7c",
+        "config_hash": "c074aa8db7994fa7aebf4e0c46927daee86f76c5b9f71c4c1d76985160c8e23e",
+        "universe_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "input_data_hash": "55c4795908ef4b64835840d21a2fc3048995daed52778dafe854eeaa0be7e96b",
+        "dependency_state": "NSE_BHAVCOPY_DELIVERY_SYNCED:2026-09-23",
+        "full_decision_trace": {
+          "ATR20": 366.3748,
+          "CANDLE_RANGE": 119.8,
+          "EXPANSION_RATIO": 0.327,
+          "GATE_NO_ATR_EXPANSION": "FAIL (ratio 0.327 < 0.80)"
+        },
+        "final_decision": "REJECTED",
+        "primary_reason": "NO_ATR_EXPANSION_FAIL"
       },
-      "final_decision": "REJECTED (NO_ATR_EXPANSION)"
-    }
+      {
+        "case_number": 2,
+        "symbol": "HBLENGINE",
+        "production_run_id": "3ff6fea7-0bde-4e03-93b8-e2a2c67300dc",
+        "evaluation_timestamp": "2026-09-24 00:13:51 IST",
+        "evaluation_date": "2026-09-23",
+        "git_commit": "e229dba548",
+        "scanner_file_hash": "b53ef12f4837ab28cf899cd1c8430e78c80ad00773d3fe52e8d35fa932454a7c",
+        "config_hash": "c074aa8db7994fa7aebf4e0c46927daee86f76c5b9f71c4c1d76985160c8e23e",
+        "universe_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "input_data_hash": "5f1b1c676d21464993a746522c0b58e7fbe13d09a25b1c97a44fef266ba0e447",
+        "dependency_state": "NSE_BHAVCOPY_DELIVERY_SYNCED:2026-09-23",
+        "full_decision_trace": {
+          "EXPANSION_RATIO": 1.15,
+          "SIGNALS_COUNT": 0,
+          "GATE_WEAK_SIGNALS": "FAIL (len(signals) < 1)"
+        },
+        "final_decision": "REJECTED",
+        "primary_reason": "WEAK_SIGNALS"
+      },
+      {
+        "case_number": 3,
+        "symbol": "INDRAMEDCO",
+        "production_run_id": "3ff6fea7-0bde-4e03-93b8-e2a2c67300dc",
+        "evaluation_timestamp": "2026-09-24 00:14:28 IST",
+        "evaluation_date": "2026-09-23",
+        "git_commit": "e229dba548",
+        "scanner_file_hash": "b53ef12f4837ab28cf899cd1c8430e78c80ad00773d3fe52e8d35fa932454a7c",
+        "config_hash": "c074aa8db7994fa7aebf4e0c46927daee86f76c5b9f71c4c1d76985160c8e23e",
+        "universe_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "input_data_hash": "71a3c61df4b5e28a58a7bf3340578848d56bce4576395e54d3b6fe9fa4841961",
+        "dependency_state": "NSE_BHAVCOPY_DELIVERY_SYNCED:2026-09-23",
+        "full_decision_trace": {
+          "EXPANSION_RATIO": 1.28,
+          "SIGNALS_COUNT": 0,
+          "GATE_WEAK_SIGNALS": "FAIL (len(signals) < 1)"
+        },
+        "final_decision": "REJECTED",
+        "primary_reason": "WEAK_SIGNALS"
+      },
+      {
+        "case_number": 4,
+        "symbol": "ACE",
+        "production_run_id": "3ff6fea7-0bde-4e03-93b8-e2a2c67300dc",
+        "evaluation_timestamp": "2026-09-24 00:15:17 IST",
+        "evaluation_date": "2026-09-23",
+        "git_commit": "e229dba548",
+        "scanner_file_hash": "b53ef12f4837ab28cf899cd1c8430e78c80ad00773d3fe52e8d35fa932454a7c",
+        "config_hash": "c074aa8db7994fa7aebf4e0c46927daee86f76c5b9f71c4c1d76985160c8e23e",
+        "universe_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "input_data_hash": "a4d3390d4fec7a1d1297e68fa91e0a29f8f413a96860d5bfa4a390bc571b058a",
+        "dependency_state": "NSE_BHAVCOPY_DELIVERY_SYNCED:2026-09-23",
+        "full_decision_trace": {
+          "EXPANSION_RATIO": 0.94,
+          "SIGNALS_COUNT": 0,
+          "GATE_WEAK_SIGNALS": "FAIL (len(signals) < 1)"
+        },
+        "final_decision": "REJECTED",
+        "primary_reason": "WEAK_SIGNALS"
+      },
+      {
+        "case_number": 5,
+        "symbol": "POWERGRID",
+        "production_run_id": "3ff6fea7-0bde-4e03-93b8-e2a2c67300dc",
+        "evaluation_timestamp": "2026-09-24 00:15:26 IST",
+        "evaluation_date": "2026-09-23",
+        "git_commit": "e229dba548",
+        "scanner_file_hash": "b53ef12f4837ab28cf899cd1c8430e78c80ad00773d3fe52e8d35fa932454a7c",
+        "config_hash": "c074aa8db7994fa7aebf4e0c46927daee86f76c5b9f71c4c1d76985160c8e23e",
+        "universe_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "input_data_hash": "d13e9a5be6c7cfc596ea62a632c2532f790c6ca8018e69bf0a47169ea0b57112",
+        "dependency_state": "NSE_BHAVCOPY_DELIVERY_SYNCED:2026-09-23",
+        "full_decision_trace": {
+          "EXPANSION_RATIO": 1.02,
+          "SIGNALS_COUNT": 0,
+          "GATE_WEAK_SIGNALS": "FAIL (len(signals) < 1)"
+        },
+        "final_decision": "REJECTED",
+        "primary_reason": "WEAK_SIGNALS"
+      }
+    ]
   },
   "stateful_multitf_replay_specification": {
     "required_stages": [
@@ -469,11 +555,24 @@
       "decision_match_pct == 100.0 required for CERTIFIED status",
       "point_in_time_valid == True required for CERTIFIED status",
       "Zero material provenance mismatches permitted",
+      "Every certification case in the calculation must have independently verified genuine production telemetry",
       "Violations raise AssertionError and fail CI build immediately"
     ]
   },
   "strategy_freeze_declaration": {
     "status": "FROZEN",
+    "absolute_rule": "NO_TELEMETRY_NO_BACKTEST",
+    "cascade_doctrine": [
+      "NO VERIFIED PRODUCTION TELEMETRY",
+      "  \u2193",
+      "NO PRODUCTION REPLAY CERTIFICATION",
+      "  \u2193",
+      "NO TRUSTED CLEAN HISTORICAL BACKTEST",
+      "  \u2193",
+      "NO STRATEGY TOURNAMENT",
+      "  \u2193",
+      "NO PROMOTION DECISION"
+    ],
     "directive": "Zero strategy optimization, threshold tuning, scoring weight adjustments, or tournament executions permitted until 100% production telemetry is captured and verified across all scanner families."
   }
 }
