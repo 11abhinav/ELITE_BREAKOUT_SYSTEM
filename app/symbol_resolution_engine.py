@@ -261,16 +261,57 @@ class UpstoxAdapter(BaseProviderAdapter):
         except Exception:
             pass
 
-        candidates = [f"NSE_EQ|{sym}", f"BSE_EQ|{sym}", f"NSE_BE|{sym}", f"NSE_BZ|{sym}"]
+        candidates = []
+        try:
+            from market_data.providers.upstox_instrument_mapper import mapper
+            cand_key = mapper.get_instrument_key(sym, allow_fallback=True)
+            if cand_key:
+                candidates.append(cand_key)
+        except Exception:
+            pass
+
+        # Check corporate action aliases
+        _corporate_alias_map = {
+            "HEG": "HEGAM",
+            "TATAMOTORS": "TMPV",
+            "M_M": "M&M", "M-M": "M&M",
+            "M_MFIN": "M&MFIN", "M-MFIN": "M&MFIN",
+            "J_KBANK": "J&KBANK", "J-KBANK": "J&KBANK",
+            "L_TFH": "L&TFH", "L-TFH": "L&TFH",
+            "GVT_D": "GVT&D", "GVT-D": "GVT&D",
+            "T_IPOWER": "T&IPOWER", "T-IPOWER": "T&IPOWER",
+            "GUJGAS": "GUJGASLTD",
+            "GMRINFRA": "GMRAIRPORT",
+            "MCDOWELL-N": "UNITDSPR", "MCDOWELL": "UNITDSPR",
+        }
+        cand_alias = _corporate_alias_map.get(sym)
+        if cand_alias:
+            try:
+                from market_data.providers.upstox_instrument_mapper import mapper
+                alias_key = mapper.get_instrument_key(cand_alias, allow_fallback=True)
+                if alias_key:
+                    candidates.append(alias_key)
+            except Exception:
+                pass
+
         try:
             from bse_mapping_utils import load_bse_mappings
             bse_map = load_bse_mappings()
             bse_code = bse_map.get(sym) or bse_map.get(f"{sym}.NS") or bse_map.get(f"{sym}.BO")
+            if not bse_code and cand_alias:
+                bse_code = bse_map.get(cand_alias)
             if bse_code:
-                candidates.append(f"BSE_EQ|{bse_code}")
+                clean_bse = str(bse_code).upper().replace("BSE:", "").replace(".BO", "").strip()
+                try:
+                    from market_data.providers.upstox_instrument_mapper import mapper
+                    bse_key = mapper.get_instrument_key(clean_bse, allow_fallback=True)
+                    if bse_key:
+                        candidates.append(bse_key)
+                except Exception:
+                    pass
         except Exception:
             pass
-        candidates = list(dict.fromkeys(candidates))
+        candidates = [c for c in list(dict.fromkeys(candidates)) if c and "|" in c]
         try:
             from market_data.providers.upstox_provider import UpstoxProvider
             up = UpstoxProvider()

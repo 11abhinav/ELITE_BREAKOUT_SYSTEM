@@ -24,6 +24,23 @@ _bse_invalid_cache = None
 _last_fetch_time = 0.0
 _CACHE_TTL = 300  # Reload from DB every 5 mins
 
+_STATIC_BSE_SEEDS = {
+    "HEG": "509631",
+    "HEGAM": "509631",
+    "POONAWALLA": "524000",
+    "PFC": "532648",
+    "SENORES": "544256",
+    "MRF": "500290",
+    "TORNTPHARM": "500420",
+    "HINDUNILVR": "500696",
+    "HAL": "541154",
+    "AADHARHFC": "544175",
+    "MTARTECH": "543270",
+    "STLTECH": "532374",
+    "DIACABS": "532959",
+    "NSDL": "544256",
+}
+
 def load_bse_mappings() -> dict[str, str]:
     global _bse_mappings_cache, _bse_invalid_cache, _last_fetch_time
     now = time.time()
@@ -38,7 +55,9 @@ def load_bse_mappings() -> dict[str, str]:
                 # Load ACTIVE mappings
                 cur.execute("SELECT original_sym, mapped_sym FROM symbol_mappings WHERE mapping_type = 'BSE' AND (mapping_state = 'ACTIVE' OR (mapping_state IS NULL AND is_invalid = FALSE))")
                 rows = cur.fetchall()
-                _bse_mappings_cache = {row[0]: row[1] for row in rows}
+                loaded = {row[0]: row[1] for row in rows}
+                _bse_mappings_cache = dict(_STATIC_BSE_SEEDS)
+                _bse_mappings_cache.update(loaded)
                 
                 # Load INVALID mappings (only those whose retry_after is still in the future)
                 current_time = datetime.now(IST).isoformat()
@@ -55,7 +74,7 @@ def load_bse_mappings() -> dict[str, str]:
     except Exception as e:
         logger.warning(f"Failed to load BSE symbol mappings from DB: {e}")
         if _bse_mappings_cache is None:
-            _bse_mappings_cache = {}
+            _bse_mappings_cache = dict(_STATIC_BSE_SEEDS)
         if _bse_invalid_cache is None:
             _bse_invalid_cache = set()
             

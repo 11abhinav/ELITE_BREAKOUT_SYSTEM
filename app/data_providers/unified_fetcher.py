@@ -4,7 +4,6 @@ from typing import Optional, Dict
 from .fyers_fetcher import FyersFetcher
 from .provider_selector import selector
 from data_registry import registry
-from yf_rate_limiter import acquire as yf_acquire, release as yf_release
 
 import threading
 from datetime import datetime
@@ -19,6 +18,7 @@ _fyers_reauth_lock = threading.Lock()
 _last_fyers_reauth_ts = 0.0
 
 CORPORATE_ACTION_ALIASES = {
+    "HEG": "HEGAM",
     "TATAMOTORS": "TMPV",
     "M-M": "M&M",
     "M_M": "M&M",
@@ -30,6 +30,12 @@ CORPORATE_ACTION_ALIASES = {
     "L_TFH": "L&TFH",
     "GVT-D": "GVT&D",
     "GVT_D": "GVT&D",
+    "T-IPOWER": "T&IPOWER",
+    "T_IPOWER": "T&IPOWER",
+    "GUJGAS": "GUJGASLTD",
+    "GMRINFRA": "GMRAIRPORT",
+    "MCDOWELL-N": "UNITDSPR",
+    "MCDOWELL": "UNITDSPR",
 }
 
 class UnifiedFetcher:
@@ -120,63 +126,6 @@ class UnifiedFetcher:
                 except Exception as e:
                     provider_errors["fyers"] = str(e)
                     logger.warning(f"⚠️ [Fyers] Failed to fetch historical {symbol}: {e}")
-
-
-        error_details = ", ".join([f"{p}: {e}" for p, e in provider_errors.items()])
-
-        # [FIX 2026-09-23: YAHOO THIRD-TIER FALLBACK]
-        # Fyers and Upstox both maintain master contract CSVs that exclude certain NSE segments:
-        # T2T (Trade-to-Trade / BE series), recently relisted/renamed stocks, or newly admitted
-        # scrips not yet in their CDN refresh cycle. HEG is a confirmed example — absent from
-        # live Fyers NSE_CM.csv, BSE_CM.csv, and Upstox complete.csv.gz as of 2026-09-23, but
-        # fully available on Yahoo Finance (HEG.NS, last price ₹248.5).
-        # Yahoo Finance is authoritative for NSE equities regardless of trading segment.
-        # Only attempt Yahoo if both primary providers have already failed.
-        if provider_errors:
-            try:
-                from price_provider import PriceProvider
-                from core_enums import ProviderResult
-
-                # Yahoo Finance API constraints:
-                # Intraday intervals (1m, 2m, 5m, 15m, 30m, 60m, 1h) have strict max period limits on Yahoo.
-                # 1m -> max 7d. 2m..1h -> max 60d. Daily (1d) supports years.
-                # If callers pass '1y' for 5m, clamp to Yahoo's supported max period so Yahoo does not reject it.
-                yf_period = period
-                if interval in ("1m",):
-                    if yf_period not in ("1d", "5d", "7d"):
-                        yf_period = "7d"
-                elif interval in ("2m", "5m", "15m", "30m", "60m", "1h"):
-                    if any(p in str(yf_period).lower() for p in ("1y", "2y", "3y", "5y", "10y", "ytd", "max", "365d", "6mo", "3mo")):
-                        yf_period = "60d"
-
-                yf_provider = PriceProvider()
-                yf_sym = f"{clean_sym}.NS"
-                yf_result = yf_provider.fetch_batch([yf_sym], period=yf_period, interval=interval)
-                df_yf = yf_result.get(yf_sym) if yf_result else None
-
-                # If NSE (.NS) did not return a valid DataFrame, try BSE (.BO) fallback
-                if not (isinstance(df_yf, pd.DataFrame) and not df_yf.empty):
-                    yf_sym_bse = f"{clean_sym}.BO"
-                    yf_result_bse = yf_provider.fetch_batch([yf_sym_bse], period=yf_period, interval=interval)
-                    df_yf_bse = yf_result_bse.get(yf_sym_bse) if yf_result_bse else None
-                    if isinstance(df_yf_bse, pd.DataFrame) and not df_yf_bse.empty:
-                        df_yf = df_yf_bse
-                        yf_sym = yf_sym_bse
-
-                if isinstance(df_yf, pd.DataFrame) and not df_yf.empty:
-                    logger.info(
-                        f"✅ [Yahoo] Third-tier fallback succeeded for {orig_symbol} ({yf_sym}) — "
-                        f"{len(df_yf)} rows. Primary providers failed: {error_details}"
-                    )
-                    from trading_calendar import enforce_trading_day_candles
-                    return enforce_trading_day_candles(df_yf, orig_symbol)
-                else:
-                    err_reason = df_yf.name if isinstance(df_yf, ProviderResult) else "No data returned"
-                    provider_errors["yahoo"] = f"{err_reason} for {yf_sym}"
-                    logger.debug(f"⚠️ [Yahoo] No data for {yf_sym}: {err_reason}")
-            except Exception as yf_err:
-                provider_errors["yahoo"] = str(yf_err)
-                logger.debug(f"⚠️ [Yahoo] Third-tier fallback failed for {orig_symbol}: {yf_err}")
 
         error_details = ", ".join([f"{p}: {e}" for p, e in provider_errors.items()])
         from config import PROVIDER_UNAVAILABLE_SYMBOLS
@@ -388,46 +337,7 @@ class UnifiedFetcher:
                     except Exception as e:
                         logger.error(f"❌ [Upstox] Batch quote fetch failed: {e}", exc_info=True)
 
-                elif provider == "yahoo":
-                    # ── DB CMP FALLBACK BEFORE YAHOO ─────────────────────────────
-                    # Try resolving pending stock symbols from Postgres DB master table & bhavcopy first
-                    # so web scraping Yahoo Finance is strictly a last resort for index tickers.
-                    if pending:
-                        try:
-                            from database import get_connection
-                            with get_connection() as conn:
-                                with conn.cursor() as cur:
-                                    for orig in list(pending):
-                                        if orig not in ("NIFTY 50", "BANKNIFTY", "SENSEX", "^NSEI", "^NSEBANK", "^BSESN"):
-                                            clean_orig = orig.replace(".NS", "").replace(".BO", "")
-                                            cur.execute("""
-                                                SELECT val FROM (
-                                                    SELECT cmp AS val, 1 AS prio FROM stock_analysis_master WHERE (symbol = %s OR symbol = %s) AND cmp IS NOT NULL AND cmp > 0
-                                                    UNION ALL
-                                                    SELECT latest_price AS val, 2 AS prio FROM watchlist WHERE (symbol = %s OR symbol = %s) AND latest_price IS NOT NULL AND latest_price > 0
-                                                    UNION ALL
-                                                    SELECT COALESCE(current_price, entry_price) AS val, 3 AS prio FROM alerts WHERE (symbol = %s OR symbol = %s) AND (current_price > 0 OR entry_price > 0)
-                                                ) sub ORDER BY prio LIMIT 1;
-                                            """, (orig, clean_orig, orig, clean_orig, orig, clean_orig))
-                                            row = cur.fetchone()
-                                            if row and row[0]:
-                                                val_flt = float(row[0])
-                                                results[orig] = {"v": {"cmd": {"c": val_flt}}}
-                                                results[clean_orig] = {"v": {"cmd": {"c": val_flt}}}
-                                                results[clean_orig + ".NS"] = {"v": {"cmd": {"c": val_flt}}}
-                                                pending.discard(orig)
-                                                pending.discard(clean_orig)
-                                                pending.discard(clean_orig + ".NS")
-                                                logger.info(f"⚡ [DB CMP FALLBACK] Resolved quote for {orig} from PostgreSQL master: ₹{val_flt:.2f}")
-                        except Exception as db_err:
-                            logger.warning(f"⚠️ DB CMP Fallback prior to Yahoo failed: {db_err}")
 
-                    # [VERSION: ZERO_YAHOO_LIVE_QUOTES_v1.0] Yahoo/BSE live price fetching disabled to prevent YFRateLimitError & network delays.
-                    # All remaining symbols are resolved directly from Postgres DB master table.
-                    pass
-                        
-                elif provider == "bse":
-                    pass
 
         if pending:
             try:

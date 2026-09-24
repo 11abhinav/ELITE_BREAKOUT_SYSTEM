@@ -110,6 +110,10 @@ _STATIC_SYMBOL_MAP = {
     "PEL": "NSE_EQ|INE140A01024",
     "UNITDSPR": "NSE_EQ|INE854D01024",
     "MCDOWELL-N": "NSE_EQ|INE854D01024",
+    "HEG": "NSE_EQ|INE545A01024",
+    "HEGAM": "NSE_EQ|INE545A01024",
+    "FLYSBS": "NSE_EQ|INE0S0601014",
+    "NSDL": "BSE_EQ|INE758A01017",
 }
 
 
@@ -222,11 +226,16 @@ class UpstoxInstrumentMapper:
                     inst_type = row[9].strip().upper() if len(row) > 9 else ""
                     exchange = row[11].strip().upper() if len(row) > 11 else ""
 
-                    if inst_type in ("EQ", "EQUITY", "SM", "ST", "SME", "BE", "BZ") and exchange in ("NSE_EQ", "BSE_EQ"):
+                    if inst_type in ("EQ", "EQUITY", "SM", "ST", "SME", "BE", "BZ", "SZ", "A", "B", "T", "XT", "X", "XC", "XD") and exchange in ("NSE_EQ", "BSE_EQ"):
                         # Save both symbol alone (TCS) and exchange-prefixed (NSE_EQ:TCS)
                         if tradingsymbol not in new_map or exchange == "NSE_EQ":
                             new_map[tradingsymbol] = inst_key
                             new_map[f"{exchange}:{tradingsymbol}"] = inst_key
+                        token = row[1].strip()
+                        if exchange == "BSE_EQ" and token.isdigit():
+                            new_map[f"BSE:{token}"] = inst_key
+                            new_map[f"BSE_EQ:{token}"] = inst_key
+                            new_map[token] = inst_key
 
                     elif inst_type in ("FUTSTK", "FUTIDX") and exchange == "NSE_FO":
                         # Multi-index F&O contract indexing:
@@ -321,6 +330,26 @@ class UpstoxInstrumentMapper:
             # Ensure static index mappings (e.g. NSE_INDEX|Nifty 50) take top priority for indices
             index_static = {k: v for k, v in _STATIC_SYMBOL_MAP.items() if "INDEX" in v}
             new_map.update(index_static)
+
+            # Map corporate action aliases in master map
+            _corporate_alias_map = {
+                "HEG": "HEGAM",
+                "TATAMOTORS": "TMPV",
+                "M-M": "M&M", "M_M": "M&M",
+                "M-MFIN": "M&MFIN", "M_MFIN": "M&MFIN",
+                "J-KBANK": "J&KBANK", "J_KBANK": "J&KBANK",
+                "L-TFH": "L&TFH", "L_TFH": "L&TFH",
+                "GVT-D": "GVT&D", "GVT_D": "GVT&D",
+                "T-IPOWER": "T&IPOWER", "T_IPOWER": "T&IPOWER",
+                "GUJGAS": "GUJGASLTD",
+                "GMRINFRA": "GMRAIRPORT",
+                "MCDOWELL-N": "UNITDSPR", "MCDOWELL": "UNITDSPR",
+            }
+            for orig_a, target_a in _corporate_alias_map.items():
+                if target_a in new_map and orig_a not in new_map:
+                    new_map[orig_a] = new_map[target_a]
+                elif orig_a in new_map and target_a not in new_map:
+                    new_map[target_a] = new_map[orig_a]
 
             with self._lock:
                 self._symbol_map.update(new_map)
@@ -485,6 +514,35 @@ class UpstoxInstrumentMapper:
 
         return sorted(list(filtered_syms))
 
+    def _search_instrument_online(self, query: str) -> Optional[str]:
+        """Queries Upstox v2 instrument search API for unmapped or renamed tickers."""
+        import os
+        import config
+        token = getattr(config, "UPSTOX_ACCESS_TOKEN", None) or os.environ.get("UPSTOX_ACCESS_TOKEN")
+        if not token:
+            return None
+        try:
+            import requests
+            url = f"https://api.upstox.com/v2/instruments/search?query={query}"
+            headers = {"Accept": "application/json", "Authorization": f"Bearer {token}"}
+            resp = requests.get(url, headers=headers, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json().get("data", [])
+                for item in data:
+                    tsym = str(item.get("trading_symbol", "")).upper()
+                    ikey = item.get("instrument_key")
+                    seg = item.get("segment")
+                    if ikey and (tsym == query or tsym.startswith(query)):
+                        if seg in ("NSE_EQ", "BSE_EQ"):
+                            with self._lock:
+                                self._symbol_map[query] = ikey
+                                self._symbol_map[tsym] = ikey
+                            logger.info(f"✅ [Upstox Search API] Dynamically resolved '{query}' -> '{ikey}' ({tsym})")
+                            return ikey
+        except Exception as e:
+            logger.debug(f"Upstox instrument search query failed for {query}: {e}")
+        return None
+
     def get_instrument_key(self, symbol: str, allow_fallback: bool = True) -> Optional[str]:
         """Maps symbol to official Upstox instrument key."""
         if not symbol:
@@ -522,6 +580,37 @@ class UpstoxInstrumentMapper:
         if raw_no_caret in self._symbol_map:
             return self._symbol_map[raw_no_caret]
 
+        # 1b. Check corporate action aliases
+        _corporate_alias_map = {
+            "HEG": "HEGAM",
+            "TATAMOTORS": "TMPV",
+            "M-M": "M&M", "M_M": "M&M",
+            "M-MFIN": "M&MFIN", "M_MFIN": "M&MFIN",
+            "J-KBANK": "J&KBANK", "J_KBANK": "J&KBANK",
+            "L-TFH": "L&TFH", "L_TFH": "L&TFH",
+            "GVT-D": "GVT&D", "GVT_D": "GVT&D",
+            "T-IPOWER": "T&IPOWER", "T_IPOWER": "T&IPOWER",
+            "GUJGAS": "GUJGASLTD",
+            "GMRINFRA": "GMRAIRPORT",
+            "MCDOWELL-N": "UNITDSPR", "MCDOWELL": "UNITDSPR",
+        }
+        cand_alias = _corporate_alias_map.get(clean)
+        if cand_alias and cand_alias in self._symbol_map:
+            return self._symbol_map[cand_alias]
+
+        # 1c. Check BSE Scrip Code mappings (e.g. 509631 for HEG/HEGAM)
+        try:
+            from bse_mapping_utils import load_bse_mappings
+            bse_map = load_bse_mappings()
+            bse_code = bse_map.get(clean) or (bse_map.get(cand_alias) if cand_alias else None)
+            if bse_code:
+                clean_bse = str(bse_code).upper().replace("BSE:", "").replace(".BO", "").strip()
+                for k_bse in (f"BSE:{clean_bse}", f"BSE_EQ:{clean_bse}", clean_bse):
+                    if k_bse in self._symbol_map:
+                        return self._symbol_map[k_bse]
+        except Exception:
+            pass
+
         # 2. Check institutional InstrumentRegistry if not found in master CSV
         try:
             from instrument_registry import get_instrument_registry
@@ -530,6 +619,16 @@ class UpstoxInstrumentMapper:
                 return rec.upstox_instrument_key
         except Exception:
             pass
+
+        # 3. Dynamic online search API fallback
+        if allow_fallback:
+            online_key = self._search_instrument_online(clean)
+            if online_key:
+                return online_key
+            if cand_alias:
+                online_alias_key = self._search_instrument_online(cand_alias)
+                if online_alias_key:
+                    return online_alias_key
 
         if not allow_fallback:
             return None

@@ -74,13 +74,10 @@ NON_EQUITY_BLOCKLIST = {
     "EMBASSY", "MINDSPACE", "BROOKFIELD", "NEXUS"
 }
 
-# [VERSION: PROVIDER_UNAVAILABLE_SYMBOLS_v1.0] Symbols confirmed absent from ALL provider
-# master contracts (Fyers NSE_CM + BSE_CM + Upstox complete.csv.gz) AND from Yahoo Finance.
-# [RULE 67 CHANGE-RATIONALE — 2026-09-23]: HEG was initially added here, but live-testing
-# showed HEG.NS IS available on Yahoo Finance (₹248.5 on 2026-09-23). Yahoo is now the
-# third-tier fallback in unified_fetcher.fetch_historical() for symbols that fail Fyers+Upstox.
-# Only add a symbol here if it fails ALL THREE providers (Fyers, Upstox, Yahoo).
-PROVIDER_UNAVAILABLE_SYMBOLS: set = set()  # Currently empty — Yahoo fallback handles all edge cases
+# [VERSION: PROVIDER_UNAVAILABLE_SYMBOLS_v2.0] Symbols confirmed absent from broker master contracts.
+# Both Upstox and Fyers resolve corporate actions and multi-series equities directly.
+# Yahoo Finance is completely removed from price fetching.
+PROVIDER_UNAVAILABLE_SYMBOLS: set = set()
 
 # =====================================================================================
 # RESILIENCE / FALLBACK CONFIGURATION

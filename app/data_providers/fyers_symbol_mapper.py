@@ -16,6 +16,10 @@ _STATIC_SEED_MAP = {
     "FLYSBS": "NSE:FLYSBS-SM",
     "STLTECH": "NSE:STLTECH-BE",
     "NSDL": "BSE:NSDL-EQ",
+    "HEG": "NSE:HEGAM-EQ",
+    "HEGAM": "NSE:HEGAM-EQ",
+    "TATAMOTORS": "NSE:TMPV-EQ",
+    "TMPV": "NSE:TMPV-EQ",
 }
 
 class FyersSymbolMapper:
@@ -127,6 +131,24 @@ class FyersSymbolMapper:
         # 1. Direct Ticker Match in Fyers Master Contract Map
         if clean in self._symbol_map:
             return self._symbol_map[clean]
+
+        # 1b. Corporate action alias check
+        _corporate_alias_map = {
+            "HEG": "HEGAM",
+            "TATAMOTORS": "TMPV",
+            "M-M": "M&M", "M_M": "M&M",
+            "M-MFIN": "M&MFIN", "M_MFIN": "M&MFIN",
+            "J-KBANK": "J&KBANK", "J_KBANK": "J&KBANK",
+            "L-TFH": "L&TFH", "L_TFH": "L&TFH",
+            "GVT-D": "GVT&D", "GVT_D": "GVT&D",
+            "T-IPOWER": "T&IPOWER", "T_IPOWER": "T&IPOWER",
+            "GUJGAS": "GUJGASLTD",
+            "GMRINFRA": "GMRAIRPORT",
+            "MCDOWELL-N": "UNITDSPR", "MCDOWELL": "UNITDSPR",
+        }
+        cand_alias = _corporate_alias_map.get(clean)
+        if cand_alias and cand_alias in self._symbol_map:
+            return self._symbol_map[cand_alias]
 
         # 2. Direct ISIN Match in Fyers Master Contract Map
         if isin and isin in self._isin_map:

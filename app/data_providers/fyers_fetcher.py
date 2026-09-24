@@ -210,18 +210,22 @@ class FyersFetcher(DataFetcher):
         if sym.endswith(".NS") or sym.endswith(".BO"):
             sym = sym[:-3]
             
-        # [VERSION: FYERS_PATCH_v1.0] Intercept ampersand symbols before blind replace
-        # This fixes Fyers API warnings for M-M-EQ by enforcing M&M regardless of DB state
-        _ampersand_map = {
+        # Corporate action & ampersand aliases
+        _corporate_alias_map = {
+            "HEG": "HEGAM",
+            "TATAMOTORS": "TMPV",
             "M_M": "M&M", "M-M": "M&M",
             "M_MFIN": "M&MFIN", "M-MFIN": "M&MFIN",
             "J_KBANK": "J&KBANK", "J-KBANK": "J&KBANK",
             "GVT_D": "GVT&D", "GVT-D": "GVT&D",
             "L_TFH": "L&TFH", "L-TFH": "L&TFH",
             "T_IPOWER": "T&IPOWER", "T-IPOWER": "T&IPOWER",
+            "GUJGAS": "GUJGASLTD",
+            "GMRINFRA": "GMRAIRPORT",
+            "MCDOWELL-N": "UNITDSPR", "MCDOWELL": "UNITDSPR",
         }
-        if sym in _ampersand_map:
-            sym = _ampersand_map[sym]
+        if sym in _corporate_alias_map:
+            sym = _corporate_alias_map[sym]
         else:
             sym = sym.replace("_", "-")
         
@@ -329,13 +333,19 @@ class FyersFetcher(DataFetcher):
         if norm and norm.endswith("-INDEX"):
             return [norm]
         _corporate_alias_map = {
+            "HEG": "HEGAM",
+            "HEGAM": "HEG",
             "TATAMOTORS": "TMPV",
+            "TMPV": "TATAMOTORS",
             "M_M": "M&M", "M-M": "M&M",
             "M_MFIN": "M&MFIN", "M-MFIN": "M&MFIN",
             "J_KBANK": "J&KBANK", "J-KBANK": "J&KBANK",
             "L_TFH": "L&TFH", "L-TFH": "L&TFH",
             "GVT_D": "GVT&D", "GVT-D": "GVT&D",
             "T_IPOWER": "T&IPOWER", "T-IPOWER": "T&IPOWER",
+            "GUJGAS": "GUJGASLTD", "GUJGASLTD": "GUJGAS",
+            "GMRINFRA": "GMRAIRPORT", "GMRAIRPORT": "GMRINFRA",
+            "MCDOWELL-N": "UNITDSPR", "MCDOWELL": "UNITDSPR",
         }
         if raw in _corporate_alias_map:
             raw = _corporate_alias_map[raw]
@@ -376,50 +386,77 @@ class FyersFetcher(DataFetcher):
         except Exception as mapper_err:
             logger.debug(f"Fyers symbol mapper error: {mapper_err}")
 
-        # If base is numeric (BSE Scrip Code), prioritize BSE:5XXXXX-EQ
+        # If base is numeric (BSE Scrip Code), prioritize BSE:5XXXXX-EQ, -A, -B
         if base.isdigit():
             candidates.append(f"BSE:{base}-EQ")
+            candidates.append(f"BSE:{base}-A")
+            candidates.append(f"BSE:{base}-B")
         elif is_bse_pref:
-            # Prioritize BSE:SYMBOL-EQ for BSE-preference stocks, then NSE:SYMBOL-EQ
+            # Prioritize BSE series for BSE-preference stocks, then NSE series
             candidates.append(f"BSE:{base}-EQ")
+            candidates.append(f"BSE:{base}-A")
+            candidates.append(f"BSE:{base}-B")
+            candidates.append(f"BSE:{base}-T")
+            candidates.append(f"BSE:{base}-XT")
             candidates.append(f"NSE:{base}-EQ")
-        else:
-            # Standard NSE:SYMBOL-EQ first, then BSE:SYMBOL-EQ, then SME series (-SM, -ST, -BE)
-            candidates.append(f"NSE:{base}-EQ")
-            candidates.append(f"BSE:{base}-EQ")
+            candidates.append(f"NSE:{base}-BE")
             candidates.append(f"NSE:{base}-SM")
             candidates.append(f"NSE:{base}-ST")
+        else:
+            # Standard NSE:SYMBOL-EQ first, then BSE:SYMBOL-EQ, BSE Groups (-A, -B), then T2T/SME (-BE, -SM, -ST)
+            candidates.append(f"NSE:{base}-EQ")
+            candidates.append(f"BSE:{base}-EQ")
+            candidates.append(f"BSE:{base}-A")
+            candidates.append(f"BSE:{base}-B")
             candidates.append(f"NSE:{base}-BE")
+            candidates.append(f"NSE:{base}-SM")
+            candidates.append(f"NSE:{base}-ST")
+            candidates.append(f"BSE:{base}-T")
+            candidates.append(f"BSE:{base}-XT")
+            candidates.append(f"BSE:{base}-X")
 
-            # Known BSE scrip code map for stocks with custom Fyers BSE tickers
-            # CRITICAL: Always use BSE:CODE-EQ (with -EQ suffix). Bare BSE:CODE
-            # is rejected by Fyers API v3 with code -403.
-            _KNOWN_BSE_SCRIP_CODES = {
-                "POONAWALLA": "524000",
-                "PFC": "532648",
-                "SENORES": "544256",
-                "MRF": "500290",
-                "TORNTPHARM": "500420",
-                "HINDUNILVR": "500696",
-                "HAL": "541154",
-                "AADHARHFC": "544175",
-                "MTARTECH": "543270",
-                "STLTECH": "532374",
-                "DIACABS": "532959",
-            }
-            if base in _KNOWN_BSE_SCRIP_CODES:
-                bse_code = _KNOWN_BSE_SCRIP_CODES[base]
-                candidates.append(f"BSE:{bse_code}-EQ")
+        # Also add alias candidates (e.g. HEG -> HEGAM)
+        alias_sym = _corporate_alias_map.get(base)
+        if alias_sym and alias_sym != base:
+            candidates.append(f"NSE:{alias_sym}-EQ")
+            candidates.append(f"BSE:{alias_sym}-EQ")
+            candidates.append(f"BSE:{alias_sym}-A")
+            candidates.append(f"BSE:{alias_sym}-B")
+            candidates.append(f"NSE:{alias_sym}-BE")
 
-            try:
-                from bse_mapping_utils import load_bse_mappings
-                bse_map = load_bse_mappings()
-                if base in bse_map:
-                    clean_code = str(bse_map[base]).upper().replace(".BO", "").replace("BSE:", "").strip()
-                    if clean_code.isdigit():
-                        candidates.append(f"BSE:{clean_code}-EQ")
-            except Exception:
-                pass
+        # Known BSE scrip code map for stocks with custom Fyers BSE tickers
+        # CRITICAL: Always use BSE:CODE-EQ or -A. Bare BSE:CODE is rejected by Fyers API v3 with code -403.
+        _KNOWN_BSE_SCRIP_CODES = {
+            "HEG": "509631",
+            "HEGAM": "509631",
+            "POONAWALLA": "524000",
+            "PFC": "532648",
+            "SENORES": "544256",
+            "MRF": "500290",
+            "TORNTPHARM": "500420",
+            "HINDUNILVR": "500696",
+            "HAL": "541154",
+            "AADHARHFC": "544175",
+            "MTARTECH": "543270",
+            "STLTECH": "532374",
+            "DIACABS": "532959",
+        }
+        if base in _KNOWN_BSE_SCRIP_CODES:
+            bse_code = _KNOWN_BSE_SCRIP_CODES[base]
+            candidates.append(f"BSE:{bse_code}-EQ")
+            candidates.append(f"BSE:{bse_code}-A")
+
+        try:
+            from bse_mapping_utils import load_bse_mappings
+            bse_map = load_bse_mappings()
+            clean_code = bse_map.get(base) or (bse_map.get(alias_sym) if alias_sym else None)
+            if clean_code:
+                clean_digits = str(clean_code).upper().replace(".BO", "").replace("BSE:", "").strip()
+                if clean_digits.isdigit():
+                    candidates.append(f"BSE:{clean_digits}-EQ")
+                    candidates.append(f"BSE:{clean_digits}-A")
+        except Exception:
+            pass
 
         # ── FORMAT GATE: validate every candidate against Fyers API v3 rules ──────
         # Strips -BE and bare BSE (auto-fixed) and logs any format violations.
