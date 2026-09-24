@@ -223,6 +223,10 @@ class ProductionReplayOrchestrator:
             ("Pullback", "PULLBACK", "1D"),
             ("Technical", "TECHNICAL", "1D"),
             ("Accumulation / VCP", "ACCUMULATION_VCP", "1D"),
+            ("Institutional Accumulation", "INSTITUTIONAL_ACCUMULATION", "1D"),
+            ("Wealth Engine", "WEALTH", "1D"),
+            ("Multibagger Engine", "MULTIBAGGER", "1D"),
+            ("Daily Builder", "DAILY_BUILDER", "1D"),
         ]
 
         test_symbols = ["PGIL", "SAMHI", "INDRAMEDCO", "ACE", "POWERGRID"]

@@ -182,6 +182,41 @@ class TestSystemWideCertification(unittest.TestCase):
         # Clean expansion is > 1.5x
         self.assertGreater(clean_rec.indicators.get("ATR_EXPANSION", 0), 1.0)
 
+    def test_wealth_replay(self):
+        """Verifies Wealth Compounder adapter, bucket evaluation, and SMA200 trend gate."""
+        adapter = ScannerCertificationRegistry.get_adapter(ScannerType.WEALTH.value)
+        self.assertIsNotNone(adapter)
+        df = self._generate_synthetic_clean_bars(220, base_price=500.0)
+        fund_data = {"roce": 25.0, "roe": 18.0, "debt_to_equity": 0.2, "peg_ratio": 1.2}
+        rec = adapter.evaluate("WEALTH_TEST", "2026-09-23", mode=ReplayMode.CLEAN_HISTORICAL_REPLAY, custom_data={"df": df, "fund_data": fund_data})
+        self.assertIn("TREND_SMA200", rec.gate_results)
+        self.assertIn("QUALIFIED_BUCKETS", rec.gate_results)
+
+    def test_multibagger_replay(self):
+        """Verifies Multibagger V5 adapter and conviction tier classification."""
+        adapter = ScannerCertificationRegistry.get_adapter(ScannerType.MULTIBAGGER.value)
+        self.assertIsNotNone(adapter)
+        df = self._generate_synthetic_clean_bars(60, base_price=150.0)
+        rec = adapter.evaluate("MULTI_TEST", "2026-09-23", mode=ReplayMode.CLEAN_HISTORICAL_REPLAY, custom_data={"df": df})
+        self.assertIn("CONVICTION_QUALIFIED", rec.gate_results)
+
+    def test_institutional_accumulation_replay(self):
+        """Verifies Institutional Accumulation 12-step cascade and sub-scores."""
+        adapter = ScannerCertificationRegistry.get_adapter(ScannerType.INSTITUTIONAL_ACCUMULATION.value)
+        self.assertIsNotNone(adapter)
+        df = self._generate_synthetic_clean_bars(80, base_price=300.0)
+        rec = adapter.evaluate("ACCUM_TEST", "2026-09-23", mode=ReplayMode.CLEAN_HISTORICAL_REPLAY, custom_data={"df": df})
+        self.assertIn("ACCUMULATION_GATE", rec.gate_results)
+
+    def test_daily_builder_replay(self):
+        """Verifies Daily Builder zero-lookahead prior 20d high and breakout stage check."""
+        adapter = ScannerCertificationRegistry.get_adapter(ScannerType.DAILY_BUILDER.value)
+        self.assertIsNotNone(adapter)
+        df = self._generate_synthetic_clean_bars(60, base_price=250.0)
+        rec = adapter.evaluate("BUILDER_TEST", "2026-09-23", mode=ReplayMode.CLEAN_HISTORICAL_REPLAY, custom_data={"df": df})
+        self.assertIn("STRUCTURE_VALID", rec.gate_results)
+        self.assertIn("STAGE2_BREAKOUT", rec.gate_results)
+
 
 if __name__ == "__main__":
     unittest.main()

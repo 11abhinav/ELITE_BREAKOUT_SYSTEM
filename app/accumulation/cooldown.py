@@ -23,12 +23,11 @@ class AccumulationCooldownEngine:
         if as_of_date is None:
             as_of_date = datetime.now(IST)
 
-        close_conn = False
         if conn is None:
             try:
                 from database import get_db_connection
-                conn = get_db_connection()
-                close_conn = True
+                with get_db_connection() as real_conn:
+                    return AccumulationCooldownEngine.is_in_cooldown(symbol, as_of_date=as_of_date, conn=real_conn)
             except Exception as e:
                 logger.warning(f"Could not connect DB for cooldown check: {e}")
                 return False
@@ -59,6 +58,4 @@ class AccumulationCooldownEngine:
             logger.error(f"Error checking accumulation cooldown for {symbol}: {e}")
             return False
         finally:
-            if close_conn and conn:
-                try: conn.close()
-                except: pass
+            pass

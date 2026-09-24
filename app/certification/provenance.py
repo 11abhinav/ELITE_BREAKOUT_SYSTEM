@@ -6,10 +6,12 @@ import hashlib
 import json
 import os
 import subprocess
+from functools import lru_cache
 from typing import Any, Dict, Optional, Tuple
 import pandas as pd
 
 
+@lru_cache(maxsize=1)
 def get_git_commit() -> str:
     """Retrieves current Git HEAD commit hash."""
     try:
@@ -22,6 +24,7 @@ def get_git_commit() -> str:
         return "UNKNOWN_COMMIT"
 
 
+@lru_cache(maxsize=256)
 def get_file_hash(file_path: str) -> str:
     """Computes SHA-256 hash of a file."""
     if not os.path.exists(file_path):

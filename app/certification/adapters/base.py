@@ -21,6 +21,7 @@ class BaseScannerAdapter(ABC):
     """
     def __init__(self, scanner_type: ScannerType):
         self.scanner_type = scanner_type
+        self.scanner_name = scanner_type.value
 
     @abstractmethod
     def evaluate(
