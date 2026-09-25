@@ -1,0 +1,25 @@
+year,month,month_name,thursday_expiry,tuesday_expiry,expiry_gap_days,regulatory_rule,code_resolver_status
+2025,1,January,2025-01-30,2025-01-28,2,NSE Standard (Last Thursday),ALIGNED
+2025,2,February,2025-02-27,2025-02-25,2,NSE Standard (Last Thursday),ALIGNED
+2025,3,March,2025-03-27,2025-03-25,2,NSE Standard (Last Thursday),ALIGNED
+2025,4,April,2025-04-24,2025-04-29,-5,NSE Standard (Last Thursday),ALIGNED
+2025,5,May,2025-05-29,2025-05-27,2,NSE Standard (Last Thursday),ALIGNED
+2025,6,June,2025-06-26,2025-06-24,2,NSE Standard (Last Thursday),ALIGNED
+2025,7,July,2025-07-31,2025-07-29,2,NSE Standard (Last Thursday),ALIGNED
+2025,8,August,2025-08-28,2025-08-26,2,NSE Standard (Last Thursday),ALIGNED
+2025,9,September,2025-09-25,2025-09-30,-5,NSE Standard (Last Thursday),ALIGNED
+2025,10,October,2025-10-30,2025-10-28,2,NSE Standard (Last Thursday),ALIGNED
+2025,11,November,2025-11-27,2025-11-25,2,NSE Standard (Last Thursday),ALIGNED
+2025,12,December,2025-12-25,2025-12-30,-5,NSE Standard (Last Thursday),ALIGNED
+2026,1,January,2026-01-29,2026-01-27,2,NSE Standard (Last Thursday),ALIGNED
+2026,2,February,2026-02-26,2026-02-24,2,NSE Standard (Last Thursday),ALIGNED
+2026,3,March,2026-03-26,2026-03-31,-5,NSE Standard (Last Thursday),ALIGNED
+2026,4,April,2026-04-30,2026-04-28,2,NSE Standard (Last Thursday),ALIGNED
+2026,5,May,2026-05-28,2026-05-26,2,NSE Standard (Last Thursday),ALIGNED
+2026,6,June,2026-06-25,2026-06-30,-5,NSE Standard (Last Thursday),ALIGNED
+2026,7,July,2026-07-30,2026-07-28,2,NSE Standard (Last Thursday),ALIGNED
+2026,8,August,2026-08-27,2026-08-25,2,NSE Stock Futures (Last Tuesday),BUG_HARDCODED_THURSDAY
+2026,9,September,2026-09-24,2026-09-29,-5,NSE Stock Futures (Last Tuesday),ALIGNED
+2026,10,October,2026-10-29,2026-10-27,2,NSE Stock Futures (Last Tuesday),BUG_HARDCODED_THURSDAY
+2026,11,November,2026-11-26,2026-11-24,2,NSE Stock Futures (Last Tuesday),BUG_HARDCODED_THURSDAY
+2026,12,December,2026-12-31,2026-12-29,2,NSE Stock Futures (Last Tuesday),BUG_HARDCODED_THURSDAY

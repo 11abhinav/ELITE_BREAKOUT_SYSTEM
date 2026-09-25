@@ -961,6 +961,41 @@ A pattern qualifies for **`PRODUCTION` (`TIER_2_OOS_VALIDATED`)** if and only if
 - Policy File: [app/regime_pattern_policy.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/regime_pattern_policy.py) (`APPROVED_TECHNICAL_PATTERNS = {"WYCKOFF_SPRING_TYPE_2"}`)
 - Invariant Test Suite: [tests/test_certification_integrity.py](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/tests/test_certification_integrity.py) (32/32 PASS)
 
+---
+
+## 23. Forensic Deconstruction of Short Covering 5M & Discovery of Momentum Ignition 5M
+**Date:** 2026-09-25 | **Status:** `~~SHORT_COVERING_5M~~` *(Decommissioned 2026-09-25)* $\to$ `MOMENTUM_IGNITION_5M` *(Candidate)* | **Gate:** `RESEARCH ONLY`
+
+### A. Root Cause of Live Trading Target Failures
+An exhaustive forensic audit was initiated to discover why zero live Short Covering 5M trades ever reached their profit target:
+1. **Unexecutable Entry Lookahead**: Previous research entered at signal candle close (`11:59:59`), which is physically unfillable in live execution. Certified executable entry requires **T+1 Open + 5 bps slippage**.
+2. **Target / MFE Mismatch**: Empirical peak MFE of 5-minute breakouts tops out at **0.75% to 0.85%** (median 0.58%). Legacy production targets were set at **2.50% to 3.00%**, guaranteeing near-100% failure to reach target.
+3. **Missing OI in Parquets**: 0 out of 286 files in `data/history/5m/` contained an `OI` column; legacy research was measuring RVOL (Volume) and labeling it "simulated short covering."
+4. **Contract Rollover Bug**: `app/short_covering/fno_contract_resolver.py` hardcoded last Thursday expiry, conflicting with the **NSE August 11, 2026 regulation change** establishing **last Tuesday expiry** for stock futures. Rectified in code via `_NSE_STOCK_FUT_TUESDAY_CUTOVER`.
+5. **API Endpoint Verification**: Code uses **Upstox API V3** (`/v3/historical-candle/.../minutes/5/...`), natively providing width-7 candles with exchange Open Interest.
+
+### B. Clean Upstox V3 Re-Fetch & OI Counterfactual Tournament
+Clean 5M candles for 38 liquid F&O stocks were fetched directly from Upstox V3 into `data/clean_upstox_5m_oi/` with verified Tuesday expiries and 100% exchange OI:
+* **B1 (Price Only, ret $\ge 0.75\%$)**: $N=233$, MFE $0.71\%$, $+30\text{m Ret } -0.13\%$, Exp $-0.17\text{R}$, PF $0.61$.
+* **B2 (Price + Volume, RVOL $\ge 2.0\text{x}$)**: $N=194$, MFE $0.76\%$, $+30\text{m Ret } -0.10\%$, Exp $-0.13\text{R}$, PF $0.68$.
+* **B3 (Price + OI Drop, $\Delta\text{OI} \le -0.5\%$)**: $N=73$, MFE $0.72\%$, $+30\text{m Ret } -0.08\%$, Exp $-0.10\text{R}$, PF $0.75$.
+* **B4 (Price + Vol + VWAP, dist $\le 1.2\%$)**: $N=175$, MFE $0.71\%$, $+30\text{m Ret } -0.09\%$, Exp $-0.12\text{R}$, PF $0.71$.
+* **B5 (Price + OI + VWAP)**: $N=73$, MFE $0.72\%$, $+30\text{m Ret } -0.08\%$, Exp $-0.10\text{R}$, PF $0.75$.
+* **B6 (Price + Vol + OI - Legacy Short Covering)**: $N=61$, MFE $0.79\%$, $+30\text{m Ret } -0.01\%$, Exp $-0.02\text{R}$, PF $0.96$.
+
+### C. Resolution of the Central Question on Open Interest
+> **Finding: Open Interest contraction is NOT statistically or economically incremental beyond Price + Volume.**
+* $\Delta \text{Expectancy} = +0.116\text{R}$, $\Delta \text{MFE} = +0.030\%$, Cohen's $d = 0.1262$, $p = 0.3849$ (**Not Statistically Significant**).
+* Requiring OI contraction discards **68.6% of valid breakout trades** without delivering a statistically robust edge.
+* Volume expansion (RVOL $\ge 2.0\text{x}$) carries $>95\%$ of forward explanatory power.
+
+### D. Redefinition to Momentum Ignition 5M & Holdout Result
+* Strategy formally renamed **`MOMENTUM_IGNITION_5M`** (Price + Volume thrust with VWAP filter; OI demoted to optional secondary filter).
+* Frozen specification on 70% Train split: Ret $\ge +0.75\%$, RVOL $\ge 2.0\text{x}$, VWAP dist $\le 1.20\%$, T+1 Open + 5 bps fill, Fixed 1.50R target / 1.00R stop-loss.
+* **Single-Run 15% Untouched Forward Holdout**: $N=21\text{ trades}$, **$42.9\%$ Win Rate**, **$+0.099\text{R}$ Realized Expectancy** ($95\%\text{ CI}: [-0.221\text{R}, +0.436\text{R}]$).
+* **Governance Status**: **`RESEARCH ONLY`**. Live deployment and paper trading remain frozen until multi-month walk-forward expansion confirms lower bound CI $> 0.0\text{R}$.
+* Full Milestone Documentation: [reports/SHORT_COVERING_TO_MOMENTUM_IGNITION_MILESTONE_REPORT.md](file:///Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/SHORT_COVERING_TO_MOMENTUM_IGNITION_MILESTONE_REPORT.md)
+
 
 
 

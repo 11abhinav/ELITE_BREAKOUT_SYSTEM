@@ -23,16 +23,32 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+# NSE Regulation Change (effective August 11, 2026):
+# Individual stock futures now expire on the LAST TUESDAY of the month.
+# Index futures/options retain the last Thursday expiry.
+# Reference: NSE Circular dated August 11, 2026.
+_NSE_STOCK_FUT_TUESDAY_CUTOVER = date(2026, 8, 1)  # First expiry month affected: August 2026
+
+
 def get_monthly_expiry(year: int, month: int) -> date:
     """
-    Calculates the standard NSE Monthly F&O Expiry date (last Thursday of the month).
+    Calculates the NSE Monthly F&O Expiry date.
+    - For expiry months before August 2026: Last Thursday of the month (legacy rule).
+    - For expiry months from August 2026 onwards: Last Tuesday of the month
+      (NSE stock futures regulation change effective August 11, 2026).
     """
+    expiry_month_start = date(year, month, 1)
     last_day = calendar.monthrange(year, month)[1]
     last_date = date(year, month, last_day)
-    # weekday: Monday is 0, Thursday is 3
-    offset = (last_date.weekday() - 3) % 7
-    expiry_date = last_date - timedelta(days=offset)
-    return expiry_date
+
+    if expiry_month_start >= _NSE_STOCK_FUT_TUESDAY_CUTOVER:
+        # Post-Aug 2026: Last Tuesday (weekday 1)
+        offset = (last_date.weekday() - 1) % 7
+    else:
+        # Pre-Aug 2026: Last Thursday (weekday 3)
+        offset = (last_date.weekday() - 3) % 7
+
+    return last_date - timedelta(days=offset)
 
 
 def get_near_and_next_expiries(as_of: Optional[date] = None) -> Tuple[date, date]:
