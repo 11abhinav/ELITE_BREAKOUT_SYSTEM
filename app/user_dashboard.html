@@ -3286,10 +3286,10 @@ async function generateAIModal() {
 
 
 <style>
-.alert-blink{animation: blink 1s step-end infinite; background: rgba(255,235,59,0.08);}
-.today-alert-blink{background: rgba(139,92,246,0.12);}
-@keyframes blink{50%{opacity:0.3}}
-@keyframes todayBlink{0%,100%{opacity:1}50%{opacity:0.8}}
+.alert-blink{}
+.today-alert-blink{}
+@keyframes blink{50%{opacity:1}}
+@keyframes todayBlink{0%,100%{opacity:1}50%{opacity:1}}
 @keyframes strongBearBlink{0%,100%{opacity:1; transform:scale(1);}50%{opacity:0.25; transform:scale(0.97);}}
 
   /* Notification Center Styles */
@@ -3567,10 +3567,10 @@ async function fetchTodaysAlertsAndBlink_User(){
         const alertDate = (alert.alert_time || alert.entry_date || '').slice(0, 10);
         const isToday = alertDate === todayStr;
         
-        // Apply blinking - only for unseen past alerts (today's alert blinking removed per directive)
+        // Today's alert blinking disabled per user requirement
         if(!alert.seen_by_user) {
           if(!isToday) {
-            tr.classList.add('alert-blink');
+            // no blink
           }
         }
         

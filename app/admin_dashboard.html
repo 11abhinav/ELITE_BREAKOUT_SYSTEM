@@ -1792,13 +1792,8 @@ function changeAdminPage(type, delta) {
     /* ─────────────────────────────────────────
        BLINK ROW (alert flash)
     ───────────────────────────────────────── */
-    @keyframes blinkBg {
-      0%, 100% { background-color: rgba(99,102,241,.18); }
-      50%       { background-color: transparent; }
-    }
-
-    .blink-row { animation: blinkBg 1.5s infinite; }
-    .main-row.blink-row td { font-weight: 800; }
+    .blink-row { }
+    .main-row.blink-row td { }
 
     /* ─────────────────────────────────────────
        RESPONSIVE
@@ -4953,6 +4948,7 @@ function changeAdminPage(type, delta) {
       'REVERSAL': { label: 'Reversal Scanner', desc: 'Mean Reversion Scan · Daily 18:30 IST (Post-Bhavcopy)' },
       'PULLBACK': { label: 'Pullback Pipeline', desc: 'Pullback Continuation Scan · Daily 18:30 IST (Post-Bhavcopy)' },
       'TECHNICAL': { label: 'Technical Scanner', desc: 'Multi-Pattern Technical · Daily 18:15 IST' },
+      'TECHNICAL_INTRADAY': { label: 'Technical - Market Hours (15m)', desc: '15m Intraday Breakouts · Every 15m (09:16–15:30 IST)' },
       'ACCUMULATION': { label: 'Accumulation Scanner', desc: 'Post-Bhavcopy Delivery Scan · Daily 18:35 IST' },
       'MULTIBAGGER': { label: 'Multibagger Scanner', desc: 'Daily Fundamental Scan · Daily 17:30 IST' },
       'AI Worker': { label: 'AI Worker', desc: 'Concall & Fundamental Caching · Continuous (Sat-Sun Active)' },
@@ -5113,7 +5109,7 @@ function getEarningsBadgeHtml(item) {
       }
 
       // Ensure all known scanners appear even if not in stats
-      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'MULTI_TF', 'MULTI_TF_5M', 'TECHNICAL', 'ACCUMULATION', 'EOD', 'REVERSAL', 'PULLBACK', 'Wealth Engine', 'MULTIBAGGER', 'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT', 'SHORT_COVERING_EOD', 'SHORT_COVERING_5M', 'Pledge Worker', 'AI Worker', 'Earnings Calendar'];
+      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'MULTI_TF', 'MULTI_TF_5M', 'TECHNICAL', 'TECHNICAL_INTRADAY', 'ACCUMULATION', 'EOD', 'REVERSAL', 'PULLBACK', 'Wealth Engine', 'MULTIBAGGER', 'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT', 'SHORT_COVERING_EOD', 'SHORT_COVERING_5M', 'Pledge Worker', 'AI Worker', 'Earnings Calendar'];
       const allScanners = new Set([...Object.keys(SCANNER_META), ...Object.keys(scanner_stats)].filter(sc => ALLOWED_SCANNERS.includes(sc)));
       el.innerHTML = '';
 
@@ -8299,13 +8295,11 @@ async function generateAIModal() {
 
   <style>
     .alert-blink {
-      animation: blink 1s step-end infinite;
-      background: rgba(255, 235, 59, 0.08);
     }
 
     @keyframes blink {
       50% {
-        opacity: 0.3
+        opacity: 1
       }
     }
 
@@ -8616,9 +8610,6 @@ async function fetchTodaysAlertsAndBlink_Admin(){
       }
       if(tr && !tr.dataset.blinkInit){
         tr.dataset.blinkInit = "true";
-        if(!alert.seen_by_admin) {
-            tr.classList.add('alert-blink');
-        }
         tr.addEventListener('click', async ()=>{
           if(tr.classList.contains('alert-blink')){
             tr.classList.remove('alert-blink');
