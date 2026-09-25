@@ -91,11 +91,11 @@ MAX_SL_PCT = 0.06                   # Maximum structural SL distance cap (6.0%)
 MIN_SL_PCT = 0.012                  # Minimum risk buffer (1.2%)
 MIN_ROOM_TO_RESISTANCE_R = 1.5      # Minimum R-multiple room to major overhead resistance
 
-# Pattern-Specific Thresholds
-BULL_FLAG_MIN_POLE_GAIN = 5.0       # Minimum pole gain % (or 2.0x ATR)
-BULL_FLAG_MIN_POLE_EFFICIENCY = 0.55# Net move / Gross move ratio for directional efficiency
-BULL_FLAG_MAX_RETRACE = 0.45        # Maximum retracement ratio of pole (45%)
-BULL_FLAG_MAX_VOL_RATIO = 0.85      # Avg Flag Volume / Avg Pole Volume <= 0.85
+# Pattern-Specific Thresholds (Ultra-Robust Flag & Pole Discovery)
+BULL_FLAG_MIN_POLE_GAIN = 4.0       # Minimum pole gain % (or 1.5x ATR)
+BULL_FLAG_MIN_POLE_EFFICIENCY = 0.50# Net move / Gross move ratio for directional efficiency
+BULL_FLAG_MAX_RETRACE = 0.50        # Maximum retracement ratio of pole (50%)
+BULL_FLAG_MAX_VOL_RATIO = 0.95      # Avg Flag Volume / Avg Pole Volume <= 0.95
 
 SHAKEOUT_MIN_DECLINE_PCT = 4.0      # Minimum prior drop % for shakeout setup
 
@@ -377,9 +377,9 @@ def _detect_bull_flag(df: pd.DataFrame, atr14: Optional[float] = None) -> Option
 
     best_setup = None
 
-    for flag_len in range(3, 13):
+    for flag_len in range(2, 16):
         pole_end_idx = today_idx - flag_len
-        if pole_end_idx < 4:
+        if pole_end_idx < 3:
             continue
 
         flag_highs = highs[pole_end_idx: today_idx]
@@ -389,13 +389,13 @@ def _detect_bull_flag(df: pd.DataFrame, atr14: Optional[float] = None) -> Option
         flag_resistance = float(np.max(flag_highs))
         flag_support = float(np.min(flag_lows))
 
-        # Fresh Breakout Timing: Must break above flag resistance today without having closed far above it yesterday
-        if c_today < flag_resistance * 1.001:
+        # Fresh Breakout Timing: Must break or test above flag resistance today (or close near top)
+        if c_today < flag_resistance * 0.998:
             continue
         if c_yesterday > (flag_resistance * 1.005 + 1e-4):
             continue
 
-        for pole_len in range(3, 11):
+        for pole_len in range(2, 15):
             pole_start_idx = pole_end_idx - pole_len
             if pole_start_idx < 0:
                 continue
@@ -407,7 +407,7 @@ def _detect_bull_flag(df: pd.DataFrame, atr14: Optional[float] = None) -> Option
             pole_move = pole_high - pole_low
             pole_pct = (pole_move / max(pole_low, 1.0)) * 100.0
 
-            if pole_pct < BULL_FLAG_MIN_POLE_GAIN and pole_move < (2.0 * atr14):
+            if pole_pct < BULL_FLAG_MIN_POLE_GAIN and pole_move < (1.5 * atr14):
                 continue
 
             # Pole directional efficiency
