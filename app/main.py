@@ -1217,6 +1217,7 @@ def run_system_scheduler():
     last_short_covering_5m = None  # Track last 5m short-covering ignition run
     last_short_covering_eod_date = None  # Track last EOD short-covering positioning run
     last_technical_date = None
+    last_technical_intraday_run = None
     last_multibagger_date = None
     last_wealth_daily_date = None
 
@@ -1817,6 +1818,25 @@ def run_system_scheduler():
                                         name=f"ShortCovering-5m-{slot_sc.strftime('%H%M')}",
                                         daemon=True
                                     ).start()
+
+                    # 5. Technical Scanner - Market Hours (15M Intraday Breakouts: 09:16, 09:31, 09:46 ... 15:16 IST)
+                    if (now_mtf.hour > 9 or (now_mtf.hour == 9 and now_mtf.minute >= 16)) and (now_mtf.hour < 15 or (now_mtf.hour == 15 and now_mtf.minute <= 30)):
+                        slot_tech_min = ((now_mtf.minute - 1) // 15) * 15 + 1 if now_mtf.minute > 0 else 46
+                        slot_tech = now_mtf.replace(minute=(slot_tech_min % 60), second=0, microsecond=0)
+                        time_since_last_tech = (now_mtf - last_technical_intraday_run).total_seconds() if last_technical_intraday_run else 9999
+                        if (last_technical_intraday_run is None or slot_tech > last_technical_intraday_run or time_since_last_tech >= 900):
+                            last_technical_intraday_run = now_mtf
+                            if not is_scanner_stopped("TECHNICAL_INTRADAY"):
+                                logger.info(f"⚡ TECHNICAL_INTRADAY (15M) | Starting Market Hours 15m Technical Scan for slot {slot_tech.strftime('%H:%M')} IST...")
+                                import threading
+                                threading.Thread(
+                                    target=_trigger_technical_intraday,
+                                    kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"},
+                                    name=f"TechnicalIntraday-15m-{slot_tech.strftime('%H%M')}",
+                                    daemon=True
+                                ).start()
+                            else:
+                                logger.info("⏭️ TECHNICAL_INTRADAY is STOPPED by Admin. Skipping 15m cycle.")
                 
                 check_scanner_staleness(now)
                 
@@ -2376,6 +2396,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "Earnings Calendar": None,  # removed
         "ACCUMULATION":  _trigger_accumulation,
         "TECHNICAL":     _trigger_technical,
+        "TECHNICAL_INTRADAY": _trigger_technical_intraday,
         "SHORT_COVERING": _trigger_short_covering,
         "SHORT_COVERING_EOD": _trigger_short_covering_eod,
         "SHORT_COVERING_5M": _trigger_short_covering_5m,
@@ -2402,6 +2423,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         "Earnings Calendar": lambda: None,  # removed
         "ACCUMULATION":  lambda: __import__('accumulation_scanner')._accumulation_run_lock,
         "TECHNICAL":     lambda: __import__('technical_scanner')._scan_lock,
+        "TECHNICAL_INTRADAY": lambda: __import__('technical_scanner_intraday')._scan_lock,
         "SHORT_COVERING": lambda: __import__('short_covering.short_covering_scanner', fromlist=['_scan_lock_5m'])._scan_lock_5m,
         "SHORT_COVERING_EOD": lambda: __import__('short_covering.short_position_detector', fromlist=['_eod_lock'])._eod_lock,
         "SHORT_COVERING_5M": lambda: __import__('short_covering.short_covering_scanner', fromlist=['_scan_lock_5m'])._scan_lock_5m,
@@ -2682,6 +2704,14 @@ def _trigger_technical(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=N
     from technical_scanner import run_technical_scan
     count = run_technical_scan(trigger_type=trigger_type, scheduler_name=scheduler_name, run_ctx=run_ctx, session=session)
     return {"total_count": count, "processed_count": count}
+
+def _trigger_technical_intraday(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=None, session=None):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("TECHNICAL_INTRADAY"):
+        logger.info("⏸️ [TECHNICAL_INTRADAY] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return {"total_count": 0, "processed_count": 0}
+    from technical_scanner_intraday import run_technical_intraday_pipeline
+    return run_technical_intraday_pipeline(force=(trigger_type == "MANUAL"), run_ctx=run_ctx)
 
 # [VERSION: TRIGGER_AI_WORKER_v1.1] Define _trigger_ai_worker
 def _trigger_ai_worker():

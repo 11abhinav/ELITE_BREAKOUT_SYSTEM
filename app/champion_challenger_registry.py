@@ -62,6 +62,7 @@ class ScannerFamily(str, Enum):
     SHORT_COVERING_EOD = "SHORT_COVERING_EOD"
     MULTI_TF_5M        = "MULTI_TF_5M"
     TECHNICAL          = "TECHNICAL"
+    TECHNICAL_INTRADAY = "TECHNICAL_INTRADAY"
 
 
 class AllocationTier(str, Enum):
@@ -737,6 +738,14 @@ _BUILT_IN_VARIANTS: List[Dict[str, Any]] = [
          description="Quarantined: High Tight Flag (Sample deficit N=15; quarantined)",
          parameters={"pattern": "HIGH_TIGHT_FLAG", "status": "QUARANTINED"},
          status=VariantStatus.RETIRED),
+
+    # -----------------------------------------------------------------------
+    # 12. TECHNICAL SCANNER - MARKET HOURS (15M Intraday Breakouts)
+    # -----------------------------------------------------------------------
+    dict(variant_id="TECH_INTRADAY_PROD_15M", scanner_family=ScannerFamily.TECHNICAL_INTRADAY,
+         description="Production Champion: Intraday 15M Technical Patterns (Market Hours 15m Breakout Engine)",
+         parameters={"timeframe": "15m", "min_score": 70, "rvol_gate": 1.20, "cooldown_seconds": 3600},
+         status=VariantStatus.CHAMPION),
 ]
 
 
