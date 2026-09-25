@@ -122,6 +122,8 @@ def _is_alert_in_cooldown(symbol: str, category: str, cooldown_secs: int = ALERT
 
 
 def run_technical_intraday_pipeline(
+    trigger_type: str = "SCHEDULED",
+    scheduler_name: str = "CRON",
     watchlist: Optional[List[str]] = None,
     is_test_mode: bool = False,
     force: bool = False,
@@ -139,18 +141,56 @@ def run_technical_intraday_pipeline(
             return {"total_count": 0, "processed_count": 0, "today_alerts": 0, "status": "MARKET_CLOSED"}
 
     start_time_mono = time.monotonic()
-    run_id, real_run_ctx = start_scanner_execution_run("TECHNICAL_INTRADAY", passed_ctx=run_ctx)
 
-    with _scan_lock.acquire(), _global_lock.acquire():
-        print_scanner_start_banner("TECHNICAL INTRADAY 15M SCANNER")
+    acquired_scan = False
+    acquired_global = False
+    try:
+        acquired_scan = _scan_lock.acquire(blocking=False)
+        if not acquired_scan:
+            logger.warning("🛑 [TECHNICAL_INTRADAY] Another scan instance is active. Skipping duplicate execution.")
+            return {"total_count": 0, "processed_count": 0, "today_alerts": 0, "status": "BUSY"}
+        acquired_global = _global_lock.acquire(blocking=False)
+    except Exception as lock_err:
+        logger.warning(f"⚠️ Lock acquire error in TECHNICAL_INTRADAY: {lock_err}")
 
-        if watchlist is None or len(watchlist) == 0:
-            watchlist = get_watchlist()
+    real_run_ctx = run_ctx
+    if not real_run_ctx:
+        try:
+            real_run_ctx = start_scanner_execution_run(
+                scanner_name="TECHNICAL_INTRADAY",
+                trigger_type=trigger_type,
+                scheduler_name=scheduler_name,
+            )
+        except Exception as exc:
+            if "actively running" in str(exc).lower():
+                logger.info("🛑 [TECHNICAL_INTRADAY] Scanner is ALREADY actively running. Skipping duplicate execution.")
+                if acquired_global:
+                    try: _global_lock.release()
+                    except Exception: pass
+                if acquired_scan:
+                    try: _scan_lock.release()
+                    except Exception: pass
+                return {"total_count": 0, "processed_count": 0, "today_alerts": 0}
+            logger.warning(f"⚠️ [TECHNICAL_INTRADAY] Could not create run_ctx: {exc}")
+            real_run_ctx = None
 
-        if not watchlist:
+    _scan_start = print_scanner_start_banner("TECHNICAL INTRADAY 15M SCANNER", run_id=real_run_ctx.run_id if real_run_ctx else None)
+
+    try:
+        if watchlist is None:
+            wl_raw = get_watchlist("TECHNICAL")
+            if isinstance(wl_raw, pd.DataFrame) and "Stock" in wl_raw.columns:
+                watchlist = wl_raw["Stock"].dropna().tolist()
+            elif isinstance(wl_raw, (list, set, tuple)):
+                watchlist = list(wl_raw)
+            else:
+                watchlist = []
+
+        if not watchlist or len(watchlist) == 0:
             logger.warning("⚠️ Watchlist is empty. Aborting TECHNICAL INTRADAY scan.")
             upsert_scanner_health("TECHNICAL_INTRADAY", "WARNING", f"Empty watchlist evaluated at {now.strftime('%H:%M:%S')}")
-            finish_scanner_execution_run("TECHNICAL_INTRADAY", real_run_ctx, total_scanned=0, alerts_found=0, status="SUCCESS")
+            if real_run_ctx:
+                complete_scanner_execution_run(real_run_ctx)
             return {"total_count": 0, "processed_count": 0, "today_alerts": 0}
 
         logger.info(f"🚀 Initializing Intraday 15M Technical Scan over {len(watchlist)} watchlist symbols...")
@@ -349,10 +389,12 @@ def run_technical_intraday_pipeline(
         status_msg = f"Completed 15M scan over {len(watchlist)} symbols in {elapsed_sec}s. Alerts: {alerts_saved}"
         logger.info(f"✅ [TECHNICAL INTRADAY 15M] {status_msg}")
         
-        upsert_scanner_health("TECHNICAL_INTRADAY", "HEALTHY", status_msg)
-        finish_scanner_execution_run("TECHNICAL_INTRADAY", real_run_ctx, total_scanned=len(watchlist), alerts_found=alerts_saved, status="SUCCESS")
+        upsert_scanner_health("TECHNICAL_INTRADAY", "OK", status_msg)
+        if real_run_ctx:
+            real_run_ctx.set_alerts(alerts_saved)
+            complete_scanner_execution_run(real_run_ctx)
 
-        print_scanner_end_banner("TECHNICAL INTRADAY 15M SCANNER")
+        print_scanner_end_banner("TECHNICAL INTRADAY 15M SCANNER", _scan_start, run_id=real_run_ctx.run_id if real_run_ctx else None)
 
         return {
             "total_count": len(watchlist),
@@ -361,6 +403,28 @@ def run_technical_intraday_pipeline(
             "qualified_count": len(qualified_candidates),
             "funnel": funnel_stats,
         }
+    except Exception as exc:
+        duration = round(time.monotonic() - start_time_mono, 2)
+        logger.exception(f"❌ [TECHNICAL_INTRADAY] Fatal error during cycle: {exc}")
+        upsert_scanner_health(
+            scanner_name="TECHNICAL_INTRADAY",
+            status="DOWN",
+            error_msg=str(exc)[:500],
+            duration_seconds=duration,
+            outcome="FAILED",
+            scheduled_for="Every 15m (09:16 - 15:30 IST Market Hours)",
+        )
+        if real_run_ctx:
+            try: complete_scanner_execution_run(real_run_ctx, exception=exc)
+            except Exception: pass
+        return {"total_count": 0, "processed_count": 0, "today_alerts": 0, "error": str(exc)}
+    finally:
+        if acquired_global:
+            try: _global_lock.release()
+            except Exception: pass
+        if acquired_scan:
+            try: _scan_lock.release()
+            except Exception: pass
 
 
 if __name__ == "__main__":
