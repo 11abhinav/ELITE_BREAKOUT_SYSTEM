@@ -250,52 +250,70 @@ def run_technical_intraday_pipeline(
                 rejection_counts["RVOL_BELOW_1.20"] = rejection_counts.get("RVOL_BELOW_1.20", 0) + 1
                 continue
 
-            # Candidate Pattern Evaluation
+            # [RULE 67 CHANGE-RATIONALE: INTRADAY_BULL_FLAG_ONLY_V1.0]
+            # Restrict 15M Intraday Technical Scanner to strictly evaluate and alert on Bull Flag & Pole (BULL_FLAG).
+            # Configurable via environment variable TECHNICAL_INTRADAY_PATTERNS (defaults strictly to "BULL_FLAG").
+            allowed_intraday_patterns_env = os.getenv("TECHNICAL_INTRADAY_PATTERNS", "BULL_FLAG")
+            allowed_intraday_patterns = {
+                pat.strip().upper() for pat in allowed_intraday_patterns_env.split(",") if pat.strip()
+            }
+
             detected_patterns: List[Dict[str, Any]] = []
 
-            # 1. Wyckoff Spring
-            ws = _detect_wyckoff_spring_type_2(df_calc, atr14)
-            if ws: detected_patterns.append(ws)
+            # 1. Bull Flag & Pole
+            if "BULL_FLAG" in allowed_intraday_patterns:
+                bf = _detect_bull_flag(df_calc, atr14)
+                if bf: detected_patterns.append(bf)
 
-            # 2. Bull Flag & Pole
-            bf = _detect_bull_flag(df_calc, atr14)
-            if bf: detected_patterns.append(bf)
+            # 2. Wyckoff Spring
+            if "WYCKOFF_SPRING_TYPE_2" in allowed_intraday_patterns:
+                ws = _detect_wyckoff_spring_type_2(df_calc, atr14)
+                if ws: detected_patterns.append(ws)
 
             # 3. Multi-Month Base / Base Breakout
-            mm = _detect_multi_month_base_breakout(df_calc, atr14)
-            if mm: detected_patterns.append(mm)
+            if "MULTI_MONTH_BASE_BREAKOUT" in allowed_intraday_patterns:
+                mm = _detect_multi_month_base_breakout(df_calc, atr14)
+                if mm: detected_patterns.append(mm)
 
             # 4. Undercut & Rally
-            ur = _detect_undercut_and_rally(df_calc, atr14)
-            if ur: detected_patterns.append(ur)
+            if "UNDERCUT_AND_RALLY" in allowed_intraday_patterns:
+                ur = _detect_undercut_and_rally(df_calc, atr14)
+                if ur: detected_patterns.append(ur)
 
             # 5. Double Bottom
-            db = _detect_double_bottom(df_calc, atr14)
-            if db: detected_patterns.append(db)
+            if "DOUBLE_BOTTOM" in allowed_intraday_patterns:
+                db = _detect_double_bottom(df_calc, atr14)
+                if db: detected_patterns.append(db)
 
             # 6. V-Reversal
-            vr = _detect_v_reversal(df_calc, atr14)
-            if vr: detected_patterns.append(vr)
+            if "V_REVERSAL" in allowed_intraday_patterns:
+                vr = _detect_v_reversal(df_calc, atr14)
+                if vr: detected_patterns.append(vr)
 
             # 7. Cup & Handle
-            ch = _detect_cup_and_handle(df_calc, atr14)
-            if ch: detected_patterns.append(ch)
+            if "CUP_AND_HANDLE" in allowed_intraday_patterns or "CUP_HANDLE" in allowed_intraday_patterns:
+                ch = _detect_cup_and_handle(df_calc, atr14)
+                if ch: detected_patterns.append(ch)
 
             # 8. Ascending Triangle
-            at = _detect_ascending_triangle(df_calc, atr14)
-            if at: detected_patterns.append(at)
+            if "ASCENDING_TRIANGLE" in allowed_intraday_patterns:
+                at = _detect_ascending_triangle(df_calc, atr14)
+                if at: detected_patterns.append(at)
 
             # 9. Bull Pennant
-            bp = _detect_bull_pennant(df_calc, atr14)
-            if bp: detected_patterns.append(bp)
+            if "BULL_PENNANT" in allowed_intraday_patterns:
+                bp = _detect_bull_pennant(df_calc, atr14)
+                if bp: detected_patterns.append(bp)
 
             # 10. Higher Low Reversal
-            hl = _detect_higher_low_reversal(df_calc, atr14)
-            if hl: detected_patterns.append(hl)
+            if "HIGHER_LOW_REVERSAL" in allowed_intraday_patterns:
+                hl = _detect_higher_low_reversal(df_calc, atr14)
+                if hl: detected_patterns.append(hl)
 
             # 11. Shakeout Reclaim
-            sr = _detect_shakeout_reclaim(df_calc, atr14)
-            if sr: detected_patterns.append(sr)
+            if "SHAKEOUT_RECLAIM" in allowed_intraday_patterns:
+                sr = _detect_shakeout_reclaim(df_calc, atr14)
+                if sr: detected_patterns.append(sr)
 
             if not detected_patterns:
                 rejection_counts["NO_PATTERN_MATCH"] = rejection_counts.get("NO_PATTERN_MATCH", 0) + 1
