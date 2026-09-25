@@ -19,23 +19,26 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
-from application_context import current_app_context
-from candidate_analytics_engine import record_candidate_snapshot
-from candidate_tracker import candidate_pool
-from database import DB_PATH, save_alert_if_new
-from data_fetch_status import record_data_fetch_start, record_data_fetch_end
+from database import (
+    get_connection,
+    save_alert_if_new,
+    start_scanner_execution_run,
+    complete_scanner_execution_run,
+    upsert_scanner_health,
+)
 from lock_utils import ProcessLock, print_scanner_start_banner, print_scanner_end_banner
 from price_cache import fetch_watchlist_data
 from technical_indicators import apply_indicators
-from telemetry_manager import telemetry
 from watchlist_cache import get_watchlist
-from trading_calendar import is_market_open_now
+from trading_calendar import is_trading_day
 
-from scanner_telemetry import (
-    start_scanner_execution_run,
-    finish_scanner_execution_run,
-    upsert_scanner_health,
-)
+def is_market_open_now() -> bool:
+    now = datetime.now(ZoneInfo("Asia/Kolkata"))
+    if not is_trading_day(now):
+        return False
+    market_start = now.replace(hour=9, minute=15, second=0, microsecond=0)
+    market_end = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    return market_start <= now <= market_end
 
 try:
     from regime_pattern_policy import APPROVED_TECHNICAL_PATTERNS, evaluate_pattern_for_regime
@@ -56,16 +59,16 @@ from technical_scanner import (
     _extract_ohlcv,
     _coalesce_indicator_val,
     _detect_wyckoff_spring_type_2,
-    _detect_bull_flag,
     _detect_multi_month_base_breakout,
     _detect_undercut_and_rally,
+    _detect_bull_flag,
+    _detect_shakeout_reclaim,
     _detect_double_bottom,
     _detect_v_reversal,
     _detect_cup_and_handle,
     _detect_ascending_triangle,
     _detect_bull_pennant,
     _detect_higher_low_reversal,
-    _detect_flat_base_breakout,
     MIN_RVOL_HARD_GATE,
     MIN_CLV_HARD_GATE,
     MAX_UPPER_WICK_PCT,
@@ -88,7 +91,7 @@ ALERT_COOLDOWN_SECONDS = 3600
 def _is_alert_in_cooldown(symbol: str, category: str, cooldown_secs: int = ALERT_COOLDOWN_SECONDS) -> bool:
     """Checks if an alert for this symbol and pattern category was dispatched within cooldown window."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = get_connection()
         cursor = conn.cursor()
         query = """
             SELECT alert_time FROM alerts 
@@ -250,9 +253,9 @@ def run_technical_intraday_pipeline(
             hl = _detect_higher_low_reversal(df_calc, atr14)
             if hl: detected_patterns.append(hl)
 
-            # 11. Flat Base
-            fb = _detect_flat_base_breakout(df_calc, atr14)
-            if fb: detected_patterns.append(fb)
+            # 11. Shakeout Reclaim
+            sr = _detect_shakeout_reclaim(df_calc, atr14)
+            if sr: detected_patterns.append(sr)
 
             if not detected_patterns:
                 rejection_counts["NO_PATTERN_MATCH"] = rejection_counts.get("NO_PATTERN_MATCH", 0) + 1
