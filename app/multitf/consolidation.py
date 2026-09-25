@@ -201,15 +201,6 @@ def prepare_15m_context(
         return None
 
     try:
-        high = np.ascontiguousarray(df["High"].to_numpy(dtype=np.float64))
-        low = np.ascontiguousarray(df["Low"].to_numpy(dtype=np.float64))
-        open_arr = np.ascontiguousarray(df["Open"].to_numpy(dtype=np.float64))
-        close = np.ascontiguousarray(df["Close"].to_numpy(dtype=np.float64))
-        if "Volume" in df.columns:
-            volume = np.ascontiguousarray(df["Volume"].to_numpy(dtype=np.float64))
-        else:
-            volume = np.ones(len(df), dtype=np.float64)
-
         # [RULE 67 CHANGE-RATIONALE: FAST_DATETIME_INDEX_V1.0]
         # Resolve DatetimeIndex ONCE without repeated flexible string regex parsing per symbol.
         if isinstance(df.index, pd.DatetimeIndex):
@@ -232,6 +223,27 @@ def prepare_15m_context(
             else:
                 dt_idx = pd.DatetimeIndex(pd.to_datetime(df.index.values, errors='coerce'))
 
+        # [RULE 67 CHANGE-RATIONALE: NAT_SANITY_FILTER_V1.1]
+        # If dt_idx contains any NaT elements (due to corrupt bars or unparseable timestamps),
+        # drop those invalid rows from both df and dt_idx FIRST before extracting numpy price/volume arrays.
+        # This guarantees dt_idx.hour and dt_idx.minute contain zero NaNs, eliminating "cannot convert float NaN to integer" crashes,
+        # and ensures all contiguous numpy arrays match in dimension.
+        if dt_idx.isna().any():
+            valid_mask = ~dt_idx.isna()
+            df = df.iloc[valid_mask.to_numpy() if hasattr(valid_mask, "to_numpy") else valid_mask]
+            dt_idx = dt_idx[valid_mask]
+            if df.empty or len(df) < min_bars:
+                return None
+
+        high = np.ascontiguousarray(df["High"].to_numpy(dtype=np.float64))
+        low = np.ascontiguousarray(df["Low"].to_numpy(dtype=np.float64))
+        open_arr = np.ascontiguousarray(df["Open"].to_numpy(dtype=np.float64))
+        close = np.ascontiguousarray(df["Close"].to_numpy(dtype=np.float64))
+        if "Volume" in df.columns:
+            volume = np.ascontiguousarray(df["Volume"].to_numpy(dtype=np.float64))
+        else:
+            volume = np.ones(len(df), dtype=np.float64)
+
         dates_arr = dt_idx.date
         minutes_arr = (dt_idx.hour * 60 + dt_idx.minute).values
         timestamps = dt_idx
@@ -251,23 +263,28 @@ def prepare_15m_context(
                     is_gap[i] = 1
         gap_prefix = np.cumsum(is_gap)
 
-        vol_baseline = float(np.median(volume[-40:])) if len(volume) >= 40 else float(np.median(volume)) if len(volume) > 0 else 1.0
+        vol_baseline = float(np.nanmedian(volume[-40:])) if len(volume) >= 40 else float(np.nanmedian(volume)) if len(volume) > 0 else 1.0
+        if np.isnan(vol_baseline) or vol_baseline <= 0:
+            vol_baseline = 1.0
 
-        # [RULE 67 CHANGE-RATIONALE: PRECOMPUTE_TOD_BASELINE_V1.0]
+        # [RULE 67 CHANGE-RATIONALE: PRECOMPUTE_TOD_BASELINE_V1.1]
         # Precompute time-of-day baseline ONCE per stock to avoid 3,600+ repeated median computations in window loops.
-        target_minute = int(minutes_arr[-1]) if len(minutes_arr) > 0 else 0
-        time_mask = (np.abs(minutes_arr - target_minute) <= 30)
+        # Defensively extract valid non-NaN target_minute to avoid float NaN to integer conversion errors.
+        valid_mins = minutes_arr[~np.isnan(minutes_arr)] if len(minutes_arr) > 0 else np.array([])
+        target_minute = int(valid_mins[-1]) if len(valid_mins) > 0 else 0
+
+        time_mask = (~np.isnan(minutes_arr)) & (np.abs(minutes_arr - target_minute) <= 30)
         same_time_vols = volume[time_mask]
         if len(same_time_vols) >= 5:
-            tod_baseline = float(np.median(same_time_vols))
+            tod_baseline = float(np.nanmedian(same_time_vols))
         else:
             tod_baseline = vol_baseline
-        if tod_baseline <= 0:
+        if np.isnan(tod_baseline) or tod_baseline <= 0:
             tod_baseline = 1.0
 
         recent_slice_len = min(35, total_len)
-        rec_high = float(np.max(high[-recent_slice_len:]))
-        rec_low = float(np.min(low[-recent_slice_len:]))
+        rec_high = float(np.nanmax(high[-recent_slice_len:])) if len(high) > 0 else 0.0
+        rec_low = float(np.nanmin(low[-recent_slice_len:])) if len(low) > 0 else 0.0
 
         return Prepared15mContext(
             symbol=sym,
