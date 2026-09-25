@@ -1125,7 +1125,7 @@ def create_manual_alert_from_analysis(symbol: str, scanner_type: str = "EOD", us
     sym_clean = symbol.strip().upper().replace('.NS', '').replace('.BO', '')
     scanner_type = scanner_type.strip().upper()
 
-    ALLOWED_SCANNERS = {"EOD", "MULTI_TF", "REVERSAL", "PULLBACK", "WEALTH", "MULTIBAGGER"}
+    ALLOWED_SCANNERS = {"EOD", "MULTI_TF", "REVERSAL", "PULLBACK", "WEALTH", "MULTIBAGGER", "TECHNICAL", "TECHNICAL_INTRADAY"}
     if scanner_type not in ALLOWED_SCANNERS:
         return {"success": False, "error": f"Invalid scanner type '{scanner_type}'. Allowed scanners: {', '.join(sorted(ALLOWED_SCANNERS))}"}
 
