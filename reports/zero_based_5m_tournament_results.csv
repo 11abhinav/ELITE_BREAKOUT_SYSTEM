@@ -1,0 +1,11 @@
+code,hypothesis,train_n,train_wr,train_exp,val_n,val_wr,val_exp,holdout_n,holdout_wr,holdout_exp,holdout_ci_low,holdout_ci_high,ci_low_positive,verdict
+H1,Pullback Continuation (EMA20 Retest),693,27.0,-0.341,156,29.5,-0.303,164,26.8,-0.379,-0.522,-0.225,False,REJECTED_OR_RESEARCH_ONLY
+H2,VWAP Reclaim after Dip,409,28.1,-0.36,87,19.5,-0.512,95,35.8,-0.201,-0.406,0.011,False,REJECTED_OR_RESEARCH_ONLY
+H3,Opening-Range Breakout (ORB-30),120,30.8,-0.351,12,41.7,0.123,26,19.2,-0.509,-0.829,-0.174,False,REJECTED_OR_RESEARCH_ONLY
+H4,Volatility Squeeze -> Expansion (NR7),667,34.6,-0.188,55,29.1,-0.282,49,38.8,-0.177,-0.442,0.117,False,REJECTED_OR_RESEARCH_ONLY
+H5,Failed Breakdown Reclaim (Shakeout),803,35.2,-0.22,278,23.7,-0.441,188,34.6,-0.268,-0.408,-0.121,False,REJECTED_OR_RESEARCH_ONLY
+H6,Coil Compression Breakout,1653,31.2,-0.26,220,24.5,-0.426,272,32.7,-0.248,-0.366,-0.132,False,REJECTED_OR_RESEARCH_ONLY
+H7,Relative-Strength Thrust (RVOL 2.5x),32,21.9,-0.453,9,33.3,-0.167,8,0.0,-1.0,-1.0,-1.0,False,REJECTED_OR_RESEARCH_ONLY
+H8,Gap Continuation (Morning Drive),19,26.3,-0.479,4,0.0,-1.0,5,40.0,0.0,-1.0,1.0,False,REJECTED_OR_RESEARCH_ONLY
+H9,Mean-Reversion Panic Exhaustion,0,0.0,0.0,0,0.0,0.0,0,0.0,0.0,0.0,0.0,False,REJECTED_OR_RESEARCH_ONLY
+H10,Multi-Timeframe Alignment (15m+5m),1254,28.6,-0.336,193,24.9,-0.417,250,33.2,-0.235,-0.356,-0.11,False,REJECTED_OR_RESEARCH_ONLY
