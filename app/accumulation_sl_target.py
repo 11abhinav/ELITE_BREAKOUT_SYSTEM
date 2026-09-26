@@ -2,7 +2,7 @@
 app/accumulation_sl_target.py
 
 Structural Stop Loss, Target Generation, and Exit Lifecycle Engine for ACCUMULATION_SCANNER_V1.
-Completely isolated paper-trade lifecycle management.
+Position lifecycle management.
 """
 
 import math
@@ -126,7 +126,7 @@ def evaluate_accumulation_exit(
     current_market: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
-    Evaluates paper position exit triggers.
+    Evaluates position exit triggers.
     Returns: {"exit_signal": str, "reason": str, "should_exit": bool}
     """
     from corporate_actions import adjust_trade_for_corporate_actions

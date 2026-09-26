@@ -1,9 +1,9 @@
 # UNIVERSAL SCANNER CERTIFICATION GOVERNANCE CHARTER (USCGC)
-**Document Identifier:** `GOV-CHARTER-2026-USCGC-v1.0`  
+**Document Identifier:** `GOV-CHARTER-2026-USCGC-v2.0`  
 **Effective Date:** 2026-09-26  
 **System Jurisdiction:** Elite Breakout System (NSE / BSE Equities & Derivatives)  
 **Classification:** Governing Policy Document (Mandatory Execution Standard)  
-**Applies To:** All 16 Production Scanners, Lifecycle Engines, and Infrastructure Subsystems  
+**Applies To:** All 16 Active Scanners, Trade Engines, and Infrastructure Subsystems  
 
 ---
 
@@ -13,16 +13,19 @@ Every active scanner currently in production was initially admitted by shipping 
 
 > **The Zero-Assumption Invariant:**  
 > No trading strategy, scanner, filter cascade, or heuristic parameter set may remain active in live production without either:  
-> 1. **Alpha Certification:** Successfully passing the unified T+1 point-in-time causal, 3-way walk-forward, 95% bootstrap holdout hurdle ($CI_{low} > 0.000\text{R}$) and demonstrating statistically significant incremental alpha ($p < 0.05$) against its own naive baseline; OR  
+> 1. **Alpha Certification:** Successfully passing the unified T+1 point-in-time causal, 3-way walk-forward, 95% bootstrap holdout hurdle ($\text{CI}_{\text{low}} > 0.000\text{R}$) and demonstrating statistically significant incremental alpha ($p < 0.05$) against its own naive baseline on verified historical NSE/BSE market data; OR  
 > 2. **Infrastructure Reclassification:** Being formally designated as non-alpha infrastructure (e.g. universe builders, data acquisition daemons, trade lifecycle / exit managers) and audited under objective execution-improvement metrics rather than entry alpha.
+>
+> **Zero Shadow / Zero Paper Trading Policy:**  
+> The system does NOT employ "shadow mode" or "paper trading mode" to evaluate strategies. Strategies that fail certification are **IMMEDIATELY DECOMMISSIONED AND EXCISED** from the active codebase. Live production runs only certified, active trading strategies.
 
-This governance standard applies the exact discipline that successfully exposed and decommissioned the 5-minute breakout anomalies and the entire short-covering strategy family.
+This governance standard applies the exact discipline that successfully exposed and permanently decommissioned the 5-minute breakout anomalies and the entire short-covering strategy family.
 
 ---
 
 ## 2. PHASE 0 — SHARED CERTIFICATION INFRASTRUCTURE (BUILD ONCE, REUSE FOR ALL 16)
 
-To prevent fragmented backtests, lookahead bias, or bespoke execution cheating, all 16 scanners must be certified through a single, shared testing harness built once and utilized across every tournament.
+To prevent fragmented backtests, lookahead bias, or bespoke execution cheating, all 16 scanners are certified through a single, shared testing harness:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -103,8 +106,8 @@ For every scanner that has emitted live alerts in production, extract:
 6. Sample Span: Calendar duration and market regime distribution of live trades.
 
 ### 3.2. Triage Decision Thresholds
-* **Empirical Hazard ($\mathbb{E}[R] \le 0.00\text{R}$ on $N \ge 30$):** High-priority immediate audit. Flagged as primary candidate for parameter simplification or shadow demotion.
-* **Underpowered ($N < 30$):** Cannot be judged empirically from live data; deferred to historical replay and shadow monitoring.
+* **Empirical Hazard ($\mathbb{E}[R] \le 0.00\text{R}$ on $N \ge 30$):** High-priority immediate audit. Flagged as primary candidate for simplification or immediate decommission.
+* **Underpowered ($N < 30$):** Cannot be judged empirically from live data; deferred to historical replay.
 * **Empirical Alpha ($\mathbb{E}[R] > +0.20\text{R}$ on $N \ge 50$):** Validated in live conditions; certified for historical holdout verification to ensure robustness.
 
 ---
@@ -144,13 +147,13 @@ $$\Delta \mathbb{E}[R] = \mathbb{E}[R]_{\text{Full}} - \mathbb{E}[R]_{\text{Base
 ### Step 5 (Gate 5): Mandatory Holdout Invariant
 The untouched holdout must yield a statistically significant positive edge:
 $$\text{Bootstrap } 95\% \text{ CI}_{\text{low}} > 0.000\text{R} \quad \text{on Untouched Holdout}$$
-*Zero exceptions permitted. If $\text{CI}_{\text{low}} \le 0$, the strategy fails certification.*
+*Zero exceptions permitted. Any scanner failing Gates 4 or 5 is **IMMEDIATELY DECOMMISSIONED AND REMOVED** from the production codebase.*
 
 ---
 
 ## 5. PHASE 3 — SEQUENCING ACROSS ALL 16 ENGINES
 
-Testing is executed in four sequential batches grouped by shared risk profiles and data availability. Lessons from each batch directly refine subsequent testing.
+Testing is executed in four sequential batches grouped by shared risk profiles and data availability. Lessons from each batch directly refine subsequent testing:
 
 ```mermaid
 graph TD
@@ -191,64 +194,50 @@ graph TD
 
 ---
 
-## 7. PHASE 5 — SAMPLE SIZE EXHAUSTION & SHADOW MODE
+## 7. PHASE 5 — HANDLING SAMPLE SIZE LIMITATIONS (GROUND-TRUTH EXPANSION)
 
-When historical testing encounters sample size limitations ($N < 50$ events across multi-year history, e.g. strict VCP setups or DCF compounders), the system prohibits forced verdicts on thin data.
+When historical testing encounters small sample sizes ($N < 50$ events across default windows, e.g. strict VCP setups or DCF compounders), the system prohibits guessing, paper trading, or live shadow observation.
 
-### 7.1. Shadow Mode Operation
-1. The scanner executes in production on its active schedule.
-2. Evaluated signals are logged to an internal `shadow_alerts` ledger with complete telemetric snapshots.
-3. **Zero Telegram broadcasting, zero dashboard publication, zero live capital execution.**
-4. The strategy accumulates forward real-time events until the bootstrap $95\%$ confidence interval achieves statistical significance.
+### 7.1. Ground-Truth Historical Expansion
+* Rather than running paper trading or shadow modes, the testing engine **expands historical lookback** across the full 10-year Bhavcopy archive (2015–2026) across all 2,000+ NSE/BSE listed instruments.
+* If, after full 10-year historical expansion, the setup still yields $N < 50$ events, it is formally classified as **STATISTICALLY UNDERPOWERED**.
 
-### 7.2. Replay-vs-Production Parity Verification
-Shadow mode continuously audits production integrity. Every shadow alert emitted live is compared against what the historical replay engine generates for the identical bar:
-$$\text{Parity Delta} = |\text{Score}_{\text{Live}} - \text{Score}_{\text{Replay}}| + |\text{SL}_{\text{Live}} - \text{SL}_{\text{Replay}}| + |\text{TGT}_{\text{Live}} - \text{TGT}_{\text{Replay}}|$$
-If $\text{Parity Delta} > 0$, an immediate `CRITICAL_REPLAY_DRIFT` exception is raised, identifying that the replay engine has diverged from live execution code.
+### 7.2. Action on Underpowered Candidates
+* Underpowered strategies are **NEVER** promoted to active live trading.
+* They are cataloged as inactive research candidates until historical sample size reaches statistical adequacy.
 
 ---
 
-## 8. PHASE 6 — GOVERNANCE, AUDIT TRAILS & TRACKING
+## 8. PHASE 6 — BINARY GOVERNANCE & DECOMMISSIONING TRIGGER
 
-### 8.1. Four-State Strategy Lifecycle Registry
-Every scanner is cataloged in `app/champion_challenger_registry.py` under one of four immutable states:
+### 8.1. Binary Strategy State Machine
+To maintain zero ambiguity and ensure complete operational cleanliness, strategies in the Elite Breakout System operate under a strict **Binary State Machine**:
 
 ```
-┌─────────────────────────┐         ┌─────────────────────────┐
-│   CANDIDATE_RESEARCH    │ ──────► │   SHADOW_OBSERVATION    │
-└─────────────────────────┘         └─────────────────────────┘
-             ▲                                   │
-             │                                   ▼
-┌─────────────────────────┐         ┌─────────────────────────┐
-│ DECOMMISSIONED / EXCISED│ ◄────── │   CERTIFIED_PRODUCTION  │
-└─────────────────────────┘         └─────────────────────────┘
+┌─────────────────────────────────┐
+│       CERTIFIED_PRODUCTION      │
+│   (Live Capital / Active Alert) │
+└─────────────────────────────────┘
+                 │
+                 │ Failed Gate 4/5 or Performance Drop
+                 ▼
+┌─────────────────────────────────┐
+│     DECOMMISSIONED / EXCISED    │
+│  (Permanently Deleted from Code)│
+└─────────────────────────────────┘
 ```
 
-1. **`CANDIDATE_RESEARCH`:** Under active development; strictly barred from live feeds.
-2. **`SHADOW_OBSERVATION`:** Running on live data in silent shadow mode; accumulating sample size.
-3. **`CERTIFIED_PRODUCTION`:** Fully certified via Gates 1–5; actively broadcasting trade alerts.
-4. **`DECOMMISSIONED / EXCISED`:** Permanently failed statistical hurdles; barred from execution.
+1. **`CERTIFIED_PRODUCTION`:** Fully certified via Gates 1–5 on verified historical market data. Actively screening and broadcasting trade alerts.
+2. **`DECOMMISSIONED / EXCISED`:** Failed any gate or degraded in live execution. Permanently deleted from schedulers, triggers, dropdowns, and execution threads. Zero shadow mode.
 
-### 8.2. Promotion Criteria (Shadow $\rightarrow$ Production)
-A scanner may transition from `SHADOW_OBSERVATION` to `CERTIFIED_PRODUCTION` if and only if:
-1. Sample size $N \ge 100$ independent closed trades (or $N \ge 50$ for long-term swing).
-2. Out-of-sample forward expectancy $\mathbb{E}[R] \ge +0.20\text{R}$.
-3. Bootstrap $95\%$ Confidence Interval lower bound $\text{CI}_{\text{low}} > +0.050\text{R}$.
-4. Incremental alpha significance vs. naive baseline passes at $p < 0.05$.
-5. Replay-vs-production parity is $100.0\%$ (zero drift over 30 consecutive sessions).
-
-### 8.3. Demotion & Quarantine Triggers (Production $\rightarrow$ Shadow / Decommissioned)
-A production scanner is immediately quarantined to `SHADOW_OBSERVATION` if:
-1. **Expectancy Degradation:** Rolling 50-trade realized expectancy drops below $0.000\text{R}$.
-2. **Drawdown Breach:** Strategy realizes a drawdown exceeding $2.5\times$ its historical maximum backtest drawdown.
-3. **Regime Vulnerability:** Strategy produces 8 consecutive full 1.0R losses.
-
-Once quarantined, the scanner has 60 days to either:
-- Demonstrate statistical recovery through forward paper sampling; OR
-- Be permanently **DECOMMISSIONED AND EXCISED** from the codebase.
+### 8.2. Immediate Decommissioning Triggers
+An active production scanner is immediately decommissioned and excised if:
+1. **Rolling Expectancy Degradation:** Live rolling 50-trade realized expectancy drops below $0.000\text{R}$ ($\mathbb{E}[R] \le 0.00\text{R}$).
+2. **Drawdown Breach:** Live realized drawdown exceeds $2.0\times$ its certified historical maximum drawdown.
+3. **Statistical Failure:** Live win rate falls significantly below its certified holdout lower bound with $p < 0.01$.
 
 ---
 
 ## 9. CONCLUSION & EXECUTION SCHEDULE
 
-This Charter governs all strategy certification across the Elite Breakout System. Phase 1 (Empirical Live Triage) initiates immediately, followed by the execution of Batch A (Breakout Tournament) using the unified Point-in-Time Replay Engine and Ground-Truth Historical Data Layer.
+This Charter governs all strategy certification across the Elite Breakout System. Zero shadow mode and zero paper trading are permitted. Phase 1 (Empirical Live Triage) initiates immediately, followed by the execution of Batch A (Breakout Tournament) on verified real historical data.
