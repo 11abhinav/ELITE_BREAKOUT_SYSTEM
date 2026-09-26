@@ -2558,7 +2558,6 @@ function changeAdminPage(type, delta) {
               <option value="PULLBACK">Pullback</option>
               <option value="REVERSAL">Reversal</option>
               <option value="ACCUMULATION">Accumulation</option>
-              <option value="SHORT_COVERING">Short Covering</option>
               <option value="WEALTH">Wealth Engine</option>
             </select>
 
@@ -2825,8 +2824,6 @@ function changeAdminPage(type, delta) {
               <option value="MULTI_TF">Multi-TF Breakout</option>
               <option value="PULLBACK">Pullback</option>
               <option value="REVERSAL">Reversal</option>
-              <option value="SHORT_COVERING_5M">Short Covering (5M)</option>
-              <option value="SHORT_COVERING_EOD">Short Covering (EOD)</option>
               <option value="WEALTH">Wealth Engine</option>
               <option value="MULTIBAGGER">Multibagger Engine</option>
             </select>
@@ -3577,8 +3574,6 @@ function changeAdminPage(type, delta) {
                 <!-- [RULE 67 CHANGE-RATIONALE]: Upgraded scanner display name from legacy 'Multi-TF Ladder' to 'Multi-TF Breakout' -->
                 <option value="MULTI_TF">Multi-TF Breakout</option>
                 <option value="PULLBACK">Pullback</option>
-                <option value="SHORT_COVERING_5M">Short Covering (5M)</option>
-                <option value="SHORT_COVERING_EOD">Short Covering (EOD)</option>
                 <option value="WEALTH">Wealth Engine</option>
                 <option value="MULTIBAGGER">Multibagger Engine</option>
               </select>
@@ -3846,14 +3841,6 @@ function changeAdminPage(type, delta) {
                   <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
                     <input type="checkbox" class="seh-scanner-cb" value="DAILY_BUILDER" onchange="onSehScannerChange()" checked />
                     <span>Daily Builder</span>
-                  </label>
-                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
-                    <input type="checkbox" class="seh-scanner-cb" value="SHORT_COVERING_EOD" onchange="onSehScannerChange()" checked />
-                    <span>Short Covering EOD</span>
-                  </label>
-                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
-                    <input type="checkbox" class="seh-scanner-cb" value="SHORT_COVERING_5M" onchange="onSehScannerChange()" checked />
-                    <span>Short Covering 5M Monitor</span>
                   </label>
                   <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
                     <input type="checkbox" class="seh-scanner-cb" value="PLEDGE_WORKER" onchange="onSehScannerChange()" checked />
@@ -4957,8 +4944,6 @@ function changeAdminPage(type, delta) {
       'MULTIBAGGER_EXIT': { label: 'Multibagger Exit Monitor', desc: 'Exit Signals for Multibagger · Every 15m (09:15–15:30 IST)' },
       'WEALTH_EXIT': { label: 'Wealth Exit Monitor', desc: 'Exit Signals & Trailing Stop · Every 5m (09:15–15:30 IST)' },
       'MULTI_TF_5M': { label: 'Multi-TF 5M Monitor', desc: 'Secondary Breakout Confirmation · Every 5m (09:35–15:25 IST)' },
-      'SHORT_COVERING_EOD': { label: 'Short Covering EOD', desc: 'Short Covering Candidate Detector · Daily 09:05 IST (Market Days)' },
-      'SHORT_COVERING_5M': { label: 'Short Covering 5M Monitor', desc: 'Intraday Ignition Monitor · Every 5m (09:20–15:25 IST Market Days)' },
       'BayesianUpdater': { label: 'Bayesian Updater', desc: 'Machine Learning Feedback Loop · Daily 24h' }
     };
 
@@ -5108,8 +5093,7 @@ function getEarningsBadgeHtml(item) {
         return;
       }
 
-      // Ensure all known scanners appear even if not in stats
-      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'MULTI_TF', 'MULTI_TF_5M', 'TECHNICAL', 'TECHNICAL_INTRADAY', 'ACCUMULATION', 'EOD', 'REVERSAL', 'PULLBACK', 'Wealth Engine', 'MULTIBAGGER', 'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT', 'SHORT_COVERING_EOD', 'SHORT_COVERING_5M', 'Pledge Worker', 'AI Worker', 'Earnings Calendar'];
+      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'MULTI_TF', 'MULTI_TF_5M', 'TECHNICAL', 'TECHNICAL_INTRADAY', 'ACCUMULATION', 'EOD', 'REVERSAL', 'PULLBACK', 'Wealth Engine', 'MULTIBAGGER', 'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT', 'Pledge Worker', 'AI Worker'];
       const allScanners = new Set([...Object.keys(SCANNER_META), ...Object.keys(scanner_stats)].filter(sc => ALLOWED_SCANNERS.includes(sc)));
       el.innerHTML = '';
 

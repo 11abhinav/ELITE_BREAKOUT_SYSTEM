@@ -1,0 +1,4 @@
+representation,all_n,expectancy_r,win_rate
+R1 (Near Month Only),24,-0.275,33.3
+R2 (Near + Next Month - Frozen Primary),21,-0.409,28.6
+R3 (Near + Next + Far Month),21,-0.409,28.6

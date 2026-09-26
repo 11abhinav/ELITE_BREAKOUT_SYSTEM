@@ -96,25 +96,6 @@ class TestSystemWideCertification(unittest.TestCase):
         rec = adapter.evaluate("MTF_5M_TEST", "2026-09-23", mode=ReplayMode.CLEAN_HISTORICAL_REPLAY, custom_data={"daily": df_d, "5m": df_5m})
         self.assertIn("5M_INTRADAY_CONFIRMATION", rec.gate_results)
 
-    def test_short_covering_eod_replay(self):
-        """Verifies Short Covering EOD data health and signature evaluation."""
-        adapter = ScannerCertificationRegistry.get_adapter(ScannerType.SHORT_COVERING_EOD.value)
-        self.assertIsNotNone(adapter)
-        df = self._generate_synthetic_clean_bars(30, base_price=250.0)
-        df["OI"] = [1000000 - i * 15000 for i in range(len(df))]
-        rec = adapter.evaluate("SC_EOD_TEST", "2026-09-23", mode=ReplayMode.CLEAN_HISTORICAL_REPLAY, custom_data={"df_5m": df})
-        self.assertIsNotNone(rec.short_covering_health)
-        self.assertEqual(rec.short_covering_health.health_status, "HEALTHY")
-
-    def test_short_covering_5m_data_insufficient_state(self):
-        """Verifies Short Covering 5M reproduces DATA_INSUFFICIENT state when bars < 2."""
-        adapter = ScannerCertificationRegistry.get_adapter(ScannerType.SHORT_COVERING_5M.value)
-        empty_df = pd.DataFrame()
-        rec = adapter.evaluate("SC_5M_NODATA", "2026-09-23", mode=ReplayMode.PRODUCTION_REPLAY, custom_data={"df_5m": empty_df})
-        self.assertEqual(rec.terminal_decision, "REJECTED")
-        self.assertEqual(rec.rejection_reason, "DATA_INSUFFICIENT")
-        self.assertEqual(rec.short_covering_health.health_status, "DATA_INSUFFICIENT")
-
     def test_reversal_replay(self):
         """Verifies Reversal scanner exhaustion volume and hammer pattern gates."""
         adapter = ScannerCertificationRegistry.get_adapter(ScannerType.REVERSAL.value)

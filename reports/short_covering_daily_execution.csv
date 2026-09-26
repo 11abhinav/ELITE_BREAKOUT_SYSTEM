@@ -1,0 +1,5 @@
+variant,holdout_n,exp_at_5bps_slippage,exp_at_10bps_slippage,exp_at_15bps_slippage,slippage_drag_per_5bps
+B1,16,-0.377,-0.403,-0.429,0.026
+B2,4,-0.375,-0.398,-0.42,0.023
+D1,8,-0.46,-0.488,-0.515,0.028
+D3,3,0.439,0.412,0.384,0.027

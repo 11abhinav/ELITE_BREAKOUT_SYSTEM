@@ -71,8 +71,6 @@ _MODE_CONFIG = {
     "MULTI_TF": (2.00,    1.00,       0.0120,     3.5),   # Robust structural floor (min 1.2% / 1.0x ATR)
     "REVERSAL": (2.00,    1.00,       0.0100,     3.5),   # Wide
     "PULLBACK": (2.00,    0.75,       0.0075,     3.0),   # Pullback Continuation
-    "SHORT_COVERING_5M": (1.50, 0.30, 0.0030,     2.0),   # Intraday 5m ignition (tight anti-whip buffer, max 2.0x ATR)
-    "SHORT_COVERING":    (1.50, 0.30, 0.0030,     2.0),
 }
 _DEFAULT_CONFIG = (1.50, 0.50, 0.0050, 3.0)
 

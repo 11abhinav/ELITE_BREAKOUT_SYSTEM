@@ -1,0 +1,8 @@
+test,holdout_exp
+D3 Core (Aggregate Near+Next),0.439
+D3 Slippage Stress (10 bps),0.412
+D3 Slippage Stress (15 bps),0.384
+D1 (1D Window),-0.46
+D8 (3D Window),-0.5
+D9 (5D Window),-1.0
+D10 (10D Window),-0.305

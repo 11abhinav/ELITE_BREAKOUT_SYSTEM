@@ -1,0 +1,4 @@
+variant,train_n,train_exp,train_wr,val_n,val_exp,val_wr,ho_n,ho_exp,ho_wr,ho_ci_low,ho_ci_high,ho_mfe,ho_mae,ho_fwd_5d,status
+B1,68,-0.509,19.1,16,-0.404,25.0,16,-0.377,25.0,-0.827,0.092,1.68,-3.11,-0.52,FAILED_HOLDOUT
+B2,19,-0.607,15.8,1,-0.605,0.0,4,-0.375,25.0,-1.0,0.875,2.25,-3.65,-0.24,FAILED_HOLDOUT
+B3,51,-0.492,19.6,5,-1.0,0.0,10,-0.654,10.0,-1.0,-0.154,1.23,-3.13,-1.04,FAILED_HOLDOUT

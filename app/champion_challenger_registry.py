@@ -59,7 +59,6 @@ class ScannerFamily(str, Enum):
     WEALTH             = "WEALTH"
     MULTIBAGGER        = "MULTIBAGGER"
     DAILY_BUILDER      = "DAILY_BUILDER"
-    SHORT_COVERING_EOD = "SHORT_COVERING_EOD"
     MULTI_TF_5M        = "MULTI_TF_5M"
     TECHNICAL          = "TECHNICAL"
     TECHNICAL_INTRADAY = "TECHNICAL_INTRADAY"
@@ -673,18 +672,6 @@ _BUILT_IN_VARIANTS: List[Dict[str, Any]] = [
     dict(variant_id="DAILY_BUILDER_CHALL_A_PRISTINE_BASE", scanner_family=ScannerFamily.DAILY_BUILDER,
          description="Challenger A: Stage 1B/2A Strict Base Filter + Zero Overhead Supply",
          parameters={"stage_filter": ["1B", "2A"], "overhead_resistance_pct": 5.0},
-         status=VariantStatus.CHALLENGER),
-
-    # -----------------------------------------------------------------------
-    # 9. SHORT COVERING EOD (Delivery & Squeeze Ignition)
-    # -----------------------------------------------------------------------
-    dict(variant_id="SHORT_COVERING_CHAMPION_V1", scanner_family=ScannerFamily.SHORT_COVERING_EOD,
-         description="Short Covering Baseline: Delivery Volume Spike + Heavy Capitulation Low Rebound",
-         parameters={"delivery_spike_mult": 2.0, "rsi_oversold": 35.0},
-         status=VariantStatus.CHAMPION),
-    dict(variant_id="SHORT_COVERING_CHALL_A_SQUEEZE_CONFIRMED", scanner_family=ScannerFamily.SHORT_COVERING_EOD,
-         description="Challenger A: High Delivery % + Break Above 5-Day High + Open Interest Reduction",
-         parameters={"delivery_spike_mult": 2.5, "confirm_swing_break": True},
          status=VariantStatus.CHALLENGER),
 
     # -----------------------------------------------------------------------

@@ -8,7 +8,6 @@ from app.certification.models import ScannerType
 from app.certification.adapters.base import BaseScannerAdapter
 from app.certification.adapters.eod_adapter import EODScannerAdapter
 from app.certification.adapters.multitf_adapter import MultiTFScannerAdapter
-from app.certification.adapters.short_covering_adapter import ShortCoveringScannerAdapter
 from app.certification.adapters.reversal_adapter import ReversalScannerAdapter
 from app.certification.adapters.pullback_adapter import PullbackScannerAdapter
 from app.certification.adapters.technical_adapter import TechnicalScannerAdapter
@@ -30,8 +29,6 @@ class ScannerCertificationRegistry:
         cls.register(ScannerType.EOD_BREAKOUT.value, EODScannerAdapter())
         cls.register(ScannerType.MULTITF_15M.value, MultiTFScannerAdapter(scanner_type=ScannerType.MULTITF_15M))
         cls.register(ScannerType.MULTITF_5M.value, MultiTFScannerAdapter(scanner_type=ScannerType.MULTITF_5M))
-        cls.register(ScannerType.SHORT_COVERING_EOD.value, ShortCoveringScannerAdapter(scanner_type=ScannerType.SHORT_COVERING_EOD))
-        cls.register(ScannerType.SHORT_COVERING_5M.value, ShortCoveringScannerAdapter(scanner_type=ScannerType.SHORT_COVERING_5M))
         cls.register(ScannerType.REVERSAL.value, ReversalScannerAdapter())
         cls.register(ScannerType.PULLBACK.value, PullbackScannerAdapter())
         cls.register(ScannerType.TECHNICAL.value, TechnicalScannerAdapter())
@@ -44,7 +41,6 @@ class ScannerCertificationRegistry:
         # Aliases for CLI convenience
         cls.register("EOD", cls._adapters[ScannerType.EOD_BREAKOUT.value])
         cls.register("MULTITF", cls._adapters[ScannerType.MULTITF_15M.value])
-        cls.register("SHORT_COVERING", cls._adapters[ScannerType.SHORT_COVERING_EOD.value])
         cls.register("VCP", cls._adapters[ScannerType.ACCUMULATION_VCP.value])
         cls.register("ACCUMULATION", cls._adapters[ScannerType.INSTITUTIONAL_ACCUMULATION.value])
         cls.register("WEALTH", cls._adapters[ScannerType.WEALTH.value])

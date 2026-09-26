@@ -44,12 +44,6 @@ SCANNER_CONFIG = {
     "ACCUMULATION":       {"emoji": "📦", "display": "ACCUMULATION SCANNER", "db_name": "ACCUMULATION"},
     "daily_builder":      {"emoji": "🏗️", "display": "DAILY BUILDER",       "db_name": "DAILY_BUILDER"},
     "DAILY_BUILDER":      {"emoji": "🏗️", "display": "DAILY BUILDER",       "db_name": "DAILY_BUILDER"},
-    "short_covering":     {"emoji": "⚡", "display": "SHORT COVERING",        "db_name": "SHORT_COVERING"},
-    "SHORT_COVERING":     {"emoji": "⚡", "display": "SHORT COVERING",        "db_name": "SHORT_COVERING"},
-    "short_covering_eod": {"emoji": "⚡", "display": "SHORT COVERING EOD",    "db_name": "SHORT_COVERING_EOD"},
-    "SHORT_COVERING_EOD": {"emoji": "⚡", "display": "SHORT COVERING EOD",    "db_name": "SHORT_COVERING_EOD"},
-    "short_covering_5m":  {"emoji": "⚡", "display": "SHORT COVERING 5M",     "db_name": "SHORT_COVERING_5M"},
-    "SHORT_COVERING_5M":  {"emoji": "⚡", "display": "SHORT COVERING 5M",     "db_name": "SHORT_COVERING_5M"},
     "technical":          {"emoji": "📐", "display": "TECHNICAL SCANNER",    "db_name": "TECHNICAL"},
     "TECHNICAL":          {"emoji": "📐", "display": "TECHNICAL SCANNER",    "db_name": "TECHNICAL"},
 }

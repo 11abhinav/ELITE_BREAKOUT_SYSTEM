@@ -1,0 +1,7 @@
+comparison,test_n,base_n,delta_expectancy_r,delta_mfe_pct,delta_mae_pct,cohen_d,p_value,passed_p05_d20_hurdle
+D1 vs B1 (OI Contraction Incremental),21,100,0.062,-0.2,0.01,0.069,0.7813,False
+D3 vs D1 (Prior Build Incremental),14,21,0.295,0.47,0.29,0.306,0.4142,False
+D4 vs D3 (Volume Incremental),2,14,0.364,0.61,-3.05,0.342,1.0,False
+D5 vs D3 (Relative Strength Incremental),14,14,0.0,0.0,0.0,0.0,1.0,False
+D6 vs D3 (Level Reclaim Incremental),4,14,-0.261,-0.5,-1.48,-0.245,1.0,False
+D7 vs D3 (Expiry Distance Incremental),0,14,0.114,-1.8,2.64,0.107,1.0,False

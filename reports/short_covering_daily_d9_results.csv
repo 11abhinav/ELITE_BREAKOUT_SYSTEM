@@ -1,0 +1,2 @@
+variant,train_n,train_exp,train_wr,val_n,val_exp,val_wr,ho_n,ho_exp,ho_wr,ho_ci_low,ho_ci_high,ho_mfe,ho_mae,ho_fwd_5d,status
+D9,1,-0.465,0.0,3,-0.177,33.3,3,-1.0,0.0,-1.0,-1.0,0.47,-5.6,-3.45,INCONCLUSIVE / UNDERPOWERED
