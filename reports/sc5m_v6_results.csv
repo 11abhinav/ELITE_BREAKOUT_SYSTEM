@@ -1,0 +1,2 @@
+variant,train_n,train_exp,train_wr,val_n,val_exp,val_wr,ho_n,ho_exp,ho_wr,ho_ci_low,ho_ci_high,ho_cohen_d,ho_power,status,block_reason
+V6 (Participant-Wise OI),0,0.0,0.0,0,0.0,0.0,0,0.0,0.0,0.0,0.0,0.0,0.0,DATA_BLOCKED,NSE participant-wise OI (FII/DII/Client) is published exclusively at macro aggregate EOD level; per-security intraday participant OI does not exist. Aggregate OI substitution strictly prohibited by protocol.

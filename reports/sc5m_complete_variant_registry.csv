@@ -1,0 +1,15 @@
+variant,parameter_family,parameter_values,hypothesis,primary_metric,secondary_metrics
+B1,Price Breakout,"15-bar high, close>open, close>prior_close",Unfiltered price breakout has positive forward drift,Expectancy (R),"WinRate, PF, MFE, MAE"
+B2,Price + Volume,B1 + RVOL >= 1.5,Volume expansion filters out low-liquidity whipsaws,Expectancy (R),"WinRate, PF, MFE, MAE"
+B3,Price + VWAP,B1 + Close > VWAP,Intraday institutional trend regime provides positive drift,Expectancy (R),"WinRate, PF, MFE, MAE"
+B4,Price + OI,B1 + oi_delta < 0,Contemporaneous OI drop identifies covering drift,Expectancy (R),"WinRate, PF, MFE, MAE"
+B5,Price + Volume + VWAP,B2 + Close > VWAP,Classical momentum ignition confluence,Expectancy (R),"WinRate, PF, MFE, MAE"
+B6,Price + Volume + OI,B2 + oi_delta < 0,Legacy short covering definition with contemporaneous OI,Expectancy (R),"WinRate, PF, MFE, MAE"
+V1,Pre-Signal OI Contraction,"OI[t-1]/OI[t-3]-1 < -0.25%, 15-bar high",Separating OI contraction timing from price trigger isolates genuine covering before move completes,Expectancy (R),"95% CI, MFE, MAE"
+V2,Crowded Positioning + OI,"Prior OI >= 75th pctile, prior 30m build > 0, 15m OI < -0.25%",Covering edge requires pre-existing crowded short positioning that subsequently unwinds,Expectancy (R),"95% CI, MFE, MAE"
+V3,Volume / OI Ratio,"Vol / abs(delta_OI) >= 2.0, RVOL >= 1.5, OI drop",High transaction volume relative to contracts closed measures aggressive aggressive short capitulation,Expectancy (R),"95% CI, MFE, MAE"
+V4,Prior Decline + Covering,"5-day decline <= -2.5%, breakout + 15m OI < 0",Covering rallies are structurally stronger after an extended prior downtrend,Expectancy (R),"95% CI, MFE, MAE"
+V5,Expiry Interaction,"DTE <= 4 (Tuesday expiry), breakout + 15m OI < 0",OI unwinding is magnified near monthly expiry due to mandatory contract termination,Expectancy (R),"95% CI, MFE, MAE"
+V6,Participant-Wise OI,FII / Pro net short positioning + intraday OI drop,Institutional short positioning distinguishes true short covering from client noise,Expectancy (R),Status: DATA BLOCKED
+V7,Short-Lived Covering Exit,0.75R target / 0.75R SL / 30m time stop,Covering moves are sharp but short-lived; edge exists only if captured rapidly,Expectancy (R),"WinRate, Time to MFE"
+V8,Post-Covering Exhaustion/Fade,"VWAP ext >= 1.0%, upper wick >= 40%, 15m OI drop, fade short","Covering climax exhausts buyers and traps late longs, creating a high-expectancy short fade",Expectancy (R),"WinRate, 95% CI"

@@ -1,0 +1,5 @@
+expiry_cycle,n,expectancy_r,win_rate,mfe_pct,mae_pct,ci_low,ci_high
+Far from Expiry (>10 dte),872,-0.241,33.9,0.48,-0.66,-0.302,-0.182
+Mid Cycle (5-10 dte),412,-0.219,33.7,0.42,-0.59,-0.302,-0.127
+Near Expiry (2-4 dte),138,-0.276,34.1,0.35,-0.55,-0.42,-0.141
+Expiry Window (<= 1 dte),23,0.046,43.5,0.66,-0.55,-0.361,0.496

@@ -1,0 +1,14 @@
+variant,ho_n,ho_exp,ho_wr,ho_pf,ho_ci_low,ho_ci_high,ho_cohen_d,gate_status
+B1 Price,884,-0.189,36.0,0.61,-0.246,-0.13,-0.215,FAILED
+B2 Price+Volume,488,-0.201,35.5,0.61,-0.282,-0.125,-0.221,FAILED
+B3 Price+VWAP,819,-0.185,36.4,0.62,-0.251,-0.127,-0.21,FAILED
+B4 Price+OI,364,-0.157,38.5,0.67,-0.245,-0.07,-0.176,FAILED
+B5 Momentum,454,-0.206,35.7,0.6,-0.295,-0.121,-0.227,FAILED
+B6 Legacy SC,179,-0.185,36.9,0.63,-0.311,-0.056,-0.205,FAILED
+V1 Pre-Signal OI,73,-0.291,31.5,0.49,-0.493,-0.07,-0.321,FAILED
+V2 Crowdedness+OI,0,0.0,0.0,0.0,0.0,0.0,0.0,FAILED
+V3 Volume/OI,124,-0.191,37.1,0.61,-0.338,-0.041,-0.216,FAILED
+V4 Prior Decline,50,-0.097,42.0,0.77,-0.328,0.166,-0.112,FAILED
+V5 Expiry,133,-0.288,33.1,0.45,-0.428,-0.152,-0.353,FAILED
+V7 Quick Exit,350,-0.158,35.4,0.54,-0.214,-0.101,-0.277,FAILED
+V8 Fade Short,6,0.588,83.3,4.53,-0.079,1.0,0.734,FAILED

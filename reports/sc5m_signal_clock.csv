@@ -1,0 +1,6 @@
+metric,mean_lead_bars,description
+T0 to T1 (Positioning to OI Contraction),3.0,15-minute rolling window required 3 completed bars prior to signal
+T1 to T2 (OI Contraction to Price Response),1.4,Average delay between initial OI contraction and structural high break
+Price Expansion Before T+1 Entry,-0.04,Average runup on signal bar before causal fill at T+1 Open
+Time to Peak MFE,9.3,Average bars to reach peak favorable excursion
+Time to Peak MAE,12.8,Average bars to reach maximum adverse excursion

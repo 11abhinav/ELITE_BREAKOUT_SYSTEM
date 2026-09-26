@@ -1,0 +1,2 @@
+variant,train_n,train_exp,train_wr,val_n,val_exp,val_wr,ho_n,ho_exp,ho_wr,ho_ci_low,ho_ci_high,ho_cohen_d,ho_power,status
+V3,472,-0.232,33.3,97,-0.131,37.1,124,-0.191,37.1,-0.338,-0.041,-0.216,0.67,FAILED_HOLDOUT

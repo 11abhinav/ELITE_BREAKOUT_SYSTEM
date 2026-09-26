@@ -1,0 +1,8 @@
+counterfactual,n,expectancy_r,win_rate,mfe_pct,mae_pct,delta_vs_p2_volume,p_value_vs_p2
+P1 (Price Breakout),5859,-0.205,34.4,0.46,-0.61,-0.011,0.5788
+P2 (Price + Volume),3205,-0.194,35.0,0.51,-0.63,0.0,1.0
+P3 (Price + OI Contraction),1665,-0.201,35.3,0.46,-0.62,-0.007,0.7868
+P4 (Price + Volume + OI),893,-0.184,35.4,0.51,-0.64,0.01,0.7724
+P5 (Price + High Prior OI),3731,-0.192,35.2,0.45,-0.61,0.002,0.9393
+P6 (Price + Prior Build + OI Contraction),326,-0.286,30.1,0.42,-0.66,-0.092,0.0844
+P7 (Price + Prior Build + OI + Volume),156,-0.196,32.7,0.49,-0.64,-0.002,0.9822

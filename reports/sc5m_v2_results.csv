@@ -1,0 +1,2 @@
+variant,train_n,train_exp,train_wr,val_n,val_exp,val_wr,ho_n,ho_exp,ho_wr,ho_ci_low,ho_ci_high,ho_cohen_d,ho_power,status
+V2 (Crowdedness + Prior Build + OI Drop),10,-0.701,10.0,2,-1.0,0.0,0,0.0,0.0,0.0,0.0,0.0,0.0,FAILED_HOLDOUT

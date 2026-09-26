@@ -1,0 +1,8 @@
+test,holdout_exp
+V1 Baseline (T+1 Open + 5 bps),-0.291
+V1 Slippage Stress (T+1 Open + 10 bps),-0.415
+V1 Slippage Stress (T+1 Open + 15 bps),-0.539
+V1 Execution Delay (T+2 Open + 5 bps),-0.311
+V1 Structure 10-bar High,-0.255
+V1 Structure 15-bar High,-0.291
+V1 Structure 20-bar High,-0.328
