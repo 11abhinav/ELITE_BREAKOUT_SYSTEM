@@ -1,0 +1,4425 @@
+{
+  "ACCUMULATION": {
+    "ACC-V01-BASE": {
+      "BULL": {
+        "scanner": "ACCUMULATION",
+        "variant_id": "ACC-V01-BASE",
+        "variant_name": "Base VCP Contraction",
+        "regime": "BULL",
+        "n_trades": 6800,
+        "mean_net_r": 0.18896741176470588,
+        "ci_95": [
+          0.16382044558823528,
+          0.21471292169117645
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 513,
+        "holdout_mean_r": -0.14561812865497076,
+        "holdout_ci_95": [
+          -0.23071967836257312,
+          -0.05939980019493178
+        ],
+        "holdout_delta_ci_95": [
+          -0.019777729044834307,
+          0.08631041423001946
+        ],
+        "holdout_perm_p": 1.0,
+        "incremental_alpha_p": 1.0,
+        "incremental_cohens_d": 0.0,
+        "alpha_passed": true,
+        "top_cell_pnl_share": 0.5646811902155842,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 1305,
+            "mean_r": 0.21780183908045977,
+            "ci_95": [
+              0.15602856513409963,
+              0.2755189425287356
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 1265,
+            "mean_r": 0.2576010276679842,
+            "ci_95": [
+              0.19833457114624506,
+              0.3203502628458497
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 3259,
+            "mean_r": 0.24283439705431112,
+            "ci_95": [
+              0.20818240871432955,
+              0.28034669990794725
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 971,
+            "mean_r": -0.1199954685890834,
+            "ci_95": [
+              -0.18674557672502573,
+              -0.054562937693099944
+            ],
+            "perm_p": 1.0
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 1213,
+            "mean_r": 0.2497929101401484,
+            "ci_95": [
+              0.1851062077493817,
+              0.3152213540807914
+            ]
+          },
+          "Q2": {
+            "n": 2239,
+            "mean_r": 0.17101773112996876,
+            "ci_95": [
+              0.12413171616793213,
+              0.21475283943724874
+            ]
+          },
+          "Q3": {
+            "n": 2198,
+            "mean_r": 0.11526888080072793,
+            "ci_95": [
+              0.0694398498635123,
+              0.16117892060964512
+            ]
+          },
+          "Q4": {
+            "n": 1150,
+            "mean_r": 0.3006173043478261,
+            "ci_95": [
+              0.23474886304347825,
+              0.3654861326086956
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": true,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 1.0,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "SIDEWAYS": {
+        "scanner": "ACCUMULATION",
+        "variant_id": "ACC-V01-BASE",
+        "variant_name": "Base VCP Contraction",
+        "regime": "SIDEWAYS",
+        "n_trades": 4075,
+        "mean_net_r": 0.0988361717791411,
+        "ci_95": [
+          0.06678773496932515,
+          0.13117621963190182
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 939,
+        "holdout_mean_r": -0.012048881789137392,
+        "holdout_ci_95": [
+          -0.07993154153354633,
+          0.060003043130990405
+        ],
+        "holdout_delta_ci_95": [
+          0.05215195686900958,
+          0.14124519435569755
+        ],
+        "holdout_perm_p": 1.0,
+        "incremental_alpha_p": 1.0,
+        "incremental_cohens_d": 0.0,
+        "alpha_passed": true,
+        "top_cell_pnl_share": 0.48511734359194897,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 590,
+            "mean_r": 0.20928932203389833,
+            "ci_95": [
+              0.12588235593220337,
+              0.2920826949152543
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 823,
+            "mean_r": 0.010543742405832295,
+            "ci_95": [
+              -0.06371604495747266,
+              0.08264714763061966
+            ],
+            "perm_p": 0.3705
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 1300,
+            "mean_r": 0.15029584615384617,
+            "ci_95": [
+              0.09483082307692309,
+              0.20791747499999988
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 1362,
+            "mean_r": 0.05522364170337738,
+            "ci_95": [
+              -0.0021444915565345204,
+              0.11171326541850217
+            ],
+            "perm_p": 0.0285
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 663,
+            "mean_r": -0.023067420814479645,
+            "ci_95": [
+              -0.10708342383107089,
+              0.06645734917043733
+            ]
+          },
+          "Q2": {
+            "n": 1250,
+            "mean_r": 0.2169976,
+            "ci_95": [
+              0.156111138,
+              0.276921388
+            ]
+          },
+          "Q3": {
+            "n": 1010,
+            "mean_r": 0.09850861386138614,
+            "ci_95": [
+              0.03224521039603961,
+              0.16086424999999996
+            ]
+          },
+          "Q4": {
+            "n": 1152,
+            "mean_r": 0.04106805555555555,
+            "ci_95": [
+              -0.022583046875000012,
+              0.10142436414930552
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": true,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 1.0,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "BEAR": {
+        "scanner": "ACCUMULATION",
+        "variant_id": "ACC-V01-BASE",
+        "variant_name": "Base VCP Contraction",
+        "regime": "BEAR",
+        "n_trades": 2775,
+        "mean_net_r": 0.11103113513513514,
+        "ci_95": [
+          0.07130302702702704,
+          0.15014172792792788
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 446,
+        "holdout_mean_r": 0.21034237668161437,
+        "holdout_ci_95": [
+          0.11663754484304933,
+          0.3060293553811659
+        ],
+        "holdout_delta_ci_95": [
+          -0.010983189461883406,
+          0.13452640134529145
+        ],
+        "holdout_perm_p": 0.0005,
+        "incremental_alpha_p": 1.0,
+        "incremental_cohens_d": 0.0,
+        "alpha_passed": true,
+        "top_cell_pnl_share": 0.31034489473612464,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 663,
+            "mean_r": 0.040161689291101046,
+            "ci_95": [
+              -0.04447249622926092,
+              0.12605529411764702
+            ],
+            "perm_p": 0.156
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 673,
+            "mean_r": 0.13564635958395244,
+            "ci_95": [
+              0.05027852897473998,
+              0.22049555720653785
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 458,
+            "mean_r": 0.20649213973799127,
+            "ci_95": [
+              0.10492538209606986,
+              0.3090146397379912
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 981,
+            "mean_r": 0.0974727828746177,
+            "ci_95": [
+              0.0326957110091743,
+              0.16291137104994902
+            ],
+            "perm_p": 0.002
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 770,
+            "mean_r": -0.06039896103896104,
+            "ci_95": [
+              -0.139271262987013,
+              0.015302788961038897
+            ]
+          },
+          "Q2": {
+            "n": 718,
+            "mean_r": 0.21941448467966576,
+            "ci_95": [
+              0.14033235724233986,
+              0.30077133008356544
+            ]
+          },
+          "Q3": {
+            "n": 689,
+            "mean_r": 0.20265645863570392,
+            "ci_95": [
+              0.1255468795355588,
+              0.2876152031930334
+            ]
+          },
+          "Q4": {
+            "n": 598,
+            "mean_r": 0.0960680602006689,
+            "ci_95": [
+              0.01606099498327759,
+              0.18289603678929767
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": true,
+          "sample_power": true,
+          "q1_resilience": false,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Q1 persistent negative weakness across cells (drag=-0.2373R)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.0005,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": true,
+          "bh_fdr_passed": true
+        }
+      }
+    },
+    "ACC-V02-VOL-SURGE": {
+      "BULL": {
+        "scanner": "ACCUMULATION",
+        "variant_id": "ACC-V02-VOL-SURGE",
+        "variant_name": "Volume Surge Confirmed",
+        "regime": "BULL",
+        "n_trades": 333,
+        "mean_net_r": 0.2913645645645645,
+        "ci_95": [
+          0.16138653903903907,
+          0.42028338588588576
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 25,
+        "holdout_mean_r": 0.03846000000000002,
+        "holdout_ci_95": [
+          -0.426351,
+          0.5105814999999997
+        ],
+        "holdout_delta_ci_95": [
+          -0.016964,
+          0.42962519999999965
+        ],
+        "holdout_perm_p": 0.4325,
+        "incremental_alpha_p": 0.11072063844523514,
+        "incremental_cohens_d": 0.0923155914340027,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.5514362710077406,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 79,
+            "mean_r": 0.39788987341772153,
+            "ci_95": [
+              0.17005430379746836,
+              0.6377514873417721
+            ],
+            "perm_p": 0.003
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 74,
+            "mean_r": 0.17085405405405404,
+            "ci_95": [
+              -0.07572543918918921,
+              0.42344097972972966
+            ],
+            "perm_p": 0.109
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 133,
+            "mean_r": 0.4074052631578947,
+            "ci_95": [
+              0.21879118421052632,
+              0.6088634962406012
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 47,
+            "mean_r": -0.026319148936170225,
+            "ci_95": [
+              -0.35842553191489357,
+              0.2972575531914894
+            ],
+            "perm_p": 1.0
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 70,
+            "mean_r": 0.2696957142857143,
+            "ci_95": [
+              0.0129810357142857,
+              0.5334492857142856
+            ]
+          },
+          "Q2": {
+            "n": 91,
+            "mean_r": 0.10533626373626374,
+            "ci_95": [
+              -0.12084219780219782,
+              0.3400052747252747
+            ]
+          },
+          "Q3": {
+            "n": 102,
+            "mean_r": 0.2876450980392157,
+            "ci_95": [
+              0.0648187254901961,
+              0.5218322549019606
+            ]
+          },
+          "Q4": {
+            "n": 70,
+            "mean_r": 0.56029,
+            "ci_95": [
+              0.3056122142857143,
+              0.8095273571428566
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Incremental alpha failed vs Base (p=0.1107, d=0.092)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.4325,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "SIDEWAYS": {
+        "scanner": "ACCUMULATION",
+        "variant_id": "ACC-V02-VOL-SURGE",
+        "variant_name": "Volume Surge Confirmed",
+        "regime": "SIDEWAYS",
+        "n_trades": 172,
+        "mean_net_r": 0.13480523255813956,
+        "ci_95": [
+          -0.03393991279069768,
+          0.29154479651162774
+        ],
+        "perm_p": 0.0565,
+        "holdout_n": 40,
+        "holdout_mean_r": 0.005362499999999981,
+        "holdout_ci_95": [
+          -0.336135125,
+          0.33784793749999986
+        ],
+        "holdout_delta_ci_95": [
+          -0.23457118750000003,
+          0.1814896249999999
+        ],
+        "holdout_perm_p": 0.4725,
+        "incremental_alpha_p": 0.6660864453025185,
+        "incremental_cohens_d": 0.03344987307056812,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.6971719097553226,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 20,
+            "mean_r": -0.06427000000000001,
+            "ci_95": [
+              -0.46100024999999994,
+              0.3324371249999999
+            ],
+            "perm_p": 1.0
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 43,
+            "mean_r": -0.08224186046511626,
+            "ci_95": [
+              -0.3913571511627908,
+              0.2273026162790697
+            ],
+            "perm_p": 1.0
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 49,
+            "mean_r": 0.39850204081632656,
+            "ci_95": [
+              0.13300989795918366,
+              0.6507516836734694
+            ],
+            "perm_p": 0.003
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 60,
+            "mean_r": 0.14136166666666664,
+            "ci_95": [
+              -0.13970079166666666,
+              0.44940233333333324
+            ],
+            "perm_p": 0.162
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 29,
+            "mean_r": 0.515403448275862,
+            "ci_95": [
+              0.0912848275862069,
+              0.9169436206896548
+            ]
+          },
+          "Q2": {
+            "n": 33,
+            "mean_r": 0.23102424242424244,
+            "ci_95": [
+              -0.13392484848484854,
+              0.5923807575757576
+            ]
+          },
+          "Q3": {
+            "n": 52,
+            "mean_r": 0.05412115384615383,
+            "ci_95": [
+              -0.22312600961538462,
+              0.34304759615384617
+            ]
+          },
+          "Q4": {
+            "n": 58,
+            "mean_r": -0.03790172413793102,
+            "ci_95": [
+              -0.28159452586206896,
+              0.2151237499999998
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": false,
+          "economic": false,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Temporal replication failed (pos cells: 2/4, top cell share: 69.7%)",
+          "Economic viability failed (Mean Net R < +0.05R or CI crosses zero)",
+          "Incremental alpha failed vs Base (p=0.6661, d=0.033)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.4725,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "BEAR": {
+        "scanner": "ACCUMULATION",
+        "variant_id": "ACC-V02-VOL-SURGE",
+        "variant_name": "Volume Surge Confirmed",
+        "regime": "BEAR",
+        "n_trades": 131,
+        "mean_net_r": 0.1434679389312977,
+        "ci_95": [
+          -0.029430877862595434,
+          0.3458637786259541
+        ],
+        "perm_p": 0.0675,
+        "holdout_n": 19,
+        "holdout_mean_r": 0.14169999999999996,
+        "holdout_ci_95": [
+          -0.3328142105263158,
+          0.6268139473684208
+        ],
+        "holdout_delta_ci_95": [
+          -0.0321775,
+          0.8037326315789465
+        ],
+        "holdout_perm_p": 0.2935,
+        "incremental_alpha_p": 0.7430688794221051,
+        "incremental_cohens_d": 0.029958586441896418,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.6354094085325794,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 39,
+            "mean_r": -0.03328461538461542,
+            "ci_95": [
+              -0.3824650641025641,
+              0.3226789102564102
+            ],
+            "perm_p": 1.0
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 35,
+            "mean_r": 0.3647685714285714,
+            "ci_95": [
+              0.015862357142857185,
+              0.7016626428571426
+            ],
+            "perm_p": 0.0235
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 24,
+            "mean_r": 0.21614166666666668,
+            "ci_95": [
+              -0.23481656249999996,
+              0.6867381249999996
+            ],
+            "perm_p": 0.182
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 33,
+            "mean_r": 0.06479090909090911,
+            "ci_95": [
+              -0.29284689393939395,
+              0.44256856060606037
+            ],
+            "perm_p": 0.3645
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 38,
+            "mean_r": -0.0934078947368421,
+            "ci_95": [
+              -0.4236607894736842,
+              0.2645378289473683
+            ]
+          },
+          "Q2": {
+            "n": 29,
+            "mean_r": 0.40144827586206905,
+            "ci_95": [
+              -0.026156034482758612,
+              0.8063756896551724
+            ]
+          },
+          "Q3": {
+            "n": 29,
+            "mean_r": 0.2911379310344827,
+            "ci_95": [
+              -0.1021666379310345,
+              0.6757830172413783
+            ]
+          },
+          "Q4": {
+            "n": 35,
+            "mean_r": 0.06453714285714286,
+            "ci_95": [
+              -0.274322,
+              0.4318512142857143
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": false,
+          "economic": false,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Temporal replication failed (pos cells: 3/4, top cell share: 63.5%)",
+          "Economic viability failed (Mean Net R < +0.05R or CI crosses zero)",
+          "Incremental alpha failed vs Base (p=0.7431, d=0.030)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.2935,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      }
+    },
+    "ACC-V03-TREND-STRENGTH": {
+      "BULL": {
+        "scanner": "ACCUMULATION",
+        "variant_id": "ACC-V03-TREND-STRENGTH",
+        "variant_name": "Macro Trend Aligned",
+        "regime": "BULL",
+        "n_trades": 4321,
+        "mean_net_r": 0.22275600555426983,
+        "ci_95": [
+          0.18942346794723441,
+          0.25741756942837307
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 256,
+        "holdout_mean_r": -0.030346093749999983,
+        "holdout_ci_95": [
+          -0.156748798828125,
+          0.09708704101562493
+        ],
+        "holdout_delta_ci_95": [
+          -0.06676480468749998,
+          0.073176474609375
+        ],
+        "holdout_perm_p": 1.0,
+        "incremental_alpha_p": 0.11874776700621734,
+        "incremental_cohens_d": 0.030409249767497502,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.5425767742581082,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 773,
+            "mean_r": 0.24906403622250975,
+            "ci_95": [
+              0.17591403622250973,
+              0.32870055627425604
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 976,
+            "mean_r": 0.27483975409836064,
+            "ci_95": [
+              0.20437696209016393,
+              0.34293855276639335
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 2123,
+            "mean_r": 0.2574407442298634,
+            "ci_95": [
+              0.20804657324540743,
+              0.3054258584550164
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 449,
+            "mean_r": -0.09975077951002229,
+            "ci_95": [
+              -0.1962079565701559,
+              0.001485545657015562
+            ],
+            "perm_p": 1.0
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 768,
+            "mean_r": 0.28005976562499996,
+            "ci_95": [
+              0.19818632161458333,
+              0.3585554329427083
+            ]
+          },
+          "Q2": {
+            "n": 1181,
+            "mean_r": 0.22491329381879765,
+            "ci_95": [
+              0.16568840177815408,
+              0.2891341257408975
+            ]
+          },
+          "Q3": {
+            "n": 1491,
+            "mean_r": 0.1212868544600939,
+            "ci_95": [
+              0.06667473004694834,
+              0.1765812156270959
+            ]
+          },
+          "Q4": {
+            "n": 881,
+            "mean_r": 0.3416362088535755,
+            "ci_95": [
+              0.26830928774120316,
+              0.4173130136208853
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Incremental alpha failed vs Base (p=0.1187, d=0.030)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 1.0,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "SIDEWAYS": {
+        "scanner": "ACCUMULATION",
+        "variant_id": "ACC-V03-TREND-STRENGTH",
+        "variant_name": "Macro Trend Aligned",
+        "regime": "SIDEWAYS",
+        "n_trades": 2443,
+        "mean_net_r": 0.09703995088006548,
+        "ci_95": [
+          0.05597387945149406,
+          0.1417267621776503
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 489,
+        "holdout_mean_r": 0.10175521472392636,
+        "holdout_ci_95": [
+          0.008208650306748468,
+          0.19581811860940695
+        ],
+        "holdout_delta_ci_95": [
+          0.02088235685071575,
+          0.16236419222903886
+        ],
+        "holdout_perm_p": 0.0155,
+        "incremental_alpha_p": 0.948153220516021,
+        "incremental_cohens_d": -0.0016663647287805917,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.46567407071202177,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 407,
+            "mean_r": 0.22487420147420145,
+            "ci_95": [
+              0.1256645638820639,
+              0.3264090909090909
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 518,
+            "mean_r": 0.009285714285714269,
+            "ci_95": [
+              -0.09277354247104246,
+              0.10344545849420848
+            ],
+            "perm_p": 0.419
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 891,
+            "mean_r": 0.12390202020202021,
+            "ci_95": [
+              0.05433405443322111,
+              0.19429175925925923
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 627,
+            "mean_r": 0.04838612440191386,
+            "ci_95": [
+              -0.04137124003189794,
+              0.13004238437001592
+            ],
+            "perm_p": 0.1345
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 387,
+            "mean_r": 0.1044953488372093,
+            "ci_95": [
+              -0.006321408268733866,
+              0.21690503229974153
+            ]
+          },
+          "Q2": {
+            "n": 593,
+            "mean_r": 0.14545699831365935,
+            "ci_95": [
+              0.06259822512647556,
+              0.22812511804384483
+            ]
+          },
+          "Q3": {
+            "n": 690,
+            "mean_r": 0.12081086956521739,
+            "ci_95": [
+              0.03837422463768115,
+              0.20384671014492756
+            ]
+          },
+          "Q4": {
+            "n": 773,
+            "mean_r": 0.03494618369987064,
+            "ci_95": [
+              -0.03957092496765848,
+              0.11440667205692105
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": true,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Incremental alpha failed vs Base (p=0.9482, d=-0.002)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.0155,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "BEAR": {
+        "scanner": "ACCUMULATION",
+        "variant_id": "ACC-V03-TREND-STRENGTH",
+        "variant_name": "Macro Trend Aligned",
+        "regime": "BEAR",
+        "n_trades": 1176,
+        "mean_net_r": 0.15357576530612244,
+        "ci_95": [
+          0.08752022959183674,
+          0.21586144770408164
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 245,
+        "holdout_mean_r": 0.1748257142857143,
+        "holdout_ci_95": [
+          0.04254438775510204,
+          0.30424105102040777
+        ],
+        "holdout_delta_ci_95": [
+          0.06852224489795919,
+          0.26947507142857136
+        ],
+        "holdout_perm_p": 0.005,
+        "incremental_alpha_p": 0.2662458465838693,
+        "incremental_cohens_d": 0.039058605113842224,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.33101612302199673,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 247,
+            "mean_r": 0.20693076923076925,
+            "ci_95": [
+              0.06707039473684209,
+              0.34242470647773277
+            ],
+            "perm_p": 0.001
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 315,
+            "mean_r": 0.14241904761904758,
+            "ci_95": [
+              0.00960540476190478,
+              0.27098359523809523
+            ],
+            "perm_p": 0.0155
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 229,
+            "mean_r": 0.2610620087336245,
+            "ci_95": [
+              0.10678977074235811,
+              0.4100431768558951
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 385,
+            "mean_r": 0.06454025974025973,
+            "ci_95": [
+              -0.03765997402597402,
+              0.17050637662337656
+            ],
+            "perm_p": 0.107
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 362,
+            "mean_r": -0.0051773480662983375,
+            "ci_95": [
+              -0.12585736187845306,
+              0.11217877071823197
+            ]
+          },
+          "Q2": {
+            "n": 174,
+            "mean_r": 0.2573706896551724,
+            "ci_95": [
+              0.0880752298850575,
+              0.42601051724137906
+            ]
+          },
+          "Q3": {
+            "n": 319,
+            "mean_r": 0.19756050156739813,
+            "ci_95": [
+              0.07708829153605015,
+              0.30907249216300936
+            ]
+          },
+          "Q4": {
+            "n": 321,
+            "mean_r": 0.2326323987538941,
+            "ci_95": [
+              0.1132427336448598,
+              0.35117105140186905
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": true,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": false,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Incremental alpha failed vs Base (p=0.2662, d=0.039)",
+          "Q1 persistent negative weakness across cells (drag=-0.2294R)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.005,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": true
+        }
+      }
+    },
+    "ACC-V04-VOLATILITY-ADAPTIVE": {
+      "BULL": {
+        "scanner": "ACCUMULATION",
+        "variant_id": "ACC-V04-VOLATILITY-ADAPTIVE",
+        "variant_name": "Strict Volatility Squeeze",
+        "regime": "BULL",
+        "n_trades": 2367,
+        "mean_net_r": 0.1882032108153781,
+        "ci_95": [
+          0.14340861005492186,
+          0.2337320616814533
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 135,
+        "holdout_mean_r": -0.1771859259259259,
+        "holdout_ci_95": [
+          -0.33991266666666664,
+          -0.004400388888888903
+        ],
+        "holdout_delta_ci_95": [
+          -0.022521703703703697,
+          0.1884072592592592
+        ],
+        "holdout_perm_p": 1.0,
+        "incremental_alpha_p": 0.9770469751557396,
+        "incremental_cohens_d": -0.0006888311624436328,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.7186279291342385,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 467,
+            "mean_r": 0.13024753747323342,
+            "ci_95": [
+              0.02626389721627409,
+              0.22630167023554598
+            ],
+            "perm_p": 0.006
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 385,
+            "mean_r": 0.21288649350649352,
+            "ci_95": [
+              0.10497461038961042,
+              0.31387392857142843
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 1228,
+            "mean_r": 0.2969703583061889,
+            "ci_95": [
+              0.23574151058631926,
+              0.35855228013029306
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 287,
+            "mean_r": -0.2159912891986063,
+            "ci_95": [
+              -0.3418528571428572,
+              -0.09287410278745654
+            ],
+            "perm_p": 1.0
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 394,
+            "mean_r": 0.2322322335025381,
+            "ci_95": [
+              0.12215189720812183,
+              0.34673479060913703
+            ]
+          },
+          "Q2": {
+            "n": 783,
+            "mean_r": 0.18406040868454662,
+            "ci_95": [
+              0.10662177203065137,
+              0.257437812899106
+            ]
+          },
+          "Q3": {
+            "n": 782,
+            "mean_r": 0.08587902813299232,
+            "ci_95": [
+              0.008691710358056257,
+              0.16519757033248078
+            ]
+          },
+          "Q4": {
+            "n": 408,
+            "mean_r": 0.3497568627450981,
+            "ci_95": [
+              0.23791227328431375,
+              0.4565087867647058
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": false,
+          "economic": true,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Temporal replication failed (pos cells: 3/4, top cell share: 71.9%)",
+          "Incremental alpha failed vs Base (p=0.9770, d=-0.001)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 1.0,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "SIDEWAYS": {
+        "scanner": "ACCUMULATION",
+        "variant_id": "ACC-V04-VOLATILITY-ADAPTIVE",
+        "variant_name": "Strict Volatility Squeeze",
+        "regime": "SIDEWAYS",
+        "n_trades": 1302,
+        "mean_net_r": 0.08032880184331798,
+        "ci_95": [
+          0.024835316820276492,
+          0.138265599078341
+        ],
+        "perm_p": 0.0045,
+        "holdout_n": 289,
+        "holdout_mean_r": -0.026139446366782,
+        "holdout_ci_95": [
+          -0.1426394982698962,
+          0.09586222318339077
+        ],
+        "holdout_delta_ci_95": [
+          0.05140203287197231,
+          0.22689762110726638
+        ],
+        "holdout_perm_p": 1.0,
+        "incremental_alpha_p": 0.5934702554295878,
+        "incremental_cohens_d": -0.017138739124706058,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.6788428865241886,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 218,
+            "mean_r": 0.18122247706422015,
+            "ci_95": [
+              0.039773050458715604,
+              0.3229511811926606
+            ],
+            "perm_p": 0.008
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 254,
+            "mean_r": -0.06379094488188977,
+            "ci_95": [
+              -0.19018175196850393,
+              0.06458799212598414
+            ],
+            "perm_p": 1.0
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 451,
+            "mean_r": 0.18515853658536582,
+            "ci_95": [
+              0.07595766629711752,
+              0.28621682926829267
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 379,
+            "mean_r": -0.005862796833773081,
+            "ci_95": [
+              -0.11660261873350924,
+              0.10110036939313984
+            ],
+            "perm_p": 1.0
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 224,
+            "mean_r": 0.00772499999999999,
+            "ci_95": [
+              -0.14051688616071428,
+              0.1633848995535713
+            ]
+          },
+          "Q2": {
+            "n": 312,
+            "mean_r": 0.1319326923076923,
+            "ci_95": [
+              0.009146153846153842,
+              0.25830832532051273
+            ]
+          },
+          "Q3": {
+            "n": 309,
+            "mean_r": 0.08419967637540454,
+            "ci_95": [
+              -0.04160043689320389,
+              0.21595636731391574
+            ]
+          },
+          "Q4": {
+            "n": 457,
+            "mean_r": 0.07806783369803064,
+            "ci_95": [
+              -0.014478960612691463,
+              0.1675542450765864
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": false,
+          "economic": true,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Temporal replication failed (pos cells: 2/4, top cell share: 67.9%)",
+          "Incremental alpha failed vs Base (p=0.5935, d=-0.017)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 1.0,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "BEAR": {
+        "scanner": "ACCUMULATION",
+        "variant_id": "ACC-V04-VOLATILITY-ADAPTIVE",
+        "variant_name": "Strict Volatility Squeeze",
+        "regime": "BEAR",
+        "n_trades": 740,
+        "mean_net_r": 0.09476432432432436,
+        "ci_95": [
+          0.011335162162162167,
+          0.17597222972972967
+        ],
+        "perm_p": 0.0095,
+        "holdout_n": 136,
+        "holdout_mean_r": 0.09651838235294116,
+        "holdout_ci_95": [
+          -0.07683117647058824,
+          0.2804897977941176
+        ],
+        "holdout_delta_ci_95": [
+          -0.016409926470588233,
+          0.24145150735294105
+        ],
+        "holdout_perm_p": 0.15,
+        "incremental_alpha_p": 0.7256351418514253,
+        "incremental_cohens_d": -0.014896214190334253,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.48247002521190546,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 192,
+            "mean_r": 0.0859104166666667,
+            "ci_95": [
+              -0.07490546874999997,
+              0.24058513020833325
+            ],
+            "perm_p": 0.1495
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 185,
+            "mean_r": 0.020910810810810827,
+            "ci_95": [
+              -0.14240312162162158,
+              0.17960540540540537
+            ],
+            "perm_p": 0.419
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 115,
+            "mean_r": 0.29420434782608695,
+            "ci_95": [
+              0.09252313043478261,
+              0.4941681956521738
+            ],
+            "perm_p": 0.0025
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 248,
+            "mean_r": 0.06422903225806452,
+            "ci_95": [
+              -0.07913959677419356,
+              0.20483263104838687
+            ],
+            "perm_p": 0.193
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 221,
+            "mean_r": -0.19630859728506783,
+            "ci_95": [
+              -0.32656280542986427,
+              -0.06405032805429865
+            ]
+          },
+          "Q2": {
+            "n": 131,
+            "mean_r": 0.11308320610687023,
+            "ci_95": [
+              -0.09219843511450382,
+              0.3174004389312976
+            ]
+          },
+          "Q3": {
+            "n": 208,
+            "mean_r": 0.20961442307692307,
+            "ci_95": [
+              0.058400024038461555,
+              0.3643751562499999
+            ]
+          },
+          "Q4": {
+            "n": 180,
+            "mean_r": 0.30608944444444447,
+            "ci_95": [
+              0.1408437638888889,
+              0.4714999027777778
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": false,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Incremental alpha failed vs Base (p=0.7256, d=-0.015)",
+          "Q1 persistent negative weakness across cells (drag=-0.4150R)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.15,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      }
+    }
+  },
+  "PULLBACK": {
+    "PB-V01-BASE": {
+      "BULL": {
+        "scanner": "PULLBACK",
+        "variant_id": "PB-V01-BASE",
+        "variant_name": "Base Continuation",
+        "regime": "BULL",
+        "n_trades": 16504,
+        "mean_net_r": 0.1796160021812894,
+        "ci_95": [
+          0.1639649310773146,
+          0.19522111276054288
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 1042,
+        "holdout_mean_r": 0.012523128598848358,
+        "holdout_ci_95": [
+          -0.04861365163147793,
+          0.0772797360844529
+        ],
+        "holdout_delta_ci_95": [
+          -0.007830302303262957,
+          0.05924062140115162
+        ],
+        "holdout_perm_p": 0.355,
+        "incremental_alpha_p": 1.0,
+        "incremental_cohens_d": 0.0,
+        "alpha_passed": true,
+        "top_cell_pnl_share": 0.4631301797254571,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 2899,
+            "mean_r": 0.17505781303897897,
+            "ci_95": [
+              0.1364352155915833,
+              0.21300023370127627
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 4307,
+            "mean_r": 0.2473609705131182,
+            "ci_95": [
+              0.21762987055955427,
+              0.27808200023218016
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 7384,
+            "mean_r": 0.18592835861321777,
+            "ci_95": [
+              0.1629051645449621,
+              0.21006839551733475
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 1914,
+            "mean_r": 0.009723719958202717,
+            "ci_95": [
+              -0.036647961076280045,
+              0.05521600835945661
+            ],
+            "perm_p": 0.3515
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 3142,
+            "mean_r": 0.11442536600891151,
+            "ci_95": [
+              0.07851536680458307,
+              0.151916004137492
+            ]
+          },
+          "Q2": {
+            "n": 4022,
+            "mean_r": 0.25451434609646945,
+            "ci_95": [
+              0.22238097961213327,
+              0.28570661238189954
+            ]
+          },
+          "Q3": {
+            "n": 6022,
+            "mean_r": 0.08724114911989371,
+            "ci_95": [
+              0.059955998007306534,
+              0.11403924194619727
+            ]
+          },
+          "Q4": {
+            "n": 3318,
+            "mean_r": 0.3182143158529234,
+            "ci_95": [
+              0.28250809825195905,
+              0.35367392480409887
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": true,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": false
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Modern 2025-26 decay (modern CI crosses zero)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.355,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "SIDEWAYS": {
+        "scanner": "PULLBACK",
+        "variant_id": "PB-V01-BASE",
+        "variant_name": "Base Continuation",
+        "regime": "SIDEWAYS",
+        "n_trades": 15796,
+        "mean_net_r": 0.1091720182324639,
+        "ci_95": [
+          0.09361552687389212,
+          0.12400072597493036
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 2545,
+        "holdout_mean_r": 0.09677952848722986,
+        "holdout_ci_95": [
+          0.057771797642436146,
+          0.13610555893909626
+        ],
+        "holdout_delta_ci_95": [
+          0.03351114341846758,
+          0.07612619646365422
+        ],
+        "holdout_perm_p": 0.0005,
+        "incremental_alpha_p": 1.0,
+        "incremental_cohens_d": 0.0,
+        "alpha_passed": true,
+        "top_cell_pnl_share": 0.38402419231940604,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 2086,
+            "mean_r": 0.20819592521572386,
+            "ci_95": [
+              0.16617232742090124,
+              0.2493068995685522
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 4185,
+            "mean_r": 0.13835911589008362,
+            "ci_95": [
+              0.10951656929510156,
+              0.16980100418160096
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 6196,
+            "mean_r": 0.10688226275016141,
+            "ci_95": [
+              0.08198758634602969,
+              0.13316994068754034
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 3329,
+            "mean_r": 0.014691829378191646,
+            "ci_95": [
+              -0.016957298738359872,
+              0.04823716581556018
+            ],
+            "perm_p": 0.2
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 2439,
+            "mean_r": -0.030941041410414098,
+            "ci_95": [
+              -0.0702814852398524,
+              0.00930838355883557
+            ]
+          },
+          "Q2": {
+            "n": 3744,
+            "mean_r": 0.2098857905982906,
+            "ci_95": [
+              0.17892764489850427,
+              0.23983970352564096
+            ]
+          },
+          "Q3": {
+            "n": 3932,
+            "mean_r": 0.20608128179043744,
+            "ci_95": [
+              0.17661712423702952,
+              0.23713753115462866
+            ]
+          },
+          "Q4": {
+            "n": 5681,
+            "mean_r": 0.03587790881886992,
+            "ci_95": [
+              0.009810362612216161,
+              0.06190124185882767
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": true,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": true,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": false
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Modern 2025-26 decay (modern CI crosses zero)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.0005,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": true,
+          "bh_fdr_passed": true
+        }
+      },
+      "BEAR": {
+        "scanner": "PULLBACK",
+        "variant_id": "PB-V01-BASE",
+        "variant_name": "Base Continuation",
+        "regime": "BEAR",
+        "n_trades": 11555,
+        "mean_net_r": 0.07816887927304197,
+        "ci_95": [
+          0.06083192124621376,
+          0.09585862894850714
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 1558,
+        "holdout_mean_r": 0.03284107830551988,
+        "holdout_ci_95": [
+          -0.015275292041078303,
+          0.08284278080872913
+        ],
+        "holdout_delta_ci_95": [
+          0.034410661103979466,
+          0.09578699454428755
+        ],
+        "holdout_perm_p": 0.1015,
+        "incremental_alpha_p": 1.0,
+        "incremental_cohens_d": 0.0,
+        "alpha_passed": true,
+        "top_cell_pnl_share": 0.7635800835107179,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 2589,
+            "mean_r": 0.024898184627269216,
+            "ci_95": [
+              -0.011731071842410196,
+              0.0638452018153727
+            ],
+            "perm_p": 0.0865
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 2480,
+            "mean_r": 0.06047439516129033,
+            "ci_95": [
+              0.019691951612903224,
+              0.1000800504032258
+            ],
+            "perm_p": 0.001
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 3522,
+            "mean_r": 0.19664491766042022,
+            "ci_95": [
+              0.1642216673764906,
+              0.228654374645088
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 2964,
+            "mean_r": -0.001275269905533065,
+            "ci_95": [
+              -0.036530981781376516,
+              0.033402243589743544
+            ],
+            "perm_p": 1.0
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 4055,
+            "mean_r": -0.04321395807644882,
+            "ci_95": [
+              -0.0722482342786683,
+              -0.011450729346485854
+            ]
+          },
+          "Q2": {
+            "n": 1962,
+            "mean_r": 0.13090713557594294,
+            "ci_95": [
+              0.08677399209989808,
+              0.17464023955147806
+            ]
+          },
+          "Q3": {
+            "n": 2417,
+            "mean_r": 0.10693462970624742,
+            "ci_95": [
+              0.06911188767066612,
+              0.14577354054613156
+            ]
+          },
+          "Q4": {
+            "n": 3121,
+            "mean_r": 0.1804463953860942,
+            "ci_95": [
+              0.14730087391861585,
+              0.2125853676706184
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": false,
+          "economic": true,
+          "alpha_attribution": true,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": false
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Temporal replication failed (pos cells: 3/4, top cell share: 76.4%)",
+          "Modern 2025-26 decay (modern CI crosses zero)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.1015,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      }
+    },
+    "PB-V02-DEEP-SUPPORT": {
+      "BULL": {
+        "scanner": "PULLBACK",
+        "variant_id": "PB-V02-DEEP-SUPPORT",
+        "variant_name": "Confluence Support Bounce",
+        "regime": "BULL",
+        "n_trades": 5768,
+        "mean_net_r": 0.18114495492371707,
+        "ci_95": [
+          0.15568174280513175,
+          0.20830362994105397
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 368,
+        "holdout_mean_r": 0.04705353260869567,
+        "holdout_ci_95": [
+          -0.0539486820652174,
+          0.1470964266304348
+        ],
+        "holdout_delta_ci_95": [
+          -0.03995993885869567,
+          0.07130969429347822
+        ],
+        "holdout_perm_p": 0.1745,
+        "incremental_alpha_p": 0.9232579936781594,
+        "incremental_cohens_d": 0.0014764534092468742,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.43667423685504864,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 1029,
+            "mean_r": 0.20081681243926142,
+            "ci_95": [
+              0.1386905004859087,
+              0.26538509961127305
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 1535,
+            "mean_r": 0.2230674918566775,
+            "ci_95": [
+              0.1733532654723127,
+              0.2752696644951139
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 2561,
+            "mean_r": 0.17815560327996877,
+            "ci_95": [
+              0.1364291780554471,
+              0.2197584117532214
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 643,
+            "mean_r": 0.06149066874027994,
+            "ci_95": [
+              -0.02404439735614308,
+              0.13637697122861583
+            ],
+            "perm_p": 0.0655
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 1142,
+            "mean_r": 0.04958835376532399,
+            "ci_95": [
+              -0.010871116462346765,
+              0.1137179509632224
+            ]
+          },
+          "Q2": {
+            "n": 1443,
+            "mean_r": 0.26635994455994455,
+            "ci_95": [
+              0.21547978343728344,
+              0.31710831774081777
+            ]
+          },
+          "Q3": {
+            "n": 2017,
+            "mean_r": 0.09879543877045117,
+            "ci_95": [
+              0.05338576722855727,
+              0.14555181581556767
+            ]
+          },
+          "Q4": {
+            "n": 1166,
+            "mean_r": 0.3469866209262436,
+            "ci_95": [
+              0.2903410656089194,
+              0.40401071826758145
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": false
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Incremental alpha failed vs Base (p=0.9233, d=0.001)",
+          "Modern 2025-26 decay (modern CI crosses zero)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.1745,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "SIDEWAYS": {
+        "scanner": "PULLBACK",
+        "variant_id": "PB-V02-DEEP-SUPPORT",
+        "variant_name": "Confluence Support Bounce",
+        "regime": "SIDEWAYS",
+        "n_trades": 5778,
+        "mean_net_r": 0.09158793700242299,
+        "ci_95": [
+          0.06639601073035652,
+          0.1171133757355486
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 877,
+        "holdout_mean_r": 0.09466602052451539,
+        "holdout_ci_95": [
+          0.027153976624857475,
+          0.1631252736602052
+        ],
+        "holdout_delta_ci_95": [
+          0.01870921892816419,
+          0.09208446123147086
+        ],
+        "holdout_perm_p": 0.0025,
+        "incremental_alpha_p": 0.2506694309320912,
+        "incremental_cohens_d": -0.01769435218487607,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.3730437035414727,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 801,
+            "mean_r": 0.15771148564294632,
+            "ci_95": [
+              0.09152495318352061,
+              0.22582325842696624
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 1576,
+            "mean_r": 0.1252619923857868,
+            "ci_95": [
+              0.07571559327411168,
+              0.17363751586294415
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 2255,
+            "mean_r": 0.08250266075388027,
+            "ci_95": [
+              0.0406930088691796,
+              0.12345639911308205
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 1146,
+            "mean_r": 0.016938743455497382,
+            "ci_95": [
+              -0.0427541797556719,
+              0.07400549520069805
+            ],
+            "perm_p": 0.2845
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 917,
+            "mean_r": -0.05677295528898582,
+            "ci_95": [
+              -0.11757079880043622,
+              0.009915763358778591
+            ]
+          },
+          "Q2": {
+            "n": 1358,
+            "mean_r": 0.14813902798232695,
+            "ci_95": [
+              0.09684629602356405,
+              0.2012447477908689
+            ]
+          },
+          "Q3": {
+            "n": 1448,
+            "mean_r": 0.20091982044198894,
+            "ci_95": [
+              0.15206349620165746,
+              0.24850972548342523
+            ]
+          },
+          "Q4": {
+            "n": 2055,
+            "mean_r": 0.04338257907542579,
+            "ci_95": [
+              -0.001654420924574205,
+              0.08637758272506081
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": true,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": false
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Incremental alpha failed vs Base (p=0.2507, d=-0.018)",
+          "Modern 2025-26 decay (modern CI crosses zero)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.0025,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": true
+        }
+      },
+      "BEAR": {
+        "scanner": "PULLBACK",
+        "variant_id": "PB-V02-DEEP-SUPPORT",
+        "variant_name": "Confluence Support Bounce",
+        "regime": "BEAR",
+        "n_trades": 4183,
+        "mean_net_r": 0.05167279464499163,
+        "ci_95": [
+          0.01997847418120966,
+          0.08057651267033228
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 552,
+        "holdout_mean_r": 0.06442282608695653,
+        "holdout_ci_95": [
+          -0.016366136775362316,
+          0.14219418025362315
+        ],
+        "holdout_delta_ci_95": [
+          0.006744270833333332,
+          0.11309118659420289
+        ],
+        "holdout_perm_p": 0.0635,
+        "incremental_alpha_p": 0.13493047838886532,
+        "incremental_cohens_d": -0.02692304213408935,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.8823224153620809,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 986,
+            "mean_r": -0.005591075050709932,
+            "ci_95": [
+              -0.06500166328600405,
+              0.05555285496957402
+            ],
+            "perm_p": 1.0
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 919,
+            "mean_r": 0.03434798694232863,
+            "ci_95": [
+              -0.024727067464635474,
+              0.09746188792165397
+            ],
+            "perm_p": 0.1455
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 1251,
+            "mean_r": 0.18918776978417262,
+            "ci_95": [
+              0.1353947222222222,
+              0.244658023581135
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 1027,
+            "mean_r": -0.04535501460564752,
+            "ci_95": [
+              -0.10654805258033105,
+              0.014609096884128507
+            ],
+            "perm_p": 1.0
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 1464,
+            "mean_r": -0.05894774590163934,
+            "ci_95": [
+              -0.10849918203551913,
+              -0.0033508657786886094
+            ]
+          },
+          "Q2": {
+            "n": 711,
+            "mean_r": 0.10139479606188467,
+            "ci_95": [
+              0.032503431786216605,
+              0.17480718706047815
+            ]
+          },
+          "Q3": {
+            "n": 896,
+            "mean_r": 0.05701015625,
+            "ci_95": [
+              -0.005860641741071431,
+              0.12231107142857142
+            ]
+          },
+          "Q4": {
+            "n": 1112,
+            "mean_r": 0.16121762589928057,
+            "ci_95": [
+              0.10606981339928058,
+              0.21595324865107912
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": false,
+          "economic": true,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": false
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Temporal replication failed (pos cells: 2/4, top cell share: 88.2%)",
+          "Incremental alpha failed vs Base (p=0.1349, d=-0.027)",
+          "Modern 2025-26 decay (modern CI crosses zero)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.0635,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      }
+    },
+    "PB-V03-RSI-OVERSOLD": {
+      "BULL": {
+        "scanner": "PULLBACK",
+        "variant_id": "PB-V03-RSI-OVERSOLD",
+        "variant_name": "Momentum Dip-Buyer",
+        "regime": "BULL",
+        "n_trades": 6034,
+        "mean_net_r": 0.19303879681803116,
+        "ci_95": [
+          0.1668247650812065,
+          0.21762613481935694
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 422,
+        "holdout_mean_r": 0.025498815165876786,
+        "holdout_ci_95": [
+          -0.06876619668246446,
+          0.12641832345971557
+        ],
+        "holdout_delta_ci_95": [
+          -0.04820594786729857,
+          0.06019234597156394
+        ],
+        "holdout_perm_p": 0.307,
+        "incremental_alpha_p": 0.38868028240639807,
+        "incremental_cohens_d": 0.012973237907741096,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.43659435329496726,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 993,
+            "mean_r": 0.16178580060422962,
+            "ci_95": [
+              0.09766204179254784,
+              0.22772383182275927
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 1609,
+            "mean_r": 0.2782100683654444,
+            "ci_95": [
+              0.23071837632069606,
+              0.3279521504039776
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 2696,
+            "mean_r": 0.1886288575667656,
+            "ci_95": [
+              0.15092169046735907,
+              0.2287465393175074
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 736,
+            "mean_r": 0.06516222826086959,
+            "ci_95": [
+              -0.006582289402173911,
+              0.14043630434782609
+            ],
+            "perm_p": 0.0475
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 1184,
+            "mean_r": 0.13839738175675675,
+            "ci_95": [
+              0.07553933699324324,
+              0.20084475084459455
+            ]
+          },
+          "Q2": {
+            "n": 1456,
+            "mean_r": 0.28991778846153843,
+            "ci_95": [
+              0.23642186469780216,
+              0.33977560611263735
+            ]
+          },
+          "Q3": {
+            "n": 2199,
+            "mean_r": 0.07792755798090041,
+            "ci_95": [
+              0.037212075943610735,
+              0.12119528308321963
+            ]
+          },
+          "Q4": {
+            "n": 1195,
+            "mean_r": 0.3409628451882845,
+            "ci_95": [
+              0.28382346652719664,
+              0.3944570878661087
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": false
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Incremental alpha failed vs Base (p=0.3887, d=0.013)",
+          "Modern 2025-26 decay (modern CI crosses zero)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.307,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "SIDEWAYS": {
+        "scanner": "PULLBACK",
+        "variant_id": "PB-V03-RSI-OVERSOLD",
+        "variant_name": "Momentum Dip-Buyer",
+        "regime": "SIDEWAYS",
+        "n_trades": 5939,
+        "mean_net_r": 0.11303601616433744,
+        "ci_95": [
+          0.08886573539316382,
+          0.1387679643037548
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 934,
+        "holdout_mean_r": 0.10544036402569594,
+        "holdout_ci_95": [
+          0.04499249197002141,
+          0.17141700481798708
+        ],
+        "holdout_delta_ci_95": [
+          0.0010076793361884372,
+          0.07016013650963591
+        ],
+        "holdout_perm_p": 0.001,
+        "incremental_alpha_p": 0.7979271209279437,
+        "incremental_cohens_d": 0.003894156393299815,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.4133933562920506,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 777,
+            "mean_r": 0.193701287001287,
+            "ci_95": [
+              0.12577068854568857,
+              0.25992251930501925
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 1585,
+            "mean_r": 0.1750912302839117,
+            "ci_95": [
+              0.12502994794952682,
+              0.22484136593059936
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 2344,
+            "mean_r": 0.09222047781569967,
+            "ci_95": [
+              0.05093846203071672,
+              0.13348942299488045
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 1233,
+            "mean_r": 0.022003730738037307,
+            "ci_95": [
+              -0.03537483779399838,
+              0.07553709651257094
+            ],
+            "perm_p": 0.2085
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 897,
+            "mean_r": -0.09668338907469341,
+            "ci_95": [
+              -0.16056564938684506,
+              -0.03549638238573026
+            ]
+          },
+          "Q2": {
+            "n": 1320,
+            "mean_r": 0.21575628787878787,
+            "ci_95": [
+              0.16182368939393937,
+              0.26867460984848485
+            ]
+          },
+          "Q3": {
+            "n": 1592,
+            "mean_r": 0.19283913316582915,
+            "ci_95": [
+              0.14324029208542716,
+              0.23952482883165824
+            ]
+          },
+          "Q4": {
+            "n": 2130,
+            "mean_r": 0.0780505633802817,
+            "ci_95": [
+              0.03669363497652582,
+              0.12112825821596242
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": true,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": false
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Incremental alpha failed vs Base (p=0.7979, d=0.004)",
+          "Modern 2025-26 decay (modern CI crosses zero)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.001,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": true,
+          "bh_fdr_passed": true
+        }
+      },
+      "BEAR": {
+        "scanner": "PULLBACK",
+        "variant_id": "PB-V03-RSI-OVERSOLD",
+        "variant_name": "Momentum Dip-Buyer",
+        "regime": "BEAR",
+        "n_trades": 4540,
+        "mean_net_r": 0.08387955947136563,
+        "ci_95": [
+          0.05470222742290748,
+          0.1122603876651982
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 591,
+        "holdout_mean_r": 0.03664568527918783,
+        "holdout_ci_95": [
+          -0.04581236886632826,
+          0.12113626480541455
+        ],
+        "holdout_delta_ci_95": [
+          -0.04663670473773266,
+          0.04043539763113363
+        ],
+        "holdout_perm_p": 0.1855,
+        "incremental_alpha_p": 0.7392506800261669,
+        "incremental_cohens_d": 0.005809376652555159,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.8271023693506424,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 1001,
+            "mean_r": 0.021478421578421576,
+            "ci_95": [
+              -0.04080286463536463,
+              0.07694747002996999
+            ],
+            "perm_p": 0.231
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 991,
+            "mean_r": 0.022027245206861747,
+            "ci_95": [
+              -0.03618665741675076,
+              0.08180411453077698
+            ],
+            "perm_p": 0.236
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 1405,
+            "mean_r": 0.22417900355871886,
+            "ci_95": [
+              0.1739480978647687,
+              0.27172702846975083
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 1143,
+            "mean_r": 0.019696237970253713,
+            "ci_95": [
+              -0.03895623578302712,
+              0.07972737970253718
+            ],
+            "perm_p": 0.249
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 1592,
+            "mean_r": -0.059774937185929654,
+            "ci_95": [
+              -0.10735811557788943,
+              -0.012628580402010066
+            ]
+          },
+          "Q2": {
+            "n": 772,
+            "mean_r": 0.1752865284974093,
+            "ci_95": [
+              0.10679842292746115,
+              0.24230385686528494
+            ]
+          },
+          "Q3": {
+            "n": 964,
+            "mean_r": 0.10886151452282157,
+            "ci_95": [
+              0.04603535788381742,
+              0.17279142116182572
+            ]
+          },
+          "Q4": {
+            "n": 1212,
+            "mean_r": 0.1944811881188119,
+            "ci_95": [
+              0.14402083952145214,
+              0.2493127681518152
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": false,
+          "economic": true,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": false
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Temporal replication failed (pos cells: 4/4, top cell share: 82.7%)",
+          "Incremental alpha failed vs Base (p=0.7393, d=0.006)",
+          "Modern 2025-26 decay (modern CI crosses zero)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.1855,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      }
+    },
+    "PB-V04-STRUCTURAL-PIVOT": {
+      "BULL": {
+        "scanner": "PULLBACK",
+        "variant_id": "PB-V04-STRUCTURAL-PIVOT",
+        "variant_name": "Prior Resistance Reclaim",
+        "regime": "BULL",
+        "n_trades": 9060,
+        "mean_net_r": 0.1718792825607064,
+        "ci_95": [
+          0.15158882477924945,
+          0.1929289376379691
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 624,
+        "holdout_mean_r": 0.07069599358974357,
+        "holdout_ci_95": [
+          -0.010838854166666665,
+          0.15267529246794867
+        ],
+        "holdout_delta_ci_95": [
+          -0.015555236378205129,
+          0.0710416346153846
+        ],
+        "holdout_perm_p": 0.0415,
+        "incremental_alpha_p": 0.5652967137124434,
+        "incremental_cohens_d": -0.007500619117081605,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.4337319501988888,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 1550,
+            "mean_r": 0.19415954838709681,
+            "ci_95": [
+              0.14252662741935485,
+              0.24220359354838705
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 2397,
+            "mean_r": 0.2255726324572382,
+            "ci_95": [
+              0.18488478410513143,
+              0.26777754380475594
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 4005,
+            "mean_r": 0.16864389513108613,
+            "ci_95": [
+              0.1364297315855181,
+              0.20130197877652936
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 1108,
+            "mean_r": 0.03624783393501806,
+            "ci_95": [
+              -0.024617635379061364,
+              0.09501954873646208
+            ],
+            "perm_p": 0.1305
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 1693,
+            "mean_r": 0.09468210277613703,
+            "ci_95": [
+              0.04351950531600709,
+              0.14554212344949785
+            ]
+          },
+          "Q2": {
+            "n": 2224,
+            "mean_r": 0.2670400629496403,
+            "ci_95": [
+              0.22439077000899282,
+              0.308034651528777
+            ]
+          },
+          "Q3": {
+            "n": 3406,
+            "mean_r": 0.08597187316500293,
+            "ci_95": [
+              0.05023570757486788,
+              0.11972169627128594
+            ]
+          },
+          "Q4": {
+            "n": 1737,
+            "mean_r": 0.29373183649971213,
+            "ci_95": [
+              0.24847648963730573,
+              0.34202606505469196
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": false
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Incremental alpha failed vs Base (p=0.5653, d=-0.008)",
+          "Modern 2025-26 decay (modern CI crosses zero)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.0415,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "SIDEWAYS": {
+        "scanner": "PULLBACK",
+        "variant_id": "PB-V04-STRUCTURAL-PIVOT",
+        "variant_name": "Prior Resistance Reclaim",
+        "regime": "SIDEWAYS",
+        "n_trades": 9220,
+        "mean_net_r": 0.09394341648590022,
+        "ci_95": [
+          0.07429825162689806,
+          0.11464976464208242
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 1535,
+        "holdout_mean_r": 0.07951830618892508,
+        "holdout_ci_95": [
+          0.03159627361563518,
+          0.1287261302931596
+        ],
+        "holdout_delta_ci_95": [
+          0.01805803094462541,
+          0.07183902605863192
+        ],
+        "holdout_perm_p": 0.0005,
+        "incremental_alpha_p": 0.23797074354028586,
+        "incremental_cohens_d": -0.015413572117456968,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.3924098502982236,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 1219,
+            "mean_r": 0.20435676784249385,
+            "ci_95": [
+              0.15047660377358488,
+              0.25808518457752255
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 2449,
+            "mean_r": 0.14054177215189875,
+            "ci_95": [
+              0.10309890567578604,
+              0.1784841016741527
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 3575,
+            "mean_r": 0.0793881958041958,
+            "ci_95": [
+              0.04850236223776224,
+              0.11257967552447548
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 1977,
+            "mean_r": -0.005539807789580175,
+            "ci_95": [
+              -0.051418005816894284,
+              0.03753964845725843
+            ],
+            "perm_p": 1.0
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 1414,
+            "mean_r": -0.07054214992927864,
+            "ci_95": [
+              -0.12324944130127298,
+              -0.020295588755304156
+            ]
+          },
+          "Q2": {
+            "n": 2069,
+            "mean_r": 0.17838941517641374,
+            "ci_95": [
+              0.1376222196713388,
+              0.21952442725954566
+            ]
+          },
+          "Q3": {
+            "n": 2310,
+            "mean_r": 0.21548354978354978,
+            "ci_95": [
+              0.17541772943722944,
+              0.2538821796536796
+            ]
+          },
+          "Q4": {
+            "n": 3427,
+            "mean_r": 0.028902888824044362,
+            "ci_95": [
+              -0.003033457834840969,
+              0.060962768456375806
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": true,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": false
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Incremental alpha failed vs Base (p=0.2380, d=-0.015)",
+          "Modern 2025-26 decay (modern CI crosses zero)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.0005,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": true,
+          "bh_fdr_passed": true
+        }
+      },
+      "BEAR": {
+        "scanner": "PULLBACK",
+        "variant_id": "PB-V04-STRUCTURAL-PIVOT",
+        "variant_name": "Prior Resistance Reclaim",
+        "regime": "BEAR",
+        "n_trades": 6357,
+        "mean_net_r": 0.06709907188925593,
+        "ci_95": [
+          0.04373128205128205,
+          0.0909782849614598
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 825,
+        "holdout_mean_r": 0.02009636363636364,
+        "holdout_ci_95": [
+          -0.04763286363636363,
+          0.08719758181818178
+        ],
+        "holdout_delta_ci_95": [
+          0.03420734545454546,
+          0.1226524212121212
+        ],
+        "holdout_perm_p": 0.2725,
+        "incremental_alpha_p": 0.46750426038211634,
+        "incremental_cohens_d": -0.011295625693139726,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.7049944925491773,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 1490,
+            "mean_r": 0.026047516778523492,
+            "ci_95": [
+              -0.024764667785234906,
+              0.0761914144295302
+            ],
+            "perm_p": 0.147
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 1364,
+            "mean_r": 0.06381209677419354,
+            "ci_95": [
+              0.012152582478005868,
+              0.11761758431085045
+            ],
+            "perm_p": 0.0065
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 1905,
+            "mean_r": 0.1578758005249344,
+            "ci_95": [
+              0.11495192388451443,
+              0.20155253018372704
+            ],
+            "perm_p": 0.0005
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 1598,
+            "mean_r": -3.448060075093613e-05,
+            "ci_95": [
+              -0.04697457916145181,
+              0.04868743116395493
+            ],
+            "perm_p": 1.0
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 2160,
+            "mean_r": -0.043554074074074085,
+            "ci_95": [
+              -0.08443309837962963,
+              -0.0010074548611111146
+            ]
+          },
+          "Q2": {
+            "n": 1044,
+            "mean_r": 0.09270086206896552,
+            "ci_95": [
+              0.03605580699233717,
+              0.1534564463601533
+            ]
+          },
+          "Q3": {
+            "n": 1426,
+            "mean_r": 0.08424719495091165,
+            "ci_95": [
+              0.036266113253856945,
+              0.13230394985974744
+            ]
+          },
+          "Q4": {
+            "n": 1727,
+            "mean_r": 0.1758595251881876,
+            "ci_95": [
+              0.12975473943254198,
+              0.22021185002895194
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": false,
+          "economic": true,
+          "alpha_attribution": false,
+          "sample_power": true,
+          "q1_resilience": true,
+          "modern_decay_resilience": false
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Temporal replication failed (pos cells: 3/4, top cell share: 70.5%)",
+          "Incremental alpha failed vs Base (p=0.4675, d=-0.011)",
+          "Modern 2025-26 decay (modern CI crosses zero)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.2725,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      }
+    }
+  },
+  "EOD": {
+    "EOD-V01-BASE": {
+      "BULL": {
+        "scanner": "EOD",
+        "variant_id": "EOD-V01-BASE",
+        "variant_name": "Base 20D Breakout",
+        "regime": "BULL",
+        "n_trades": 907,
+        "mean_net_r": 0.14309900771775086,
+        "ci_95": [
+          0.06971142227122382,
+          0.21376899393605286
+        ],
+        "perm_p": 0.0005,
+        "holdout_n": 61,
+        "holdout_mean_r": 0.020327868852458998,
+        "holdout_ci_95": [
+          -0.25983643442622956,
+          0.30115618852459014
+        ],
+        "holdout_delta_ci_95": [
+          -0.016236147540983598,
+          0.31843413934426207
+        ],
+        "holdout_perm_p": 0.4375,
+        "incremental_alpha_p": 1.0,
+        "incremental_cohens_d": 0.0,
+        "alpha_passed": true,
+        "top_cell_pnl_share": 0.5491421579957902,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 109,
+            "mean_r": 0.31546146788990825,
+            "ci_95": [
+              0.09744860091743121,
+              0.5425819724770642
+            ],
+            "perm_p": 0.004
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 206,
+            "mean_r": 0.07206601941747573,
+            "ci_95": [
+              -0.07765980582524269,
+              0.21468713592233007
+            ],
+            "perm_p": 0.1585
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 496,
+            "mean_r": 0.14369677419354843,
+            "ci_95": [
+              0.0507061189516129,
+              0.23386927923387096
+            ],
+            "perm_p": 0.002
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 96,
+            "mean_r": 0.09673229166666668,
+            "ci_95": [
+              -0.1300448958333333,
+              0.3324475520833333
+            ],
+            "perm_p": 0.216
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 163,
+            "mean_r": 0.24125460122699388,
+            "ci_95": [
+              0.07470616564417178,
+              0.41508774539877297
+            ]
+          },
+          "Q2": {
+            "n": 293,
+            "mean_r": 0.18361877133105803,
+            "ci_95": [
+              0.05836658703071672,
+              0.30821870307167226
+            ]
+          },
+          "Q3": {
+            "n": 283,
+            "mean_r": 0.002703886925795041,
+            "ci_95": [
+              -0.1230212632508834,
+              0.13092243816254415
+            ]
+          },
+          "Q4": {
+            "n": 168,
+            "mean_r": 0.2136952380952381,
+            "ci_95": [
+              0.050553392857142845,
+              0.3809496577380952
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": true,
+          "sample_power": false,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Statistically underpowered sample (N=907, N_holdout=61)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.4375,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "SIDEWAYS": {
+        "scanner": "EOD",
+        "variant_id": "EOD-V01-BASE",
+        "variant_name": "Base 20D Breakout",
+        "regime": "SIDEWAYS",
+        "n_trades": 516,
+        "mean_net_r": 0.10338449612403101,
+        "ci_95": [
+          0.015791855620155053,
+          0.1964646124031007
+        ],
+        "perm_p": 0.0155,
+        "holdout_n": 108,
+        "holdout_mean_r": -0.021309259259259278,
+        "holdout_ci_95": [
+          -0.226695625,
+          0.18563356481481466
+        ],
+        "holdout_delta_ci_95": [
+          -0.07711356481481481,
+          0.16391689814814808
+        ],
+        "holdout_perm_p": 1.0,
+        "incremental_alpha_p": 1.0,
+        "incremental_cohens_d": 0.0,
+        "alpha_passed": true,
+        "top_cell_pnl_share": 0.383457927807687,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 55,
+            "mean_r": 0.3719290909090909,
+            "ci_95": [
+              0.10020536363636363,
+              0.6427114999999999
+            ],
+            "perm_p": 0.0075
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 118,
+            "mean_r": 0.16053050847457628,
+            "ci_95": [
+              -0.02774947033898301,
+              0.3533629449152543
+            ],
+            "perm_p": 0.041
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 189,
+            "mean_r": 0.02097566137566139,
+            "ci_95": [
+              -0.12212711640211639,
+              0.16790513227513224
+            ],
+            "perm_p": 0.381
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 154,
+            "mean_r": 0.0648266233766234,
+            "ci_95": [
+              -0.09530373376623376,
+              0.23735556818181797
+            ],
+            "perm_p": 0.2345
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 89,
+            "mean_r": -0.3075067415730337,
+            "ci_95": [
+              -0.5184269382022472,
+              -0.08932002808988772
+            ]
+          },
+          "Q2": {
+            "n": 110,
+            "mean_r": 0.3266227272727274,
+            "ci_95": [
+              0.12572925000000001,
+              0.5160121590909088
+            ]
+          },
+          "Q3": {
+            "n": 157,
+            "mean_r": 0.27121401273885354,
+            "ci_95": [
+              0.10850858280254777,
+              0.4286427866242037
+            ]
+          },
+          "Q4": {
+            "n": 160,
+            "mean_r": 0.01378375000000002,
+            "ci_95": [
+              -0.15344378125,
+              0.18644165624999984
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": true,
+          "sample_power": false,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Statistically underpowered sample (N=516, N_holdout=108)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 1.0,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "BEAR": {
+        "scanner": "EOD",
+        "variant_id": "EOD-V01-BASE",
+        "variant_name": "Base 20D Breakout",
+        "regime": "BEAR",
+        "n_trades": 339,
+        "mean_net_r": 0.11292094395280235,
+        "ci_95": [
+          0.003103532448377583,
+          0.22279793510324483
+        ],
+        "perm_p": 0.0195,
+        "holdout_n": 53,
+        "holdout_mean_r": 0.1251358490566038,
+        "holdout_ci_95": [
+          -0.1655389150943396,
+          0.4082236792452829
+        ],
+        "holdout_delta_ci_95": [
+          -0.2139654716981132,
+          0.1454515566037735
+        ],
+        "holdout_perm_p": 0.216,
+        "incremental_alpha_p": 1.0,
+        "incremental_cohens_d": 0.0,
+        "alpha_passed": true,
+        "top_cell_pnl_share": 0.6108588774353321,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 60,
+            "mean_r": 0.07465833333333335,
+            "ci_95": [
+              -0.1718819583333333,
+              0.3552382499999998
+            ],
+            "perm_p": 0.306
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 61,
+            "mean_r": 0.38334098360655733,
+            "ci_95": [
+              0.12137770491803275,
+              0.6479813524590163
+            ],
+            "perm_p": 0.004
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 109,
+            "mean_r": 0.00505321100917431,
+            "ci_95": [
+              -0.1861260779816514,
+              0.19023862385321097
+            ],
+            "perm_p": 0.468
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 109,
+            "mean_r": 0.09051467889908257,
+            "ci_95": [
+              -0.10790694954128441,
+              0.3044379816513761
+            ],
+            "perm_p": 0.1985
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 133,
+            "mean_r": -0.10516390977443611,
+            "ci_95": [
+              -0.2803209210526316,
+              0.06270048872180431
+            ]
+          },
+          "Q2": {
+            "n": 75,
+            "mean_r": 0.40041600000000005,
+            "ci_95": [
+              0.15509873333333335,
+              0.6306022333333334
+            ]
+          },
+          "Q3": {
+            "n": 64,
+            "mean_r": 0.242546875,
+            "ci_95": [
+              -0.014966953125000022,
+              0.49132910156249987
+            ]
+          },
+          "Q4": {
+            "n": 67,
+            "mean_r": 0.10019104477611938,
+            "ci_95": [
+              -0.12917190298507464,
+              0.3278532835820891
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": false,
+          "economic": true,
+          "alpha_attribution": true,
+          "sample_power": false,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Temporal replication failed (pos cells: 4/4, top cell share: 61.1%)",
+          "Statistically underpowered sample (N=339, N_holdout=53)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.216,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      }
+    },
+    "EOD-V02-52W-MOMENTUM": {
+      "BULL": {
+        "scanner": "EOD",
+        "variant_id": "EOD-V02-52W-MOMENTUM",
+        "variant_name": "52-Week High Proximity",
+        "regime": "BULL",
+        "n_trades": 300,
+        "mean_net_r": 0.10958933333333334,
+        "ci_95": [
+          -0.013436608333333332,
+          0.23160609999999995
+        ],
+        "perm_p": 0.0315,
+        "holdout_n": 15,
+        "holdout_mean_r": 0.13744000000000003,
+        "holdout_ci_95": [
+          -0.4402875,
+          0.6827443333333331
+        ],
+        "holdout_delta_ci_95": [
+          -0.23163933333333334,
+          0.37001399999999995
+        ],
+        "holdout_perm_p": 0.312,
+        "incremental_alpha_p": 0.6406306981680523,
+        "incremental_cohens_d": -0.030793593515231175,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.6281698539874474,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 31,
+            "mean_r": 0.24040000000000003,
+            "ci_95": [
+              -0.14060758064516127,
+              0.6335487903225802
+            ],
+            "perm_p": 0.133
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 65,
+            "mean_r": -0.015338461538461539,
+            "ci_95": [
+              -0.24359965384615384,
+              0.2304178076923076
+            ],
+            "perm_p": 1.0
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 181,
+            "mean_r": 0.11756077348066295,
+            "ci_95": [
+              -0.033692624309392266,
+              0.27253885359116015
+            ],
+            "perm_p": 0.0745
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 23,
+            "mean_r": 0.22360434782608699,
+            "ci_95": [
+              -0.24110543478260868,
+              0.6755690217391301
+            ],
+            "perm_p": 0.1795
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 59,
+            "mean_r": 0.22802033898305082,
+            "ci_95": [
+              -0.024111144067796624,
+              0.4837121610169492
+            ]
+          },
+          "Q2": {
+            "n": 79,
+            "mean_r": 0.12350379746835444,
+            "ci_95": [
+              -0.1153893037974684,
+              0.378590917721519
+            ]
+          },
+          "Q3": {
+            "n": 109,
+            "mean_r": 0.05973853211009175,
+            "ci_95": [
+              -0.1427682339449541,
+              0.25451827981651376
+            ]
+          },
+          "Q4": {
+            "n": 53,
+            "mean_r": 0.059533962264150975,
+            "ci_95": [
+              -0.22954655660377357,
+              0.3512209905660376
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": false,
+          "economic": false,
+          "alpha_attribution": false,
+          "sample_power": false,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Temporal replication failed (pos cells: 3/4, top cell share: 62.8%)",
+          "Economic viability failed (Mean Net R < +0.05R or CI crosses zero)",
+          "Incremental alpha failed vs Base (p=0.6406, d=-0.031)",
+          "Statistically underpowered sample (N=300, N_holdout=15)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.312,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "SIDEWAYS": {
+        "scanner": "EOD",
+        "variant_id": "EOD-V02-52W-MOMENTUM",
+        "variant_name": "52-Week High Proximity",
+        "regime": "SIDEWAYS",
+        "n_trades": 129,
+        "mean_net_r": 0.09453643410852715,
+        "ci_95": [
+          -0.07852697674418604,
+          0.27824521317829454
+        ],
+        "perm_p": 0.154,
+        "holdout_n": 24,
+        "holdout_mean_r": 0.14855000000000002,
+        "holdout_ci_95": [
+          -0.29634083333333333,
+          0.6083548958333332
+        ],
+        "holdout_delta_ci_95": [
+          -0.19541,
+          0.5113701041666664
+        ],
+        "holdout_perm_p": 0.257,
+        "incremental_alpha_p": 0.9294858907582821,
+        "incremental_cohens_d": -0.00844707817247221,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.6931396612079025,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 17,
+            "mean_r": 0.506664705882353,
+            "ci_95": [
+              0.11229029411764711,
+              0.846743382352941
+            ],
+            "perm_p": 0.012
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 25,
+            "mean_r": 0.007668000000000008,
+            "ci_95": [
+              -0.3794648,
+              0.42544989999999994
+            ],
+            "perm_p": 0.4615
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 54,
+            "mean_r": -0.0042833333333333464,
+            "ci_95": [
+              -0.2606419907407408,
+              0.2671454166666666
+            ],
+            "perm_p": 1.0
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 33,
+            "mean_r": 0.10974242424242425,
+            "ci_95": [
+              -0.22392007575757572,
+              0.4501728787878786
+            ],
+            "perm_p": 0.269
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 21,
+            "mean_r": -0.3660809523809524,
+            "ci_95": [
+              -0.7164885714285714,
+              0.0006129761904755264
+            ]
+          },
+          "Q2": {
+            "n": 25,
+            "mean_r": 0.3626760000000001,
+            "ci_95": [
+              -0.032695399999999986,
+              0.7401262
+            ]
+          },
+          "Q3": {
+            "n": 48,
+            "mean_r": 0.21018958333333337,
+            "ci_95": [
+              -0.08632656249999995,
+              0.48282093749999977
+            ]
+          },
+          "Q4": {
+            "n": 35,
+            "mean_r": 0.020768571428571424,
+            "ci_95": [
+              -0.28591521428571426,
+              0.35376999999999986
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": false,
+          "economic": false,
+          "alpha_attribution": false,
+          "sample_power": false,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Temporal replication failed (pos cells: 3/4, top cell share: 69.3%)",
+          "Economic viability failed (Mean Net R < +0.05R or CI crosses zero)",
+          "Incremental alpha failed vs Base (p=0.9295, d=-0.008)",
+          "Statistically underpowered sample (N=129, N_holdout=24)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.257,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "BEAR": {
+        "scanner": "EOD",
+        "variant_id": "EOD-V02-52W-MOMENTUM",
+        "variant_name": "52-Week High Proximity",
+        "regime": "BEAR",
+        "n_trades": 83,
+        "mean_net_r": 0.15976506024096385,
+        "ci_95": [
+          -0.05488689759036146,
+          0.37436388554216865
+        ],
+        "perm_p": 0.0735,
+        "holdout_n": 17,
+        "holdout_mean_r": 0.23118235294117645,
+        "holdout_ci_95": [
+          -0.2949757352941176,
+          0.7507185294117636
+        ],
+        "holdout_delta_ci_95": [
+          -0.4388370588235294,
+          -0.06440955882352944
+        ],
+        "holdout_perm_p": 0.2025,
+        "incremental_alpha_p": 0.7026215398375077,
+        "incremental_cohens_d": 0.04519258544693608,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.36093104929853725,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 21,
+            "mean_r": 0.2760142857142857,
+            "ci_95": [
+              -0.1405513095238095,
+              0.6904474999999997
+            ],
+            "perm_p": 0.104
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 14,
+            "mean_r": 0.3868357142857143,
+            "ci_95": [
+              0.019232857142857124,
+              0.6872535714285711
+            ],
+            "perm_p": 0.0295
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 24,
+            "mean_r": -0.11661666666666669,
+            "ci_95": [
+              -0.48370572916666665,
+              0.2870223958333332
+            ],
+            "perm_p": 1.0
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 24,
+            "mean_r": 0.20197083333333332,
+            "ci_95": [
+              -0.22331395833333334,
+              0.6315432291666666
+            ],
+            "perm_p": 0.1935
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 29,
+            "mean_r": -0.33641034482758625,
+            "ci_95": [
+              -0.6718804310344828,
+              0.01875456896551711
+            ]
+          },
+          "Q2": {
+            "n": 19,
+            "mean_r": 0.610278947368421,
+            "ci_95": [
+              0.203455,
+              0.9978555263157892
+            ]
+          },
+          "Q3": {
+            "n": 19,
+            "mean_r": 0.3574157894736843,
+            "ci_95": [
+              -0.05779644736842106,
+              0.7300080263157891
+            ]
+          },
+          "Q4": {
+            "n": 16,
+            "mean_r": 0.2893875,
+            "ci_95": [
+              -0.17085984375,
+              0.7369315624999996
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": true,
+          "economic": false,
+          "alpha_attribution": false,
+          "sample_power": false,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Economic viability failed (Mean Net R < +0.05R or CI crosses zero)",
+          "Incremental alpha failed vs Base (p=0.7026, d=0.045)",
+          "Statistically underpowered sample (N=83, N_holdout=17)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.2025,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      }
+    },
+    "EOD-V03-COMPRESSION-EXPANSION": {
+      "BULL": {
+        "scanner": "EOD",
+        "variant_id": "EOD-V03-COMPRESSION-EXPANSION",
+        "variant_name": "Volatility Squeeze Breakout",
+        "regime": "BULL",
+        "n_trades": 130,
+        "mean_net_r": 0.09749769230769231,
+        "ci_95": [
+          -0.0835889807692308,
+          0.28726123076923055
+        ],
+        "perm_p": 0.155,
+        "holdout_n": 8,
+        "holdout_mean_r": 0.10146250000000001,
+        "holdout_ci_95": [
+          -0.7167999999999999,
+          0.8368271874999922
+        ],
+        "holdout_delta_ci_95": [
+          -0.3095,
+          0.6006750000000001
+        ],
+        "holdout_perm_p": 0.3995,
+        "incremental_alpha_p": 0.6595923991590139,
+        "incremental_cohens_d": -0.04165261050819282,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.7769401957883634,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 13,
+            "mean_r": 0.3385384615384615,
+            "ci_95": [
+              -0.29453057692307694,
+              0.9548698076923072
+            ],
+            "perm_p": 0.1665
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 29,
+            "mean_r": -0.3671172413793103,
+            "ci_95": [
+              -0.710440431034483,
+              0.006605086206896094
+            ],
+            "perm_p": 1.0
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 74,
+            "mean_r": 0.24485270270270273,
+            "ci_95": [
+              0.007985506756756758,
+              0.4835902027027023
+            ],
+            "perm_p": 0.0275
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 14,
+            "mean_r": 0.057214285714285724,
+            "ci_95": [
+              -0.5032764285714286,
+              0.6593794642857141
+            ],
+            "perm_p": 0.412
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 26,
+            "mean_r": -0.1282384615384615,
+            "ci_95": [
+              -0.5416595192307692,
+              0.28101711538461527
+            ]
+          },
+          "Q2": {
+            "n": 38,
+            "mean_r": 0.12319210526315792,
+            "ci_95": [
+              -0.26805493421052634,
+              0.49452894736842085
+            ]
+          },
+          "Q3": {
+            "n": 44,
+            "mean_r": 0.18385909090909092,
+            "ci_95": [
+              -0.1370941477272727,
+              0.522244659090909
+            ]
+          },
+          "Q4": {
+            "n": 22,
+            "mean_r": 0.14717272727272723,
+            "ci_95": [
+              -0.2546859090909091,
+              0.5346260227272726
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": false,
+          "economic": false,
+          "alpha_attribution": false,
+          "sample_power": false,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Temporal replication failed (pos cells: 3/4, top cell share: 77.7%)",
+          "Economic viability failed (Mean Net R < +0.05R or CI crosses zero)",
+          "Incremental alpha failed vs Base (p=0.6596, d=-0.042)",
+          "Statistically underpowered sample (N=130, N_holdout=8)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.3995,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "SIDEWAYS": {
+        "scanner": "EOD",
+        "variant_id": "EOD-V03-COMPRESSION-EXPANSION",
+        "variant_name": "Volatility Squeeze Breakout",
+        "regime": "SIDEWAYS",
+        "n_trades": 67,
+        "mean_net_r": -0.09560746268656715,
+        "ci_95": [
+          -0.3421282089552239,
+          0.16133302238805952
+        ],
+        "perm_p": 1.0,
+        "holdout_n": 12,
+        "holdout_mean_r": -0.16064166666666657,
+        "holdout_ci_95": [
+          -0.7226314583333333,
+          0.44928645833333236
+        ],
+        "holdout_delta_ci_95": [
+          -0.43893312500000004,
+          0.3761666666666666
+        ],
+        "holdout_perm_p": 1.0,
+        "incremental_alpha_p": 0.15847185871789798,
+        "incremental_cohens_d": -0.18762489371026972,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.8016115899710812,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 10,
+            "mean_r": 0.28551,
+            "ci_95": [
+              -0.3964175,
+              0.9631072499999984
+            ],
+            "perm_p": 0.2235
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 14,
+            "mean_r": 0.050471428571428605,
+            "ci_95": [
+              -0.50015,
+              0.6496025000000002
+            ],
+            "perm_p": 0.434
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 30,
+            "mean_r": -0.23409333333333338,
+            "ci_95": [
+              -0.5770328333333333,
+              0.13603891666666632
+            ],
+            "perm_p": 1.0
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 13,
+            "mean_r": -0.22650769230769227,
+            "ci_95": [
+              -0.749913076923077,
+              0.3829180769230768
+            ],
+            "perm_p": 1.0
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 14,
+            "mean_r": -0.3998142857142857,
+            "ci_95": [
+              -0.8359889285714285,
+              0.10919017857142778
+            ]
+          },
+          "Q2": {
+            "n": 12,
+            "mean_r": 0.32975000000000004,
+            "ci_95": [
+              -0.23554666666666668,
+              0.8731914583333332
+            ]
+          },
+          "Q3": {
+            "n": 19,
+            "mean_r": -0.18027894736842107,
+            "ci_95": [
+              -0.6003085526315789,
+              0.32992565789473655
+            ]
+          },
+          "Q4": {
+            "n": 22,
+            "mean_r": -0.060909090909090954,
+            "ci_95": [
+              -0.5245272727272727,
+              0.46011636363636355
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": false,
+          "economic": false,
+          "alpha_attribution": false,
+          "sample_power": false,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Temporal replication failed (pos cells: 2/4, top cell share: 80.2%)",
+          "Economic viability failed (Mean Net R < +0.05R or CI crosses zero)",
+          "Incremental alpha failed vs Base (p=0.1585, d=-0.188)",
+          "Statistically underpowered sample (N=67, N_holdout=12)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 1.0,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "BEAR": {
+        "scanner": "EOD",
+        "variant_id": "EOD-V03-COMPRESSION-EXPANSION",
+        "variant_name": "Volatility Squeeze Breakout",
+        "regime": "BEAR",
+        "n_trades": 32,
+        "mean_net_r": 0.28573437500000004,
+        "ci_95": [
+          -0.07127156249999998,
+          0.6181468749999999
+        ],
+        "perm_p": 0.0685,
+        "holdout_n": 3,
+        "holdout_mean_r": -0.3500999999999999,
+        "holdout_ci_95": [
+          -1.0191,
+          0.9814000000000002
+        ],
+        "holdout_delta_ci_95": [
+          0.0,
+          0.0
+        ],
+        "holdout_perm_p": 1.0,
+        "incremental_alpha_p": 0.37378625901833984,
+        "incremental_cohens_d": 0.16502772741902202,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.7406429942418425,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 5,
+            "mean_r": 0.14012000000000002,
+            "ci_95": [
+              -0.67198,
+              0.95222
+            ],
+            "perm_p": 0.433
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 10,
+            "mean_r": 0.7717499999999999,
+            "ci_95": [
+              0.22806574999999996,
+              1.1929572499999999
+            ],
+            "perm_p": 0.0145
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 12,
+            "mean_r": 0.16682500000000008,
+            "ci_95": [
+              -0.456125,
+              0.7987577083333326
+            ],
+            "perm_p": 0.3215
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 5,
+            "mean_r": -0.25529999999999997,
+            "ci_95": [
+              -1.01596,
+              0.5436
+            ],
+            "perm_p": 1.0
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 13,
+            "mean_r": 0.08303076923076927,
+            "ci_95": [
+              -0.5113649999999998,
+              0.7007373076923077
+            ]
+          },
+          "Q2": {
+            "n": 8,
+            "mean_r": 0.528125,
+            "ci_95": [
+              -0.18565375,
+              1.1309153124999995
+            ]
+          },
+          "Q3": {
+            "n": 8,
+            "mean_r": 0.613175,
+            "ci_95": [
+              0.027950625000000028,
+              1.0959062499999996
+            ]
+          },
+          "Q4": {
+            "n": 3,
+            "mean_r": -0.35543333333333327,
+            "ci_95": [
+              -1.0286,
+              0.9814000000000002
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": false,
+          "economic": false,
+          "alpha_attribution": false,
+          "sample_power": false,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Temporal replication failed (pos cells: 3/4, top cell share: 74.1%)",
+          "Economic viability failed (Mean Net R < +0.05R or CI crosses zero)",
+          "Incremental alpha failed vs Base (p=0.3738, d=0.165)",
+          "Statistically underpowered sample (N=32, N_holdout=3)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 1.0,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      }
+    },
+    "EOD-V04-MOMENTUM-CORRIDOR": {
+      "BULL": {
+        "scanner": "EOD",
+        "variant_id": "EOD-V04-MOMENTUM-CORRIDOR",
+        "variant_name": "RSI Corridor & CLV",
+        "regime": "BULL",
+        "n_trades": 217,
+        "mean_net_r": 0.15065023041474657,
+        "ci_95": [
+          0.005658617511520754,
+          0.29162724654377864
+        ],
+        "perm_p": 0.024,
+        "holdout_n": 9,
+        "holdout_mean_r": 0.16677777777777775,
+        "holdout_ci_95": [
+          -0.5511466666666667,
+          0.8831888888888888
+        ],
+        "holdout_delta_ci_95": [
+          -0.16716305555555558,
+          0.4475333333333332
+        ],
+        "holdout_perm_p": 0.3145,
+        "incremental_alpha_p": 0.9270542412359222,
+        "incremental_cohens_d": 0.006909400720586062,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.4601955884017362,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 26,
+            "mean_r": 0.578626923076923,
+            "ci_95": [
+              0.14925269230769234,
+              0.9685401923076922
+            ],
+            "perm_p": 0.012
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 50,
+            "mean_r": 0.21400199999999997,
+            "ci_95": [
+              -0.08558305000000004,
+              0.5170433999999997
+            ],
+            "perm_p": 0.1045
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 121,
+            "mean_r": 0.03774628099173553,
+            "ci_95": [
+              -0.15564179752066112,
+              0.22851878099173545
+            ],
+            "perm_p": 0.348
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 20,
+            "mean_r": 0.11896999999999999,
+            "ci_95": [
+              -0.3097375,
+              0.5378413749999998
+            ],
+            "perm_p": 0.293
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 38,
+            "mean_r": 0.2819842105263158,
+            "ci_95": [
+              -0.06833638157894736,
+              0.6145069736842104
+            ]
+          },
+          "Q2": {
+            "n": 76,
+            "mean_r": 0.14845526315789473,
+            "ci_95": [
+              -0.11170884868421052,
+              0.3898230921052624
+            ]
+          },
+          "Q3": {
+            "n": 66,
+            "mean_r": -0.013904545454545463,
+            "ci_95": [
+              -0.26975367424242425,
+              0.2534806060606059
+            ]
+          },
+          "Q4": {
+            "n": 37,
+            "mean_r": 0.3138054054054054,
+            "ci_95": [
+              -0.02061270270270269,
+              0.6387475
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": true,
+          "economic": true,
+          "alpha_attribution": false,
+          "sample_power": false,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Incremental alpha failed vs Base (p=0.9271, d=0.007)",
+          "Statistically underpowered sample (N=217, N_holdout=9)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 0.3145,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "SIDEWAYS": {
+        "scanner": "EOD",
+        "variant_id": "EOD-V04-MOMENTUM-CORRIDOR",
+        "variant_name": "RSI Corridor & CLV",
+        "regime": "SIDEWAYS",
+        "n_trades": 115,
+        "mean_net_r": 0.11068347826086958,
+        "ci_95": [
+          -0.07577136956521739,
+          0.3101393913043476
+        ],
+        "perm_p": 0.137,
+        "holdout_n": 31,
+        "holdout_mean_r": -0.16473548387096773,
+        "holdout_ci_95": [
+          -0.5353721774193548,
+          0.21294814516129026
+        ],
+        "holdout_delta_ci_95": [
+          -0.27273653225806455,
+          0.21988419354838698
+        ],
+        "holdout_perm_p": 1.0,
+        "incremental_alpha_p": 0.9460684380987449,
+        "incremental_cohens_d": 0.006916989350104453,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.5185006435006434,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 10,
+            "mean_r": 0.061410000000000006,
+            "ci_95": [
+              -0.58836475,
+              0.7375152499999995
+            ],
+            "perm_p": 0.4675
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 23,
+            "mean_r": 0.3643391304347825,
+            "ci_95": [
+              -0.058928043478260875,
+              0.7611915217391302
+            ],
+            "perm_p": 0.047
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 39,
+            "mean_r": 0.1837871794871795,
+            "ci_95": [
+              -0.14364673076923073,
+              0.4977382051282047
+            ],
+            "perm_p": 0.1375
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 43,
+            "mean_r": -0.07983720930232557,
+            "ci_95": [
+              -0.3670956976744186,
+              0.24373738372092998
+            ],
+            "perm_p": 1.0
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 23,
+            "mean_r": -0.4349217391304349,
+            "ci_95": [
+              -0.7612496739130434,
+              -0.052915652173913405
+            ]
+          },
+          "Q2": {
+            "n": 35,
+            "mean_r": 0.37311428571428573,
+            "ci_95": [
+              0.023258928571428552,
+              0.7074119999999996
+            ]
+          },
+          "Q3": {
+            "n": 30,
+            "mean_r": 0.13514,
+            "ci_95": [
+              -0.23152166666666665,
+              0.5097641666666667
+            ]
+          },
+          "Q4": {
+            "n": 27,
+            "mean_r": 0.20809629629629625,
+            "ci_95": [
+              -0.18274,
+              0.589837962962963
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": true,
+          "economic": false,
+          "alpha_attribution": false,
+          "sample_power": false,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Economic viability failed (Mean Net R < +0.05R or CI crosses zero)",
+          "Incremental alpha failed vs Base (p=0.9461, d=0.007)",
+          "Statistically underpowered sample (N=115, N_holdout=31)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 1.0,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      },
+      "BEAR": {
+        "scanner": "EOD",
+        "variant_id": "EOD-V04-MOMENTUM-CORRIDOR",
+        "variant_name": "RSI Corridor & CLV",
+        "regime": "BEAR",
+        "n_trades": 91,
+        "mean_net_r": 0.02266703296703297,
+        "ci_95": [
+          -0.18343489010989014,
+          0.23061502747252732
+        ],
+        "perm_p": 0.416,
+        "holdout_n": 16,
+        "holdout_mean_r": -0.17436875000000004,
+        "holdout_ci_95": [
+          -0.6177129687499999,
+          0.2873807812499999
+        ],
+        "holdout_delta_ci_95": [
+          -0.28732671875000004,
+          0.30290624999999993
+        ],
+        "holdout_perm_p": 1.0,
+        "incremental_alpha_p": 0.4600226311340021,
+        "incremental_cohens_d": -0.08646551795484339,
+        "alpha_passed": false,
+        "top_cell_pnl_share": 0.5227144717851233,
+        "temporal_cells": {
+          "Cell 1 (2016\u20132018)": {
+            "n": 14,
+            "mean_r": -0.1805571428571429,
+            "ci_95": [
+              -0.6256367857142856,
+              0.2970132142857137
+            ],
+            "perm_p": 1.0
+          },
+          "Cell 2 (2019\u20132021)": {
+            "n": 16,
+            "mean_r": 0.33895625,
+            "ci_95": [
+              -0.18495203124999998,
+              0.8560668749999996
+            ],
+            "perm_p": 0.1275
+          },
+          "Cell 3 (2022\u20132024)": {
+            "n": 28,
+            "mean_r": -0.2418678571428571,
+            "ci_95": [
+              -0.5905044642857142,
+              0.1626035714285712
+            ],
+            "perm_p": 1.0
+          },
+          "Cell 4 (2025\u20132026)": {
+            "n": 33,
+            "mean_r": 0.17998484848484847,
+            "ci_95": [
+              -0.17828431818181817,
+              0.5082671969696965
+            ],
+            "perm_p": 0.158
+          }
+        },
+        "quarters": {
+          "Q1": {
+            "n": 37,
+            "mean_r": -0.4972189189189189,
+            "ci_95": [
+              -0.7472531756756758,
+              -0.20503554054054055
+            ]
+          },
+          "Q2": {
+            "n": 23,
+            "mean_r": 0.4062391304347827,
+            "ci_95": [
+              -0.005121956521739118,
+              0.7820361956521735
+            ]
+          },
+          "Q3": {
+            "n": 11,
+            "mean_r": 0.7786909090909091,
+            "ci_95": [
+              0.2231202272727273,
+              1.2718934090909089
+            ]
+          },
+          "Q4": {
+            "n": 20,
+            "mean_r": 0.12753500000000004,
+            "ci_95": [
+              -0.258996375,
+              0.5240822499999997
+            ]
+          }
+        },
+        "gates_passed": {
+          "holdout": false,
+          "temporal": false,
+          "economic": false,
+          "alpha_attribution": false,
+          "sample_power": false,
+          "q1_resilience": true,
+          "modern_decay_resilience": true
+        },
+        "verdict": "FAIL",
+        "rejection_reasons": [
+          "Holdout failed (CI_low <= 0 or p >= 0.05)",
+          "Temporal replication failed (pos cells: 2/4, top cell share: 52.3%)",
+          "Economic viability failed (Mean Net R < +0.05R or CI crosses zero)",
+          "Incremental alpha failed vs Base (p=0.4600, d=-0.086)",
+          "Statistically underpowered sample (N=91, N_holdout=16)"
+        ],
+        "multiple_testing": {
+          "m_hypotheses": 36,
+          "raw_p": 1.0,
+          "bonferroni_threshold": 0.001388888888888889,
+          "bonferroni_passed": false,
+          "bh_fdr_passed": false
+        }
+      }
+    }
+  }
+}

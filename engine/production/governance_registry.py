@@ -47,6 +47,10 @@ DECOMMISSIONED_SCANNERS: Set[str] = {
     "MULTI_TF",
     "TECHNICAL_INTRADAY",
     "REVERSAL",
+    # Discarded surviving scanner families after multi-variant battery
+    "ACCUMULATION",
+    "PULLBACK",
+    "EOD",
     # Variants and aliases
     "SHORT_COVERING_5M",
     "SHORT_COVERING_EOD",
@@ -64,18 +68,17 @@ DECOMMISSIONED_SCANNERS: Set[str] = {
     "REVERSAL_SCANNER",
     "REVERSAL_V2",
     "SCAN_SHORT_COVERING",
-    "SCAN_REVERSAL_KEYLEVEL"
+    "SCAN_REVERSAL_KEYLEVEL",
+    "SCAN_ACCUMULATION",
+    "SCAN_PULLBACK",
+    "SCAN_EOD",
+    "EOD_SCANNER"
 }
 
 # 3. Scanners Under Certification (Zero Production Alerts Permitted)
-# All candidate scanners remain strictly under certification until empirical temporal replication is authorized.
+# Only TECHNICAL remains under certification pending administrative dual-track sign-off.
 UNDER_CERTIFICATION_SCANNERS: Set[str] = {
-    "TECHNICAL",
-    "PULLBACK",
-    "ACCUMULATION",
-    "EOD",
-    "SCAN_EOD",
-    "EOD_SCANNER"
+    "TECHNICAL"
 }
 
 # 4. Certified Production Scanners (Must clear Regime AND Temporal Replication Gates)
@@ -83,7 +86,6 @@ UNDER_CERTIFICATION_SCANNERS: Set[str] = {
 CERTIFIED_PRODUCTION_SCANNERS: Set[str] = set()
 
 # 5. Authoritative Three-Regime Certification Routing Matrix
-# Gated: No scanner is active until full multi-cell temporal replication passes governance review.
 REGIME_ROUTING_MATRIX: Dict[str, Dict[str, str]] = {
     "TECHNICAL": {
         "BULL": "UNDER_CERTIFICATION",
@@ -91,73 +93,87 @@ REGIME_ROUTING_MATRIX: Dict[str, Dict[str, str]] = {
         "BEAR": "NOT_CERTIFIED"
     },
     "PULLBACK": {
-        "BULL": "NOT_CERTIFIED",
-        "SIDEWAYS": "UNDER_CERTIFICATION",
-        "BEAR": "NOT_CERTIFIED"
+        "BULL": "DECOMMISSIONED",
+        "SIDEWAYS": "DECOMMISSIONED",
+        "BEAR": "DECOMMISSIONED"
     },
     "ACCUMULATION": {
-        "BULL": "NOT_CERTIFIED",
-        "SIDEWAYS": "NOT_CERTIFIED",
-        "BEAR": "UNDER_CERTIFICATION"
+        "BULL": "DECOMMISSIONED",
+        "SIDEWAYS": "DECOMMISSIONED",
+        "BEAR": "DECOMMISSIONED"
     },
     "EOD": {
-        "BULL": "NOT_CERTIFIED",
-        "SIDEWAYS": "NOT_CERTIFIED",
-        "BEAR": "NOT_CERTIFIED"
+        "BULL": "DECOMMISSIONED",
+        "SIDEWAYS": "DECOMMISSIONED",
+        "BEAR": "DECOMMISSIONED"
     }
 }
 
 # 6. Authoritative Scanner Health Regime & Temporal Robustness Mapping
-# Invariant: "Supported regime" != "Currently production active".
-# Fail-closed: All candidate breakout scanners remain strictly not active in production until explicit final lock.
 SCANNER_REGIME_HEALTH_METADATA: Dict[str, Dict[str, Any]] = {
     "TECHNICAL": {
+        "selected_variant": "TECH-V01-BULL",
         "supported_regime": "BULL",
         "evidence_supported_regimes": ["BULL"],
+        "production_authorized_regimes": [],
         "current_production_active_regime": "None until final lock verification",
         "production_authorization_state": "LOCK REVIEW PENDING",
+        "lifecycle_state": "UNDER_CERTIFICATION",
+        "certification_status": "CERTIFIED_FOR_REGIME — LOCK REVIEW PENDING",
         "temporal_evidence_status": "Replication Passed / Ready for Lock Review",
         "temporal_evidence": "Replicated positively across all four multi-year cells (+0.220R, +0.233R, +0.221R, +0.146R) and all quarters (Q1-Q4).",
         "evidence_warnings": [],
         "warning": None,
-        "suppression_reason": "Suppressed: TECHNICAL evidence supports BULL only; current regime is {current_regime}.",
-        "pending_condition": "Not production-active pending final lock verification."
+        "suppression_reason": "Suppressed: selected variant is certified only in BULL; current regime={current_regime}.",
+        "pending_condition": "Not production-active pending administrative dual-track sign-off."
     },
     "PULLBACK": {
-        "supported_regime": "SIDEWAYS",
-        "evidence_supported_regimes": ["SIDEWAYS"],
-        "current_production_active_regime": "None — recent decay prevents lock",
-        "production_authorization_state": "DO NOT PERMANENTLY LOCK / CERTIFICATION PENDING",
-        "temporal_evidence_status": "Temporal edge compression in 2025–26; Q1 weakness",
-        "temporal_evidence": "Positive across multi-year cells (+0.208R, +0.138R, +0.107R), but substantial 2025–26 edge compression (+0.015R, CI crosses zero) and Q1 negative (-0.031R).",
-        "evidence_warnings": ["recent 2025–26 edge compression", "Q1 weakness"],
-        "warning": "Warning: 2025–26 temporal edge compression",
-        "suppression_reason": "Suppressed: PULLBACK evidence supports SIDEWAYS only.",
-        "pending_condition": "Recent decay (2025–26 Arm B CI crosses zero) prevents production lock."
-    },
-    "ACCUMULATION": {
-        "supported_regime": "BEAR",
-        "evidence_supported_regimes": ["BEAR"],
-        "current_production_active_regime": "None until final lock verification",
-        "production_authorization_state": "SUBJECT TO FINAL CERTIFICATION (NOT YET UNLOCKED)",
-        "temporal_evidence_status": "Replication Passed, but Q1 seasonal weakness remains",
-        "temporal_evidence": "Positive across all four multi-year cells (+0.040R, +0.136R, +0.206R, +0.098R); observed Q1 seasonal weakness (-0.060R).",
-        "evidence_warnings": ["Q1 seasonal weakness (-0.060R)"],
-        "warning": "Warning: Q1 seasonal weakness",
-        "suppression_reason": "Suppressed: ACCUMULATION evidence supports BEAR only; current regime is {current_regime}.",
-        "pending_condition": "Not production-active pending final lock verification."
-    },
-    "EOD": {
+        "selected_variant": "NONE",
         "supported_regime": "NONE",
         "evidence_supported_regimes": [],
-        "current_production_active_regime": "None",
-        "production_authorization_state": "UNDERPOWERED / UNDER CERTIFICATION",
-        "temporal_evidence_status": "Underpowered across temporal cells / CI crosses zero",
-        "temporal_evidence": "Evidence remains underpowered / insufficient sample size across temporal cells.",
-        "evidence_warnings": ["Severely underpowered sample size", "CI crosses zero in all regimes"],
+        "production_authorized_regimes": [],
+        "current_production_active_regime": "None — Discarded",
+        "production_authorization_state": "DISCARDED — NO SURVIVING VARIANTS",
+        "lifecycle_state": "DECOMMISSIONED",
+        "certification_status": "DISCARDED — ZERO QUALIFYING VARIANTS",
+        "temporal_evidence_status": "Zero variants qualified across all regimes",
+        "temporal_evidence": "0 of 12 variant-regime combinations qualified. Base decayed in 2025–26; all feature variants failed incremental alpha.",
+        "evidence_warnings": ["Zero variants qualified", "Modern decay across all variants"],
         "warning": None,
-        "suppression_reason": "Suppressed: EOD remains underpowered/under certification; no live production alerts.",
-        "pending_condition": "Underpowered sample sizes across all cells. Remains under certification."
+        "suppression_reason": "No tested variant passed all certification gates; scanner remains out of production.",
+        "pending_condition": "Permanently discarded from production consideration."
+    },
+    "ACCUMULATION": {
+        "selected_variant": "NONE",
+        "supported_regime": "NONE",
+        "evidence_supported_regimes": [],
+        "production_authorized_regimes": [],
+        "current_production_active_regime": "None — Discarded",
+        "production_authorization_state": "DISCARDED — NO SURVIVING VARIANTS",
+        "lifecycle_state": "DECOMMISSIONED",
+        "certification_status": "DISCARDED — ZERO QUALIFYING VARIANTS",
+        "temporal_evidence_status": "Zero variants qualified across all regimes",
+        "temporal_evidence": "0 of 12 variant-regime combinations qualified. Persistent Q1 weakness across all BEAR variants; BULL/SIDEWAYS holdouts cross zero.",
+        "evidence_warnings": ["Zero variants qualified", "Persistent Q1 weakness across all BEAR variants"],
+        "warning": None,
+        "suppression_reason": "No tested variant passed all certification gates; scanner remains out of production.",
+        "pending_condition": "Permanently discarded from production consideration."
+    },
+    "EOD": {
+        "selected_variant": "NONE",
+        "supported_regime": "NONE",
+        "evidence_supported_regimes": [],
+        "production_authorized_regimes": [],
+        "current_production_active_regime": "None — Discarded",
+        "production_authorization_state": "DISCARDED — NO SURVIVING VARIANTS",
+        "lifecycle_state": "DECOMMISSIONED",
+        "certification_status": "DISCARDED — ZERO QUALIFYING VARIANTS",
+        "temporal_evidence_status": "Zero variants qualified across all regimes",
+        "temporal_evidence": "0 of 12 variant-regime combinations qualified. Severely underpowered across all cells; 95% bootstrap CIs cross zero widely.",
+        "evidence_warnings": ["Zero variants qualified", "Underpowered across all regimes and cells"],
+        "warning": None,
+        "suppression_reason": "No tested variant passed all certification gates; scanner remains out of production.",
+        "pending_condition": "Permanently discarded from production consideration."
     }
 }
 
@@ -169,7 +185,7 @@ def get_scanner_health_regime_info(scanner_name: Optional[str], current_macro_re
     """
     norm = normalize_scanner_name(scanner_name)
     current_regime = (current_macro_regime or get_current_macro_regime()).strip().upper()
-    last_evidence_release = "TEMPORAL_REPLICATION_2026-09-26"
+    last_evidence_release = "MULTI_VARIANT_REGIME_REQUALIFICATION_2026-09-26"
     last_study_date = "2026-09-26"
     version_identity = "v6.0-prod"
 
@@ -178,57 +194,46 @@ def get_scanner_health_regime_info(scanner_name: Optional[str], current_macro_re
         supported = info["supported_regime"]
         warning = info.get("warning")
         warnings = list(info.get("evidence_warnings", []))
+        lifecycle = info.get("lifecycle_state", "DECOMMISSIONED")
+        selected_variant = info.get("selected_variant", "NONE")
+        cert_status = info.get("certification_status", "UNKNOWN")
         
-        # Build exact user-specified plain-language display messages
+        # Build exact plain-language display messages and reason codes
         if norm == "TECHNICAL":
             if current_regime == "BULL":
-                display_msg = "Evidence-supported regime: BULL. Current production authorization: LOCK REVIEW PENDING. No live alert unless production governance is unlocked."
+                display_msg = "Certified for production in BULL. Current regime=BULL. Current production authorization: LOCK REVIEW PENDING."
                 suppression_reason = "No live alert unless production governance is unlocked."
+                reason_code = "AUTH_PENDING_ADMIN_UNLOCK"
             else:
-                display_msg = f"Suppressed: TECHNICAL evidence supports BULL only; current regime is {current_regime}."
+                display_msg = f"Suppressed: selected variant is certified only in BULL; current regime={current_regime}."
                 suppression_reason = display_msg
-        elif norm == "ACCUMULATION":
-            if current_regime == "BEAR":
-                display_msg = "Evidence-supported regime: BEAR. Q1 seasonal weakness noted. Production authorization remains subject to final certification."
-                suppression_reason = "Production authorization remains subject to final certification."
-            else:
-                display_msg = f"Suppressed: ACCUMULATION evidence supports BEAR only; current regime is {current_regime}."
-                suppression_reason = display_msg
-        elif norm == "PULLBACK":
-            if current_regime == "SIDEWAYS":
-                display_msg = "Evidence-supported regime: SIDEWAYS. Production lock is not authorized because of recent 2025–26 edge compression."
-                suppression_reason = display_msg
-            else:
-                display_msg = "Suppressed: PULLBACK evidence supports SIDEWAYS only."
-                suppression_reason = display_msg
-        elif norm == "EOD":
-            display_msg = "Suppressed: EOD remains underpowered/under certification; no live production alerts."
+                reason_code = f"REGIME_MISMATCH_{current_regime}_VS_BULL"
+        elif norm in ("ACCUMULATION", "PULLBACK", "EOD"):
+            display_msg = "No tested variant passed all certification gates; scanner remains out of production."
             suppression_reason = display_msg
+            reason_code = "DISCARDED_ZERO_QUALIFYING_VARIANTS"
         else:
             display_msg = info.get("suppression_reason", "")
             suppression_reason = display_msg
-
-        if norm == "TECHNICAL":
-            reason_code = "AUTH_PENDING_ADMIN_UNLOCK" if current_regime == "BULL" else f"REGIME_MISMATCH_{current_regime}_VS_BULL"
-        elif norm == "ACCUMULATION":
-            reason_code = "LOCK_BLOCKED_Q1_SEASONAL_WEAKNESS" if current_regime == "BEAR" else f"REGIME_MISMATCH_{current_regime}_VS_BEAR"
-        elif norm == "PULLBACK":
-            reason_code = "LOCK_BLOCKED_TEMPORAL_DECAY" if current_regime == "SIDEWAYS" else f"REGIME_MISMATCH_{current_regime}_VS_SIDEWAYS"
-        elif norm == "EOD":
-            reason_code = "UNDERPOWERED_UNDER_CERTIFICATION"
-        else:
             reason_code = "UNDER_CERTIFICATION"
 
         return {
             "scanner": norm,
             "scanner_name": norm,
-            "lifecycle_state": "UNDER_CERTIFICATION",
+            "selected_variant": selected_variant,
+            "algorithm_version": version_identity,
+            "evidence_release": last_evidence_release,
             "current_macro_regime": current_regime,
+            "current_regime": current_regime,
             "evidence_supported_regime": supported,
             "supported_regime": supported,
-            "evidence_supported_regimes": info.get("evidence_supported_regimes", [supported]),
+            "evidence_supported_regimes": info.get("evidence_supported_regimes", [supported] if supported != "NONE" else []),
+            "production_authorized_regimes": info.get("production_authorized_regimes", []),
             "production_active_now": "NO",
             "is_production_active": False,
+            "lifecycle": lifecycle,
+            "lifecycle_state": lifecycle,
+            "certification_status": cert_status,
             "production_authorization_state": info["production_authorization_state"],
             "current_production_active_regime": info["current_production_active_regime"],
             "temporal_evidence_status": info["temporal_evidence_status"],
@@ -237,8 +242,10 @@ def get_scanner_health_regime_info(scanner_name: Optional[str], current_macro_re
             "last_study_date": last_study_date,
             "certification_date": last_study_date,
             "evidence_warnings": warnings,
+            "warnings": warnings,
             "warning": warning,
             "version_identity": version_identity,
+            "exact_suppression_reason": suppression_reason,
             "suppression_reason": suppression_reason,
             "reason_code": reason_code,
             "status_message": display_msg,
@@ -252,13 +259,20 @@ def get_scanner_health_regime_info(scanner_name: Optional[str], current_macro_re
         return {
             "scanner": norm,
             "scanner_name": norm,
-            "lifecycle_state": "DECOMMISSIONED",
+            "selected_variant": "NONE",
+            "algorithm_version": version_identity,
+            "evidence_release": last_evidence_release,
             "current_macro_regime": current_regime,
+            "current_regime": current_regime,
             "evidence_supported_regime": "DECOMMISSIONED",
             "supported_regime": "DECOMMISSIONED",
             "evidence_supported_regimes": [],
+            "production_authorized_regimes": [],
             "production_active_now": "NO",
             "is_production_active": False,
+            "lifecycle": "DECOMMISSIONED",
+            "lifecycle_state": "DECOMMISSIONED",
+            "certification_status": "PERMANENTLY_DECOMMISSIONED",
             "production_authorization_state": "PERMANENTLY SILENCED",
             "current_production_active_regime": "None — Decommissioned",
             "temporal_evidence_status": "Decommissioned by governance",
@@ -267,8 +281,10 @@ def get_scanner_health_regime_info(scanner_name: Optional[str], current_macro_re
             "last_study_date": last_study_date,
             "certification_date": last_study_date,
             "evidence_warnings": ["Decommissioned permanently"],
+            "warnings": ["Decommissioned permanently"],
             "warning": "Decommissioned permanently",
             "version_identity": version_identity,
+            "exact_suppression_reason": disp,
             "suppression_reason": disp,
             "reason_code": "PERMANENTLY_DECOMMISSIONED",
             "status_message": disp,

@@ -1,0 +1,68 @@
+{
+  "ACCUMULATION": {
+    "ACC-V01-BASE": {
+      "name": "Base VCP Contraction",
+      "description": "Baseline VCP Tightness (<= 3.0 ATR), Volume Contraction, Pivot Breakout",
+      "filter_desc": "Historical baseline VCP"
+    },
+    "ACC-V02-VOL-SURGE": {
+      "name": "Volume Surge Confirmed",
+      "description": "Base VCP + Volume Surge >= 1.75x 20d Volume SMA + CLV >= 0.50",
+      "filter_desc": "V_signal >= 1.75 * Vol_SMA20 and CLV >= 0.50"
+    },
+    "ACC-V03-TREND-STRENGTH": {
+      "name": "Macro Trend Aligned",
+      "description": "Base VCP + Close > SMA50 > SMA200 (Macro Bullish Alignment)",
+      "filter_desc": "Close > SMA50 and SMA50 > SMA200"
+    },
+    "ACC-V04-VOLATILITY-ADAPTIVE": {
+      "name": "Strict Volatility Squeeze",
+      "description": "Base VCP + ATR14/Close <= 0.025 + Volume Dry-Up (V_signal < Vol_SMA20)",
+      "filter_desc": "ATR14/Close <= 0.025 and V_signal < Vol_SMA20"
+    }
+  },
+  "PULLBACK": {
+    "PB-V01-BASE": {
+      "name": "Base Continuation",
+      "description": "Base Pullback into 20 EMA corridor + Volume dry-up (Historical baseline)",
+      "filter_desc": "Historical baseline continuation"
+    },
+    "PB-V02-DEEP-SUPPORT": {
+      "name": "Confluence Support Bounce",
+      "description": "Pullback within 1.0 ATR of SMA50 + Lower Shadow >= 30% range",
+      "filter_desc": "abs(Low - SMA50) <= ATR14 and Lower_Wick >= 0.30"
+    },
+    "PB-V03-RSI-OVERSOLD": {
+      "name": "Momentum Dip-Buyer",
+      "description": "Base Pullback + 14-day RSI in 40-52 corridor at signal bar",
+      "filter_desc": "40.0 <= RSI14 <= 52.0"
+    },
+    "PB-V04-STRUCTURAL-PIVOT": {
+      "name": "Prior Resistance Reclaim",
+      "description": "Base Pullback + Close > SMA200 + Volume Dry-up < 0.65x 20d SMA",
+      "filter_desc": "Close > SMA200 and V_signal < 0.65 * Vol_SMA20"
+    }
+  },
+  "EOD": {
+    "EOD-V01-BASE": {
+      "name": "Base 20D Breakout",
+      "description": "Base 20-day high breakout + Volume Surge (Historical baseline)",
+      "filter_desc": "Historical baseline 20D breakout"
+    },
+    "EOD-V02-52W-MOMENTUM": {
+      "name": "52-Week High Proximity",
+      "description": "Base EOD + Close >= 0.95x 52-Week High",
+      "filter_desc": "Close >= 0.95 * High52W"
+    },
+    "EOD-V03-COMPRESSION-EXPANSION": {
+      "name": "Volatility Squeeze Breakout",
+      "description": "Base EOD + 5-day ATR / 20-day ATR <= 0.80 pre-breakout",
+      "filter_desc": "ATR5 / ATR20 <= 0.80"
+    },
+    "EOD-V04-MOMENTUM-CORRIDOR": {
+      "name": "RSI Corridor & CLV",
+      "description": "Base EOD + RSI in 60-75 sweet spot + CLV >= 0.60",
+      "filter_desc": "60.0 <= RSI14 <= 75.0 and CLV >= 0.60"
+    }
+  }
+}

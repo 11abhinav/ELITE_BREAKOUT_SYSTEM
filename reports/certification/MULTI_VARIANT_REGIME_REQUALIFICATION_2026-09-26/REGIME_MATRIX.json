@@ -1,0 +1,68 @@
+{
+  "ACCUMULATION": {
+    "ACC-V01-BASE": {
+      "BULL": "FAIL",
+      "SIDEWAYS": "FAIL",
+      "BEAR": "FAIL"
+    },
+    "ACC-V02-VOL-SURGE": {
+      "BULL": "FAIL",
+      "SIDEWAYS": "FAIL",
+      "BEAR": "FAIL"
+    },
+    "ACC-V03-TREND-STRENGTH": {
+      "BULL": "FAIL",
+      "SIDEWAYS": "FAIL",
+      "BEAR": "FAIL"
+    },
+    "ACC-V04-VOLATILITY-ADAPTIVE": {
+      "BULL": "FAIL",
+      "SIDEWAYS": "FAIL",
+      "BEAR": "FAIL"
+    }
+  },
+  "PULLBACK": {
+    "PB-V01-BASE": {
+      "BULL": "FAIL",
+      "SIDEWAYS": "FAIL",
+      "BEAR": "FAIL"
+    },
+    "PB-V02-DEEP-SUPPORT": {
+      "BULL": "FAIL",
+      "SIDEWAYS": "FAIL",
+      "BEAR": "FAIL"
+    },
+    "PB-V03-RSI-OVERSOLD": {
+      "BULL": "FAIL",
+      "SIDEWAYS": "FAIL",
+      "BEAR": "FAIL"
+    },
+    "PB-V04-STRUCTURAL-PIVOT": {
+      "BULL": "FAIL",
+      "SIDEWAYS": "FAIL",
+      "BEAR": "FAIL"
+    }
+  },
+  "EOD": {
+    "EOD-V01-BASE": {
+      "BULL": "FAIL",
+      "SIDEWAYS": "FAIL",
+      "BEAR": "FAIL"
+    },
+    "EOD-V02-52W-MOMENTUM": {
+      "BULL": "FAIL",
+      "SIDEWAYS": "FAIL",
+      "BEAR": "FAIL"
+    },
+    "EOD-V03-COMPRESSION-EXPANSION": {
+      "BULL": "FAIL",
+      "SIDEWAYS": "FAIL",
+      "BEAR": "FAIL"
+    },
+    "EOD-V04-MOMENTUM-CORRIDOR": {
+      "BULL": "FAIL",
+      "SIDEWAYS": "FAIL",
+      "BEAR": "FAIL"
+    }
+  }
+}

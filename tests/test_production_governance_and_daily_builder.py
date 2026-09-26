@@ -48,15 +48,15 @@ def test_governance_states_and_decommission_invariants():
         "TECHNICAL_INTRADAY",
         "REVERSAL"
     ]
-    for s in decommissioned_families:
+    for s in decommissioned_families + ["EOD", "PULLBACK", "ACCUMULATION"]:
         assert get_scanner_governance_state(s) == "DECOMMISSIONED"
         is_allowed, reason = check_production_alert_permission(s, "BULL")
         assert not is_allowed
         assert "DECOMMISSIONED" in reason
 
-    # EOD is strictly UNDER_CERTIFICATION (zero alerts)
-    assert get_scanner_governance_state("EOD") == "UNDER_CERTIFICATION"
-    is_allowed, reason = check_production_alert_permission("EOD", "BULL")
+    # TECHNICAL is strictly UNDER_CERTIFICATION (zero alerts pending administrative lock)
+    assert get_scanner_governance_state("TECHNICAL") == "UNDER_CERTIFICATION"
+    is_allowed, reason = check_production_alert_permission("TECHNICAL", "BULL")
     assert not is_allowed
     assert "UNDER_CERTIFICATION" in reason
 
@@ -66,29 +66,19 @@ def test_governance_states_and_decommission_invariants():
 
 
 def test_three_regime_routing_matrix():
-    """Verify all candidate scanners remain in UNDER_CERTIFICATION with ZERO alerts permitted pending lock."""
-    # 1. TECHNICAL: Under certification across all regimes (zero alerts)
+    """Verify TECHNICAL remains in UNDER_CERTIFICATION and discarded scanners remain DECOMMISSIONED."""
+    # 1. TECHNICAL: Under certification in BULL, not certified in SIDEWAYS/BEAR (zero live alerts)
     assert check_production_alert_permission("TECHNICAL", "BULL")[0] is False
     assert "UNDER_CERTIFICATION" in check_production_alert_permission("TECHNICAL", "BULL")[1]
     assert check_production_alert_permission("TECHNICAL", "SIDEWAYS")[0] is False
     assert check_production_alert_permission("TECHNICAL", "BEAR")[0] is False
 
-    # 2. PULLBACK: Under certification across all regimes (zero alerts)
-    assert check_production_alert_permission("PULLBACK", "SIDEWAYS")[0] is False
-    assert "UNDER_CERTIFICATION" in check_production_alert_permission("PULLBACK", "SIDEWAYS")[1]
-    assert check_production_alert_permission("PULLBACK", "BULL")[0] is False
-    assert check_production_alert_permission("PULLBACK", "BEAR")[0] is False
-
-    # 3. ACCUMULATION: Under certification across all regimes (zero alerts)
-    assert check_production_alert_permission("ACCUMULATION", "BEAR")[0] is False
-    assert "UNDER_CERTIFICATION" in check_production_alert_permission("ACCUMULATION", "BEAR")[1]
-    assert check_production_alert_permission("ACCUMULATION", "BULL")[0] is False
-    assert check_production_alert_permission("ACCUMULATION", "SIDEWAYS")[0] is False
-
-    # 4. EOD: Under certification across all regimes
-    assert check_production_alert_permission("EOD", "BULL")[0] is False
-    assert check_production_alert_permission("EOD", "SIDEWAYS")[0] is False
-    assert check_production_alert_permission("EOD", "BEAR")[0] is False
+    # 2. PULLBACK, ACCUMULATION, EOD: Decommissioned across all regimes (zero alerts)
+    for sc in ["PULLBACK", "ACCUMULATION", "EOD"]:
+        for reg in ["BULL", "SIDEWAYS", "BEAR"]:
+            is_perm, reason = check_production_alert_permission(sc, reg)
+            assert is_perm is False
+            assert "DECOMMISSIONED" in reason
 
 
 def test_production_safety_assertions():
@@ -107,39 +97,27 @@ def test_database_governance_gate():
     """Test that app/database.py save_alert_if_new gate blocks unauthorized alerts."""
     from app.database import save_alert_if_new
 
-    # 1. Decommissioned scanner attempt
+    # 1. Decommissioned scanner attempt (SHORT_COVERING, EOD, PULLBACK)
+    for sc in ["SHORT_COVERING", "EOD", "PULLBACK"]:
+        inserted, reason, alloc, shares = save_alert_if_new(
+            symbol="TESTSYM",
+            breakout_type="BREAKOUT",
+            alert_time="2026-09-26 10:00:00",
+            scanner=sc,
+            bayesian_regime="BULL",
+            entry_price=100.0,
+            stop_loss=95.0
+        )
+        assert inserted is False
+        assert "DECOMMISSIONED" in reason
+
+    # 2. Under certification scanner attempt (TECHNICAL)
     inserted, reason, alloc, shares = save_alert_if_new(
         symbol="TESTSYM",
         breakout_type="BREAKOUT",
         alert_time="2026-09-26 10:00:00",
-        scanner="SHORT_COVERING",
+        scanner="TECHNICAL",
         bayesian_regime="BULL",
-        entry_price=100.0,
-        stop_loss=95.0
-    )
-    assert inserted is False
-    assert "DECOMMISSIONED" in reason
-
-    # 2. Under certification scanner attempt (EOD)
-    inserted, reason, alloc, shares = save_alert_if_new(
-        symbol="TESTSYM",
-        breakout_type="BREAKOUT",
-        alert_time="2026-09-26 10:00:00",
-        scanner="EOD",
-        bayesian_regime="BULL",
-        entry_price=100.0,
-        stop_loss=95.0
-    )
-    assert inserted is False
-    assert "UNDER_CERTIFICATION" in reason
-
-    # 3. Under certification scanner attempt (PULLBACK in SIDEWAYS)
-    inserted, reason, alloc, shares = save_alert_if_new(
-        symbol="TESTSYM",
-        breakout_type="PULLBACK_EMA",
-        alert_time="2026-09-26 10:00:00",
-        scanner="PULLBACK",
-        bayesian_regime="SIDEWAYS",
         entry_price=100.0,
         stop_loss=95.0
     )

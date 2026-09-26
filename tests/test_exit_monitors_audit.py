@@ -728,7 +728,11 @@ class TestExitMonitorsAndCalendar(unittest.TestCase):
             "alert_time": "2026-09-07 17:51:00",
             "exit_history": "[]"
         }
-        process_trade_history(trade_live, hist=None, cur_p=310.90, is_recalculate=False)
+        from unittest.mock import patch
+        mock_now = IST.localize(datetime(2026, 9, 25, 16, 0, 0))
+        with patch("trading_calendar.default_trading_calendar.is_trading_day", return_value=True), \
+             patch("performance_tracker._get_current_ist_now", return_value=mock_now):
+            process_trade_history(trade_live, hist=None, cur_p=310.90, is_recalculate=False)
         self.assertEqual(trade_live["status"], "LOSS", "Live cur_p 310.90 < SL 334.51 must close position as LOSS")
         self.assertIn(trade_live["exit_signal"], ("STOP_LOSS", "GAP_LOSS"))
         self.assertTrue(trade_live["exit_price"] <= 334.51)

@@ -1,0 +1,578 @@
+{
+  "ACC-V01-BASE \u00d7 BULL": {
+    "n_holdout": 513,
+    "holdout_mean_r": -0.14561812865497076,
+    "holdout_ci_95": [
+      -0.23071967836257312,
+      -0.05939980019493178
+    ],
+    "holdout_delta_ci_95": [
+      -0.019777729044834307,
+      0.08631041423001946
+    ],
+    "holdout_perm_p": 1.0,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "ACC-V01-BASE \u00d7 SIDEWAYS": {
+    "n_holdout": 939,
+    "holdout_mean_r": -0.012048881789137392,
+    "holdout_ci_95": [
+      -0.07993154153354633,
+      0.060003043130990405
+    ],
+    "holdout_delta_ci_95": [
+      0.05215195686900958,
+      0.14124519435569755
+    ],
+    "holdout_perm_p": 1.0,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "ACC-V01-BASE \u00d7 BEAR": {
+    "n_holdout": 446,
+    "holdout_mean_r": 0.21034237668161437,
+    "holdout_ci_95": [
+      0.11663754484304933,
+      0.3060293553811659
+    ],
+    "holdout_delta_ci_95": [
+      -0.010983189461883406,
+      0.13452640134529145
+    ],
+    "holdout_perm_p": 0.0005,
+    "bonferroni_passed": true,
+    "bh_fdr_passed": true,
+    "verdict": "FAIL"
+  },
+  "ACC-V02-VOL-SURGE \u00d7 BULL": {
+    "n_holdout": 25,
+    "holdout_mean_r": 0.03846000000000002,
+    "holdout_ci_95": [
+      -0.426351,
+      0.5105814999999997
+    ],
+    "holdout_delta_ci_95": [
+      -0.016964,
+      0.42962519999999965
+    ],
+    "holdout_perm_p": 0.4325,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "ACC-V02-VOL-SURGE \u00d7 SIDEWAYS": {
+    "n_holdout": 40,
+    "holdout_mean_r": 0.005362499999999981,
+    "holdout_ci_95": [
+      -0.336135125,
+      0.33784793749999986
+    ],
+    "holdout_delta_ci_95": [
+      -0.23457118750000003,
+      0.1814896249999999
+    ],
+    "holdout_perm_p": 0.4725,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "ACC-V02-VOL-SURGE \u00d7 BEAR": {
+    "n_holdout": 19,
+    "holdout_mean_r": 0.14169999999999996,
+    "holdout_ci_95": [
+      -0.3328142105263158,
+      0.6268139473684208
+    ],
+    "holdout_delta_ci_95": [
+      -0.0321775,
+      0.8037326315789465
+    ],
+    "holdout_perm_p": 0.2935,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "ACC-V03-TREND-STRENGTH \u00d7 BULL": {
+    "n_holdout": 256,
+    "holdout_mean_r": -0.030346093749999983,
+    "holdout_ci_95": [
+      -0.156748798828125,
+      0.09708704101562493
+    ],
+    "holdout_delta_ci_95": [
+      -0.06676480468749998,
+      0.073176474609375
+    ],
+    "holdout_perm_p": 1.0,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "ACC-V03-TREND-STRENGTH \u00d7 SIDEWAYS": {
+    "n_holdout": 489,
+    "holdout_mean_r": 0.10175521472392636,
+    "holdout_ci_95": [
+      0.008208650306748468,
+      0.19581811860940695
+    ],
+    "holdout_delta_ci_95": [
+      0.02088235685071575,
+      0.16236419222903886
+    ],
+    "holdout_perm_p": 0.0155,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "ACC-V03-TREND-STRENGTH \u00d7 BEAR": {
+    "n_holdout": 245,
+    "holdout_mean_r": 0.1748257142857143,
+    "holdout_ci_95": [
+      0.04254438775510204,
+      0.30424105102040777
+    ],
+    "holdout_delta_ci_95": [
+      0.06852224489795919,
+      0.26947507142857136
+    ],
+    "holdout_perm_p": 0.005,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": true,
+    "verdict": "FAIL"
+  },
+  "ACC-V04-VOLATILITY-ADAPTIVE \u00d7 BULL": {
+    "n_holdout": 135,
+    "holdout_mean_r": -0.1771859259259259,
+    "holdout_ci_95": [
+      -0.33991266666666664,
+      -0.004400388888888903
+    ],
+    "holdout_delta_ci_95": [
+      -0.022521703703703697,
+      0.1884072592592592
+    ],
+    "holdout_perm_p": 1.0,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "ACC-V04-VOLATILITY-ADAPTIVE \u00d7 SIDEWAYS": {
+    "n_holdout": 289,
+    "holdout_mean_r": -0.026139446366782,
+    "holdout_ci_95": [
+      -0.1426394982698962,
+      0.09586222318339077
+    ],
+    "holdout_delta_ci_95": [
+      0.05140203287197231,
+      0.22689762110726638
+    ],
+    "holdout_perm_p": 1.0,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "ACC-V04-VOLATILITY-ADAPTIVE \u00d7 BEAR": {
+    "n_holdout": 136,
+    "holdout_mean_r": 0.09651838235294116,
+    "holdout_ci_95": [
+      -0.07683117647058824,
+      0.2804897977941176
+    ],
+    "holdout_delta_ci_95": [
+      -0.016409926470588233,
+      0.24145150735294105
+    ],
+    "holdout_perm_p": 0.15,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "PB-V01-BASE \u00d7 BULL": {
+    "n_holdout": 1042,
+    "holdout_mean_r": 0.012523128598848358,
+    "holdout_ci_95": [
+      -0.04861365163147793,
+      0.0772797360844529
+    ],
+    "holdout_delta_ci_95": [
+      -0.007830302303262957,
+      0.05924062140115162
+    ],
+    "holdout_perm_p": 0.355,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "PB-V01-BASE \u00d7 SIDEWAYS": {
+    "n_holdout": 2545,
+    "holdout_mean_r": 0.09677952848722986,
+    "holdout_ci_95": [
+      0.057771797642436146,
+      0.13610555893909626
+    ],
+    "holdout_delta_ci_95": [
+      0.03351114341846758,
+      0.07612619646365422
+    ],
+    "holdout_perm_p": 0.0005,
+    "bonferroni_passed": true,
+    "bh_fdr_passed": true,
+    "verdict": "FAIL"
+  },
+  "PB-V01-BASE \u00d7 BEAR": {
+    "n_holdout": 1558,
+    "holdout_mean_r": 0.03284107830551988,
+    "holdout_ci_95": [
+      -0.015275292041078303,
+      0.08284278080872913
+    ],
+    "holdout_delta_ci_95": [
+      0.034410661103979466,
+      0.09578699454428755
+    ],
+    "holdout_perm_p": 0.1015,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "PB-V02-DEEP-SUPPORT \u00d7 BULL": {
+    "n_holdout": 368,
+    "holdout_mean_r": 0.04705353260869567,
+    "holdout_ci_95": [
+      -0.0539486820652174,
+      0.1470964266304348
+    ],
+    "holdout_delta_ci_95": [
+      -0.03995993885869567,
+      0.07130969429347822
+    ],
+    "holdout_perm_p": 0.1745,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "PB-V02-DEEP-SUPPORT \u00d7 SIDEWAYS": {
+    "n_holdout": 877,
+    "holdout_mean_r": 0.09466602052451539,
+    "holdout_ci_95": [
+      0.027153976624857475,
+      0.1631252736602052
+    ],
+    "holdout_delta_ci_95": [
+      0.01870921892816419,
+      0.09208446123147086
+    ],
+    "holdout_perm_p": 0.0025,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": true,
+    "verdict": "FAIL"
+  },
+  "PB-V02-DEEP-SUPPORT \u00d7 BEAR": {
+    "n_holdout": 552,
+    "holdout_mean_r": 0.06442282608695653,
+    "holdout_ci_95": [
+      -0.016366136775362316,
+      0.14219418025362315
+    ],
+    "holdout_delta_ci_95": [
+      0.006744270833333332,
+      0.11309118659420289
+    ],
+    "holdout_perm_p": 0.0635,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "PB-V03-RSI-OVERSOLD \u00d7 BULL": {
+    "n_holdout": 422,
+    "holdout_mean_r": 0.025498815165876786,
+    "holdout_ci_95": [
+      -0.06876619668246446,
+      0.12641832345971557
+    ],
+    "holdout_delta_ci_95": [
+      -0.04820594786729857,
+      0.06019234597156394
+    ],
+    "holdout_perm_p": 0.307,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "PB-V03-RSI-OVERSOLD \u00d7 SIDEWAYS": {
+    "n_holdout": 934,
+    "holdout_mean_r": 0.10544036402569594,
+    "holdout_ci_95": [
+      0.04499249197002141,
+      0.17141700481798708
+    ],
+    "holdout_delta_ci_95": [
+      0.0010076793361884372,
+      0.07016013650963591
+    ],
+    "holdout_perm_p": 0.001,
+    "bonferroni_passed": true,
+    "bh_fdr_passed": true,
+    "verdict": "FAIL"
+  },
+  "PB-V03-RSI-OVERSOLD \u00d7 BEAR": {
+    "n_holdout": 591,
+    "holdout_mean_r": 0.03664568527918783,
+    "holdout_ci_95": [
+      -0.04581236886632826,
+      0.12113626480541455
+    ],
+    "holdout_delta_ci_95": [
+      -0.04663670473773266,
+      0.04043539763113363
+    ],
+    "holdout_perm_p": 0.1855,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "PB-V04-STRUCTURAL-PIVOT \u00d7 BULL": {
+    "n_holdout": 624,
+    "holdout_mean_r": 0.07069599358974357,
+    "holdout_ci_95": [
+      -0.010838854166666665,
+      0.15267529246794867
+    ],
+    "holdout_delta_ci_95": [
+      -0.015555236378205129,
+      0.0710416346153846
+    ],
+    "holdout_perm_p": 0.0415,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "PB-V04-STRUCTURAL-PIVOT \u00d7 SIDEWAYS": {
+    "n_holdout": 1535,
+    "holdout_mean_r": 0.07951830618892508,
+    "holdout_ci_95": [
+      0.03159627361563518,
+      0.1287261302931596
+    ],
+    "holdout_delta_ci_95": [
+      0.01805803094462541,
+      0.07183902605863192
+    ],
+    "holdout_perm_p": 0.0005,
+    "bonferroni_passed": true,
+    "bh_fdr_passed": true,
+    "verdict": "FAIL"
+  },
+  "PB-V04-STRUCTURAL-PIVOT \u00d7 BEAR": {
+    "n_holdout": 825,
+    "holdout_mean_r": 0.02009636363636364,
+    "holdout_ci_95": [
+      -0.04763286363636363,
+      0.08719758181818178
+    ],
+    "holdout_delta_ci_95": [
+      0.03420734545454546,
+      0.1226524212121212
+    ],
+    "holdout_perm_p": 0.2725,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "EOD-V01-BASE \u00d7 BULL": {
+    "n_holdout": 61,
+    "holdout_mean_r": 0.020327868852458998,
+    "holdout_ci_95": [
+      -0.25983643442622956,
+      0.30115618852459014
+    ],
+    "holdout_delta_ci_95": [
+      -0.016236147540983598,
+      0.31843413934426207
+    ],
+    "holdout_perm_p": 0.4375,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "EOD-V01-BASE \u00d7 SIDEWAYS": {
+    "n_holdout": 108,
+    "holdout_mean_r": -0.021309259259259278,
+    "holdout_ci_95": [
+      -0.226695625,
+      0.18563356481481466
+    ],
+    "holdout_delta_ci_95": [
+      -0.07711356481481481,
+      0.16391689814814808
+    ],
+    "holdout_perm_p": 1.0,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "EOD-V01-BASE \u00d7 BEAR": {
+    "n_holdout": 53,
+    "holdout_mean_r": 0.1251358490566038,
+    "holdout_ci_95": [
+      -0.1655389150943396,
+      0.4082236792452829
+    ],
+    "holdout_delta_ci_95": [
+      -0.2139654716981132,
+      0.1454515566037735
+    ],
+    "holdout_perm_p": 0.216,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "EOD-V02-52W-MOMENTUM \u00d7 BULL": {
+    "n_holdout": 15,
+    "holdout_mean_r": 0.13744000000000003,
+    "holdout_ci_95": [
+      -0.4402875,
+      0.6827443333333331
+    ],
+    "holdout_delta_ci_95": [
+      -0.23163933333333334,
+      0.37001399999999995
+    ],
+    "holdout_perm_p": 0.312,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "EOD-V02-52W-MOMENTUM \u00d7 SIDEWAYS": {
+    "n_holdout": 24,
+    "holdout_mean_r": 0.14855000000000002,
+    "holdout_ci_95": [
+      -0.29634083333333333,
+      0.6083548958333332
+    ],
+    "holdout_delta_ci_95": [
+      -0.19541,
+      0.5113701041666664
+    ],
+    "holdout_perm_p": 0.257,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "EOD-V02-52W-MOMENTUM \u00d7 BEAR": {
+    "n_holdout": 17,
+    "holdout_mean_r": 0.23118235294117645,
+    "holdout_ci_95": [
+      -0.2949757352941176,
+      0.7507185294117636
+    ],
+    "holdout_delta_ci_95": [
+      -0.4388370588235294,
+      -0.06440955882352944
+    ],
+    "holdout_perm_p": 0.2025,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "EOD-V03-COMPRESSION-EXPANSION \u00d7 BULL": {
+    "n_holdout": 8,
+    "holdout_mean_r": 0.10146250000000001,
+    "holdout_ci_95": [
+      -0.7167999999999999,
+      0.8368271874999922
+    ],
+    "holdout_delta_ci_95": [
+      -0.3095,
+      0.6006750000000001
+    ],
+    "holdout_perm_p": 0.3995,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "EOD-V03-COMPRESSION-EXPANSION \u00d7 SIDEWAYS": {
+    "n_holdout": 12,
+    "holdout_mean_r": -0.16064166666666657,
+    "holdout_ci_95": [
+      -0.7226314583333333,
+      0.44928645833333236
+    ],
+    "holdout_delta_ci_95": [
+      -0.43893312500000004,
+      0.3761666666666666
+    ],
+    "holdout_perm_p": 1.0,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "EOD-V03-COMPRESSION-EXPANSION \u00d7 BEAR": {
+    "n_holdout": 3,
+    "holdout_mean_r": -0.3500999999999999,
+    "holdout_ci_95": [
+      -1.0191,
+      0.9814000000000002
+    ],
+    "holdout_delta_ci_95": [
+      0.0,
+      0.0
+    ],
+    "holdout_perm_p": 1.0,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "EOD-V04-MOMENTUM-CORRIDOR \u00d7 BULL": {
+    "n_holdout": 9,
+    "holdout_mean_r": 0.16677777777777775,
+    "holdout_ci_95": [
+      -0.5511466666666667,
+      0.8831888888888888
+    ],
+    "holdout_delta_ci_95": [
+      -0.16716305555555558,
+      0.4475333333333332
+    ],
+    "holdout_perm_p": 0.3145,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "EOD-V04-MOMENTUM-CORRIDOR \u00d7 SIDEWAYS": {
+    "n_holdout": 31,
+    "holdout_mean_r": -0.16473548387096773,
+    "holdout_ci_95": [
+      -0.5353721774193548,
+      0.21294814516129026
+    ],
+    "holdout_delta_ci_95": [
+      -0.27273653225806455,
+      0.21988419354838698
+    ],
+    "holdout_perm_p": 1.0,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  },
+  "EOD-V04-MOMENTUM-CORRIDOR \u00d7 BEAR": {
+    "n_holdout": 16,
+    "holdout_mean_r": -0.17436875000000004,
+    "holdout_ci_95": [
+      -0.6177129687499999,
+      0.2873807812499999
+    ],
+    "holdout_delta_ci_95": [
+      -0.28732671875000004,
+      0.30290624999999993
+    ],
+    "holdout_perm_p": 1.0,
+    "bonferroni_passed": false,
+    "bh_fdr_passed": false,
+    "verdict": "FAIL"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "provider": "Upstox",
+  "api": "Upstox Historical V2 API",
+  "exchange": "NSE (National Stock Exchange of India)",
+  "instrument_resolution": "Cash Equities (EQ)",
+  "timeframe": "1D",
+  "dataset_path": "data/history/1d",
+  "total_symbols": 931,
+  "date_range": "2016-01-01 to 2026-09-26",
+  "native_fields": [
+    "Date",
+    "Open",
+    "High",
+    "Low",
+    "Close",
+    "Volume",
+    "OI"
+  ],
+  "synthetic_data": false,
+  "fallback_providers": [],
+  "provenance_status": "CERTIFIED"
+}

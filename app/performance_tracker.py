@@ -52,6 +52,9 @@ from corporate_actions import adjust_trade_for_corporate_actions
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
+def _get_current_ist_now() -> datetime:
+    return datetime.now(IST)
+
 try:
     from config import DATA_DIR
 except ImportError:
@@ -346,7 +349,6 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
     from corporate_actions import adjust_trade_for_corporate_actions
     from trading_calendar import default_trading_calendar, enforce_trading_day_candles, is_valid_market_session_timestamp
     import json
-    from datetime import datetime
     import pandas as pd
 
     # Adjust trade for stock splits / bonus issues prior to evaluating exits
@@ -524,7 +526,7 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
             ticks.append((ts_str, float(row["Open"]), float(row["Low"]), float(row["High"]), close_p, vol))
 
     if cur_p and cur_p > 0:
-        now_dt = datetime.now(IST)
+        now_dt = _get_current_ist_now()
         now_time = now_dt.time()
         # [BUG FIX: MIDNIGHT_TICK_GUARD] Only inject live price during active market hours or as session close post-market
         if default_trading_calendar.is_trading_day(now_dt.date()):

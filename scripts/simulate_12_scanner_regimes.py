@@ -88,19 +88,22 @@ def run_simulation():
             item = {
                 "scanner": scanner,
                 "current_regime": regime,
+                "selected_variant": info.get("selected_variant", "NONE"),
                 "lifecycle": info["lifecycle_state"],
                 "evidence_regime": info["supported_regime"],
                 "production_authorization": info["production_authorization_state"],
                 "production_active_now": info["production_active_now"],
                 "decision": decision,
                 "reason_code": info["reason_code"],
+                "plain_language_reason": info["display_message"],
                 "plain_language_message": info["display_message"],
+                "db_persistence": persistence,
                 "persistence": persistence,
                 "dispatch": dispatch
             }
             results.append(item)
 
-            print(f"SCANNER: {scanner:<13} | REGIME: {regime:<8} | DECISION: {decision} | PERSIST: {persistence} | DISPATCH: {dispatch}")
+            print(f"SCANNER: {scanner:<13} | REGIME: {regime:<8} | VARIANT: {item['selected_variant']:<14} | DECISION: {decision} | PERSIST: {persistence} | DISPATCH: {dispatch}")
             print(f"  Lifecycle:        {item['lifecycle']}")
             print(f"  Evidence Regime:  {item['evidence_regime']}")
             print(f"  Prod Auth State:  {item['production_authorization']}")
@@ -142,6 +145,13 @@ def run_simulation():
     with open(out_file, "w") as f:
         json.dump(results, f, indent=2)
     print(f"\nSaved simulation results to {out_file}")
+
+    target_dir = os.path.join(BASE_DIR, "reports", "certification", "MULTI_VARIANT_REGIME_REQUALIFICATION_2026-09-26")
+    os.makedirs(target_dir, exist_ok=True)
+    target_out_file = os.path.join(target_dir, "ROUTING_SIMULATION.json")
+    with open(target_out_file, "w") as f:
+        json.dump(results, f, indent=2)
+    print(f"Saved requalification routing simulation to {target_out_file}")
 
     if all_passed:
         print("\nALL 12 SCENARIOS + DECOMMISSIONED SAFETY CHECKS PASSED PERFECTLY (FAIL-CLOSED)")
