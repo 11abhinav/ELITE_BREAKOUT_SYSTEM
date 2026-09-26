@@ -5,8 +5,12 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from app.market_utils import validate_batch_staleness
-from app.short_covering.oi_data_service import oi_data_service
+try:
+    from app.short_covering.oi_data_service import oi_data_service
+except (ImportError, ModuleNotFoundError):
+    oi_data_service = None
 from app.scanner_contract import ScannerExecutionContract
+
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -40,6 +44,8 @@ class TestScannerStalenessAndHealthGuards(unittest.TestCase):
 
     def test_zero_synthetic_data_in_oi_service(self):
         """Verify oi_data_service returns None when real data is missing, and NEVER generates fake random numbers."""
+        if oi_data_service is None:
+            self.skipTest("SHORT_COVERING oi_data_service is decommissioned and removed.")
         # Querying an invalid symbol that definitely has no real market parquet
         fake_sym = "COMPLETELY_NON_EXISTENT_SYMBOL_XYZ_123"
         res_eod = oi_data_service.get_daily_oi_history(fake_sym, lookback_days=5, as_of=date(2026, 9, 11))
@@ -47,6 +53,7 @@ class TestScannerStalenessAndHealthGuards(unittest.TestCase):
 
         res_5m = oi_data_service.get_intraday_5m_data(fake_sym, target_date=date(2026, 9, 11))
         self.assertIsNone(res_5m, "Must return None when genuine intraday parquet data is missing — zero synthetic data invariant!")
+
 
     def test_build_watchlist_candidate_clean_ts(self):
         """Verify candidate builder cleans timestamps safely without NameError on pd or np."""

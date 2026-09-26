@@ -5,7 +5,10 @@
 
 import os
 import unittest
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from unittest.mock import patch, MagicMock
+
 
 from app.gemini_key_manager import (
     get_active_gemini_key,
@@ -20,8 +23,14 @@ from app.gemini_key_manager import (
 class TestGeminiKeyRevalidation(unittest.TestCase):
 
     def setUp(self):
+        import app.gemini_key_manager as gkm
+        gkm._last_preflight_probe_ts = 0.0
+        gkm._active_gemini_key_ram = None
+        gkm._gemini_keys_initialized = True
         with _cache_lock:
             _blacklisted_gemini_keys_ram.clear()
+
+
 
     def test_01_mark_and_unblacklist_gemini_key(self):
         """Verify mark_gemini_key_exhausted and unblacklist_gemini_key state transitions."""
@@ -33,24 +42,24 @@ class TestGeminiKeyRevalidation(unittest.TestCase):
         unblacklist_gemini_key(test_key, "Test recovery")
         self.assertFalse(_is_gemini_key_exhausted(test_key))
 
-    @patch("requests.get")
-    def test_02_revalidate_single_key_live(self, mock_get):
+    @patch("requests.post")
+    def test_02_revalidate_single_key_live(self, mock_post):
         """Verify revalidate_single_key_live returns True on HTTP 200 and False on 429."""
         mock_resp_200 = MagicMock()
         mock_resp_200.status_code = 200
-        mock_get.return_value = mock_resp_200
+        mock_post.return_value = mock_resp_200
 
         self.assertTrue(revalidate_single_key_live("AIzaSyValidKey_123"))
 
         mock_resp_429 = MagicMock()
         mock_resp_429.status_code = 429
-        mock_get.return_value = mock_resp_429
+        mock_post.return_value = mock_resp_429
 
         self.assertFalse(revalidate_single_key_live("AIzaSyExhaustedKey_123"))
 
-    @patch("requests.get")
+    @patch("requests.post")
     @patch.dict(os.environ, {"GEMINI_API_KEY": "AIzaSyKeyA_111,AIzaSyKeyB_222"})
-    def test_03_preflight_probe_auto_recovers_blacklisted_key(self, mock_get):
+    def test_03_preflight_probe_auto_recovers_blacklisted_key(self, mock_post):
         """
         Verify that when all keys are blacklisted in cache, get_active_gemini_key probes Google API live,
         finds the working key (HTTP 200), auto-unblocks it, and returns it.
@@ -58,23 +67,27 @@ class TestGeminiKeyRevalidation(unittest.TestCase):
         key_a = "AIzaSyKeyA_111"
         key_b = "AIzaSyKeyB_222"
 
-        # Mark both keys exhausted
-        mark_gemini_key_exhausted(key_a, "Quota 429")
-        mark_gemini_key_exhausted(key_b, "Quota 429")
+        # Mark both keys exhausted with timestamp > 15 mins ago to allow probe
+        old_time = (datetime.now(ZoneInfo('Asia/Kolkata')) - timedelta(minutes=20)).isoformat()
+        with _cache_lock:
+            _blacklisted_gemini_keys_ram[key_a] = {"exhausted_at": old_time, "expires_at": (datetime.now(ZoneInfo('Asia/Kolkata')) + timedelta(days=1)).isoformat()}
+            _blacklisted_gemini_keys_ram[key_b] = {"exhausted_at": old_time, "expires_at": (datetime.now(ZoneInfo('Asia/Kolkata')) + timedelta(days=1)).isoformat()}
 
         self.assertTrue(_is_gemini_key_exhausted(key_a))
         self.assertTrue(_is_gemini_key_exhausted(key_b))
 
         # Mock: Key A still fails (429), Key B succeeds (200 OK)
-        def mock_fetch(url, headers, timeout):
+        def mock_fetch(*args, **kwargs):
+            url = kwargs.get("url") or (args[0] if args else "")
+            headers = kwargs.get("headers") or (args[1] if len(args) > 1 else {})
             resp = MagicMock()
-            if key_b in url or headers.get("x-goog-api-key") == key_b:
+            if key_b in url or (headers and headers.get("x-goog-api-key") == key_b):
                 resp.status_code = 200
             else:
                 resp.status_code = 429
             return resp
 
-        mock_get.side_effect = mock_fetch
+        mock_post.side_effect = mock_fetch
 
         # Call get_active_gemini_key()
         active_key = get_active_gemini_key()
@@ -84,9 +97,9 @@ class TestGeminiKeyRevalidation(unittest.TestCase):
         self.assertFalse(_is_gemini_key_exhausted(key_b), "Key B must be unblacklisted after live probe success")
         self.assertTrue(_is_gemini_key_exhausted(key_a), "Key A should remain blacklisted")
 
-    @patch("requests.get")
+    @patch("requests.post")
     @patch.dict(os.environ, {"GEMINI_API_KEY": "AIzaSyKeyA_111,AIzaSyKeyB_222"})
-    def test_04_preflight_probe_all_fail_returns_empty(self, mock_get):
+    def test_04_preflight_probe_all_fail_returns_empty(self, mock_post):
         """Verify that if all blacklisted keys genuinely fail the live probe, get_active_gemini_key returns empty string."""
         key_a = "AIzaSyKeyA_111"
         key_b = "AIzaSyKeyB_222"
@@ -96,10 +109,11 @@ class TestGeminiKeyRevalidation(unittest.TestCase):
 
         mock_resp_429 = MagicMock()
         mock_resp_429.status_code = 429
-        mock_get.return_value = mock_resp_429
+        mock_post.return_value = mock_resp_429
 
         active_key = get_active_gemini_key()
         self.assertEqual(active_key, "")
+
 
 
 if __name__ == "__main__":

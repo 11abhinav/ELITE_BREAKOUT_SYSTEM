@@ -15,43 +15,7 @@ import pandas as pd
 from typing import Dict, Any, Optional, Tuple
 
 
-class MultiTfResearchV1:
-    """
-    MULTI_TF_RESEARCH_v1:
-      - Layer 1 (Daily): Close > SMA50 > SMA200 and Daily 20-bar slope > 0 (TREND_UP).
-      - Layer 2 (15m): Supertrend == Green AND 15m Volume >= 1.5x SMA20 (TREND_UP confirmation).
-      - Layer 3 (5m): Bullish breakout of 5m consolidation with exact timestamp synchronization.
-      - Stop: 3.0% Confluence Stop Loss.
-      - Target: 2.0R Target Multiple.
-    """
-    @staticmethod
-    def evaluate(daily_close: float, daily_sma50: float, daily_sma200: float, daily_slope: float,
-                 tf15_supertrend_green: bool, tf15_vol_ratio: float,
-                 tf5_breakout: bool, entry_price: float) -> Dict[str, Any]:
-        # Daily state check
-        daily_trend_up = (daily_close > daily_sma50 > daily_sma200) and (daily_slope > 0)
-        # 15m state confirmation
-        tf15_trend_up = tf15_supertrend_green and (tf15_vol_ratio >= 1.50)
-        # 5m trigger
-        tf5_trigger = tf5_breakout
 
-        is_qualified = daily_trend_up and tf15_trend_up and tf5_trigger
-
-        risk = entry_price * 0.030
-        stop_loss = entry_price - risk
-        target_1 = entry_price + (2.0 * risk)
-
-        return {
-            "qualified": is_qualified,
-            "daily_state": "TREND_UP" if daily_trend_up else "NO_TREND",
-            "tf15_state": "TREND_UP" if tf15_trend_up else "CHOP",
-            "tf5_trigger": tf5_trigger,
-            "entry_price": entry_price,
-            "stop_loss": stop_loss,
-            "target_1": target_1,
-            "risk_pct": 0.030,
-            "target_multiple": 2.0
-        }
 
 
 class ReversalResearchV1:

@@ -117,7 +117,7 @@ class MemoryProfiler:
         
         top_level_keywords = [
             "EOD_SCANNER", "REVERSAL", "WEALTH_ENGINE_INIT", "WEALTH_ENGINE_15M", 
-            "WEALTH_ENGINE_5M", "MULTI_TF_SCANNER", "MULTIBAGGER", "PULLBACK_SCANNER",
+            "WEALTH_ENGINE_5M", "MULTIBAGGER", "PULLBACK_SCANNER",
             "PERFORMANCE_TRACKER", "STARTUP - WATCHLIST"
         ]
         

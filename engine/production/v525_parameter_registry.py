@@ -309,11 +309,11 @@ def seed_v525_candidate_parameters():
             source_commit="HEAD",
             backtest_period="500_DAYS_OOS",
             sample_size=1499,
-            status="BACKTEST_CERTIFIED",
-            rationale="Short Covering sized to 1.50R on false morning breakout trap days (+0.501R, PF 5.72).",
-            win_rate_pct=78.8,
-            net_er=0.501,
-            profit_factor=5.72,
+            status="DECOMMISSIONED_PERMANENTLY",
+            rationale="Permanently decommissioned and silenced: failed edge verification on clean Upstox data.",
+            win_rate_pct=0.0,
+            net_er=0.0,
+            profit_factor=0.0,
             created_by="gemini_v525"
         )
     ]

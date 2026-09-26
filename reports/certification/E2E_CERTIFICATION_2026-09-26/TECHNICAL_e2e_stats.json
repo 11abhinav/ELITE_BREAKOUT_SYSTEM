@@ -1,0 +1,119 @@
+{
+  "scanner": "TECHNICAL",
+  "operating_regime": "OVERALL",
+  "holding_cap": 12,
+  "ledger_sha256": "d56fb796130b70559895d0aabdf88d4f5b0645416f2c48c0cc6e642cfd9793ad",
+  "raw_entries": 20425,
+  "filtered_entries": 20425,
+  "simulated_trades": 20425,
+  "missing_market_data": 0,
+  "stats_full": {
+    "slice": "FULL",
+    "n_trades": 20425,
+    "n_symbols": 842,
+    "arm_a_mean_net_r": 0.131,
+    "arm_a_ci_95": [
+      0.1095,
+      0.1529
+    ],
+    "arm_a_win_rate": 0.4324,
+    "arm_b_mean_net_r": 0.1838,
+    "arm_b_ci_95": [
+      0.1658,
+      0.2024
+    ],
+    "arm_b_win_rate": 0.5453,
+    "mean_paired_delta": 0.0529,
+    "median_paired_delta": 0.0,
+    "paired_delta_ci_95": [
+      0.0421,
+      0.0637
+    ],
+    "permutation_p_value": 0.0001
+  },
+  "stats_insample": {
+    "slice": "IN_SAMPLE (<2025-10-01)",
+    "n_trades": 18391,
+    "n_symbols": 780,
+    "arm_a_mean_net_r": 0.1375,
+    "arm_a_ci_95": [
+      0.1143,
+      0.1604
+    ],
+    "arm_a_win_rate": 0.435,
+    "arm_b_mean_net_r": 0.1925,
+    "arm_b_ci_95": [
+      0.1732,
+      0.212
+    ],
+    "arm_b_win_rate": 0.5487,
+    "mean_paired_delta": 0.0551,
+    "median_paired_delta": 0.0,
+    "paired_delta_ci_95": [
+      0.0438,
+      0.0668
+    ],
+    "permutation_p_value": 0.0001
+  },
+  "stats_holdout": {
+    "slice": "HOLDOUT (>=2025-10-01)",
+    "n_trades": 2034,
+    "n_symbols": 563,
+    "arm_a_mean_net_r": 0.072,
+    "arm_a_ci_95": [
+      0.0071,
+      0.1383
+    ],
+    "arm_a_win_rate": 0.409,
+    "arm_b_mean_net_r": 0.1052,
+    "arm_b_ci_95": [
+      0.0554,
+      0.1549
+    ],
+    "arm_b_win_rate": 0.5143,
+    "mean_paired_delta": 0.0332,
+    "median_paired_delta": 0.0,
+    "paired_delta_ci_95": [
+      -0.0028,
+      0.0683
+    ],
+    "permutation_p_value": 0.0177
+  },
+  "portfolio_metrics": {
+    "annualized_sharpe_proxy": 4.0749,
+    "daily_volatility_r": 0.112,
+    "annualized_volatility_r": 1.7782,
+    "max_drawdown_r": 6.576,
+    "total_trading_days": 1740,
+    "active_days": 1722,
+    "cash_days": 18,
+    "cash_drag_fraction": 0.0103
+  },
+  "conditions": {
+    "condition_a_holdout_arm_b_ci_positive": {
+      "pass": true,
+      "holdout_arm_b_ci_95": [
+        0.0554,
+        0.1549
+      ]
+    },
+    "condition_b_arm_b_beats_arm_a": {
+      "pass": true,
+      "paired_delta_ci_95": [
+        0.0421,
+        0.0637
+      ],
+      "permutation_p_value": 0.0001
+    },
+    "condition_c_causality_integrity": {
+      "pass": true
+    },
+    "condition_d_regime_constraint_enforced": {
+      "pass": true
+    },
+    "condition_e_audit_reproducibility": {
+      "pass": true
+    }
+  },
+  "final_verdict": "CERTIFIED_FOR_PRODUCTION"
+}

@@ -5108,12 +5108,11 @@ function renderStockDiagnosticModal(data) {
   const funnelKeys = [
     { key: 'daily_builder', label: '1. Daily Builder (Universe Entry)', scanner: 'DAILY_BUILDER' },
     { key: 'eod_breakout', label: '2. EOD Breakout Scanner', scanner: 'EOD' },
-    { key: 'multi_tf', label: '3. Multi-TF Intraday Scanner', scanner: 'MULTI_TF' },
-    { key: 'reversal', label: '4. Reversal Oversold Bounce', scanner: 'REVERSAL' },
-    { key: 'pullback', label: '5. Pullback Continuation Pipeline', scanner: 'PULLBACK' },
-    { key: 'accumulation', label: '6. Accumulation Scanner', scanner: 'ACCUMULATION' },
-    { key: 'wealth_engine', label: '7. Wealth Engine', scanner: 'WEALTH' },
-    { key: 'multibagger', label: '8. Multibagger Engine', scanner: 'MULTIBAGGER' }
+    { key: 'reversal', label: '3. Reversal Oversold Bounce', scanner: 'REVERSAL' },
+    { key: 'pullback', label: '4. Pullback Continuation Pipeline', scanner: 'PULLBACK' },
+    { key: 'accumulation', label: '5. Accumulation Scanner', scanner: 'ACCUMULATION' },
+    { key: 'wealth_engine', label: '6. Wealth Engine', scanner: 'WEALTH' },
+    { key: 'multibagger', label: '7. Multibagger Engine', scanner: 'MULTIBAGGER' }
   ];
 
   const funnelRowsHtml = funnelKeys.map(item => {
@@ -5942,7 +5941,7 @@ function openStockForensics(typeOrObj, index) {
   } else if (typeof item.scanner === 'string' && item.scanner.length > 0) {
     participatingScanners = [item.scanner.trim().toUpperCase()];
   } else {
-    participatingScanners = ['EOD', 'MULTI_TF', 'PULLBACK'];
+    participatingScanners = ['EOD', 'PULLBACK'];
   }
 
   // Base pricing
@@ -5954,7 +5953,6 @@ function openStockForensics(typeOrObj, index) {
     const defaultEnginesMeta = {
       'EOD': { title: 'Daily Breakout Engine', tf: 'Daily (Swing)', score: item.score || 88.5, vol: item.volume_ratio || 3.4, rationale: item.why_qualifies || 'Stage 2 Breakout above key 20-day high with institutional volume expansion.', slRule: 'Structural Swing Low' },
       'TECHNICAL': { title: 'Technical Momentum Engine', tf: 'Daily', score: item.score || 87.0, vol: item.volume_ratio || 3.0, rationale: item.why_qualifies || 'High momentum technical setup clearing multi-week resistance.', slRule: 'Structural Support Anchor' },
-      'MULTI_TF': { title: 'Multi-Timeframe Engine', tf: '1H / 15m / 5m', score: item.score || 86.0, vol: item.volume_ratio || 2.8, rationale: item.why_qualifies || 'Multi-Timeframe 5m/15m Box Consolidation Breakout confirmed.', slRule: '1H Structural Support Anchor' },
       'PULLBACK': { title: 'Pullback Continuation', tf: 'Daily (Swing)', score: item.score || 84.0, vol: item.volume_ratio || 2.2, rationale: item.why_qualifies || 'Healthy 20 EMA pullback holding prior breakout resistance as new support.', slRule: 'Pullback Swing Low Anchor' },
       'REVERSAL': { title: 'Reversal Mean-Reversion', tf: 'Daily (Counter-Trend)', score: item.score || 82.5, vol: item.volume_ratio || 2.5, rationale: item.why_qualifies || 'Oversold exhaustion reversal off major confluence support.', slRule: 'Prior Day Low Anchor' },
       'ACCUMULATION': { title: 'Institutional Accumulation', tf: 'Daily / Weekly', score: item.score || 89.0, vol: item.volume_ratio || 3.8, rationale: item.why_qualifies || 'Smart money accumulation with multiple high-volume absorption candles.', slRule: 'Accumulation Base Floor' },

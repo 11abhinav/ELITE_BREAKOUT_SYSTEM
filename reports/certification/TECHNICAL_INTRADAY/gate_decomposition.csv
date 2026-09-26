@@ -1,0 +1,4 @@
+scanner,gate_component,full_mean_R,ablated_mean_R,delta_mean_R,p_value,cohen_d,action_recommendation
+TECHNICAL_INTRADAY,GATE_PATTERN,-0.0973,-0.0925,-0.0048,0.8661,-0.005,DEAD_WEIGHT (Strip)
+TECHNICAL_INTRADAY,GATE_RVOL,-0.0973,-0.0925,-0.0048,0.8699,-0.005,DEAD_WEIGHT (Strip)
+TECHNICAL_INTRADAY,GATE_CLV,-0.0973,-0.0925,-0.0048,0.8618,-0.005,DEAD_WEIGHT (Strip)

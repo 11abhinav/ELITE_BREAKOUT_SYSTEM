@@ -172,8 +172,8 @@ class TradeRankingEngine:
           4. Institutional Footprint
           5. Structural Reward/Risk
         """
-        class_a_tier1 = {"REVERSAL", "PULLBACK", "PULLBACK_V2", "MULTITF_1H", "MULTIBAGGER"}
-        class_a_tier3 = {"SHORT_COVERING"}
+        class_a_tier1 = {"REVERSAL", "PULLBACK", "PULLBACK_V2", "MULTIBAGGER"}
+        class_a_tier3 = set()
         class_b_and_c = {"EOD", "EOD_BREAKOUT", "ACCUMULATION", "ACCUMULATION_VCP", "WEALTH", "WEALTH_ENGINE", "TECHNICAL", "TECHNICAL_AHAT"}
 
         ranked = TradeRankingEngine.rank_candidates(candidates)

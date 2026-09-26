@@ -1,0 +1,22 @@
+{
+  "component": "TECHNICAL_INTRADAY",
+  "wall_clock_sec": 6.14,
+  "pooled_N": 3019,
+  "pooled_mean_R": -0.0973,
+  "pooled_ci_95_low": -0.131,
+  "pooled_ci_95_high": -0.0623,
+  "pooled_gate5_verdict": "DECOMMISSIONED",
+  "wyckoff_spring_N": 424,
+  "wyckoff_spring_win_rate_pct": 42.92,
+  "wyckoff_spring_mean_R": 0.0041,
+  "wyckoff_spring_ci_95_low": -0.0919,
+  "wyckoff_spring_ci_95_high": 0.1,
+  "wyckoff_spring_gate5_verdict": "DECOMMISSIONED",
+  "wyckoff_spring_p_vs_other": 0.014,
+  "wyckoff_spring_cohen_d": 0.1133,
+  "bull_flag_N": 2595,
+  "bull_flag_mean_R": -0.1139,
+  "bull_flag_ci_95_low": -0.1496,
+  "bull_flag_ci_95_high": -0.0769,
+  "bull_flag_gate5_verdict": "DECOMMISSIONED"
+}

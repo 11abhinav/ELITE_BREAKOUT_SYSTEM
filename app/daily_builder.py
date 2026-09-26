@@ -2439,6 +2439,71 @@ def _main_impl(force_rebuild: bool = False, run_ctx=None):
 
         from database import submit_background_upload
         submit_background_upload(_bg_watchlist_db_backup, final_df.copy())
+
+        # =========================================================================
+        # 🚀 DAILY BUILDER 2.0 — MASTER 26-COLUMN TABLE & 8 WATCHLISTS GENERATION
+        # =========================================================================
+        try:
+            logger.info("🧠 [DAILY BUILDER 2.0] Synthesizing Master Stock-Intelligence Layer...")
+            from fundamental_wealth_engine import fundamental_wealth_engine
+            from daily_builder_schema import init_all_v2_schemas
+            from engine.production.governance_registry import get_current_macro_regime
+
+            init_all_v2_schemas()
+            current_macro_regime = get_current_macro_regime()
+
+            master_records = []
+            for _, r in final_df.iterrows():
+                sym = str(r.get("Stock", ""))
+                comp = str(r.get("Company", sym))
+                cmp_price = float(r.get("CMP", r.get("Close", 100.0)) or 100.0)
+
+                fund_data = {
+                    "roe": r.get("ROE %"),
+                    "roce": r.get("ROCE %"),
+                    "debt_equity": r.get("Debt/Equity"),
+                    "pe": r.get("PE Ratio"),
+                    "pb": r.get("Price to Book"),
+                    "peg": r.get("PEG Ratio"),
+                    "revenue_cagr_3y": r.get("YOY Revenue %"),
+                    "eps_cagr_3y": r.get("YOY Profit %"),
+                    "fcf": r.get("FCF Margin %"),
+                    "market_cap": (float(r.get("Market Cap Cr", 100.0) or 100.0)) * 1e7,
+                    "op_margin": r.get("OPM %"),
+                    "net_margin": r.get("YOY Profit %"),
+                    "interest_coverage": 6.0
+                }
+
+                cat_str = str(r.get("Category", ""))
+                tech_source = "NONE"
+                if "Momentum" in cat_str or "Breakout" in cat_str:
+                    tech_source = "TECHNICAL"
+                elif "Pullback" in cat_str:
+                    tech_source = "PULLBACK"
+                elif "Accumulation" in cat_str:
+                    tech_source = "ACCUMULATION"
+
+                tech_data = {
+                    "technical_state": "QUALIFIED_SETUP" if cat_str else "NONE",
+                    "technical_source": tech_source
+                }
+
+                m_rec = fundamental_wealth_engine.build_master_record(
+                    symbol=sym,
+                    company=comp,
+                    macro_regime=current_macro_regime,
+                    cmp=cmp_price,
+                    fund_data=fund_data,
+                    tech_data=tech_data
+                )
+                m_rec["build_date"] = str(datetime.now(IST).date())
+                master_records.append(m_rec)
+
+            out_meta = fundamental_wealth_engine.save_master_builder_outputs(master_records)
+            logger.info(f"✅ [DAILY BUILDER 2.0] Successfully synthesized and saved {len(master_records)} master records.")
+            logger.info(f"   📋 Watchlists: {out_meta.get('watchlists')}")
+        except Exception as e:
+            logger.exception(f"⚠️ [DAILY BUILDER 2.0] Error generating master outputs: {e}")
         
         save_checkpoint({**state, "fundamentals_scored": True})
         try:

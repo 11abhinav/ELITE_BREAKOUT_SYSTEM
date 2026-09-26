@@ -1,0 +1,17 @@
+scanner,category,n_live_alerts,n_closed_alerts,win_rate_pct,avg_pnl_pct,mean_realized_r,ci_95_low,ci_95_high,triage_classification,governance_action
+DAILY_BUILDER,EQUITY,0,0,N/A (< 30 closed),N/A (< 30 closed),N/A (< 30 closed),N/A,N/A,DEFERRED (N < 30),Statistically underpowered in local live sample (N < 30); deferred to Phase 2 historical replay.
+MULTI_TF,EQUITY,0,0,N/A (< 30 closed),N/A (< 30 closed),N/A (< 30 closed),N/A,N/A,DEFERRED (N < 30),Statistically underpowered in local live sample (N < 30); deferred to Phase 2 historical replay.
+MULTI_TF_5M,EQUITY,0,0,N/A (< 30 closed),N/A (< 30 closed),N/A (< 30 closed),N/A,N/A,DEFERRED (N < 30),Statistically underpowered in local live sample (N < 30); deferred to Phase 2 historical replay.
+EOD,EQUITY,5,0,N/A (< 30 closed),N/A (< 30 closed),N/A (< 30 closed),N/A,N/A,DEFERRED (N < 30),Statistically underpowered in local live sample (N < 30); deferred to Phase 2 historical replay.
+REVERSAL,EQUITY,0,0,N/A (< 30 closed),N/A (< 30 closed),N/A (< 30 closed),N/A,N/A,DEFERRED (N < 30),Statistically underpowered in local live sample (N < 30); deferred to Phase 2 historical replay.
+PULLBACK,EQUITY,12,0,N/A (< 30 closed),N/A (< 30 closed),N/A (< 30 closed),N/A,N/A,DEFERRED (N < 30),Statistically underpowered in local live sample (N < 30); deferred to Phase 2 historical replay.
+ACCUMULATION,EQUITY,0,0,N/A (< 30 closed),N/A (< 30 closed),N/A (< 30 closed),N/A,N/A,DEFERRED (N < 30),Statistically underpowered in local live sample (N < 30); deferred to Phase 2 historical replay.
+TECHNICAL,EQUITY,0,0,N/A (< 30 closed),N/A (< 30 closed),N/A (< 30 closed),N/A,N/A,DEFERRED (N < 30),Statistically underpowered in local live sample (N < 30); deferred to Phase 2 historical replay.
+TECHNICAL_INTRADAY,EQUITY,0,0,N/A (< 30 closed),N/A (< 30 closed),N/A (< 30 closed),N/A,N/A,DEFERRED (N < 30),Statistically underpowered in local live sample (N < 30); deferred to Phase 2 historical replay.
+WEALTH_ENGINE,EQUITY,0,0,N/A (< 30 closed),N/A (< 30 closed),N/A (< 30 closed),N/A,N/A,DEFERRED (N < 30),Statistically underpowered in local live sample (N < 30); deferred to Phase 2 historical replay.
+MULTIBAGGER,EQUITY,2,0,N/A (< 30 closed),N/A (< 30 closed),N/A (< 30 closed),N/A,N/A,DEFERRED (N < 30),Statistically underpowered in local live sample (N < 30); deferred to Phase 2 historical replay.
+PERFORMANCE_TRACKER,EQUITY,0,0,N/A (< 30 closed),N/A (< 30 closed),N/A (< 30 closed),N/A,N/A,DEFERRED (N < 30),Statistically underpowered in local live sample (N < 30); deferred to Phase 2 historical replay.
+MULTIBAGGER_EXIT,EQUITY,0,0,N/A (< 30 closed),N/A (< 30 closed),N/A (< 30 closed),N/A,N/A,DEFERRED (N < 30),Statistically underpowered in local live sample (N < 30); deferred to Phase 2 historical replay.
+WEALTH_EXIT,EQUITY,0,0,N/A (< 30 closed),N/A (< 30 closed),N/A (< 30 closed),N/A,N/A,DEFERRED (N < 30),Statistically underpowered in local live sample (N < 30); deferred to Phase 2 historical replay.
+PLEDGE_WORKER,EQUITY,0,0,N/A (< 30 closed),N/A (< 30 closed),N/A (< 30 closed),N/A,N/A,DEFERRED (N < 30),Statistically underpowered in local live sample (N < 30); deferred to Phase 2 historical replay.
+AI_WORKER,EQUITY,0,0,N/A (< 30 closed),N/A (< 30 closed),N/A (< 30 closed),N/A,N/A,DEFERRED (N < 30),Statistically underpowered in local live sample (N < 30); deferred to Phase 2 historical replay.

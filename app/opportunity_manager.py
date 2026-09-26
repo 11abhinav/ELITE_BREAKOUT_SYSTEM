@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 # Maximum acceptable price drift from the original entry price, by scanner type.
 # If the current price has moved beyond this %, the opportunity is stale regardless of age.
 MAX_ENTRY_DRIFT = {
-    "MULTI_TF":  0.75,   # 0.75% — intraday entries must be precise
     "EOD":       1.50,   # 1.50% — EOD allows slightly wider entries
     "REVERSAL":  2.00,   # 2.00% — reversal entries are more flexible
 }
@@ -81,7 +80,7 @@ class OpportunityManager:
         """
         entry   = candidate.get("entry_price")
         current = candidate.get("current_price")
-        scanner = str(candidate.get("scanner") or candidate.get("scanner_name") or "MULTI_TF").upper()
+        scanner = str(candidate.get("scanner") or candidate.get("scanner_name") or "EOD").upper()
         max_drift = MAX_ENTRY_DRIFT.get(scanner, 1.0)
 
         if not entry or not current or entry <= 0:
@@ -98,7 +97,7 @@ class OpportunityManager:
         Suppresses exact duplicates (same symbol + breakout_type).
         """
         symbol = candidate.get("symbol")
-        btype  = candidate.get("breakout_type", "MULTI_TF")
+        btype  = candidate.get("breakout_type", "BREAKOUT")
 
         # Duplicate suppression
         existing = self._pool.get_candidates()
@@ -217,7 +216,7 @@ class OpportunityManager:
             symbol = c.get("symbol", "?")
             counts[status] = counts.get(status, 0) + 1
 
-            scanner_val = str(c.get("scanner") or c.get("scanner_name") or "MULTI_TF").strip()
+            scanner_val = str(c.get("scanner") or c.get("scanner_name") or "EOD").strip()
             breakout_type_val = str(c.get("breakout_type") or scanner_val).strip()
             category_val = c.get("category") or scanner_val
 

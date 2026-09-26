@@ -1761,13 +1761,8 @@ _scan_lock = ProcessLock("multi_tf_scanner")
 _global_lock = ProcessLock("global_scanner_lock")
 
 def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON", session=None):
-    from database import is_scanner_stopped, upsert_scanner_health, complete_scanner_execution_run
-    from lock_utils import print_scanner_start_banner, print_scanner_end_banner
-    if is_scanner_stopped("MULTI_TF"):
-        logger.info("🛑 Multi-TF Scanner is STOPPED by Admin. Skipping execution.")
-        if run_ctx:
-            complete_scanner_execution_run(run_ctx, status_override="STOPPED", stop_reason="Scanner stopped by admin")
-        return None
+    logger.info("🛑 [DECOMMISSIONED] MULTI_TF Scanner is permanently decommissioned and silenced.")
+    return None
 
     if _scan_lock.locked():
         logger.warning("🛑 [DUPLICATE GUARD] Multi-TF Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")

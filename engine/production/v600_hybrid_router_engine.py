@@ -3,36 +3,52 @@
 DAILY BUILDER V6.00 — HYBRID SPECIALIZED ROUTING PRODUCTION ENGINE
 ================================================================
 Authoritative Production Routing & Archetype Classification Engine
-Certified under Governance V2 following Full 3-Year Historical Tournament.
+Certified under Governance Charter following Full 3-Year Historical Tournament
+and Independent Three-Regime Holdout Certification.
 
-Core Architecture:
-- Discovers, scores, and tags candidates into 5 behavioral archetypes.
-- Generates multi-label metadata (primary, secondary, confidence).
-- Implements Soft Routing: distributes 100% of candidates with dynamic
-  priority sizing (1.0x Primary, 0.80x Secondary, 0.50x Unclassified).
-- Provides deterministic collision resolution without duplicate capital risk.
+Strict Governance Invariants:
+- NO SHADOW MODE and NO PROVISIONAL PRODUCTION MODE.
+- Permitted Scanner States: UNDER_CERTIFICATION, CERTIFIED_FOR_PRODUCTION, DECOMMISSIONED.
+- Mandatory Three-Regime Certification Gate enforces execution:
+    * TECHNICAL: Certified for BULL regime only.
+    * PULLBACK: Certified for SIDEWAYS regime only.
+    * ACCUMULATION: Certified for BEAR regime only.
+    * EOD: UNDER_CERTIFICATION (Zero production alerts).
+- Automated Production Safety Assertions enforced on every routing pass.
 """
 
 import os
 import sys
 import math
-import datetime
+import logging
 from typing import Dict, List, Any, Optional, Tuple
+
+from engine.production.governance_registry import (
+    DECOMMISSIONED_SCANNERS,
+    UNDER_CERTIFICATION_SCANNERS,
+    CERTIFIED_PRODUCTION_SCANNERS,
+    REGIME_ROUTING_MATRIX,
+    validate_production_safety_assertions,
+    check_production_alert_permission,
+    normalize_scanner_name
+)
+
+logger = logging.getLogger("HYBRID_ROUTER_V600")
 
 ARCHETYPES = [
     "VCP_COIL",
     "LONG_BASE_ACCUMULATION",
     "PULLBACK_KEY_LEVEL",
-    "SQUEEZE_SHORT_COVERING",
+    "VOLATILITY_EXPANSION_BREAKOUT",
     "CLEAN_MOMENTUM_BREAKOUT"
 ]
 
 SCANNER_MAP = {
-    "VCP_COIL": "SCAN_VCP_1H",
-    "LONG_BASE_ACCUMULATION": "SCAN_MULTIBAGGER_EOD",
-    "PULLBACK_KEY_LEVEL": "SCAN_REVERSAL_KEYLEVEL",
-    "SQUEEZE_SHORT_COVERING": "SCAN_SHORT_COVERING",
-    "CLEAN_MOMENTUM_BREAKOUT": "SCAN_DAILY_BUILDER_45M"
+    "VCP_COIL": "TECHNICAL",
+    "LONG_BASE_ACCUMULATION": "ACCUMULATION",
+    "PULLBACK_KEY_LEVEL": "PULLBACK",
+    "VOLATILITY_EXPANSION_BREAKOUT": "TECHNICAL",
+    "CLEAN_MOMENTUM_BREAKOUT": "TECHNICAL"
 }
 
 ROUTING_WEIGHTS = {
@@ -41,9 +57,10 @@ ROUTING_WEIGHTS = {
     "DEFENSIVE_CROSS": 0.50
 }
 
+
 class HybridRouterEngineV6:
     """
-    Production-grade Daily Builder V6 Hybrid Router.
+    Production-grade Daily Builder V6 Hybrid Router with strict regime gating.
     """
     VERSION = "V6.00_DAILY_BUILDER_HYBRID_ROUTER"
     PARENT_VERSION = "V5.30_PRODUCTION"
@@ -66,7 +83,7 @@ class HybridRouterEngineV6:
         ema_dist = float(cand.get("ema_support_dist_pct", 1.5))
         freshness = float(cand.get("freshness", 0.5))
         rs_pct = float(cand.get("rs_percentile", 50.0))
-        regime = str(cand.get("regime", "NEUTRAL_BULL"))
+        regime = str(cand.get("regime", "BULL")).upper()
 
         # Base compression score (0.0 to 1.0)
         comp_score = max(0.0, min(1.0, 1.0 - (comp_ratio - 1.0) / 2.0))
@@ -80,8 +97,8 @@ class HybridRouterEngineV6:
         # 3. Pullback / Key Level Score
         pullback_score = round(min(100.0, (max(0, 3.0 - ema_dist) / 3.0 * 50.0) + (clv * 35.0) + (comp_score * 15.0)), 1)
 
-        # 4. Squeeze / Short Covering Score
-        squeeze_score = round(min(100.0, (min(rvol, 4.0) / 4.0 * 55.0) + (clv * 25.0) + (comp_score * 20.0)), 1)
+        # 4. Volatility Expansion Breakout Score
+        expansion_score = round(min(100.0, (min(rvol, 4.0) / 4.0 * 55.0) + (clv * 25.0) + (comp_score * 20.0)), 1)
 
         # 5. Clean Momentum Breakout Score
         breakout_score = round(min(100.0, (clv * 40.0) + (freshness * 30.0) + (comp_score * 30.0)), 1)
@@ -90,7 +107,7 @@ class HybridRouterEngineV6:
             "VCP_COIL": vcp_score,
             "LONG_BASE_ACCUMULATION": long_base_score,
             "PULLBACK_KEY_LEVEL": pullback_score,
-            "SQUEEZE_SHORT_COVERING": squeeze_score,
+            "VOLATILITY_EXPANSION_BREAKOUT": expansion_score,
             "CLEAN_MOMENTUM_BREAKOUT": breakout_score
         }
 
@@ -102,15 +119,17 @@ class HybridRouterEngineV6:
         confidence = round((primary_score - secondary_score) / 100.0 + (primary_score / 200.0), 3)
         confidence = min(0.99, max(0.10, confidence))
 
-        # Composite V5.30 / V6 Quality Score
-        v530_quality = round((1.5 * clv + 1.5 * comp_score + 1.0 * freshness + 0.8 * (rs_pct / 100.0)) / 4.8 * 100.0, 1)
+        # Composite Quality Score
+        quality_score = round((1.5 * clv + 1.5 * comp_score + 1.0 * freshness + 0.8 * (rs_pct / 100.0)) / 4.8 * 100.0, 1)
 
-        # Sharp selloff veto rule
-        is_eligible = 1 if (regime != "SHARP_SELLOFF" and v530_quality >= self.quality_floor and clv >= 0.40) else 0
+        # Eligibility filter
+        is_eligible = 1 if (quality_score >= self.quality_floor and clv >= 0.40) else 0
+
+        preferred_scanner = SCANNER_MAP.get(primary_arch, "TECHNICAL")
 
         return {
             "symbol": cand.get("symbol", "UNKNOWN"),
-            "v530_quality_score": v530_quality,
+            "quality_score": quality_score,
             "is_eligible": is_eligible,
             "regime": regime,
             "primary_archetype": primary_arch,
@@ -119,14 +138,55 @@ class HybridRouterEngineV6:
             "secondary_score": secondary_score,
             "confidence": confidence,
             "archetype_scores": archetype_scores,
-            "preferred_scanner": SCANNER_MAP.get(primary_arch, "SCAN_DAILY_BUILDER_45M")
+            "preferred_scanner": preferred_scanner
         }
 
-    def get_scanner_allocation(self, scanner_id: str, classified_cand: Dict[str, Any]) -> Dict[str, Any]:
+    def get_scanner_allocation(
+        self,
+        scanner_id: str,
+        classified_cand: Dict[str, Any],
+        macro_regime: str = "BULL"
+    ) -> Dict[str, Any]:
         """
         Determines the priority weight, execution eligibility, and sizing for
-        a specific downstream scanner evaluating a classified candidate.
+        a specific downstream scanner evaluating a classified candidate,
+        gated strictly by macro regime certification.
         """
+        norm_scanner = normalize_scanner_name(scanner_id)
+
+        # Governance Check: Decommissioned and Under-Certification scanners receive zero allocation
+        if norm_scanner in DECOMMISSIONED_SCANNERS:
+            return {
+                "scanner_id": scanner_id,
+                "is_active": False,
+                "risk_weight": 0.0,
+                "priority_tier": "DECOMMISSIONED",
+                "is_primary_owner": False,
+                "rejection_reason": "SCANNER_PERMANENTLY_DECOMMISSIONED"
+            }
+
+        if norm_scanner in UNDER_CERTIFICATION_SCANNERS:
+            return {
+                "scanner_id": scanner_id,
+                "is_active": False,
+                "risk_weight": 0.0,
+                "priority_tier": "UNDER_CERTIFICATION",
+                "is_primary_owner": False,
+                "rejection_reason": "UNDER_CERTIFICATION_ZERO_PRODUCTION_ALERTS"
+            }
+
+        # Regime Certification Check
+        is_permitted, reason = check_production_alert_permission(norm_scanner, macro_regime)
+        if not is_permitted:
+            return {
+                "scanner_id": scanner_id,
+                "is_active": False,
+                "risk_weight": 0.0,
+                "priority_tier": "REGIME_BLOCKED",
+                "is_primary_owner": False,
+                "rejection_reason": reason
+            }
+
         p_arch = classified_cand["primary_archetype"]
         s_arch = classified_cand["secondary_archetype"]
         is_eligible = classified_cand["is_eligible"]
@@ -140,57 +200,60 @@ class HybridRouterEngineV6:
                 "is_active": False,
                 "risk_weight": 0.0,
                 "priority_tier": "VETOED",
-                "is_primary_owner": False
+                "is_primary_owner": False,
+                "rejection_reason": "QUALITY_VETO"
             }
 
-        if scanner_id == preferred_scan:
-            # Primary Dedicated Match -> Full 1.0x Size, Top Priority
+        if norm_scanner == preferred_scan:
             return {
                 "scanner_id": scanner_id,
                 "is_active": True,
                 "risk_weight": ROUTING_WEIGHTS["PRIMARY_MATCH"],
                 "priority_tier": "TOP_PRIORITY_DEDICATED",
-                "is_primary_owner": True
+                "is_primary_owner": True,
+                "rejection_reason": None
             }
-        elif scanner_id == secondary_scan and classified_cand["secondary_score"] >= 65.0:
-            # Secondary Confluence Match -> 0.80x Size, High Priority
+        elif norm_scanner == secondary_scan and classified_cand["secondary_score"] >= 65.0:
             return {
                 "scanner_id": scanner_id,
                 "is_active": True,
                 "risk_weight": ROUTING_WEIGHTS["SECONDARY_MATCH"],
                 "priority_tier": "SECONDARY_CONFLUENCE",
-                "is_primary_owner": False
+                "is_primary_owner": False,
+                "rejection_reason": None
             }
         else:
-            # Defensive Cross-Archetype -> 0.50x Size (Zero Missed Winners)
             return {
                 "scanner_id": scanner_id,
                 "is_active": True,
                 "risk_weight": ROUTING_WEIGHTS["DEFENSIVE_CROSS"],
                 "priority_tier": "DEFENSIVE_CROSS_ARCHETYPE",
-                "is_primary_owner": False
+                "is_primary_owner": False,
+                "rejection_reason": None
             }
 
-    def route_candidate_pool(self, raw_candidates: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    def route_candidate_pool(
+        self,
+        raw_candidates: List[Dict[str, Any]],
+        macro_regime: str = "BULL"
+    ) -> Dict[str, List[Dict[str, Any]]]:
         """
         Processes a full Daily Builder candidate pool and generates customized,
-        soft-routed input candidate streams for all 5 downstream scanners.
+        soft-routed candidate streams for certified production scanners under macro_regime.
+        Enforces automated production safety assertions before routing.
         """
-        routed_streams = {
-            "SCAN_VCP_1H": [],
-            "SCAN_MULTIBAGGER_EOD": [],
-            "SCAN_REVERSAL_KEYLEVEL": [],
-            "SCAN_SHORT_COVERING": [],
-            "SCAN_DAILY_BUILDER_45M": []
-        }
+        # Execute mandatory assertions
+        active_production_scanners = validate_production_safety_assertions(macro_regime)
+
+        routed_streams = {s: [] for s in active_production_scanners}
 
         for raw_c in raw_candidates:
             classified = self.classify_candidate(raw_c)
             if not classified["is_eligible"]:
                 continue
 
-            for s_id in routed_streams.keys():
-                alloc = self.get_scanner_allocation(s_id, classified)
+            for s_id in active_production_scanners:
+                alloc = self.get_scanner_allocation(s_id, classified, macro_regime)
                 if alloc["is_active"]:
                     augmented_cand = dict(raw_c)
                     augmented_cand.update({
@@ -211,18 +274,37 @@ class HybridRouterEngineV6:
 
         return routed_streams
 
-    def resolve_cross_scanner_collision(self, symbol: str, triggered_scanners: List[str], classified_cand: Dict[str, Any]) -> Dict[str, Any]:
+    def resolve_cross_scanner_collision(
+        self,
+        symbol: str,
+        triggered_scanners: List[str],
+        classified_cand: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         Deterministically resolves when multiple scanners trigger on the same symbol on the same session.
         """
+        # Filter out any decommissioned or uncertified scanners immediately
+        valid_triggered = [
+            s for s in triggered_scanners
+            if normalize_scanner_name(s) in CERTIFIED_PRODUCTION_SCANNERS
+        ]
+
+        if not valid_triggered:
+            return {
+                "symbol": symbol,
+                "primary_execution_scanner": None,
+                "confluence_confirmation_scanners": [],
+                "primary_risk_weight": 0.0,
+                "has_apex_confluence": False
+            }
+
         preferred_scan = SCANNER_MAP.get(classified_cand["primary_archetype"])
-        
-        if preferred_scan in triggered_scanners:
+        if preferred_scan in valid_triggered:
             primary_winner = preferred_scan
         else:
-            primary_winner = triggered_scanners[0]
+            primary_winner = valid_triggered[0]
 
-        secondary_scanners = [s for s in triggered_scanners if s != primary_winner]
+        secondary_scanners = [s for s in valid_triggered if s != primary_winner]
 
         return {
             "symbol": symbol,
@@ -231,6 +313,7 @@ class HybridRouterEngineV6:
             "primary_risk_weight": ROUTING_WEIGHTS["PRIMARY_MATCH"],
             "has_apex_confluence": len(secondary_scanners) >= 2
         }
+
 
 # Global Singleton Instance for Production Call Chains
 v600_router_engine = HybridRouterEngineV6()

@@ -1,0 +1,54 @@
+{
+  "component": "REVERSAL",
+  "wall_clock_sec": 2.36,
+  "total_N": 310,
+  "final_binary_verdict": "DECOMMISSIONED",
+  "certified_conditional_label": "RETIRED",
+  "operational_gate_definition": null,
+  "regime_breakdown": [
+    {
+      "regime": "BEAR",
+      "N": 289,
+      "win_rate_pct": 44.64,
+      "mean_R": 0.0627,
+      "ci_95_low": -0.0648,
+      "ci_95_high": 0.1897,
+      "gate5_verdict": "DECOMMISSIONED",
+      "gate5_pass": false,
+      "notes": "Gate 5: CI_low=-0.0648R <= 0.000R FAIL"
+    },
+    {
+      "regime": "SIDEWAYS",
+      "N": 0,
+      "win_rate_pct": 0.0,
+      "mean_R": 0.0,
+      "ci_95_low": 0.0,
+      "ci_95_high": 0.0,
+      "gate5_verdict": "DECOMMISSIONED",
+      "gate5_pass": false,
+      "notes": "No trades in this regime"
+    },
+    {
+      "regime": "BULL",
+      "N": 21,
+      "win_rate_pct": 38.1,
+      "mean_R": -0.118,
+      "ci_95_low": -0.5743,
+      "ci_95_high": 0.3708,
+      "gate5_verdict": "DECOMMISSIONED",
+      "gate5_pass": false,
+      "notes": "Gate 5: CI_low=-0.5743R <= 0.000R FAIL"
+    },
+    {
+      "regime": "OVERALL",
+      "N": 310,
+      "win_rate_pct": 44.19,
+      "mean_R": 0.0505,
+      "ci_95_low": -0.072,
+      "ci_95_high": 0.1762,
+      "gate5_verdict": "DECOMMISSIONED",
+      "gate5_pass": false,
+      "notes": "Gate 5: CI_low=-0.0720R <= 0.000R FAIL"
+    }
+  ]
+}

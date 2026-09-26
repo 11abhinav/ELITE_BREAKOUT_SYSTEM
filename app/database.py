@@ -2715,6 +2715,23 @@ def save_alert_if_new(
     evaluation_id = kwargs.get('evaluation_id')
     scanner_run_id = kwargs.get('scanner_run_id')
 
+    # ─────────────────────────────────────────────────────────────────
+    # 🛡️ STRICT PRODUCTION GOVERNANCE & REGIME CERTIFICATION GATE
+    # ─────────────────────────────────────────────────────────────────
+    effective_scanner = scanner or breakout_type or "UNKNOWN"
+    try:
+        from engine.production.governance_registry import check_production_alert_permission
+        is_permitted, perm_reason = check_production_alert_permission(effective_scanner, bayesian_regime)
+        if not is_permitted:
+            logger.warning(
+                f"🛑 [GOVERNANCE GATE] Live alert blocked for {symbol} (Scanner: {effective_scanner}, "
+                f"Regime: {bayesian_regime}): {perm_reason}"
+            )
+            return False, perm_reason, 0.0, 0
+    except Exception as e:
+        logger.error(f"🛑 [GOVERNANCE GATE] Exception validating governance permission: {e}")
+        return False, "GOVERNANCE_CHECK_FAILED", 0.0, 0
+
     if not evaluation_id or not scanner_run_id:
         try:
             from scanner_telemetry import telemetry_engine
@@ -4423,14 +4440,10 @@ def get_all_scanner_health() -> list[dict]:
     init_db()
     schedule_map = {
         "DAILY_BUILDER": "Daily 05:00 IST",
-        "MULTI_TF": "Every 15m Scan / 5m Monitor (09:30 - 15:30 IST)",
-        "MULTI_TF_5M": "Every 5min Monitor (09:35 - 15:25 IST)",
         "EOD": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
-        "REVERSAL": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
         "PULLBACK": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
         "ACCUMULATION": "Daily 18:35 IST (Post-Bhavcopy / Verified Evening Batch)",
         "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan)",
-        "TECHNICAL_INTRADAY": "Every 15m (09:16 - 15:30 IST Market Hours)",
         "Wealth Engine": "Daily 06:00 & 17:00 IST · Market Hours (09:15 - 15:30)",
         "MULTIBAGGER": "Daily 17:30 IST (Daily Fundamental)",
         "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
@@ -4514,6 +4527,32 @@ def get_all_scanner_health() -> list[dict]:
                 for r in rows:
                     if r.get("scanner_name") in schedule_map:
                         r["scheduled_for"] = schedule_map[r["scanner_name"]]
+                    try:
+                        from engine.production.governance_registry import get_scanner_health_regime_info
+                        reg_info = get_scanner_health_regime_info(r.get("scanner_name"))
+                        r["scanner"] = reg_info.get("scanner")
+                        r["lifecycle_state"] = reg_info.get("lifecycle_state")
+                        r["supported_regime"] = reg_info.get("supported_regime")
+                        r["evidence_supported_regimes"] = reg_info.get("evidence_supported_regimes")
+                        r["current_production_active_regime"] = reg_info.get("current_production_active_regime")
+                        r["current_macro_regime"] = reg_info.get("current_macro_regime")
+                        r["production_active_now"] = reg_info.get("production_active_now")
+                        r["is_production_active"] = reg_info.get("is_production_active", False)
+                        r["production_authorization_state"] = reg_info.get("production_authorization_state")
+                        r["temporal_evidence_status"] = reg_info.get("temporal_evidence_status")
+                        r["last_evidence_release"] = reg_info.get("last_evidence_release")
+                        r["last_study_date"] = reg_info.get("last_study_date")
+                        r["evidence_warnings"] = reg_info.get("evidence_warnings")
+                        r["version_identity"] = reg_info.get("version_identity")
+                        r["suppression_reason"] = reg_info.get("suppression_reason")
+                        r["display_message"] = reg_info.get("display_message")
+                        r["regime_status_message"] = reg_info.get("status_message")
+                        r["regime_warning"] = reg_info.get("warning")
+                        r["temporal_evidence"] = reg_info.get("temporal_evidence")
+                        r["pending_condition"] = reg_info.get("pending_condition")
+                        r["fail_closed_note"] = reg_info.get("fail_closed_note")
+                    except Exception:
+                        pass
                 return rows
             except Exception:
                 logger.exception("❌ get_all_scanner_health failed")
@@ -4560,8 +4599,6 @@ def reset_all_scanners_on_boot() -> None:
                 now_str = datetime.now(IST).isoformat()
                 schedule_map = {
                     "DAILY_BUILDER": "Daily 05:00 IST",
-                    "MULTI_TF": "Every 15m Scan / 5m Monitor (09:30 - 15:30 IST)",
-                    "MULTI_TF_5M": "Every 5min Monitor (09:35 - 15:25 IST)",
                     "EOD": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
                     "REVERSAL": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
                     "PULLBACK": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
@@ -4660,11 +4697,40 @@ def normalize_scanner_name(scanner_name: str) -> str:
 
 _LOCAL_STOPPED_SCANNERS: set[str] = set()
 
+DECOMMISSIONED_SCANNERS: set[str] = {
+    "SHORT_COVERING",
+    "SHORT_COVERING_5M",
+    "SHORT_COVERING_EOD",
+    "SHORT_COVERING_IGNITION",
+    "MOMENTUM_IGNITION",
+    "MOMENTUM_IGNITION_5M",
+    "MOMENTUM_THRUST",
+    "MOMENTUM_THRUST_H0",
+    "5M_BREAKOUT",
+    "BREAKOUT_5M",
+    "SCAN_5M_BREAKOUT",
+    "MULTI_TF",
+    "MULTITF",
+    "MULTI_TF_5M",
+    "MULTITF_5M",
+    "MULTI_TF_LADDER",
+    "MULTITF_V3",
+    "TECHNICAL_INTRADAY",
+    "REVERSAL",
+    "REVERSAL_SCANNER",
+    "REVERSAL_V2",
+    "SCAN_SHORT_COVERING",
+    "SCAN_REVERSAL_KEYLEVEL",
+}
+
 def is_scanner_stopped(scanner_name: str) -> bool:
-    """Return True if scanner is currently STOPPED or PAUSED by Admin (DB is authoritative)."""
+    """Return True if scanner is currently STOPPED, PAUSED, or PERMANENTLY DECOMMISSIONED."""
     if not scanner_name:
         return False
     norm_name = normalize_scanner_name(scanner_name)
+    # HARD DECOMMISSION CHECK: Never execute decommissioned scanners
+    if norm_name in DECOMMISSIONED_SCANNERS or (scanner_name and scanner_name.upper() in DECOMMISSIONED_SCANNERS):
+        return True
     try:
         init_db()
         with get_connection() as conn:
@@ -4772,7 +4838,7 @@ def resume_scanner(scanner_name: str) -> bool:
 
 
 ALL_KNOWN_SCANNERS = [
-    'DAILY_BUILDER', 'MULTI_TF', 'MULTI_TF_5M', 'EOD', 'REVERSAL',
+    'DAILY_BUILDER', 'EOD', 'REVERSAL',
     'PULLBACK', 'ACCUMULATION', 'TECHNICAL', 'Wealth Engine', 'MULTIBAGGER',
     'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT',
     'Pledge Worker', 'AI Worker', 'BayesianUpdater'

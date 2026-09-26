@@ -16,14 +16,12 @@ IST = ZoneInfo("Asia/Kolkata")
 
 # Scanner-Specific Post-SL Recovery Observation Horizons (in trading days/bars)
 SCANNER_RECOVERY_HORIZONS: Dict[str, int] = {
-    "MULTI_TF": 2,           # Intraday to next session
     "EOD": 20,               # 10–20 trading days
     "EOD_BREAKOUT": 20,
     "PULLBACK": 20,          # 15–20 trading days
     "REVERSAL": 10,          # 7–10 trading days
     "ACCUMULATION": 40,      # 20–40 trading days
     "MULTIBAGGER": 120,      # 60–120 trading days
-    "SHORT_COVERING": 10,
     "DEFAULT": 20
 }
 

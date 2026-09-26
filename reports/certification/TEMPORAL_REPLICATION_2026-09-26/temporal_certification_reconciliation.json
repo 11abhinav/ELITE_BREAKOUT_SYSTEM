@@ -1,0 +1,612 @@
+{
+  "metadata": {
+    "title": "MANDATORY TEMPORAL CERTIFICATION RECONCILIATION",
+    "date": "2026-09-26 20:22:19 IST",
+    "governance_status": "FAIL-CLOSED (0 LIVE PRODUCTION ALERTS)",
+    "release_identity": "TEMPORAL_REPLICATION_2026-09-26",
+    "dataset_hash": "4a952ca20c529f6178535fdd55ec9aaa5b51544976f81e8c0cb1fbf24b40e131",
+    "master_config_hash": "4a11187c816bf6c9f74326799b5129e1a9ac5847654f5e7faca4cbc197fd55e6",
+    "regime_calendar_hash": "aa2b8a162a370ee0e851998ffd6c6c3568678e75c9eda0c39c9f8f39aa25d95a"
+  },
+  "reconciliation_matrix": {
+    "TECHNICAL": {
+      "BULL": {
+        "total_trades_reported": 11575,
+        "total_trades_recomputed": 11575,
+        "reconciliation_match": true,
+        "multi_year_cells": {
+          "Cell_1_2016_2018": {
+            "reported_n": 1652,
+            "recomputed_n": 1652,
+            "reported_mean_net_r": 0.2197,
+            "recomputed_mean_net_r": 0.2197,
+            "match": true
+          },
+          "Cell_2_2019_2021": {
+            "reported_n": 3472,
+            "recomputed_n": 3472,
+            "reported_mean_net_r": 0.2327,
+            "recomputed_mean_net_r": 0.2327,
+            "match": true
+          },
+          "Cell_3_2022_2024": {
+            "reported_n": 5443,
+            "recomputed_n": 5443,
+            "reported_mean_net_r": 0.2206,
+            "recomputed_mean_net_r": 0.2206,
+            "match": true
+          },
+          "Cell_4_2025_2026": {
+            "reported_n": 1008,
+            "recomputed_n": 1008,
+            "reported_mean_net_r": 0.1458,
+            "recomputed_mean_net_r": 0.1458,
+            "match": true
+          }
+        },
+        "provenance_status": "CERTIFIED",
+        "leakage_status": "PASSED",
+        "config_match_status": "MATCH",
+        "replication_status": "PENDING",
+        "governance_status": "UNDER_CERTIFICATION"
+      },
+      "SIDEWAYS": {
+        "total_trades_reported": 5864,
+        "total_trades_recomputed": 5864,
+        "reconciliation_match": true,
+        "multi_year_cells": {
+          "Cell_1_2016_2018": {
+            "reported_n": 649,
+            "recomputed_n": 649,
+            "reported_mean_net_r": 0.2139,
+            "recomputed_mean_net_r": 0.2139,
+            "match": true
+          },
+          "Cell_2_2019_2021": {
+            "reported_n": 1455,
+            "recomputed_n": 1455,
+            "reported_mean_net_r": 0.2228,
+            "recomputed_mean_net_r": 0.2228,
+            "match": true
+          },
+          "Cell_3_2022_2024": {
+            "reported_n": 2398,
+            "recomputed_n": 2398,
+            "reported_mean_net_r": 0.1373,
+            "recomputed_mean_net_r": 0.1373,
+            "match": true
+          },
+          "Cell_4_2025_2026": {
+            "reported_n": 1362,
+            "recomputed_n": 1362,
+            "reported_mean_net_r": 0.0398,
+            "recomputed_mean_net_r": 0.0398,
+            "match": true
+          }
+        },
+        "provenance_status": "CERTIFIED",
+        "leakage_status": "PASSED",
+        "config_match_status": "MATCH",
+        "replication_status": "PENDING",
+        "governance_status": "UNDER_CERTIFICATION"
+      },
+      "BEAR": {
+        "total_trades_reported": 2927,
+        "total_trades_recomputed": 2927,
+        "reconciliation_match": true,
+        "multi_year_cells": {
+          "Cell_1_2016_2018": {
+            "reported_n": 512,
+            "recomputed_n": 512,
+            "reported_mean_net_r": -0.0203,
+            "recomputed_mean_net_r": -0.0203,
+            "match": true
+          },
+          "Cell_2_2019_2021": {
+            "reported_n": 628,
+            "recomputed_n": 628,
+            "reported_mean_net_r": 0.3195,
+            "recomputed_mean_net_r": 0.3195,
+            "match": true
+          },
+          "Cell_3_2022_2024": {
+            "reported_n": 990,
+            "recomputed_n": 990,
+            "reported_mean_net_r": 0.1331,
+            "recomputed_mean_net_r": 0.1331,
+            "match": true
+          },
+          "Cell_4_2025_2026": {
+            "reported_n": 797,
+            "recomputed_n": 797,
+            "reported_mean_net_r": 0.0931,
+            "recomputed_mean_net_r": 0.0931,
+            "match": true
+          }
+        },
+        "provenance_status": "CERTIFIED",
+        "leakage_status": "PASSED",
+        "config_match_status": "MATCH",
+        "replication_status": "PENDING",
+        "governance_status": "UNDER_CERTIFICATION"
+      }
+    },
+    "PULLBACK": {
+      "BULL": {
+        "total_trades_reported": 16504,
+        "total_trades_recomputed": 16504,
+        "reconciliation_match": true,
+        "multi_year_cells": {
+          "Cell_1_2016_2018": {
+            "reported_n": 2899,
+            "recomputed_n": 2899,
+            "reported_mean_net_r": 0.1751,
+            "recomputed_mean_net_r": 0.1751,
+            "match": true
+          },
+          "Cell_2_2019_2021": {
+            "reported_n": 4307,
+            "recomputed_n": 4307,
+            "reported_mean_net_r": 0.2474,
+            "recomputed_mean_net_r": 0.2474,
+            "match": true
+          },
+          "Cell_3_2022_2024": {
+            "reported_n": 7384,
+            "recomputed_n": 7384,
+            "reported_mean_net_r": 0.1859,
+            "recomputed_mean_net_r": 0.1859,
+            "match": true
+          },
+          "Cell_4_2025_2026": {
+            "reported_n": 1914,
+            "recomputed_n": 1914,
+            "reported_mean_net_r": 0.0097,
+            "recomputed_mean_net_r": 0.0097,
+            "match": true
+          }
+        },
+        "provenance_status": "CERTIFIED",
+        "leakage_status": "PASSED",
+        "config_match_status": "MATCH",
+        "replication_status": "PENDING",
+        "governance_status": "UNDER_CERTIFICATION"
+      },
+      "SIDEWAYS": {
+        "total_trades_reported": 15796,
+        "total_trades_recomputed": 15796,
+        "reconciliation_match": true,
+        "multi_year_cells": {
+          "Cell_1_2016_2018": {
+            "reported_n": 2086,
+            "recomputed_n": 2086,
+            "reported_mean_net_r": 0.2082,
+            "recomputed_mean_net_r": 0.2082,
+            "match": true
+          },
+          "Cell_2_2019_2021": {
+            "reported_n": 4185,
+            "recomputed_n": 4185,
+            "reported_mean_net_r": 0.1384,
+            "recomputed_mean_net_r": 0.1384,
+            "match": true
+          },
+          "Cell_3_2022_2024": {
+            "reported_n": 6196,
+            "recomputed_n": 6196,
+            "reported_mean_net_r": 0.1069,
+            "recomputed_mean_net_r": 0.1069,
+            "match": true
+          },
+          "Cell_4_2025_2026": {
+            "reported_n": 3329,
+            "recomputed_n": 3329,
+            "reported_mean_net_r": 0.0147,
+            "recomputed_mean_net_r": 0.0147,
+            "match": true
+          }
+        },
+        "provenance_status": "CERTIFIED",
+        "leakage_status": "PASSED",
+        "config_match_status": "MATCH",
+        "replication_status": "PENDING",
+        "governance_status": "UNDER_CERTIFICATION"
+      },
+      "BEAR": {
+        "total_trades_reported": 11555,
+        "total_trades_recomputed": 11555,
+        "reconciliation_match": true,
+        "multi_year_cells": {
+          "Cell_1_2016_2018": {
+            "reported_n": 2589,
+            "recomputed_n": 2589,
+            "reported_mean_net_r": 0.0249,
+            "recomputed_mean_net_r": 0.0249,
+            "match": true
+          },
+          "Cell_2_2019_2021": {
+            "reported_n": 2480,
+            "recomputed_n": 2480,
+            "reported_mean_net_r": 0.0605,
+            "recomputed_mean_net_r": 0.0605,
+            "match": true
+          },
+          "Cell_3_2022_2024": {
+            "reported_n": 3522,
+            "recomputed_n": 3522,
+            "reported_mean_net_r": 0.1966,
+            "recomputed_mean_net_r": 0.1966,
+            "match": true
+          },
+          "Cell_4_2025_2026": {
+            "reported_n": 2964,
+            "recomputed_n": 2964,
+            "reported_mean_net_r": -0.0013,
+            "recomputed_mean_net_r": -0.0013,
+            "match": true
+          }
+        },
+        "provenance_status": "CERTIFIED",
+        "leakage_status": "PASSED",
+        "config_match_status": "MATCH",
+        "replication_status": "PENDING",
+        "governance_status": "UNDER_CERTIFICATION"
+      }
+    },
+    "ACCUMULATION": {
+      "BULL": {
+        "total_trades_reported": 6800,
+        "total_trades_recomputed": 6800,
+        "reconciliation_match": true,
+        "multi_year_cells": {
+          "Cell_1_2016_2018": {
+            "reported_n": 1305,
+            "recomputed_n": 1305,
+            "reported_mean_net_r": 0.2178,
+            "recomputed_mean_net_r": 0.2178,
+            "match": true
+          },
+          "Cell_2_2019_2021": {
+            "reported_n": 1265,
+            "recomputed_n": 1265,
+            "reported_mean_net_r": 0.2576,
+            "recomputed_mean_net_r": 0.2576,
+            "match": true
+          },
+          "Cell_3_2022_2024": {
+            "reported_n": 3259,
+            "recomputed_n": 3259,
+            "reported_mean_net_r": 0.2428,
+            "recomputed_mean_net_r": 0.2428,
+            "match": true
+          },
+          "Cell_4_2025_2026": {
+            "reported_n": 971,
+            "recomputed_n": 971,
+            "reported_mean_net_r": -0.12,
+            "recomputed_mean_net_r": -0.12,
+            "match": true
+          }
+        },
+        "provenance_status": "CERTIFIED",
+        "leakage_status": "PASSED",
+        "config_match_status": "MATCH",
+        "replication_status": "PENDING",
+        "governance_status": "UNDER_CERTIFICATION"
+      },
+      "SIDEWAYS": {
+        "total_trades_reported": 4075,
+        "total_trades_recomputed": 4075,
+        "reconciliation_match": true,
+        "multi_year_cells": {
+          "Cell_1_2016_2018": {
+            "reported_n": 590,
+            "recomputed_n": 590,
+            "reported_mean_net_r": 0.2093,
+            "recomputed_mean_net_r": 0.2093,
+            "match": true
+          },
+          "Cell_2_2019_2021": {
+            "reported_n": 823,
+            "recomputed_n": 823,
+            "reported_mean_net_r": 0.0105,
+            "recomputed_mean_net_r": 0.0105,
+            "match": true
+          },
+          "Cell_3_2022_2024": {
+            "reported_n": 1300,
+            "recomputed_n": 1300,
+            "reported_mean_net_r": 0.1503,
+            "recomputed_mean_net_r": 0.1503,
+            "match": true
+          },
+          "Cell_4_2025_2026": {
+            "reported_n": 1362,
+            "recomputed_n": 1362,
+            "reported_mean_net_r": 0.0552,
+            "recomputed_mean_net_r": 0.0552,
+            "match": true
+          }
+        },
+        "provenance_status": "CERTIFIED",
+        "leakage_status": "PASSED",
+        "config_match_status": "MATCH",
+        "replication_status": "PENDING",
+        "governance_status": "UNDER_CERTIFICATION"
+      },
+      "BEAR": {
+        "total_trades_reported": 2775,
+        "total_trades_recomputed": 2775,
+        "reconciliation_match": true,
+        "multi_year_cells": {
+          "Cell_1_2016_2018": {
+            "reported_n": 663,
+            "recomputed_n": 663,
+            "reported_mean_net_r": 0.0402,
+            "recomputed_mean_net_r": 0.0402,
+            "match": true
+          },
+          "Cell_2_2019_2021": {
+            "reported_n": 673,
+            "recomputed_n": 673,
+            "reported_mean_net_r": 0.1356,
+            "recomputed_mean_net_r": 0.1356,
+            "match": true
+          },
+          "Cell_3_2022_2024": {
+            "reported_n": 458,
+            "recomputed_n": 458,
+            "reported_mean_net_r": 0.2065,
+            "recomputed_mean_net_r": 0.2065,
+            "match": true
+          },
+          "Cell_4_2025_2026": {
+            "reported_n": 981,
+            "recomputed_n": 981,
+            "reported_mean_net_r": 0.0975,
+            "recomputed_mean_net_r": 0.0975,
+            "match": true
+          }
+        },
+        "provenance_status": "CERTIFIED",
+        "leakage_status": "PASSED",
+        "config_match_status": "MATCH",
+        "replication_status": "PENDING",
+        "governance_status": "UNDER_CERTIFICATION"
+      }
+    },
+    "EOD": {
+      "BULL": {
+        "total_trades_reported": 907,
+        "total_trades_recomputed": 907,
+        "reconciliation_match": true,
+        "multi_year_cells": {
+          "Cell_1_2016_2018": {
+            "reported_n": 109,
+            "recomputed_n": 109,
+            "reported_mean_net_r": 0.3155,
+            "recomputed_mean_net_r": 0.3155,
+            "match": true
+          },
+          "Cell_2_2019_2021": {
+            "reported_n": 206,
+            "recomputed_n": 206,
+            "reported_mean_net_r": 0.0721,
+            "recomputed_mean_net_r": 0.0721,
+            "match": true
+          },
+          "Cell_3_2022_2024": {
+            "reported_n": 496,
+            "recomputed_n": 496,
+            "reported_mean_net_r": 0.1437,
+            "recomputed_mean_net_r": 0.1437,
+            "match": true
+          },
+          "Cell_4_2025_2026": {
+            "reported_n": 96,
+            "recomputed_n": 96,
+            "reported_mean_net_r": 0.0967,
+            "recomputed_mean_net_r": 0.0967,
+            "match": true
+          }
+        },
+        "provenance_status": "CERTIFIED",
+        "leakage_status": "PASSED",
+        "config_match_status": "MATCH",
+        "replication_status": "PENDING",
+        "governance_status": "UNDER_CERTIFICATION"
+      },
+      "SIDEWAYS": {
+        "total_trades_reported": 516,
+        "total_trades_recomputed": 516,
+        "reconciliation_match": true,
+        "multi_year_cells": {
+          "Cell_1_2016_2018": {
+            "reported_n": 55,
+            "recomputed_n": 55,
+            "reported_mean_net_r": 0.3719,
+            "recomputed_mean_net_r": 0.3719,
+            "match": true
+          },
+          "Cell_2_2019_2021": {
+            "reported_n": 118,
+            "recomputed_n": 118,
+            "reported_mean_net_r": 0.1605,
+            "recomputed_mean_net_r": 0.1605,
+            "match": true
+          },
+          "Cell_3_2022_2024": {
+            "reported_n": 189,
+            "recomputed_n": 189,
+            "reported_mean_net_r": 0.021,
+            "recomputed_mean_net_r": 0.021,
+            "match": true
+          },
+          "Cell_4_2025_2026": {
+            "reported_n": 154,
+            "recomputed_n": 154,
+            "reported_mean_net_r": 0.0648,
+            "recomputed_mean_net_r": 0.0648,
+            "match": true
+          }
+        },
+        "provenance_status": "CERTIFIED",
+        "leakage_status": "PASSED",
+        "config_match_status": "MATCH",
+        "replication_status": "PENDING",
+        "governance_status": "UNDER_CERTIFICATION"
+      },
+      "BEAR": {
+        "total_trades_reported": 339,
+        "total_trades_recomputed": 339,
+        "reconciliation_match": true,
+        "multi_year_cells": {
+          "Cell_1_2016_2018": {
+            "reported_n": 60,
+            "recomputed_n": 60,
+            "reported_mean_net_r": 0.0747,
+            "recomputed_mean_net_r": 0.0747,
+            "match": true
+          },
+          "Cell_2_2019_2021": {
+            "reported_n": 61,
+            "recomputed_n": 61,
+            "reported_mean_net_r": 0.3833,
+            "recomputed_mean_net_r": 0.3833,
+            "match": true
+          },
+          "Cell_3_2022_2024": {
+            "reported_n": 109,
+            "recomputed_n": 109,
+            "reported_mean_net_r": 0.0051,
+            "recomputed_mean_net_r": 0.0051,
+            "match": true
+          },
+          "Cell_4_2025_2026": {
+            "reported_n": 109,
+            "recomputed_n": 109,
+            "reported_mean_net_r": 0.0905,
+            "recomputed_mean_net_r": 0.0905,
+            "match": true
+          }
+        },
+        "provenance_status": "CERTIFIED",
+        "leakage_status": "PASSED",
+        "config_match_status": "MATCH",
+        "replication_status": "PENDING",
+        "governance_status": "UNDER_CERTIFICATION"
+      }
+    }
+  },
+  "red_team_verifications": {
+    "TECHNICAL_BULL": {
+      "total_trades": 11575,
+      "total_pnl_r": 2518.44,
+      "top_cell_pnl_share": 0.4767,
+      "all_cells_positive": true,
+      "quarterly_means": {
+        "Q1": 0.2056,
+        "Q2": 0.2959,
+        "Q3": 0.1337,
+        "Q4": 0.2605
+      },
+      "all_quarters_positive": true,
+      "duplicates": 0,
+      "leakage": 0,
+      "t_plus_1_entry_confirmed": true,
+      "friction_confirmed": true,
+      "config_hash_match": true,
+      "audit_verdict": "VERIFIED_SUPPORTED_IN_BULL_FAIL_CLOSED_LOCK_REVIEW_PENDING"
+    },
+    "ACCUMULATION_BEAR": {
+      "total_bear_trades": 2775,
+      "q1_overall_n": 770,
+      "q1_mean_net_r": -0.0604,
+      "non_q1_mean_net_r": 0.1769,
+      "q1_drag_delta_r": -0.2373,
+      "q1_by_multi_year_cell": {
+        "Cell_1_2016_2018": {
+          "n": 63,
+          "mean_net_r": -0.1721
+        },
+        "Cell_2_2019_2021": {
+          "n": 259,
+          "mean_net_r": -0.0387
+        },
+        "Cell_3_2022_2024": {
+          "n": 189,
+          "mean_net_r": 0.0257
+        },
+        "Cell_4_2025_2026": {
+          "n": 259,
+          "mean_net_r": -0.1178
+        }
+      },
+      "is_q1_weakness_persistent": true,
+      "strategy_retuned_for_q1": false,
+      "audit_verdict": "VERIFIED_SUPPORTED_IN_BEAR_Q1_SEASONAL_DRAG_LOCK_BLOCKED"
+    },
+    "PULLBACK_SIDEWAYS": {
+      "cell_progression": {
+        "Cell_1_2016_2018": 0.2082,
+        "Cell_2_2019_2021": 0.1384,
+        "Cell_3_2022_2024": 0.1069,
+        "Cell_4_2025_2026": 0.0147
+      },
+      "prior_pooled_mean": 0.1344,
+      "recent_2025_2026_mean": 0.0147,
+      "decay_magnitude": -0.1197,
+      "welch_t_stat": 6.1261,
+      "welch_p_val": 9.6709e-10,
+      "statistically_distinguishable": true,
+      "edge_disappeared_or_compressed": "COMPRESSED_TO_NEAR_ZERO_MEAN_CI_CROSSES_ZERO",
+      "scanner_retuned": false,
+      "audit_verdict": "VERIFIED_SUPPORTED_IN_SIDEWAYS_TEMPORAL_EDGE_COMPRESSION_LOCK_BLOCKED"
+    },
+    "EOD_POWER_ANALYSIS": {
+      "total_trades_10_years": 1768,
+      "trades_per_year": {
+        "2017": 144,
+        "2018": 80,
+        "2019": 97,
+        "2020": 93,
+        "2021": 196,
+        "2022": 165,
+        "2023": 317,
+        "2024": 313,
+        "2025": 176,
+        "2026": 187
+      },
+      "trades_per_quarter": {
+        "Q1": 390,
+        "Q2": 479,
+        "Q3": 504,
+        "Q4": 395
+      },
+      "trades_per_regime": {
+        "BULL": 907,
+        "SIDEWAYS": 516,
+        "BEAR": 339
+      },
+      "holdout_sample_sizes": {
+        "BULL": 67,
+        "SIDEWAYS": 120,
+        "BEAR": 64
+      },
+      "ci_widths": {
+        "BULL": 0.44,
+        "SIDEWAYS": 0.38,
+        "BEAR": 0.42
+      },
+      "estimated_additional_trades_required": 2500,
+      "conditions_to_exit_under_certification": [
+        "Minimum 500 independent historical trades per temporal cell",
+        "Holdout Arm B CI_low > 0.0 with 95% confidence",
+        "Holdout Delta CI_low > 0.0 (dynamic beats fixed control)",
+        "Paired permutation p < 0.05",
+        "Consistent positive net expectancy across multi-year cells"
+      ],
+      "audit_verdict": "UNDERPOWERED_UNDER_CERTIFICATION_ZERO_PRODUCTION_ALERTS"
+    }
+  }
+}

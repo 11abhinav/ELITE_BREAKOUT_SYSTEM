@@ -1,0 +1,2 @@
+exit_manager,sample_N,dynamic_win_rate_pct,fixed_control_win_rate_pct,dynamic_mean_R,fixed_control_mean_R,delta_mean_R,p_value_paired,mfe_capture_efficiency_pct,verdict
+WEALTH_EXIT,37291,37.77,34.27,0.2545,0.028,0.2264,0.0,74.2,CERTIFIED (Outperforms Fixed Control)

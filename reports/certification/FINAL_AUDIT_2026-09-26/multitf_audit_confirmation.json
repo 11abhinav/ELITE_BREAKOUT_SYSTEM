@@ -1,0 +1,54 @@
+{
+  "file_path": "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/certification/CORRECTIONS_2026-09-26/MULTI_TF_audit_correction.json",
+  "final_verdict": "DECOMMISSIONED",
+  "final_verdict_correct": true,
+  "mandatory_checks": [
+    {
+      "statement": "component == MULTI_TF",
+      "present": true
+    },
+    {
+      "statement": "original -0.94R referenced",
+      "present": true
+    },
+    {
+      "statement": "'unambiguous' label acknowledged",
+      "present": true
+    },
+    {
+      "statement": "contaminated data acknowledged",
+      "present": true
+    },
+    {
+      "statement": "decommission conclusion unchanged",
+      "present": true
+    },
+    {
+      "statement": "clean data reasoning present",
+      "present": true
+    },
+    {
+      "statement": "original justification superseded",
+      "present": false
+    }
+  ],
+  "all_mandatory_present": false,
+  "full_content": {
+    "component": "MULTI_TF",
+    "issue": "PRIOR DECOMMISSION APPROVAL RESTED ON CONTAMINATED DATA",
+    "contaminated_result": {
+      "N": 21,
+      "mean_R": -0.94,
+      "label_used": "unambiguously decommissioned"
+    },
+    "clean_result": {
+      "N": 63,
+      "mean_R": 0.0066,
+      "ci_95": "[-0.65R, +1.26R]",
+      "description": "No detectable edge in either direction"
+    },
+    "final_verdict": "DECOMMISSIONED",
+    "correct_reasoning": "Decommission is justified by lack of edge on clean data (CI spans zero at all practical confidence levels). NOT by the contaminated negative mean cited previously.",
+    "audit_correction": "Prior approval statement 'MULTI_TF is unambiguously decommissioned' is amended. The approval was coincidentally correct in direction but was contamination-based, not evidence-based. This file serves as the formal correction to the audit trail."
+  }
+}

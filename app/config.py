@@ -45,12 +45,10 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID   = os.getenv("CHAT_ID")
 
 _thread_eod      = os.getenv("THREAD_EOD")
-_thread_multi_tf = os.getenv("THREAD_MULTI_TF")
 _thread_1h       = os.getenv("THREAD_1H")
 _thread_reversal = os.getenv("THREAD_REVERSAL")
 
 THREAD_EOD      = int(_thread_eod)      if _thread_eod      else None
-THREAD_MULTI_TF = int(_thread_multi_tf) if _thread_multi_tf else None
 THREAD_1H       = int(_thread_1h)       if _thread_1h       else None
 THREAD_REVERSAL = int(_thread_reversal) if _thread_reversal else None
 
@@ -181,188 +179,7 @@ MAX_MOMENTUM_BONUS = 15
 
 
 
-MULTI_TF_CONFIG = {
-    "MIN_SIGNALS":        2,
-    "MIN_BODY_RATIO":     0.60,
-    "MIN_CLOSE_POSITION": 0.65,
-    "MAX_UPPER_WICK":     0.35,
-    "MIN_VOLUME_RATIO":   1.25,
-    "MIN_VOLUME_AVG":     150_000,
-    "MIN_RSI":            52,
-    "MAX_RSI":            87,
-    # [VERSION: PHASE_D_PULLBACK_REFINEMENT_v1.0] Set default pullback mode to PREVIOUS_CLOSE
-    "PULLBACK_TRIGGER_MODE": "PREVIOUS_CLOSE", # Alternatives: PREVIOUS_CLOSE, PREVIOUS_BODY, PREVIOUS_HIGH, PREVIOUS_OPEN, INSIDE_BAR
-    # [RULE 67: MULTI_TF_RISK_CONTROL_REPAIR_v1.0]
-    "MIN_RISK_PCT":               1.2,
-    "PREFERRED_MIN_STOP_PCT":     1.5,
-    "MAX_REASONABLE_RR":          8.0,
-    "MAX_TARGET_ATR_MULT":        10.0,
-    "ENABLE_DAILY_TREND_GATE":    True,
-    "ENABLE_EXHAUSTION_GATE":     True,
-    "EXHAUSTION_VOLUME_THRESHOLD": 6.0,
-    "EXHAUSTION_CANDLE_ATR_MULT": 2.5,
-    "EXHAUSTION_WICK_RATIO":      0.40,
-    "EXHAUSTION_VWAP_DIST_MULT":  3.0,
-}
 
-MULTI_TF_SCHEDULE_METADATA = "15m Universe Scan / 5m Armed Monitor (09:30–15:30 IST)"
-
-MULTI_TF_V2_CONFIG = {
-    # ── CONTEXT (1H / 30m) ──
-    "H1_BULLISH_SCORE":              10,
-    "H1_NEUTRAL_SCORE":              0,
-    "H1_BEARISH_SCORE":             -10,
-    "M30_ROOM_THRESHOLD_PCT":       0.02,
-    "M30_ROOM_SCORE":               10,
-
-    # ── BASE GEOMETRY (ADAPTIVE V3 REDESIGN) ──
-    # Multi-window candidate evaluation (6–35 candles) avoids monolithic 35-bar over-penalization.
-    # Evaluates tight intraday coils (6-12 bars) up to mature multi-day shelves (24-35 bars).
-    "MIN_CONSOLIDATION_BARS":       6,       # Minimum base window (1.5 hours)
-    "MAX_CONSOLIDATION_BARS":       35,      # Maximum multi-day base lookback (up to 1.5 sessions)
-    "CANDIDATE_WINDOW_BARS":        [6, 8, 10, 12, 16, 20, 24, 30, 35],
-    "MIN_BOX_OCCUPANCY":            0.60,
-    "MAX_BOX_WIDTH_PCT":            0.045,   # Fallback width % cap
-    "MAX_BOX_WIDTH_ATR":            3.60,   # Absolute upper ceiling for longest bases
-    # Duration-aware ATR & PCT width limits: (min_bars, max_bars) -> {max_atr, max_pct}
-    "DURATION_ATR_WIDTH_LIMITS": [
-        {"max_bars": 8,  "max_atr": 2.00, "max_pct": 0.035},
-        {"max_bars": 14, "max_atr": 2.50, "max_pct": 0.045},
-        {"max_bars": 22, "max_atr": 3.00, "max_pct": 0.055},
-        {"max_bars": 35, "max_atr": 3.60, "max_pct": 0.065},
-    ],
-    "MIN_RESISTANCE_TESTS":         1,       # At least 1 touch required for initial watching base
-    "GAP_PCT_THRESHOLD":            0.020,   # 2.0% gap limit to avoid truncating normal multi-day bases
-    "GAP_ATR_MULT":                 2.0,
-    "BOX_HIGH_QUANTILE":            0.90,
-    "BOX_LOW_QUANTILE":             0.10,
-    "RESISTANCE_TEST_TOL_PCT":      0.0015,  # 0.15% of price for touch detection
-    "RESISTANCE_TEST_TOL_ATR":      0.08,
-    "PIVOT_CONFIRM_ATR_MULT":       0.20,
-    "PIVOT_CONFIRM_BOX_MULT":       0.15,
-    "DORMANCY_MIN_VOL_RATIO":       0.15,   # Bases with volume < 15% of 20-period median are dormant
-    "DORMANCY_PENALTY":             15,     # Penalty deducted for dormant/frozen price action
-
-    # ── V3: BASE QUALITY ENGINE (0-100) — 7 Components ──
-    # A. Maturity (15 pts): duration × quality interaction
-    "SCORE_MATURITY_MAX":           15,
-    "MATURITY_TIGHTNESS_THRESHOLD": 8,      # If tightness score < 8, cap maturity at 10 pts
-    # B. Tightness (20 pts): range / 15m ATR
-    "SCORE_TIGHTNESS_MAX":          20,
-    # C. Resistance Quality (20 pts): std dev of top highs & ceiling stability
-    "SCORE_RESISTANCE_QUALITY_MAX": 20,
-    # D. Repeated Tests (15 pts): distinct touches
-    "SCORE_REPEATED_TESTS_MAX":     15,
-    # E. Compression/VCP (15 pts): early-ATR / late-ATR
-    "SCORE_COMPRESSION_MAX":        15,
-    # F. Higher Lows (10 pts): rising lows = buyers getting aggressive
-    "SCORE_HIGHER_LOWS_MAX":        10,
-    "HIGHER_LOWS_MIN_RISE_ATR":     0.15,   # Strong HL: late_low >= early_low + 0.15× ATR
-    # G. Support Integrity (5 pts): rapid defense & structural integrity
-    "SCORE_SUPPORT_INTEGRITY_MAX":  5,
-    "SUPPORT_ZONE_ATR_MULT":        0.20,   # Lower zone = box_low + 0.20× ATR
-    "SUPPORT_INTEGRITY_LOW_PCT":    0.20,   # < 20% of bars touch floor → clean support
-
-    # Quality tier thresholds (Base Score)
-    "MIN_SETUP_SCORE":              70,      # >= 70 → 15M_BREAKOUT_WATCH
-    "MONITOR_SETUP_SCORE":          50,      # >= 50 → WATCHING base in watchlist
-    "STRONG_SETUP_SCORE":           80,      # SUPER BASE tier
-    "PREMIUM_SETUP_SCORE":          90,      # EXCEPTIONAL BASE tier
-
-    # ── V3: 5M BREAKOUT STRENGTH ENGINE (0-100) — 7 Orthogonal Components ──
-    # A. Volume Expansion / RVOL (25 pts)
-    "SCORE_RVOL_MAX":               25,
-    "RVOL_EXCEPTIONAL":             3.0,    # > 3.0× → 25 pts
-    "RVOL_VERY_STRONG":             2.0,    # 2.0–3.0× → 22 pts
-    "RVOL_STRONG":                  1.5,    # 1.5–2.0× → 18 pts
-    "RVOL_CONFIRMED":               1.25,   # 1.25–1.5× → 12 pts
-    "RVOL_NORMAL":                  1.0,    # 1.0–1.25× → 6 pts
-    # B. Volume Acceleration (10 pts): vs previous 5m bar
-    "SCORE_VOL_ACCEL_MAX":          10,
-    # C. Base-Relative Volume (10 pts): vs 15m consolidation median bar volume
-    "SCORE_BASE_REL_VOL_MAX":       10,
-    # D. Breakout Penetration (20 pts): Cross-validated ATR distance & % price expansion (NO double-counting)
-    "SCORE_PENETRATION_MAX":        20,
-    "MAGNITUDE_IDEAL_MIN_ATR":      0.25,   # Below this → weaker penetration
-    "MAGNITUDE_IDEAL_MAX_ATR":      0.70,   # Above this → possible extension
-    # E. Candle Quality (15 pts): close position + range expansion
-    "SCORE_CANDLE_QUALITY_MAX":     15,
-    # F. Bar Breakout Velocity (10 pts): ATR/min
-    "SCORE_VELOCITY_MAX":           10,
-    "VELOCITY_EXPLOSIVE_ATR_MIN":   0.15,   # >= 0.15 ATR/min → EXPLOSIVE
-    "VELOCITY_VERY_FAST_ATR_MIN":   0.08,   # >= 0.08 ATR/min → VERY FAST
-    "VELOCITY_FAST_ATR_MIN":        0.04,   # >= 0.04 ATR/min → FAST
-    # G. Market/Sector Relative Strength (10 pts): stock vs NIFTY (omitted from denom if unavailable)
-    "SCORE_MARKET_RS_MAX":          10,
-    "MARKET_RS_STRONG_LEAD":        0.005,  # stock > NIFTY + 0.5% → full points
-
-    # Breakout quality tier thresholds (Breakout Score)
-    "MIN_BREAKOUT_SCORE":           65,      # < 65 → WEAK, DB-only (no push)
-    "STRONG_BREAKOUT_SCORE":        80,      # SUPER tier
-    "EXPLOSIVE_BREAKOUT_SCORE":     90,      # EXPLOSIVE tier
-
-    # ── V3: ALERT SEVERITY CLASSIFICATION ──
-    "SEVERITY_APLUS_BASE":          90,      # A+ SETUP: base >= 90
-    "SEVERITY_APLUS_BREAKOUT":      85,      # AND breakout >= 85
-    "SEVERITY_APLUS_RVOL":          2.0,     # AND RVOL >= 2×
-    "SEVERITY_EXPLOSIVE_BASE":      85,      # EXPLOSIVE: base >= 85
-    "SEVERITY_EXPLOSIVE_BREAKOUT":  80,      # AND breakout >= 80
-    "SEVERITY_EXPLOSIVE_RVOL":      1.75,    # AND RVOL >= 1.75×
-    "SEVERITY_SUPER_BASE":          80,      # SUPER: base >= 80
-    "SEVERITY_SUPER_BREAKOUT":      75,      # AND breakout >= 75
-    "SEVERITY_SUPER_RVOL":          1.40,    # AND RVOL >= 1.40×
-    "SEVERITY_GOOD_BASE":           70,      # GOOD: base >= 70
-    "SEVERITY_GOOD_BREAKOUT":       65,      # AND breakout >= 65
-    "SEVERITY_GOOD_RVOL":           1.25,    # AND RVOL >= 1.25×
-
-    # ── 5M LIVE TRIGGER GATES ──
-    "MIN_RANGE_EXPANSION":          1.15,
-    "MIN_VOLUME_EXPANSION_ATTEMPT": 1.20,
-    "MIN_VOLUME_EXPANSION_CONFIRM": 1.25,
-    "MIN_LIVE_POSITION_ATTEMPT":    0.60,
-    "MIN_CLOSE_POSITION_CONFIRMED": 0.60,
-    "HEALTHY_PENETRATION_MAX_ATR":  1.20,    # Up to 1.20 ATR penetration is healthy expansion
-    "EXHAUSTION_RVOL_MIN":          1.75,    # Penetration > 1.20 ATR requires RVOL >= 1.75 to prove thrust
-    "EXHAUSTION_CLOSE_POS_MIN":     0.75,    # Penetration > 1.20 ATR requires close in top 25%
-    "VELOCITY_THRUST_ENVELOPE_MAX": 0.25,    # Velocity cap preventing parabolic blow-off wick
-    "MAX_EXTENSION_15M_ATR":        1.20,    # Local cap: (Close−Res)/15m ATR <= 1.20
-    "MAX_EXTENSION_DAILY_ATR":      0.75,    # Daily cap: (Close−Res)/Daily ATR <= 0.75
-    "PULLBACK_RETEST_TOL_ATR":      0.15,
-    "ENTRY_CUTOFF_TIME":            "14:15", # Normal session entry cutoff
-    "LATE_ENTRY_CUTOFF_TIME":       "15:00", # Strict late-session hard stop
-    "LATE_SESSION_MIN_BASE":        75,      # Stricter base in 14:15-15:00
-    "LATE_SESSION_MIN_BREAKOUT":    75,      # Stricter breakout in 14:15-15:00
-    "LATE_SESSION_MIN_RVOL":        1.50,    # Stricter volume in 14:15-15:00
-    "LATE_SESSION_MIN_CONFLUENCE":  82,      # Stricter confluence in 14:15-15:00
-
-    # ── PRE-BREAKOUT / IGNITION CONFIG ──
-    "PRE_BREAKOUT_MAX_DISTANCE_ATR": 0.40,   # Within 0.40 ATR of resistance
-    "PRE_BREAKOUT_MIN_BASE_SCORE":   75,     # High-quality base required for pre-breakout
-    "PRE_BREAKOUT_MIN_IGNITION_SCORE": 75,   # Minimum ignition score (0-100)
-
-    # ── VOLUME BASELINE ──
-    "MIN_VOLUME_PROJECTION_FRAC":   0.25,
-    "FIRST_CANDLE_SLOT":            "09:15",
-    "FIRST_CANDLE_VOLUME_MULT":     0.80,
-    "APPROACH_ATR_MULT":            0.10,
-    "BREAKOUT_BUFFER_ATR_MULT":     0.10,
-    "SLOT_BASELINE_SESSIONS":       10,
-
-    # ── STATE MACHINE ──
-    "MAX_ATTEMPT_BARS":             3,
-    "ATTEMPT_RESET_ATR_MULT":       0.50,
-    "FAILED_BREAKOUT_COOLDOWN_MIN": 30,
-
-    # ── SOFT MARKET REGIME SHIELD ──
-    "BEAR_MIN_TOTAL_SCORE":         80,      # In BEAR/CRASH: confluence score must be >= 80 (or core technical >= 70)
-    "BEAR_MIN_BASE_SCORE":          75,      # In BEAR/CRASH: base score must be >= 75
-    "BEAR_MIN_BREAKOUT_SCORE":      68,      # In BEAR/CRASH: breakout score must be >= 68
-    "BEAR_MIN_RVOL":                1.30,    # In BEAR/CRASH: RVOL must be >= 1.30×
-    "BEAR_MIN_CORE_TECHNICAL_SCORE": 70,     # Structure + Momentum + Volume quality floor (when 1H >= 0)
-
-    # ── TRADE QUALITY ──
-    "MIN_RR_RATIO":                 1.5,
-}
 
 LIVE_1H_CONFIG = {
     "MIN_SIGNALS":        3,
@@ -456,7 +273,6 @@ PATTERN_CONFLUENCE_CONFIG = {
 
 ALERT_COOLDOWN_MINUTES = {
     "WEALTH": 1440,       # 24 hours
-    "MULTI_TF": 240,      # 4 hours
     "EOD": 1440,          # 24 hours
     "REVERSAL": 10080,    # 7 days
     "PULLBACK": 10080,    # 7 days
@@ -465,7 +281,6 @@ ALERT_COOLDOWN_MINUTES = {
 
 SCANNER_MAX_ALERTS = {
     "WEALTH": 40,    # = sum of bucket caps: Core(15) + Growth(10) + Opportunistic(10) + QOS(5)
-    "MULTI_TF": 15,
     "EOD": 10,
     "REVERSAL": 10,
     "PULLBACK": 10,
@@ -480,8 +295,6 @@ REVERSAL_RSI_LOOKBACK = 25
 REVERSAL_MAX_TROUGH_AGE = 25
 
 BB_WIDTH_PCTILE_LOOKBACK = 60
-
-MULTI_TF_FETCH_BATCH_SIZE = 100
 
 # =====================================================================================
 # POSITION SIZING & RISK BUDGETING CONFIGURATION
@@ -512,7 +325,6 @@ SCANNER_DEDUP_ENTRY_TOLERANCE_PCT = {
     "PULLBACK": 0.5,       # 0.5% tolerance on swing pullback entries
     "EOD": 0.5,            # 0.5% tolerance on daily breakout entries
     "REVERSAL": 0.75,      # 0.75% tolerance on mean-reversion bounces
-    "MULTI_TF": 0.3,       # 0.3% tighter tolerance on 5m intraday entries
     "MULTIBAGGER": 1.0,    # 1.0% wider tolerance on fundamental buy zones
     "DEFAULT": 0.5
 }
@@ -654,12 +466,9 @@ ADAPTIVE_TARGET_CAPS = {
 # V6.0 INSTITUTIONAL CONFIGURATION
 # =====================================================================================
 
-MIN_NATURAL_RR = {
-    "MULTI_TF": 1.5,
-    "EOD": 2.0,
-    "REVERSAL": 2.0,
-    "PULLBACK": 2.0,
-}
+# =====================================================================================
+# V6.0 INSTITUTIONAL CONFIGURATION
+# =====================================================================================
 
 # =====================================================================================
 # LOCK CONTENTION TELEMETRY CONFIGURATION
@@ -668,7 +477,6 @@ LOCK_WAIT_WARNING_SECONDS = float(os.environ.get("LOCK_WAIT_WARNING_SECONDS", "1
 LOCK_HOLD_WARNING_SECONDS = float(os.environ.get("LOCK_HOLD_WARNING_SECONDS", "120.0"))
 
 MAX_REASONABLE_RR = {
-    "MULTI_TF": 6.0,
     "EOD": 8.0,
     "REVERSAL": 4.0,
     "PULLBACK": 8.0,
@@ -682,34 +490,25 @@ TARGET_CONFIDENCE_BASELINE = {
     "value": 85
 }
 
-# [FIX: DUPLICATE_CONFIG] This was a duplicate of the SCORE_THRESHOLDS defined at the top of this file.
-# Removed to avoid confusion. The authoritative definition is at the top of config.py.
-
 MIN_NATURAL_RR = {
-    "MULTI_TF": 1.5,
     "EOD": 2.5,          # [v5.3.0 UPGRADE]: 2.5R Risk Multiple Target
     "REVERSAL": 2.0,
     "PULLBACK": 2.0,
 }
 
 MIN_REWARD_POTENTIAL = {
-    "MULTI_TF": 1.5,
     "EOD": 2.5,          # [v5.3.0 UPGRADE]: 2.5R Target Multiple
     "REVERSAL": 1.8,
     "PULLBACK": 2.0,
 }
 
 MIN_STOP_PCT = {
-    "MULTI_TF": 1.2,
     "EOD": 1.5,
     "REVERSAL": 2.0,
     "PULLBACK": 1.5,
 }
 
-
-
 TARGET_QUALITY_THRESHOLD = {
-    "MULTI_TF": 55,
     "EOD":      55,
     "REVERSAL": 50,
     "PULLBACK": 55,
@@ -964,7 +763,6 @@ SOURCE_PRIORITY = {
 
 TARGET_CONFLICT_POLICY = {
     "EOD":      "REGIME",
-    "MULTI_TF": "CONFIDENCE",
     "REVERSAL": "SECOND_NEAREST",
     "PULLBACK": "REGIME",
 }
@@ -980,8 +778,6 @@ SCANNER_EXIT_PROFILE = {
     "BREAKOUT":           "BALANCED",
     "BREAKOUT_5M":        "BALANCED",
     "EOD":                "BALANCED",
-    "MULTI_TF":           "AGGRESSIVE",
-    "MULTI_TF_5M":        "AGGRESSIVE",
     "TECHNICAL":          "BALANCED",
     "ACCUMULATION":       "BALANCED",
     "REVERSAL":           "CONSERVATIVE",
@@ -989,9 +785,6 @@ SCANNER_EXIT_PROFILE = {
     "Wealth Engine":      "BALANCED",
     "WEALTH_ENGINE":      "BALANCED",
     "MULTIBAGGER":        "AGGRESSIVE",
-    "SHORT_COVERING":     "BALANCED",
-    "SHORT_COVERING_5M":  "BALANCED",
-    "SHORT_COVERING_EOD": "BALANCED",
 }
 SCANNER_EXIT_PROFILES = SCANNER_EXIT_PROFILE
 
@@ -1011,8 +804,6 @@ _MODE_CONFIG = {
     "BREAKOUT":           (2.00,    0.80,       0.0075,     3.0),
     "BREAKOUT_5M":        (1.50,    0.50,       0.0050,     3.0),
     "EOD":                (2.00,    0.80,       0.0075,     3.0),
-    "MULTI_TF":           (1.50,    0.50,       0.0050,     3.0),
-    "MULTI_TF_5M":        (1.50,    0.50,       0.0050,     3.0),
     "TECHNICAL":          (2.00,    0.80,       0.0075,     3.0),
     "ACCUMULATION":       (2.00,    0.80,       0.0075,     3.0),
     "REVERSAL":           (2.00,    1.00,       0.0100,     3.5),
@@ -1020,13 +811,7 @@ _MODE_CONFIG = {
     "Wealth Engine":      (2.00,    0.80,       0.0075,     3.0),
     "WEALTH_ENGINE":      (2.00,    0.80,       0.0075,     3.0),
     "MULTIBAGGER":        (2.00,    1.00,       0.0100,     3.5),
-    "SHORT_COVERING":     (1.50,    0.50,       0.0050,     3.0),
-    "SHORT_COVERING_5M":  (1.50,    0.50,       0.0050,     3.0),
-    "SHORT_COVERING_EOD": (2.00,    0.80,       0.0075,     3.0),
 }
-
-
-SCANNER_MULTI_TF = "MULTI_TF"
 
 # Scanner Telemetry
 SCANNER_DECISION_LOGGING = True
@@ -1049,12 +834,9 @@ def get_regime_state() -> dict:
         except Exception:
             return {"status": "NORMAL"}
 
-# Short Covering Scanner Configuration
-try:
-    from app.short_covering_config import SHORT_COVERING_CONFIG
-except ImportError:
-    try:
-        from short_covering_config import SHORT_COVERING_CONFIG
-    except ImportError:
-        SHORT_COVERING_CONFIG = {}
+
+# MULTI_TF is permanently DECOMMISSIONED per governance.
+# Stub preserved to maintain import safety across legacy test modules.
+MULTI_TF_V2_CONFIG: dict = {}
+
 

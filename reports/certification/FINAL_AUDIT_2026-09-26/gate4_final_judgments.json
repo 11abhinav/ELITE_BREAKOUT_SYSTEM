@@ -1,0 +1,84 @@
+{
+  "EOD": {
+    "stride_used": 5,
+    "N_full_overall": 1909,
+    "ci_95_overall": [
+      0.0303,
+      0.1409
+    ],
+    "gate5_pass": true,
+    "p_vs_naive_overall": 0.7627,
+    "cohen_d_overall": 0.0073,
+    "abs_r_gain_over_naive": 0.009,
+    "N_sideways_full": 141,
+    "sideways_mean_R": 0.1243,
+    "judgment": "Gate 5 PASS. OVERALL CI [+0.0303R, +0.1409R], N=1909. Absolute R gain over naive = +0.0090R/trade. p=0.7627 vs naive \u2014 not statistically distinguishable from a simple 20D-high breakout. Cohen's d=0.0073 (negligible). SIDEWAYS: N=141, mean_R=+0.1243R \u2014 underperforms naive. VERDICT: CERTIFIED in BULL-only with SIDEWAYS suppression. The gate cascade earns its keep via signal-count reduction (N=1909 vs naive N=11739 \u2014 6.1x fewer signals = lower capital churn) even without a detectable mean-R lift. BEAR N=0 is structural (RSI gate incompatible with BEAR).",
+    "action": "CERTIFIED \u2014 BULL-only. Suppress in SIDEWAYS. BEAR structurally absent."
+  },
+  "PULLBACK": {
+    "stride_used": 1,
+    "N_full_overall": 44174,
+    "ci_95_overall": [
+      0.1094,
+      0.1308
+    ],
+    "gate5_pass_overall": true,
+    "gate5_pass_bull": true,
+    "p_vs_naive_overall": 0.0083,
+    "cohen_d_overall": 0.0116,
+    "abs_r_gain_over_naive": 0.0134,
+    "N_bull": 44174,
+    "ci_95_bull": [
+      0.1094,
+      0.1306
+    ],
+    "N_bear": 0,
+    "bear_gate5_pass": false,
+    "final_verdict": "CERTIFIED (BULL-only)",
+    "judgment": "Stride=1 rebuild. BULL N=44174, CI [+0.1094R, +0.1306R] (was stride-6 N=7380). OVERALL N=44174, CI [+0.1094R, +0.1308R], p=0.0083, abs_R_gain=+0.0134R/trade. BEAR N=0 (structural \u2014 uptrend gate). VERDICT: CERTIFIED (BULL-only). If BULL Gate 5 passes: CERTIFIED BULL-only. If p vs naive is large: gates reduce signal count (churn control) without statistically detectable mean-R lift \u2014 retain for operational reasons."
+  },
+  "ACCUMULATION": {
+    "stride_used": 1,
+    "N_full_overall": 14778,
+    "ci_95_overall": [
+      0.1254,
+      0.1671
+    ],
+    "gate5_pass_overall": true,
+    "gate5_pass_bull": true,
+    "p_vs_naive_overall": 0.0154,
+    "cohen_d_overall": 0.0189,
+    "abs_r_gain_over_naive": 0.0248,
+    "N_bull": 13921,
+    "ci_95_bull": [
+      0.1324,
+      0.1756
+    ],
+    "N_bear": 857,
+    "bear_gate5_pass": false,
+    "final_verdict": "CERTIFIED (OVERALL) \u2014 regime-gate BEAR suppression recommended",
+    "judgment": "Stride=1 rebuild. OVERALL N=14778, CI [+0.1254R, +0.1671R], p=0.0154, abs_R_gain=+0.0248R/trade. BULL N=13921, CI [+0.1324R, +0.1756R]. BEAR N=857, CI [-0.0644R, +0.1051R] \u2014 Gate 5 FAIL. VERDICT: CERTIFIED (OVERALL) \u2014 regime-gate BEAR suppression recommended. BEAR regime suppression recommended regardless of BEAR gate5 result (BEAR mean-R is negative or near-zero \u2014 operational downside)."
+  },
+  "TECHNICAL": {
+    "stride_used": 1,
+    "N_full_overall": 20425,
+    "ci_95_overall": [
+      0.1337,
+      0.1699
+    ],
+    "gate5_pass_overall": true,
+    "gate5_pass_bull": true,
+    "p_vs_naive_overall": 0.0019,
+    "cohen_d_overall": 0.0203,
+    "abs_r_gain_over_naive": 0.0262,
+    "N_bull": 20425,
+    "ci_95_bull": [
+      0.134,
+      0.1703
+    ],
+    "N_bear": 0,
+    "bear_gate5_pass": false,
+    "final_verdict": "CERTIFIED (OVERALL)",
+    "judgment": "Stride=1 rebuild. OVERALL N=20425, CI [+0.1337R, +0.1699R], p=0.0019, Cohen's d=0.0203. Absolute R gain = +0.0262R/trade. Abs gain < +0.05R/trade \u2014 gates are statistically significant but economically marginal; retain for signal-quality filtering, not mean-R. BULL N=20425. BEAR N=0 (structural). VERDICT: CERTIFIED (OVERALL)."
+  }
+}

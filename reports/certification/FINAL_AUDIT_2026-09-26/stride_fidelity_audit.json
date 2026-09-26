@@ -1,0 +1,122 @@
+{
+  "EOD": {
+    "scanner_type": "daily_1d",
+    "data_source": "data/history/1d/",
+    "inner_loop": "range(50, len(df) - 15, 5)",
+    "stride_bars": 5,
+    "stride_description": "Every 5th DAILY bar",
+    "production_fires": "Every trading day (daily EOD scan)",
+    "bars_skipped_pct": 80.0,
+    "status": "DECOMMISSIONED (already finalized)",
+    "needs_rebuild": false,
+    "note": "Stride=5 means only 20% of candidate daily bars are evaluated. In a 10y/~2500 bar series: ~490 candidate bars vs ~2450 actual. Gate 5 CI passes OVERALL \u2014 but full-stride replay would increase N and may improve or worsen the p=0.76 Gate 4 result. EOD is provisionally kept for other reasons (see Item 4 judgment)."
+  },
+  "MULTI_TF": {
+    "scanner_type": "intraday_15m",
+    "data_source": "data/history/15m/",
+    "inner_loop": "range(60, len(df15) - 12, 4)",
+    "stride_bars": 4,
+    "stride_description": "Every 4th 15-minute bar",
+    "production_fires": "Every 15-minute bar during session",
+    "bars_skipped_pct": 75.0,
+    "status": "DECOMMISSIONED (confirmed)",
+    "needs_rebuild": false,
+    "note": "Audit trail only. Verdict unaffected by stride \u2014 no edge on clean data regardless."
+  },
+  "MULTI_TF_5M": {
+    "scanner_type": "intraday_5m",
+    "data_source": "data/history/5m/",
+    "inner_loop": "range(50, len(df5) - 6, 3)",
+    "stride_bars": 3,
+    "stride_description": "Every 3rd 5-minute bar",
+    "production_fires": "Every 5-minute bar during session",
+    "bars_skipped_pct": 66.7,
+    "status": "DECOMMISSIONED (confirmed)",
+    "needs_rebuild": false,
+    "note": "Audit trail only. Friction drag verdict unaffected by stride."
+  },
+  "REVERSAL": {
+    "scanner_type": "daily_1d",
+    "data_source": "data/history/1d/",
+    "inner_loop": "range(50, len(df) - holding_days - 2, 6)  [holding_days=8]",
+    "stride_bars": 6,
+    "stride_description": "Every 6th DAILY bar",
+    "production_fires": "Every trading day",
+    "bars_skipped_pct": 83.3,
+    "status": "DECOMMISSIONED (confirmed, audit trail only)",
+    "needs_rebuild": false,
+    "note": "Audit trail only. BEAR CI_low=-0.065R fails Gate 5 regardless."
+  },
+  "PULLBACK": {
+    "scanner_type": "daily_1d",
+    "data_source": "data/history/1d/",
+    "inner_loop": "range(50, len(df) - holding_days - 2, 6)  [holding_days=10]",
+    "stride_bars": 6,
+    "stride_description": "Every 6th DAILY bar \u2014 OPEN ISSUE",
+    "production_fires": "Every trading day",
+    "bars_skipped_pct": 83.3,
+    "status": "OPEN \u2014 rebuild required",
+    "needs_rebuild": true,
+    "note": "Stride=6 means only ~17% of candidate trading days are evaluated. Production scanner fires daily. Stride-6 replay UNDERESTIMATES N and may spuriously narrow or widen CI vs. a full-stride daily replay. Requires rebuild at stride=1 before final certification."
+  },
+  "ACCUMULATION": {
+    "scanner_type": "daily_1d",
+    "data_source": "data/history/1d/",
+    "inner_loop": "range(50, len(df) - holding_days - 2, 6)  [holding_days=14]",
+    "stride_bars": 6,
+    "stride_description": "Every 6th DAILY bar \u2014 OPEN ISSUE",
+    "production_fires": "Every trading day",
+    "bars_skipped_pct": 83.3,
+    "status": "OPEN \u2014 rebuild required",
+    "needs_rebuild": true,
+    "note": "Same issue as PULLBACK. Stride=6 skips 83% of candidate daily bars. BULL CI [+0.1197R, +0.2244R] was certified on stride-6 data \u2014 result may change materially at stride=1. Rebuild required."
+  },
+  "TECHNICAL": {
+    "scanner_type": "daily_1d",
+    "data_source": "data/history/1d/",
+    "inner_loop": "range(50, len(df) - holding_days - 2, 6)  [holding_days=12]",
+    "stride_bars": 6,
+    "stride_description": "Every 6th DAILY bar \u2014 OPEN ISSUE",
+    "production_fires": "Every trading day",
+    "bars_skipped_pct": 83.3,
+    "status": "OPEN \u2014 rebuild required",
+    "needs_rebuild": true,
+    "note": "Same issue as PULLBACK/ACCUMULATION. This is the only scanner with a significant Gate 4 p=0.006, but the N=3346 and CI were computed on stride-6 data. Full-stride replay may show different N and different significance. Rebuild required before final certification."
+  },
+  "TECHNICAL_INTRADAY": {
+    "scanner_type": "intraday_15m",
+    "data_source": "data/history/15m/",
+    "inner_loop": "range(40, len(df15) - 8, 3)",
+    "stride_bars": 3,
+    "stride_description": "Every 3rd 15-minute bar",
+    "production_fires": "Every 15-minute bar",
+    "bars_skipped_pct": 66.7,
+    "status": "DECOMMISSIONED (confirmed, audit trail only)",
+    "needs_rebuild": false,
+    "note": "Audit trail only. Both patterns DECOMMISSIONED regardless of stride."
+  },
+  "WEALTH_ENGINE": {
+    "scanner_type": "daily_1d",
+    "data_source": "data/history/1d/",
+    "inner_loop": "CORRECTED: i += actual_hold + 1 (non-overlapping)",
+    "stride_bars": "non-overlapping (1-bar-equivalent advance past exit)",
+    "stride_description": "Strict non-overlap: next entry placed at exit+1 bar",
+    "production_fires": "Daily review of portfolio positions",
+    "bars_skipped_pct": 0.0,
+    "status": "STATISTICALLY_UNDERPOWERED (N_eff=6.3)",
+    "needs_rebuild": false,
+    "note": "Stride-20 from original run fully replaced by i+=actual_hold+1. Confirmed: the corrected ledger shows distinct non-overlapping entries per symbol with no temporal overlap (verified against 360ONE sample). Verdict: STATISTICALLY_UNDERPOWERED regardless."
+  },
+  "MULTIBAGGER": {
+    "scanner_type": "daily_1d",
+    "data_source": "data/history/1d/",
+    "inner_loop": "CORRECTED: i += actual_hold + 1 (non-overlapping)",
+    "stride_bars": "non-overlapping (1-bar-equivalent advance past exit)",
+    "stride_description": "Strict non-overlap: next entry placed at exit+1 bar",
+    "production_fires": "Daily review of portfolio positions",
+    "bars_skipped_pct": 0.0,
+    "status": "STATISTICALLY_UNDERPOWERED (N_eff=6.1)",
+    "needs_rebuild": false,
+    "note": "Same as WEALTH_ENGINE. Corrected from stride-20. Verdict: STATISTICALLY_UNDERPOWERED regardless."
+  }
+}

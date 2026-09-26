@@ -37,8 +37,6 @@ if sys_path not in os.sys.path:
     os.sys.path.insert(0, sys_path)
 
 from eod_v2_engine import evaluate_eod_v2_symbol
-from multi_tf_engine import evaluate_multi_tf_v2_symbol
-from reversal_engine import evaluate_reversal_v2_symbol
 from pullback_engine import evaluate_pullback_v2_symbol
 from accumulation_engine import evaluate_accumulation_v2_symbol
 from multibagger_engine import evaluate_multibagger_v2_symbol
@@ -124,12 +122,9 @@ class MasterOrchestratorV2:
     def _get_master_summary_uncached(self) -> Dict[str, Any]:
         engines_status = {
             "EOD_V2": "ACTIVE",
-            "MULTI_TF_V2": "ACTIVE",
-            "REVERSAL_V2": "ACTIVE",
             "PULLBACK_V2": "ACTIVE",
             "ACCUMULATION_V2": "ACTIVE",
-            "MULTIBAGGER_V2": "ACTIVE",
-            "SHORT_COVERING_V2": "ACTIVE"
+            "MULTIBAGGER_V2": "ACTIVE"
         }
         global_status = "HEALTHY"
         try:
@@ -139,8 +134,6 @@ class MasterOrchestratorV2:
                 name_map = {
                     "EOD": "EOD_V2",
                     "EOD_V2": "EOD_V2",
-                    "MULTI_TF": "MULTI_TF_V2",
-                    "MULTI_TF_V2": "MULTI_TF_V2",
                     "REVERSAL": "REVERSAL_V2",
                     "REVERSAL_V2": "REVERSAL_V2",
                     "PULLBACK": "PULLBACK_V2",
@@ -148,9 +141,7 @@ class MasterOrchestratorV2:
                     "ACCUMULATION": "ACCUMULATION_V2",
                     "ACCUMULATION_V2": "ACCUMULATION_V2",
                     "MULTIBAGGER": "MULTIBAGGER_V2",
-                    "MULTIBAGGER_V2": "MULTIBAGGER_V2",
-                    "SHORT_COVERING": "SHORT_COVERING_V2",
-                    "SHORT_COVERING_V2": "SHORT_COVERING_V2"
+                    "MULTIBAGGER_V2": "MULTIBAGGER_V2"
                 }
 
                 down_count = 0
@@ -1019,7 +1010,7 @@ class MasterOrchestratorV2:
         except Exception:
             live_symbols = 0
 
-        engines = ["EOD_V2", "MULTI_TF_V2", "REVERSAL_V2", "PULLBACK_V2", "ACCUMULATION_V2", "MULTIBAGGER_V2", "SHORT_COVERING_V2"]
+        engines = ["EOD_V2", "PULLBACK_V2", "ACCUMULATION_V2", "MULTIBAGGER_V2"]
         return [
 
             {
@@ -1049,8 +1040,6 @@ class MasterOrchestratorV2:
         
         SCANNER_TITLES = {
             "EOD": ("EOD Momentum Breakout", "Daily (Swing)"),
-            "MULTI_TF": ("Multi-Timeframe Breakout", "1H / Intraday"),
-            "MULTI_TF_V2": ("Multi-Timeframe V2 Engine", "Intraday / 1H"),
             "PULLBACK": ("Pullback Continuation", "Daily (Swing)"),
             "REVERSAL": ("Reversal Mean-Reversion", "Daily (Counter-Trend)"),
             "ACCUMULATION": ("Institutional Accumulation", "Daily / Weekly"),
@@ -1276,7 +1265,7 @@ class MasterOrchestratorV2:
             try:
                 bw_rows = self._run_query("SELECT symbol, category as scanner, current_state as breakout_type, trigger_level as entry_price, breakout_level, last_updated as alert_time FROM breakout_watchlist WHERE symbol IN (%s, %s)", params=(symbol, symbol_clean))
                 for r in bw_rows:
-                    sc = str(r.get("scanner") or "MULTI_TF").upper()
+                    sc = str(r.get("scanner") or "EOD").upper()
                     if sc not in seen_scanners:
                         seen_scanners.add(sc)
                         detail = self._format_scanner_detail(r)
@@ -1302,7 +1291,6 @@ class MasterOrchestratorV2:
             
             synth_engines = [
                 ("EOD", "Daily Breakout Engine", "Daily (Swing)", "CONFIRMED", 88.5, 3.4, "Stage 2 Breakout above key 20-day high with expanding volume.", "Structural Swing Low"),
-                ("MULTI_TF", "Multi-Timeframe Engine", "1H / 15m / 5m", "CONFIRMED", 86.0, 2.8, "Multi-Timeframe Box Consolidation Breakout with Institutional Volume Expansion.", "1H Structural Support Anchor"),
                 ("PULLBACK", "Pullback Continuation", "Daily (Swing)", "CONFIRMED", 84.0, 2.2, "Healthy 20 EMA pullback holding key prior resistance as support.", "Pullback Swing Low Anchor")
             ]
             for sc, title, tf, state, score, vol, rationale, sl_rule in synth_engines:

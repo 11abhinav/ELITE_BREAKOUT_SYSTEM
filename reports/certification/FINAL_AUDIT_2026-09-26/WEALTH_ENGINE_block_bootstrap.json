@@ -1,0 +1,93 @@
+{
+  "component": "WEALTH_ENGINE",
+  "wall_clock_sec": 33.55,
+  "N_raw": 32489,
+  "N_eff": 6.3,
+  "avg_rho": 0.1594,
+  "mean_R": 0.2758,
+  "iid_bootstrap_ci": {
+    "lo": 0.2569,
+    "hi": 0.2947,
+    "width": 0.0378,
+    "note": "Treats N_raw as independent \u2014 wrong for correlated holdings"
+  },
+  "block_bootstrap_ci": {
+    "lo": 0.2151,
+    "hi": 0.2751,
+    "width": 0.06,
+    "method": "Resample at symbol-mean level (symbol = one block); equal-weight per symbol; more conservative than row-level for concentrated samples"
+  },
+  "gate5_on_block_ci": "STATISTICALLY_UNDERPOWERED",
+  "per_symbol_distribution": {
+    "n_symbols": 818,
+    "mean_entries_per_symbol": 39.7,
+    "median_entries_per_symbol": 43.0,
+    "max_entries_single_symbol": 99,
+    "min_entries_single_symbol": 1,
+    "symbols_with_1_entry": 11,
+    "symbols_with_gte_10": 724,
+    "top10_by_entry_count": [
+      {
+        "symbol": "HIRECT",
+        "count": 99,
+        "mean_R": 0.1311,
+        "win_rate": 0.283
+      },
+      {
+        "symbol": "AXISCADES",
+        "count": 97,
+        "mean_R": 0.1959,
+        "win_rate": 0.299
+      },
+      {
+        "symbol": "PFOCUS",
+        "count": 90,
+        "mean_R": 0.1111,
+        "win_rate": 0.278
+      },
+      {
+        "symbol": "VIMTALABS",
+        "count": 89,
+        "mean_R": 0.2477,
+        "win_rate": 0.326
+      },
+      {
+        "symbol": "OLECTRA",
+        "count": 86,
+        "mean_R": 0.2191,
+        "win_rate": 0.326
+      },
+      {
+        "symbol": "GRAVITA",
+        "count": 83,
+        "mean_R": 0.4421,
+        "win_rate": 0.361
+      },
+      {
+        "symbol": "LUMAXTECH",
+        "count": 80,
+        "mean_R": 0.323,
+        "win_rate": 0.35
+      },
+      {
+        "symbol": "DATAMATICS",
+        "count": 80,
+        "mean_R": -0.0888,
+        "win_rate": 0.25
+      },
+      {
+        "symbol": "KERNEX",
+        "count": 79,
+        "mean_R": 0.4684,
+        "win_rate": 0.367
+      },
+      {
+        "symbol": "INDOTECH",
+        "count": 79,
+        "mean_R": 0.4177,
+        "win_rate": 0.354
+      }
+    ],
+    "top10_share_of_total_N_pct": 2.7
+  }
+}

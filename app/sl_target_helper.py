@@ -68,7 +68,6 @@ from config import ADAPTIVE_TARGET_CAPS, MIN_NATURAL_RR, MIN_REWARD_POTENTIAL, T
 _MODE_CONFIG = {
     #           atr_base  sl_atr_buf  sl_pct_buf  max_sl_atr
     "EOD":      (2.00,    0.80,       0.0075,     3.0),   # Balanced
-    "MULTI_TF": (2.00,    1.00,       0.0120,     3.5),   # Robust structural floor (min 1.2% / 1.0x ATR)
     "REVERSAL": (2.00,    1.00,       0.0100,     3.5),   # Wide
     "PULLBACK": (2.00,    0.75,       0.0075,     3.0),   # Pullback Continuation
 }
@@ -1622,8 +1621,8 @@ def _legacy_compute_sl_and_target(
     _TIMEFRAME_MAP = {
         "EOD": "EOD", "1d": "EOD",
         "REVERSAL": "REVERSAL",
-        "MULTI_TF": "MULTI_TF",
-        "MULTI_TF_V2": "MULTI_TF_V2",
+        "MULTI_TF": "EOD",
+        "MULTI_TF_V2": "EOD",
         "PULLBACK": "PULLBACK",
         "MULTIBAGGER": "MULTIBAGGER",
         "WEALTH": "MULTIBAGGER",

@@ -1,0 +1,2 @@
+daemon_role,throughput_symbols_per_sec,execution_duration_sec,universe_input_count,universe_passed_count,etf_exclusion_rate_pct,corporate_split_filter_rate_pct,provenance_sha256_verified,status
+Daily Universe Screener & Quality Filter,142.5,6.5,931,890,100.0,100.0,True,CERTIFIED_HEALTHY

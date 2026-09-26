@@ -707,12 +707,10 @@ def run_pullback_pipeline(run_date: str = None, force: bool = False, session=Non
 
     cooldown_alerts = get_recent_alerts_for_scanner("PULLBACK", PULLBACK_CONFIG.get("COOLDOWN_MINUTES", 1440))
     
-    # 30-day prior alerts for evidence bonus calculation (+3 for EOD, +2 for MULTIBAGGER/MULTI_TF)
+    # 30-day prior alerts for evidence bonus calculation (+3 for EOD, +2 for MULTIBAGGER)
     prior_window_mins = effective_config.get("PRIOR_WINDOW", 30) * 1440
     prior_eod_symbols = {s for (s, _) in get_recent_alerts_for_scanner("EOD", prior_window_mins, only_active=True)}
-    prior_multi_symbols = {s for (s, _) in get_recent_alerts_for_scanner("MULTIBAGGER", prior_window_mins, only_active=True)}.union(
-        {s for (s, _) in get_recent_alerts_for_scanner("MULTI_TF", prior_window_mins, only_active=True)}
-    )
+    prior_multi_symbols = {s for (s, _) in get_recent_alerts_for_scanner("MULTIBAGGER", prior_window_mins, only_active=True)}
 
     BATCH_SIZE = int(os.environ.get("PULLBACK_FETCH_BATCH_SIZE", "200"))
     total_batches = (len(watchlist) + BATCH_SIZE - 1) // BATCH_SIZE

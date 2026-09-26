@@ -127,9 +127,9 @@ class GemStateRouter:
         """
         norm_name = str(scanner_name).upper().replace(" ", "_").replace("-", "_")
         
-        class_a_tier1 = ["REVERSAL", "PULLBACK", "PULLBACK_V2", "MULTITF_1H", "MULTIBAGGER"]
-        class_a_tier2 = ["MULTITF_5M"]
-        class_a_tier3 = ["SHORT_COVERING"]
+        class_a_tier1 = ["REVERSAL", "PULLBACK", "PULLBACK_V2", "MULTIBAGGER"]
+        class_a_tier2 = []
+        class_a_tier3 = []
         class_b_eod = ["EOD", "EOD_BREAKOUT", "ACCUMULATION", "ACCUMULATION_VCP"]
         class_c_after_hours = ["WEALTH", "WEALTH_ENGINE", "TECHNICAL", "TECHNICAL_AHAT"]
 

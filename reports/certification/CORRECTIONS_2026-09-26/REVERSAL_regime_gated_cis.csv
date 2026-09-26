@@ -1,0 +1,5 @@
+regime,N,win_rate_pct,mean_R,ci_95_low,ci_95_high,gate5_verdict,gate5_pass,notes
+BEAR,289,44.64,0.0627,-0.0648,0.1897,DECOMMISSIONED,False,Gate 5: CI_low=-0.0648R <= 0.000R FAIL
+SIDEWAYS,0,0.0,0.0,0.0,0.0,DECOMMISSIONED,False,No trades in this regime
+BULL,21,38.1,-0.118,-0.5743,0.3708,DECOMMISSIONED,False,Gate 5: CI_low=-0.5743R <= 0.000R FAIL
+OVERALL,310,44.19,0.0505,-0.072,0.1762,DECOMMISSIONED,False,Gate 5: CI_low=-0.0720R <= 0.000R FAIL

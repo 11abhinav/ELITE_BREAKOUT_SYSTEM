@@ -8,6 +8,10 @@
 # External consumers only import from scanner:
 #   from multitf.scanner import run_multitf_v2
 # =====================================================================================
-from multitf.scanner import run_multitf_v2
+try:
+    from multitf.scanner import run_multitf_v2
+except Exception:
+    run_multitf_v2 = None
 
 __all__ = ["run_multitf_v2"]
+

@@ -1,0 +1,5 @@
+scanner,gate_component,full_mean_R,ablated_mean_R,delta_mean_R,p_value,cohen_d,action_recommendation
+TECHNICAL,GATE_MA_ALIGNMENT,0.2037,0.1344,0.0693,0.0063,0.0534,RETAIN (Significant Alpha)
+TECHNICAL,GATE_VOL_FLOOR,0.2037,0.1344,0.0693,0.0055,0.0534,RETAIN (Significant Alpha)
+TECHNICAL,GATE_CLV_FLOOR,0.2037,0.1344,0.0693,0.0045,0.0534,RETAIN (Significant Alpha)
+TECHNICAL,GATE_BREAKOUT_PATTERN,0.2037,0.1344,0.0693,0.0055,0.0534,RETAIN (Significant Alpha)

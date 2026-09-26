@@ -1,0 +1,17 @@
+{
+  "component": "WEALTH_ENGINE",
+  "wall_clock_sec": 131.95,
+  "ledger_type": "ONE_ROW_PER_HOLDING",
+  "N_raw": 32489,
+  "N_eff": 6.3,
+  "avg_rho_computed": 0.1594,
+  "avg_rho_was_hardcoded": false,
+  "prior_hardcoded_rho": 0.28,
+  "win_rate_pct": 36.84,
+  "mean_R": 0.2758,
+  "ci_95_low": 0.2569,
+  "ci_95_high": 0.2947,
+  "gate5_verdict": "STATISTICALLY_UNDERPOWERED",
+  "ledger_path": "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/reports/certification/CORRECTIONS_2026-09-26/WEALTH_ENGINE/ledger_one_row_per_holding.csv",
+  "notes": "Rebuild root cause: prior N~37k was 20-bar periodic sampling of overlapping windows (run_full_system_certification.py:L970 'step=20'). New N=32489 = distinct non-overlapping entry-to-exit holdings only. Prior avg_rho=0.28 was hardcoded (L1052); now computed from 334153 actual pairwise symbol occupation correlations."
+}

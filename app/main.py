@@ -84,7 +84,6 @@ THREAD_TO_SCANNER = {
     "EODScanner":         "EOD",
     "PullbackScanner":    "PULLBACK",
     "ReversalScanner":    "REVERSAL",
-    "MultiTFScanner":     "MULTI_TF",
     "PerformanceTracker": "PERFORMANCE_TRACKER",
 }
 
@@ -108,7 +107,6 @@ def _clear_down(name: str):
 # [VERSION: SCHEDULER_REFINEMENT_v1.0]
 # ── Scan windows (start_time, end_time) ─────────────────────────────────────────────
 WINDOWS = {
-    "multi_tf": (dt_time(9, 30), dt_time(15, 30)),
     "eod":      (dt_time(18, 30), dt_time(23, 59, 59)),
     "reversal": (dt_time(18, 30), dt_time(23, 59, 59)),
     "pullback": (dt_time(18, 30), dt_time(23, 59, 59)),
@@ -442,11 +440,7 @@ def _run_multibagger_exit_single():
         except Exception:
             pass
 
-def run_multi_tf_scanner():
-    wait_for_window("multi_tf")
-    import multi_tf_scanner
-    multi_tf_scanner.start()
-    time.sleep(15)
+
 
 def run_performance_tracker():
     """Refreshes dashboard data every 5 minutes all day on weekdays."""
@@ -726,96 +720,9 @@ def _run_eod_with_retries(today_str, session=None, used_fallback=False):
 
 
 def _run_reversal_with_retries(today_str, session=None, used_fallback=False):
-    from database import upsert_scanner_health, insert_notification, is_scanner_stopped
-    if is_scanner_stopped("REVERSAL"):
-        logger.info("⏸️ [REVERSAL] Scanner is PAUSED/STOPPED by Admin. Skipping scheduled execution.")
-        return
-    retry_count = 0
-    while True:
-        # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run
-        # today counts. The prior 21:00 time-gate is removed — see _run_eod_with_retries.
-        try:
-            from database import get_all_scanner_health
-            health_records = get_all_scanner_health()
-            already_ran = False
-            for rec in health_records:
-                if rec.get("scanner_name") == "REVERSAL" and rec.get("status") == "OK" and rec.get("last_success"):
-                    last_success_str = str(rec["last_success"])
-                    if last_success_str.startswith(today_str):
-                        try:
-                            from dateutil.parser import isoparse
-                            ls_dt = isoparse(last_success_str)
-                            win_start_time, _ = WINDOWS["reversal"]
-                            if ls_dt.time() >= win_start_time:
-                                already_ran = True
-                                break
-                            else:
-                                logger.info("🔄 REVERSAL SCAN | Previous run today was BEFORE 18:00 (manual trigger). Will execute scheduled run.")
-                        except Exception as e:
-                            logger.warning(f"Could not parse last_success: {e}")
-                            already_ran = True
-                            break
-            
-            if already_ran:
-                logger.info("🔄 REVERSAL SCAN | Already successfully executed today.")
-                return
-        except Exception as e:
-            logger.warning(f"Could not verify REVERSAL previous run status: {e}")
-        
-        try:
-            logger.info(f"🔄 REVERSAL SCAN | Starting scan for {today_str}...")
-            import reversal_scanner
-            start_time = time.time()
-            with MemoryProfiler("REVERSAL", force_gc_cleanup=True):
-                total = reversal_scanner.start(force=True, session=session, trigger_type="SCHEDULED", scheduler_name="CRON", used_fallback_data=used_fallback)
-            duration_sec = round(time.time() - start_time, 1)
-            time.sleep(15)
-            if total == 0:
-                logger.info(f"🔄 REVERSAL | Completed in {format_duration(duration_sec)} — Zero alerts")
-            else:
-                logger.info(f"🔄 REVERSAL | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
-                
-            is_stale_session = session is not None and session.metadata.delivery_status == "STALE"
-            status_val = "DEGRADED_FALLBACK" if (used_fallback or is_stale_session) else "OK"
-            upsert_scanner_health(
-                "REVERSAL",
-                status=status_val,
-                last_success=datetime.now(IST).isoformat(),
-                today_alerts=total,
-                scheduled_for="Daily 18:30 IST (Post-Bhavcopy Delivery)",
-                duration_seconds=duration_sec
-            )
-            logger.info("✅ REVERSAL SCANNER | Completed successfully for today.")
-            with MemoryProfiler("Cleanup - REVERSAL", force_gc_cleanup=True):
-                pass
-            return
-            
-        except Exception as exc:
-            if "actively running" in str(exc).lower():
-                logger.info("⏳ REVERSAL scanner is already running in another process. Waiting...")
-                time.sleep(60)
-                continue
-                
-            retry_count += 1
-            now = datetime.now(IST)
-            
-            if 0 <= now.hour < 6:
-                logger.critical(f"⏰ MIDNIGHT PASSED — REVERSAL scanner force-stopping after {retry_count} retries")
-                upsert_scanner_health("REVERSAL", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="Daily 18:30 IST (Post-Bhavcopy Delivery)")
-                return
-            
-            logger.critical(f"💀 REVERSAL scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
-            from database import upsert_scanner_health, insert_notification
-            upsert_scanner_health("REVERSAL", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="Daily 18:30 IST (Post-Bhavcopy Delivery)")
-            
-            if retry_count == 1:
-                try:
-                    insert_notification(notif_type="scanner_down", title="🚨 REVERSAL Scanner CRASHED", message=f"Error: {str(exc)[:400]}. Auto-retrying.")
-                except Exception:
-                    pass
-            
-            wait_time = min(300, (2 ** retry_count) * random.uniform(0.5, 1.5))
-            time.sleep(wait_time)
+    """REVERSAL SCANNER: PERMANENTLY DECOMMISSIONED."""
+    logger.info("🛑 [DECOMMISSIONED] REVERSAL scanner is decommissioned and silenced.")
+    return
 
 
 def _run_pullback_with_retries(today_str, session=None, used_fallback=False):
@@ -954,10 +861,7 @@ def run_evening_scanners():
         # 2. Run EOD Scanner (receives session; falls back to independent fetch if session=None)
         _run_eod_with_retries(today_str, session=evening_session, used_fallback=used_fallback)
         
-        # 3. Run Reversal Scanner
-        _run_reversal_with_retries(today_str, session=evening_session, used_fallback=used_fallback)
-
-        # 4. Run Pullback Scanner (after EOD & Reversal finish)
+        # 3. Run Pullback Scanner (after Accumulation & EOD finish)
         _run_pullback_with_retries(today_str, session=evening_session, used_fallback=used_fallback)
 
         # Verify actual execution outcome from database health records before declaring status
@@ -971,15 +875,14 @@ def run_evening_scanners():
             
         acc_ok = _check_scanner_ok("ACCUMULATION")
         eod_ok = _check_scanner_ok("EOD")
-        rev_ok = _check_scanner_ok("REVERSAL")
         pb_ok  = _check_scanner_ok("PULLBACK")
 
-        if acc_ok and eod_ok and rev_ok and pb_ok:
-            logger.info("✅ All Evening Scanners (Accumulation, EOD, Reversal, & Pullback) completed successfully for today.")
+        if acc_ok and eod_ok and pb_ok:
+            logger.info("✅ All Evening Scanners (Accumulation, EOD, & Pullback) completed successfully for today.")
             telemetry.log_scheduler_event("EVENING_SCANNERS", "CYCLE_COMPLETE")
             telemetry.log_session_timeline("Completed Evening Scanners Cycle Successfully")
         else:
-            status_str = f"EOD={'OK' if eod_ok else 'FAILED'}, REVERSAL={'OK' if rev_ok else 'FAILED'}, PULLBACK={'OK' if pb_ok else 'FAILED'}"
+            status_str = f"ACCUMULATION={'OK' if acc_ok else 'FAILED'}, EOD={'OK' if eod_ok else 'FAILED'}, PULLBACK={'OK' if pb_ok else 'FAILED'}"
             logger.error(f"⚠️ Evening Scanners batch finished with incomplete/failed status: [{status_str}]")
             telemetry.log_scheduler_event("EVENING_SCANNERS", "CYCLE_FAILED", error=status_str)
             telemetry.log_session_timeline(f"Evening Scanners Cycle Failed: {status_str}")
@@ -1078,14 +981,13 @@ def run_all_seven_scanners_non_market_boot():
     as displayed on the System Health dashboard card grid when the server restarts during non-market hours.
     Sequence (matches Health Card Grid):
       1. DAILY_BUILDER (Watchlist Builder)
-      2. MULTI_TF (Multi-TF Scanner)
-      3. ACCUMULATION (Accumulation Scanner)
-      4. EOD (EOD Scanner)
-      5. REVERSAL (Reversal Scanner)
-      6. PULLBACK (Pullback Pipeline)
-      7. TECHNICAL (Technical Scanner)
-      8. Wealth Engine (Wealth Engine)
-      9. MULTIBAGGER (Multibagger Scanner)
+      2. ACCUMULATION (Accumulation Scanner)
+      3. EOD (EOD Scanner)
+      4. REVERSAL (Reversal Scanner)
+      5. PULLBACK (Pullback Pipeline)
+      6. TECHNICAL (Technical Scanner)
+      7. Wealth Engine (Wealth Engine)
+      8. MULTIBAGGER (Multibagger Scanner)
     """
     def _run_batch():
         logger.info("======================================================================")
@@ -1104,7 +1006,6 @@ def run_all_seven_scanners_non_market_boot():
         # before downstream technical and fundamental scanners execute.
         all_scanners = [
             ("DAILY_BUILDER", _trigger_daily_builder),
-            ("MULTI_TF", _trigger_multi_tf),
             ("ACCUMULATION", _trigger_accumulation),
             ("EOD", _trigger_eod),
             ("REVERSAL", _trigger_reversal),
@@ -1490,24 +1391,6 @@ def run_system_scheduler():
         except Exception as e:
             logger.exception(f"Failed to verify wealth system: {e}")
 
-        # 3. Verify Multi-TF System
-        try:
-            MULTI_TF_PATH = os.path.join(DATA_DIR, "multi_tf_system.parquet")
-            if not os.path.exists(MULTI_TF_PATH):
-                logger.warning(f"⚠️ Multi-TF system missing from disk. Attempting DB restore for {today_str}...")
-                try:
-                    from database import download_parquet_from_db_today, download_parquet_from_db
-                    restored = download_parquet_from_db_today("multi_tf_system", MULTI_TF_PATH)
-                    if not restored:
-                        restored = download_parquet_from_db("multi_tf_system", MULTI_TF_PATH)
-
-                    if restored and os.path.exists(MULTI_TF_PATH):
-                        logger.info("✅ Multi-TF system restored from DB.")
-                except Exception as e:
-                    logger.warning(f"Failed to restore multi_tf_system from DB: {e}")
-        except Exception as e:
-            logger.warning(f"Failed to verify Multi-TF system: {e}")
-
         logger.info("✅ SCHEDULER | File readiness verification complete")
 
     def safe_run_multibagger_scan_initial():
@@ -1563,8 +1446,6 @@ def run_system_scheduler():
 
     last_mb_exit = None
     last_perf = None
-    last_multi_tf = None          # Tracks last 15-min candle-aligned Multi-TF intelligence run
-    last_multi_tf_5m = None       # Tracks last 5-min candle-aligned Multi-TF confirmation monitor
     daily_builder_ran = False
     wealth_initial_ran = False
     multibagger_initial_ran = False
@@ -1699,7 +1580,7 @@ def run_system_scheduler():
                 # Exit monitors run in daemon background threads so the scheduler loop is NEVER
                 # blocked. Previously even after removing global_scanner_lock, the monitors ran
                 # synchronously in the loop — if run_wealth_intraday_update took 60-90s it delayed
-                # the slot check that fires MULTI_TF. Each monitor has its own dedup guards so
+                # the slot checks. Each monitor has its own dedup guards so
                 # parallel threads are safe:
                 #   - _run_multibagger_exit_single: is_scanner_stopped + run_standalone_exit_monitor own guards
                 #   - _run_performance_tracker_single: _perf_rebuild_lock + is_scanner_stopped
@@ -1734,51 +1615,8 @@ def run_system_scheduler():
                     ).start()
 
                 
-                # Multi-TF Dual-Cadence Execution Model:
-                # 1. Primary 15m Scan (Intelligence Layer: 09:30, 09:45, 10:00 … 15:15 IST)
-                #    Guarantees 15m candle is 100% closed with a +20s buffer before screening.
-                # 2. Secondary 5m Monitor (Confirmation Layer: 09:35, 09:40, 09:50, 09:55 … 15:25 IST)
-                #    Monitors stateful ARMED candidates only (<3s).
-                # [RULE 67 CHANGE-RATIONALE]: Refresh timestamp and use slot-based boundary checking in background threads.
-                # Previously, synchronous exit monitors running at :00 delayed the scheduler loop past :00:59,
-                # causing the narrow (now.minute % 15 == 0 and now.second >= 20) check to evaluate to False and miss the slot entirely.
-                from datetime import timedelta as _td
                 now_mtf = datetime.now(IST)
                 if (now_mtf.hour >= 9 and (now_mtf.hour < 15 or (now_mtf.hour == 15 and now_mtf.minute <= 30))):
-                    # Check 15m completed candle boundary (09:30, 09:45, 10:00 … 15:15)
-                    slot_15m_min = (now_mtf.minute // 15) * 15
-                    slot_15m = now_mtf.replace(minute=slot_15m_min, second=0, microsecond=0)
-                    if (now_mtf.hour > 9 or now_mtf.minute >= 30) and now_mtf >= (slot_15m + _td(seconds=20)):
-                        if last_multi_tf is None or slot_15m > last_multi_tf:
-                            last_multi_tf = slot_15m
-                            if not is_scanner_stopped("MULTI_TF"):
-                                logger.info(f"🚀 MULTI_TF (15M) | Starting closed-candle aligned 15m intelligence cycle for slot {slot_15m.strftime('%H:%M')} IST...")
-                                import threading
-                                threading.Thread(
-                                    target=_trigger_multi_tf,
-                                    kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"},
-                                    name=f"MultiTF-15m-{slot_15m.strftime('%H%M')}",
-                                    daemon=True
-                                ).start()
-                            else:
-                                logger.info("⏭️ MULTI_TF is STOPPED by Admin. Skipping 15m cycle.")
-
-                    # Check intermediate 5m completed candle boundary (09:35, 09:40, 09:50, 09:55 … 15:25)
-                    slot_5m_min = (now_mtf.minute // 5) * 5
-                    slot_5m = now_mtf.replace(minute=slot_5m_min, second=0, microsecond=0)
-                    if slot_5m.minute % 15 != 0 and (now_mtf.hour > 9 or now_mtf.minute >= 35) and now_mtf >= (slot_5m + _td(seconds=15)):
-                        if last_multi_tf_5m is None or slot_5m > last_multi_tf_5m:
-                            last_multi_tf_5m = slot_5m
-                            if not is_scanner_stopped("MULTI_TF"):
-                                logger.info(f"⚡ MULTI_TF (5M MONITOR) | Starting lightweight ARMED candidate confirmation check for slot {slot_5m.strftime('%H:%M')} IST...")
-                                import threading
-                                threading.Thread(
-                                    target=_trigger_multi_tf_5m_monitor,
-                                    kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"},
-                                    name=f"MultiTF-5m-{slot_5m.strftime('%H%M')}",
-                                    daemon=True
-                                ).start()
-
                     # 5. Technical Scanner - Market Hours (15M Intraday Breakouts: 09:16, 09:31, 09:46 ... 15:16 IST)
                     if (now_mtf.hour > 9 or (now_mtf.hour == 9 and now_mtf.minute >= 16)) and (now_mtf.hour < 15 or (now_mtf.hour == 15 and now_mtf.minute <= 30)):
                         slot_tech_min = ((now_mtf.minute - 1) // 15) * 15 + 1 if now_mtf.minute > 0 else 46
@@ -1854,14 +1692,7 @@ def run_system_scheduler():
                             else:
                                 logger.info("⏭️ EOD Scanner is STOPPED by Admin. Skipping.")
 
-                            # 3. Reversal Scanner
-                            if not is_scanner_stopped("REVERSAL"):
-                                logger.info("Starting Reversal Scanner...")
-                                _run_reversal_with_retries(today_str, session)
-                            else:
-                                logger.info("⏭️ Reversal Scanner is STOPPED by Admin. Skipping.")
-
-                            # 4. Pullback Pipeline
+                            # 3. Pullback Pipeline
                             if not is_scanner_stopped("PULLBACK"):
                                 logger.info("Starting Pullback Pipeline...")
                                 _run_pullback_with_retries(today_str, session)
@@ -1944,8 +1775,6 @@ def check_scanner_staleness(now):
     """
     # Expected max gap (in minutes) for each scanner before it's considered stale
     SCANNER_CADENCE = {
-        "MULTI_TF":            25,       # runs every 15 min (aligned to closed 15m candles)
-        "MULTI_TF_5M":         15,       # runs every 5 min
         "PERFORMANCE_TRACKER": 15,       # runs every 5 min
         "MULTIBAGGER_EXIT":    15,       # runs every 5 min during market hours
         "WEALTH_EXIT":         15,       # runs every 5 min during market hours
@@ -2014,7 +1843,7 @@ def check_scanner_staleness(now):
                 else:
                     from market_utils import is_market_open
                     # [RULE 67 CHANGE-RATIONALE]:
-                    # 1. Intraday scanners (MULTI_TF, MULTI_TF_5M, PERFORMANCE_TRACKER, WEALTH_EXIT) only run during active market hours (09:15-15:30 IST weekdays).
+                    # 1. Intraday monitors (PERFORMANCE_TRACKER, WEALTH_EXIT) only run during active market hours (09:15-15:30 IST weekdays).
                     #    Outside market hours (nights, weekends), large gaps are expected; skipping staleness check prevents false alarms.
                     # 2. When stale DURING market hours, attempt auto-triggering first before declaring DOWN status.
                     if is_market_open(now):
@@ -2339,8 +2168,6 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     TRIGGER_MAP = {
         # [VERSION: TRIGGER_AI_WORKER_v1.0] Add AI Worker trigger mapping and lock resolution
         "DAILY_BUILDER": _trigger_daily_builder,
-        "MULTI_TF":      _trigger_multi_tf,
-        "MULTI_TF_5M":   _trigger_multi_tf_5m_monitor,
         "EOD":           _trigger_eod,
         "REVERSAL":      _trigger_reversal,
         "PULLBACK":      _trigger_pullback,
@@ -2363,8 +2190,6 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     # Check locks synchronously to return immediate HTTP JSON error
     LOCK_MAP = {
         "DAILY_BUILDER": lambda: __import__('daily_builder')._build_lock,
-        "MULTI_TF":      lambda: __import__('multitf.scanner', fromlist=['_scan_lock'])._scan_lock,
-        "MULTI_TF_5M":   lambda: __import__('multitf.scanner', fromlist=['_scan_lock_5m'])._scan_lock_5m,
         "EOD":           lambda: __import__('eod_scanner')._scan_lock,
         "REVERSAL":      lambda: __import__('reversal_scanner')._scan_lock,
         "PULLBACK":      lambda: __import__('pullback_pipeline')._scan_lock,
@@ -2468,7 +2293,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
             try:
                 dur_str = f"Time: {format_duration(duration_sec)}"
                 summary = f"Total Scanned: {stats.get('total_count', 'N/A')} | {dur_str}" if isinstance(stats, dict) else f"Completed in {dur_str}."
-                if scanner_key not in ["DAILY_BUILDER", "EOD", "MULTIBAGGER", "REVERSAL", "MULTI_TF", "Wealth Engine", "PULLBACK"]:
+                if scanner_key not in ["DAILY_BUILDER", "EOD", "MULTIBAGGER", "REVERSAL", "Wealth Engine", "PULLBACK"]:
                     insert_notification("info", f"✅ {scanner_key} Manual Scan Complete", summary)
             except Exception:
                 pass
@@ -2544,58 +2369,6 @@ def _trigger_daily_builder(force_rebuild: bool = False, trigger_type="MANUAL", s
             complete_scanner_execution_run(run_ctx, exception=exc)
         upsert_scanner_health("DAILY_BUILDER", status="DOWN", error_msg=str(exc))
         raise exc
-
-def _trigger_multi_tf(trigger_type="SCHEDULED", scheduler_name="CRON"):
-    from database import is_scanner_stopped
-    if is_scanner_stopped("MULTI_TF"):
-        logger.info("⏸️ [MULTI_TF] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
-        return
-    from multitf.scanner import run_multitf_v2
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    
-    # [RULE 67 CHANGE-RATIONALE]:
-    # Fixed ImportError: 'cannot import name get_regime_state from config'.
-    # Market regime in the unified system is provided by MarketRegimeEngine / regime_engine / config.get_regime_state.
-    # We safely fetch the current regime context with a robust fallback to {"status": "NORMAL"}.
-    try:
-        from macro_utils import MarketRegimeEngine
-        raw_regime = MarketRegimeEngine.get_regime_context()
-        trend = raw_regime.get("trend", "NORMAL") if isinstance(raw_regime, dict) else "NORMAL"
-        regime_ctx = {"status": trend, **(raw_regime if isinstance(raw_regime, dict) else {})}
-    except Exception:
-        try:
-            from config import get_regime_state
-            regime_ctx = get_regime_state()
-        except Exception:
-            regime_ctx = {"status": "NORMAL"}
-        
-    ist_now = datetime.now(ZoneInfo("Asia/Kolkata"))
-    return run_multitf_v2(regime_ctx=regime_ctx, ist_now=ist_now, run_ctx=trigger_type)
-
-
-def _trigger_multi_tf_5m_monitor(trigger_type="SCHEDULED", scheduler_name="CRON"):
-    from database import is_scanner_stopped
-    if is_scanner_stopped("MULTI_TF"):
-        logger.info("⏸️ [MULTI_TF] Scanner is PAUSED/STOPPED by Admin. Skipping 5m monitor trigger.")
-        return
-    from multitf.scanner import run_multitf_5m_monitor
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    try:
-        from macro_utils import MarketRegimeEngine
-        raw_regime = MarketRegimeEngine.get_regime_context()
-        trend = raw_regime.get("trend", "NORMAL") if isinstance(raw_regime, dict) else "NORMAL"
-        regime_ctx = {"status": trend, **(raw_regime if isinstance(raw_regime, dict) else {})}
-    except Exception:
-        try:
-            from config import get_regime_state
-            regime_ctx = get_regime_state()
-        except Exception:
-            regime_ctx = {"status": "NORMAL"}
-        
-    ist_now = datetime.now(ZoneInfo("Asia/Kolkata"))
-    return run_multitf_5m_monitor(regime_ctx=regime_ctx, ist_now=ist_now, run_ctx=trigger_type)
 
 
 def _trigger_eod(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
@@ -2760,16 +2533,10 @@ if __name__ == "__main__":
             registry.register_consumer("watchlist", "WealthEngine")
             registry.register_consumer("price_1d", "WealthEngine")
             registry.register_consumer("fundamentals_quarterly", "WealthEngine")
-            registry.register_consumer("watchlist", "MultiTFScanner")
-            registry.register_consumer("price_1m", "MultiTFScanner")
-            registry.register_consumer("price_15m", "MultiTFScanner")
-            registry.register_consumer("price_1d", "MultiTFScanner")
             registry.register_consumer("watchlist", "EODScanner")
             registry.register_consumer("price_1d", "EODScanner")
             registry.register_consumer("watchlist", "PullbackScanner")
             registry.register_consumer("price_1d", "PullbackScanner")
-            registry.register_consumer("watchlist", "ReversalScanner")
-            registry.register_consumer("price_1d", "ReversalScanner")
             registry.validate()
             logger.info("✅ Dataset Registry graph validation passed.")
         except Exception as e:

@@ -1,0 +1,304 @@
+{
+  "provenance": {
+    "status": "CERTIFIED",
+    "total_historical_trades": 80288,
+    "regime_days": 2464,
+    "regime_file_hash": "aa2b8a162a370ee0e851998ffd6c6c3568678e75c9eda0c39c9f8f39aa25d95a",
+    "files": {
+      "TECHNICAL": "4a952ca20c529f6178535fdd55ec9aaa5b51544976f81e8c0cb1fbf24b40e131",
+      "PULLBACK": "388afdf32e4fe1d77c36578ffae3edbf0f9317dcd3c6eb40af1f55be3637ec75",
+      "ACCUMULATION": "6994bf983c40181babab670b20cdd862608095e20635a6b9bccc4a33296cde76",
+      "EOD": "8455e2092980e507426867f74c217357b046116ec6dee48c700b240e554b8447"
+    }
+  },
+  "leakage_audit": {
+    "total_trades_checked": 80288,
+    "leakage_lookahead_failures": 0,
+    "status": "PASSED"
+  },
+  "config_audit": {
+    "config_hash": "4a11187c816bf6c9f74326799b5129e1a9ac5847654f5e7faca4cbc197fd55e6",
+    "in_sample_fitting_detected": false,
+    "cell_specific_tuning": false
+  },
+  "TECHNICAL_BULL": {
+    "supported_regime": "BULL",
+    "all_cells_positive": true,
+    "all_quarters_positive": true,
+    "cells": {
+      "Cell_1_2016_2018": {
+        "n": 1652,
+        "arm_b_mean": 0.2197,
+        "arm_b_ci": [
+          0.166,
+          0.2731
+        ],
+        "delta_mean": 0.0455,
+        "delta_ci": [
+          0.0102,
+          0.0842
+        ],
+        "perm_p": 0.012,
+        "is_positive": true
+      },
+      "Cell_2_2019_2021": {
+        "n": 3472,
+        "arm_b_mean": 0.2327,
+        "arm_b_ci": [
+          0.1956,
+          0.2701
+        ],
+        "delta_mean": 0.0974,
+        "delta_ci": [
+          0.0685,
+          0.1239
+        ],
+        "perm_p": 0.0,
+        "is_positive": true
+      },
+      "Cell_3_2022_2024": {
+        "n": 5443,
+        "arm_b_mean": 0.2206,
+        "arm_b_ci": [
+          0.1896,
+          0.2468
+        ],
+        "delta_mean": 0.0393,
+        "delta_ci": [
+          0.0179,
+          0.0595
+        ],
+        "perm_p": 0.0,
+        "is_positive": true
+      },
+      "Cell_4_2025_2026": {
+        "n": 1008,
+        "arm_b_mean": 0.1458,
+        "arm_b_ci": [
+          0.0792,
+          0.2126
+        ],
+        "delta_mean": 0.0797,
+        "delta_ci": [
+          0.0361,
+          0.1257
+        ],
+        "perm_p": 0.0,
+        "is_positive": true
+      }
+    },
+    "quarters": {
+      "Q1": {
+        "n": 2210,
+        "arm_b_mean": 0.2056
+      },
+      "Q2": {
+        "n": 3119,
+        "arm_b_mean": 0.2959
+      },
+      "Q3": {
+        "n": 3835,
+        "arm_b_mean": 0.1337
+      },
+      "Q4": {
+        "n": 2411,
+        "arm_b_mean": 0.2605
+      }
+    },
+    "status": "EVIDENCE_CONFIRMED_PENDING_FINAL_LOCK"
+  },
+  "ACCUMULATION_BEAR": {
+    "supported_regime": "BEAR",
+    "all_cells_positive": true,
+    "q1_weakness_observed": true,
+    "q1_mean_net_r": -0.0604,
+    "cells": {
+      "Cell_1_2016_2018": {
+        "n": 663,
+        "arm_b_mean": 0.0402,
+        "arm_b_ci": [
+          -0.0445,
+          0.1247
+        ],
+        "delta_mean": 0.0808,
+        "delta_ci": [
+          0.0299,
+          0.1346
+        ],
+        "perm_p": 0.0,
+        "is_positive": false
+      },
+      "Cell_2_2019_2021": {
+        "n": 673,
+        "arm_b_mean": 0.1356,
+        "arm_b_ci": [
+          0.0509,
+          0.2203
+        ],
+        "delta_mean": 0.01,
+        "delta_ci": [
+          -0.0405,
+          0.0636
+        ],
+        "perm_p": 0.325,
+        "is_positive": true
+      },
+      "Cell_3_2022_2024": {
+        "n": 458,
+        "arm_b_mean": 0.2065,
+        "arm_b_ci": [
+          0.1048,
+          0.3096
+        ],
+        "delta_mean": 0.0642,
+        "delta_ci": [
+          -0.0056,
+          0.1359
+        ],
+        "perm_p": 0.032,
+        "is_positive": true
+      },
+      "Cell_4_2025_2026": {
+        "n": 981,
+        "arm_b_mean": 0.0975,
+        "arm_b_ci": [
+          0.0327,
+          0.1641
+        ],
+        "delta_mean": 0.0603,
+        "delta_ci": [
+          0.0163,
+          0.1051
+        ],
+        "perm_p": 0.006,
+        "is_positive": true
+      }
+    },
+    "quarters": {
+      "Q1": {
+        "n": 770,
+        "arm_b_mean": -0.0604
+      },
+      "Q2": {
+        "n": 718,
+        "arm_b_mean": 0.2194
+      },
+      "Q3": {
+        "n": 689,
+        "arm_b_mean": 0.2027
+      },
+      "Q4": {
+        "n": 598,
+        "arm_b_mean": 0.0961
+      }
+    },
+    "status": "EVIDENCE_CONFIRMED_Q1_WARNING_LOCK_BLOCKED"
+  },
+  "PULLBACK_SIDEWAYS": {
+    "supported_regime": "SIDEWAYS",
+    "2025_2026_ci": [
+      -0.017,
+      0.0496
+    ],
+    "decay_detected": true,
+    "cells": {
+      "Cell_1_2016_2018": {
+        "n": 2086,
+        "arm_b_mean": 0.2082,
+        "arm_b_ci": [
+          0.1676,
+          0.2503
+        ],
+        "delta_mean": -0.0175,
+        "delta_ci": [
+          -0.0398,
+          0.0061
+        ],
+        "perm_p": 1.0,
+        "is_positive": true
+      },
+      "Cell_2_2019_2021": {
+        "n": 4185,
+        "arm_b_mean": 0.1384,
+        "arm_b_ci": [
+          0.1095,
+          0.1687
+        ],
+        "delta_mean": 0.0027,
+        "delta_ci": [
+          -0.0127,
+          0.0195
+        ],
+        "perm_p": 0.366,
+        "is_positive": true
+      },
+      "Cell_3_2022_2024": {
+        "n": 6196,
+        "arm_b_mean": 0.1069,
+        "arm_b_ci": [
+          0.0831,
+          0.1312
+        ],
+        "delta_mean": 0.0589,
+        "delta_ci": [
+          0.0447,
+          0.0737
+        ],
+        "perm_p": 0.0,
+        "is_positive": true
+      },
+      "Cell_4_2025_2026": {
+        "n": 3329,
+        "arm_b_mean": 0.0147,
+        "arm_b_ci": [
+          -0.017,
+          0.0496
+        ],
+        "delta_mean": 0.0703,
+        "delta_ci": [
+          0.0496,
+          0.0902
+        ],
+        "perm_p": 0.0,
+        "is_positive": false
+      }
+    },
+    "quarters": {
+      "Q1": {
+        "n": 2439,
+        "arm_b_mean": -0.0309
+      },
+      "Q2": {
+        "n": 3744,
+        "arm_b_mean": 0.2099
+      },
+      "Q3": {
+        "n": 3932,
+        "arm_b_mean": 0.2061
+      },
+      "Q4": {
+        "n": 5681,
+        "arm_b_mean": 0.0359
+      }
+    },
+    "status": "TEMPORAL_EDGE_COMPRESSION_LOCK_BLOCKED"
+  },
+  "EOD": {
+    "supported_regime": "NONE",
+    "status": "UNDERPOWERED_UNDER_CERTIFICATION",
+    "sample_size_assessment": "Severely underpowered across 10-year period (total trades 1,768 vs 20k+ required; cell sizes 55-496)."
+  },
+  "governance_state": {
+    "active_production_scanners": [],
+    "under_certification_scanners": [
+      "EOD",
+      "ACCUMULATION",
+      "TECHNICAL",
+      "EOD_SCANNER",
+      "PULLBACK",
+      "SCAN_EOD"
+    ],
+    "live_production_alerts": 0,
+    "fail_closed_mode": "ACTIVE"
+  }
+}

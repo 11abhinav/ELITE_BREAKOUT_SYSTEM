@@ -1,0 +1,4 @@
+scanner,gate_component,full_mean_R,ablated_mean_R,delta_mean_R,p_value,cohen_d,action_recommendation
+REVERSAL,GATE_OVERSOLD,0.0505,0.0515,-0.0011,0.9882,-0.001,DEAD_WEIGHT (Strip)
+REVERSAL,GATE_HAMMER_CANDLE,0.0505,0.0515,-0.0011,0.9844,-0.001,DEAD_WEIGHT (Strip)
+REVERSAL,GATE_VOL_SURGE,0.0505,0.0515,-0.0011,0.9862,-0.001,DEAD_WEIGHT (Strip)

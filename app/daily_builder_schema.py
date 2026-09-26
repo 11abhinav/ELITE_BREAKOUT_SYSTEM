@@ -255,14 +255,78 @@ def init_universe_tables_schema() -> None:
         raise
 
 
+# ---------------------------------------------------------------------------
+# daily_builder_master_v2  (Master 26-column Daily Builder 2.0 Table)
+# ---------------------------------------------------------------------------
+
+_DAILY_BUILDER_MASTER_V2_DDL = """
+CREATE TABLE IF NOT EXISTS daily_builder_master_v2 (
+    id                          SERIAL PRIMARY KEY,
+    build_date                  DATE NOT NULL,
+    symbol                      VARCHAR(40) NOT NULL,
+    company                     VARCHAR(150),
+    macro_regime                VARCHAR(20),
+    technical_state             VARCHAR(50),
+    technical_source            VARCHAR(50),
+    quality_score               FLOAT,
+    growth_score                FLOAT,
+    valuation_score             FLOAT,
+    wealth_score                FLOAT,
+    risk_score                  FLOAT,
+    fundamental_category        VARCHAR(50),
+    valuation_category          VARCHAR(50),
+    current_price               FLOAT,
+    normalized_earnings         FLOAT,
+    fair_value_range            VARCHAR(50),
+    valuation_discount          FLOAT,
+    earnings_growth             FLOAT,
+    fcf_yield                   FLOAT,
+    roce                        FLOAT,
+    roe                         FLOAT,
+    debt                        FLOAT,
+    regime_permission           VARCHAR(50),
+    production_alert_permission BOOLEAN,
+    first_seen_category         VARCHAR(50),
+    current_category            VARCHAR(50),
+    category_history            TEXT,
+    created_at                  TIMESTAMPTZ DEFAULT NOW(),
+
+    UNIQUE (symbol, build_date)
+);
+"""
+
+_DAILY_BUILDER_MASTER_V2_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS idx_dbm_symbol ON daily_builder_master_v2 (symbol);",
+    "CREATE INDEX IF NOT EXISTS idx_dbm_build_date ON daily_builder_master_v2 (build_date);",
+    "CREATE INDEX IF NOT EXISTS idx_dbm_regime ON daily_builder_master_v2 (macro_regime);",
+    "CREATE INDEX IF NOT EXISTS idx_dbm_fund_cat ON daily_builder_master_v2 (fundamental_category);",
+]
+
+
+def init_master_table_schema() -> None:
+    """
+    Creates daily_builder_master_v2 table and indexes if they do not exist.
+    """
+    try:
+        from database import get_connection
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(_DAILY_BUILDER_MASTER_V2_DDL)
+                for idx_sql in _DAILY_BUILDER_MASTER_V2_INDEXES:
+                    cur.execute(idx_sql)
+            conn.commit()
+        logger.info("[DAILY_BUILDER_V2_SCHEMA] daily_builder_master_v2 ready.")
+    except Exception as e:
+        logger.error(f"[DAILY_BUILDER_V2_SCHEMA] Failed to init master table: {e}", exc_info=True)
+        raise
+
+
 def init_all_v2_schemas() -> None:
     """
-    Convenience wrapper — initialises all three V2 schema objects.
+    Convenience wrapper — initialises all V2 schema objects including master table.
     Call once at Daily Builder V2 startup, before any run logic.
-
-    [INV-1] V1 tables (daily_watchlist, daily_excluded_watchlist, alerts,
-    near_misses) are untouched by this function.
     """
     init_universe_watch_schema()
     init_universe_tables_schema()
+    init_master_table_schema()
     logger.info("[DAILY_BUILDER_V2_SCHEMA] All V2 schemas initialised.")

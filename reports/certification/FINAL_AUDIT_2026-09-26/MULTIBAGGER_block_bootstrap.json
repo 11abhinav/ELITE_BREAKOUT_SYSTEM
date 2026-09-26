@@ -1,0 +1,93 @@
+{
+  "component": "MULTIBAGGER",
+  "wall_clock_sec": 16.58,
+  "N_raw": 29594,
+  "N_eff": 6.1,
+  "avg_rho": 0.1652,
+  "mean_R": 0.2923,
+  "iid_bootstrap_ci": {
+    "lo": 0.2712,
+    "hi": 0.313,
+    "width": 0.0418,
+    "note": "Treats N_raw as independent \u2014 wrong for correlated holdings"
+  },
+  "block_bootstrap_ci": {
+    "lo": 0.1952,
+    "hi": 0.2552,
+    "width": 0.06,
+    "method": "Resample at symbol-mean level (symbol = one block); equal-weight per symbol; more conservative than row-level for concentrated samples"
+  },
+  "gate5_on_block_ci": "STATISTICALLY_UNDERPOWERED",
+  "per_symbol_distribution": {
+    "n_symbols": 811,
+    "mean_entries_per_symbol": 36.5,
+    "median_entries_per_symbol": 38.0,
+    "max_entries_single_symbol": 96,
+    "min_entries_single_symbol": 1,
+    "symbols_with_1_entry": 14,
+    "symbols_with_gte_10": 716,
+    "top10_by_entry_count": [
+      {
+        "symbol": "AXISCADES",
+        "count": 96,
+        "mean_R": 0.2083,
+        "win_rate": 0.302
+      },
+      {
+        "symbol": "HIRECT",
+        "count": 93,
+        "mean_R": 0.1752,
+        "win_rate": 0.301
+      },
+      {
+        "symbol": "PFOCUS",
+        "count": 90,
+        "mean_R": 0.1111,
+        "win_rate": 0.278
+      },
+      {
+        "symbol": "VIMTALABS",
+        "count": 88,
+        "mean_R": 0.2273,
+        "win_rate": 0.307
+      },
+      {
+        "symbol": "GRAVITA",
+        "count": 87,
+        "mean_R": 0.393,
+        "win_rate": 0.356
+      },
+      {
+        "symbol": "OLECTRA",
+        "count": 79,
+        "mean_R": 0.2653,
+        "win_rate": 0.329
+      },
+      {
+        "symbol": "ASHAPURMIN",
+        "count": 79,
+        "mean_R": 0.2658,
+        "win_rate": 0.316
+      },
+      {
+        "symbol": "LUMAXTECH",
+        "count": 79,
+        "mean_R": 0.3165,
+        "win_rate": 0.329
+      },
+      {
+        "symbol": "ADANIENSOL",
+        "count": 78,
+        "mean_R": 0.4777,
+        "win_rate": 0.385
+      },
+      {
+        "symbol": "KERNEX",
+        "count": 78,
+        "mean_R": 0.4359,
+        "win_rate": 0.359
+      }
+    ],
+    "top10_share_of_total_N_pct": 2.9
+  }
+}

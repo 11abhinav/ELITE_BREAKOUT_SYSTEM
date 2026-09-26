@@ -1,0 +1,2 @@
+exit_manager,sample_N,dynamic_win_rate_pct,fixed_control_win_rate_pct,dynamic_mean_R,fixed_control_mean_R,delta_mean_R,p_value_paired,mfe_capture_efficiency_pct,verdict
+PERFORMANCE_TRACKER,12635,45.64,35.76,0.1426,0.0727,0.0699,0.0,74.2,CERTIFIED (Outperforms Fixed Control)

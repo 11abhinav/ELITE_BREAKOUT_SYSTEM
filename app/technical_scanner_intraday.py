@@ -131,16 +131,10 @@ def run_technical_intraday_pipeline(
 ) -> Dict[str, Any]:
     """
     Executes the Intraday 15M Technical Scanner over market hours.
-    
-    Operates on latest 15-minute OHLCV candles with 1-hour alert cooldown per symbol/pattern.
+    PERMANENTLY DECOMMISSIONED: This scanner family is silenced.
     """
-    now = datetime.now(IST)
-    if not force and not is_test_mode:
-        if not is_market_open_now():
-            logger.info("⏸️ [TECHNICAL INTRADAY] Market is currently closed. Skipping run.")
-            return {"total_count": 0, "processed_count": 0, "today_alerts": 0, "status": "MARKET_CLOSED"}
-
-    start_time_mono = time.monotonic()
+    logger.info("🛑 [DECOMMISSIONED] TECHNICAL_INTRADAY scanner is decommissioned and silenced.")
+    return {"total_count": 0, "processed_count": 0, "today_alerts": 0, "status": "DECOMMISSIONED"}
 
     acquired_scan = False
     acquired_global = False

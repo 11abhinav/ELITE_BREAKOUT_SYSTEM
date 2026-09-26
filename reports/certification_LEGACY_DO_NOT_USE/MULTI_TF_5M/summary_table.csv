@@ -1,0 +1,5 @@
+regime,system_type,N,win_rate_pct,mean_R,ci_95_low,ci_95_high,p_value_vs_naive,cohen_d,max_drawdown_R,median_holding_period
+BULL,FULL_SCANNER,546,46.89,0.1387,0.0442,0.2347,1.0,0.0,12.58,17
+BEAR,FULL_SCANNER,179,44.69,0.0717,-0.0943,0.2383,1.0,0.0,8.68,16
+SIDEWAYS,FULL_SCANNER,187,35.83,-0.0327,-0.1895,0.1331,1.0,0.0,21.61,15
+OVERALL,FULL_SCANNER,912,44.19,0.0904,0.0175,0.1647,1.0,0.0,18.26,16

@@ -1,0 +1,2 @@
+daemon_role,throughput_symbols_per_sec,execution_duration_sec,universe_input_count,universe_passed_count,etf_exclusion_rate_pct,corporate_split_filter_rate_pct,provenance_sha256_verified,status
+Official NSE Promoter Pledge & Encumbrance Bulk Ingestion,380.0,3.9,1582,1582,100.0,100.0,True,CERTIFIED_HEALTHY

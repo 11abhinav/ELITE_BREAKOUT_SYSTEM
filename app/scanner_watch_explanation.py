@@ -969,7 +969,6 @@ _BUILDER_MAP = {
     "EOD":          build_eod_watch_explanation,
     "PULLBACK":     build_pullback_watch_explanation,
     "REVERSAL":     build_reversal_watch_explanation,
-    "MULTI_TF":     build_multi_tf_watch_explanation,
     "ACCUMULATION": build_accumulation_watch_explanation,
     "MULTIBAGGER":  build_multibagger_watch_explanation,
     "WEALTH":       build_wealth_watch_explanation,
@@ -984,7 +983,7 @@ def build_watch_explanation(
     """
     Routes to the correct scanner-specific builder by scanner_name.
 
-    scanner_name must match one of: EOD, PULLBACK, REVERSAL, MULTI_TF,
+    scanner_name must match one of: EOD, PULLBACK, REVERSAL,
                                     ACCUMULATION, MULTIBAGGER, WEALTH
 
     Returns a WatchExplanation on success.

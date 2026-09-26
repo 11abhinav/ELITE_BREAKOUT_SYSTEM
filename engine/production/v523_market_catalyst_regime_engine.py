@@ -154,18 +154,7 @@ class ScannerRegimePolicyEngine:
             MarketCatalystRegime.WEAK_CHOP:       {"r": 0.75, "p": 2, "veto": False, "desc": "0.75R Conservative (E[R] +0.160R, PF 1.50)"},
             MarketCatalystRegime.FAILED_TRAP_REGIME: {"r": 0.00, "p": 3, "veto": True,  "desc": "STRICT VETO on Failed Trap Days (E[R] -0.040R, PF 0.92)"}
         },
-        "MULTITF_1H": {
-            MarketCatalystRegime.STRONG_CATALYST: {"r": 1.50, "p": 1, "veto": False, "desc": "1.50R Intraday Momentum Leader (E[R] +0.940R, PF 4.80)"},
-            MarketCatalystRegime.NORMAL_MOMENTUM: {"r": 1.00, "p": 2, "veto": False, "desc": "1.00R Standard Intraday (E[R] +0.520R, PF 2.40)"},
-            MarketCatalystRegime.WEAK_CHOP:       {"r": 0.50, "p": 3, "veto": False, "desc": "0.50R Tight Scalp (E[R] +0.190R, PF 1.30)"},
-            MarketCatalystRegime.FAILED_TRAP_REGIME: {"r": 0.50, "p": 3, "veto": False, "desc": "0.50R High Hurdle Only (E[R] +0.020R, PF 1.02)"}
-        },
-        "MULTITF_5M": {
-            MarketCatalystRegime.STRONG_CATALYST: {"r": 1.00, "p": 2, "veto": False, "desc": "1.00R Standard Scalp (E[R] +0.410R, PF 2.80)"},
-            MarketCatalystRegime.NORMAL_MOMENTUM: {"r": 1.00, "p": 2, "veto": False, "desc": "1.00R Standard Scalp (E[R] +0.265R, PF 1.85)"},
-            MarketCatalystRegime.WEAK_CHOP:       {"r": 0.50, "p": 3, "veto": False, "desc": "0.50R Scalp (E[R] +0.080R, PF 1.15)"},
-            MarketCatalystRegime.FAILED_TRAP_REGIME: {"r": 0.50, "p": 3, "veto": False, "desc": "0.50R Scalp / Quick Exit (E[R] -0.020R, PF 0.95)"}
-        },
+
         "WEALTH_ENGINE": {
             MarketCatalystRegime.STRONG_CATALYST: {"r": 1.25, "p": 2, "veto": False, "desc": "1.25R Macro Expansion (E[R] +0.620R, PF 2.65)"},
             MarketCatalystRegime.NORMAL_MOMENTUM: {"r": 1.00, "p": 2, "veto": False, "desc": "1.00R Standard Swing (E[R] +0.410R, PF 1.80)"},

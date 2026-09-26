@@ -1,0 +1,22 @@
+[
+  {
+    "symbol": "BAJAJ_AUTO",
+    "status": "NO_INSTRUMENT_KEY",
+    "error": "Could not map to Upstox key"
+  },
+  {
+    "symbol": "NAM_INDIA",
+    "status": "NO_INSTRUMENT_KEY",
+    "error": "Could not map to Upstox key"
+  },
+  {
+    "symbol": "JBCHEPHARM",
+    "status": "NO_INSTRUMENT_KEY",
+    "error": "Could not map to Upstox key"
+  },
+  {
+    "symbol": "KLBRENG_B",
+    "status": "NO_INSTRUMENT_KEY",
+    "error": "Could not map to Upstox key"
+  }
+]

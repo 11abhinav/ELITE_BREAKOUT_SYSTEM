@@ -1,0 +1,4 @@
+scanner,gate_component,full_mean_R,ablated_mean_R,delta_mean_R,p_value,cohen_d,action_recommendation
+MULTI_TF_5M,GATE_5M_MOMENTUM,-0.4311,-0.4264,-0.0047,0.806,-0.0049,DEAD_WEIGHT (Strip)
+MULTI_TF_5M,GATE_VWAP_CLEARANCE,-0.4311,-0.4264,-0.0047,0.8001,-0.0049,DEAD_WEIGHT (Strip)
+MULTI_TF_5M,GATE_FRICTION_ADJUSTED,-0.4311,-0.4264,-0.0047,0.8055,-0.0049,DEAD_WEIGHT (Strip)

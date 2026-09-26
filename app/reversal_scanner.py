@@ -2796,15 +2796,8 @@ _global_lock = ProcessLock("global_scanner_lock")
 
 
 def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON", used_fallback_data: bool = False) -> int:
-    from database import is_scanner_stopped, upsert_scanner_health
-    from lock_utils import print_scanner_start_banner, print_scanner_end_banner
-    if is_scanner_stopped("REVERSAL"):
-        logger.info("🛑 Reversal Scanner is STOPPED by Admin. Skipping execution.")
-        if run_ctx:
-            from database import complete_scanner_execution_run
-            complete_scanner_execution_run(run_ctx, status_override="STOPPED", stop_reason="Scanner stopped by admin")
-        upsert_scanner_health("REVERSAL", "STOPPED", error_msg="REVERSAL scanner is explicitly disabled by admin.")
-        return 0
+    logger.info("🛑 [DECOMMISSIONED] REVERSAL Scanner is permanently decommissioned and silenced.")
+    return 0
 
     if _scan_lock.locked():
         logger.warning("🛑 [DUPLICATE GUARD] REVERSAL Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
