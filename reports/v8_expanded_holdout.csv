@@ -1,0 +1,2 @@
+dataset,total_v8_events,train_n,train_exp_r,val_n,val_exp_r,holdout_n,holdout_exp_r,holdout_win_rate,holdout_ci_low,holdout_ci_high,statistical_power,status
+All 38 Clean Underlyings,26,18,-0.278,4,0.448,4,0.5,75.0,-0.5,1.0,0.17,INCONCLUSIVE / UNDERPOWERED

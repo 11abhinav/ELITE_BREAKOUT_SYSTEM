@@ -1,0 +1,6 @@
+stop_loss_r,target_r,total_stopped_out,stopped_then_reached_target,premature_stop_rate_pct
+0.5,1.0,4323,778,18.0
+0.75,1.0,3473,468,13.5
+1.0,1.5,2865,224,7.8
+1.25,1.5,2241,160,7.1
+1.5,2.0,1783,86,4.8

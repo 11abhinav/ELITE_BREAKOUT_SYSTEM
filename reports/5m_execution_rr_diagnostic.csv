@@ -1,0 +1,7 @@
+dimension,finding,status
+Signal Quality (E0 Signal Close),Expectancy = -0.101R,NEGATIVE PRE-COST
+Execution Latency (E1 vs E0),"T+1 Open Gap P50 = +0.000%, Drag = +0.018R",LATENCY DRAG
+Slippage Impact (5 bps Friction),E2 vs E1 Drag = -0.101R per trade,SIGNIFICANT FRICTION
+Target/Stop Geometry (Best R:R),Best Grid Cell: 0.5R SL / 1.0R TP (-0.158R),STILL NEGATIVE OR STRADDLES ZERO
+Time Stop Impact,Shortest (15m: -0.169R) vs Longest (EOD: -0.234R),TIME STOP DOES NOT RESCUE
+Target Reachability,1.5R target reach rate is only 20.9% (median time 40.0 mins),TARGET UNREACHABLE ON 5M
