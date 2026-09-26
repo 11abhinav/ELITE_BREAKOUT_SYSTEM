@@ -1,0 +1,5 @@
+step,baseline,comparator,n_baseline,n_comparator,sample_reduction_pct,delta_mfe,delta_mae,delta_r30m,delta_expectancy_r,cohens_d,p_value,passes_gate,verdict
+Volume Lift,B1: Price Only,B2: Price + Volume,199,174,12.6,0.02,-0.005,0.021,0.051,0.0308,0.7679,False,FAIL_CRITERIA
+Structure Lift,B2: Price + Vol,B4: Price + Vol + Struct,174,137,21.3,0.042,-0.008,0.011,0.021,0.0163,0.8865,False,FAIL_CRITERIA
+VWAP Lift,B4: Price + Vol + Struct,B5: Price + Vol + Struct + VWAP,137,120,12.4,-0.048,0.071,0.016,0.045,0.0247,0.8443,False,FAIL_CRITERIA
+OI Lift,B5: Price + Vol + Struct + VWAP,B6: B5 + OI Drop,120,39,67.5,0.089,-0.028,0.108,0.253,0.1683,0.3769,False,FAIL_CRITERIA

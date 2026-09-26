@@ -1,0 +1,5 @@
+execution_model,entry_basis,slippage_bps,mfe_mean,mae_mean,r_30m_mean,status
+E1: Bar Close (Unfillable Lookahead),Bar Close (11:59:59),0,1.11,-0.64,0.21,PROHIBITED_LOOKAHEAD
+E2: T+1 Open (No Friction),Next Bar Open (12:05:00),0,0.81,-0.74,0.01,THEORETICAL_CLEAN
+E3: T+1 Open + 5 bps (Certified Baseline),Next Bar Open * 1.0005,5,0.76,-0.79,-0.04,CERTIFIED_PRIMARY
+E4: T+2 Open + 5 bps (1-Bar Latency Stress),Next+1 Bar Open * 1.0005,5,0.72,-0.75,-0.16,STRESS_TESTED

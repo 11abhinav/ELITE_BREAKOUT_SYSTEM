@@ -1,0 +1,2 @@
+split,window,n_trades,win_rate,mfe_mean,mae_mean,expectancy_r,profit_factor
+Validation (OOS-1),2026-09-09 09:40:00+05:30 to 2026-09-17 11:30:00+05:30,19,21.1,0.54,-1.05,-0.598,0.34
