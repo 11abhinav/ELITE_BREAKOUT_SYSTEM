@@ -81,9 +81,6 @@ _PROCESS_START_TIME = _time.monotonic()
 
 # Map watchdog thread names to dashboard database keys
 THREAD_TO_SCANNER = {
-    "EODScanner":         "EOD",
-    "PullbackScanner":    "PULLBACK",
-    "ReversalScanner":    "REVERSAL",
     "PerformanceTracker": "PERFORMANCE_TRACKER",
 }
 
@@ -175,17 +172,8 @@ def wait_for_bhavcopy_or_fallback(name: str) -> bool:
             
         logger.info(f"[{name}] ⏳ Today's Bhavcopy not yet available. Waiting 5 mins...")
         
-        # [VERSION: BHAVCOPY_UI_STATUS] Expose the blocking state to the UI so users don't think the scanner is dead
-        if first_wait and name in ("EVENING_SCANNERS", "PULLBACK"):
-            from database import is_scanner_stopped
-            for scanner_name in ["EOD", "REVERSAL", "PULLBACK"]:
-                if not is_scanner_stopped(scanner_name):
-                    upsert_scanner_health(
-                        scanner_name, 
-                        status="IDLE", 
-                        error_msg="Blocked: Waiting for NSE to publish today's Bhavcopy (Delivery Data)..."
-                    )
-            first_wait = False
+        # [VERSION: BHAVCOPY_UI_STATUS] Expose the blocking state to the UI
+        first_wait = False
             
         time.sleep(300)
 
@@ -399,47 +387,7 @@ def _run_performance_tracker_single():
             except Exception:
                 pass
 
-def _run_multibagger_exit_single():
-    """Runs a single pass of the Multibagger Exit Monitor."""
-    from database import upsert_scanner_health, is_scanner_stopped
-    if is_scanner_stopped("MULTIBAGGER_EXIT"):
-        logger.info("⏭️ MULTIBAGGER_EXIT is PAUSED by Admin. Skipping Multibagger Exit Monitor pass.")
-        return
-    start_time = time.time()
-    run_ctx = None
-    try:
-        from database import start_scanner_execution_run, complete_scanner_execution_run
-        run_ctx = start_scanner_execution_run(scanner_name="MULTIBAGGER_EXIT", trigger_type="SCHEDULED", scheduler_name="CRON")
-        
-        logger.info("🕒 SCHEDULER | Triggering Multibagger Exit Monitor (Single Pass)")
-        from telemetry_manager import telemetry
-        telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_START")
-        from multibagger import run_standalone_exit_monitor
-        run_standalone_exit_monitor(run_ctx=run_ctx)
-        duration_sec = round(time.time() - start_time, 1)
-        logger.info(f"✅ MULTIBAGGER EXIT | Completed in {format_duration(duration_sec)}")
-        upsert_scanner_health(
-            "MULTIBAGGER_EXIT", status="OK",
-            last_success=datetime.now(IST).isoformat(),
-            scheduled_for="Every 5min (market hours)",
-            duration_seconds=duration_sec
-        )
-        telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_COMPLETE")
-        complete_scanner_execution_run(run_ctx)
-    except Exception as e:
-        if "actively running" in str(e).lower():
-            logger.info("⏳ MULTIBAGGER_EXIT is already actively running. Skipping duplicate pass.")
-            return
-        logger.exception(f"❌ SCHEDULER | Multibagger Exit Monitor crashed: {e}")
-        from telemetry_manager import telemetry
-        telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_FAILED", error=str(e))
-        try:
-            if run_ctx:
-                complete_scanner_execution_run(run_ctx, exception=e)
-            upsert_scanner_health("MULTIBAGGER_EXIT", status="DOWN", error_msg=str(e)[:500], scheduled_for="Every 5min (market hours)")
-        except Exception:
-            pass
-
+# [DECOMMISSIONED] _run_multibagger_exit_single() permanently removed.
 
 
 def run_performance_tracker():
@@ -584,20 +532,11 @@ def verify_watchlist_is_pristine() -> bool:
 
 def block_until_watchlist_ready():
     """Blocks the thread until the watchlist is pristine."""
-    from database import upsert_scanner_health, is_scanner_stopped
     first_block = True
     while not verify_watchlist_is_pristine():
         if first_block:
-            logger.warning("⏳ Watchlist not ready. Updating dashboard to show scanners as WAITING...")
-            for scanner in ["Wealth Engine", "MULTI-TF LADDER", "REVERSAL", "EOD"]:
-                if not is_scanner_stopped(scanner):
-                    upsert_scanner_health(
-                        scanner,
-                        status="IDLE",
-                        error_msg="Blocked: Waiting for Daily Builder to provide fresh fundamental data."
-                    )
+            logger.warning("⏳ Watchlist not ready — retrying every 60 seconds...")
             first_block = False
-        logger.warning("⏳ Retrying watchlist check in 60 seconds...")
         time.sleep(60)
     if not first_block:
         logger.info("✅ Watchlist is pristine. Unblocking scanners.")
@@ -770,13 +709,8 @@ def run_all_seven_scanners_non_market_boot():
     as displayed on the System Health dashboard card grid when the server restarts during non-market hours.
     Sequence (matches Health Card Grid):
       1. DAILY_BUILDER (Watchlist Builder)
-      2. ACCUMULATION (Accumulation Scanner)
-      3. EOD (EOD Scanner)
-      4. REVERSAL (Reversal Scanner)
-      5. PULLBACK (Pullback Pipeline)
-      6. TECHNICAL (Technical Scanner)
-      7. Wealth Engine (Wealth Engine)
-      8. MULTIBAGGER (Multibagger Scanner)
+      2. TECHNICAL (Technical Scanner)
+      3. Wealth Engine (Wealth Engine)
     """
     def _run_batch():
         logger.info("======================================================================")
@@ -793,12 +727,11 @@ def run_all_seven_scanners_non_market_boot():
         # [RULE 67 CHANGE-RATIONALE]:
         # Sequence DAILY_BUILDER first so the daily watchlist is built/refreshed
         # before downstream technical and fundamental engines execute.
-        # Decommissioned scanners (ACCUMULATION, EOD, REVERSAL, PULLBACK) are purged.
+        # Decommissioned scanners (ACCUMULATION, EOD, REVERSAL, PULLBACK, MULTIBAGGER) are permanently purged.
         all_scanners = [
             ("DAILY_BUILDER", _trigger_daily_builder),
             ("TECHNICAL", _trigger_technical),
             ("Wealth Engine", _trigger_wealth_engine),
-            ("MULTIBAGGER", _trigger_multibagger),
         ]
 
         from database import is_scanner_stopped, upsert_scanner_health
@@ -901,7 +834,6 @@ def run_system_scheduler():
     last_wealth_full_scan_run = None  # Track last market-hours full scan (15m BUY alert cycle)
     last_technical_date = None
     last_technical_intraday_run = None
-    last_multibagger_date = None
     last_wealth_daily_date = None
 
     def safe_run_daily_builder():
@@ -1179,27 +1111,7 @@ def run_system_scheduler():
 
         logger.info("✅ SCHEDULER | File readiness verification complete")
 
-    def safe_run_multibagger_scan_initial():
-        """Run Multibagger Scanner Cold Start at 4:00 AM with fresh watchlist."""
-        from database import is_scanner_stopped
-        if is_scanner_stopped("MULTIBAGGER"):
-            logger.info("⏸️ [MULTIBAGGER] Scanner is PAUSED/STOPPED by Admin. Skipping 4:00 AM initial cold start.")
-            return False
-        start_time = time.time()
-        try:
-            logger.info("🕒 SCHEDULER | [4:00 AM] Triggering Multibagger Scanner (initial cold start)")
-            from telemetry_manager import telemetry
-            telemetry.log_scheduler_event("MULTIBAGGER_INIT", "CYCLE_START")
-            telemetry.log_session_timeline("Started Multibagger Scanner Initial Setup Cycle")
-            _run_multibagger_scanner_single()
-            telemetry.log_scheduler_event("MULTIBAGGER_INIT", "CYCLE_COMPLETE")
-            telemetry.log_session_timeline("Completed Multibagger Scanner Initial Setup Cycle Successfully")
-            return True
-        except Exception as e:
-            logger.exception(f"❌ SCHEDULER | Multibagger Scanner (initial cold start) crashed: {e}")
-            from telemetry_manager import telemetry
-            telemetry.log_scheduler_event("MULTIBAGGER_INIT", "CYCLE_FAILED", error=str(e))
-            return False
+    # [DECOMMISSIONED] safe_run_multibagger_scan_initial() permanently removed.
 
     logger.info("🕒 SCHEDULER | Started (custom time-based scheduler)")
     
@@ -1234,20 +1146,13 @@ def run_system_scheduler():
     last_perf = None
     daily_builder_ran = False
     wealth_initial_ran = False
-    multibagger_initial_ran = False
     verify_scans_ran = False
-    multibagger_ran = False
-    last_multibagger_date = now_boot.date() if not is_market_boot else None
     last_rotation_date = now_boot.date()
     evening_scanners_ran = True if not is_market_boot else False
     evening_batch_deadline_logged = False
     warmup_ran = False
-    last_accumulation_date = now_boot.date() if not is_market_boot else None
     last_technical_date = now_boot.date() if not is_market_boot else None
     last_wealth_daily_date = now_boot.date() if not is_market_boot else None
-
-    last_earnings_date = None  # kept as unused placeholder to avoid potential NameError in continued loop
-    saturday_mb_refresh_ran = False
     
     try:
         from stock_analyzer import refresh_master_symbols_universe
@@ -1373,14 +1278,7 @@ def run_system_scheduler():
                 #   - safe_run_wealth_market_hours: last_wealth_market_run throttle + is_scanner_stopped
                 import threading as _threading
 
-                # 1. Multibagger Exit Monitor (every 5 mins)
-                if not last_mb_exit or (now - last_mb_exit).total_seconds() >= 300:
-                    last_mb_exit = datetime.now(IST)  # set before thread start to prevent double-fire
-                    _threading.Thread(
-                        target=_run_multibagger_exit_single,
-                        name=f"MBExitMonitor-{now.strftime('%H%M')}",
-                        daemon=True
-                    ).start()
+                # 1. [DECOMMISSIONED] Multibagger Exit Monitor removed — MULTIBAGGER scanner purged.
 
                 # 2. Performance Tracker / Alert Exit Monitor (every 5 mins)
                 if not last_perf or (now - last_perf).total_seconds() >= 300:
@@ -1436,14 +1334,7 @@ def run_system_scheduler():
                 else:
                     logger.info("⏭️ Wealth Engine is STOPPED by Admin. Skipping 17:00 IST daily scan.")
 
-            # 17:30 - Multibagger Scanner Full Daily Scan
-            if (now.hour > 17 or (now.hour == 17 and now.minute >= 30)) and last_multibagger_date != now.date():
-                last_multibagger_date = now.date()
-                if not is_scanner_stopped("MULTIBAGGER"):
-                    logger.info("🕒 SCHEDULER | [17:30] Triggering MULTIBAGGER scanner (Daily Fundamental Scan)")
-                    _run_multibagger_scanner_single()
-                else:
-                    logger.info("⏭️ MULTIBAGGER is STOPPED by Admin. Skipping 17:30 IST run.")
+            # [DECOMMISSIONED] 17:30 MULTIBAGGER scanner slot permanently removed.
 
             # Earnings Calendar removed — earnings data was unused and added latency.
 
@@ -1457,17 +1348,7 @@ def run_system_scheduler():
                 except Exception as _me:
                     logger.warning(f"⚠️ [SESSION_ARCH] Midnight session rotation failed: {_me}")
 
-        # Saturday Morning (06:00 AM IST) - Fundamental Refresh for data >= 7 days old
-        if now.weekday() == 5:
-            if now.hour == 6 and now.minute >= 0 and not saturday_mb_refresh_ran:
-                saturday_mb_refresh_ran = True
-                if not is_scanner_stopped("MULTIBAGGER"):
-                    logger.info("🕒 SCHEDULER | [Saturday 06:00 AM] Triggering Multibagger 7-day fundamental refresh...")
-                    _run_multibagger_scanner_single()
-                else:
-                    logger.info("⏭️ MULTIBAGGER is STOPPED by Admin. Skipping Saturday 6:00 AM refresh.")
-            elif now.hour != 6:
-                saturday_mb_refresh_ran = False
+        # [DECOMMISSIONED] Saturday MULTIBAGGER fundamental refresh slot permanently removed.
 
         # Sleep tight, loop runs approximately every 15 seconds for precision timing
         time.sleep(15)
@@ -1483,11 +1364,9 @@ def check_scanner_staleness(now):
     SCANNER_CADENCE = {
         "TECHNICAL":           "DAILY",  # runs full scan once daily post-close at 18:15 IST
         "PERFORMANCE_TRACKER": 15,       # runs every 5 min
-        "MULTIBAGGER_EXIT":    15,       # runs every 5 min during market hours
         "WEALTH_EXIT":         15,       # runs every 5 min during market hours
         "Wealth Engine":       "DAILY",  # runs full scan once daily at 17:00 IST
         "DAILY_BUILDER":       "DAILY",
-        "MULTIBAGGER":         "DAILY",
     }
     
     # Throttle: only run this check every 15 minutes
@@ -1605,161 +1484,12 @@ def check_scanner_staleness(now):
 
 # =====================================================================================
 # SELF-HEALING WATCHDOG  (runs in background thread)
-#
-# EOD and REVERSAL are intentionally excluded from auto-restart — they run once and
-# exit.  The watchdog will see completed_cleanly=True and simply drop them.
 # =====================================================================================
 
 from ai_worker import run_worker_loop as run_ai_loop
 from pledge_worker import worker_loop as run_pledge_loop
 
-def run_multibagger_exit_monitor():
-    """Independent background daemon to monitor multibagger exits every 5 minutes."""
-    from database import upsert_scanner_health
-    from market_utils import is_market_open
-    from multibagger import run_standalone_exit_monitor
-    iteration = 0
-    
-    logger.info("🛑 [MULTIBAGGER_EXIT] Monitor daemon started")
-    while True:
-        if is_market_open():
-            iteration += 1
-            cycle_start = time.time()
-            logger.info(f"🕒 [MULTIBAGGER_EXIT] Cycle #{iteration} | {datetime.now(IST).strftime('%H:%M:%S IST')} | Checking open multibagger positions...")
-            try:
-                from telemetry_manager import telemetry
-                telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_START")
-                run_standalone_exit_monitor()
-                elapsed = round(time.time() - cycle_start, 1)
-                logger.info(f"✅ [MULTIBAGGER_EXIT] Cycle #{iteration} complete in {elapsed}s")
-                upsert_scanner_health(
-                    "MULTIBAGGER_EXIT", status="OK",
-                    last_success=datetime.now(IST).isoformat(),
-                    scheduled_for="Every 5min (market hours)"
-                )
-                telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_COMPLETE")
-            except Exception as e:
-                elapsed = round(time.time() - cycle_start, 1)
-                logger.exception(f"❌ [MULTIBAGGER_EXIT] Cycle #{iteration} crashed after {elapsed}s: {e}")
-                from telemetry_manager import telemetry
-                telemetry.log_scheduler_event("MULTIBAGGER_EXIT", "CYCLE_FAILED", error=str(e))
-                if "actively running" not in str(e):
-                    try:
-                        upsert_scanner_health("MULTIBAGGER_EXIT", status="DOWN", error_msg=str(e)[:500], scheduled_for="Every 5min (market hours)")
-                    except Exception:
-                        pass
-        else:
-            logger.debug("⏸️ [MULTIBAGGER_EXIT] Market closed — skipping exit check")
-        time.sleep(300)
-
-
-def _run_multibagger_scanner_single():
-    """Runs a single pass of the Multibagger Scanner."""
-    from database import is_scanner_stopped
-    if is_scanner_stopped("MULTIBAGGER"):
-        logger.info("⏸️ [MULTIBAGGER] Scanner is PAUSED/STOPPED by Admin. Skipping execution.")
-        return
-    try:
-        now = datetime.now(IST)
-        logger.info(f"🚀 MULTIBAGGER SCAN | Starting daily scan at {now.strftime('%H:%M:%S IST')}...")
-        from database import upsert_scanner_health, is_scanner_actively_running
-        import multibagger
-        if multibagger._scan_lock.locked() or is_scanner_actively_running("MULTIBAGGER"):
-            logger.info("🛑 Multibagger scanner is ALREADY queued or actively running in database/thread lock. Skipping duplicate trigger...")
-            return
-            
-        from telemetry_manager import telemetry
-        telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_START")
-        
-        start_mb_single = time.time()
-        from lock_utils import ProcessLock
-        global_lock = ProcessLock("global_scanner_lock")
-        queued_at = None
-        if not global_lock.acquire(blocking=False):
-            queued_at = time.monotonic()
-            logger.info("⏳ [MULTIBAGGER] Global scanner lock busy — waiting for session build until lock is released...")
-            upsert_scanner_health("MULTIBAGGER", "QUEUED", error_msg="Waiting in queue for active scanner to release lock...")
-            global_lock.acquire(blocking=True)
-            logger.info(f"✅ [MULTIBAGGER] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Building Session...")
-        else:
-            logger.info("✅ [MULTIBAGGER] Global lock acquired instantly. Building Session...")
-
-        # [RULE: HISTORY ENTRY AFTER LOCK ACQUIRED] Only create execution history entry once lock is secured
-        from database import start_scanner_execution_run, complete_scanner_execution_run
-        run_ctx = start_scanner_execution_run(
-            scanner_name="MULTIBAGGER",
-            trigger_type="SCHEDULED",
-            scheduler_name="CRON"
-        )
-
-
-        try:
-            upsert_scanner_health("MULTIBAGGER", status="RUNNING", error_msg="Building MarketDataSession...", run_id=run_ctx.run_id if run_ctx else None)
-            try:
-                from market_data_session import MarketDataSession
-                from constituent_service import fetch_constituents
-                from watchlist_cache import get_watchlist
-                import pandas as pd
-                symbols = fetch_constituents()
-                if not symbols:
-                    wl_df = get_watchlist()
-                    symbols = wl_df["Stock"].dropna().tolist() if isinstance(wl_df, pd.DataFrame) and "Stock" in wl_df.columns else list(wl_df)
-                session = MarketDataSession.build(symbols=symbols, ist_date=datetime.now(IST).date(), requester="MULTIBAGGER")
-            except Exception as e:
-                logger.error(f"Failed to build MarketDataSession for MULTIBAGGER: {e}")
-                session = None
-
-            with MemoryProfiler("MULTIBAGGER", force_gc_cleanup=True):
-                stats = multibagger.start(session=session, run_ctx=run_ctx, trigger_type="SCHEDULED", scheduler_name="CRON") or {}
-        finally:
-            global_lock.release()
-            
-        dur_mb_single = round(time.time() - start_mb_single, 1)
-        time.sleep(15)
-
-        if run_ctx:
-            complete_scanner_execution_run(run_ctx)
-
-        # Mark success in health table INSIDE the lock
-        upsert_scanner_health(
-            "MULTIBAGGER",
-            status="OK",
-            last_success=datetime.now(IST).isoformat(),
-            scheduled_for="Daily 17:30 IST (Daily Fundamental)",
-            total_count=stats.get("total_count"),
-            processed_count=stats.get("processed_count"),
-            today_alerts=stats.get("today_alerts", 0),
-            duration_seconds=dur_mb_single,
-            run_id=run_ctx.run_id if run_ctx else None
-        )
-        telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_COMPLETE")
-        telemetry.log_session_timeline("Completed Multibagger Scanner Cycle Successfully")
-        logger.info("✅ MULTIBAGGER SCANNER | Completed successfully for today.")
-            
-    except Exception as e:
-        if "actively running" in str(e).lower():
-            logger.info("⏳ MULTIBAGGER scanner is already running. Skipping...")
-            return
-            
-        logger.exception("❌ MULTIBAGGER SCAN | Failed")
-        from telemetry_manager import telemetry
-        telemetry.log_scheduler_event("MULTIBAGGER", "CYCLE_FAILED", error=str(e))
-        telemetry.log_session_timeline(f"Multibagger Scanner Cycle Failed: {str(e)}")
-        try:
-            from database import upsert_scanner_health, complete_scanner_execution_run
-            if 'run_ctx' in locals() and run_ctx:
-                complete_scanner_execution_run(run_ctx, exception=e)
-            upsert_scanner_health(
-                "MULTIBAGGER",
-                status="DOWN",
-                error_msg=str(e)[:500],
-                scheduled_for="Daily 17:30 IST (Daily Fundamental)",
-                run_id=run_ctx.run_id if 'run_ctx' in locals() and run_ctx else None
-            )
-            from push_service import send_push_to_all
-            send_push_to_all("❌ MULTIBAGGER Scanner DOWN", f"Crash: {str(e)[:100]}", bypass_throttle=True)
-        except Exception:
-            pass
+# [DECOMMISSIONED] run_multibagger_exit_monitor() and _run_multibagger_scanner_single() permanently removed.
 
 
 RESTARTABLE_THREADS = {
@@ -1768,7 +1498,6 @@ RESTARTABLE_THREADS = {
     "SystemScheduler":    run_system_scheduler,
 }
 
-# EOD and Reversal are now restartable since they run continuously
 ONE_SHOT_THREADS = {}
 
 ALL_THREADS = {**RESTARTABLE_THREADS, **ONE_SHOT_THREADS}
@@ -1878,15 +1607,13 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     
     TRIGGER_MAP = {
         # Active production and operational workers
-        "DAILY_BUILDER": _trigger_daily_builder,
-        "FUNDAMENTAL":   _trigger_fundamental,
-        "Wealth Engine": _trigger_wealth_engine,
-        "MULTIBAGGER":    _trigger_multibagger,
-        "AI Worker":     _trigger_ai_worker,
+        "DAILY_BUILDER":       _trigger_daily_builder,
+        "FUNDAMENTAL":         _trigger_fundamental,
+        "Wealth Engine":       _trigger_wealth_engine,
+        "AI Worker":           _trigger_ai_worker,
         "PERFORMANCE_TRACKER": _trigger_performance_tracker,
-        "MULTIBAGGER_EXIT": _trigger_multibagger_exit,
-        "WEALTH_EXIT": _trigger_wealth_exit,
-        "TECHNICAL":     _trigger_technical,
+        "WEALTH_EXIT":         _trigger_wealth_exit,
+        "TECHNICAL":           _trigger_technical,
     }
     
     fn = TRIGGER_MAP.get(scanner_key) or TRIGGER_MAP.get(norm_key)
@@ -1895,15 +1622,13 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         
     # Check locks synchronously to return immediate HTTP JSON error
     LOCK_MAP = {
-        "DAILY_BUILDER": lambda: __import__('daily_builder')._build_lock,
-        "FUNDAMENTAL":   lambda: None,
-        "Wealth Engine": lambda: __import__('wealth_engine')._scan_lock,
-        "MULTIBAGGER":   lambda: __import__('multibagger')._scan_lock,
-        "AI Worker":     lambda: __import__('ai_worker')._scan_lock,
+        "DAILY_BUILDER":       lambda: __import__('daily_builder')._build_lock,
+        "FUNDAMENTAL":         lambda: None,
+        "Wealth Engine":       lambda: __import__('wealth_engine')._scan_lock,
+        "AI Worker":           lambda: __import__('ai_worker')._scan_lock,
         "PERFORMANCE_TRACKER": lambda: _perf_tracker_lock,
-        "MULTIBAGGER_EXIT": lambda: __import__('multibagger')._mb_exit_lock,
-        "WEALTH_EXIT": lambda: __import__('wealth_engine')._wealth_exit_lock,
-        "TECHNICAL":     lambda: __import__('technical_scanner')._scan_lock,
+        "WEALTH_EXIT":         lambda: __import__('wealth_engine')._wealth_exit_lock,
+        "TECHNICAL":           lambda: __import__('technical_scanner')._scan_lock,
     }
 
     
@@ -1994,7 +1719,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
             try:
                 dur_str = f"Time: {format_duration(duration_sec)}"
                 summary = f"Total Scanned: {stats.get('total_count', 'N/A')} | {dur_str}" if isinstance(stats, dict) else f"Completed in {dur_str}."
-                if scanner_key not in ["DAILY_BUILDER", "EOD", "MULTIBAGGER", "REVERSAL", "Wealth Engine", "PULLBACK"]:
+                if scanner_key not in ["DAILY_BUILDER", "Wealth Engine"]:
                     insert_notification("info", f"✅ {scanner_key} Manual Scan Complete", summary)
             except Exception:
                 pass
@@ -2083,13 +1808,7 @@ def _trigger_wealth_engine(trigger_type="MANUAL", scheduler_name="MANUAL", sessi
     from wealth_engine import run_wealth_scan
     run_wealth_scan(trigger_type=trigger_type, scheduler_name=scheduler_name, session=session)
 
-def _trigger_multibagger(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
-    from database import is_scanner_stopped
-    if is_scanner_stopped("MULTIBAGGER"):
-        logger.info("⏸️ [MULTIBAGGER] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
-        return
-    import multibagger
-    return multibagger.start(trigger_type=trigger_type, scheduler_name=scheduler_name, session=session)
+# [DECOMMISSIONED] _trigger_multibagger() permanently removed.
 
 def _trigger_technical(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=None, session=None):
     from database import is_scanner_stopped
@@ -2114,17 +1833,39 @@ def _trigger_technical(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=N
     return {"total_count": count, "processed_count": count}
 
 def _trigger_fundamental(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
-    from database import is_scanner_stopped
+    try:
+        from database import is_scanner_stopped
+    except ImportError:
+        from app.database import is_scanner_stopped
+
     if is_scanner_stopped("FUNDAMENTAL"):
         logger.info("⏸️ [FUNDAMENTAL] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
         return {"total_count": 0, "processed_count": 0}
+
+    # Resilient import supporting container & root environments
+    scanner = None
     try:
-        from live_fundamental_scanner import live_fundamental_scanner
-    except ImportError:
-        from app.live_fundamental_scanner import live_fundamental_scanner
-    funnel = live_fundamental_scanner.scan_universe()
+        from live_fundamental_scanner import live_fundamental_scanner, LiveFundamentalBuyScanner
+        scanner = live_fundamental_scanner or LiveFundamentalBuyScanner()
+    except (ImportError, AttributeError):
+        try:
+            from app.live_fundamental_scanner import live_fundamental_scanner, LiveFundamentalBuyScanner
+            scanner = live_fundamental_scanner or LiveFundamentalBuyScanner()
+        except (ImportError, AttributeError):
+            try:
+                import live_fundamental_scanner as _mod
+                scanner = getattr(_mod, "live_fundamental_scanner", None) or getattr(_mod, "LiveFundamentalBuyScanner", None)()
+            except Exception:
+                import app.live_fundamental_scanner as _mod
+                scanner = getattr(_mod, "live_fundamental_scanner", None) or getattr(_mod, "LiveFundamentalBuyScanner", None)()
+
+    if scanner is None:
+        raise RuntimeError("Failed to resolve live_fundamental_scanner instance or class")
+
+    funnel = scanner.scan_universe(trigger_type=trigger_type, scheduler_name=scheduler_name)
     count = funnel.get("scanned_count", 0) if isinstance(funnel, dict) else 0
     return {"total_count": count, "processed_count": count}
+
 
 # [VERSION: TRIGGER_AI_WORKER_v1.1] Define _trigger_ai_worker
 def _trigger_ai_worker():
@@ -2156,13 +1897,7 @@ def _trigger_performance_tracker():
         if _perf_tracker_lock.locked():
             _perf_tracker_lock.release()
 
-def _trigger_multibagger_exit():
-    from database import is_scanner_stopped
-    if is_scanner_stopped("MULTIBAGGER_EXIT"):
-        logger.info("⏸️ [MULTIBAGGER_EXIT] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
-        return {"total_count": 0, "processed_count": 0}
-    _run_multibagger_exit_single()
-    return {"total_count": 1, "processed_count": 1}
+# [DECOMMISSIONED] _trigger_multibagger_exit() permanently removed.
 
 def _trigger_wealth_exit():
     from database import is_scanner_stopped
@@ -2222,10 +1957,6 @@ if __name__ == "__main__":
             registry.register_consumer("watchlist", "WealthEngine")
             registry.register_consumer("price_1d", "WealthEngine")
             registry.register_consumer("fundamentals_quarterly", "WealthEngine")
-            registry.register_consumer("watchlist", "EODScanner")
-            registry.register_consumer("price_1d", "EODScanner")
-            registry.register_consumer("watchlist", "PullbackScanner")
-            registry.register_consumer("price_1d", "PullbackScanner")
             registry.validate()
             logger.info("✅ Dataset Registry graph validation passed.")
         except Exception as e:
