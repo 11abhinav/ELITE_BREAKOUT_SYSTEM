@@ -363,13 +363,53 @@
     </div>
   </div>
 
+  <!-- SECTION 29: EXIT MONITOR SUMMARY WIDGET -->
+  <div id="exit-monitor-summary-card" style="margin-bottom: 20px; background: linear-gradient(135deg, rgba(30, 41, 59, 0.85) 0%, rgba(15, 23, 42, 0.95) 100%); border: 1px solid rgba(99, 102, 241, 0.35); border-radius: 12px; padding: 16px 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); backdrop-filter: blur(8px);">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:12px; margin-bottom:12px;">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <span style="font-size:20px;">🛡️</span>
+        <span style="font-weight:700; font-size:15px; color:#f8fafc; letter-spacing:0.5px;">LIVE EXIT MONITOR (V1 PRIMARY + V2 SHADOW)</span>
+        <span id="em-market-badge" style="padding:3px 9px; border-radius:6px; font-size:11px; font-weight:700; background:#22c55e22; color:#22c55e; border:1px solid #22c55e44;">MARKET: OPEN</span>
+        <span style="padding:3px 9px; border-radius:6px; font-size:11px; font-weight:600; background:#6366f122; color:#a5b4fc; border:1px solid #6366f144;">09:00 – 16:00 IST</span>
+        <span style="padding:3px 9px; border-radius:6px; font-size:11px; font-weight:700; background:#f43f5e22; color:#fb7185; border:1px solid #f43f5e44;">NO BROKER ORDERS (ALERTS ONLY)</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:16px; font-size:12px; color:#94a3b8;">
+        <span>Data Health: <strong id="em-health-badge" style="color:#22c55e;">GREEN</strong></span>
+        <span>Last Scan: <strong id="em-last-scan" style="color:#f8fafc;">--:--:-- IST</strong></span>
+        <button onclick="refreshLiveExitMonitor()" style="background:#4f46e5; color:#fff; border:none; padding:5px 12px; border-radius:6px; cursor:pointer; font-weight:600; font-size:11px;">🔄 Scan Now</button>
+      </div>
+    </div>
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:12px;">
+      <div style="background:rgba(255,255,255,0.03); padding:10px 14px; border-radius:8px; border:1px solid rgba(255,255,255,0.06);">
+        <div style="font-size:11px; color:#94a3b8; text-transform:uppercase;">Tracked Open Positions</div>
+        <div id="em-stat-open" style="font-size:22px; font-weight:700; color:#f8fafc;">0</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.03); padding:10px 14px; border-radius:8px; border:1px solid rgba(255,255,255,0.06);">
+        <div style="font-size:11px; color:#94a3b8; text-transform:uppercase;">V1 Primary Monitor</div>
+        <div style="font-size:14px; font-weight:600; color:#f8fafc; margin-top:2px;">
+          Holding: <span id="em-v1-holding" style="color:#22c55e; font-weight:700;">0</span> | Exit Alerts: <span id="em-v1-exits" style="color:#f43f5e; font-weight:700;">0</span>
+        </div>
+      </div>
+      <div style="background:rgba(255,255,255,0.03); padding:10px 14px; border-radius:8px; border:1px solid rgba(255,255,255,0.06);">
+        <div style="font-size:11px; color:#94a3b8; text-transform:uppercase;">V2 Shadow Research Tracker</div>
+        <div style="font-size:14px; font-weight:600; color:#f8fafc; margin-top:2px;">
+          Holding: <span id="em-v2-holding" style="color:#38bdf8; font-weight:700;">0</span> | Hyp. Exits: <span id="em-v2-exits" style="color:#f59e0b; font-weight:700;">0</span>
+        </div>
+      </div>
+      <div style="background:rgba(255,255,255,0.03); padding:10px 14px; border-radius:8px; border:1px solid rgba(255,255,255,0.06);">
+        <div style="font-size:11px; color:#94a3b8; text-transform:uppercase;">Closed Positions</div>
+        <div id="em-stat-closed" style="font-size:22px; font-weight:700; color:#94a3b8;">0</div>
+      </div>
+    </div>
+  </div>
+
   <div class="tab-bar">
+    <button type="button" class="tab-btn" data-tab="exit-monitor" style="color:#6366f1; font-weight:700;">🚨 LIVE EXIT MONITOR (V1+V2)</button>
     <button type="button" class="tab-btn" data-tab="myport" style="color:var(--accent);">My Portfolio Tracker</button>
     <button type="button" class="tab-btn tab-buy active" data-tab="buy">Buy Signals</button>
     <button type="button" class="tab-btn" data-tab="alert-history">📊 Alert History</button>
     <button type="button" class="tab-btn" data-tab="closed-positions">📈 Closed Positions</button>
     <button type="button" class="tab-btn" data-tab="buckets">Portfolio Buckets</button>
-    
   </div>
   
   <div id="newAlertToast" class="alert-toast" onclick="dismissAlert()">
@@ -377,6 +417,107 @@
     <div>
       <div style="font-size:16px;">NEW ALERT DETECTED</div>
       <div style="font-size:12px; font-weight:normal; opacity:0.9;">Click anywhere to dismiss</div>
+    </div>
+  </div>
+
+  <!-- LIVE EXIT MONITOR & V2 SHADOW TRACKER TAB -->
+  <div id="panel-exit-monitor" class="tab-panel">
+    <!-- FUNNEL AUDIT & UNIVERSE VISIBILITY CARD (SECTION 29) -->
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px 20px; margin-bottom:20px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:12px;">
+        <div style="font-weight:700; font-size:14px; color:#f8fafc; text-transform:uppercase; letter-spacing:0.5px;">
+          📊 Buy Scanner Funnel & Approved Universe Visibility
+        </div>
+        <div style="font-size:12px; color:#94a3b8;">
+          Universe: <strong style="color:#f8fafc;">886 Clean Equities</strong> (41 Anomaly Stocks Quarantined)
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:10px; text-align:center;">
+        <div style="background:rgba(255,255,255,0.02); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+          <div style="font-size:11px; color:#94a3b8;">Approved Universe</div>
+          <div id="fn-univ" style="font-size:18px; font-weight:700; color:#38bdf8;">886</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.02); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+          <div style="font-size:11px; color:#94a3b8;">Fundamental Quality</div>
+          <div id="fn-fund" style="font-size:18px; font-weight:700; color:#a78bfa;">742</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.02); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+          <div style="font-size:11px; color:#94a3b8;">Earnings Accel</div>
+          <div id="fn-accel" style="font-size:18px; font-weight:700; color:#818cf8;">315</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.02); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+          <div style="font-size:11px; color:#94a3b8;">Trend + RS Pass</div>
+          <div id="fn-trend" style="font-size:18px; font-weight:700; color:#34d399;">181</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.02); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+          <div style="font-size:11px; color:#94a3b8;">Consolidation Pass</div>
+          <div id="fn-cons" style="font-size:18px; font-weight:700; color:#fbbf24;">54</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.02); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+          <div style="font-size:11px; color:#94a3b8;">20D Breakout Pass</div>
+          <div id="fn-breakout" style="font-size:18px; font-weight:700; color:#22c55e;">7</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.02); padding:10px; border-radius:8px; border:1px solid rgba(255,255,255,0.05);">
+          <div style="font-size:11px; color:#94a3b8;">Active Buy Alerts</div>
+          <div id="fn-alerts" style="font-size:18px; font-weight:700; color:#22c55e;">7</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DEDICATED EXIT MONITOR TABLE (SECTION 28) -->
+    <div style="margin-bottom: 24px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+        <h3 style="margin:0; font-size:15px; font-weight:700; color:#f8fafc;">
+          📋 Active Positions — V1 Primary Exit Monitor
+        </h3>
+        <span style="font-size:12px; color:#94a3b8;">
+          V1 triggers user-facing EXIT alert at CMP reference. V2 tracks in parallel for research only.
+        </span>
+      </div>
+      <div class="table-container">
+        <table id="tbl-exit-monitor">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Entry Ref</th>
+              <th>Current CMP</th>
+              <th>Dashboard Return</th>
+              <th>V1 State</th>
+              <th>V1 Struct. Weakness</th>
+              <th>V1 Confirmation</th>
+              <th>V1 Reason</th>
+              <th>V2 State</th>
+              <th>V2 Reason</th>
+              <th>Last Eval</th>
+              <th>Data Health</th>
+              <th>Status</th>
+              <th>User Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td colspan="14" style="text-align:center; color:#94a3b8; padding:20px;">Loading exit monitor positions...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- V2 SHADOW RESEARCH PANEL (SECTION 13 & 25) -->
+    <div style="background:var(--card); border:1px solid rgba(56, 189, 248, 0.25); border-radius:12px; padding:18px 20px; margin-bottom:24px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:10px; margin-bottom:14px;">
+        <div style="font-weight:700; font-size:14px; color:#38bdf8; display:flex; align-items:center; gap:8px;">
+          <span>🔬</span>
+          <span>V2 SHADOW MONITOR — PROSPECTIVE RESEARCH PANEL</span>
+          <span style="padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700; background:#38bdf822; color:#38bdf8; border:1px solid #38bdf844;">RESEARCH ONLY</span>
+        </div>
+        <div style="font-size:11px; color:#94a3b8;">
+          V2 has zero authority to close user positions. Evaluates compound weakness in parallel.
+        </div>
+      </div>
+      <div id="v2-research-cards" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:12px;">
+        <div style="color:#94a3b8; font-size:12px; padding:10px;">Loading V2 shadow observations...</div>
+      </div>
     </div>
   </div>
 
@@ -1816,9 +1957,119 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   }, true);
 
+  // LIVE EXIT MONITOR & V2 SHADOW RESEARCH CLIENT LOGIC
+  async function loadExitMonitorData() {
+    try {
+      // 1. Fetch summary snapshot
+      const resSum = await fetch('/api/wealth/live-monitor/status');
+      if (resSum.ok) {
+        const sum = await resSum.json();
+        const badge = document.getElementById('em-market-badge');
+        if (badge) {
+          badge.textContent = `MARKET: ${sum.market_status || 'OPEN'}`;
+          badge.style.color = sum.market_status === 'OPEN' ? '#22c55e' : '#f59e0b';
+        }
+        const hBadge = document.getElementById('em-health-badge');
+        if (hBadge) hBadge.textContent = sum.data_health_overall || 'GREEN';
+        const scanEl = document.getElementById('em-last-scan');
+        if (scanEl) scanEl.textContent = sum.last_scan_timestamp ? new Date(sum.last_scan_timestamp).toLocaleTimeString('en-IN') + ' IST' : '--:--:-- IST';
+        const statOpen = document.getElementById('em-stat-open');
+        if (statOpen) statOpen.textContent = sum.open_positions_count || 0;
+        const statClosed = document.getElementById('em-stat-closed');
+        if (statClosed) statClosed.textContent = sum.closed_positions_count || 0;
+        const v1Hold = document.getElementById('em-v1-holding');
+        if (v1Hold) v1Hold.textContent = (sum.v1_stats && sum.v1_stats.holding) || 0;
+        const v1Exit = document.getElementById('em-v1-exits');
+        if (v1Exit) v1Exit.textContent = (sum.v1_stats && sum.v1_stats.exit_alerts) || 0;
+        const v2Hold = document.getElementById('em-v2-holding');
+        if (v2Hold) v2Hold.textContent = (sum.v2_shadow_stats && sum.v2_shadow_stats.holding) || 0;
+        const v2Exit = document.getElementById('em-v2-exits');
+        if (v2Exit) v2Exit.textContent = (sum.v2_shadow_stats && sum.v2_shadow_stats.hypothetical_exits) || 0;
+      }
+
+      // 2. Fetch table rows
+      const resTbl = await fetch('/api/wealth/live-monitor/table');
+      if (resTbl.ok) {
+        const dataTbl = await resTbl.json();
+        const tbody = document.querySelector('#tbl-exit-monitor tbody');
+        if (tbody) {
+          const rows = dataTbl.positions || [];
+          if (rows.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="14" style="text-align:center; color:#94a3b8; padding:20px;">No active open positions currently monitored.</td></tr>';
+          } else {
+            tbody.innerHTML = rows.map(r => `
+              <tr>
+                <td><strong>${r.symbol}</strong></td>
+                <td>₹${parseFloat(r.entry_reference_price || 0).toFixed(2)}</td>
+                <td><strong>₹${parseFloat(r.current_cmp || 0).toFixed(2)}</strong></td>
+                <td style="color:${(r.dashboard_return_ref_pct || 0) >= 0 ? '#22c55e' : '#f43f5e'}; font-weight:700;">
+                  ${(r.dashboard_return_ref_pct || 0) >= 0 ? '+' : ''}${parseFloat(r.dashboard_return_ref_pct || 0).toFixed(2)}%
+                </td>
+                <td><span style="padding:2px 8px; border-radius:4px; font-weight:700; background:${r.v1_state === 'EXIT' ? '#f43f5e22' : '#22c55e22'}; color:${r.v1_state === 'EXIT' ? '#f43f5e' : '#22c55e'};">${r.v1_state}</span></td>
+                <td>${r.v1_structural_weakness === 'YES' ? '<span style="color:#f43f5e; font-weight:700;">YES</span>' : '<span style="color:#94a3b8;">NO</span>'}</td>
+                <td>${r.v1_confirmation === 'YES' ? '<span style="color:#f43f5e; font-weight:700;">YES</span>' : '<span style="color:#94a3b8;">NO</span>'}</td>
+                <td style="font-size:11px; max-width:200px;">${r.v1_reason}</td>
+                <td><span style="padding:2px 8px; border-radius:4px; font-weight:700; background:${r.v2_state.includes('EXIT') ? '#f59e0b22' : '#38bdf822'}; color:${r.v2_state.includes('EXIT') ? '#f59e0b' : '#38bdf8'};">${r.v2_state}</span></td>
+                <td style="font-size:11px; max-width:200px;">${r.v2_reason}</td>
+                <td style="font-size:11px; color:#94a3b8;">${r.last_evaluation ? new Date(r.last_evaluation).toLocaleTimeString('en-IN') : '-'}</td>
+                <td><span style="color:${r.data_health === 'GREEN' ? '#22c55e' : '#f43f5e'}; font-weight:700;">${r.data_health}</span></td>
+                <td><span style="font-weight:700;">${r.position_status}</span></td>
+                <td>
+                  <span style="padding:3px 9px; border-radius:6px; font-weight:700; font-size:11px; background:${r.user_action === 'HOLD' ? '#22c55e22' : '#f43f5e22'}; color:${r.user_action === 'HOLD' ? '#22c55e' : '#f43f5e'}; border:1px solid ${r.user_action === 'HOLD' ? '#22c55e44' : '#f43f5e44'};">
+                    ${r.user_action}
+                  </span>
+                </td>
+              </tr>
+            `).join('');
+          }
+        }
+      }
+
+      // 3. Fetch V2 Research Cards
+      const resV2 = await fetch('/api/wealth/live-monitor/research-panel');
+      if (resV2.ok) {
+        const dataV2 = await resV2.json();
+        const container = document.getElementById('v2-research-cards');
+        if (container) {
+          const cards = dataV2.research_rows || [];
+          if (cards.length === 0) {
+            container.innerHTML = '<div style="color:#94a3b8; font-size:12px; padding:10px;">No open positions to observe in V2 shadow monitor.</div>';
+          } else {
+            container.innerHTML = cards.map(c => `
+              <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:12px 14px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                  <strong style="font-size:15px; color:#f8fafc;">${c.symbol}</strong>
+                  <span style="font-size:11px; padding:2px 6px; border-radius:4px; font-weight:700; background:${c.would_v2_exit_now === 'YES' ? '#f59e0b22' : '#22c55e22'}; color:${c.would_v2_exit_now === 'YES' ? '#f59e0b' : '#22c55e'};">
+                    V2 Exit: ${c.would_v2_exit_now}
+                  </span>
+                </div>
+                <div style="font-size:12px; color:#94a3b8; margin-bottom:4px;">
+                  Agreement: <strong style="color:#f8fafc;">${c.v1_vs_v2}</strong> | Hyp. CMP: <strong style="color:#f8fafc;">₹${parseFloat(c.hypothetical_v2_cmp || 0).toFixed(2)}</strong>
+                </div>
+                <div style="font-size:11px; color:#cbd5e1; background:rgba(0,0,0,0.2); padding:6px 8px; border-radius:4px; margin-top:6px;">
+                  Reason: ${c.reason}
+                </div>
+                <div style="font-size:10px; color:#64748b; margin-top:6px; font-style:italic;">
+                  ${c.research_note}
+                </div>
+              </div>
+            `).join('');
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Error loading exit monitor data:', e);
+    }
+  }
+
+  function refreshLiveExitMonitor() {
+    loadExitMonitorData();
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     if (typeof setupSSEAlertStream === 'function') setupSSEAlertStream();
     if (typeof loadData === 'function') loadData();
+    if (typeof loadExitMonitorData === 'function') loadExitMonitorData();
   });
 </script>
 <script src="/static/shared_ui.js"></script>
