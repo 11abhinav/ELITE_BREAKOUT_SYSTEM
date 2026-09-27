@@ -1126,6 +1126,23 @@ class LiveFundamentalBuyScanner:
                             )
                             logger.info(f"✅ [FUNDAMENTAL ALERT] {sym} -> unified alerts DB: inserted={inserted}, reason={reason}")
                             telemetry.record_alert_persistence(sym, inserted, reason or ("INSERTED" if inserted else "REJECTED"), cmp_price)
+
+                            if inserted:
+                                try:
+                                    try:
+                                        from database import insert_notification
+                                    except ImportError:
+                                        from app.database import insert_notification
+                                    roce_txt = f"{m.get('roce'):.1f}%" if m.get('roce') is not None else "15%+"
+                                    roe_txt = f"{m.get('roe'):.1f}%" if m.get('roe') is not None else "12%+"
+                                    insert_notification(
+                                        notif_type="BUY_ALERT",
+                                        title=f"🟢 FUNDAMENTAL BREAKOUT: {sym.upper()}",
+                                        message=f"{sym.upper()} passed Quality (ROCE {roce_txt}, ROE {roe_txt}) + Growth Acceleration + 20D Breakout at ₹{cmp_price:.2f}",
+                                        symbol=sym.upper()
+                                    )
+                                except Exception as notif_err:
+                                    logger.debug(f"Notification insert warning for {sym}: {notif_err}")
                         except Exception as al_err:
                             logger.warning(f"Save alert to unified table failed for {sym}: {al_err}")
 
