@@ -1,0 +1,2 @@
+sector,n_trades,win_rate_pct,mean_return_pct,median_return_pct,mfe_pct,mae_pct,recovery_rate_pct,value_trap_rate_pct
+Other,13,92.31,350.17,69.59,609.64,-19.16,92.31,0.0

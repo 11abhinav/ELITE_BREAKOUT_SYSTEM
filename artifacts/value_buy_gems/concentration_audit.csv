@@ -1,0 +1,10 @@
+metric,value,detail
+Top 1 Winner Contribution (SIGMAADV),37.24%,"+1,873.96% return"
+Top 2 Winners Contribution (SIGMAADV + VMARCIND),73.15%,Combined profit of 2 stocks
+Top 5 Winners Contribution,89.11%,Combined profit of 5 stocks
+Top 10 Winners Contribution,99.00%,Combined profit of 10 stocks
+Full Strategy CAGR (E2_X0_P2),52.05%,All 20 positions
+CAGR Excluding Top 1 Winner,37.14%,Excludes SIGMAADV
+CAGR Excluding Top 2 Winners,18.77%,Excludes SIGMAADV & VMARCIND
+CAGR Excluding Top 5 Winners,8.41%,Excludes Top 5 Winners (Below Nifty 12.8%)
+Nifty 50 Benchmark CAGR,12.80%,3-Year Buy-and-Hold Nifty 50

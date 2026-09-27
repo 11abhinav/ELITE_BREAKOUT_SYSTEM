@@ -42,7 +42,9 @@ try:
 except ImportError:
     from fundamental_telemetry import FundamentalScanTelemetry
 
-BASE_DIR = "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM"
+BASE_DIR = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if not os.path.exists(os.path.join(BASE_DIR, "data")) and os.path.exists("/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data"):
+    BASE_DIR = "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM"
 DATA_DIR = os.path.join(BASE_DIR, "data")
 CLEAN_UNIVERSE_JSON = os.path.join(DATA_DIR, "certified_clean_universe_886.json")
 QUARANTINE_JSON = os.path.join(DATA_DIR, "quarantined_anomaly_symbols_41.json")
@@ -459,7 +461,9 @@ class DailyBuilderFundamentalProvider:
         Loads fundamental master records from Daily Builder 2.0.
         Returns (fundamentals_by_symbol, metadata).
         """
-        path = parquet_path or cls.MASTER_PARQUET
+        path = parquet_path or os.path.join(DATA_DIR, "daily_builder_master_v2.parquet")
+        if not os.path.exists(path) and os.path.exists(cls.MASTER_PARQUET):
+            path = cls.MASTER_PARQUET
         meta: Dict[str, Any] = {
             "source": "DAILY_BUILDER_2.0",
             "loaded_at": datetime.now(IST).isoformat(),
@@ -751,9 +755,11 @@ class LiveFundamentalBuyScanner:
 
     def scan_universe(
         self,
-        market_data_map: Dict[str, pd.DataFrame],
+        market_data_map: Optional[Dict[str, pd.DataFrame]] = None,
         fundamentals_map: Optional[Dict[str, Dict[str, Any]]] = None,
-        benchmark_closes: Optional[np.ndarray] = None
+        benchmark_closes: Optional[np.ndarray] = None,
+        trigger_type: str = "AUTOMATED",
+        scheduler_name: str = "SCHEDULED"
     ) -> Dict[str, Any]:
         """
         Scans all candidates across the universe and records the complete stock funnel audit.
@@ -777,6 +783,36 @@ class LiveFundamentalBuyScanner:
                         if k not in f_data or f_data[k] is None:
                             f_data[k] = v
 
+        if market_data_map is None:
+            market_data_map = {}
+            history_dir = os.path.join(DATA_DIR, "history", "1d")
+            target_symbols = self.universe_registry.approved_symbols
+            for sym in target_symbols:
+                p_path = os.path.join(history_dir, f"{sym}.parquet")
+                if os.path.exists(p_path):
+                    try:
+                        df_bar = pd.read_parquet(p_path)
+                        if not df_bar.empty and len(df_bar) >= 50:
+                            market_data_map[sym] = df_bar
+                    except Exception as e:
+                        logger.debug(f"Failed to load daily candle for {sym}: {e}")
+
+        if benchmark_closes is None:
+            history_dir = os.path.join(DATA_DIR, "history", "1d")
+            for bm_file in ["NIFTY 50.parquet", "NIFTY50.parquet", "^NSEI.parquet"]:
+                bm_path = os.path.join(history_dir, bm_file)
+                if os.path.exists(bm_path):
+                    try:
+                        df_bm = pd.read_parquet(bm_path)
+                        if "Close" in df_bm.columns and not df_bm.empty:
+                            benchmark_closes = df_bm["Close"].values
+                            break
+                        elif "close" in df_bm.columns and not df_bm.empty:
+                            benchmark_closes = df_bm["close"].values
+                            break
+                    except Exception:
+                        pass
+
         try:
             try:
                 from database import create_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health, save_wealth_buy_alert, save_alert_if_new
@@ -793,7 +829,7 @@ class LiveFundamentalBuyScanner:
             try:
                 ctx = create_scanner_execution_run(
                     scanner_name="FUNDAMENTAL",
-                    trigger_type="AUTOMATED",
+                    trigger_type=trigger_type,
                     total_stocks=len(market_data_map),
                     allow_concurrent=True
                 )
@@ -1068,3 +1104,42 @@ class LiveFundamentalBuyScanner:
             "code_sha": FROZEN_GIT_SHA,
             "timestamp": datetime.now(IST).isoformat()
         }
+
+
+# Module-level singleton instance for runtime trigger execution
+_live_fundamental_scanner_instance = None
+
+def get_live_fundamental_scanner() -> LiveFundamentalBuyScanner:
+    global _live_fundamental_scanner_instance
+    if _live_fundamental_scanner_instance is None:
+        _live_fundamental_scanner_instance = LiveFundamentalBuyScanner()
+    return _live_fundamental_scanner_instance
+
+class _LazyScannerProxy:
+    def scan_universe(self, *args, **kwargs):
+        return get_live_fundamental_scanner().scan_universe(*args, **kwargs)
+
+    def scan_candidate(self, *args, **kwargs):
+        return get_live_fundamental_scanner().scan_candidate(*args, **kwargs)
+
+live_fundamental_scanner = _LazyScannerProxy()
+
+def run_fundamental_scan(trigger_type: str = "MANUAL", scheduler_name: str = "MANUAL") -> Dict[str, Any]:
+    """Top-level invocation wrapper matching the engine's trigger signature."""
+    return get_live_fundamental_scanner().scan_universe(trigger_type=trigger_type, scheduler_name=scheduler_name)
+
+__all__ = [
+    "RejectionReason",
+    "ApprovedUniverseRegistry",
+    "FundamentalQualityGate",
+    "EarningsAccelerationGate",
+    "TechnicalTrendGate",
+    "ConsolidationGate",
+    "BreakoutGate",
+    "DailyBuilderFundamentalProvider",
+    "LiveFundamentalBuyScanner",
+    "live_fundamental_scanner",
+    "get_live_fundamental_scanner",
+    "run_fundamental_scan",
+]
+

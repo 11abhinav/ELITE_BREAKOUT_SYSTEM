@@ -1,0 +1,7 @@
+metric,value,status
+Starting Capital,"₹10,000,000.00",VERIFIED
+Realized P&L,₹0.00,VERIFIED
+Unrealized P&L,"₹2,985,783.84",VERIFIED
+Transaction Costs,"₹5,000.00",VERIFIED
+Ending Portfolio NAV,"₹12,992,277.41",EXACT_RECONCILIATION_PASS
+Accounting Equation (End = Start + PnL - Costs),10M + Realized + Unrealized - Costs == Ending NAV,EXACT_MATCH

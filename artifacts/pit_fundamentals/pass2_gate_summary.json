@@ -1,0 +1,433 @@
+{
+  "evaluation_timestamp": "2026-09-27 23:18:06 IST",
+  "pass_number": 2,
+  "master_universe_count": 927,
+  "quarantined_anomaly_count": 41,
+  "approved_universe_count": 886,
+  "pit_valid_count": 792,
+  "pit_valid_pct": 89.3905,
+  "missing_count": 94,
+  "missing_pct": 10.6095,
+  "missing_symbols": [
+    "ABBOTINDIA",
+    "ACCENTMIC",
+    "AJAXENGG",
+    "ANTELOPUS",
+    "ASTRAZEN",
+    "AUTOAXLES",
+    "AVL",
+    "AYE",
+    "BANARISUG",
+    "BDL",
+    "BHARATSE",
+    "BHARTIHEXA",
+    "BUTTERFLY",
+    "CANFINHOME",
+    "CANTABIL",
+    "CAPITALSFB",
+    "CASTROLIND",
+    "CLSEL",
+    "CSBBANK",
+    "CUB",
+    "DATAPATTNS",
+    "DCBBANK",
+    "DDEVPLSTIK",
+    "DYCL",
+    "ELANTAS",
+    "ELLEN",
+    "FEDFINA",
+    "FRONTSP",
+    "GANDHITUBE",
+    "GILLETTE",
+    "GODIGIT",
+    "GOODYEAR",
+    "GOPAL",
+    "GRSE",
+    "GUJGASLTD",
+    "HAWKINCOOK",
+    "HEIDELBERG",
+    "HONAUT",
+    "ICICIGI",
+    "INDIANHUME",
+    "INDOTECH",
+    "INDRAMEDCO",
+    "INGERRAND",
+    "INTERARCH",
+    "JAGSNPHARM",
+    "KARURVYSYA",
+    "KINGFA",
+    "KRISHANA",
+    "KROSS",
+    "KSHINTL",
+    "LAOPALA",
+    "LGEINDIA",
+    "MANGLMCEM",
+    "MBAPL",
+    "NETWEB",
+    "NIRLON",
+    "NITINSPIN",
+    "NOVARTIND",
+    "OBSCP",
+    "ORIENTCEM",
+    "ORIENTELEC",
+    "PAGEIND",
+    "PAUSHAKLTD",
+    "PGHH",
+    "PGHL",
+    "POWERINDIA",
+    "RELAXO",
+    "ROLEXRINGS",
+    "SANOFICONR",
+    "SBICARD",
+    "SBILIFE",
+    "SCHNEIDER",
+    "SGFIN",
+    "SHANTIGEAR",
+    "SHILCTECH",
+    "SHRINGARMS",
+    "SMLMAH",
+    "SPORTKING",
+    "STALLION",
+    "STEELCAS",
+    "SUPRIYA",
+    "SWARAJENG",
+    "TASTYBITE",
+    "THANGAMAYL",
+    "TIMEX",
+    "TIPSMUSIC",
+    "TMB",
+    "TNPL",
+    "VENKEYS",
+    "VENUSPIPES",
+    "VESUVIUS",
+    "VMART",
+    "VOLTAMP",
+    "WAAREEINDO"
+  ],
+  "gate1_pit_coverage_pass": false,
+  "gate2_historical_windows_pass": false,
+  "gate3_market_cap_tiers_pass": true,
+  "gate4_field_completeness_pass": false,
+  "gate5_sector_coverage_pass": true,
+  "all_gates_pass": false,
+  "full_universe_pit_status": "PARTIAL",
+  "tournament_readiness": "BLOCKED -- Material coverage gaps",
+  "provenance_status": "NOT_CERTIFIED",
+  "dataset_hash_sha256": "4edefc9fcc44a40af0c52bd83059c0bbceab0a45157bb58ead7e318b45cc0760",
+  "gate_details": {
+    "gate1": {
+      "name": "PIT Coverage",
+      "threshold": ">=98.0%",
+      "actual": "89.3905%",
+      "pass": false
+    },
+    "gate2": {
+      "name": "Historical Windows",
+      "threshold": ">=90.0%",
+      "pass": false,
+      "rows": [
+        {
+          "window": "2018-2026",
+          "covered": 774,
+          "pct": 87.36,
+          "pass": false
+        },
+        {
+          "window": "2019-2026",
+          "covered": 772,
+          "pct": 87.13,
+          "pass": false
+        },
+        {
+          "window": "2020-2026",
+          "covered": 770,
+          "pct": 86.91,
+          "pass": false
+        },
+        {
+          "window": "2021-2026",
+          "covered": 768,
+          "pct": 86.68,
+          "pass": false
+        },
+        {
+          "window": "2022-2026",
+          "covered": 760,
+          "pct": 85.78,
+          "pass": false
+        },
+        {
+          "window": "2023-2026",
+          "covered": 759,
+          "pct": 85.67,
+          "pass": false
+        }
+      ]
+    },
+    "gate3": {
+      "name": "Market Cap Tiers",
+      "pass": true,
+      "rows": [
+        {
+          "tier": "Large Cap (Top 100)",
+          "n": 100,
+          "covered": 92,
+          "pct": 92.0,
+          "threshold": 90.0,
+          "pass": true
+        },
+        {
+          "tier": "Mid Cap (101-250)",
+          "n": 150,
+          "covered": 132,
+          "pct": 88.0,
+          "threshold": 85.0,
+          "pass": true
+        },
+        {
+          "tier": "Small Cap (251-500)",
+          "n": 250,
+          "covered": 224,
+          "pct": 89.6,
+          "threshold": 85.0,
+          "pass": true
+        },
+        {
+          "tier": "Micro Cap (501+)",
+          "n": 386,
+          "covered": 344,
+          "pct": 89.12,
+          "threshold": 85.0,
+          "pass": true
+        }
+      ]
+    },
+    "gate4": {
+      "name": "Field Completeness",
+      "threshold": ">=85.0%",
+      "pass": false,
+      "rows": [
+        {
+          "field": "REVENUE",
+          "covered": 731,
+          "pct": 82.51,
+          "pass": false
+        },
+        {
+          "field": "OPERATING_PROFIT",
+          "covered": 731,
+          "pct": 82.51,
+          "pass": false
+        },
+        {
+          "field": "NET_PROFIT",
+          "covered": 774,
+          "pct": 87.36,
+          "pass": true
+        },
+        {
+          "field": "EPS",
+          "covered": 774,
+          "pct": 87.36,
+          "pass": true
+        },
+        {
+          "field": "OPERATING_CASH_FLOW",
+          "covered": 772,
+          "pct": 87.13,
+          "pass": true
+        },
+        {
+          "field": "FREE_CASH_FLOW",
+          "covered": 772,
+          "pct": 87.13,
+          "pass": true
+        },
+        {
+          "field": "TOTAL_DEBT",
+          "covered": 729,
+          "pct": 82.28,
+          "pass": false
+        },
+        {
+          "field": "TOTAL_EQUITY",
+          "covered": 772,
+          "pct": 87.13,
+          "pass": true
+        },
+        {
+          "field": "OPERATING_MARGIN",
+          "covered": 731,
+          "pct": 82.51,
+          "pass": false
+        },
+        {
+          "field": "NET_MARGIN",
+          "covered": 731,
+          "pct": 82.51,
+          "pass": false
+        },
+        {
+          "field": "ROCE",
+          "covered": 729,
+          "pct": 82.28,
+          "pass": false
+        },
+        {
+          "field": "ROE",
+          "covered": 771,
+          "pct": 87.02,
+          "pass": true
+        }
+      ]
+    },
+    "gate5": {
+      "name": "Sector Coverage",
+      "threshold": ">=70.0%",
+      "pass": true,
+      "rows": [
+        {
+          "sector": "Industrial/Diversified",
+          "n": 687,
+          "covered": 606,
+          "pct": 88.21,
+          "pass": true
+        },
+        {
+          "sector": "Pharma",
+          "n": 26,
+          "covered": 25,
+          "pct": 96.15,
+          "pass": true
+        },
+        {
+          "sector": "Auto",
+          "n": 23,
+          "covered": 23,
+          "pct": 100.0,
+          "pass": true
+        },
+        {
+          "sector": "IT",
+          "n": 22,
+          "covered": 22,
+          "pct": 100.0,
+          "pass": true
+        },
+        {
+          "sector": "Energy",
+          "n": 17,
+          "covered": 17,
+          "pct": 100.0,
+          "pass": true
+        },
+        {
+          "sector": "Infrastructure",
+          "n": 15,
+          "covered": 15,
+          "pct": 100.0,
+          "pass": true
+        },
+        {
+          "sector": "FMCG",
+          "n": 14,
+          "covered": 13,
+          "pct": 92.86,
+          "pass": true
+        },
+        {
+          "sector": "Financials",
+          "n": 13,
+          "covered": 12,
+          "pct": 92.31,
+          "pass": true
+        },
+        {
+          "sector": "Metal",
+          "n": 9,
+          "covered": 9,
+          "pct": 100.0,
+          "pass": true
+        },
+        {
+          "sector": "Banking",
+          "n": 9,
+          "covered": 6,
+          "pct": 66.67,
+          "pass": true
+        },
+        {
+          "sector": "Defence",
+          "n": 9,
+          "covered": 6,
+          "pct": 66.67,
+          "pass": true
+        },
+        {
+          "sector": "Consumption",
+          "n": 9,
+          "covered": 8,
+          "pct": 88.89,
+          "pass": true
+        },
+        {
+          "sector": "Realty",
+          "n": 7,
+          "covered": 7,
+          "pct": 100.0,
+          "pass": true
+        },
+        {
+          "sector": "MNC",
+          "n": 6,
+          "covered": 3,
+          "pct": 50.0,
+          "pass": true
+        },
+        {
+          "sector": "Capital Goods",
+          "n": 6,
+          "covered": 6,
+          "pct": 100.0,
+          "pass": true
+        },
+        {
+          "sector": "PSU Bank",
+          "n": 5,
+          "covered": 5,
+          "pct": 100.0,
+          "pass": true
+        },
+        {
+          "sector": "Chemicals",
+          "n": 4,
+          "covered": 4,
+          "pct": 100.0,
+          "pass": true
+        },
+        {
+          "sector": "Telecom",
+          "n": 2,
+          "covered": 2,
+          "pct": 100.0,
+          "pass": true
+        },
+        {
+          "sector": "Railways",
+          "n": 2,
+          "covered": 2,
+          "pct": 100.0,
+          "pass": true
+        },
+        {
+          "sector": "Electronics",
+          "n": 1,
+          "covered": 1,
+          "pct": 100.0,
+          "pass": true
+        }
+      ]
+    }
+  },
+  "pit_causality_violations": 0
+}

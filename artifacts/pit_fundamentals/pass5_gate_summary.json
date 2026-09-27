@@ -1,0 +1,312 @@
+{
+  "timestamp": "2026-09-27T23:55:44.861631",
+  "final_status": "PARTIAL",
+  "tournament_authorization": "BLOCKED",
+  "gates": {
+    "gate1_coverage_pct": {
+      "pass": false,
+      "value": 89.73,
+      "threshold": 98.0
+    },
+    "gate2_full_research_window_2016_2026": {
+      "pass": false,
+      "value": 72.94
+    },
+    "gate3_historical_membership_Ut": {
+      "pass": true,
+      "status": "CERTIFIED_NO_SELECTION_BIAS"
+    },
+    "gate4_causality": {
+      "pass": true,
+      "violations": 0
+    },
+    "gate5_exact_v0_v10_reconciliation": {
+      "pass": true,
+      "details": {
+        "variants": {
+          "V0_BASELINE_QUALITY": {
+            "variant_code": "V0_BASELINE_QUALITY",
+            "variant_name": "V0: Baseline Quality Only Control",
+            "description": "Hard quality floor without valuation constraint",
+            "required_fields": [
+              "roce",
+              "roe",
+              "total_debt",
+              "total_equity",
+              "operating_profit",
+              "eps"
+            ],
+            "sector_handling": "INDUSTRIAL_RESTRAINED",
+            "applicable_eligible_symbols": 829,
+            "applicable_covered_symbols": 749,
+            "applicable_coverage_pct": 90.35,
+            "global_universe_coverage_pct": 84.54,
+            "status": "PASS"
+          },
+          "V1_VALUE_ONLY": {
+            "variant_code": "V1_VALUE_ONLY",
+            "variant_name": "V1: Value Only Control",
+            "description": "Price dislocation & cheap valuation without quality filter",
+            "required_fields": [
+              "net_profit",
+              "eps",
+              "revenue"
+            ],
+            "sector_handling": "ALL_SECTORS",
+            "applicable_eligible_symbols": 886,
+            "applicable_covered_symbols": 794,
+            "applicable_coverage_pct": 89.62,
+            "global_universe_coverage_pct": 89.62,
+            "status": "PASS"
+          },
+          "V2_CORE_QUALITY_VALUE": {
+            "variant_code": "V2_CORE_QUALITY_VALUE",
+            "variant_name": "V2: Core Quality + Value Primary Candidate",
+            "description": "Primary candidate architecture requiring both quality floor & value cheapness",
+            "required_fields": [
+              "roce",
+              "roe",
+              "total_debt",
+              "total_equity",
+              "revenue",
+              "eps"
+            ],
+            "sector_handling": "INDUSTRIAL_RESTRAINED",
+            "applicable_eligible_symbols": 829,
+            "applicable_covered_symbols": 749,
+            "applicable_coverage_pct": 90.35,
+            "global_universe_coverage_pct": 84.54,
+            "status": "PASS"
+          },
+          "V3_DEEP_VALUE": {
+            "variant_code": "V3_DEEP_VALUE",
+            "variant_name": "V3: Deep Value Dislocation (>= 30% Drawdown)",
+            "description": "Requires deep price dislocation (>= 30% from 52W high) + quality floor",
+            "required_fields": [
+              "revenue",
+              "net_profit",
+              "eps",
+              "operating_profit"
+            ],
+            "sector_handling": "ALL_SECTORS",
+            "applicable_eligible_symbols": 886,
+            "applicable_covered_symbols": 794,
+            "applicable_coverage_pct": 89.62,
+            "global_universe_coverage_pct": 89.62,
+            "status": "PASS"
+          },
+          "V4_HISTORICAL_PE_PERCENTILE": {
+            "variant_code": "V4_HISTORICAL_PE_PERCENTILE",
+            "variant_name": "V4: Historical PE Percentile (<= 25th)",
+            "description": "Historical PE percentile <= 25th percentile of 5Y range",
+            "required_fields": [
+              "roce",
+              "operating_margin",
+              "revenue",
+              "eps"
+            ],
+            "sector_handling": "INDUSTRIAL_RESTRAINED",
+            "applicable_eligible_symbols": 829,
+            "applicable_covered_symbols": 749,
+            "applicable_coverage_pct": 90.35,
+            "global_universe_coverage_pct": 84.54,
+            "status": "PASS"
+          },
+          "V5_PEER_DISCOUNT": {
+            "variant_code": "V5_PEER_DISCOUNT",
+            "variant_name": "V5: Peer Discount Value (>= 25% Sector Discount)",
+            "description": "Cheap relative to sector peer median PE",
+            "required_fields": [
+              "eps",
+              "net_profit",
+              "revenue"
+            ],
+            "sector_handling": "ALL_SECTORS",
+            "applicable_eligible_symbols": 886,
+            "applicable_covered_symbols": 794,
+            "applicable_coverage_pct": 89.62,
+            "global_universe_coverage_pct": 89.62,
+            "status": "PASS"
+          },
+          "V6_NORMALIZED_PE": {
+            "variant_code": "V6_NORMALIZED_PE",
+            "variant_name": "V6: Normalized PE Value (PE <= 22)",
+            "description": "Absolute valuation cheapness on normalized earnings",
+            "required_fields": [
+              "revenue",
+              "operating_cash_flow",
+              "eps"
+            ],
+            "sector_handling": "ALL_SECTORS",
+            "applicable_eligible_symbols": 886,
+            "applicable_covered_symbols": 792,
+            "applicable_coverage_pct": 89.39,
+            "global_universe_coverage_pct": 89.39,
+            "status": "PASS"
+          },
+          "V7_RECOVERY_READINESS": {
+            "variant_code": "V7_RECOVERY_READINESS",
+            "variant_name": "V7: Quality + Value + Recovery Readiness",
+            "description": "Requires base corridor <= 14% depth & SMA reclaim",
+            "required_fields": [
+              "free_cash_flow",
+              "operating_cash_flow",
+              "net_profit"
+            ],
+            "sector_handling": "ALL_SECTORS",
+            "applicable_eligible_symbols": 886,
+            "applicable_covered_symbols": 793,
+            "applicable_coverage_pct": 89.5,
+            "global_universe_coverage_pct": 89.5,
+            "status": "PASS"
+          },
+          "V8_REGIME_AWARE_ENTRY": {
+            "variant_code": "V8_REGIME_AWARE_ENTRY",
+            "variant_name": "V8: Regime-Aware Value Dislocation",
+            "description": "Dynamic drawdown threshold based on macro regime (BEAR/SIDEWAYS/BULL)",
+            "required_fields": [
+              "roce",
+              "roe",
+              "total_debt",
+              "operating_cash_flow"
+            ],
+            "sector_handling": "INDUSTRIAL_RESTRAINED",
+            "applicable_eligible_symbols": 829,
+            "applicable_covered_symbols": 749,
+            "applicable_coverage_pct": 90.35,
+            "global_universe_coverage_pct": 84.54,
+            "status": "PASS"
+          },
+          "V9_TRAJECTORY_ACCELERATION": {
+            "variant_code": "V9_TRAJECTORY_ACCELERATION",
+            "variant_name": "V9: Fundamental Trajectory Acceleration",
+            "description": "Requires positive multi-year Revenue & PAT CAGR",
+            "required_fields": [
+              "revenue",
+              "net_profit",
+              "eps",
+              "operating_cash_flow"
+            ],
+            "sector_handling": "ALL_SECTORS",
+            "applicable_eligible_symbols": 886,
+            "applicable_covered_symbols": 792,
+            "applicable_coverage_pct": 89.39,
+            "global_universe_coverage_pct": 89.39,
+            "status": "PASS"
+          },
+          "V10_COMPOSITE_CONVICTION": {
+            "variant_code": "V10_COMPOSITE_CONVICTION",
+            "variant_name": "V10: Composite Conviction Score (>= 70.0)",
+            "description": "Multi-factor conviction score combining quality, valuation & momentum",
+            "required_fields": [
+              "roce",
+              "roe",
+              "revenue",
+              "operating_profit",
+              "net_profit",
+              "eps",
+              "operating_cash_flow",
+              "total_debt",
+              "total_equity"
+            ],
+            "sector_handling": "SECTOR_ADAPTIVE_MAPPED",
+            "applicable_eligible_symbols": 886,
+            "applicable_covered_symbols": 792,
+            "applicable_coverage_pct": 89.39,
+            "global_universe_coverage_pct": 89.39,
+            "status": "PASS"
+          }
+        },
+        "all_11_variants_pass": true
+      }
+    }
+  },
+  "universe_summary": {
+    "total_approved": 886,
+    "hydrated_symbols": 795,
+    "missing_symbols": 91,
+    "coverage_pct": 89.73
+  },
+  "gap_classification": {
+    "audit_window": "2016-2026 (11 Years)",
+    "total_possible_observations": 9746,
+    "present_observations": 7109,
+    "missing_observations": 2637,
+    "present_pct": 72.94,
+    "gap_classification_counts": {
+      "POST_IPO_NOT_LISTED_YET": 1221,
+      "STRUCTURAL_SECTOR_NON_APPLICABLE": 0,
+      "FILING_GENUINELY_MISSING_EXCHANGE": 415,
+      "PARSER_EXTRACTION_FAILURE": 0,
+      "SYMBOL_NAME_MAPPING_ISSUE": 1001
+    },
+    "gap_classification_pcts": {
+      "POST_IPO_NOT_LISTED_YET": 46.3,
+      "STRUCTURAL_SECTOR_NON_APPLICABLE": 0.0,
+      "FILING_GENUINELY_MISSING_EXCHANGE": 15.74,
+      "PARSER_EXTRACTION_FAILURE": 0.0,
+      "SYMBOL_NAME_MAPPING_ISSUE": 37.96
+    }
+  },
+  "historical_tiers": {
+    "2016": {
+      "historical_universe_membership_Ut": 488,
+      "large_cap_count": 100,
+      "mid_cap_count": 200,
+      "small_cap_count": 188,
+      "micro_cap_count": 0,
+      "tiering_governance": "CERTIFIED_NO_SELECTION_BIAS"
+    },
+    "2017": {
+      "historical_universe_membership_Ut": 513,
+      "large_cap_count": 100,
+      "mid_cap_count": 200,
+      "small_cap_count": 213,
+      "micro_cap_count": 0,
+      "tiering_governance": "CERTIFIED_NO_SELECTION_BIAS"
+    },
+    "2018": {
+      "historical_universe_membership_Ut": 537,
+      "large_cap_count": 100,
+      "mid_cap_count": 200,
+      "small_cap_count": 237,
+      "micro_cap_count": 0,
+      "tiering_governance": "CERTIFIED_NO_SELECTION_BIAS"
+    },
+    "2020": {
+      "historical_universe_membership_Ut": 648,
+      "large_cap_count": 100,
+      "mid_cap_count": 200,
+      "small_cap_count": 300,
+      "micro_cap_count": 49,
+      "tiering_governance": "CERTIFIED_NO_SELECTION_BIAS"
+    },
+    "2022": {
+      "historical_universe_membership_Ut": 701,
+      "large_cap_count": 100,
+      "mid_cap_count": 200,
+      "small_cap_count": 300,
+      "micro_cap_count": 101,
+      "tiering_governance": "CERTIFIED_NO_SELECTION_BIAS"
+    },
+    "2024": {
+      "historical_universe_membership_Ut": 743,
+      "large_cap_count": 100,
+      "mid_cap_count": 200,
+      "small_cap_count": 300,
+      "micro_cap_count": 143,
+      "tiering_governance": "CERTIFIED_NO_SELECTION_BIAS"
+    },
+    "2026": {
+      "historical_universe_membership_Ut": 741,
+      "large_cap_count": 100,
+      "mid_cap_count": 200,
+      "small_cap_count": 300,
+      "micro_cap_count": 141,
+      "tiering_governance": "CERTIFIED_NO_SELECTION_BIAS"
+    }
+  },
+  "dataset_hash": "684963962032aa3d4e2a3974c55d13baf423b723d2a7763fff363bef5d35407f",
+  "dataset_path": "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/pit_fundamentals_v1/pit_fundamentals_v1.db",
+  "parquet_path": "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/pit_fundamentals_v1/pit_fundamentals_v1.parquet"
+}

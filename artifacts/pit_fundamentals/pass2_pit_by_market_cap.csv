@@ -1,0 +1,5 @@
+tier,n,covered,pct,threshold,pass
+Large Cap (Top 100),100,92,92.0,90.0,True
+Mid Cap (101-250),150,132,88.0,85.0,True
+Small Cap (251-500),250,224,89.6,85.0,True
+Micro Cap (501+),386,344,89.12,85.0,True

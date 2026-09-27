@@ -1,0 +1,2 @@
+e1_cagr_pct,e2_cagr_pct,delta_cagr_pct,e1_sharpe,e2_sharpe,delta_sharpe,e1_max_dd_pct,e2_max_dd_pct,delta_max_dd_pct,e1_mean_trade_ret,e2_mean_trade_ret,delta_mean_trade_ret,e1_median_trade_ret,e2_median_trade_ret,delta_median_trade_ret,n_e1,n_e2,t_statistic,p_value,cohen_d,ci_95_low,ci_95_high,quality_addon_result
+55.8,52.05,-3.75,2.21,2.08,-0.13,26.62,25.48,-1.14,278.32,251.63,-26.69,95.41,55.42,-39.99,20,20,-0.154,0.8786,-0.05,-342.58,288.4,NOT_SUPPORTED

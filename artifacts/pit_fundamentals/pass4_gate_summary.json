@@ -1,0 +1,278 @@
+{
+  "timestamp": "2026-09-27T23:50:32.694283",
+  "final_status": "PARTIAL",
+  "tournament_authorization": "BLOCKED",
+  "gates": {
+    "gate1_coverage_pct": {
+      "pass": false,
+      "value": 89.73,
+      "threshold": 98.0
+    },
+    "gate2_causal_observation_eligibility": {
+      "pass": false,
+      "value": 76.6
+    },
+    "gate3_historical_tiering": {
+      "pass": true,
+      "status": "PIT_HISTORICAL_TIER_CERTIFIED"
+    },
+    "gate4_causality": {
+      "pass": true,
+      "violations": 0
+    },
+    "gate5_all_11_variants": {
+      "pass": true,
+      "details": {
+        "variants": {
+          "V0_BASELINE_CANSLIM": {
+            "variant_code": "V0_BASELINE_CANSLIM",
+            "variant_name": "V0: Baseline CANSLIM Growth",
+            "required_fields": [
+              "revenue",
+              "operating_profit",
+              "net_profit",
+              "eps"
+            ],
+            "sector_handling": "ALL_SECTORS",
+            "applicable_eligible_symbols": 886,
+            "applicable_covered_symbols": 794,
+            "applicable_coverage_pct": 89.62,
+            "global_universe_coverage_pct": 89.62,
+            "status": "PASS"
+          },
+          "V1_HIGH_ROCE_QUALITY": {
+            "variant_code": "V1_HIGH_ROCE_QUALITY",
+            "variant_name": "V1: High ROCE Quality Growth",
+            "required_fields": [
+              "roce",
+              "roe",
+              "total_debt",
+              "total_equity",
+              "operating_profit",
+              "eps"
+            ],
+            "sector_handling": "INDUSTRIAL_ONLY_RESTRAINED",
+            "applicable_eligible_symbols": 829,
+            "applicable_covered_symbols": 749,
+            "applicable_coverage_pct": 90.35,
+            "global_universe_coverage_pct": 84.54,
+            "status": "PASS"
+          },
+          "V2_VALUATION_MULTIPLES": {
+            "variant_code": "V2_VALUATION_MULTIPLES",
+            "variant_name": "V2: Deep Value & Low Multiples",
+            "required_fields": [
+              "net_profit",
+              "eps",
+              "total_equity",
+              "revenue"
+            ],
+            "sector_handling": "ALL_SECTORS",
+            "applicable_eligible_symbols": 886,
+            "applicable_covered_symbols": 792,
+            "applicable_coverage_pct": 89.39,
+            "global_universe_coverage_pct": 89.39,
+            "status": "PASS"
+          },
+          "V3_HISTORICAL_VALUATION_5Y": {
+            "variant_code": "V3_HISTORICAL_VALUATION_5Y",
+            "variant_name": "V3: Historical Valuation Rebuild (5Y Range)",
+            "required_fields": [
+              "revenue",
+              "net_profit",
+              "eps",
+              "operating_profit"
+            ],
+            "sector_handling": "ALL_SECTORS",
+            "applicable_eligible_symbols": 886,
+            "applicable_covered_symbols": 794,
+            "applicable_coverage_pct": 89.62,
+            "global_universe_coverage_pct": 89.62,
+            "status": "PASS"
+          },
+          "V4_SECTOR_PEER_RANK": {
+            "variant_code": "V4_SECTOR_PEER_RANK",
+            "variant_name": "V4: Sector Peer Rank & Relative Quality",
+            "required_fields": [
+              "roce",
+              "operating_margin",
+              "revenue"
+            ],
+            "sector_handling": "INDUSTRIAL_ONLY_RESTRAINED",
+            "applicable_eligible_symbols": 829,
+            "applicable_covered_symbols": 749,
+            "applicable_coverage_pct": 90.35,
+            "global_universe_coverage_pct": 84.54,
+            "status": "PASS"
+          },
+          "V5_MULTI_YEAR_EPS_ACCEL": {
+            "variant_code": "V5_MULTI_YEAR_EPS_ACCEL",
+            "variant_name": "V5: Multi-Year EPS Acceleration",
+            "required_fields": [
+              "eps",
+              "net_profit"
+            ],
+            "sector_handling": "ALL_SECTORS",
+            "applicable_eligible_symbols": 886,
+            "applicable_covered_symbols": 795,
+            "applicable_coverage_pct": 89.73,
+            "global_universe_coverage_pct": 89.73,
+            "status": "PASS"
+          },
+          "V6_REVENUE_OCF_QUALITY": {
+            "variant_code": "V6_REVENUE_OCF_QUALITY",
+            "variant_name": "V6: Revenue & Cash Flow Quality (OCF/PAT)",
+            "required_fields": [
+              "revenue",
+              "operating_cash_flow"
+            ],
+            "sector_handling": "ALL_SECTORS",
+            "applicable_eligible_symbols": 886,
+            "applicable_covered_symbols": 792,
+            "applicable_coverage_pct": 89.39,
+            "global_universe_coverage_pct": 89.39,
+            "status": "PASS"
+          },
+          "V7_FCF_YIELD_QUALITY": {
+            "variant_code": "V7_FCF_YIELD_QUALITY",
+            "variant_name": "V7: Free Cash Flow Yield Quality",
+            "required_fields": [
+              "free_cash_flow",
+              "operating_cash_flow",
+              "net_profit"
+            ],
+            "sector_handling": "ALL_SECTORS",
+            "applicable_eligible_symbols": 886,
+            "applicable_covered_symbols": 793,
+            "applicable_coverage_pct": 89.5,
+            "global_universe_coverage_pct": 89.5,
+            "status": "PASS"
+          },
+          "V8_DELEVERAGING_REPAIR": {
+            "variant_code": "V8_DELEVERAGING_REPAIR",
+            "variant_name": "V8: Deleveraging & Balance Sheet Repair",
+            "required_fields": [
+              "total_debt",
+              "total_equity",
+              "operating_cash_flow"
+            ],
+            "sector_handling": "INDUSTRIAL_ONLY_RESTRAINED",
+            "applicable_eligible_symbols": 829,
+            "applicable_covered_symbols": 749,
+            "applicable_coverage_pct": 90.35,
+            "global_universe_coverage_pct": 84.54,
+            "status": "PASS"
+          },
+          "V9_DIVIDEND_CAPITAL_RETURN": {
+            "variant_code": "V9_DIVIDEND_CAPITAL_RETURN",
+            "variant_name": "V9: Dividend & Capital Return Yield",
+            "required_fields": [
+              "net_profit",
+              "operating_cash_flow",
+              "total_equity"
+            ],
+            "sector_handling": "ALL_SECTORS",
+            "applicable_eligible_symbols": 886,
+            "applicable_covered_symbols": 793,
+            "applicable_coverage_pct": 89.5,
+            "global_universe_coverage_pct": 89.5,
+            "status": "PASS"
+          },
+          "V10_MASTER_COMPOSITE": {
+            "variant_code": "V10_MASTER_COMPOSITE",
+            "variant_name": "V10: Full Multi-Factor Master Composite",
+            "required_fields": [
+              "roce",
+              "roe",
+              "revenue",
+              "operating_profit",
+              "net_profit",
+              "eps",
+              "operating_cash_flow",
+              "total_debt",
+              "total_equity"
+            ],
+            "sector_handling": "SECTOR_ADAPTIVE_MAPPED",
+            "applicable_eligible_symbols": 886,
+            "applicable_covered_symbols": 792,
+            "applicable_coverage_pct": 89.39,
+            "global_universe_coverage_pct": 89.39,
+            "status": "PASS"
+          }
+        },
+        "all_11_variants_pass": true
+      }
+    }
+  },
+  "universe_summary": {
+    "total_approved": 886,
+    "hydrated_symbols": 795,
+    "missing_symbols": 91,
+    "coverage_pct": 89.73
+  },
+  "gap_classification": {
+    "total_possible_observations": 7974,
+    "present_observations": 6108,
+    "missing_observations": 1866,
+    "present_pct": 76.6,
+    "gap_classification_counts": {
+      "POST_IPO_NOT_LISTED_YET": 692,
+      "STRUCTURAL_SECTOR_NON_APPLICABLE": 0,
+      "FILING_GENUINELY_MISSING_EXCHANGE": 355,
+      "PARSER_EXTRACTION_FAILURE": 0,
+      "SYMBOL_NAME_MAPPING_ISSUE": 819
+    },
+    "gap_classification_pcts": {
+      "POST_IPO_NOT_LISTED_YET": 37.08,
+      "STRUCTURAL_SECTOR_NON_APPLICABLE": 0.0,
+      "FILING_GENUINELY_MISSING_EXCHANGE": 19.02,
+      "PARSER_EXTRACTION_FAILURE": 0.0,
+      "SYMBOL_NAME_MAPPING_ISSUE": 43.89
+    }
+  },
+  "historical_tiers": {
+    "2018": {
+      "total_hydrated_symbols": 537,
+      "large_cap_count": 100,
+      "mid_cap_count": 200,
+      "small_cap_count": 237,
+      "micro_cap_count": 0,
+      "survivorship_status": "PIT_HISTORICAL_TIER_CERTIFIED"
+    },
+    "2020": {
+      "total_hydrated_symbols": 649,
+      "large_cap_count": 100,
+      "mid_cap_count": 200,
+      "small_cap_count": 300,
+      "micro_cap_count": 49,
+      "survivorship_status": "PIT_HISTORICAL_TIER_CERTIFIED"
+    },
+    "2022": {
+      "total_hydrated_symbols": 701,
+      "large_cap_count": 100,
+      "mid_cap_count": 200,
+      "small_cap_count": 300,
+      "micro_cap_count": 101,
+      "survivorship_status": "PIT_HISTORICAL_TIER_CERTIFIED"
+    },
+    "2024": {
+      "total_hydrated_symbols": 743,
+      "large_cap_count": 100,
+      "mid_cap_count": 200,
+      "small_cap_count": 300,
+      "micro_cap_count": 143,
+      "survivorship_status": "PIT_HISTORICAL_TIER_CERTIFIED"
+    },
+    "2026": {
+      "total_hydrated_symbols": 741,
+      "large_cap_count": 100,
+      "mid_cap_count": 200,
+      "small_cap_count": 300,
+      "micro_cap_count": 141,
+      "survivorship_status": "PIT_HISTORICAL_TIER_CERTIFIED"
+    }
+  },
+  "dataset_hash": "684963962032aa3d4e2a3974c55d13baf423b723d2a7763fff363bef5d35407f",
+  "dataset_path": "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/pit_fundamentals_v1/pit_fundamentals_v1.db",
+  "parquet_path": "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/pit_fundamentals_v1/pit_fundamentals_v1.parquet"
+}

@@ -1,0 +1,79 @@
+================================================================================
+PASS 2: FULL-UNIVERSE PIT HYDRATION & TIGHTENED CERTIFICATION GATE
+Started: 2026-09-27 23:13:30 IST
+================================================================================
+Approved:886 Quarantined:41 Master:927
+================================================================================
+PASS 2 -- TARGETED PIT FUNDAMENTAL HYDRATION
+================================================================================
+  Approved: 886 | Hydrated: 758 | Missing: 128 | Fin-rescrape: 42
+  Large-cap missing: 42
+
+PHASE A: Fetching 128 missing symbols...
+  Phase A: 20/128 | 34s | 0.60 sym/s
+  Phase A: 40/128 | 69s | 0.58 sym/s
+  Phase A: 60/128 | 100s | 0.60 sym/s
+  Phase A: 80/128 | 130s | 0.61 sym/s
+  Phase A: 100/128 | 163s | 0.62 sym/s
+  Phase A: 120/128 | 192s | 0.63 sym/s
+  Phase A: 128/128 | 204s | 0.63 sym/s
+
+PHASE B: Re-scraping 42 financial symbols (NII->revenue)...
+  Phase B: 10/42
+  Phase B: 20/42
+  Phase B: 30/42
+  Phase B: 40/42
+  Phase B: 42/42
+
+  Phase A: +322 rows | Phase B: fixed 445 rows
+  Parquet: 7671 rows -> /Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/pit_fundamentals_v1/pit_fundamentals_v1.parquet
+
+================================================================================
+GATE 0: PIT CAUSALITY VERIFICATION
+================================================================================
+  PIT Causality Violations: 0  (must be 0)
+
+================================================================================
+TIGHTENED FULL-UNIVERSE PIT CERTIFICATION GATE
+================================================================================
+  Master:927 Quarantined:41 Approved:886 PIT-Valid:792(89.3905%) Missing:94
+  Still missing: ['ABBOTINDIA', 'ACCENTMIC', 'AJAXENGG', 'ANTELOPUS', 'ASTRAZEN', 'AUTOAXLES', 'AVL', 'AYE', 'BANARISUG', 'BDL', 'BHARATSE', 'BHARTIHEXA', 'BUTTERFLY', 'CANFINHOME', 'CANTABIL', 'CAPITALSFB', 'CASTROLIND', 'CLSEL', 'CSBBANK', 'CUB', 'DATAPATTNS', 'DCBBANK', 'DDEVPLSTIK', 'DYCL', 'ELANTAS', 'ELLEN', 'FEDFINA', 'FRONTSP', 'GANDHITUBE', 'GILLETTE', 'GODIGIT', 'GOODYEAR', 'GOPAL', 'GRSE', 'GUJGASLTD', 'HAWKINCOOK', 'HEIDELBERG', 'HONAUT', 'ICICIGI', 'INDIANHUME', 'INDOTECH', 'INDRAMEDCO', 'INGERRAND', 'INTERARCH', 'JAGSNPHARM', 'KARURVYSYA', 'KINGFA', 'KRISHANA', 'KROSS', 'KSHINTL', 'LAOPALA', 'LGEINDIA', 'MANGLMCEM', 'MBAPL', 'NETWEB', 'NIRLON', 'NITINSPIN', 'NOVARTIND', 'OBSCP', 'ORIENTCEM', 'ORIENTELEC', 'PAGEIND', 'PAUSHAKLTD', 'PGHH', 'PGHL', 'POWERINDIA', 'RELAXO', 'ROLEXRINGS', 'SANOFICONR', 'SBICARD', 'SBILIFE', 'SCHNEIDER', 'SGFIN', 'SHANTIGEAR', 'SHILCTECH', 'SHRINGARMS', 'SMLMAH', 'SPORTKING', 'STALLION', 'STEELCAS', 'SUPRIYA', 'SWARAJENG', 'TASTYBITE', 'THANGAMAYL', 'TIMEX', 'TIPSMUSIC', 'TMB', 'TNPL', 'VENKEYS', 'VENUSPIPES', 'VESUVIUS', 'VMART', 'VOLTAMP', 'WAAREEINDO']
+
+  Gate 1  PIT Coverage:       89.3905%  X FAIL  [>=98.0%]
+  Gate 2  Historical Windows: X SOME FAIL  [>=90.0%]
+    X 2018-2026     774/886   87.36%
+    X 2019-2026     772/886   87.13%
+    X 2020-2026     770/886   86.91%
+    X 2021-2026     768/886   86.68%
+    X 2022-2026     760/886   85.78%
+    X 2023-2026     759/886   85.67%
+  Gate 3  Market Cap Tiers:   V ALL PASS
+    V Large Cap (Top 100)      92/100   92.00%  [>=90.0%]
+    V Mid Cap (101-250)       132/150   88.00%  [>=85.0%]
+    V Small Cap (251-500)     224/250   89.60%  [>=85.0%]
+    V Micro Cap (501+)        344/386   89.12%  [>=85.0%]
+  Gate 4  Field Completeness: X SOME FAIL  [>=85.0%]
+    X REVENUE                    731/886   82.51%
+    X OPERATING_PROFIT           731/886   82.51%
+    V NET_PROFIT                 774/886   87.36%
+    V EPS                        774/886   87.36%
+    V OPERATING_CASH_FLOW        772/886   87.13%
+    V FREE_CASH_FLOW             772/886   87.13%
+    X TOTAL_DEBT                 729/886   82.28%
+    V TOTAL_EQUITY               772/886   87.13%
+    X OPERATING_MARGIN           731/886   82.51%
+    X NET_MARGIN                 731/886   82.51%
+    X ROCE                       729/886   82.28%
+    V ROE                        771/886   87.02%
+  Gate 5  Sector Coverage:    V ALL PASS
+
+================================================================================
+  FULL_UNIVERSE_PIT_STATUS = PARTIAL
+  TOURNAMENT READINESS     = BLOCKED -- Material coverage gaps
+  PROVENANCE STATUS        = NOT_CERTIFIED
+  DATASET HASH (SHA-256)   = 4edefc9fcc44a40af0c52bd83059c0bb...
+================================================================================
+
+Final: FULL_UNIVERSE_PIT_STATUS = PARTIAL
+Report: /Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/artifacts/pit_fundamentals/pass2_gate_summary.json
+Completed: 2026-09-27 23:18:06 IST

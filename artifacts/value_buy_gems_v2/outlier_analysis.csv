@@ -1,0 +1,10 @@
+metric,value,detail
+Top 1 Winner Contribution,19.54%,SEAMECLTD (+161.14%)
+Top 2 Winners Contribution,33.71%,Combined profit of Top 2 stocks
+Top 5 Winners Contribution,65.28%,Combined profit of Top 5 stocks
+Top 10 Winners Contribution,88.50%,Combined profit of Top 10 stocks
+Baseline Strategy CAGR (E2_X0_P2),9.10%,All 20 trades
+CAGR Excluding Top 1 Winner,6.80%,Excludes SEAMECLTD
+CAGR Excluding Top 5 Winners,0.98%,Excludes Top 5 Winners
+CAGR Excluding Top 10 Winners,-2.25%,Excludes Top 10 Winners
+Nifty 50 Benchmark CAGR,12.80%,3-Year Buy-and-Hold Nifty 50

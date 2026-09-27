@@ -1,0 +1,4 @@
+market_cap_tier,trade_count,win_rate,mean_return,median_return,total_pnl
+MICRO,1,100.0,40.83,40.83,204154.88
+MID,1,100.0,9.85,9.85,49255.1
+SMALL,18,72.22222222222221,30.369444444444444,28.215,2732373.86

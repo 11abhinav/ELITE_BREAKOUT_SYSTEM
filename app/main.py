@@ -18,14 +18,14 @@ from zoneinfo import ZoneInfo
 import random
 from typing import Optional, Dict, Any, List
 import pandas as pd
-from memory_profiler import MemoryProfiler
-from forensics import forensics
-
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.abspath(os.path.join(APP_DIR, ".."))
 for p in (APP_DIR, ROOT_DIR):
     if p not in sys.path:
         sys.path.insert(0, p)
+
+from memory_profiler import MemoryProfiler
+from forensics import forensics
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -1843,28 +1843,34 @@ def _trigger_fundamental(trigger_type="MANUAL", scheduler_name="MANUAL", session
         return {"total_count": 0, "processed_count": 0}
 
     # Resilient import supporting container & root environments
-    scanner = None
+    run_fn = None
     try:
-        from live_fundamental_scanner import live_fundamental_scanner, LiveFundamentalBuyScanner
-        scanner = live_fundamental_scanner or LiveFundamentalBuyScanner()
-    except (ImportError, AttributeError):
+        from live_fundamental_scanner import run_fundamental_scan
+        run_fn = run_fundamental_scan
+    except ImportError:
         try:
-            from app.live_fundamental_scanner import live_fundamental_scanner, LiveFundamentalBuyScanner
-            scanner = live_fundamental_scanner or LiveFundamentalBuyScanner()
-        except (ImportError, AttributeError):
+            from app.live_fundamental_scanner import run_fundamental_scan
+            run_fn = run_fundamental_scan
+        except ImportError:
             try:
                 import live_fundamental_scanner as _mod
-                scanner = getattr(_mod, "live_fundamental_scanner", None) or getattr(_mod, "LiveFundamentalBuyScanner", None)()
+                run_fn = getattr(_mod, "run_fundamental_scan", None)
             except Exception:
                 import app.live_fundamental_scanner as _mod
-                scanner = getattr(_mod, "live_fundamental_scanner", None) or getattr(_mod, "LiveFundamentalBuyScanner", None)()
+                run_fn = getattr(_mod, "run_fundamental_scan", None)
 
-    if scanner is None:
-        raise RuntimeError("Failed to resolve live_fundamental_scanner instance or class")
+    if run_fn is None:
+        try:
+            from live_fundamental_scanner import get_live_fundamental_scanner
+            run_fn = get_live_fundamental_scanner().scan_universe
+        except ImportError:
+            from app.live_fundamental_scanner import get_live_fundamental_scanner
+            run_fn = get_live_fundamental_scanner().scan_universe
 
-    funnel = scanner.scan_universe(trigger_type=trigger_type, scheduler_name=scheduler_name)
+    funnel = run_fn(trigger_type=trigger_type, scheduler_name=scheduler_name)
     count = funnel.get("scanned_count", 0) if isinstance(funnel, dict) else 0
     return {"total_count": count, "processed_count": count}
+
 
 
 # [VERSION: TRIGGER_AI_WORKER_v1.1] Define _trigger_ai_worker

@@ -1,0 +1,4 @@
+comparison,delta_mean,t_stat,raw_p,adj_p,cohen_d,verdict
+E2 vs E1 (Quality Add-On),-31.8,-1.09,0.285,0.8549,-0.348,NOT_SUPPORTED
+E2 vs E0 (Valuation Add-On),-92.52,-1.022,0.319,0.9571,-0.327,NOT_SUPPORTED
+X0 vs X4 (Pure Hold vs SMA200),25.39,1.916,0.0701,0.2103,0.887,HOLD_SUPERIOR

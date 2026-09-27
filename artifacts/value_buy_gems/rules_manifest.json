@@ -1,0 +1,53 @@
+{
+  "strategy_family": "VALUE_BUY_GEMS",
+  "generated_at_ist": "2026-09-27T20:09:42.094569",
+  "primary_research_period": "2023-09-25 to 2026-09-25",
+  "governance_status": "RESEARCH_ONLY",
+  "universe_hash": "705d3d121e8aa713ce9b3d9c058016a140de7c1c6fbecde8feb04bff20a334b0",
+  "fundamentals_hash": "cc659af229bb8621bd5814138f87256824294d1c4fec4a2c4298546dfc0ee08b",
+  "entry_rule_hashes": {
+    "E0": "02606f3ecf2a08f4",
+    "E1": "22249aa61fd2594e",
+    "E2": "713a5bb2d170c868",
+    "E3": "183499aaeec2b9ca",
+    "E4": "de793ba19330c40e",
+    "E5": "ef099fcece6eeca3",
+    "E6": "b073b98568c2ff91",
+    "E7": "a29d84f0185eac91",
+    "E8": "a8d0a1117e28efe9"
+  },
+  "exit_rule_hashes": {
+    "X0": "1a60e15b3d720d95",
+    "X1": "ad667b78ba8ed027",
+    "X2": "9d1dca7a0105ab51",
+    "X3": "c6c2f9b14de18f6a",
+    "X4": "84a43eb937b616e5",
+    "X5": "06b4fefb71ddc9ce",
+    "X6": "a2e26982b1884661",
+    "X7": "228f90542699528c",
+    "X8_15": "b98bc2478a6dc03e",
+    "X8_20": "e8b610eca617b99d",
+    "X8_25": "97c1e1280a2da4a1",
+    "X8_30": "ee9b6937be0e7543"
+  },
+  "portfolio_rule_hashes": {
+    "P0": "2842de9d43a98b53",
+    "P1": "fbeae7c18667b698",
+    "P2": "acbbb742c7524cec",
+    "P3": "9f9853b3f1344419",
+    "P4": "e05184c1f58012ab"
+  },
+  "reentry_rule_hashes": {
+    "R0": "4439e44862b85cc6",
+    "R1": "a791366f6f620125",
+    "R2": "d653b016db1da8f5",
+    "R3": "021bbd75cf6530bd"
+  },
+  "canonical_rules": {
+    "profit_targets": "STRICTLY_NONE (T1/T2/T3 forbidden)",
+    "default_stop_loss": "STRICTLY_NONE (Structural exits only)",
+    "fixed_time_exits": "STRICTLY_NONE (Checkpoints for observation only)",
+    "execution": "T_CLOSE_SIGNAL_T_PLUS_1_OPEN_EXECUTION",
+    "friction_bps": 5.0
+  }
+}

@@ -1,0 +1,12 @@
+metric,reported_value,recalculated_value,abs_diff,status
+Starting Capital,10000000.0,10000000.0,0.0,EXACT_MATCH
+Ending NAV,35160152.51,35160152.51,0.0,EXACT_MATCH
+Total Return %,251.6,251.6,0.0,EXACT_MATCH
+CAGR %,52.05,52.05,0.0,EXACT_MATCH
+Max Drawdown %,25.48,25.48,0.0,EXACT_MATCH
+Sharpe Ratio,2.08,2.08,0.0,EXACT_MATCH
+Calmar Ratio,2.04,2.04,0.0,EXACT_MATCH
+Win Rate %,80.0,80.0,0.0,EXACT_MATCH
+Mean Trade Return %,251.63,251.63,0.0,EXACT_MATCH
+Median Trade Return %,55.42,55.42,0.0,EXACT_MATCH
+Profit Factor,52.03,52.03,0.0,EXACT_MATCH

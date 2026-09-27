@@ -32,7 +32,9 @@ import numpy as np
 IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger("PRODUCTION_TELEMETRY")
 
-BASE_DIR = "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM"
+BASE_DIR = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if not os.path.exists(os.path.join(BASE_DIR, "data")) and os.path.exists("/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data"):
+    BASE_DIR = "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM"
 TELEMETRY_DIR = os.path.join(BASE_DIR, "artifacts", "telemetry")
 os.makedirs(TELEMETRY_DIR, exist_ok=True)
 

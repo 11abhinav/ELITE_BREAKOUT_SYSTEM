@@ -1,0 +1,3 @@
+episode_name,episode_dates,regime_transition,n_candidates_evaluated,avg_drawdown_before_recovery,avg_recovery_to_entry_days,pct_achieving_plus_10pct,pct_achieving_plus_25pct,pct_achieving_plus_50pct,avg_12m_forward_return
+Mid-2024 Election Volatility Dip & Swift Recovery,2024-05-20 to 2024-08-30,SIDEWAYS -> BEAR -> BULL,18,-16.4,38,83.3,61.1,27.8,34.2
+Late-2023 Global Rate Spike & Smallcap Shakeout,2023-10-15 to 2024-02-15,SIDEWAYS -> BULL,24,-19.2,46,87.5,70.8,41.7,42.8

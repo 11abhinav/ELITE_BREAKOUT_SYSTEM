@@ -1,0 +1,258 @@
+{
+  "timestamp": "2026-09-27T23:42:37.092015",
+  "final_status": "PARTIAL",
+  "gates": {
+    "gate1_coverage_pct": {
+      "pass": false,
+      "value": 89.73,
+      "threshold": 98.0
+    },
+    "gate2_min_year_pct": {
+      "pass": false,
+      "value": 60.61,
+      "threshold": 90.0
+    },
+    "gate3_tier_coverage": {
+      "pass": true,
+      "large_pct": 92.0,
+      "mid_pct": 89.0,
+      "small_pct": 90.33,
+      "micro_pct": 88.81
+    },
+    "gate4_min_field_pct": {
+      "pass": false,
+      "value": 84.54,
+      "threshold": 85.0
+    },
+    "gate5_causality_violations": {
+      "pass": true,
+      "violations": 0
+    },
+    "gate6_variant_completeness": {
+      "pass": false,
+      "variants": {
+        "V0_V1_GROWTH_QUALITY": {
+          "required_fields": [
+            "roce",
+            "roe",
+            "total_debt",
+            "total_equity",
+            "operating_profit",
+            "eps"
+          ],
+          "covered_symbols": 749,
+          "total_symbols": 886,
+          "coverage_pct": 84.54,
+          "status": "FAIL"
+        },
+        "V2_VALUATION_MULTIPLES": {
+          "required_fields": [
+            "net_profit",
+            "eps",
+            "total_equity",
+            "revenue"
+          ],
+          "covered_symbols": 792,
+          "total_symbols": 886,
+          "coverage_pct": 89.39,
+          "status": "PASS"
+        },
+        "V3_HISTORICAL_VALUATION_5Y": {
+          "required_fields": [
+            "revenue",
+            "net_profit",
+            "eps",
+            "operating_profit"
+          ],
+          "covered_symbols": 794,
+          "total_symbols": 886,
+          "coverage_pct": 89.62,
+          "status": "PASS"
+        },
+        "V4_SECTOR_PEER_RANK": {
+          "required_fields": [
+            "roce",
+            "operating_margin",
+            "revenue"
+          ],
+          "covered_symbols": 749,
+          "total_symbols": 886,
+          "coverage_pct": 84.54,
+          "status": "FAIL"
+        },
+        "V5_MULTI_YEAR_EPS_GROWTH": {
+          "required_fields": [
+            "eps",
+            "net_profit"
+          ],
+          "covered_symbols": 795,
+          "total_symbols": 886,
+          "coverage_pct": 89.73,
+          "status": "PASS"
+        },
+        "V6_REVENUE_OCF_QUALITY": {
+          "required_fields": [
+            "revenue",
+            "operating_cash_flow"
+          ],
+          "covered_symbols": 792,
+          "total_symbols": 886,
+          "coverage_pct": 89.39,
+          "status": "PASS"
+        },
+        "V7_FCF_YIELD_QUALITY": {
+          "required_fields": [
+            "free_cash_flow",
+            "operating_cash_flow",
+            "net_profit"
+          ],
+          "covered_symbols": 793,
+          "total_symbols": 886,
+          "coverage_pct": 89.5,
+          "status": "PASS"
+        },
+        "V10_COMBINED_COMPOSITE": {
+          "required_fields": [
+            "roce",
+            "roe",
+            "revenue",
+            "operating_profit",
+            "net_profit",
+            "eps",
+            "operating_cash_flow",
+            "total_debt",
+            "total_equity"
+          ],
+          "covered_symbols": 749,
+          "total_symbols": 886,
+          "coverage_pct": 84.54,
+          "status": "FAIL"
+        }
+      }
+    }
+  },
+  "universe": {
+    "approved": 886,
+    "hydrated": 795,
+    "missing": 91
+  },
+  "tiers": {
+    "large": {
+      "count": 92,
+      "total": 100,
+      "pct": 92.0
+    },
+    "mid": {
+      "count": 178,
+      "total": 200,
+      "pct": 89.0
+    },
+    "small": {
+      "count": 271,
+      "total": 300,
+      "pct": 90.33
+    },
+    "micro": {
+      "count": 254,
+      "total": 286,
+      "pct": 88.81
+    }
+  },
+  "years": {
+    "2018": {
+      "count": 537,
+      "total": 886,
+      "pct": 60.61
+    },
+    "2019": {
+      "count": 587,
+      "total": 886,
+      "pct": 66.25
+    },
+    "2020": {
+      "count": 648,
+      "total": 886,
+      "pct": 73.14
+    },
+    "2021": {
+      "count": 676,
+      "total": 886,
+      "pct": 76.3
+    },
+    "2022": {
+      "count": 701,
+      "total": 886,
+      "pct": 79.12
+    },
+    "2023": {
+      "count": 721,
+      "total": 886,
+      "pct": 81.38
+    },
+    "2024": {
+      "count": 743,
+      "total": 886,
+      "pct": 83.86
+    },
+    "2025": {
+      "count": 754,
+      "total": 886,
+      "pct": 85.1
+    },
+    "2026": {
+      "count": 741,
+      "total": 886,
+      "pct": 83.63
+    }
+  },
+  "fields": {
+    "revenue": {
+      "count": 794,
+      "total": 886,
+      "pct": 89.62
+    },
+    "operating_profit": {
+      "count": 794,
+      "total": 886,
+      "pct": 89.62
+    },
+    "net_profit": {
+      "count": 795,
+      "total": 886,
+      "pct": 89.73
+    },
+    "eps": {
+      "count": 795,
+      "total": 886,
+      "pct": 89.73
+    },
+    "operating_cash_flow": {
+      "count": 793,
+      "total": 886,
+      "pct": 89.5
+    },
+    "total_debt": {
+      "count": 749,
+      "total": 886,
+      "pct": 84.54
+    },
+    "total_equity": {
+      "count": 793,
+      "total": 886,
+      "pct": 89.5
+    },
+    "roce": {
+      "count": 749,
+      "total": 886,
+      "pct": 84.54
+    },
+    "roe": {
+      "count": 793,
+      "total": 886,
+      "pct": 89.5
+    }
+  },
+  "dataset_hash": "684963962032aa3d4e2a3974c55d13baf423b723d2a7763fff363bef5d35407f",
+  "dataset_path": "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/pit_fundamentals_v1/pit_fundamentals_v1.db",
+  "parquet_path": "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/pit_fundamentals_v1/pit_fundamentals_v1.parquet"
+}

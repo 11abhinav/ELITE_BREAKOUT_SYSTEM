@@ -1,0 +1,174 @@
+{
+  "overall": {
+    "n": 19548,
+    "n_eff": 16998,
+    "win_rate_pct": 39.35,
+    "mean_r": 0.036,
+    "median_r": -0.076,
+    "total_r": 713.19,
+    "profit_factor": 1.208,
+    "ci_95_low": 0.007,
+    "ci_95_high": 0.069
+  },
+  "train_2016_2022": {
+    "n": 10115,
+    "n_eff": 8795,
+    "win_rate_pct": 40.58,
+    "mean_r": 0.101,
+    "median_r": -0.065,
+    "total_r": 1017.75,
+    "profit_factor": 1.613,
+    "ci_95_low": 0.051,
+    "ci_95_high": 0.155
+  },
+  "validation_2023_2024": {
+    "n": 2029,
+    "n_eff": 1764,
+    "win_rate_pct": 37.65,
+    "mean_r": 0.104,
+    "median_r": -0.086,
+    "total_r": 210.57,
+    "profit_factor": 1.568,
+    "ci_95_low": -0.013,
+    "ci_95_high": 0.252
+  },
+  "holdout_2025_2026": {
+    "n": 7404,
+    "n_eff": 6438,
+    "win_rate_pct": 38.13,
+    "mean_r": -0.07,
+    "median_r": -0.087,
+    "total_r": -515.12,
+    "profit_factor": 0.633,
+    "ci_95_low": -0.082,
+    "ci_95_high": -0.056
+  },
+  "yearly": {
+    "2016": {
+      "n": 0,
+      "win_rate_pct": 0.0,
+      "mean_r": 0.0,
+      "median_r": 0.0,
+      "ci_95_low": 0.0,
+      "ci_95_high": 0.0,
+      "profit_factor": 0.0
+    },
+    "2017": {
+      "n": 582,
+      "n_eff": 506,
+      "win_rate_pct": 41.75,
+      "mean_r": 0.029,
+      "median_r": -0.057,
+      "total_r": 16.74,
+      "profit_factor": 1.201,
+      "ci_95_low": -0.027,
+      "ci_95_high": 0.101
+    },
+    "2018": {
+      "n": 1890,
+      "n_eff": 1643,
+      "win_rate_pct": 40.37,
+      "mean_r": -0.052,
+      "median_r": -0.067,
+      "total_r": -98.34,
+      "profit_factor": 0.675,
+      "ci_95_low": -0.067,
+      "ci_95_high": -0.035
+    },
+    "2019": {
+      "n": 2749,
+      "n_eff": 2390,
+      "win_rate_pct": 37.58,
+      "mean_r": -0.067,
+      "median_r": -0.082,
+      "total_r": -184.13,
+      "profit_factor": 0.607,
+      "ci_95_low": -0.081,
+      "ci_95_high": -0.053
+    },
+    "2020": {
+      "n": 1790,
+      "n_eff": 1556,
+      "win_rate_pct": 45.14,
+      "mean_r": 0.636,
+      "median_r": -0.038,
+      "total_r": 1138.04,
+      "profit_factor": 5.184,
+      "ci_95_low": 0.404,
+      "ci_95_high": 0.908
+    },
+    "2021": {
+      "n": 292,
+      "n_eff": 253,
+      "win_rate_pct": 39.04,
+      "mean_r": 0.432,
+      "median_r": -0.096,
+      "total_r": 126.01,
+      "profit_factor": 3.173,
+      "ci_95_low": -0.114,
+      "ci_95_high": 1.423
+    },
+    "2022": {
+      "n": 2812,
+      "n_eff": 2445,
+      "win_rate_pct": 40.68,
+      "mean_r": 0.007,
+      "median_r": -0.067,
+      "total_r": 19.43,
+      "profit_factor": 1.041,
+      "ci_95_low": -0.038,
+      "ci_95_high": 0.059
+    },
+    "2023": {
+      "n": 1386,
+      "n_eff": 1205,
+      "win_rate_pct": 38.31,
+      "mean_r": 0.193,
+      "median_r": -0.081,
+      "total_r": 268.18,
+      "profit_factor": 2.099,
+      "ci_95_low": 0.026,
+      "ci_95_high": 0.426
+    },
+    "2024": {
+      "n": 643,
+      "n_eff": 559,
+      "win_rate_pct": 36.24,
+      "mean_r": -0.09,
+      "median_r": -0.107,
+      "total_r": -57.61,
+      "profit_factor": 0.545,
+      "ci_95_low": -0.121,
+      "ci_95_high": -0.057
+    },
+    "2025": {
+      "n": 4529,
+      "n_eff": 3938,
+      "win_rate_pct": 38.68,
+      "mean_r": -0.074,
+      "median_r": -0.08,
+      "total_r": -334.62,
+      "profit_factor": 0.617,
+      "ci_95_low": -0.093,
+      "ci_95_high": -0.055
+    },
+    "2026": {
+      "n": 2875,
+      "n_eff": 2500,
+      "win_rate_pct": 37.25,
+      "mean_r": -0.063,
+      "median_r": -0.096,
+      "total_r": -180.5,
+      "profit_factor": 0.658,
+      "ci_95_low": -0.08,
+      "ci_95_high": -0.042
+    }
+  },
+  "holdout_outliers": {
+    "top5_trades_net_r_share_pct": 0.0,
+    "top10_stocks_net_r_share_pct": 0.0
+  },
+  "certification_verdict": "REJECT_OR_REDESIGN",
+  "verdict_reason": "HOLDOUT failed certification gate. CI_low = -0.082R (Must be > 0), n_eff = 6438, Top 10 Stock Share = 0.0%",
+  "causal_violations": 0
+}

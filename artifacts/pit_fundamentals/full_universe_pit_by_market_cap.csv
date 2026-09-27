@@ -1,0 +1,5 @@
+market_cap_tier,symbols_in_tier,covered_symbols,coverage_pct,status
+Large Cap (Top 100),100,58,58.0,PARTIAL
+Mid Cap (101–250),150,132,88.0,PASS
+Small Cap (251–500),250,224,89.6,PASS
+Micro Cap (501+),386,344,89.12,PASS

@@ -48,7 +48,9 @@ try:
 except ImportError:
     from fundamental_telemetry import WealthExitTelemetry
 
-BASE_DIR = "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM"
+BASE_DIR = os.getenv("ELITE_BASE_DIR", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if not os.path.exists(os.path.join(BASE_DIR, "data")) and os.path.exists("/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data"):
+    BASE_DIR = "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM"
 DATA_DIR = os.path.join(BASE_DIR, "data")
 PROSPECTIVE_DIR = os.path.join(DATA_DIR, "prospective_holdout")
 os.makedirs(PROSPECTIVE_DIR, exist_ok=True)

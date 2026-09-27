@@ -1,0 +1,21 @@
+sector,n,covered,pct,pass
+Industrial/Diversified,687,606,88.21,True
+Pharma,26,25,96.15,True
+Auto,23,23,100.0,True
+IT,22,22,100.0,True
+Energy,17,17,100.0,True
+Infrastructure,15,15,100.0,True
+FMCG,14,13,92.86,True
+Financials,13,12,92.31,True
+Metal,9,9,100.0,True
+Banking,9,6,66.67,True
+Defence,9,6,66.67,True
+Consumption,9,8,88.89,True
+Realty,7,7,100.0,True
+MNC,6,3,50.0,True
+Capital Goods,6,6,100.0,True
+PSU Bank,5,5,100.0,True
+Chemicals,4,4,100.0,True
+Telecom,2,2,100.0,True
+Railways,2,2,100.0,True
+Electronics,1,1,100.0,True
