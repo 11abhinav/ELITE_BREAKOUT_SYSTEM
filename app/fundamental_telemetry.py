@@ -621,6 +621,9 @@ class FundamentalScanTelemetry:
         }
         if sym in self.dispositions:
             self.dispositions[sym]["composite_scores"] = scores_payload
+            for k, v in scores.items():
+                if v is not None and k not in self.dispositions[sym]["metrics"]:
+                    self.dispositions[sym]["metrics"][k] = v
 
         record = {
             "event_type": "COMPOSITE_SCORES_CONTEXT",
