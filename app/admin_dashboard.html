@@ -4889,7 +4889,7 @@ function changeAdminPage(type, delta) {
     // ── SCANNER STATUS
     const SCANNER_META = {
       'DAILY_BUILDER': { label: 'Daily Builder', desc: 'Universe Watchlist Builder · Daily 05:00 IST' },
-      'TECHNICAL': { label: 'Technical Scanner', desc: 'Certified Breakout · BULL Regime Only · Daily 18:15 IST' },
+      'TECHNICAL': { label: 'Technical Scanner', desc: 'Multi-Pattern Technical · Daily 18:15 IST' },
       'Wealth Engine': { label: 'Wealth Engine', desc: 'Long-term Wealth Scan · Daily 06:00 & 17:00 IST · Market Hours (09:15–15:30 IST)' },
       'MULTIBAGGER': { label: 'Multibagger Scanner', desc: 'Daily Fundamental Scan · Daily 17:30 IST' },
       'AI Worker': { label: 'AI Worker', desc: 'Concall & Fundamental Caching · Continuous (Sat-Sun Active)' },
@@ -5261,11 +5261,6 @@ function getEarningsBadgeHtml(item) {
             modeBannerHtml = `
         <div style="background:rgba(245,158,11,0.1); color:#fcd34d; border:1px solid rgba(245,158,11,0.25); padding:4px 10px; border-radius:6px; font-size:11px; font-weight:600; margin:6px 0 8px 0; display:flex; align-items:center; gap:6px;">
           🟡 INACTIVE · Certified for BULL regime only (Current: ${data.current_macro_regime})
-        </div>`;
-          } else {
-            modeBannerHtml = `
-        <div style="background:rgba(0,212,161,0.08); color:#00d4a1; border:1px solid rgba(0,212,161,0.2); padding:4px 10px; border-radius:6px; font-size:11px; font-weight:600; margin:6px 0 8px 0; display:flex; align-items:center; gap:6px;">
-          🟢 AUTO-RUN ACTIVE · Operating as scheduled
         </div>`;
           }
 
