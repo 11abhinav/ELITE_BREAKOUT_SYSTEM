@@ -4637,9 +4637,7 @@ def reset_all_scanners_on_boot() -> None:
                         'MULTITF_V3', 'REVERSAL_SCANNER', 'REVERSAL_V2', 'EOD_SCANNER',
                         'SCAN_SHORT_COVERING', 'SCAN_REVERSAL_KEYLEVEL', 'SCAN_ACCUMULATION',
                         'SCAN_PULLBACK', 'SCAN_EOD', 'MULTIBAGGER', 'MULTIBAGGER_EXIT',
-                        'Wealth Engine', 'WEALTH_ENGINE', 'WEALTH', 'WEALTH_EXIT',
-                        'FUNDAMENTAL_WEALTH_BUY', 'FUNDAMENTAL_BUY',
-                        'FUNDAMENTAL_SCANNER', 'FUNDAMENTAL_BUY_SCANNER'
+                        'Wealth Engine', 'WEALTH_ENGINE', 'WEALTH', 'WEALTH_EXIT'
                     );
                 """)
 
@@ -4648,6 +4646,7 @@ def reset_all_scanners_on_boot() -> None:
                 schedule_map = {
                     "DAILY_BUILDER": "Daily 05:00 IST",
                     "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan · BULL Regime)",
+                    "FUNDAMENTAL": "Daily 18:30 IST (Post-Close Fundamental Breakout · ALL Regimes)",
                     "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
                     "WEALTH_EXIT_V1": "Exit Monitor · Live Primary (09:00 - 16:00 IST)",
                     "WEALTH_EXIT_V2": "Exit Monitor · Shadow Research (09:00 - 16:00 IST)",
@@ -4721,8 +4720,8 @@ def normalize_scanner_name(scanner_name: str) -> str:
         return "WEALTH_EXIT_V1"
     elif upper in ["WEALTH_EXIT_V2", "WEALTH_V2_EXIT", "WEALTH_EXIT_V2_SHADOW"]:
         return "WEALTH_EXIT_V2"
-    elif upper in ["FUNDAMENTAL_WEALTH_BUY", "FUNDAMENTAL_BUY", "FUNDAMENTAL_SCANNER", "FUNDAMENTAL_BUY_SCANNER"]:
-        return "FUNDAMENTAL_WEALTH_BUY"
+    elif upper in ["FUNDAMENTAL", "FUNDAMENTAL_WEALTH_BUY", "FUNDAMENTAL_BUY", "FUNDAMENTAL_SCANNER", "FUNDAMENTAL_BUY_SCANNER"]:
+        return "FUNDAMENTAL"
     elif upper in ["MULTIBAGGER"]:
         return "MULTIBAGGER"
     elif upper in ["MULTIBAGGER_EXIT"]:
@@ -4786,11 +4785,7 @@ DECOMMISSIONED_SCANNERS: set[str] = {
     "Wealth Engine",
     "WEALTH_ENGINE",
     "WEALTH",
-    "WEALTH_EXIT",
-    "FUNDAMENTAL_WEALTH_BUY",
-    "FUNDAMENTAL_BUY",
-    "FUNDAMENTAL_SCANNER",
-    "FUNDAMENTAL_BUY_SCANNER",
+    "WEALTH_EXIT"
 }
 
 def is_scanner_stopped(scanner_name: str) -> bool:

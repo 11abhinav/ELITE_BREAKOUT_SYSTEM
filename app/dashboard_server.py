@@ -4637,6 +4637,12 @@ def _get_fallback_indices() -> dict:
     except Exception:
         pass
 
+    try:
+        from engine.production.governance_registry import calculate_live_market_regime
+        fallback["_regime"] = calculate_live_market_regime()
+    except Exception as _reg_err:
+        fallback["_regime"] = {"regime": "BULL", "detail": "Baseline"}
+
     return fallback
 
 _indices_lock = threading.Lock()

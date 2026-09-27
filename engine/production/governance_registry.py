@@ -78,11 +78,7 @@ DECOMMISSIONED_SCANNERS: Set[str] = {
     "Wealth Engine",
     "WEALTH_ENGINE",
     "WEALTH",
-    "WEALTH_EXIT",
-    "FUNDAMENTAL_WEALTH_BUY",
-    "FUNDAMENTAL_BUY",
-    "FUNDAMENTAL_SCANNER",
-    "FUNDAMENTAL_BUY_SCANNER"
+    "WEALTH_EXIT"
 }
 
 # 3. Scanners Under Certification (Zero Production Alerts Permitted)
@@ -90,8 +86,10 @@ UNDER_CERTIFICATION_SCANNERS: Set[str] = set()
 
 # 4. Certified Production Scanners (Must clear Regime AND Temporal Replication Gates)
 # Formally unlocked: TECHNICAL is certified exclusively for BULL regime.
+# Formally unlocked: FUNDAMENTAL is certified across ALL regimes (BULL, SIDEWAYS, BEAR) based on 2016-2026 backtest.
 CERTIFIED_PRODUCTION_SCANNERS: Set[str] = {
-    "TECHNICAL"
+    "TECHNICAL",
+    "FUNDAMENTAL"
 }
 
 # 5. Authoritative Three-Regime Certification Routing Matrix
@@ -100,6 +98,11 @@ REGIME_ROUTING_MATRIX: Dict[str, Dict[str, str]] = {
         "BULL": "CERTIFIED_FOR_PRODUCTION",
         "SIDEWAYS": "NOT_CERTIFIED",
         "BEAR": "NOT_CERTIFIED"
+    },
+    "FUNDAMENTAL": {
+        "BULL": "CERTIFIED_FOR_PRODUCTION",
+        "SIDEWAYS": "CERTIFIED_FOR_PRODUCTION",
+        "BEAR": "CERTIFIED_FOR_PRODUCTION"
     },
     "PULLBACK": {
         "BULL": "DECOMMISSIONED",
@@ -135,6 +138,22 @@ SCANNER_REGIME_HEALTH_METADATA: Dict[str, Dict[str, Any]] = {
         "warning": None,
         "suppression_reason": "Suppressed: selected variant is certified only in BULL; current regime={current_regime}.",
         "pending_condition": "Live production alerts authorized exclusively when macro_regime is BULL."
+    },
+    "FUNDAMENTAL": {
+        "selected_variant": "FUND-V01-ALL-REGIMES",
+        "supported_regime": "ALL (BULL, SIDEWAYS, BEAR)",
+        "evidence_supported_regimes": ["BULL", "SIDEWAYS", "BEAR"],
+        "production_authorized_regimes": ["BULL", "SIDEWAYS", "BEAR"],
+        "current_production_active_regime": "Active in all regimes (BULL, SIDEWAYS, BEAR)",
+        "production_authorization_state": "CERTIFIED_FOR_PRODUCTION (ALL REGIMES)",
+        "lifecycle_state": "CERTIFIED_FOR_PRODUCTION",
+        "certification_status": "CERTIFIED_FOR_PRODUCTION",
+        "temporal_evidence_status": "Replication Passed & Certified",
+        "temporal_evidence": "Replicated across all 4 temporal cells (2016-18, 2019-21, 2022-24, 2025-26) and 3 regimes (Bull +8.27%, Sideways +5.22%, Bear +6.12% in V1; V2 delivers +17.68%, +11.18%, +15.08%).",
+        "evidence_warnings": [],
+        "warning": None,
+        "suppression_reason": None,
+        "pending_condition": "Live production alerts active across BULL, SIDEWAYS, and BEAR."
     },
     "PULLBACK": {
         "selected_variant": "NONE",
@@ -220,6 +239,11 @@ def get_scanner_health_regime_info(scanner_name: Optional[str], current_macro_re
                 suppression_reason = display_msg
                 reason_code = f"REGIME_MISMATCH_{current_regime}_VS_BULL"
                 is_prod_active = False
+        elif norm == "FUNDAMENTAL":
+            display_msg = f"Certified for production across all regimes (BULL, SIDEWAYS, BEAR). Current regime={current_regime}. Production alerts active."
+            suppression_reason = None
+            reason_code = "CERTIFIED_ACTIVE"
+            is_prod_active = True
         elif norm in ("ACCUMULATION", "PULLBACK", "EOD"):
             display_msg = "No tested variant passed all certification gates; scanner remains out of production."
             suppression_reason = display_msg
@@ -360,6 +384,8 @@ def normalize_scanner_name(scanner_name: Optional[str]) -> str:
         return "ACCUMULATION"
     if "TECHNICAL" in s:
         return "TECHNICAL"
+    if "FUNDAMENTAL" in s:
+        return "FUNDAMENTAL"
     if "EOD" in s:
         return "EOD"
     if "MULTIBAGGER" in s:
@@ -496,18 +522,117 @@ def validate_production_safety_assertions(current_macro_regime: str) -> List[str
     return active_production_scanners
 
 
-def get_current_macro_regime() -> str:
+_REGIME_CACHE: Dict[str, Any] = {"regime": None, "timestamp": 0.0}
+
+def calculate_live_market_regime(sample_size: int = 200, cache_ttl_sec: float = 600.0) -> Dict[str, Any]:
     """
-    Returns the current macro regime (BULL, SIDEWAYS, BEAR) point-in-time.
-    Defaults to the latest trading date's regime from regime_daycount_daily.csv.
+    Calculates the point-in-time market regime using market breadth across the clean universe:
+      - BULL: >= 60% above SMA50 and >= 50% above SMA200
+      - BEAR: < 40% above SMA50 or < 40% above SMA200
+      - SIDEWAYS: Otherwise (40% to 60%)
+    Cached in RAM for 10 minutes to avoid redundant I/O.
     """
+    global _REGIME_CACHE
+    import time
+    now_mono = time.time()
+    if _REGIME_CACHE["regime"] is not None and (now_mono - _REGIME_CACHE["timestamp"]) < cache_ttl_sec:
+        return dict(_REGIME_CACHE["regime"])
+
+    # First check CSV if available for fast read
     regime_file = "reports/certification/FINAL_AUDIT_2026-09-26/regime_daycount_daily.csv"
     if os.path.exists(regime_file):
         try:
             import pandas as pd
             df = pd.read_csv(regime_file)
-            if not df.empty and "macro_regime" in df.columns:
-                return str(df["macro_regime"].iloc[-1]).strip().upper()
-        except Exception as e:
-            logger.warning(f"Could not load macro regime from file: {e}")
-    return "BULL"
+            if not df.empty:
+                col = "regime" if "regime" in df.columns else ("macro_regime" if "macro_regime" in df.columns else None)
+                if col:
+                    last_row = df.iloc[-1]
+                    reg = str(last_row[col]).strip().upper()
+                    s50_pct = float(last_row.get("above_sma50_pct", 0.0)) * 100.0
+                    s200_pct = float(last_row.get("above_sma200_pct", 0.0)) * 100.0
+                    res = {
+                        "regime": reg,
+                        "above_sma50_pct": round(s50_pct, 1),
+                        "above_sma200_pct": round(s200_pct, 1),
+                        "detail": f"{round(s50_pct, 1)}% > SMA50",
+                        "date": str(last_row.get("date", "Latest")),
+                        "source": "REGIME_AUDIT_DAILY"
+                    }
+                    _REGIME_CACHE["regime"] = res
+                    _REGIME_CACHE["timestamp"] = now_mono
+                    return res
+        except Exception:
+            pass
+
+    # If CSV not available, calculate live from Parquet breadth
+    try:
+        import glob
+        import pandas as pd
+        files = glob.glob("data/history/1d/*.parquet")[:sample_size]
+        breadth_rows = []
+        for p in files:
+            try:
+                df = pd.read_parquet(p)
+                df.columns = [str(c).capitalize() for c in df.columns]
+                date_col = "Date" if "Date" in df.columns else df.columns[0]
+                df = df.sort_values(by=date_col).reset_index(drop=True)
+                if len(df) < 50:
+                    continue
+                c = df["Close"]
+                s50 = c.rolling(50, min_periods=20).mean().iloc[-1]
+                s200 = c.rolling(200, min_periods=50).mean().iloc[-1]
+                last_c = c.iloc[-1]
+                breadth_rows.append({
+                    "above_sma50": int(last_c > s50),
+                    "above_sma200": int(last_c > s200)
+                })
+            except Exception:
+                pass
+
+        if breadth_rows:
+            df_b = pd.DataFrame(breadth_rows)
+            pct50 = float(df_b["above_sma50"].mean())
+            pct200 = float(df_b["above_sma200"].mean())
+            if pct50 >= 0.60 and pct200 >= 0.50:
+                reg = "BULL"
+            elif pct50 < 0.40 or pct200 < 0.40:
+                reg = "BEAR"
+            else:
+                reg = "SIDEWAYS"
+            res = {
+                "regime": reg,
+                "above_sma50_pct": round(pct50 * 100.0, 1),
+                "above_sma200_pct": round(pct200 * 100.0, 1),
+                "detail": f"{round(pct50 * 100.0, 1)}% > SMA50",
+                "source": f"LIVE_BREADTH_{len(breadth_rows)}_STOCKS"
+            }
+        else:
+            res = {
+                "regime": "BULL",
+                "above_sma50_pct": 50.0,
+                "above_sma200_pct": 50.0,
+                "detail": "Baseline",
+                "source": "FALLBACK"
+            }
+    except Exception:
+        res = {
+            "regime": "BULL",
+            "above_sma50_pct": 50.0,
+            "above_sma200_pct": 50.0,
+            "detail": "Baseline",
+            "source": "FALLBACK"
+        }
+
+    _REGIME_CACHE["regime"] = res
+    _REGIME_CACHE["timestamp"] = now_mono
+    return res
+
+
+def get_current_macro_regime() -> str:
+    """
+    Returns the current macro regime (BULL, SIDEWAYS, BEAR) point-in-time.
+    Defaults to the latest trading date's regime from regime_daycount_daily.csv or live breadth.
+    """
+    reg_info = calculate_live_market_regime()
+    return reg_info.get("regime", "BULL")

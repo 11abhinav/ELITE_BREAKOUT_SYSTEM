@@ -499,8 +499,7 @@ class MasterOrchestratorV2:
         return signals
 
     def get_stocks_to_watch(self) -> List[Dict[str, Any]]:
-        """[RULE 67 CHANGE-RATIONALE]: Returns stocks to watch with 6s TTL cache to protect DB connection pool and eliminate repetitive queries on 5s polls."""
-        return self._get_cached("stocks_to_watch", 6.0, self._get_stocks_to_watch_uncached)
+        return []
 
     def _get_stocks_to_watch_uncached(self) -> List[Dict[str, Any]]:
         query_v2 = """
@@ -653,8 +652,7 @@ class MasterOrchestratorV2:
         return watchlist
 
     def get_investment_watch(self) -> List[Dict[str, Any]]:
-        """[RULE 67 CHANGE-RATIONALE]: Returns investment watch with 30s TTL cache to eliminate repetitive heavy fundamental lookups on routine dashboard polling."""
-        return self._get_cached("investment_watch", 30.0, self._get_investment_watch_uncached)
+        return []
 
     def _get_investment_watch_uncached(self) -> List[Dict[str, Any]]:
         # [RULE 67 CHANGE-RATIONALE]:
@@ -1028,8 +1026,7 @@ class MasterOrchestratorV2:
         return self._run_query(query, params=(symbol,))
 
     def get_all_confluence_setups(self) -> List[Dict[str, Any]]:
-        """[RULE 67 CHANGE-RATIONALE]: Returns confluence setups with 5s TTL cache to protect DB connection pool."""
-        return self._get_cached("confluence_setups", 5.0, self._get_all_confluence_setups_uncached)
+        return []
 
     def _format_scanner_detail(self, r: Dict[str, Any]) -> Dict[str, Any]:
         """[RULE 67 CHANGE-RATIONALE]: Formats granular execution, strategy, and indicator details for a qualifying scanner."""
@@ -1197,147 +1194,8 @@ class MasterOrchestratorV2:
         return results
 
     def get_confluence_breakdown(self, symbol: str) -> Dict[str, Any]:
-        """[RULE 67 CHANGE-RATIONALE]: Returns 🌐 Confluence Breakdown with full scanner-by-scanner details for a specific symbol."""
-        symbol_clean = symbol.split(":")[-1].strip().upper().replace(".NS", "").replace(".BO", "") if symbol else ""
-        
-        # 1. Query rich alerts for symbol
-        query_alerts = """
-            SELECT id, symbol, scanner, breakout_type, alert_time, entry_price, stop_loss,
-                   initial_stop_loss, target_1, target_2, target_3, target_4, score,
-                   rsi, volume_ratio, signals, sl_method, target_method, status, current_price as cmp,
-                   rr_ratio
-            FROM alerts
-            WHERE symbol IN (%s, %s)
-            ORDER BY alert_time DESC
-            LIMIT 30
-        """
-        rows = self._run_query(query_alerts, params=(symbol, symbol_clean))
-        
-        scanners_breakdown = []
-        seen_scanners = set()
-        cmp_val = None
-        outcomes = {}
-
-        for r in rows:
-            sc = str(r.get("scanner") or "EOD").upper()
-            if sc not in seen_scanners:
-                seen_scanners.add(sc)
-                detail = self._format_scanner_detail(r)
-                scanners_breakdown.append(detail)
-                outcomes[sc] = {"state": detail["state"], "score": detail["score"]}
-                if detail.get("entry_price") and not cmp_val:
-                    cmp_val = detail["entry_price"]
-                if r.get("cmp") and not cmp_val:
-                    cmp_val = _sanitize_numeric(r.get("cmp"))
-
-        # 2. Query scanner_candidates
-        if len(scanners_breakdown) < 4:
-            query_cand = """
-                SELECT candidate_id AS id, symbol, scanner_name AS scanner, state AS breakout_type,
-                       COALESCE(detected_at, created_at, NOW()) AS alert_time,
-                       trigger_level AS entry_price, stop_loss, target_1, target_2, target_3,
-                       quality_score AS score, NULL::numeric AS rsi,
-                       last_seen_volume AS volume_ratio,
-                       COALESCE(last_change_summary, status_reason, setup_type) AS signals,
-                       setup_type AS pattern_name,
-                       last_seen_price AS cmp
-                FROM scanner_candidates
-                WHERE symbol IN (%s, %s)
-                ORDER BY COALESCE(detected_at, created_at) DESC
-                LIMIT 30
-            """
-            cand_rows = self._run_query(query_cand, params=(symbol, symbol_clean))
-            for r in cand_rows:
-                sc = str(r.get("scanner") or "EOD").upper()
-                if sc not in seen_scanners:
-                    seen_scanners.add(sc)
-                    detail = self._format_scanner_detail(r)
-                    scanners_breakdown.append(detail)
-                    outcomes[sc] = {"state": detail["state"], "score": detail["score"]}
-                    if detail.get("entry_price") and not cmp_val:
-                        cmp_val = detail["entry_price"]
-
-        # 3. Query additional tables: breakout_watchlist, accumulation_alerts, watchlist_stocks
-        if len(scanners_breakdown) < 4:
-            try:
-                bw_rows = self._run_query("SELECT symbol, category as scanner, current_state as breakout_type, trigger_level as entry_price, breakout_level, last_updated as alert_time FROM breakout_watchlist WHERE symbol IN (%s, %s)", params=(symbol, symbol_clean))
-                for r in bw_rows:
-                    sc = str(r.get("scanner") or "EOD").upper()
-                    if sc not in seen_scanners:
-                        seen_scanners.add(sc)
-                        detail = self._format_scanner_detail(r)
-                        scanners_breakdown.append(detail)
-                        outcomes[sc] = {"state": detail["state"], "score": detail["score"]}
-                        if detail.get("entry_price") and not cmp_val:
-                            cmp_val = detail["entry_price"]
-            except Exception:
-                pass
-
-        # 4. Resolve CMP if still unpopulated
-        if not cmp_val:
-            cmps = self._batch_resolve_cmps([symbol, symbol_clean])
-            cmp_val = cmps.get(symbol) or cmps.get(symbol_clean)
-
-        # 5. Synthesize default qualifying specialist engines if breakdown is still empty
-        if not scanners_breakdown:
-            base_price = float(cmp_val or 100.0)
-            sl_calc = round(base_price * 0.965, 2)
-            t1_calc = round(base_price + (base_price - sl_calc) * 2.0, 2)
-            t2_calc = round(base_price + (base_price - sl_calc) * 4.0, 2)
-            rr_calc = round((t1_calc - base_price) / max(0.01, base_price - sl_calc), 2)
-            
-            synth_engines = [
-                ("EOD", "Daily Breakout Engine", "Daily (Swing)", "CONFIRMED", 88.5, 3.4, "Stage 2 Breakout above key 20-day high with expanding volume.", "Structural Swing Low"),
-                ("PULLBACK", "Pullback Continuation", "Daily (Swing)", "CONFIRMED", 84.0, 2.2, "Healthy 20 EMA pullback holding key prior resistance as support.", "Pullback Swing Low Anchor")
-            ]
-            for sc, title, tf, state, score, vol, rationale, sl_rule in synth_engines:
-                scanners_breakdown.append({
-                    "scanner": sc,
-                    "scanner_title": title,
-                    "timeframe": tf,
-                    "state": state,
-                    "breakout_type": "BREAKOUT",
-                    "score": score,
-                    "entry_price": base_price,
-                    "stop_loss": sl_calc,
-                    "risk_pct": round(abs(base_price - sl_calc) / base_price * 100.0, 2),
-                    "target_1": t1_calc,
-                    "target_2": t2_calc,
-                    "target_3": round(base_price + (base_price - sl_calc) * 6.0, 2),
-                    "target_4": round(base_price + (base_price - sl_calc) * 8.0, 2),
-                    "reward_pct": round(abs(t1_calc - base_price) / base_price * 100.0, 2),
-                    "rr_ratio": rr_calc,
-                    "volume_ratio": vol,
-                    "rsi": 62.5,
-                    "sl_method": sl_rule,
-                    "target_method": "Multi-Cluster Fibonacci / R:R Consensus",
-                    "signals": rationale,
-                    "alert_time": datetime.now(IST).strftime("%Y-%m-%d %H:%M IST")
-                })
-                outcomes[sc] = {"state": state, "score": score}
-
-        if not outcomes:
-            for s in scanners_breakdown:
-                outcomes[s["scanner"]] = {"state": s.get("state", "CONFIRMED"), "score": s.get("score", 85.0)}
-
-        meta_res = evaluate_cross_scanner_confluence(symbol, datetime.now(IST).strftime("%Y-%m-%d"), outcomes)
-        depth = len(scanners_breakdown)
-        
-        tier = meta_res.get("meta_conviction_tier") or ("🔥 APEX CONFLUENCE" if depth >= 3 else ("HIGH CONFLUENCE" if depth == 2 else "SINGLE ENGINE SETUP"))
-
-        return {
-            "symbol": symbol,
-            "tradingview_symbol": resolve_tradingview_symbol(symbol),
-            "cmp": cmp_val or (scanners_breakdown[0].get("entry_price") if scanners_breakdown else 100.0),
-            "confluence_depth": depth,
-            "confluence_tier": tier,
-            "participating_scanners": [s["scanner"] for s in scanners_breakdown],
-            "scanners_breakdown": scanners_breakdown,
-            "meta_score": meta_res.get("meta_score", 85.0),
-            "position_sizing_guidance": meta_res.get("position_sizing_guidance", "Scale Position Up (1.5x)" if depth >= 3 else "Standard Position Size (1.0x)"),
-            "sample_floor_passed": meta_res.get("sample_size_floor_passed", True),
-            "meta_analysis": meta_res
-        }
+        """Decommissioned / purged — returns empty dictionary."""
+        return {}
 
 
 orchestrator_v2 = MasterOrchestratorV2()

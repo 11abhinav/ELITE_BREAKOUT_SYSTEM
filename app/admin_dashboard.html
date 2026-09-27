@@ -2483,25 +2483,13 @@ function changeAdminPage(type, delta) {
 
     <div class="container">
 
-      <!-- 10-TAB MASTER SYSTEM NAVIGATION BAR -->
+      <!-- MASTER SYSTEM NAVIGATION BAR -->
       <div class="admin-tabs-bar">
         <button class="admin-tab-btn active" data-tab="signals-trades" onclick="switchAdminTab('signals-trades')">
           <span>🚀</span> Live Alerts &amp; Signals
         </button>
         <button class="admin-tab-btn" data-tab="master-signals" onclick="switchAdminTab('master-signals')">
           <span>🔥</span> Confirmed Signals
-        </button>
-        <button class="admin-tab-btn" data-tab="stocks-watch" onclick="switchAdminTab('stocks-watch')">
-          <span>👀</span> Stocks to Watch
-        </button>
-        <button class="admin-tab-btn" data-tab="investment-watch" onclick="switchAdminTab('investment-watch')">
-          <span>📈</span> Investment Watch
-        </button>
-        <button class="admin-tab-btn" data-tab="missed-opps" onclick="switchAdminTab('missed-opps')">
-          <span>📉</span> Missed Opportunities
-        </button>
-        <button class="admin-tab-btn" data-tab="confluence-matrix" onclick="switchAdminTab('confluence-matrix')">
-          <span>🌐</span> Confluence Matrix
         </button>
         <button class="admin-tab-btn" data-tab="health-errors" onclick="switchAdminTab('health-errors')">
           <span>🛡️</span> Scanner Health
@@ -2551,8 +2539,7 @@ function changeAdminPage(type, delta) {
             <select id="filterMasterScanner" onchange="filterMasterSignals()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
               <option value="">🎯 All Scanners</option>
               <option value="TECHNICAL">Technical Breakout (BULL)</option>
-              <option value="WEALTH">Wealth Engine</option>
-              <option value="MULTIBAGGER">Multibagger</option>
+              <option value="FUNDAMENTAL">Fundamental Breakout (ALL REGIMES)</option>
             </select>
 
             <select id="filterMasterGrade" onchange="filterMasterSignals()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
@@ -2616,278 +2603,11 @@ function changeAdminPage(type, delta) {
         </div>
       </div>
 
-      <!-- TAB 0B: STOCKS TO WATCH -->
-      <div id="tab-stocks-watch" class="tab-panel">
-        <div class="card" style="padding:20px; margin-bottom:20px;">
-          <div class="card-title">👀 Stocks to Watch (Stage Progress Tracking)</div>
 
-          <!-- PURPOSE BANNER -->
-          <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:12px 16px; margin-bottom:16px;">
-            <div style="font-size:12px; font-weight:700; color:var(--amber); margin-bottom:4px; display:flex; align-items:center; gap:6px;">
-              <span>💡</span> SCREEN PURPOSE & HOW TO USE:
-            </div>
-            <div style="font-size:12px; color:var(--muted); line-height:1.5;">
-              <strong>Pre-Market Preparation Screen</strong>: Tracks developing setups (VSA Absorption, VCP Contraction) in WATCH stage <em>before</em> the breakout occurs. Check this screen pre-market (08:30 AM IST) to set broker price alerts at the Trigger Level.
-            </div>
-          </div>
 
-          <!-- MULTI-CRITERIA FILTER BAR -->
-          <div class="filter-bar" style="margin-bottom:16px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; background:var(--card); padding:12px 14px; border:1px solid var(--border); border-radius:10px;">
-            <input type="text" id="filterStocksWatchInput" placeholder="🔍 Search Watching Symbol / Blocker..." oninput="filterStocksWatch()" style="min-width:180px; flex:1; padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-family:var(--font-mono);" />
-            
-            <select id="filterWatchScanner" onchange="filterStocksWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
-              <option value="">🎯 All Scanners</option>
-              <option value="TECHNICAL">Technical Breakout (BULL)</option>
-              <option value="WEALTH">Wealth Engine</option>
-              <option value="MULTIBAGGER">Multibagger</option>
-            </select>
 
-            <select id="filterWatchStage" onchange="filterStocksWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
-              <option value="">📊 All Stages</option>
-              <option value="ARMED">🔥 ARMED (Pre-Breakout)</option>
-              <option value="BASE_BUILDING">👀 Base Building (Watch)</option>
-              <option value="IMMEDIATE">⚡ Immediate Trigger Zone</option>
-            </select>
 
-            <select id="filterWatchDistance" onchange="filterStocksWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
-              <option value="">📏 All Distance to Trigger</option>
-              <option value="2.0">⚡ Imminent (≤ 2.0%)</option>
-              <option value="5.0">🎯 On Radar (≤ 5.0%)</option>
-              <option value="gt5">👀 Forming (> 5.0%)</option>
-            </select>
 
-            <select id="filterWatchMaturity" onchange="filterStocksWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
-              <option value="">⭐ All Maturity Scores</option>
-              <option value="70">High (Score ≥ 70)</option>
-              <option value="50">Medium (50–69)</option>
-              <option value="lt50">Developing (< 50)</option>
-            </select>
-
-            <select id="filterWatchSort" onchange="filterStocksWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
-              <option value="dist_asc">⚡ Distance (Closest First)</option>
-              <option value="maturity_desc">⭐ Highest Maturity Score</option>
-              <option value="cmp_desc">💰 Highest CMP</option>
-              <option value="sym_asc">🔤 Symbol (A-Z)</option>
-            </select>
-
-            <button onclick="resetWatchFilters()" class="refresh-btn" style="padding:7px 12px; font-size:12px; font-weight:700; background:var(--border); color:var(--muted); border:1px solid var(--border);">🔄 Reset</button>
-            <button onclick="loadMasterSystemV2Data(true)" class="refresh-btn" style="padding:7px 14px; font-size:12px; font-weight:700; background:var(--amber); color:#000; border:none;">⚡ Refresh</button>
-
-            <div id="stocks-watch-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:700; margin-left:auto;"></div>
-          </div>
-
-          <div id="stocks-watch-tbl-wrap" class="tbl-wrap">
-            <table id="tbl-stocks-watch">
-              <thead>
-                <tr>
-                  <th>Symbol</th>
-                  <th>Chart</th>
-                  <th>Scanner</th>
-                  <th>Stage Progress</th>
-                  <th>Maturity Score</th>
-                  <th>CMP</th>
-                  <th>Trigger Level</th>
-                  <th>Distance %</th>
-                  <th>Primary Blocker</th>
-                  <th>Why It Qualifies</th>
-                </tr>
-              </thead>
-              <tbody id="stocks-watch-tbody">
-                <tr><td colspan="10" style="text-align:center; padding:20px; color:var(--muted);">Loading Stocks to Watch...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- TAB 0C: INVESTMENT WATCH -->
-      <div id="tab-investment-watch" class="tab-panel">
-        <div class="card" style="padding:20px; margin-bottom:20px;">
-          <div class="card-title">📈 Investment Watch (Multibagger Fundamental Engine)</div>
-
-          <!-- PURPOSE BANNER -->
-          <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:12px 16px; margin-bottom:16px;">
-            <div style="font-size:12px; font-weight:700; color:var(--accent); margin-bottom:4px; display:flex; align-items:center; gap:6px;">
-              <span>💡</span> SCREEN PURPOSE & HOW TO USE:
-            </div>
-            <div style="font-size:12px; color:var(--muted); line-height:1.5;">
-              <strong>Long-Term Wealth Accumulation Screen</strong>: Tracks 3-5 year fundamental compounders evaluated on ROCE &gt; 20%, low debt, cash flow quality (OCF/PAT &gt; 1.0), and Margin of Safety %. Use this screen to accumulate quality businesses on market pullbacks.
-            </div>
-          </div>
-
-          <!-- MULTI-CRITERIA FILTER BAR -->
-          <div class="filter-bar" style="margin-bottom:16px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; background:var(--card); padding:12px 14px; border:1px solid var(--border); border-radius:10px;">
-            <input type="text" id="filterInvestmentWatchInput" placeholder="🔍 Search Fundamental Symbol / Thesis..." oninput="filterInvestmentWatch()" style="min-width:180px; flex:1; padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-family:var(--font-mono);" />
-            
-            <select id="filterInvestState" onchange="filterInvestmentWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
-              <option value="">📈 All Investment States</option>
-              <option value="ACCUMULATE">🟢 Accumulate (Buy Zone)</option>
-              <option value="GROWTH">🚀 Growth Runway</option>
-              <option value="QUALITY">💎 Quality Watch</option>
-              <option value="MONITOR">👀 Monitor / Hold</option>
-            </select>
-
-            <select id="filterInvestValuation" onchange="filterInvestmentWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
-              <option value="">💰 All Valuation Grades</option>
-              <option value="Tier A">Tier A (Undervalued)</option>
-              <option value="Tier B+">Tier B+ (Quality Fair Value)</option>
-              <option value="Tier C">Tier C / Fair Value</option>
-            </select>
-
-            <select id="filterInvestMoS" onchange="filterInvestmentWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
-              <option value="">🛡️ All Margin of Safety</option>
-              <option value="25">High (> 25% MoS)</option>
-              <option value="10">Moderate (10%–25% MoS)</option>
-              <option value="lt10">Low (< 10% MoS)</option>
-            </select>
-
-            <select id="filterInvestSort" onchange="filterInvestmentWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
-              <option value="mos_desc">🛡️ Highest Margin of Safety</option>
-              <option value="cmp_desc">💰 Highest CMP</option>
-              <option value="sym_asc">🔤 Symbol (A-Z)</option>
-            </select>
-
-            <button onclick="resetInvestFilters()" class="refresh-btn" style="padding:7px 12px; font-size:12px; font-weight:700; background:var(--border); color:var(--muted); border:1px solid var(--border);">🔄 Reset</button>
-            <button onclick="loadMasterSystemV2Data(true)" class="refresh-btn" style="padding:7px 14px; font-size:12px; font-weight:700; background:var(--accent); color:var(--text-inv); border:none;">⚡ Refresh</button>
-
-            <div id="investment-watch-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:700; margin-left:auto;"></div>
-          </div>
-
-          <div id="investment-watch-tbl-wrap" class="tbl-wrap">
-            <table id="tbl-investment-watch">
-              <thead>
-                <tr>
-                  <th>Symbol</th>
-                  <th>Chart</th>
-                  <th>CMP</th>
-                  <th>Business Quality</th>
-                  <th>Growth Durability</th>
-                  <th>Moat / Cash Quality</th>
-                  <th>Valuation Grade</th>
-                  <th>Margin of Safety %</th>
-                  <th>Thesis Health</th>
-                  <th>Investment State</th>
-                  <th>Why It Qualifies (Fundamental Thesis)</th>
-                </tr>
-              </thead>
-              <tbody id="investment-watch-tbody">
-                <tr><td colspan="11" style="text-align:center; padding:20px; color:var(--muted);">Loading Investment Watch...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- TAB 0D: MISSED OPPORTUNITIES -->
-      <div id="tab-missed-opps" class="tab-panel">
-        <div class="card" style="padding:20px; margin-bottom:20px;">
-          <div class="card-title">📉 Missed Opportunities (Forensic Post-Rejection Analysis)</div>
-
-          <!-- PURPOSE BANNER -->
-          <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:12px 16px; margin-bottom:16px;">
-            <div style="font-size:12px; font-weight:700; color:var(--muted); margin-bottom:4px; display:flex; align-items:center; gap:6px;">
-              <span>💡</span> SCREEN PURPOSE & HOW TO USE:
-            </div>
-            <div style="font-size:12px; color:var(--muted); line-height:1.5;">
-              <strong>Forensic System Audit Screen</strong>: Tracks stocks rejected by scanner quality gates and audits their forward returns (+1D to +20D). Use this to verify whether rejections were <strong>GOOD_REJECTION</strong> (saved from loss) or <strong>BAD_REJECTION</strong> (missed a winner).
-            </div>
-          </div>
-
-          <!-- MULTI-DIMENSIONAL FILTER CONTROLS BAR -->
-          <div class="filter-bar" style="margin-bottom:16px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; background:var(--card); padding:12px 14px; border:1px solid var(--border); border-radius:10px;">
-            <input type="text" id="filterMissedOppsInput" placeholder="🔍 Search Symbol / Gate / Reason..." oninput="debouncedFilterMissedOpps()" style="min-width:180px; flex:1; padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-family:var(--font-mono);" />
-            
-            <select id="filterMissedDays" onchange="loadNearMisses(true)" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
-              <option value="30" selected>Last 30 Days</option>
-              <option value="1">Today (1D)</option>
-              <option value="7">Last 7 Days</option>
-              <option value="14">Last 14 Days</option>
-              <option value="90">Last 90 Days</option>
-              <option value="365">Last 1 Year</option>
-              <option value="all">📅 All Time (Full History)</option>
-            </select>
-
-            <select id="filterMissedScanner" onchange="loadNearMisses(true)" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
-              <option value="">🎯 All Scanners</option>
-              <option value="TECHNICAL">Technical Scanner (BULL)</option>
-              <option value="WEALTH">Wealth Engine</option>
-              <option value="MULTIBAGGER">Multibagger Engine</option>
-            </select>
-
-            <select id="filterMissedVerdict" onchange="filterMissedOpps()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
-              <option value="">⚖️ All Rejection Audits</option>
-              <option value="GOOD">🛡️ Good Rejection (Saved Loss)</option>
-              <option value="BAD">⚠️ Bad Rejection (Missed Winner)</option>
-              <option value="AUDITING">⏳ Auditing (Day 1-20 / Active)</option>
-              <option value="EXCLUDED">🔍 Excluded / Fallback</option>
-            </select>
-
-            <select id="filterMissedGrade" onchange="filterMissedOpps()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
-              <option value="">⭐ All Quality Grades</option>
-              <option value="A">Grade A (Score ≥ 75)</option>
-              <option value="B">Grade B (Score 60–74)</option>
-              <option value="C">Grade C (Score 45–59)</option>
-              <option value="D">Grade D (Score < 45)</option>
-            </select>
-
-            <select id="filterMissedSort" onchange="filterMissedOpps()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
-              <option value="date_desc">⏱️ Date (Newest First)</option>
-              <option value="date_asc">⏱️ Date (Oldest First)</option>
-              <option value="ret1d_desc">📈 Return +1D (High to Low)</option>
-              <option value="ret5d_desc">📈 Return +5D (High to Low)</option>
-              <option value="ret20d_desc">📈 Return +20D (High to Low)</option>
-              <option value="mfe_desc">🎯 Max MFE (High to Low)</option>
-              <option value="score_desc">⭐ Score (High to Low)</option>
-            </select>
-
-            <button onclick="resetMissedOppsFilters()" class="refresh-btn" style="padding:7px 12px; font-size:12px; font-weight:700; background:var(--border); color:var(--muted); border:1px solid var(--border);">🔄 Reset</button>
-            <button onclick="loadNearMisses(true)" class="refresh-btn" style="padding:7px 14px; font-size:12px; font-weight:700; background:var(--accent); color:var(--text-inv); border:none;">⚡ Refresh</button>
-
-            <div id="missed-opps-count" style="font-size:12px; color:var(--muted); font-family:var(--font-mono); font-weight:700; margin-left:auto;"></div>
-          </div>
-
-          <div id="missed-opps-tbl-wrap" class="tbl-wrap">
-            <table id="tbl-missed-opps">
-              <thead>
-                <tr>
-                  <th>Symbol</th>
-                  <th>Chart</th>
-                  <th>CMP</th>
-                  <th>Scanner</th>
-                  <th>Trigger Date</th>
-                  <th>Rejected Gate</th>
-                  <th>Quality Grade</th>
-                  <th>Forward +1D</th>
-                  <th>Forward +5D</th>
-                  <th>Forward +20D</th>
-                  <th>Forward MFE</th>
-                  <th>Rejection Audit</th>
-                </tr>
-              </thead>
-              <tbody id="near-misses-tbody">
-                <tr><td colspan="12" style="text-align:center; padding:20px; color:var(--muted);">No forensic rejection data loaded.</td></tr>
-              </tbody>
-            </table>
-          </div>
-
-          <!-- MISSED OPPORTUNITIES PAGINATION BAR -->
-          <div class="pagination-bar" id="missed-opps-pagination" style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; padding:10px 14px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius); flex-wrap:wrap; gap:10px;">
-            <div id="missedOppsPaginationInfo" style="font-size:12px; font-weight:600; color:var(--muted); font-family:var(--font-mono);">Showing 0-0 of 0 rejections</div>
-            <div style="display:flex; align-items:center; gap:10px;">
-              <span style="font-size:11px; color:var(--muted); font-weight:600;">Per Page:</span>
-              <select id="missedOppsPerPageSelect" onchange="setMissedOppsPerPage(this.value)" style="background:var(--card); border:1px solid var(--border); color:var(--text); padding:4px 8px; border-radius:6px; font-size:11px; font-family:var(--font-mono);">
-                <option value="25">25</option>
-                <option value="50" selected>50</option>
-                <option value="100">100</option>
-                <option value="250">250</option>
-                <option value="all">All</option>
-              </select>
-              <button class="refresh-btn" id="missedOppsPrevBtn" onclick="changeMissedOppsPage(-1)" style="padding:5px 12px; font-size:11px;">◀ Prev</button>
-              <button class="refresh-btn" id="missedOppsNextBtn" onclick="changeMissedOppsPage(1)" style="padding:5px 12px; font-size:11px;">Next ▶</button>
-            </div>
-          </div>
-        </div>
-      </div>
 
       <!-- TAB 0E: UNIVERSE HEALTH -->
       <div id="tab-universe-health" class="tab-panel">
@@ -2981,72 +2701,7 @@ function changeAdminPage(type, delta) {
         </div>
       </div>
 
-      <!-- TAB 0F: CONFLUENCE MATRIX (LIVE DATA) -->
-      <div id="tab-confluence-matrix" class="tab-panel">
-        <div class="card" style="padding:20px; margin-bottom:20px;">
-          <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
-            <span>🌐 Cross-Scanner Confluence Alignment (Multi-Engine Setups)</span>
-            <button class="refresh-btn" onclick="loadConfluenceMatrixTab()">🔄 Refresh Matrix</button>
-          </div>
 
-          <!-- USER GUIDE BANNER -->
-          <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-bottom:18px;">
-            <div style="font-size:13px; font-weight:700; color:var(--text); margin-bottom:6px; display:flex; align-items:center; gap:6px;">
-              <span>💡</span> How to Understand Confluence Alignment Data:
-            </div>
-            <div style="font-size:12px; color:var(--muted); line-height:1.6;">
-              When multiple independent certified engines (e.g., <strong>Technical + Fundamental Buy + Wealth Engine</strong>) simultaneously agree on the same stock, confidence is significantly higher.<br>
-              • <strong>3+ Engines Agreeing</strong>: 🔥 <strong>APEX CONFLUENCE</strong> — Highest statistical edge. Scale position size up.<br>
-              • <strong>2 Engines Agreeing</strong>: <strong>HIGH CONFLUENCE</strong> — Strong multi-tf agreement. Standard position size.<br>
-              • <strong>Guard Rule</strong>: Multi-engine pairs with small historical samples ($n < 30$) are marked <em>UNVERIFIED</em> to prevent false confidence.
-            </div>
-          </div>
-
-          <!-- FILTER & SEARCH BAR -->
-          <div style="background:var(--card2); border:1px solid var(--border); border-radius:10px; padding:12px 16px; margin-bottom:18px; display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
-            <input type="text" id="confluence-search-input" placeholder="🔍 Search symbol or engine..." style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; min-width:200px;" oninput="filterAndRenderConfluenceMatrix()" />
-            <select id="confluence-depth-filter" onchange="filterAndRenderConfluenceMatrix()" style="padding:6px 10px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
-              <option value="ALL">All Confluence Depths</option>
-              <option value="APEX">🔥 APEX CONFLUENCE (3+ Engines)</option>
-              <option value="HIGH">⚡ HIGH CONFLUENCE (2 Engines)</option>
-            </select>
-            <select id="confluence-guard-filter" onchange="filterAndRenderConfluenceMatrix()" style="padding:6px 10px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
-              <option value="ALL">All Guard Statuses</option>
-              <option value="VERIFIED">✅ Verified (n ≥ 30)</option>
-              <option value="BASELINE">⚠️ Baseline Observation</option>
-            </select>
-            <select id="confluence-sort-select" onchange="filterAndRenderConfluenceMatrix()" style="padding:6px 10px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
-              <option value="depth_desc">Sort: Confluence Depth (High to Low)</option>
-              <option value="price_desc">Sort: CMP (High to Low)</option>
-              <option value="price_asc">Sort: CMP (Low to High)</option>
-              <option value="symbol_asc">Sort: Symbol (A to Z)</option>
-            </select>
-            <button class="refresh-btn" onclick="resetConfluenceMatrixFilters()" style="padding:6px 12px; font-size:12px;">↺ Reset</button>
-            <button class="refresh-btn" onclick="exportConfluenceMatrixCSV()" style="padding:6px 12px; font-size:12px; background:rgba(0,212,161,0.15); color:var(--accent); border:1px solid var(--accent);">📥 Export CSV</button>
-            <div id="confluence-filtered-count" style="margin-left:auto; font-size:12px; color:var(--muted); font-weight:600; font-family:var(--font-mono);">Showing 0 setups</div>
-          </div>
-
-          <div id="confluence-matrix-tbl-wrap" class="tbl-wrap">
-            <table id="tbl-confluence-matrix">
-              <thead>
-                <tr>
-                  <th>Symbol</th>
-                  <th>Chart</th>
-                  <th>CMP</th>
-                  <th>Agreeing Specialist Engines</th>
-                  <th>Confluence Depth</th>
-                  <th>Meta Conviction Tier</th>
-                  <th>Sample Floor Guard</th>
-                  <th>Position Sizing Guidance</th>
-                </tr>
-              </thead>
-              <tbody id="confluence-matrix-tbody">
-                <tr><td colspan="8" style="text-align:center; padding:20px; color:var(--muted);">Loading Live Multi-Scanner Confluence Setups...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
 
       <!-- TAB 1: SIGNALS & ALL TRADES -->
       <div id="tab-signals-trades" class="tab-panel active">
@@ -3117,6 +2772,8 @@ function changeAdminPage(type, delta) {
           </select>
           <select id="filterScanner">
             <option value="">All scanners</option>
+            <option value="TECHNICAL">TECHNICAL</option>
+            <option value="FUNDAMENTAL">FUNDAMENTAL</option>
           </select>
           <select id="filterStatus">
             <option value="">All status</option>
@@ -3330,58 +2987,7 @@ function changeAdminPage(type, delta) {
 
 
 
-        <!-- NEAR-MISS OPPORTUNITY-COST TRACKER SECTION -->
-        <div id="near-misses-section" style="margin-top: 32px; margin-bottom: 32px;">
-          <div class="section-label" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-            <span style="font-size:16px; font-weight:800; display:flex; align-items:center; gap:8px;">
-              🎯 Near-Miss Opportunity-Cost Tracker 
-              <span style="font-size:11px; background:rgba(234,179,8,0.15); color:#eab308; border:1px solid rgba(234,179,8,0.3); padding:2px 8px; border-radius:12px; font-weight:700;">
-                Missed Alert Diagnostics (Within 10% Gate)
-              </span>
-            </span>
-            <div style="display:flex; gap:8px; align-items:center;">
-              <select id="near-miss-scanner-filter" onchange="loadNearMisses()" style="padding:4px 10px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:11px; font-weight:600;">
-                <option value="">All Scanners</option>
-                <option value="TECHNICAL">Technical Scanner (BULL)</option>
-                <option value="WEALTH">Wealth Engine</option>
-                <option value="MULTIBAGGER">Multibagger Engine</option>
-              </select>
-              <select id="near-miss-days-filter" onchange="loadNearMisses()" style="padding:4px 10px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:11px; font-weight:600;">
-                <option value="ALL">All Time (Full History)</option>
-                <option value="1">Today (1 Day)</option>
-                <option value="7" selected>Last 7 Days</option>
-                <option value="14">Last 14 Days</option>
-                <option value="30">Last 30 Days</option>
-                <option value="90">Last 90 Days</option>
-                <option value="365">Last 365 Days</option>
-              </select>
-              <button onclick="loadNearMisses()" class="refresh-btn" style="font-size:11px; padding:4px 12px; font-weight:700;">🔄 Refresh</button>
-            </div>
-          </div>
 
-          <div class="card" style="padding:0; overflow:hidden; border:1px solid var(--border); border-radius:8px; background:var(--card);">
-            <div class="tbl-wrap" style="max-height:480px; overflow-y:auto;">
-              <table class="table" style="width:100%; margin:0; border-collapse:collapse;">
-                <thead>
-                  <tr style="background:var(--card2); font-size:11px; color:var(--muted); text-transform:uppercase; border-bottom:1px solid var(--border);">
-                    <th style="padding:10px 14px; text-align:left;">Symbol</th>
-                    <th style="padding:10px 14px; text-align:left;">Scanner</th>
-                    <th style="padding:10px 14px; text-align:left;">Failed Gate / Reason</th>
-                    <th style="padding:10px 14px; text-align:center;">Observed vs Target</th>
-                    <th style="padding:10px 14px; text-align:center;">Delta %</th>
-                    <th style="padding:10px 14px; text-align:right;">Entry / SL / Target</th>
-                    <th style="padding:10px 14px; text-align:center;">Status</th>
-                    <th style="padding:10px 14px; text-align:center;">Max MFE (R)</th>
-                    <th style="padding:10px 14px; text-align:center;">Logged Date</th>
-                  </tr>
-                </thead>
-                <tbody id="near-misses-tbody-lower">
-                  <tr><td colspan="9" style="text-align:center; padding:24px; color:var(--muted);">Loading near-miss diagnostics...</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
 
         <!-- FIXED OVERLAY STOCK DIAGNOSTIC MODAL CONTAINER -->
         <div id="stock-diagnostic-main-container" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:var(--modal-backdrop); backdrop-filter:blur(8px); z-index:100000; justify-content:center; align-items:center; padding:20px; box-sizing:border-box;"></div>
@@ -3562,6 +3168,10 @@ function changeAdminPage(type, delta) {
                   <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
                     <input type="checkbox" class="seh-scanner-cb" value="TECHNICAL" onchange="onSehScannerChange()" checked />
                     <span>Technical Scanner (BULL)</span>
+                  </label>
+                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
+                    <input type="checkbox" class="seh-scanner-cb" value="FUNDAMENTAL" onchange="onSehScannerChange()" checked />
+                    <span>Fundamental Scanner (ALL REGIMES)</span>
                   </label>
 
                   <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
@@ -3931,8 +3541,7 @@ function changeAdminPage(type, delta) {
         'users': 'watchlist-users',
         'watchlist': 'watchlist-users',
         'diagnostics': 'health-errors',
-        'errors': 'health-errors',
-        'near-misses': 'missed-opps'
+        'errors': 'health-errors'
       };
       const resolvedTabId = tabAliasMap[tabId] || tabId;
       activeAdminTab = resolvedTabId;
@@ -3971,7 +3580,7 @@ function changeAdminPage(type, delta) {
       }
       _activeTabLoadingMap[tabId] = now;
 
-      if (tabId === 'master-signals' || tabId === 'stocks-watch' || tabId === 'investment-watch') {
+      if (tabId === 'master-signals') {
         if (typeof loadMasterSystemV2Data === 'function') loadMasterSystemV2Data();
         if (typeof ALL_TRADES !== 'undefined' && ALL_TRADES.length > 0 && typeof renderTradeTable === 'function') {
           renderTradeTable();
@@ -3988,7 +3597,6 @@ function changeAdminPage(type, delta) {
         if (typeof searchUsers === 'function') searchUsers();
         if (typeof loadPendingUsers === 'function') loadPendingUsers();
         if (typeof loadManualWatchlist === 'function') loadManualWatchlist(true);
-        if (typeof loadNearMisses === 'function') loadNearMisses();
       } else if (tabId === 'health-errors') {
         if (typeof loadDiagnostics === 'function' && !diagnosticsLoaded) {
            document.getElementById('diagnostics-status').textContent = 'Loading...';
@@ -4001,15 +3609,11 @@ function changeAdminPage(type, delta) {
         if (typeof fetchScannerExecutionHistory === 'function') fetchScannerExecutionHistory(1);
         if (typeof loadValidationHealth === 'function') loadValidationHealth();
         if (typeof loadApiHealth === 'function') loadApiHealth();
-      } else if (tabId === 'missed-opps') {
-        if (typeof loadNearMisses === 'function') loadNearMisses();
       } else if (tabId === 'universe-health') {
         if (typeof refreshUniverseHealth === 'function') refreshUniverseHealth();
       } else if (tabId === 'db-explorer') {
         if (typeof fetchDatabaseTablesSummary === 'function') fetchDatabaseTablesSummary();
         if (typeof loadAdvancedOutcomeAnalytics === 'function') loadAdvancedOutcomeAnalytics();
-      } else if (tabId === 'confluence-matrix') {
-        if (typeof loadConfluenceMatrixTab === 'function') loadConfluenceMatrixTab();
       }
     }
 
@@ -6579,7 +6183,8 @@ function getEarningsBadgeHtml(item) {
     });
 
     function populateFilters(trades) {
-      const scanners = [...new Set(trades.map(t => t.scanner))].sort();
+      const predefinedScanners = ['TECHNICAL', 'FUNDAMENTAL'];
+      const scanners = [...new Set([...predefinedScanners, ...trades.map(t => t.scanner).filter(Boolean)])].sort();
       
       // Hardcode all possible status combinations so they are always filterable
       const predefinedStatuses = [
@@ -7924,6 +7529,22 @@ initDashboard();
               return;
           }
           let html = '';
+          // Macro Regime Indicator (Always shown near NIFTY & BANKNIFTY)
+          const regimeData = data._regime || data.regime;
+          if (regimeData) {
+            const regName = (typeof regimeData === 'string' ? regimeData : (regimeData.regime || 'BULL')).toUpperCase();
+            const rColor = regName === 'BULL' ? '#16a34a' : (regName === 'BEAR' ? '#dc2626' : '#d97706');
+            const rBg = regName === 'BULL' ? 'rgba(22,163,74,0.15)' : (regName === 'BEAR' ? 'rgba(220,38,38,0.15)' : 'rgba(217,119,6,0.15)');
+            const rBorder = regName === 'BULL' ? 'rgba(22,163,74,0.4)' : (regName === 'BEAR' ? 'rgba(220,38,38,0.4)' : 'rgba(217,119,6,0.4)');
+            const rIcon = regName === 'BULL' ? '🟢' : (regName === 'BEAR' ? '🔴' : '🟡');
+            const rDetail = (typeof regimeData === 'object' && regimeData.detail) ? `<span style="font-size:11px; opacity:0.85; margin-left:4px; font-weight:600;">(${escapeHTML(regimeData.detail)})</span>` : '';
+            html += `<div style="display:flex; align-items:center; gap:6px; background:${rBg}; border:1px solid ${rBorder}; color:${rColor}; padding:2px 10px; border-radius:6px; font-size:12px; font-weight:800; white-space:nowrap; letter-spacing:0.5px;">
+              <span>${rIcon} REGIME:</span>
+              <span style="font-size:1.05em; font-family:var(--font-mono);">${regName}</span>
+              ${rDetail}
+            </div>`;
+          }
+
           for (const [name, info] of Object.entries(data)) {
             if (name.startsWith('_') || typeof info !== 'object' || info === null || Array.isArray(info)) continue;
             if (info.price === undefined || info.price === null) continue;
@@ -11712,8 +11333,6 @@ function loadMasterSystemV2Data(forceRefresh = false) {
   const now = Date.now();
   if (!forceRefresh && (now - _lastMasterFetchTs < 5000) && window._masterAlertsCache && window._masterAlertsCache.length > 0) {
     renderMasterSignalsRows(window._masterAlertsCache);
-    renderStocksWatchRows(window._stocksWatchCache);
-    renderInvestmentWatchRows(window._investmentWatchCache);
     return;
   }
   _lastMasterFetchTs = now;
@@ -11731,33 +11350,7 @@ function loadMasterSystemV2Data(forceRefresh = false) {
       renderMasterSignalsRows([]);
     });
 
-  fetch('/api/v2/stocks_to_watch')
-    .then(r => r.json())
-    .then(data => {
-      window._stocksWatchCache = Array.isArray(data) ? data : [];
-      renderStocksWatchRows(window._stocksWatchCache);
-      const countEl = document.getElementById('stocks-watch-count');
-      if (countEl) countEl.innerText = `${window._stocksWatchCache.length} watching`;
-    }).catch(e => {
-      console.warn('Failed to load stocks to watch:', e);
-      window._stocksWatchCache = [];
-      renderStocksWatchRows([]);
-    });
-
-  fetch('/api/v2/investment_watch')
-    .then(r => r.json())
-    .then(data => {
-      window._investmentWatchCache = Array.isArray(data) ? data : [];
-      renderInvestmentWatchRows(window._investmentWatchCache);
-      const countEl = document.getElementById('investment-watch-count');
-      if (countEl) countEl.innerText = `${window._investmentWatchCache.length} compounders`;
-    }).catch(e => {
-      console.warn('Failed to load investment watch:', e);
-      window._investmentWatchCache = [];
-      renderInvestmentWatchRows([]);
-    });
-
-  // [RULE 67 CHANGE-RATIONALE]: Standalone refreshUniverseHealth called on universe-health tab switch and master load
+  // Standalone refreshUniverseHealth called on universe-health tab switch and master load
   refreshUniverseHealth();
 }
 

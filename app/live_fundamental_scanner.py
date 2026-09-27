@@ -671,19 +671,20 @@ class LiveFundamentalBuyScanner:
 
         try:
             try:
-                from database import create_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health, save_wealth_buy_alert
+                from database import create_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health, save_wealth_buy_alert, save_alert_if_new
             except ImportError:
-                from app.database import create_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health, save_wealth_buy_alert
+                from app.database import create_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health, save_wealth_buy_alert, save_alert_if_new
         except Exception:
             create_scanner_execution_run = None
             complete_scanner_execution_run = None
             upsert_scanner_health = None
             save_wealth_buy_alert = None
+            save_alert_if_new = None
 
         if create_scanner_execution_run is not None:
             try:
                 ctx = create_scanner_execution_run(
-                    scanner_name="FUNDAMENTAL_WEALTH_BUY",
+                    scanner_name="FUNDAMENTAL",
                     trigger_type="AUTOMATED",
                     total_stocks=len(market_data_map),
                     allow_concurrent=True
@@ -694,7 +695,7 @@ class LiveFundamentalBuyScanner:
         if upsert_scanner_health is not None:
             try:
                 upsert_scanner_health(
-                    "FUNDAMENTAL_WEALTH_BUY",
+                    "FUNDAMENTAL",
                     status="RUNNING",
                     total_count=len(market_data_map),
                     run_id=getattr(ctx, "run_id", None)
@@ -747,12 +748,57 @@ class LiveFundamentalBuyScanner:
                 if res["is_buy"]:
                     funnel["buy_alerts_count"] += 1
                     funnel["buy_candidates"].append(res)
-                    # Persist alert to database if available
+                    cmp_price = float(res.get("metrics", {}).get("close", 0.0))
+                    sma50 = float(res.get("metrics", {}).get("sma50", cmp_price * 0.92))
+                    sl = round(min(cmp_price * 0.92, sma50), 2)
+                    t1 = round(cmp_price * 1.10, 2)
+                    t2 = round(cmp_price * 1.20, 2)
+                    t3 = round(cmp_price * 1.35, 2)
+                    t4 = round(cmp_price * 1.50, 2)
+
+                    # Persist alert to unified alerts table (accessible to all dashboard views & tracking)
+                    if save_alert_if_new is not None:
+                        try:
+                            try:
+                                from engine.production.governance_registry import get_current_macro_regime
+                                macro_regime = get_current_macro_regime()
+                            except Exception:
+                                macro_regime = "BULL"
+
+                            now_ist = datetime.now(IST)
+                            inserted, reason, _, _ = save_alert_if_new(
+                                symbol=sym.upper(),
+                                breakout_type="FUNDAMENTAL_BREAKOUT",
+                                alert_time=now_ist.strftime("%Y-%m-%d %H:%M:%S"),
+                                scanner="FUNDAMENTAL",
+                                category="20D BREAKOUT",
+                                entry_price=cmp_price,
+                                stop_loss=sl,
+                                target_1=t1,
+                                target_2=t2,
+                                target_3=t3,
+                                target_4=t4,
+                                signals="FUNDAMENTAL QUALITY + 20D BREAKOUT",
+                                score=95,
+                                bayesian_regime=macro_regime,
+                                context={
+                                    "strategy": "FUNDAMENTAL_BREAKOUT",
+                                    "rules": "ROCE>=15%, Growth Accelerating, RS vs BM, 20D BO",
+                                    "metrics": res.get("metrics", {}),
+                                    "growth": res.get("growth_metrics", {}),
+                                    "consolidation": res.get("consolidation_metrics", {})
+                                }
+                            )
+                            logger.info(f"✅ [FUNDAMENTAL ALERT] {sym} -> unified alerts DB: inserted={inserted}, reason={reason}")
+                        except Exception as al_err:
+                            logger.warning(f"Save alert to unified table failed for {sym}: {al_err}")
+
+                    # Persist alert to wealth_buy_alert table for wealth monitors
                     if save_wealth_buy_alert is not None:
                         try:
                             save_wealth_buy_alert(
                                 symbol=sym,
-                                alert_price=float(res.get("metrics", {}).get("close", 0.0)),
+                                alert_price=cmp_price,
                                 breakout_type="20D_BREAKOUT_FUNDAMENTAL",
                                 fm_score=95.0,
                                 notes="Passed Mandatory Fundamental Quality + Growth + 20D Breakout"
@@ -776,7 +822,7 @@ class LiveFundamentalBuyScanner:
             if upsert_scanner_health is not None:
                 try:
                     upsert_scanner_health(
-                        "FUNDAMENTAL_WEALTH_BUY",
+                        "FUNDAMENTAL",
                         status="OK",
                         today_alerts=funnel["buy_alerts_count"],
                         last_success=datetime.now(IST).isoformat(),
@@ -798,7 +844,7 @@ class LiveFundamentalBuyScanner:
             if upsert_scanner_health is not None:
                 try:
                     upsert_scanner_health(
-                        "FUNDAMENTAL_WEALTH_BUY",
+                        "FUNDAMENTAL",
                         status="DOWN",
                         error_msg=str(scan_err)[:500],
                         run_id=getattr(ctx, "run_id", None)
