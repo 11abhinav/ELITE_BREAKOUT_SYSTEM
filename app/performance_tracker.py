@@ -2031,9 +2031,21 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
         t.pop("_db_closed", None)
         t.pop("exit_history", None)
 
-    # ── 9. Write scanner health to Postgres (source of truth) ──────────────────
+    # ── 9. Write scanner health to Postgres (source of truth for active scanners) ──
     today_str = datetime.now(IST).date().isoformat()
-    for sc in all_scanners:
+    try:
+        from engine.production.governance_registry import DECOMMISSIONED_SCANNERS, normalize_scanner_name
+    except Exception:
+        DECOMMISSIONED_SCANNERS = {"SHORT_COVERING_5M", "REVERSAL", "ACCUMULATION", "PULLBACK", "EOD", "MULTIBAGGER", "TECHNICAL_INTRADAY"}
+        normalize_scanner_name = lambda s: str(s).upper()
+
+    active_scanners_for_health = {
+        sc for sc in all_scanners 
+        if normalize_scanner_name(sc) not in DECOMMISSIONED_SCANNERS 
+        and sc.upper() not in DECOMMISSIONED_SCANNERS
+    }
+
+    for sc in active_scanners_for_health:
         sc_today = [t for t in trades if t["scanner"] == sc and t["entry_date"] == today_str]
         try:
             # We pass last_success=None so that the DB preserves the actual heartbeat

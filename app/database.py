@@ -4207,6 +4207,9 @@ def upsert_scanner_health(
     Canonicalizes scanner names, enforces active_run_id ownership, and logs status transitions.
     """
     scanner_name = normalize_scanner_name(scanner_name)
+    if scanner_name in DECOMMISSIONED_SCANNERS or (scanner_name and scanner_name.upper() in DECOMMISSIONED_SCANNERS):
+        return
+
     try:
         init_db()
         now_str = datetime.now(IST).isoformat()

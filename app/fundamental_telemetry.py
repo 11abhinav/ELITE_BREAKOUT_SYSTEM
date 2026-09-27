@@ -696,6 +696,45 @@ class FundamentalScanTelemetry:
             "metrics": disp["metrics"]
         }
         _append_jsonl_record(SCAN_AUDIT_LOG, decision_record)
+
+        # Emit explicit per-stock telemetry summary log (§11, §12)
+        m = disp.get("metrics", {})
+        roce = m.get("roce")
+        roe = m.get("roe")
+        de = m.get("debt_equity")
+        rev_accel = m.get("rev_yoy_latest")
+        op_accel = m.get("op_profit_yoy_latest")
+        eps_accel = m.get("eps_yoy_latest")
+        close_val = m.get("close") or m.get("signal_close")
+        vol_r = m.get("vol_ratio")
+
+        metrics_parts = []
+        if roce is not None: metrics_parts.append(f"roce={roce:.1f}%")
+        if roe is not None: metrics_parts.append(f"roe={roe:.1f}%")
+        if de is not None: metrics_parts.append(f"d/e={de:.2f}")
+        if rev_accel is not None: metrics_parts.append(f"rev_accel={rev_accel:.1f}%")
+        if op_accel is not None: metrics_parts.append(f"op_accel={op_accel:.1f}%")
+        if eps_accel is not None: metrics_parts.append(f"eps_accel={eps_accel:.1f}%")
+        if close_val is not None: metrics_parts.append(f"close={close_val:.2f}")
+        if vol_r is not None: metrics_parts.append(f"vol_ratio={vol_r:.2f}x")
+        metrics_str = ", ".join(metrics_parts)
+
+        funnel_str = f"[fun:{fundamental_state} earn:{earnings_state} trap:{value_trap_state} trend:{trend_state} rs:{rs_state} cons:{consolidation_state} bo:{breakout_state}]"
+
+        if is_buy:
+            logger.info(
+                f"✅ [STOCK_TELEMETRY] {sym:<12} | Status=BUY_ALERT | "
+                f"Funnel={funnel_str} | "
+                f"Metrics=[{metrics_str}]"
+            )
+        else:
+            logger.info(
+                f"❌ [STOCK_TELEMETRY] {sym:<12} | Status=REJECTED | "
+                f"FailedAt={primary_norm} | Rejections={norm_rejections} | "
+                f"Funnel={funnel_str} | "
+                f"Metrics=[{metrics_str}]"
+            )
+
         return decision_record
 
     def record_alert_persistence(

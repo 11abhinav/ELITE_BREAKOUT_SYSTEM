@@ -536,9 +536,12 @@ class DailyBuilderFundamentalProvider:
                     from database import get_connection
                 except ImportError:
                     from app.database import get_connection
+                import warnings
                 with get_connection() as conn:
                     query = f"SELECT * FROM {cls.MASTER_TABLE} WHERE build_date = (SELECT MAX(build_date) FROM {cls.MASTER_TABLE})"
-                    df = pd.read_sql_query(query, conn)
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", category=UserWarning)
+                        df = pd.read_sql_query(query, conn)
                     if not df.empty:
                         meta["freshness_status"] = "FRESH"
                         meta["provenance_status"] = "CERTIFIED_POSTGRES_DAILY_BUILDER"
