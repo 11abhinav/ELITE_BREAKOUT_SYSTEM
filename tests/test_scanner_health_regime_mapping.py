@@ -14,12 +14,11 @@ def test_technical_health_regime_mapping():
     info_bull = get_scanner_health_regime_info("TECHNICAL", current_macro_regime="BULL")
     assert info_bull["supported_regime"] == "BULL"
     assert info_bull["selected_variant"] == "TECH-V01-BULL"
-    assert info_bull["production_authorization_state"] == "LOCK REVIEW PENDING"
-    assert info_bull["is_production_active"] is False
-    assert info_bull["production_active_now"] == "NO"
+    assert info_bull["production_authorization_state"] == "CERTIFIED_FOR_PRODUCTION (BULL ONLY)"
+    assert info_bull["is_production_active"] is True
+    assert info_bull["production_active_now"] == "YES"
     assert "Certified for production in BULL. Current regime=BULL." in info_bull["display_message"]
-    assert "LOCK REVIEW PENDING" in info_bull["display_message"]
-    assert info_bull["reason_code"] == "AUTH_PENDING_ADMIN_UNLOCK"
+    assert info_bull["reason_code"] == "CERTIFIED_ACTIVE"
 
     info_side = get_scanner_health_regime_info("TECHNICAL", current_macro_regime="SIDEWAYS")
     assert info_side["display_message"] == "Suppressed: selected variant is certified only in BULL; current regime=SIDEWAYS."
@@ -72,20 +71,17 @@ def test_eod_health_regime_mapping():
 
 
 def test_core_invariant_supported_not_equal_production_active():
-    for sc in ["TECHNICAL", "PULLBACK", "ACCUMULATION", "EOD"]:
+    for sc in ["PULLBACK", "ACCUMULATION", "EOD"]:
         info = get_scanner_health_regime_info(sc)
-        assert info["supported_regime"] != info["current_production_active_regime"]
         assert info["is_production_active"] is False
         assert info["production_active_now"] == "NO"
+        assert sc in DECOMMISSIONED_SCANNERS
         assert sc not in CERTIFIED_PRODUCTION_SCANNERS
 
-    assert "TECHNICAL" in UNDER_CERTIFICATION_SCANNERS
-    for sc in ["PULLBACK", "ACCUMULATION", "EOD"]:
-        assert sc in DECOMMISSIONED_SCANNERS
 
-
-def test_fail_closed_empty_production_set():
-    assert len(CERTIFIED_PRODUCTION_SCANNERS) == 0
+def test_certified_production_set_contains_only_technical():
+    assert CERTIFIED_PRODUCTION_SCANNERS == {"TECHNICAL"}
+    assert len(UNDER_CERTIFICATION_SCANNERS) == 0
 
 
 def test_decommissioned_scanners_silence():
@@ -99,9 +95,9 @@ def test_decommissioned_scanners_silence():
 
 
 def test_persistence_gate_blocks_under_certification_and_decommissioned():
-    # Database persistence gate must block TECHNICAL (under certification)
+    # Database persistence gate allows TECHNICAL in BULL
     inserted, reason, alloc, shares = save_alert_if_new(
-        symbol="TESTSYM",
+        symbol="TESTSYM_TECH_BULL",
         breakout_type="BREAKOUT",
         alert_time="2026-09-26 10:00:00",
         scanner="TECHNICAL",
@@ -109,13 +105,26 @@ def test_persistence_gate_blocks_under_certification_and_decommissioned():
         entry_price=100.0,
         stop_loss=95.0
     )
-    assert inserted is False
-    assert "UNDER_CERTIFICATION" in reason
+    assert inserted is True
+
+    # Database persistence gate blocks TECHNICAL in SIDEWAYS or BEAR
+    for unauth_reg in ["SIDEWAYS", "BEAR"]:
+        inserted, reason, alloc, shares = save_alert_if_new(
+            symbol="TESTSYM_TECH_UNAUTH",
+            breakout_type="BREAKOUT",
+            alert_time="2026-09-26 10:00:00",
+            scanner="TECHNICAL",
+            bayesian_regime=unauth_reg,
+            entry_price=100.0,
+            stop_loss=95.0
+        )
+        assert inserted is False
+        assert "REGIME_NOT_CERTIFIED" in reason
 
     # Discarded and decommissioned scanners must be blocked as DECOMMISSIONED
     for sc in ["PULLBACK", "ACCUMULATION", "EOD", "SHORT_COVERING", "5M_BREAKOUT", "REVERSAL", "TECHNICAL_INTRADAY"]:
         inserted, reason, alloc, shares = save_alert_if_new(
-            symbol="TESTSYM",
+            symbol="TESTSYM_DECOMM",
             breakout_type="BREAKOUT",
             alert_time="2026-09-26 10:00:00",
             scanner=sc,
@@ -128,7 +137,20 @@ def test_persistence_gate_blocks_under_certification_and_decommissioned():
 
 
 def test_dispatch_cannot_bypass_governance():
-    for sc in ["TECHNICAL", "PULLBACK", "ACCUMULATION", "EOD"]:
-        assert can_scanner_emit_production_alert(sc) is False
+    # TECHNICAL can emit production alerts ONLY in BULL
+    assert can_scanner_emit_production_alert("TECHNICAL", "BULL") is True
+    assert can_scanner_emit_production_alert("TECHNICAL", "SIDEWAYS") is False
+    assert can_scanner_emit_production_alert("TECHNICAL", "BEAR") is False
+
+    with pytest.raises(PermissionError):
+        assert_production_alert_permitted("TECHNICAL", "SIDEWAYS")
+    with pytest.raises(PermissionError):
+        assert_production_alert_permitted("TECHNICAL", "BEAR")
+
+    # Decommissioned scanners cannot emit in any regime
+    for sc in ["PULLBACK", "ACCUMULATION", "EOD"]:
+        assert can_scanner_emit_production_alert(sc, "BULL") is False
+        assert can_scanner_emit_production_alert(sc, "SIDEWAYS") is False
+        assert can_scanner_emit_production_alert(sc, "BEAR") is False
         with pytest.raises(PermissionError):
-            assert_production_alert_permitted(sc)
+            assert_production_alert_permitted(sc, "BULL")

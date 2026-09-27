@@ -623,181 +623,8 @@ def block_until_watchlist_ready():
 # decision of WHEN to run; the scanner owns the decision of HOW to scan.
 #
 # force=True must NOT be removed — doing so causes the scanners to silently
-# enter test_mode and discard all alert results whenever they run before 21:00.
-def _run_eod_with_retries(today_str, session=None, used_fallback=False):
-    from database import upsert_scanner_health, insert_notification, is_scanner_stopped
-    if is_scanner_stopped("EOD"):
-        logger.info("⏸️ [EOD] Scanner is PAUSED/STOPPED by Admin. Skipping scheduled execution.")
-        return
-    retry_count = 0
-    while True:
-        # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run
-        # today (regardless of time-of-day) counts as the authoritative production run.
-        # The prior 21:00 time-gate is removed because the real production run now
-        # happens at ~18:30-19:00 (when Bhavcopy arrives), not at 21:00.
-        try:
-            from database import get_all_scanner_health
-            health_records = get_all_scanner_health()
-            already_ran = False
-            for rec in health_records:
-                if rec.get("scanner_name") == "EOD" and rec.get("status") == "OK" and rec.get("last_success"):
-                    last_success_str = str(rec["last_success"])
-                    if last_success_str.startswith(today_str):
-                        try:
-                            from dateutil.parser import isoparse
-                            ls_dt = isoparse(last_success_str)
-                            win_start_time, _ = WINDOWS["eod"]
-                            if ls_dt.time() >= win_start_time:
-                                already_ran = True
-                                break
-                            else:
-                                logger.info("📊 EOD SCAN | Previous run today was BEFORE 18:00 (manual trigger). Will execute scheduled run.")
-                        except Exception as e:
-                            logger.warning(f"Could not parse last_success: {e}")
-                            already_ran = True
-                            break
-            
-            if already_ran:
-                logger.info("📊 EOD SCAN | Already successfully executed today.")
-                return
-        except Exception as e:
-            logger.warning(f"Could not verify EOD previous run status: {e}")
-        
-        try:
-            logger.info(f"📊 EOD SCAN | Starting scan for {today_str}...")
-            import eod_scanner
-            start_time = time.time()
-            with MemoryProfiler("EOD_SCANNER", force_gc_cleanup=True):
-                total = eod_scanner.start(force=True, session=session, trigger_type="SCHEDULED", scheduler_name="CRON", used_fallback_data=used_fallback)
-            duration_sec = round(time.time() - start_time, 1)
-            time.sleep(15)
-            if total == 0:
-                logger.info(f"📊 EOD | Completed in {format_duration(duration_sec)} — Zero alerts")
-            else:
-                logger.info(f"📊 EOD | Completed in {format_duration(duration_sec)} — {total} alert(s) sent")
-                
-            is_stale_session = session is not None and session.metadata.delivery_status == "STALE"
-            status_val = "DEGRADED_FALLBACK" if (used_fallback or is_stale_session) else "OK"
-            upsert_scanner_health(
-                "EOD",
-                status=status_val,
-                last_success=datetime.now(IST).isoformat(),
-                today_alerts=total,
-                scheduled_for="Daily 18:30 IST (Post-Bhavcopy Delivery)",
-                duration_seconds=duration_sec
-            )
-            logger.info("✅ EOD SCANNER | Completed successfully for today.")
-            with MemoryProfiler("Cleanup - EOD", force_gc_cleanup=True):
-                pass
-            return
-            
-        except Exception as exc:
-            if "actively running" in str(exc).lower():
-                logger.info("⏳ EOD scanner is already running in another process. Waiting...")
-                time.sleep(60)
-                continue
-                
-            retry_count += 1
-            now = datetime.now(IST)
-            
-            if 0 <= now.hour < 6:
-                logger.critical(f"⏰ MIDNIGHT PASSED — EOD scanner force-stopping after {retry_count} retries")
-                upsert_scanner_health("EOD", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="Daily 18:30 IST (Post-Bhavcopy Delivery)")
-                return
-            
-            logger.critical(f"💀 EOD scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
-            from database import upsert_scanner_health, insert_notification
-            upsert_scanner_health("EOD", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="Daily 18:30 IST (Post-Bhavcopy Delivery)")
-            
-            if retry_count == 1:
-                try:
-                    insert_notification(notif_type="scanner_down", title="🚨 EOD Scanner CRASHED", message=f"Error: {str(exc)[:400]}. Auto-retrying.")
-                except Exception:
-                    pass
-            
-            wait_time = min(300, (2 ** retry_count) * random.uniform(0.5, 1.5))
-            time.sleep(wait_time)
+# [RULE 67 CHANGE-RATIONALE]: Removed obsolete runner functions for permanently decommissioned scanners (EOD, REVERSAL, PULLBACK)
 
-
-def _run_reversal_with_retries(today_str, session=None, used_fallback=False):
-    """REVERSAL SCANNER: PERMANENTLY DECOMMISSIONED."""
-    logger.info("🛑 [DECOMMISSIONED] REVERSAL scanner is decommissioned and silenced.")
-    return
-
-
-def _run_pullback_with_retries(today_str, session=None, used_fallback=False):
-    from database import upsert_scanner_health, insert_notification, is_scanner_stopped
-    if is_scanner_stopped("PULLBACK"):
-        logger.info("⏸️ [PULLBACK] Scanner is PAUSED/STOPPED by Admin. Skipping scheduled execution.")
-        return
-    retry_count = 0
-    while True:
-        # [VERSION: SCHEDULER_CORRECTNESS_v1.0] already_ran check: any successful run
-        # today counts. The prior 21:00 time-gate is removed — see _run_eod_with_retries.
-        try:
-            from database import get_all_scanner_health
-            health_records = get_all_scanner_health()
-            already_ran = False
-            for rec in health_records:
-                if rec.get("scanner_name") == "PULLBACK" and rec.get("status") == "OK" and rec.get("last_success"):
-                    last_success_str = str(rec["last_success"])
-                    if last_success_str.startswith(today_str):
-                        try:
-                            from dateutil.parser import isoparse
-                            ls_dt = isoparse(last_success_str)
-                            win_start_time, _ = WINDOWS["eod"]
-                            if ls_dt.time() >= win_start_time:
-                                already_ran = True
-                                break
-                            else:
-                                logger.info("📊 PULLBACK SCAN | Previous run today was BEFORE 18:00 (manual trigger). Will execute scheduled run.")
-                        except Exception as e:
-                            logger.warning(f"Could not parse last_success: {e}")
-                            already_ran = True
-                            break
-            if already_ran:
-                logger.info("📊 PULLBACK SCAN | Already successfully executed today.")
-                return
-        except Exception as e:
-            logger.warning(f"Could not verify PULLBACK previous run status: {e}")
-        
-        try:
-            logger.info(f"📊 PULLBACK SCAN | Starting scan for {today_str}...")
-            from database import upsert_scanner_health
-            upsert_scanner_health("PULLBACK", status="RUNNING", error_msg="Pullback scan in progress...")
-            import pullback_pipeline
-            start_time = time.time()
-            with MemoryProfiler("PULLBACK_SCANNER", force_gc_cleanup=True):
-                total = pullback_pipeline.start(force=True, session=session, trigger_type="SCHEDULED", scheduler_name="CRON", used_fallback_data=used_fallback)
-            duration_sec = round(time.time() - start_time, 1)
-            time.sleep(5)
-            logger.info(f"📊 PULLBACK | Completed in {format_duration(duration_sec)} — {total} alert(s) generated")
-            alerts_num = total.get("today_alerts", 0) if isinstance(total, dict) else (total if isinstance(total, int) else 0)
-            is_stale_session = session is not None and session.metadata.delivery_status == "STALE"
-            status_val = "DEGRADED_FALLBACK" if (used_fallback or is_stale_session) else "OK"
-            upsert_scanner_health("PULLBACK", status=status_val, last_success=datetime.now(IST).isoformat(), today_alerts=alerts_num, scheduled_for="Daily 18:30 IST (Post-Bhavcopy Delivery)", duration_seconds=duration_sec)
-            logger.info("✅ PULLBACK SCANNER | Completed successfully for today.")
-            return
-        except Exception as exc:
-            if "actively running" in str(exc).lower():
-                logger.info("⏳ PULLBACK scanner is already running in another process. Waiting...")
-                time.sleep(60)
-                continue
-            retry_count += 1
-            now = datetime.now(IST)
-            if 0 <= now.hour < 6:
-                logger.critical(f"⏰ MIDNIGHT PASSED — PULLBACK scanner force-stopping after {retry_count} retries")
-                upsert_scanner_health("PULLBACK", status="DOWN", error_msg=f"Stopped at midnight after {retry_count} failed attempts", scheduled_for="Daily 18:30 IST (Post-Bhavcopy Delivery)")
-                return
-            logger.critical(f"💀 PULLBACK scanner crashed (attempt {retry_count}): {exc}. Retrying in 1 minute...")
-            from database import upsert_scanner_health
-            upsert_scanner_health("PULLBACK", status="DOWN", error_msg=str(exc)[:500], retry_count=retry_count, scheduled_for="Daily 18:30 IST (Post-Bhavcopy Delivery)")
-            wait_time = min(300, (2 ** retry_count) * random.uniform(0.5, 1.5))
-            time.sleep(wait_time)
-
-
-
-def run_evening_scanners():
     while True:
         block_until_watchlist_ready()
         wait_for_window("eod")
@@ -845,47 +672,9 @@ def run_evening_scanners():
                              f"Scanners will run with independent fetching as fallback.")
             evening_session = None
 
-        logger.info("🚀 Bhavcopy is ready! Spawning Accumulation, EOD, Reversal, and Pullback sequentially.")
-        
-        # 1. Run Accumulation Scanner (Runs at 18:35 IST post-Bhavcopy with verified delivery %)
-        try:
-            from database import is_scanner_stopped
-            if not is_scanner_stopped("ACCUMULATION"):
-                logger.info("Starting Accumulation Scanner (18:35 IST Post-Bhavcopy)...")
-                _trigger_accumulation(trigger_type="SCHEDULED", scheduler_name="CRON", session=evening_session)
-            else:
-                logger.info("⏭️ Accumulation Scanner is STOPPED by Admin. Skipping.")
-        except Exception as _acc_err:
-            logger.error(f"❌ Accumulation Scanner in evening batch failed: {_acc_err}")
-
-        # 2. Run EOD Scanner (receives session; falls back to independent fetch if session=None)
-        _run_eod_with_retries(today_str, session=evening_session, used_fallback=used_fallback)
-        
-        # 3. Run Pullback Scanner (after Accumulation & EOD finish)
-        _run_pullback_with_retries(today_str, session=evening_session, used_fallback=used_fallback)
-
-        # Verify actual execution outcome from database health records before declaring status
-        from database import get_all_scanner_health
-        health_records = {r.get("scanner_name"): r for r in get_all_scanner_health()}
-        
-        def _check_scanner_ok(name):
-            rec = health_records.get(name, {})
-            last_success = str(rec.get("last_success", ""))
-            return rec.get("status") in ["OK", "DEGRADED_FALLBACK"] and last_success.startswith(today_str)
-            
-        acc_ok = _check_scanner_ok("ACCUMULATION")
-        eod_ok = _check_scanner_ok("EOD")
-        pb_ok  = _check_scanner_ok("PULLBACK")
-
-        if acc_ok and eod_ok and pb_ok:
-            logger.info("✅ All Evening Scanners (Accumulation, EOD, & Pullback) completed successfully for today.")
-            telemetry.log_scheduler_event("EVENING_SCANNERS", "CYCLE_COMPLETE")
-            telemetry.log_session_timeline("Completed Evening Scanners Cycle Successfully")
-        else:
-            status_str = f"ACCUMULATION={'OK' if acc_ok else 'FAILED'}, EOD={'OK' if eod_ok else 'FAILED'}, PULLBACK={'OK' if pb_ok else 'FAILED'}"
-            logger.error(f"⚠️ Evening Scanners batch finished with incomplete/failed status: [{status_str}]")
-            telemetry.log_scheduler_event("EVENING_SCANNERS", "CYCLE_FAILED", error=status_str)
-            telemetry.log_session_timeline(f"Evening Scanners Cycle Failed: {status_str}")
+        logger.info("🛡️ [GOVERNANCE] Evening scanners (Accumulation, EOD, Pullback) are permanently DECOMMISSIONED. Cycle skipped.")
+        telemetry.log_scheduler_event("EVENING_SCANNERS", "CYCLE_COMPLETE")
+        telemetry.log_session_timeline("Evening Scanners Cycle Skipped (Decommissioned by Governance)")
 
         # Execute 4-step defensive purge telemetry post evening batch
         try:
@@ -1003,13 +792,10 @@ def run_all_seven_scanners_non_market_boot():
 
         # [RULE 67 CHANGE-RATIONALE]:
         # Sequence DAILY_BUILDER first so the daily watchlist is built/refreshed
-        # before downstream technical and fundamental scanners execute.
+        # before downstream technical and fundamental engines execute.
+        # Decommissioned scanners (ACCUMULATION, EOD, REVERSAL, PULLBACK) are purged.
         all_scanners = [
             ("DAILY_BUILDER", _trigger_daily_builder),
-            ("ACCUMULATION", _trigger_accumulation),
-            ("EOD", _trigger_eod),
-            ("REVERSAL", _trigger_reversal),
-            ("PULLBACK", _trigger_pullback),
             ("TECHNICAL", _trigger_technical),
             ("Wealth Engine", _trigger_wealth_engine),
             ("MULTIBAGGER", _trigger_multibagger),
@@ -1614,98 +1400,18 @@ def run_system_scheduler():
                         daemon=True
                     ).start()
 
-                
-                now_mtf = datetime.now(IST)
-                if (now_mtf.hour >= 9 and (now_mtf.hour < 15 or (now_mtf.hour == 15 and now_mtf.minute <= 30))):
-                    # 5. Technical Scanner - Market Hours (15M Intraday Breakouts: 09:16, 09:31, 09:46 ... 15:16 IST)
-                    if (now_mtf.hour > 9 or (now_mtf.hour == 9 and now_mtf.minute >= 16)) and (now_mtf.hour < 15 or (now_mtf.hour == 15 and now_mtf.minute <= 30)):
-                        slot_tech_min = ((now_mtf.minute - 1) // 15) * 15 + 1 if now_mtf.minute > 0 else 46
-                        slot_tech = now_mtf.replace(minute=(slot_tech_min % 60), second=0, microsecond=0)
-                        time_since_last_tech = (now_mtf - last_technical_intraday_run).total_seconds() if last_technical_intraday_run else 9999
-                        if (last_technical_intraday_run is None or slot_tech > last_technical_intraday_run or time_since_last_tech >= 900):
-                            last_technical_intraday_run = now_mtf
-                            if not is_scanner_stopped("TECHNICAL_INTRADAY"):
-                                logger.info(f"⚡ TECHNICAL_INTRADAY (15M) | Starting Market Hours 15m Technical Scan for slot {slot_tech.strftime('%H:%M')} IST...")
-                                import threading
-                                threading.Thread(
-                                    target=_trigger_technical_intraday,
-                                    kwargs={"trigger_type": "SCHEDULED", "scheduler_name": "CRON"},
-                                    name=f"TechnicalIntraday-15m-{slot_tech.strftime('%H%M')}",
-                                    daemon=True
-                                ).start()
-                            else:
-                                logger.info("⏭️ TECHNICAL_INTRADAY is STOPPED by Admin. Skipping 15m cycle.")
-                
                 check_scanner_staleness(now)
-                
-            # 18:30 - Evening Daily Scanners (EOD, Reversal, Pullback - post NSE Bhavcopy)
+
+            # 18:30 - Evening Daily Maintenance (Post-Bhavcopy Delivery)
             if (now.hour > 18 or (now.hour == 18 and now.minute >= 30)) and not evening_scanners_ran:
-                from main import wait_for_bhavcopy_or_fallback, _run_eod_with_retries, _run_reversal_with_retries, _run_pullback_with_retries
                 evening_scanners_ran = True
 
                 def _run_evening_batch_async():
-                    import concurrent.futures
-                    import pandas as pd
-                    wait_for_bhavcopy_or_fallback("EVENING_SCANNERS")
-                    logger.info("🚀 Bhavcopy is ready! Spawning EOD, Reversal, and Pullback sequentially.")
-                    today_str = datetime.now(IST).strftime("%Y-%m-%d")
-                        
-                    from lock_utils import ProcessLock
-                    global_lock = ProcessLock("global_scanner_lock")
-                    queued_at = None
-                    if not global_lock.acquire(blocking=False):
-                        queued_at = time.monotonic()
-                        logger.info("⏳ [EVENING_BATCH] Global scanner lock busy — marking ACCUMULATION/EOD/REVERSAL/PULLBACK as QUEUED...")
-                        from database import upsert_scanner_health
-                        if not is_scanner_stopped("ACCUMULATION"): upsert_scanner_health("ACCUMULATION", "QUEUED", error_msg="Waiting for global lock...", scheduled_for="Daily 18:35 IST (Post-Bhavcopy / Verified Evening Batch)")
-                        if not is_scanner_stopped("EOD"): upsert_scanner_health("EOD", "QUEUED", error_msg="Waiting for global lock...")
-                        if not is_scanner_stopped("REVERSAL"): upsert_scanner_health("REVERSAL", "QUEUED", error_msg="Waiting for global lock...")
-                        if not is_scanner_stopped("PULLBACK"): upsert_scanner_health("PULLBACK", "QUEUED", error_msg="Waiting for global lock...")
-                        global_lock.acquire(blocking=True)
-                        logger.info(f"✅ [EVENING_BATCH] Global lock acquired after {round(time.monotonic()-queued_at,1)}s wait. Building Session...")
-                    else:
-                        logger.info("✅ [EVENING_BATCH] Global lock acquired instantly. Building Session...")
-
-                    try:
-                        try:
-                            from market_data_session import MarketDataSession
-                            from watchlist_cache import get_watchlist
-                            wl_df = get_watchlist()
-                            symbols = wl_df["Stock"].dropna().tolist() if isinstance(wl_df, pd.DataFrame) and "Stock" in wl_df.columns else list(wl_df)
-                            session = MarketDataSession.build(symbols=symbols, ist_date=datetime.now(IST).date(), requester="EVENING_BATCH")
-                        except Exception as e:
-                            logger.error(f"Failed to build MarketDataSession for Evening Batch: {e}")
-                            session = None
-
-                        try:
-                            # 1. Accumulation Scanner (Runs at 18:35 IST post-Bhavcopy with verified delivery %)
-                            if not is_scanner_stopped("ACCUMULATION"):
-                                logger.info("Starting Accumulation Scanner (18:35 IST Post-Bhavcopy)...")
-                                _trigger_accumulation(trigger_type="SCHEDULED", scheduler_name="CRON")
-                            else:
-                                logger.info("⏭️ Accumulation Scanner is STOPPED by Admin. Skipping.")
-
-                            # 2. EOD Scanner
-                            if not is_scanner_stopped("EOD"):
-                                logger.info("Starting EOD Scanner...")
-                                _run_eod_with_retries(today_str, session)
-                            else:
-                                logger.info("⏭️ EOD Scanner is STOPPED by Admin. Skipping.")
-
-                            # 3. Pullback Pipeline
-                            if not is_scanner_stopped("PULLBACK"):
-                                logger.info("Starting Pullback Pipeline...")
-                                _run_pullback_with_retries(today_str, session)
-                            else:
-                                logger.info("⏭️ Pullback Pipeline is STOPPED by Admin. Skipping.")
-
-                        except Exception as e:
-                            logger.error(f"🚨 CRITICAL: Evening Batch error: {e}")
-                    finally:
-                        global_lock.release()
+                    wait_for_bhavcopy_or_fallback("EVENING_MAINTENANCE")
+                    logger.info("🛡️ [GOVERNANCE] Post-Bhavcopy evening cycle complete. Decommissioned scanners (ACCUMULATION, EOD, PULLBACK, REVERSAL) purged.")
 
                 import threading
-                threading.Thread(target=_run_evening_batch_async, name="EveningBatch", daemon=True).start()
+                threading.Thread(target=_run_evening_batch_async, name="EveningMaintenance", daemon=True).start()
             elif now.hour < 18 or (now.hour == 18 and now.minute < 30):
                 evening_scanners_ran = False
                 evening_batch_deadline_logged = False
@@ -1775,15 +1481,12 @@ def check_scanner_staleness(now):
     """
     # Expected max gap (in minutes) for each scanner before it's considered stale
     SCANNER_CADENCE = {
+        "TECHNICAL":           "DAILY",  # runs full scan once daily post-close at 18:15 IST
         "PERFORMANCE_TRACKER": 15,       # runs every 5 min
         "MULTIBAGGER_EXIT":    15,       # runs every 5 min during market hours
         "WEALTH_EXIT":         15,       # runs every 5 min during market hours
         "Wealth Engine":       "DAILY",  # runs full scan once daily at 17:00 IST
         "DAILY_BUILDER":       "DAILY",
-        "EOD":                 "DAILY",
-        "REVERSAL":            "DAILY",
-        "PULLBACK":            "DAILY",
-        "ACCUMULATION":        "DAILY",
         "MULTIBAGGER":         "DAILY",
     }
     
@@ -2158,7 +1861,15 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         insert_notification
     )
     
+    from engine.production.governance_registry import normalize_scanner_name, DECOMMISSIONED_SCANNERS
     norm_key = normalize_scanner_name(scanner_key)
+    if norm_key in DECOMMISSIONED_SCANNERS or scanner_key.upper() in DECOMMISSIONED_SCANNERS:
+        logger.warning(f"🚫 [GOVERNANCE GATE] Blocked API trigger attempt for decommissioned scanner '{scanner_key}'")
+        return {
+            "status": "error",
+            "message": f"🚫 [DECOMMISSIONED] Scanner '{scanner_key}' has been permanently decommissioned by governance. Zero execution permitted."
+        }
+
     if is_scanner_stopped(scanner_key) or is_scanner_stopped(norm_key):
         return {
             "status": "error",
@@ -2166,21 +1877,15 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
         }
     
     TRIGGER_MAP = {
-        # [VERSION: TRIGGER_AI_WORKER_v1.0] Add AI Worker trigger mapping and lock resolution
+        # Active production and operational workers
         "DAILY_BUILDER": _trigger_daily_builder,
-        "EOD":           _trigger_eod,
-        "REVERSAL":      _trigger_reversal,
-        "PULLBACK":      _trigger_pullback,
         "Wealth Engine": _trigger_wealth_engine,
         "MULTIBAGGER":    _trigger_multibagger,
         "AI Worker":     _trigger_ai_worker,
         "PERFORMANCE_TRACKER": _trigger_performance_tracker,
         "MULTIBAGGER_EXIT": _trigger_multibagger_exit,
         "WEALTH_EXIT": _trigger_wealth_exit,
-        "Earnings Calendar": None,  # removed
-        "ACCUMULATION":  _trigger_accumulation,
         "TECHNICAL":     _trigger_technical,
-        "TECHNICAL_INTRADAY": _trigger_technical_intraday,
     }
     
     fn = TRIGGER_MAP.get(scanner_key) or TRIGGER_MAP.get(norm_key)
@@ -2190,19 +1895,13 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     # Check locks synchronously to return immediate HTTP JSON error
     LOCK_MAP = {
         "DAILY_BUILDER": lambda: __import__('daily_builder')._build_lock,
-        "EOD":           lambda: __import__('eod_scanner')._scan_lock,
-        "REVERSAL":      lambda: __import__('reversal_scanner')._scan_lock,
-        "PULLBACK":      lambda: __import__('pullback_pipeline')._scan_lock,
         "Wealth Engine": lambda: __import__('wealth_engine')._scan_lock,
         "MULTIBAGGER":   lambda: __import__('multibagger')._scan_lock,
         "AI Worker":     lambda: __import__('ai_worker')._scan_lock,
         "PERFORMANCE_TRACKER": lambda: _perf_tracker_lock,
         "MULTIBAGGER_EXIT": lambda: __import__('multibagger')._mb_exit_lock,
         "WEALTH_EXIT": lambda: __import__('wealth_engine')._wealth_exit_lock,
-        "Earnings Calendar": lambda: None,  # removed
-        "ACCUMULATION":  lambda: __import__('accumulation_scanner')._accumulation_run_lock,
         "TECHNICAL":     lambda: __import__('technical_scanner')._scan_lock,
-        "TECHNICAL_INTRADAY": lambda: __import__('technical_scanner_intraday')._scan_lock,
     }
 
     
@@ -2371,29 +2070,8 @@ def _trigger_daily_builder(force_rebuild: bool = False, trigger_type="MANUAL", s
         raise exc
 
 
-def _trigger_eod(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
-    from database import is_scanner_stopped
-    if is_scanner_stopped("EOD"):
-        logger.info("⏸️ [EOD] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
-        return
-    import eod_scanner
-    eod_scanner.start(force=True, trigger_type=trigger_type, scheduler_name=scheduler_name, session=session, used_fallback_data=False)
-
-def _trigger_reversal(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
-    from database import is_scanner_stopped
-    if is_scanner_stopped("REVERSAL"):
-        logger.info("⏸️ [REVERSAL] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
-        return
-    import reversal_scanner
-    reversal_scanner.start(force=True, trigger_type=trigger_type, scheduler_name=scheduler_name, session=session, used_fallback_data=False)
-
-def _trigger_pullback(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
-    from database import is_scanner_stopped
-    if is_scanner_stopped("PULLBACK"):
-        logger.info("⏸️ [PULLBACK] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
-        return
-    import pullback_pipeline
-    pullback_pipeline.start(force=True, trigger_type=trigger_type, scheduler_name=scheduler_name, session=session, used_fallback_data=False)
+# [RULE 67 CHANGE-RATIONALE]: Removed obsolete trigger stubs for decommissioned scanners (EOD, REVERSAL, PULLBACK).
+# trigger_scanner_manual() strictly validates against DECOMMISSIONED_SCANNERS before routing.
 
 def _trigger_wealth_engine(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
     from database import is_scanner_stopped
@@ -2411,15 +2089,6 @@ def _trigger_multibagger(trigger_type="MANUAL", scheduler_name="MANUAL", session
     import multibagger
     return multibagger.start(trigger_type=trigger_type, scheduler_name=scheduler_name, session=session)
 
-def _trigger_accumulation(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=None, session=None):
-    from database import is_scanner_stopped
-    if is_scanner_stopped("ACCUMULATION"):
-        logger.info("⏸️ [ACCUMULATION] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
-        return
-    from accumulation_scanner import AccumulationScanner
-    scanner = AccumulationScanner()
-    return scanner.start(force=True, run_ctx=run_ctx, trigger_type=trigger_type, scheduler_name=scheduler_name, session=session)
-
 def _trigger_technical(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=None, session=None):
     from database import is_scanner_stopped
     if is_scanner_stopped("TECHNICAL"):
@@ -2428,14 +2097,6 @@ def _trigger_technical(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=N
     from technical_scanner import run_technical_scan
     count = run_technical_scan(trigger_type=trigger_type, scheduler_name=scheduler_name, run_ctx=run_ctx, session=session)
     return {"total_count": count, "processed_count": count}
-
-def _trigger_technical_intraday(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=None, session=None):
-    from database import is_scanner_stopped
-    if is_scanner_stopped("TECHNICAL_INTRADAY"):
-        logger.info("⏸️ [TECHNICAL_INTRADAY] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
-        return {"total_count": 0, "processed_count": 0}
-    from technical_scanner_intraday import run_technical_intraday_pipeline
-    return run_technical_intraday_pipeline(force=(trigger_type == "MANUAL"), run_ctx=run_ctx)
 
 # [VERSION: TRIGGER_AI_WORKER_v1.1] Define _trigger_ai_worker
 def _trigger_ai_worker():

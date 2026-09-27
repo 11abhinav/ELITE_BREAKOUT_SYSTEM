@@ -54,11 +54,11 @@ def test_governance_states_and_decommission_invariants():
         assert not is_allowed
         assert "DECOMMISSIONED" in reason
 
-    # TECHNICAL is strictly UNDER_CERTIFICATION (zero alerts pending administrative lock)
-    assert get_scanner_governance_state("TECHNICAL") == "UNDER_CERTIFICATION"
+    # TECHNICAL is CERTIFIED_FOR_PRODUCTION exclusively in BULL
+    assert get_scanner_governance_state("TECHNICAL") == "CERTIFIED_FOR_PRODUCTION"
     is_allowed, reason = check_production_alert_permission("TECHNICAL", "BULL")
-    assert not is_allowed
-    assert "UNDER_CERTIFICATION" in reason
+    assert is_allowed is True
+    assert "CERTIFIED_FOR_PRODUCTION" in reason
 
     # Unknown scanner must fail closed
     with pytest.raises(ValueError, match="CRITICAL GOVERNANCE FAILURE"):
@@ -66,12 +66,14 @@ def test_governance_states_and_decommission_invariants():
 
 
 def test_three_regime_routing_matrix():
-    """Verify TECHNICAL remains in UNDER_CERTIFICATION and discarded scanners remain DECOMMISSIONED."""
-    # 1. TECHNICAL: Under certification in BULL, not certified in SIDEWAYS/BEAR (zero live alerts)
-    assert check_production_alert_permission("TECHNICAL", "BULL")[0] is False
-    assert "UNDER_CERTIFICATION" in check_production_alert_permission("TECHNICAL", "BULL")[1]
+    """Verify TECHNICAL is certified in BULL and blocked in SIDEWAYS/BEAR; discarded scanners remain DECOMMISSIONED."""
+    # 1. TECHNICAL: Certified in BULL, NOT_CERTIFIED in SIDEWAYS/BEAR
+    assert check_production_alert_permission("TECHNICAL", "BULL")[0] is True
+    assert "CERTIFIED_FOR_PRODUCTION" in check_production_alert_permission("TECHNICAL", "BULL")[1]
     assert check_production_alert_permission("TECHNICAL", "SIDEWAYS")[0] is False
+    assert "REGIME_NOT_CERTIFIED" in check_production_alert_permission("TECHNICAL", "SIDEWAYS")[1]
     assert check_production_alert_permission("TECHNICAL", "BEAR")[0] is False
+    assert "REGIME_NOT_CERTIFIED" in check_production_alert_permission("TECHNICAL", "BEAR")[1]
 
     # 2. PULLBACK, ACCUMULATION, EOD: Decommissioned across all regimes (zero alerts)
     for sc in ["PULLBACK", "ACCUMULATION", "EOD"]:
@@ -82,15 +84,17 @@ def test_three_regime_routing_matrix():
 
 
 def test_production_safety_assertions():
-    """Verify automated production safety assertions pass for zero active production scanners."""
-    for regime in ["BULL", "SIDEWAYS", "BEAR"]:
+    """Verify automated production safety assertions pass for BULL (TECHNICAL only) and SIDEWAYS/BEAR (empty)."""
+    # BULL regime: TECHNICAL is the sole active production scanner
+    bull_scanners = validate_production_safety_assertions("BULL")
+    assert bull_scanners == ["TECHNICAL"]
+    assert all(s in CERTIFIED_PRODUCTION_SCANNERS for s in bull_scanners)
+    assert not any(s in DECOMMISSIONED_SCANNERS for s in bull_scanners)
+
+    # SIDEWAYS and BEAR regimes: Zero active production scanners
+    for regime in ["SIDEWAYS", "BEAR"]:
         active_scanners = validate_production_safety_assertions(regime)
-        # In under_certification state, active scanners must be empty (ZERO live alerts)
         assert len(active_scanners) == 0
-        for s in active_scanners:
-            assert s in CERTIFIED_PRODUCTION_SCANNERS
-            assert s not in DECOMMISSIONED_SCANNERS
-            assert s not in UNDER_CERTIFICATION_SCANNERS
 
 
 def test_database_governance_gate():
@@ -100,7 +104,7 @@ def test_database_governance_gate():
     # 1. Decommissioned scanner attempt (SHORT_COVERING, EOD, PULLBACK)
     for sc in ["SHORT_COVERING", "EOD", "PULLBACK"]:
         inserted, reason, alloc, shares = save_alert_if_new(
-            symbol="TESTSYM",
+            symbol="TESTSYM_DECOMM",
             breakout_type="BREAKOUT",
             alert_time="2026-09-26 10:00:00",
             scanner=sc,
@@ -111,9 +115,23 @@ def test_database_governance_gate():
         assert inserted is False
         assert "DECOMMISSIONED" in reason
 
-    # 2. Under certification scanner attempt (TECHNICAL)
+    # 2. Regime mismatch attempt (TECHNICAL in SIDEWAYS or BEAR)
+    for unauth_reg in ["SIDEWAYS", "BEAR"]:
+        inserted, reason, alloc, shares = save_alert_if_new(
+            symbol="TESTSYM_UNAUTH_REG",
+            breakout_type="BREAKOUT",
+            alert_time="2026-09-26 10:00:00",
+            scanner="TECHNICAL",
+            bayesian_regime=unauth_reg,
+            entry_price=100.0,
+            stop_loss=95.0
+        )
+        assert inserted is False
+        assert "REGIME_NOT_CERTIFIED" in reason
+
+    # 3. Authorized attempt: TECHNICAL in BULL
     inserted, reason, alloc, shares = save_alert_if_new(
-        symbol="TESTSYM",
+        symbol="TESTSYM_BULL",
         breakout_type="BREAKOUT",
         alert_time="2026-09-26 10:00:00",
         scanner="TECHNICAL",
@@ -121,8 +139,7 @@ def test_database_governance_gate():
         entry_price=100.0,
         stop_loss=95.0
     )
-    assert inserted is False
-    assert "UNDER_CERTIFICATION" in reason
+    assert inserted is True
 
 
 def test_fundamental_wealth_engine_scoring_and_normalized_earnings():

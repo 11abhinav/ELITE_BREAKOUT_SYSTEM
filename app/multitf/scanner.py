@@ -111,11 +111,12 @@ def _get_atr(df, default: float = 0.0) -> float:
 def run_multitf_v2(regime_ctx: Dict[str, Any], ist_now: datetime, run_ctx: str = "SCHEDULED"):
     """
     Main Primary Intelligence Layer for MULTI_TF V2 (15-Minute Cadence).
-    1. Pre-fetches 1d and 15m closed bars across universe.
-    2. Detects 15m consolidation setups.
-    3. Lazy-fetches 1h, 30m, 5m ONLY for shortlisted/armed candidate stocks.
-    4. Evaluates setups, targets, and dispatches breakout alerts.
     """
+    from engine.production.governance_registry import get_scanner_governance_state
+    if get_scanner_governance_state("MULTI_TF") == "DECOMMISSIONED":
+        logger.error("🛑 [GOVERNANCE GATE] Scanner 'MULTI_TF' is permanently DECOMMISSIONED. Execution blocked.")
+        raise RuntimeError("Scanner 'MULTI_TF' is permanently DECOMMISSIONED. Execution blocked.")
+
     if _scan_lock.locked():
         logger.warning("🛑 [DUPLICATE GUARD] MULTI_TF Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")
         return {"status": "skipped", "reason": "already_running"}

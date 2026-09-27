@@ -2553,11 +2553,9 @@ function changeAdminPage(type, delta) {
             
             <select id="filterMasterScanner" onchange="filterMasterSignals()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
               <option value="">🎯 All Scanners</option>
-              <option value="EOD">EOD Breakout</option>
-              <option value="PULLBACK">Pullback</option>
-              <option value="REVERSAL">Reversal</option>
-              <option value="ACCUMULATION">Accumulation</option>
+              <option value="TECHNICAL">Technical Breakout (BULL)</option>
               <option value="WEALTH">Wealth Engine</option>
+              <option value="MULTIBAGGER">Multibagger</option>
             </select>
 
             <select id="filterMasterGrade" onchange="filterMasterSignals()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
@@ -2642,11 +2640,9 @@ function changeAdminPage(type, delta) {
             
             <select id="filterWatchScanner" onchange="filterStocksWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
               <option value="">🎯 All Scanners</option>
-              <option value="EOD">EOD Breakout</option>
-              <option value="PULLBACK">Pullback</option>
-              <option value="REVERSAL">Reversal</option>
-              <option value="ACCUMULATION">Accumulation</option>
-              <option value="WEALTH">Wealth</option>
+              <option value="TECHNICAL">Technical Breakout (BULL)</option>
+              <option value="WEALTH">Wealth Engine</option>
+              <option value="MULTIBAGGER">Multibagger</option>
             </select>
 
             <select id="filterWatchStage" onchange="filterStocksWatch()" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
@@ -2816,11 +2812,7 @@ function changeAdminPage(type, delta) {
 
             <select id="filterMissedScanner" onchange="loadNearMisses(true)" style="padding:7px 12px; background:var(--card2); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text); font-size:12px; font-weight:600;">
               <option value="">🎯 All Scanners</option>
-              <option value="TECHNICAL">Technical Scanner</option>
-              <option value="ACCUMULATION">Accumulation</option>
-              <option value="EOD">EOD Breakout</option>
-              <option value="PULLBACK">Pullback</option>
-              <option value="REVERSAL">Reversal</option>
+              <option value="TECHNICAL">Technical Scanner (BULL)</option>
               <option value="WEALTH">Wealth Engine</option>
               <option value="MULTIBAGGER">Multibagger Engine</option>
             </select>
@@ -3565,10 +3557,7 @@ function changeAdminPage(type, delta) {
             <div style="display:flex; gap:8px; align-items:center;">
               <select id="near-miss-scanner-filter" onchange="loadNearMisses()" style="padding:4px 10px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:11px; font-weight:600;">
                 <option value="">All Scanners</option>
-                <option value="TECHNICAL">Technical Scanner</option>
-                <option value="ACCUMULATION">Accumulation</option>
-                <option value="EOD">EOD Breakout</option>
-                <option value="PULLBACK">Pullback</option>
+                <option value="TECHNICAL">Technical Scanner (BULL)</option>
                 <option value="WEALTH">Wealth Engine</option>
                 <option value="MULTIBAGGER">Multibagger Engine</option>
               </select>
@@ -3787,23 +3776,7 @@ function changeAdminPage(type, delta) {
                 <div id="seh-scanner-checkbox-list" style="display:flex; flex-direction:column; gap:6px;">
                   <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
                     <input type="checkbox" class="seh-scanner-cb" value="TECHNICAL" onchange="onSehScannerChange()" checked />
-                    <span>Technical Scanner</span>
-                  </label>
-                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
-                    <input type="checkbox" class="seh-scanner-cb" value="ACCUMULATION" onchange="onSehScannerChange()" checked />
-                    <span>Accumulation Scanner</span>
-                  </label>
-                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
-                    <input type="checkbox" class="seh-scanner-cb" value="EOD" onchange="onSehScannerChange()" checked />
-                    <span>EOD Breakout</span>
-                  </label>
-                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
-                    <input type="checkbox" class="seh-scanner-cb" value="REVERSAL" onchange="onSehScannerChange()" checked />
-                    <span>Reversal Scanner</span>
-                  </label>
-                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
-                    <input type="checkbox" class="seh-scanner-cb" value="PULLBACK" onchange="onSehScannerChange()" checked />
-                    <span>Pullback Pipeline</span>
+                    <span>Technical Scanner (BULL)</span>
                   </label>
                   <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
                     <input type="checkbox" class="seh-scanner-cb" value="MULTIBAGGER" onchange="onSehScannerChange()" checked />
@@ -4916,11 +4889,8 @@ function changeAdminPage(type, delta) {
     // ── SCANNER STATUS
     const SCANNER_META = {
       'DAILY_BUILDER': { label: 'Daily Builder', desc: 'Universe Watchlist Builder · Daily 05:00 IST' },
+      'TECHNICAL': { label: 'Technical Scanner', desc: 'Certified Breakout · BULL Regime Only · Daily 18:15 IST' },
       'Wealth Engine': { label: 'Wealth Engine', desc: 'Long-term Wealth Scan · Daily 06:00 & 17:00 IST · Market Hours (09:15–15:30 IST)' },
-      'EOD': { label: 'EOD Scanner', desc: 'Daily Breakout Scan · Daily 18:30 IST (Post-Bhavcopy)' },
-      'PULLBACK': { label: 'Pullback Pipeline', desc: 'Pullback Continuation Scan · Daily 18:30 IST (Post-Bhavcopy)' },
-      'TECHNICAL': { label: 'Technical Scanner', desc: 'Multi-Pattern Technical · Daily 18:15 IST' },
-      'ACCUMULATION': { label: 'Accumulation Scanner', desc: 'Post-Bhavcopy Delivery Scan · Daily 18:35 IST' },
       'MULTIBAGGER': { label: 'Multibagger Scanner', desc: 'Daily Fundamental Scan · Daily 17:30 IST' },
       'AI Worker': { label: 'AI Worker', desc: 'Concall & Fundamental Caching · Continuous (Sat-Sun Active)' },
       'Pledge Worker': { label: 'Pledge Worker', desc: 'Promoter Pledge Tracking · Continuous (Daily Refresh)' },
@@ -5076,7 +5046,7 @@ function getEarningsBadgeHtml(item) {
         return;
       }
 
-      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'TECHNICAL', 'ACCUMULATION', 'EOD', 'PULLBACK', 'Wealth Engine', 'MULTIBAGGER', 'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT', 'Pledge Worker', 'AI Worker'];
+      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'TECHNICAL', 'Wealth Engine', 'MULTIBAGGER', 'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT', 'Pledge Worker', 'AI Worker'];
       const allScanners = new Set([...Object.keys(SCANNER_META), ...Object.keys(scanner_stats)].filter(sc => ALLOWED_SCANNERS.includes(sc)));
       el.innerHTML = '';
 
@@ -5264,9 +5234,6 @@ function getEarningsBadgeHtml(item) {
           }
           
           let triggerBtnHtml = '';
-          const candidateScanners = ['TECHNICAL', 'PULLBACK', 'ACCUMULATION', 'EOD'];
-          const isCandidate = candidateScanners.includes(sc);
-
           if (sc === 'Pledge Worker') {
             triggerBtnHtml = `
               <div style="display:flex; gap:4px; margin-left:8px;">
@@ -5274,8 +5241,6 @@ function getEarningsBadgeHtml(item) {
                 <button onclick="event.stopPropagation(); setPledgeWorkerMode('manual_stop')" style="background: rgba(255,77,109,0.1); color: var(--warn); border: 1px solid var(--warn); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer;" title="Stop">🛑</button>
                 <button onclick="event.stopPropagation(); setPledgeWorkerMode('auto')" style="background: rgba(0,212,161,0.1); color: var(--accent); border: 1px solid var(--accent); padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; cursor: pointer;" title="Auto (6-8AM)">⏱️</button>
               </div>`;
-          } else if (isCandidate) {
-            triggerBtnHtml = `<span style="margin-left: 8px; background: rgba(245,158,11,0.12); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; white-space:nowrap;" title="Under Certification: Zero live alerts permitted">🔒 UNDER CERTIFICATION</span>`;
           } else if (ALLOWED_SCANNERS.includes(sc)) {
             if (isRunning || isQueued) {
               triggerBtnHtml = `<button onclick="toggleScannerStop(event, '${sc}', 'stop')" style="margin-left: 8px; background: rgba(239,68,68,0.25); color: #f87171; border: 1.5px solid #ef4444; padding: 3px 10px; border-radius: 4px; font-size: 11px; font-weight: 800; cursor: pointer; transition: 0.2s;" onmouseover="this.style.background='#ef4444'; this.style.color='var(--text-inv)';" onmouseout="this.style.background='rgba(239,68,68,0.25)'; this.style.color='#f87171';">🛑 STOP SCANNER</button>`;
@@ -5287,85 +5252,21 @@ function getEarningsBadgeHtml(item) {
           }
 
           let modeBannerHtml = '';
-          if (isCandidate) {
-            modeBannerHtml = `
-        <div style="background:rgba(245,158,11,0.1); color:#fcd34d; border:1px solid rgba(245,158,11,0.25); padding:4px 10px; border-radius:6px; font-size:11px; font-weight:600; margin:6px 0 8px 0; display:flex; align-items:center; gap:6px;">
-          🔒 GOVERNANCE LOCKED · Zero Live Production Alerts
-        </div>`;
-          } else if (isStopped) {
+          if (isStopped) {
             modeBannerHtml = `
         <div style="background:rgba(255,77,109,0.12); color:#ff4d6d; border:1px solid rgba(255,77,109,0.3); padding:4px 10px; border-radius:6px; font-size:11px; font-weight:700; margin:6px 0 8px 0; display:flex; align-items:center; gap:6px;">
           🛑 PAUSED BY ADMIN · Auto-schedule is disabled
+        </div>`;
+          } else if (sc === 'TECHNICAL' && data.current_macro_regime && data.current_macro_regime !== 'BULL') {
+            modeBannerHtml = `
+        <div style="background:rgba(245,158,11,0.1); color:#fcd34d; border:1px solid rgba(245,158,11,0.25); padding:4px 10px; border-radius:6px; font-size:11px; font-weight:600; margin:6px 0 8px 0; display:flex; align-items:center; gap:6px;">
+          🟡 INACTIVE · Certified for BULL regime only (Current: ${data.current_macro_regime})
         </div>`;
           } else {
             modeBannerHtml = `
         <div style="background:rgba(0,212,161,0.08); color:#00d4a1; border:1px solid rgba(0,212,161,0.2); padding:4px 10px; border-radius:6px; font-size:11px; font-weight:600; margin:6px 0 8px 0; display:flex; align-items:center; gap:6px;">
           🟢 AUTO-RUN ACTIVE · Operating as scheduled
         </div>`;
-          }
-
-          let regimeGovernanceHtml = '';
-          if (isCandidate || data.supported_regime) {
-            const suppRegime = data.supported_regime || (sc === 'TECHNICAL' ? 'BULL' : sc === 'PULLBACK' ? 'SIDEWAYS' : sc === 'ACCUMULATION' ? 'BEAR' : 'NONE');
-            const activeRegime = data.current_production_active_regime || (sc === 'PULLBACK' ? 'None — recent decay prevents lock' : sc === 'EOD' ? 'None' : 'None until final lock verification');
-            const currentMacro = data.current_macro_regime || 'SIDEWAYS';
-            const warningText = data.regime_warning || (sc === 'PULLBACK' ? 'Warning: 2025–26 temporal edge compression' : sc === 'ACCUMULATION' ? 'Warning: Q1 seasonal weakness' : null);
-            let statusNote = data.regime_status_message;
-            if (!statusNote) {
-              if (sc === 'TECHNICAL') {
-                statusNote = currentMacro !== 'BULL' ? `Suppressed — TECHNICAL is supported only in BULL based on current evidence.` : `Suppressed — Not production-active pending final lock verification.`;
-              } else if (sc === 'PULLBACK') {
-                statusNote = 'Not production-active pending certification review.';
-              } else if (sc === 'ACCUMULATION') {
-                statusNote = 'Not production-active pending certification review.';
-              } else if (sc === 'EOD') {
-                statusNote = 'Suppressed — evidence remains underpowered / under certification.';
-              }
-            }
-
-            const suppBadgeBg = suppRegime === 'BULL' ? 'rgba(0,212,161,0.15)' : suppRegime === 'SIDEWAYS' ? 'rgba(99,102,241,0.15)' : suppRegime === 'BEAR' ? 'rgba(239,68,68,0.15)' : 'rgba(148,163,184,0.15)';
-            const suppBadgeColor = suppRegime === 'BULL' ? '#00d4a1' : suppRegime === 'SIDEWAYS' ? '#818cf8' : suppRegime === 'BEAR' ? '#f87171' : '#94a3b8';
-            const suppBadgeBorder = suppRegime === 'BULL' ? '#00d4a1' : suppRegime === 'SIDEWAYS' ? '#818cf8' : suppRegime === 'BEAR' ? '#f87171' : '#94a3b8';
-
-            const displayMsg = data.display_message || statusNote;
-            const authState = data.production_authorization_state || activeRegime;
-            const evidenceRelease = data.last_evidence_release || 'TEMPORAL_REPLICATION_2026-09-26';
-            const studyDate = data.last_study_date || '2026-09-26';
-
-            regimeGovernanceHtml = `
-              <div style="background:rgba(15,23,42,0.65); border:1px solid rgba(148,163,184,0.25); border-radius:8px; padding:10px 12px; margin:10px 0 12px 0;">
-                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:6px;">
-                  <div style="display:flex; align-items:center; gap:6px;">
-                    <span style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;">Supported Regime:</span>
-                    <span style="background:${suppBadgeBg}; color:${suppBadgeColor}; border:1px solid ${suppBadgeBorder}; font-size:11px; font-weight:800; padding:2px 8px; border-radius:4px; font-family:var(--font-mono);">${suppRegime}</span>
-                  </div>
-                  <div style="display:flex; align-items:center; gap:6px;">
-                    <span style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;">Current Regime:</span>
-                    <span style="background:rgba(255,255,255,0.06); color:var(--text); border:1px solid rgba(255,255,255,0.15); font-size:11px; font-weight:700; padding:2px 8px; border-radius:4px; font-family:var(--font-mono);">${currentMacro}</span>
-                  </div>
-                </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:8px;">
-                  <div style="display:flex; align-items:center; gap:6px;">
-                    <span style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;">Prod Active Now:</span>
-                    <span style="background:rgba(239,68,68,0.12); color:#f87171; border:1px solid rgba(239,68,68,0.3); font-size:11px; font-weight:800; padding:2px 8px; border-radius:4px;">NO (FAIL-CLOSED)</span>
-                  </div>
-                  <div style="display:flex; align-items:center; gap:6px;">
-                    <span style="font-size:11px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;">Authorization:</span>
-                    <span style="background:rgba(245,158,11,0.12); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); font-size:11px; font-weight:700; padding:2px 8px; border-radius:4px;">${authState}</span>
-                  </div>
-                </div>
-                ${warningText ? `
-                <div style="background:rgba(245,158,11,0.12); border-left:3px solid #f59e0b; padding:6px 10px; margin-bottom:6px; border-radius:0 4px 4px 0; font-size:11px; color:#fcd34d; font-weight:700;">
-                  ⚠️ ${warningText}
-                </div>` : ''}
-                <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:6px; padding:8px 10px; margin-bottom:6px; font-size:11px; line-height:1.45; color:var(--text); font-weight:500;">
-                  ${displayMsg}
-                </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; font-size:10px; color:var(--muted); border-top:1px dashed rgba(255,255,255,0.1); padding-top:4px;">
-                  <span>Release: <strong>${evidenceRelease}</strong> (${studyDate})</span>
-                  <span>🛡️ Fail-Closed Invariant: 0 Live Alerts</span>
-                </div>
-              </div>`;
           }
 
           html_buffer += `
@@ -5378,7 +5279,6 @@ function getEarningsBadgeHtml(item) {
             </div>
             <span class="scanner-badge ${badgeClass}">${badgeText}</span>
           </div>
-          ${regimeGovernanceHtml}
           <div class="scanner-stats">
             <button class="scanner-alert-btn" style="position:relative; ${(isProgressWorker && !isDown) ? 'pointer-events:none; cursor:default' : ''}" ${!(isProgressWorker && !isDown) ? `onclick="showScannerDrill('${sc}')"` : ''}>
               <div class="scanner-stat-label">${alertLabel}</div>
@@ -10263,13 +10163,9 @@ function renderStockDiagnosticModal(data) {
   const funnel = data.funnel || {};
   const funnelKeys = [
     { key: 'daily_builder', label: '1. Daily Builder (Universe Entry)', scanner: 'DAILY_BUILDER' },
-    { key: 'eod_breakout', label: '2. EOD Breakout Scanner', scanner: 'EOD' },
-    { key: 'reversal', label: '3. Reversal Oversold Bounce', scanner: 'REVERSAL' },
-    { key: 'pullback', label: '4. Pullback Continuation Pipeline', scanner: 'PULLBACK' },
-    { key: 'accumulation', label: '5. Accumulation Scanner', scanner: 'ACCUMULATION' },
-    { key: 'wealth_engine', label: '6. Wealth Engine', scanner: 'WEALTH' },
-    { key: 'multibagger', label: '7. Multibagger Engine', scanner: 'MULTIBAGGER' },
-    { key: 'technical', label: '8. Technical Scanner', scanner: 'TECHNICAL' }
+    { key: 'technical', label: '2. Technical Scanner (Breakout · BULL Regime)', scanner: 'TECHNICAL' },
+    { key: 'wealth_engine', label: '3. Wealth Engine', scanner: 'WEALTH' },
+    { key: 'multibagger', label: '4. Multibagger Engine', scanner: 'MULTIBAGGER' }
   ];
 
   const funnelRowsHtml = funnelKeys.map(item => {

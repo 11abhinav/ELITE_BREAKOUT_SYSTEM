@@ -99,6 +99,11 @@ _scan_lock = ProcessLock("eod_scanner")
 _global_lock = ProcessLock("global_scanner_lock")
 
 def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON", used_fallback_data: bool = False):
+    from engine.production.governance_registry import get_scanner_governance_state
+    if get_scanner_governance_state("EOD") == "DECOMMISSIONED":
+        logger.error("🛑 [GOVERNANCE GATE] Scanner 'EOD' is permanently DECOMMISSIONED. Execution blocked.")
+        raise RuntimeError("Scanner 'EOD' is permanently DECOMMISSIONED. Execution blocked.")
+
     from database import is_scanner_stopped, upsert_scanner_health, start_scanner_execution_run, complete_scanner_execution_run
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("EOD"):

@@ -129,12 +129,10 @@ def run_technical_intraday_pipeline(
     force: bool = False,
     run_ctx: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """
-    Executes the Intraday 15M Technical Scanner over market hours.
-    PERMANENTLY DECOMMISSIONED: This scanner family is silenced.
-    """
-    logger.info("🛑 [DECOMMISSIONED] TECHNICAL_INTRADAY scanner is decommissioned and silenced.")
-    return {"total_count": 0, "processed_count": 0, "today_alerts": 0, "status": "DECOMMISSIONED"}
+    from engine.production.governance_registry import get_scanner_governance_state
+    if get_scanner_governance_state("TECHNICAL_INTRADAY") == "DECOMMISSIONED":
+        logger.error("🛑 [GOVERNANCE GATE] Scanner 'TECHNICAL_INTRADAY' is permanently DECOMMISSIONED. Execution blocked.")
+        raise RuntimeError("Scanner 'TECHNICAL_INTRADAY' is permanently DECOMMISSIONED. Execution blocked.")
 
     acquired_scan = False
     acquired_global = False

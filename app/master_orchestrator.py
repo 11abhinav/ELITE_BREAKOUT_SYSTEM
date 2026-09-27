@@ -36,10 +36,7 @@ sys_path = os.path.dirname(os.path.realpath(__file__))
 if sys_path not in os.sys.path:
     os.sys.path.insert(0, sys_path)
 
-from eod_v2_engine import evaluate_eod_v2_symbol
-from pullback_engine import evaluate_pullback_v2_symbol
-from accumulation_engine import evaluate_accumulation_v2_symbol
-from multibagger_engine import evaluate_multibagger_v2_symbol
+# [RULE 67 CHANGE-RATIONALE]: Removed unused imports of decommissioned scanners (EOD, Pullback, Accumulation)
 from confluence_engine import evaluate_cross_scanner_confluence
 
 logger = logging.getLogger("MasterOrchestratorV2")

@@ -2796,8 +2796,10 @@ _global_lock = ProcessLock("global_scanner_lock")
 
 
 def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON", used_fallback_data: bool = False) -> int:
-    logger.info("🛑 [DECOMMISSIONED] REVERSAL Scanner is permanently decommissioned and silenced.")
-    return 0
+    from engine.production.governance_registry import get_scanner_governance_state
+    if get_scanner_governance_state("REVERSAL") == "DECOMMISSIONED":
+        logger.error("🛑 [GOVERNANCE GATE] Scanner 'REVERSAL' is permanently DECOMMISSIONED. Execution blocked.")
+        raise RuntimeError("Scanner 'REVERSAL' is permanently DECOMMISSIONED. Execution blocked.")
 
     if _scan_lock.locked():
         logger.warning("🛑 [DUPLICATE GUARD] REVERSAL Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")

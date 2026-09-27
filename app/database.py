@@ -2627,7 +2627,9 @@ def canonicalize_scanner_name(scanner: str, breakout_type: str = "") -> str:
     """
     s = str(scanner or "").strip().upper()
     b = str(breakout_type or "").strip().upper()
-    if s in ("PULLBACK", "TECHNICAL"):
+    if s == "TECHNICAL":
+        return "TECHNICAL"
+    if s == "PULLBACK":
         return "PULLBACK"
     if s in ("EOD", "BREAKOUT", "EOD_SCANNER"):
         return "EOD"
@@ -4438,12 +4440,11 @@ def upsert_scanner_health(
 def get_all_scanner_health() -> list[dict]:
     """Return all scanner health rows, in-memory seeding any missing standard scanners so cards never disappear."""
     init_db()
+    # [RULE 67 CHANGE-RATIONALE]: Retain only production-authorized scanners and active workers in schedule_map.
+    # Decommissioned scanners (EOD, PULLBACK, ACCUMULATION, REVERSAL) are permanently removed.
     schedule_map = {
         "DAILY_BUILDER": "Daily 05:00 IST",
-        "EOD": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
-        "PULLBACK": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
-        "ACCUMULATION": "Daily 18:35 IST (Post-Bhavcopy / Verified Evening Batch)",
-        "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan)",
+        "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan · BULL Regime)",
         "Wealth Engine": "Daily 06:00 & 17:00 IST · Market Hours (09:15 - 15:30)",
         "MULTIBAGGER": "Daily 17:30 IST (Daily Fundamental)",
         "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
@@ -4452,6 +4453,7 @@ def get_all_scanner_health() -> list[dict]:
         "Pledge Worker": "Continuous (Daily Refresh)",
         "AI Worker": "Continuous (Sat-Sun Active)",
     }
+
 
     # Watchdog Auto-Healing: Only mark stuck RUNNING threads as DOWN if global scanner lock is NOT held AND no fresh heartbeat exists
     try:
@@ -4510,6 +4512,16 @@ def get_all_scanner_health() -> list[dict]:
                     ORDER BY scanner_name
                 """)
                 rows = [dict(row) for row in cur.fetchall()]
+                # [RULE 67 CHANGE-RATIONALE]: Ensure decommissioned scanners are never surfaced in health dashboard
+                try:
+                    from engine.production.governance_registry import DECOMMISSIONED_SCANNERS, normalize_scanner_name
+                    rows = [
+                        r for r in rows
+                        if normalize_scanner_name(r.get("scanner_name")) not in DECOMMISSIONED_SCANNERS
+                        and r.get("scanner_name") not in DECOMMISSIONED_SCANNERS
+                    ]
+                except Exception as filter_err:
+                    logger.debug(f"Governance filter in get_all_scanner_health: {filter_err}")
                 existing_names = {r["scanner_name"] for r in rows if "scanner_name" in r}
                 for sc_name, sched_str in schedule_map.items():
                     if sc_name not in existing_names:
@@ -4595,16 +4607,21 @@ def reset_all_scanners_on_boot() -> None:
                     if pr and pr[0]:
                         _LOCAL_STOPPED_SCANNERS.add(normalize_scanner_name(pr[0]))
 
+                # [RULE 67 CHANGE-RATIONALE]: Permanently delete decommissioned scanner records from scanner_health on boot
+                cur.execute("""
+                    DELETE FROM scanner_health
+                    WHERE scanner_name IN (
+                        'ACCUMULATION', 'PULLBACK', 'EOD', 'REVERSAL', 'MULTI_TF',
+                        'MULTI_TF_5M', 'MULTITF', 'TECHNICAL_INTRADAY', 'SHORT_COVERING',
+                        '5M_BREAKOUT', 'MOMENTUM_IGNITION'
+                    );
+                """)
+
                 # 4. Ensure schedule_map entries exist without overwriting PAUSED status
                 now_str = datetime.now(IST).isoformat()
                 schedule_map = {
                     "DAILY_BUILDER": "Daily 05:00 IST",
-                    "EOD": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
-                    "REVERSAL": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
-                    "PULLBACK": "Daily 18:30 IST (Post-Bhavcopy Delivery)",
-                    "ACCUMULATION": "Daily 18:35 IST (Post-Bhavcopy / Verified Evening Batch)",
-                    "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan)",
-                    "TECHNICAL_INTRADAY": "Every 15m (09:16 - 15:30 IST Market Hours)",
+                    "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan · BULL Regime)",
                     "Wealth Engine": "Daily 06:00 & 17:00 IST · Market Hours (09:15 - 15:30)",
                     "MULTIBAGGER": "Daily 17:30 IST (Daily Fundamental)",
                     "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
@@ -4838,8 +4855,7 @@ def resume_scanner(scanner_name: str) -> bool:
 
 
 ALL_KNOWN_SCANNERS = [
-    'DAILY_BUILDER', 'EOD', 'REVERSAL',
-    'PULLBACK', 'ACCUMULATION', 'TECHNICAL', 'Wealth Engine', 'MULTIBAGGER',
+    'DAILY_BUILDER', 'TECHNICAL', 'Wealth Engine', 'MULTIBAGGER',
     'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT',
     'Pledge Worker', 'AI Worker', 'BayesianUpdater'
 ]

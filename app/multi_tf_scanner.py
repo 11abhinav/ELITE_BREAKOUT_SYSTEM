@@ -1761,8 +1761,10 @@ _scan_lock = ProcessLock("multi_tf_scanner")
 _global_lock = ProcessLock("global_scanner_lock")
 
 def start(run_once=False, is_test_mode=False, run_ctx=None, trigger_type="SCHEDULED", scheduler_name="CRON", session=None):
-    logger.info("🛑 [DECOMMISSIONED] MULTI_TF Scanner is permanently decommissioned and silenced.")
-    return None
+    from engine.production.governance_registry import get_scanner_governance_state
+    if get_scanner_governance_state("MULTI_TF") == "DECOMMISSIONED":
+        logger.error("🛑 [GOVERNANCE GATE] Scanner 'MULTI_TF' is permanently DECOMMISSIONED. Execution blocked.")
+        raise RuntimeError("Scanner 'MULTI_TF' is permanently DECOMMISSIONED. Execution blocked.")
 
     if _scan_lock.locked():
         logger.warning("🛑 [DUPLICATE GUARD] Multi-TF Scanner is ALREADY actively running in thread lock. Skipping duplicate trigger.")

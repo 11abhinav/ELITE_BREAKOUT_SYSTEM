@@ -470,6 +470,11 @@ class AccumulationScanner:
 
     def start(self, force: bool = False, run_ctx=None, trigger_type: str = "SCHEDULED", scheduler_name: str = "SCHEDULER", session=None) -> Dict[str, Any]:
         """Main scanner execution loop with full Health Card, Execution History, and MarketDataSession integration."""
+        from engine.production.governance_registry import get_scanner_governance_state
+        if get_scanner_governance_state("ACCUMULATION") == "DECOMMISSIONED":
+            logger.error("🛑 [GOVERNANCE GATE] Scanner 'ACCUMULATION' is permanently DECOMMISSIONED. Execution blocked.")
+            raise RuntimeError("Scanner 'ACCUMULATION' is permanently DECOMMISSIONED. Execution blocked.")
+
         if is_scanner_stopped("ACCUMULATION"):
             logger.info("⏭️ ACCUMULATION scanner is STOPPED by Admin. Skipping.")
             return {"status": "STOPPED", "reason": "STOPPED_BY_ADMIN"}

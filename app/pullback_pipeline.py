@@ -425,6 +425,11 @@ def start(force: bool = False, session=None, run_ctx=None, trigger_type="SCHEDUL
     """
     Main entry point for Pullback Scanner. Acquires process lock and delegates to pipeline.
     """
+    from engine.production.governance_registry import get_scanner_governance_state
+    if get_scanner_governance_state("PULLBACK") == "DECOMMISSIONED":
+        logger.error("🛑 [GOVERNANCE GATE] Scanner 'PULLBACK' is permanently DECOMMISSIONED. Execution blocked.")
+        raise RuntimeError("Scanner 'PULLBACK' is permanently DECOMMISSIONED. Execution blocked.")
+
     from database import is_scanner_stopped, upsert_scanner_health
     from lock_utils import print_scanner_start_banner, print_scanner_end_banner
     if is_scanner_stopped("PULLBACK"):

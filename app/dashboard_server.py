@@ -4116,33 +4116,12 @@ def api_trigger_scanner(scanner_name):
 @app.route("/api/admin/accumulation/control", methods=["POST"])
 @admin_required
 def api_accumulation_control():
-    """Admin control endpoint for ACCUMULATION scanner pause/stop/resume/run_now."""
-    try:
-        data = request.get_json(silent=True) or {}
-        enabled = data.get("enabled")
-        paused = data.get("paused")
-        stop_requested = data.get("stop_requested")
-        manual_run = data.get("manual_run_requested")
-        reason = data.get("reason", "Admin UI Trigger")
-
-        from accumulation_control import AccumulationControl
-        success = AccumulationControl.update_control_state(
-            scanner_name="ACCUMULATION",
-            enabled=enabled,
-            paused=paused,
-            stop_requested=stop_requested,
-            manual_run_requested=manual_run,
-            reason=reason
-        )
-
-        if manual_run:
-            from main import trigger_scanner_manual
-            trigger_scanner_manual("ACCUMULATION")
-
-        return jsonify({"status": "ok", "success": success, "control": AccumulationControl.get_scanner_control("ACCUMULATION")}), 200
-    except Exception as e:
-        logger.exception("❌ /api/admin/accumulation/control failed")
-        return jsonify({"status": "error", "message": str(e)}), 500
+    """ACCUMULATION scanner is permanently DECOMMISSIONED by governance."""
+    # [RULE 67 CHANGE-RATIONALE]: ACCUMULATION scanner permanently decommissioned; reject all control actions.
+    return jsonify({
+        "status": "error",
+        "message": "🚫 [GOVERNANCE] Scanner 'ACCUMULATION' is permanently DECOMMISSIONED. Control actions are disabled."
+    }), 400
 
 
 @app.route("/api/accumulation/alerts", methods=["GET"])

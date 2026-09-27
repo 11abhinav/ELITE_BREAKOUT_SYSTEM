@@ -76,19 +76,18 @@ DECOMMISSIONED_SCANNERS: Set[str] = {
 }
 
 # 3. Scanners Under Certification (Zero Production Alerts Permitted)
-# Only TECHNICAL remains under certification pending administrative dual-track sign-off.
-UNDER_CERTIFICATION_SCANNERS: Set[str] = {
-    "TECHNICAL"
-}
+UNDER_CERTIFICATION_SCANNERS: Set[str] = set()
 
 # 4. Certified Production Scanners (Must clear Regime AND Temporal Replication Gates)
-# Currently empty: zero live alerts permitted until final governance lock.
-CERTIFIED_PRODUCTION_SCANNERS: Set[str] = set()
+# Formally unlocked: TECHNICAL is certified exclusively for BULL regime.
+CERTIFIED_PRODUCTION_SCANNERS: Set[str] = {
+    "TECHNICAL"
+}
 
 # 5. Authoritative Three-Regime Certification Routing Matrix
 REGIME_ROUTING_MATRIX: Dict[str, Dict[str, str]] = {
     "TECHNICAL": {
-        "BULL": "UNDER_CERTIFICATION",
+        "BULL": "CERTIFIED_FOR_PRODUCTION",
         "SIDEWAYS": "NOT_CERTIFIED",
         "BEAR": "NOT_CERTIFIED"
     },
@@ -115,17 +114,17 @@ SCANNER_REGIME_HEALTH_METADATA: Dict[str, Dict[str, Any]] = {
         "selected_variant": "TECH-V01-BULL",
         "supported_regime": "BULL",
         "evidence_supported_regimes": ["BULL"],
-        "production_authorized_regimes": [],
-        "current_production_active_regime": "None until final lock verification",
-        "production_authorization_state": "LOCK REVIEW PENDING",
-        "lifecycle_state": "UNDER_CERTIFICATION",
-        "certification_status": "CERTIFIED_FOR_REGIME — LOCK REVIEW PENDING",
-        "temporal_evidence_status": "Replication Passed / Ready for Lock Review",
+        "production_authorized_regimes": ["BULL"],
+        "current_production_active_regime": "BULL (Active when macro_regime == BULL)",
+        "production_authorization_state": "CERTIFIED_FOR_PRODUCTION (BULL ONLY)",
+        "lifecycle_state": "CERTIFIED_FOR_PRODUCTION",
+        "certification_status": "CERTIFIED_FOR_PRODUCTION",
+        "temporal_evidence_status": "Replication Passed & Certified",
         "temporal_evidence": "Replicated positively across all four multi-year cells (+0.220R, +0.233R, +0.221R, +0.146R) and all quarters (Q1-Q4).",
         "evidence_warnings": [],
         "warning": None,
         "suppression_reason": "Suppressed: selected variant is certified only in BULL; current regime={current_regime}.",
-        "pending_condition": "Not production-active pending administrative dual-track sign-off."
+        "pending_condition": "Live production alerts authorized exclusively when macro_regime is BULL."
     },
     "PULLBACK": {
         "selected_variant": "NONE",
@@ -198,16 +197,19 @@ def get_scanner_health_regime_info(scanner_name: Optional[str], current_macro_re
         selected_variant = info.get("selected_variant", "NONE")
         cert_status = info.get("certification_status", "UNKNOWN")
         
+        is_prod_active = False
         # Build exact plain-language display messages and reason codes
         if norm == "TECHNICAL":
             if current_regime == "BULL":
-                display_msg = "Certified for production in BULL. Current regime=BULL. Current production authorization: LOCK REVIEW PENDING."
-                suppression_reason = "No live alert unless production governance is unlocked."
-                reason_code = "AUTH_PENDING_ADMIN_UNLOCK"
+                display_msg = "Certified for production in BULL. Current regime=BULL. Production alerts active."
+                suppression_reason = None
+                reason_code = "CERTIFIED_ACTIVE"
+                is_prod_active = True
             else:
                 display_msg = f"Suppressed: selected variant is certified only in BULL; current regime={current_regime}."
                 suppression_reason = display_msg
                 reason_code = f"REGIME_MISMATCH_{current_regime}_VS_BULL"
+                is_prod_active = False
         elif norm in ("ACCUMULATION", "PULLBACK", "EOD"):
             display_msg = "No tested variant passed all certification gates; scanner remains out of production."
             suppression_reason = display_msg
@@ -229,8 +231,8 @@ def get_scanner_health_regime_info(scanner_name: Optional[str], current_macro_re
             "supported_regime": supported,
             "evidence_supported_regimes": info.get("evidence_supported_regimes", [supported] if supported != "NONE" else []),
             "production_authorized_regimes": info.get("production_authorized_regimes", []),
-            "production_active_now": "NO",
-            "is_production_active": False,
+            "production_active_now": "YES" if is_prod_active else "NO",
+            "is_production_active": is_prod_active,
             "lifecycle": lifecycle,
             "lifecycle_state": lifecycle,
             "certification_status": cert_status,
@@ -401,7 +403,9 @@ def check_production_alert_permission(scanner_name: str, macro_regime: str) -> T
         return False, f"INVALID_STATE_{state}"
 
     # Evaluate against certified three-regime routing matrix
-    regime = (macro_regime or "BULL").strip().upper()
+    if not macro_regime or not str(macro_regime).strip():
+        return False, f"MISSING_REGIME_FAIL_CLOSED_{norm}"
+    regime = str(macro_regime).strip().upper()
     regime_map = REGIME_ROUTING_MATRIX.get(norm, {})
     regime_status = regime_map.get(regime, "NOT_CERTIFIED")
 

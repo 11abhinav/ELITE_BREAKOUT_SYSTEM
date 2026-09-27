@@ -773,19 +773,14 @@ EXIT_PROFILES = {
     "AGGRESSIVE":   {"t1": 20, "t2": 30, "t3": 50},
 }
 
+# [RULE 67 CHANGE-RATIONALE]: Purged decommissioned scanners (EOD, ACCUMULATION, REVERSAL, PULLBACK, MULTI_TF, BREAKOUT_5M) from exit profile mapping.
 SCANNER_EXIT_PROFILE = {
     "DAILY_BUILDER":      "BALANCED",
     "BREAKOUT":           "BALANCED",
-    "BREAKOUT_5M":        "BALANCED",
-    "EOD":                "BALANCED",
     "TECHNICAL":          "BALANCED",
-    "ACCUMULATION":       "BALANCED",
-    "REVERSAL":           "CONSERVATIVE",
-    "PULLBACK":           "BALANCED",
     "Wealth Engine":      "BALANCED",
     "WEALTH_ENGINE":      "BALANCED",
     "MULTIBAGGER":        "AGGRESSIVE",
-    "MULTI_TF":           "AGGRESSIVE",
 }
 SCANNER_EXIT_PROFILES = SCANNER_EXIT_PROFILE
 
