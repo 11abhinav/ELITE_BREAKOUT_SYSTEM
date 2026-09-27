@@ -1,0 +1,56 @@
+{
+  "WEALTH_EXIT_V1": {
+    "total_alerts": 81653,
+    "invested_count": 572,
+    "blocked_count": 81081,
+    "blocked_rate_pct": 99.3,
+    "avg_invested_return_pct": 19.2,
+    "avg_blocked_return_pct": 6.88,
+    "theoretical_missed_profit_cr": 55.77,
+    "winners_ge_25pct": {
+      "total_in_universe": 10528,
+      "invested_captured": 86,
+      "blocked_missed": 10442,
+      "capture_rate_pct": 0.82
+    },
+    "winners_ge_50pct": {
+      "total_in_universe": 4591,
+      "invested_captured": 50,
+      "blocked_missed": 4541,
+      "capture_rate_pct": 1.09
+    },
+    "winners_ge_100pct": {
+      "total_in_universe": 1537,
+      "invested_captured": 24,
+      "blocked_missed": 1513,
+      "capture_rate_pct": 1.56
+    }
+  },
+  "WEALTH_EXIT_V2": {
+    "total_alerts": 81653,
+    "invested_count": 337,
+    "blocked_count": 81316,
+    "blocked_rate_pct": 99.59,
+    "avg_invested_return_pct": 21.58,
+    "avg_blocked_return_pct": 15.3,
+    "theoretical_missed_profit_cr": 124.39,
+    "winners_ge_25pct": {
+      "total_in_universe": 16194,
+      "invested_captured": 69,
+      "blocked_missed": 16125,
+      "capture_rate_pct": 0.43
+    },
+    "winners_ge_50pct": {
+      "total_in_universe": 9062,
+      "invested_captured": 43,
+      "blocked_missed": 9019,
+      "capture_rate_pct": 0.47
+    },
+    "winners_ge_100pct": {
+      "total_in_universe": 3963,
+      "invested_captured": 16,
+      "blocked_missed": 3947,
+      "capture_rate_pct": 0.4
+    }
+  }
+}

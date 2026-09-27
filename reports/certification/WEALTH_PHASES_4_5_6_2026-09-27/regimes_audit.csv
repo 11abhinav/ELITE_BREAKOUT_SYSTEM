@@ -1,0 +1,4 @@
+regime,trades,pct_of_total,arm_a_mean_ret,arm_a_win_rate,v1_mean_ret,v1_win_rate,v2_mean_ret,v2_win_rate,delta_v2_v1
+BULL,41552,50.9,0.34,49.4,8.27,44.5,17.68,48.9,9.41
+SIDEWAYS,22601,27.7,0.33,49.2,5.22,38.5,11.18,40.7,5.96
+BEAR,17500,21.4,-0.05,46.5,6.12,38.8,15.08,41.5,8.96
