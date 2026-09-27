@@ -1879,6 +1879,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     TRIGGER_MAP = {
         # Active production and operational workers
         "DAILY_BUILDER": _trigger_daily_builder,
+        "FUNDAMENTAL":   _trigger_fundamental,
         "Wealth Engine": _trigger_wealth_engine,
         "MULTIBAGGER":    _trigger_multibagger,
         "AI Worker":     _trigger_ai_worker,
@@ -1895,6 +1896,7 @@ def trigger_scanner_manual(scanner_key: str) -> dict:
     # Check locks synchronously to return immediate HTTP JSON error
     LOCK_MAP = {
         "DAILY_BUILDER": lambda: __import__('daily_builder')._build_lock,
+        "FUNDAMENTAL":   lambda: None,
         "Wealth Engine": lambda: __import__('wealth_engine')._scan_lock,
         "MULTIBAGGER":   lambda: __import__('multibagger')._scan_lock,
         "AI Worker":     lambda: __import__('ai_worker')._scan_lock,
@@ -2096,6 +2098,19 @@ def _trigger_technical(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=N
         return {"total_count": 0, "processed_count": 0}
     from technical_scanner import run_technical_scan
     count = run_technical_scan(trigger_type=trigger_type, scheduler_name=scheduler_name, run_ctx=run_ctx, session=session)
+    return {"total_count": count, "processed_count": count}
+
+def _trigger_fundamental(trigger_type="MANUAL", scheduler_name="MANUAL", session=None):
+    from database import is_scanner_stopped
+    if is_scanner_stopped("FUNDAMENTAL"):
+        logger.info("⏸️ [FUNDAMENTAL] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
+        return {"total_count": 0, "processed_count": 0}
+    try:
+        from live_fundamental_scanner import live_fundamental_scanner
+    except ImportError:
+        from app.live_fundamental_scanner import live_fundamental_scanner
+    funnel = live_fundamental_scanner.scan_universe()
+    count = funnel.get("scanned_count", 0) if isinstance(funnel, dict) else 0
     return {"total_count": count, "processed_count": count}
 
 # [VERSION: TRIGGER_AI_WORKER_v1.1] Define _trigger_ai_worker

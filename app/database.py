@@ -4465,6 +4465,7 @@ def get_all_scanner_health() -> list[dict]:
     schedule_map = {
         "DAILY_BUILDER": "Daily 05:00 IST",
         "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan · BULL Regime)",
+        "FUNDAMENTAL": "Daily 18:30 IST (Post-Close Fundamental Breakout · ALL Regimes)",
         "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
         "WEALTH_EXIT_V1": "Exit Monitor · Live Primary (09:00 - 16:00 IST)",
         "WEALTH_EXIT_V2": "Exit Monitor · Shadow Research (09:00 - 16:00 IST)",

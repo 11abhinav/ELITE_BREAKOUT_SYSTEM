@@ -4268,6 +4268,7 @@ function changeAdminPage(type, delta) {
     const SCANNER_META = {
       'DAILY_BUILDER': { label: 'Daily Builder', desc: 'Universe Watchlist Builder · Daily 05:00 IST' },
       'TECHNICAL': { label: 'Technical Scanner', desc: 'Multi-Pattern Technical · Daily 18:15 IST' },
+      'FUNDAMENTAL': { label: 'Fundamental Breakout', desc: 'Quality + Growth + 20D BO · Daily 18:30 IST (ALL REGIMES)' },
       'AI Worker': { label: 'AI Worker', desc: 'Concall & Fundamental Caching · Continuous (Sat-Sun Active)' },
       'Pledge Worker': { label: 'Pledge Worker', desc: 'Promoter Pledge Tracking · Continuous (Daily Refresh)' },
       'PERFORMANCE_TRACKER': { label: 'Alerts Exit Monitor', desc: 'Exit Signals & Trade Lifecycle · Every 5m (09:15–15:30 IST)' },
@@ -4425,6 +4426,7 @@ function getEarningsBadgeHtml(item) {
       const ALLOWED_SCANNERS = [
         'DAILY_BUILDER',
         'TECHNICAL',
+        'FUNDAMENTAL',
         'PERFORMANCE_TRACKER',
         'WEALTH_EXIT_V1',
         'WEALTH_EXIT_V2',
@@ -4645,6 +4647,11 @@ function getEarningsBadgeHtml(item) {
             modeBannerHtml = `
         <div style="background:rgba(245,158,11,0.1); color:#fcd34d; border:1px solid rgba(245,158,11,0.25); padding:4px 10px; border-radius:6px; font-size:11px; font-weight:600; margin:6px 0 8px 0; display:flex; align-items:center; gap:6px;">
           🟡 INACTIVE · Certified for BULL regime only (Current: ${data.current_macro_regime})
+        </div>`;
+          } else if (sc === 'FUNDAMENTAL') {
+            modeBannerHtml = `
+        <div style="background:rgba(22,163,74,0.1); color:#4ade80; border:1px solid rgba(22,163,74,0.25); padding:4px 10px; border-radius:6px; font-size:11px; font-weight:600; margin:6px 0 8px 0; display:flex; align-items:center; gap:6px;">
+          🟢 ACTIVE · Certified for ALL regimes (BULL, SIDEWAYS, BEAR)
         </div>`;
           }
 
