@@ -1,0 +1,59 @@
+{
+  "total_universe_symbols": 947,
+  "post_2016_listings_count": 947,
+  "pre_2016_established_count": 0,
+  "historical_u_t_handling": "Point-in-time membership established dynamically for each decision date T",
+  "survivorship_acknowledgement": "Universe encompasses 947 NSE listed securities with point-in-time listing entry criteria",
+  "symbol_sample": {
+    "SAMHI": {
+      "first_date": "2023-09-22",
+      "last_date": "2026-09-25",
+      "is_post_2016_listing": true
+    },
+    "SUNPHARMA": {
+      "first_date": "2016-09-27",
+      "last_date": "2026-09-25",
+      "is_post_2016_listing": true
+    },
+    "AHLUCONT": {
+      "first_date": "2016-09-27",
+      "last_date": "2026-09-25",
+      "is_post_2016_listing": true
+    },
+    "AUROPHARMA": {
+      "first_date": "2016-09-27",
+      "last_date": "2026-09-25",
+      "is_post_2016_listing": true
+    },
+    "INDRAMEDCO": {
+      "first_date": "2016-09-27",
+      "last_date": "2026-09-25",
+      "is_post_2016_listing": true
+    },
+    "TCIEXP": {
+      "first_date": "2016-12-15",
+      "last_date": "2026-09-25",
+      "is_post_2016_listing": true
+    },
+    "SAKAR": {
+      "first_date": "2016-10-14",
+      "last_date": "2026-09-25",
+      "is_post_2016_listing": true
+    },
+    "INDIAMART": {
+      "first_date": "2019-07-04",
+      "last_date": "2026-09-25",
+      "is_post_2016_listing": true
+    },
+    "INFY": {
+      "first_date": "2016-09-27",
+      "last_date": "2026-09-25",
+      "is_post_2016_listing": true
+    },
+    "RADICO": {
+      "first_date": "2016-09-27",
+      "last_date": "2026-09-25",
+      "is_post_2016_listing": true
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "provider": "Upstox Historical Candle API V3",
+  "data_directory": "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/data/history/1d",
+  "total_files_found": 947,
+  "valid_symbols_count": 947,
+  "corrupted_files_count": 0,
+  "duplicate_date_symbols": [
+    "KAPSTON",
+    "RAJRATAN",
+    "TEMBO"
+  ],
+  "chronology_violations": [],
+  "impossible_ohlc_violations": [],
+  "future_date_violations": [],
+  "synthetic_data_detected": false,
+  "yahoo_fallback_detected": false,
+  "min_date": "2016-09-27",
+  "max_date": "2026-09-25",
+  "total_bars_audited": 1702230,
+  "audit_duration_seconds": 19.38,
+  "status": "PASSED"
+}

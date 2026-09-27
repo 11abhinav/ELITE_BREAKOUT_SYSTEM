@@ -1,0 +1,674 @@
+{
+  "V1_BASELINE": {
+    "stage": "V1_BASELINE",
+    "overall": {
+      "n": 19548,
+      "n_eff": 16998,
+      "win_rate_pct": 39.35,
+      "mean_r": 0.036,
+      "median_r": -0.076,
+      "total_r": 713.19,
+      "profit_factor": 1.208,
+      "ci_95_low": 0.007,
+      "ci_95_high": 0.069
+    },
+    "train_2016_2022": {
+      "n": 10115,
+      "n_eff": 8795,
+      "win_rate_pct": 40.58,
+      "mean_r": 0.101,
+      "median_r": -0.065,
+      "total_r": 1017.75,
+      "profit_factor": 1.613,
+      "ci_95_low": 0.051,
+      "ci_95_high": 0.155
+    },
+    "validation_2023_2024": {
+      "n": 2029,
+      "n_eff": 1764,
+      "win_rate_pct": 37.65,
+      "mean_r": 0.104,
+      "median_r": -0.086,
+      "total_r": 210.57,
+      "profit_factor": 1.568,
+      "ci_95_low": -0.013,
+      "ci_95_high": 0.252
+    },
+    "diagnostic_2025_2026": {
+      "n": 7404,
+      "n_eff": 6438,
+      "win_rate_pct": 38.13,
+      "mean_r": -0.07,
+      "median_r": -0.087,
+      "total_r": -515.12,
+      "profit_factor": 0.633,
+      "ci_95_low": -0.082,
+      "ci_95_high": -0.056
+    },
+    "yearly": {
+      "2016": {
+        "n": 0,
+        "win_rate_pct": 0.0,
+        "mean_r": 0.0,
+        "median_r": 0.0,
+        "ci_95_low": 0.0,
+        "ci_95_high": 0.0,
+        "profit_factor": 0.0
+      },
+      "2017": {
+        "n": 582,
+        "n_eff": 506,
+        "win_rate_pct": 41.75,
+        "mean_r": 0.029,
+        "median_r": -0.057,
+        "total_r": 16.74,
+        "profit_factor": 1.201,
+        "ci_95_low": -0.027,
+        "ci_95_high": 0.101
+      },
+      "2018": {
+        "n": 1890,
+        "n_eff": 1643,
+        "win_rate_pct": 40.37,
+        "mean_r": -0.052,
+        "median_r": -0.067,
+        "total_r": -98.34,
+        "profit_factor": 0.675,
+        "ci_95_low": -0.067,
+        "ci_95_high": -0.035
+      },
+      "2019": {
+        "n": 2749,
+        "n_eff": 2390,
+        "win_rate_pct": 37.58,
+        "mean_r": -0.067,
+        "median_r": -0.082,
+        "total_r": -184.13,
+        "profit_factor": 0.607,
+        "ci_95_low": -0.081,
+        "ci_95_high": -0.053
+      },
+      "2020": {
+        "n": 1790,
+        "n_eff": 1556,
+        "win_rate_pct": 45.14,
+        "mean_r": 0.636,
+        "median_r": -0.038,
+        "total_r": 1138.04,
+        "profit_factor": 5.184,
+        "ci_95_low": 0.404,
+        "ci_95_high": 0.908
+      },
+      "2021": {
+        "n": 292,
+        "n_eff": 253,
+        "win_rate_pct": 39.04,
+        "mean_r": 0.432,
+        "median_r": -0.096,
+        "total_r": 126.01,
+        "profit_factor": 3.173,
+        "ci_95_low": -0.114,
+        "ci_95_high": 1.423
+      },
+      "2022": {
+        "n": 2812,
+        "n_eff": 2445,
+        "win_rate_pct": 40.68,
+        "mean_r": 0.007,
+        "median_r": -0.067,
+        "total_r": 19.43,
+        "profit_factor": 1.041,
+        "ci_95_low": -0.038,
+        "ci_95_high": 0.059
+      },
+      "2023": {
+        "n": 1386,
+        "n_eff": 1205,
+        "win_rate_pct": 38.31,
+        "mean_r": 0.193,
+        "median_r": -0.081,
+        "total_r": 268.18,
+        "profit_factor": 2.099,
+        "ci_95_low": 0.026,
+        "ci_95_high": 0.426
+      },
+      "2024": {
+        "n": 643,
+        "n_eff": 559,
+        "win_rate_pct": 36.24,
+        "mean_r": -0.09,
+        "median_r": -0.107,
+        "total_r": -57.61,
+        "profit_factor": 0.545,
+        "ci_95_low": -0.121,
+        "ci_95_high": -0.057
+      },
+      "2025": {
+        "n": 4529,
+        "n_eff": 3938,
+        "win_rate_pct": 38.68,
+        "mean_r": -0.074,
+        "median_r": -0.08,
+        "total_r": -334.62,
+        "profit_factor": 0.617,
+        "ci_95_low": -0.093,
+        "ci_95_high": -0.055
+      },
+      "2026": {
+        "n": 2875,
+        "n_eff": 2500,
+        "win_rate_pct": 37.25,
+        "mean_r": -0.063,
+        "median_r": -0.096,
+        "total_r": -180.5,
+        "profit_factor": 0.658,
+        "ci_95_low": -0.08,
+        "ci_95_high": -0.042
+      }
+    }
+  },
+  "V2_A_REGIME_FILTERED": {
+    "stage": "V2_A_REGIME_FILTERED",
+    "overall": {
+      "n": 9604,
+      "n_eff": 8351,
+      "win_rate_pct": 38.15,
+      "mean_r": 0.051,
+      "median_r": -0.085,
+      "total_r": 485.83,
+      "profit_factor": 1.272,
+      "ci_95_low": 0.003,
+      "ci_95_high": 0.108
+    },
+    "train_2016_2022": {
+      "n": 3518,
+      "n_eff": 3059,
+      "win_rate_pct": 40.05,
+      "mean_r": 0.204,
+      "median_r": -0.074,
+      "total_r": 718.88,
+      "profit_factor": 2.094,
+      "ci_95_low": 0.089,
+      "ci_95_high": 0.337
+    },
+    "validation_2023_2024": {
+      "n": 1480,
+      "n_eff": 1286,
+      "win_rate_pct": 39.12,
+      "mean_r": 0.061,
+      "median_r": -0.075,
+      "total_r": 89.68,
+      "profit_factor": 1.344,
+      "ci_95_low": -0.017,
+      "ci_95_high": 0.156
+    },
+    "diagnostic_2025_2026": {
+      "n": 4606,
+      "n_eff": 4005,
+      "win_rate_pct": 36.39,
+      "mean_r": -0.07,
+      "median_r": -0.098,
+      "total_r": -322.73,
+      "profit_factor": 0.629,
+      "ci_95_low": -0.087,
+      "ci_95_high": -0.051
+    },
+    "yearly": {
+      "2016": {
+        "n": 0,
+        "win_rate_pct": 0.0,
+        "mean_r": 0.0,
+        "median_r": 0.0,
+        "ci_95_low": 0.0,
+        "ci_95_high": 0.0,
+        "profit_factor": 0.0
+      },
+      "2017": {
+        "n": 556,
+        "n_eff": 483,
+        "win_rate_pct": 40.65,
+        "mean_r": 0.032,
+        "median_r": -0.064,
+        "total_r": 17.59,
+        "profit_factor": 1.216,
+        "ci_95_low": -0.03,
+        "ci_95_high": 0.113
+      },
+      "2018": {
+        "n": 214,
+        "n_eff": 186,
+        "win_rate_pct": 39.72,
+        "mean_r": -0.063,
+        "median_r": -0.084,
+        "total_r": -13.41,
+        "profit_factor": 0.626,
+        "ci_95_low": -0.115,
+        "ci_95_high": -0.005
+      },
+      "2019": {
+        "n": 153,
+        "n_eff": 133,
+        "win_rate_pct": 37.25,
+        "mean_r": -0.091,
+        "median_r": -0.109,
+        "total_r": -13.87,
+        "profit_factor": 0.531,
+        "ci_95_low": -0.156,
+        "ci_95_high": -0.024
+      },
+      "2020": {
+        "n": 836,
+        "n_eff": 726,
+        "win_rate_pct": 43.54,
+        "mean_r": 0.733,
+        "median_r": -0.048,
+        "total_r": 612.7,
+        "profit_factor": 4.81,
+        "ci_95_low": 0.388,
+        "ci_95_high": 1.163
+      },
+      "2021": {
+        "n": 117,
+        "n_eff": 101,
+        "win_rate_pct": 32.48,
+        "mean_r": 1.066,
+        "median_r": -0.13,
+        "total_r": 124.75,
+        "profit_factor": 4.792,
+        "ci_95_low": -0.234,
+        "ci_95_high": 3.568
+      },
+      "2022": {
+        "n": 1642,
+        "n_eff": 1427,
+        "win_rate_pct": 38.92,
+        "mean_r": -0.005,
+        "median_r": -0.085,
+        "total_r": -8.87,
+        "profit_factor": 0.972,
+        "ci_95_low": -0.064,
+        "ci_95_high": 0.069
+      },
+      "2023": {
+        "n": 952,
+        "n_eff": 827,
+        "win_rate_pct": 40.97,
+        "mean_r": 0.146,
+        "median_r": -0.061,
+        "total_r": 139.37,
+        "profit_factor": 1.905,
+        "ci_95_low": 0.029,
+        "ci_95_high": 0.291
+      },
+      "2024": {
+        "n": 528,
+        "n_eff": 459,
+        "win_rate_pct": 35.8,
+        "mean_r": -0.094,
+        "median_r": -0.107,
+        "total_r": -49.69,
+        "profit_factor": 0.535,
+        "ci_95_low": -0.128,
+        "ci_95_high": -0.059
+      },
+      "2025": {
+        "n": 2294,
+        "n_eff": 1994,
+        "win_rate_pct": 36.7,
+        "mean_r": -0.074,
+        "median_r": -0.092,
+        "total_r": -170.62,
+        "profit_factor": 0.611,
+        "ci_95_low": -0.102,
+        "ci_95_high": -0.041
+      },
+      "2026": {
+        "n": 2312,
+        "n_eff": 2010,
+        "win_rate_pct": 36.07,
+        "mean_r": -0.066,
+        "median_r": -0.101,
+        "total_r": -152.11,
+        "profit_factor": 0.648,
+        "ci_95_low": -0.087,
+        "ci_95_high": -0.04
+      }
+    }
+  },
+  "V2_B_LIQUIDITY_CONTROLLED": {
+    "stage": "V2_B_LIQUIDITY_CONTROLLED",
+    "overall": {
+      "n": 8932,
+      "n_eff": 7766,
+      "win_rate_pct": 38.2,
+      "mean_r": 0.047,
+      "median_r": -0.086,
+      "total_r": 420.0,
+      "profit_factor": 1.252,
+      "ci_95_low": 0.001,
+      "ci_95_high": 0.105
+    },
+    "train_2016_2022": {
+      "n": 3019,
+      "n_eff": 2625,
+      "win_rate_pct": 40.44,
+      "mean_r": 0.211,
+      "median_r": -0.077,
+      "total_r": 636.11,
+      "profit_factor": 2.126,
+      "ci_95_low": 0.084,
+      "ci_95_high": 0.371
+    },
+    "validation_2023_2024": {
+      "n": 1438,
+      "n_eff": 1250,
+      "win_rate_pct": 39.22,
+      "mean_r": 0.066,
+      "median_r": -0.075,
+      "total_r": 94.85,
+      "profit_factor": 1.374,
+      "ci_95_low": -0.013,
+      "ci_95_high": 0.166
+    },
+    "diagnostic_2025_2026": {
+      "n": 4475,
+      "n_eff": 3891,
+      "win_rate_pct": 36.36,
+      "mean_r": -0.069,
+      "median_r": -0.098,
+      "total_r": -310.96,
+      "profit_factor": 0.633,
+      "ci_95_low": -0.088,
+      "ci_95_high": -0.051
+    },
+    "yearly": {
+      "2016": {
+        "n": 0,
+        "win_rate_pct": 0.0,
+        "mean_r": 0.0,
+        "median_r": 0.0,
+        "ci_95_low": 0.0,
+        "ci_95_high": 0.0,
+        "profit_factor": 0.0
+      },
+      "2017": {
+        "n": 415,
+        "n_eff": 360,
+        "win_rate_pct": 40.72,
+        "mean_r": 0.007,
+        "median_r": -0.066,
+        "total_r": 2.86,
+        "profit_factor": 1.047,
+        "ci_95_low": -0.059,
+        "ci_95_high": 0.095
+      },
+      "2018": {
+        "n": 180,
+        "n_eff": 156,
+        "win_rate_pct": 38.33,
+        "mean_r": -0.076,
+        "median_r": -0.085,
+        "total_r": -13.75,
+        "profit_factor": 0.552,
+        "ci_95_low": -0.13,
+        "ci_95_high": -0.018
+      },
+      "2019": {
+        "n": 99,
+        "n_eff": 86,
+        "win_rate_pct": 35.35,
+        "mean_r": -0.12,
+        "median_r": -0.14,
+        "total_r": -11.92,
+        "profit_factor": 0.446,
+        "ci_95_low": -0.199,
+        "ci_95_high": -0.046
+      },
+      "2020": {
+        "n": 677,
+        "n_eff": 588,
+        "win_rate_pct": 46.09,
+        "mean_r": 0.806,
+        "median_r": -0.038,
+        "total_r": 545.77,
+        "profit_factor": 5.397,
+        "ci_95_low": 0.424,
+        "ci_95_high": 1.353
+      },
+      "2021": {
+        "n": 116,
+        "n_eff": 100,
+        "win_rate_pct": 32.76,
+        "mean_r": 1.084,
+        "median_r": -0.13,
+        "total_r": 125.77,
+        "profit_factor": 4.945,
+        "ci_95_low": -0.232,
+        "ci_95_high": 3.653
+      },
+      "2022": {
+        "n": 1532,
+        "n_eff": 1332,
+        "win_rate_pct": 39.03,
+        "mean_r": -0.008,
+        "median_r": -0.086,
+        "total_r": -12.62,
+        "profit_factor": 0.957,
+        "ci_95_low": -0.074,
+        "ci_95_high": 0.068
+      },
+      "2023": {
+        "n": 919,
+        "n_eff": 799,
+        "win_rate_pct": 41.13,
+        "mean_r": 0.156,
+        "median_r": -0.06,
+        "total_r": 143.46,
+        "profit_factor": 1.965,
+        "ci_95_low": 0.03,
+        "ci_95_high": 0.316
+      },
+      "2024": {
+        "n": 519,
+        "n_eff": 451,
+        "win_rate_pct": 35.84,
+        "mean_r": -0.094,
+        "median_r": -0.107,
+        "total_r": -48.61,
+        "profit_factor": 0.537,
+        "ci_95_low": -0.127,
+        "ci_95_high": -0.059
+      },
+      "2025": {
+        "n": 2212,
+        "n_eff": 1923,
+        "win_rate_pct": 36.75,
+        "mean_r": -0.073,
+        "median_r": -0.09,
+        "total_r": -161.17,
+        "profit_factor": 0.619,
+        "ci_95_low": -0.102,
+        "ci_95_high": -0.041
+      },
+      "2026": {
+        "n": 2263,
+        "n_eff": 1967,
+        "win_rate_pct": 35.97,
+        "mean_r": -0.066,
+        "median_r": -0.103,
+        "total_r": -149.79,
+        "profit_factor": 0.647,
+        "ci_95_low": -0.088,
+        "ci_95_high": -0.039
+      }
+    }
+  },
+  "V2_C_DYNAMIC_EXIT": {
+    "stage": "V2_C_DYNAMIC_EXIT",
+    "overall": {
+      "n": 9017,
+      "n_eff": 7840,
+      "win_rate_pct": 38.96,
+      "mean_r": -0.042,
+      "median_r": -0.081,
+      "total_r": -376.87,
+      "profit_factor": 0.769,
+      "ci_95_low": -0.054,
+      "ci_95_high": -0.03
+    },
+    "train_2016_2022": {
+      "n": 3060,
+      "n_eff": 2660,
+      "win_rate_pct": 41.41,
+      "mean_r": -0.007,
+      "median_r": -0.069,
+      "total_r": -22.8,
+      "profit_factor": 0.959,
+      "ci_95_low": -0.029,
+      "ci_95_high": 0.018
+    },
+    "validation_2023_2024": {
+      "n": 1447,
+      "n_eff": 1258,
+      "win_rate_pct": 39.74,
+      "mean_r": -0.011,
+      "median_r": -0.072,
+      "total_r": -16.62,
+      "profit_factor": 0.933,
+      "ci_95_low": -0.04,
+      "ci_95_high": 0.021
+    },
+    "diagnostic_2025_2026": {
+      "n": 4510,
+      "n_eff": 3921,
+      "win_rate_pct": 37.05,
+      "mean_r": -0.075,
+      "median_r": -0.092,
+      "total_r": -337.45,
+      "profit_factor": 0.594,
+      "ci_95_low": -0.087,
+      "ci_95_high": -0.061
+    },
+    "yearly": {
+      "2016": {
+        "n": 0,
+        "win_rate_pct": 0.0,
+        "mean_r": 0.0,
+        "median_r": 0.0,
+        "ci_95_low": 0.0,
+        "ci_95_high": 0.0,
+        "profit_factor": 0.0
+      },
+      "2017": {
+        "n": 415,
+        "n_eff": 360,
+        "win_rate_pct": 41.45,
+        "mean_r": 0.016,
+        "median_r": -0.065,
+        "total_r": 6.79,
+        "profit_factor": 1.117,
+        "ci_95_low": -0.048,
+        "ci_95_high": 0.1
+      },
+      "2018": {
+        "n": 181,
+        "n_eff": 157,
+        "win_rate_pct": 38.67,
+        "mean_r": -0.068,
+        "median_r": -0.085,
+        "total_r": -12.34,
+        "profit_factor": 0.58,
+        "ci_95_low": -0.123,
+        "ci_95_high": -0.016
+      },
+      "2019": {
+        "n": 99,
+        "n_eff": 86,
+        "win_rate_pct": 35.35,
+        "mean_r": -0.111,
+        "median_r": -0.14,
+        "total_r": -11.03,
+        "profit_factor": 0.466,
+        "ci_95_low": -0.182,
+        "ci_95_high": -0.038
+      },
+      "2020": {
+        "n": 695,
+        "n_eff": 604,
+        "win_rate_pct": 47.63,
+        "mean_r": 0.123,
+        "median_r": -0.025,
+        "total_r": 85.21,
+        "profit_factor": 1.725,
+        "ci_95_low": 0.057,
+        "ci_95_high": 0.191
+      },
+      "2021": {
+        "n": 134,
+        "n_eff": 116,
+        "win_rate_pct": 37.31,
+        "mean_r": 0.031,
+        "median_r": -0.113,
+        "total_r": 4.14,
+        "profit_factor": 1.112,
+        "ci_95_low": -0.148,
+        "ci_95_high": 0.274
+      },
+      "2022": {
+        "n": 1536,
+        "n_eff": 1335,
+        "win_rate_pct": 39.65,
+        "mean_r": -0.062,
+        "median_r": -0.082,
+        "total_r": -95.57,
+        "profit_factor": 0.669,
+        "ci_95_low": -0.087,
+        "ci_95_high": -0.037
+      },
+      "2023": {
+        "n": 927,
+        "n_eff": 806,
+        "win_rate_pct": 41.75,
+        "mean_r": 0.029,
+        "median_r": -0.057,
+        "total_r": 27.35,
+        "profit_factor": 1.189,
+        "ci_95_low": -0.01,
+        "ci_95_high": 0.075
+      },
+      "2024": {
+        "n": 520,
+        "n_eff": 452,
+        "win_rate_pct": 36.15,
+        "mean_r": -0.085,
+        "median_r": -0.104,
+        "total_r": -43.97,
+        "profit_factor": 0.569,
+        "ci_95_low": -0.12,
+        "ci_95_high": -0.047
+      },
+      "2025": {
+        "n": 2231,
+        "n_eff": 1940,
+        "win_rate_pct": 37.7,
+        "mean_r": -0.077,
+        "median_r": -0.083,
+        "total_r": -171.15,
+        "profit_factor": 0.583,
+        "ci_95_low": -0.094,
+        "ci_95_high": -0.06
+      },
+      "2026": {
+        "n": 2279,
+        "n_eff": 1981,
+        "win_rate_pct": 36.42,
+        "mean_r": -0.073,
+        "median_r": -0.1,
+        "total_r": -166.3,
+        "profit_factor": 0.604,
+        "ci_95_low": -0.089,
+        "ci_95_high": -0.053
+      }
+    }
+  }
+}
