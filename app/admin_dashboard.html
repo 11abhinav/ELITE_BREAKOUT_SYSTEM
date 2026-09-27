@@ -2503,9 +2503,6 @@ function changeAdminPage(type, delta) {
         <button class="admin-tab-btn" data-tab="confluence-matrix" onclick="switchAdminTab('confluence-matrix')">
           <span>🌐</span> Confluence Matrix
         </button>
-        <button class="admin-tab-btn" data-tab="wealth-engine" onclick="switchAdminTab('wealth-engine')">
-          <span>💎</span> Wealth Dashboard
-        </button>
         <button class="admin-tab-btn" data-tab="health-errors" onclick="switchAdminTab('health-errors')">
           <span>🛡️</span> Scanner Health
         </button>
@@ -3267,147 +3264,6 @@ function changeAdminPage(type, delta) {
       </div>
       <!-- END TAB 1: SIGNALS & ALL TRADES -->
 
-      <!-- TAB WEALTH ENGINE (NATIVE VIEW) -->
-      <div id="tab-wealth-engine" class="tab-panel">
-
-        <!-- PURPOSE BANNER -->
-        <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; padding:12px 16px; margin-bottom:16px;">
-          <div style="font-size:12px; font-weight:700; color:var(--accent); margin-bottom:4px; display:flex; align-items:center; gap:6px;">
-            <span>💡</span> SCREEN PURPOSE & HOW TO USE:
-          </div>
-          <div style="font-size:12px; color:var(--muted); line-height:1.5;">
-            <strong>Long-Term Wealth Accumulation & Position Rebalancing Terminal</strong>: Tracks 3–5 year fundamental compounders, active portfolio weightings, and rebalancing actions gated by Margin of Safety % and ROCE > 20%. Native single-page view.
-          </div>
-        </div>
-
-        <!-- PURPOSE BANNER -->
-        <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-          <div>
-            <div style="font-size:12px; font-weight:700; color:var(--accent); margin-bottom:4px; display:flex; align-items:center; gap:6px;">
-              <span>💡</span> WEALTH ENGINE ALLOCATION TERMINAL
-            </div>
-            <div style="font-size:12px; color:var(--muted); line-height:1.5;">
-              Multi-Bucket Fundamental Compounders (Core, Growth, Quality-On-Sale, Opportunistic). Gated by Margin of Safety & ROCE > 15%.
-            </div>
-          </div>
-          <a href="/wealth" target="_blank" style="padding:10px 18px; background:linear-gradient(135deg,var(--win),#00b884); color:#0b0e14; border-radius:8px; font-weight:800; font-size:13px; text-decoration:none; display:inline-flex; align-items:center; gap:6px; box-shadow:0 4px 14px var(--win);">
-            🚀 Open Full Standalone Wealth Terminal (/wealth)
-          </a>
-        </div>
-
-        <!-- WEALTH KPI METRICS BAR (4 CATEGORY BUCKETS + BUY SIGNALS) -->
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:14px; margin-bottom:20px;">
-          <div class="card wealth-kpi-card" id="wealth-card-all" onclick="filterWealthCategory('ALL')" style="padding:14px; cursor:pointer; transition:all 0.2s; border:1px solid transparent;" title="Click to view all candidates">
-            <div style="font-size:11px; color:var(--muted); font-weight:700; text-transform:uppercase;">Total Candidates</div>
-            <div id="wealth-active-count" style="font-size:22px; font-weight:800; color:var(--text); margin-top:4px;">-</div>
-            <div style="font-size:11px; color:var(--muted); margin-top:2px;">Active Watchlist Universe</div>
-          </div>
-          <div class="card wealth-kpi-card" id="wealth-card-core" onclick="filterWealthCategory('Core')" style="padding:14px; cursor:pointer; transition:all 0.2s; border:1px solid transparent;" title="Click to filter Core Bucket">
-            <div style="font-size:11px; color:#10b981; font-weight:700; text-transform:uppercase;">💎 Core Bucket</div>
-            <div id="wealth-core-count" style="font-size:22px; font-weight:800; color:#10b981; margin-top:4px;">-</div>
-            <div style="font-size:11px; color:var(--muted); margin-top:2px;">Max 15 Stocks (High ROCE)</div>
-          </div>
-          <div class="card wealth-kpi-card" id="wealth-card-growth" onclick="filterWealthCategory('Growth')" style="padding:14px; cursor:pointer; transition:all 0.2s; border:1px solid transparent;" title="Click to filter Growth Bucket">
-            <div style="font-size:11px; color:#3b82f6; font-weight:700; text-transform:uppercase;">🚀 Growth Bucket</div>
-            <div id="wealth-growth-count" style="font-size:22px; font-weight:800; color:#3b82f6; margin-top:4px;">-</div>
-            <div style="font-size:11px; color:var(--muted); margin-top:2px;">Max 10 Stocks (High YoY)</div>
-          </div>
-          <div class="card wealth-kpi-card" id="wealth-card-sale" onclick="filterWealthCategory('Quality-On-Sale')" style="padding:14px; cursor:pointer; transition:all 0.2s; border:1px solid transparent;" title="Click to filter Quality On Sale">
-            <div style="font-size:11px; color:#f59e0b; font-weight:700; text-transform:uppercase;">🏷️ Quality On Sale</div>
-            <div id="wealth-sale-count" style="font-size:22px; font-weight:800; color:#f59e0b; margin-top:4px;">-</div>
-            <div style="font-size:11px; color:var(--muted); margin-top:2px;">Max 5 Stocks (PEG & Value)</div>
-          </div>
-          <div class="card wealth-kpi-card" id="wealth-card-opp" onclick="filterWealthCategory('Opportunistic')" style="padding:14px; cursor:pointer; transition:all 0.2s; border:1px solid transparent;" title="Click to filter Opportunistic Bucket">
-            <div style="font-size:11px; color:#a855f7; font-weight:700; text-transform:uppercase;">⚡ Opportunistic</div>
-            <div id="wealth-opp-count" style="font-size:22px; font-weight:800; color:#a855f7; margin-top:4px;">-</div>
-            <div style="font-size:11px; color:var(--muted); margin-top:2px;">Max 10 Stocks (Turnaround)</div>
-          </div>
-          <div class="card wealth-kpi-card" id="wealth-card-buy" onclick="filterWealthCategory('BUY')" style="padding:14px; cursor:pointer; transition:all 0.2s; border:1px solid rgba(16,185,129,0.4); background:rgba(16,185,129,0.06);" title="Click to load Buy on Signal">
-            <div style="font-size:11px; color:#10b981; font-weight:700; text-transform:uppercase;">🎯 Buy On Signal</div>
-            <div id="wealth-buy-count" style="font-size:22px; font-weight:800; color:#10b981; margin-top:4px;">-</div>
-            <div style="font-size:11px; color:var(--muted); margin-top:2px;">Active Buy Setups</div>
-          </div>
-        </div>
-
-        <!-- WEALTH BUY ALERTS TABLE -->
-        <div class="card" style="padding:20px; margin-bottom:20px;">
-          <div class="card-title" style="display:flex; justify-content:space-between; align-items:center;">
-            <span>⚡ Active Wealth BUY Alerts (Logged Entries)</span>
-            <button class="refresh-btn" onclick="loadWealthEngineTab(true)">🔄 Refresh</button>
-          </div>
-          <div class="tbl-wrap">
-            <table id="tbl-wealth-alerts">
-              <thead>
-                <tr>
-                  <th>Symbol</th>
-                  <th>Chart</th>
-                  <th>Alert Price</th>
-                  <th>Current CMP</th>
-                  <th>Position %</th>
-                  <th>Position Amount</th>
-                  <th>Bucket</th>
-                  <th>FM Score</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody id="wealth-alerts-tbody">
-                <tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">Loading Wealth Buy Alerts...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- WEALTH HOLDINGS & MULTI-CATEGORY WATCHLIST TABLE -->
-        <div class="card" style="padding:20px; margin-bottom:20px;">
-          <div class="card-title" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-            <span>💎 Multi-Category Watchlist Candidates</span>
-            <div style="display:flex; gap:6px; flex-wrap:wrap;" id="wealth-bucket-filter-btns">
-              <button onclick="filterWealthCategory('ALL')" class="btn-sm" style="padding:4px 10px; background:var(--accent); color:#000; font-weight:700; border:none; border-radius:6px; font-size:11px; cursor:pointer;">ALL</button>
-              <button onclick="filterWealthCategory('Core')" class="btn-sm" style="padding:4px 10px; background:var(--card2); color:var(--text); border:1px solid var(--border); border-radius:6px; font-size:11px; cursor:pointer;">💎 Core</button>
-              <button onclick="filterWealthCategory('Growth')" class="btn-sm" style="padding:4px 10px; background:var(--card2); color:var(--text); border:1px solid var(--border); border-radius:6px; font-size:11px; cursor:pointer;">🚀 Growth</button>
-              <button onclick="filterWealthCategory('Quality-On-Sale')" class="btn-sm" style="padding:4px 10px; background:var(--card2); color:var(--text); border:1px solid var(--border); border-radius:6px; font-size:11px; cursor:pointer;">🏷️ Quality On Sale</button>
-              <button onclick="filterWealthCategory('Opportunistic')" class="btn-sm" style="padding:4px 10px; background:var(--card2); color:var(--text); border:1px solid var(--border); border-radius:6px; font-size:11px; cursor:pointer;">⚡ Opportunistic</button>
-              <button onclick="filterWealthCategory('BUY')" class="btn-sm" style="padding:4px 10px; background:rgba(16,185,129,0.2); color:#10b981; border:1px solid rgba(16,185,129,0.4); border-radius:6px; font-weight:700; font-size:11px; cursor:pointer;">🎯 BUY Signals Only</button>
-            </div>
-          </div>
-          <!-- WEALTH SEARCH & SORT BAR -->
-          <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px; background:var(--card2); padding:10px 14px; border-radius:8px; border:1px solid var(--border); align-items:center;">
-            <input type="text" id="wealth-search-input" placeholder="🔍 Search symbol, sector, or bucket..." style="padding:6px 12px; background:var(--bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:12px; min-width:220px; flex:1;" oninput="onWealthSearchOrSortChange()" />
-            <select id="wealth-sort-select" onchange="onWealthSearchOrSortChange()" style="padding:6px 10px; background:var(--bg); border:1px solid var(--border); color:var(--text); border-radius:6px; font-size:12px; font-weight:600;">
-              <option value="DEFAULT">Sort: Default Ranking</option>
-              <option value="FM_DESC">Sort: FM Score (High to Low)</option>
-              <option value="MOM_DESC">Sort: Momentum Score (High to Low)</option>
-              <option value="RS_DESC">Sort: 6M RS (High to Low)</option>
-              <option value="CMP_DESC">Sort: CMP (High to Low)</option>
-              <option value="CMP_ASC">Sort: CMP (Low to High)</option>
-              <option value="SYM_ASC">Sort: Symbol (A to Z)</option>
-            </select>
-            <button class="refresh-btn" onclick="resetWealthSearchAndSort()" style="padding:6px 12px; font-size:11px;">↺ Reset</button>
-          </div>
-          <div class="tbl-wrap">
-            <table id="tbl-wealth-holdings">
-              <thead>
-                <tr>
-                  <th>Symbol</th>
-                  <th>Chart</th>
-                  <th>FM Score</th>
-                  <th>Mom Score</th>
-                  <th>CMP</th>
-                  <th>6M RS</th>
-                  <th>Bucket</th>
-                  <th>Sector</th>
-                  <th>Signal / Action</th>
-                </tr>
-              </thead>
-              <tbody id="wealth-holdings-tbody">
-                <tr><td colspan="9" style="text-align:center; padding:20px; color:var(--muted);">Loading Wealth Watchlist Data...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-      </div>
-
       <!-- TAB 2: WATCHLIST & USER MANAGEMENT -->
       <div id="tab-watchlist-users" class="tab-panel">
 
@@ -3471,78 +3327,7 @@ function changeAdminPage(type, delta) {
           </div>
         </div>
 
-        <!-- 🚀 MULTIBAGGER WATCHLIST (Pushed Below Manual List) -->
-        <div class="card" style="margin-top: 8px; margin-bottom: 20px; overflow: hidden; padding: 0;">
-          <div id="mb-watchlist-header"
-            style="padding: 16px 20px; background: var(--card2); cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid transparent; transition: background 0.2s;"
-            onclick="toggleMbWatchlist()">
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <span style="font-weight: 600; color: var(--text); font-size:16px;">🚀 Multibagger Watchlist</span>
-            </div>
-            <div style="color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 8px;">
-              <span id="mb-watchlist-status">Click to collapse</span>
-              <svg id="mb-watchlist-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2" style="transition: transform 0.2s; transform: rotate(180deg);">
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </div>
-          </div>
-          <div id="mb-watchlist-card-body" style="display: block; padding: 20px; background: var(--bg);">
-            <div style="display: flex; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; align-items: flex-end;">
-              <div style="flex: 1; min-width: 200px;">
-                <label style="display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600;">Status Filter</label>
-                <select id="filter-mb-status" style="width: 100%; background:var(--bg); border:1px solid var(--border); color:var(--text); padding:10px; border-radius:6px; outline:none;" onchange="renderMultibaggerWatchlist()">
-                  <option value="">All Candidates</option>
-                  <option value="WAITING_BUY_ZONE">⏳ Waiting Buy Zone</option>
-                  <option value="ALERT_TRIGGERED">🟢 Alert Triggered</option>
-                  <option value="INVALIDATED">🔴 Invalidated</option>
-                </select>
-              </div>
-              <div>
-                <button onclick="loadMultibaggerWatchlist()" style="padding: 10px 24px; background: var(--amber); color: #000; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.3s;">🔄 Refresh</button>
-              </div>
-            </div>
-            <div style="background: var(--card2); padding: 14px; border-radius: 8px; border-left: 4px solid var(--amber); margin-bottom: 20px; font-size: 13px; color: var(--text);">
-              <div style="margin-bottom: 8px;"><strong>Multibagger Watchlist:</strong> All scanned candidates are shown here. Stocks in <span style="color:var(--green); font-weight:600;">ALERT_TRIGGERED</span> have entered their buy zone and triggered buy alerts. <span style="color:var(--amber); font-weight:600;">WAITING_BUY_ZONE</span> stocks are strong businesses waiting for price to come to fair value. <span style="color:var(--red); font-weight:600;">INVALIDATED</span> stocks failed quality kill gates.</div>
-              <div><strong>Bucket Meanings:</strong> <strong>🚀 Prime Multibagger: Exceptional fundamentals + accelerating momentum | 💎 High Quality: Established compounders with steady growth | 🏆 Good Business: Fundamentally solid but waiting for acceleration | 🟡 Watchlist: Passed basic gates but waiting for technical confirmation</div>
-            </div>
-            <div style="display: flex; gap: 12px; margin-bottom: 16px;">
-              <div class="kpi-card" style="flex:1;">
-                <div class="kpi-value" id="mb-total-count" style="color:var(--text);">-</div>
-                <div class="kpi-label">Total Candidates</div>
-              </div>
-              <div class="kpi-card" style="flex:1;">
-                <div class="kpi-value" id="mb-waiting-count" style="color:var(--amber);">-</div>
-                <div class="kpi-label">Waiting Buy Zone</div>
-              </div>
-              <div class="kpi-card" style="flex:1;">
-                <div class="kpi-value" id="mb-triggered-count" style="color:var(--green);">-</div>
-                <div class="kpi-label">Alert Triggered</div>
-              </div>
-              <div class="kpi-card" style="flex:1;">
-                <div class="kpi-value" id="mb-invalid-count" style="color:var(--red);">-</div>
-                <div class="kpi-label">Invalidated</div>
-              </div>
-            </div>
-            <div class="table-container">
-              <table id="tbl-mb-watchlist">
-                <thead><tr>
-                  <th onclick="sortMbWatchlist('symbol')" style="cursor:pointer" title="Sort by Stock">Stock ↕</th>
-                  <th onclick="sortMbWatchlist('latest_price')" style="cursor:pointer" title="Sort by CMP">CMP ↕</th>
-                  <th onclick="sortMbWatchlist('growth_score')" style="cursor:pointer" title="Sort by Business Quality Score">Quality ↕</th>
-                  <th onclick="sortMbWatchlist('value_score')" style="cursor:pointer" title="Sort by Relative Valuation Score">Valuation ↕</th>
-                  <th onclick="sortMbWatchlist('trend_score')" style="cursor:pointer" title="Sort by Price Momentum">Momentum ↕</th>
-                  <th onclick="sortMbWatchlist('total_score')" style="cursor:pointer" title="Sort by Wealth Score">Score ↕</th>
-                  <th onclick="sortMbWatchlist('bucket')" style="cursor:pointer" title="Sort by Bucket">Bucket ↕</th>
-                  <th>Reason</th>
-                  <th>Act</th>
-                </tr></thead>
-                <tbody id="mb-watchlist-body"></tbody>
-              </table>
-            </div>
-            <div id="mb-watchlist-empty" style="text-align: center; padding: 40px; color: var(--muted); font-size: 14px;">No watchlist data. Run the Multibagger scanner first.</div>
-          </div>
-        </div>
+
 
 
         <!-- NEAR-MISS OPPORTUNITY-COST TRACKER SECTION -->
@@ -3778,22 +3563,7 @@ function changeAdminPage(type, delta) {
                     <input type="checkbox" class="seh-scanner-cb" value="TECHNICAL" onchange="onSehScannerChange()" checked />
                     <span>Technical Scanner (BULL)</span>
                   </label>
-                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
-                    <input type="checkbox" class="seh-scanner-cb" value="MULTIBAGGER" onchange="onSehScannerChange()" checked />
-                    <span>Multibagger Scanner</span>
-                  </label>
-                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
-                    <input type="checkbox" class="seh-scanner-cb" value="WEALTH_ENGINE" onchange="onSehScannerChange()" checked />
-                    <span>Wealth Engine</span>
-                  </label>
-                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
-                    <input type="checkbox" class="seh-scanner-cb" value="WEALTH_EXIT" onchange="onSehScannerChange()" checked />
-                    <span>Wealth Exit Monitor (5M)</span>
-                  </label>
-                  <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
-                    <input type="checkbox" class="seh-scanner-cb" value="MULTIBAGGER_EXIT" onchange="onSehScannerChange()" checked />
-                    <span>Multibagger Exit Monitor</span>
-                  </label>
+
                   <label style="display:flex; align-items:center; gap:8px; font-size:12px; cursor:pointer; padding:3px 4px; border-radius:4px; color:var(--text);">
                     <input type="checkbox" class="seh-scanner-cb" value="PERFORMANCE_TRACKER" onchange="onSehScannerChange()" checked />
                     <span>Alerts Exit Monitor</span>
@@ -4149,7 +3919,6 @@ function changeAdminPage(type, delta) {
         'trades': 'signals-trades',
         'alerts': 'signals-trades',
         'master-alerts': 'master-signals',
-        'wealth': 'wealth-engine',
         'health': 'health-errors',
         'users': 'watchlist-users',
         'watchlist': 'watchlist-users',
@@ -4208,7 +3977,6 @@ function changeAdminPage(type, delta) {
         _watchlistFetchCache = null;
         _watchlistFetchCache_ts = 0;
         if (typeof loadUserWatchlist === 'function') loadUserWatchlist(true);
-        if (typeof loadMultibaggerWatchlist === 'function') loadMultibaggerWatchlist();
         if (typeof searchUsers === 'function') searchUsers();
         if (typeof loadPendingUsers === 'function') loadPendingUsers();
         if (typeof loadManualWatchlist === 'function') loadManualWatchlist(true);
@@ -4232,8 +4000,6 @@ function changeAdminPage(type, delta) {
       } else if (tabId === 'db-explorer') {
         if (typeof fetchDatabaseTablesSummary === 'function') fetchDatabaseTablesSummary();
         if (typeof loadAdvancedOutcomeAnalytics === 'function') loadAdvancedOutcomeAnalytics();
-      } else if (tabId === 'wealth-engine') {
-        if (typeof loadWealthEngineTab === 'function') loadWealthEngineTab(true);
       } else if (tabId === 'confluence-matrix') {
         if (typeof loadConfluenceMatrixTab === 'function') loadConfluenceMatrixTab();
       }
@@ -4890,16 +4656,9 @@ function changeAdminPage(type, delta) {
     const SCANNER_META = {
       'DAILY_BUILDER': { label: 'Daily Builder', desc: 'Universe Watchlist Builder · Daily 05:00 IST' },
       'TECHNICAL': { label: 'Technical Scanner', desc: 'Multi-Pattern Technical · Daily 18:15 IST' },
-      'FUNDAMENTAL_WEALTH_BUY': { label: 'Fundamental Buy Scanner', desc: 'Mandatory Quality + Growth + 20D Breakout · Daily 16:30 IST' },
-      'Wealth Engine': { label: 'Wealth Engine', desc: 'Long-term Wealth Scan · Daily 06:00 & 17:00 IST · Market Hours (09:15–15:30 IST)' },
-      'MULTIBAGGER': { label: 'Multibagger Scanner', desc: 'Daily Fundamental Scan · Daily 17:30 IST' },
       'AI Worker': { label: 'AI Worker', desc: 'Concall & Fundamental Caching · Continuous (Sat-Sun Active)' },
       'Pledge Worker': { label: 'Pledge Worker', desc: 'Promoter Pledge Tracking · Continuous (Daily Refresh)' },
       'PERFORMANCE_TRACKER': { label: 'Alerts Exit Monitor', desc: 'Exit Signals & Trade Lifecycle · Every 5m (09:15–15:30 IST)' },
-      'MULTIBAGGER_EXIT': { label: 'Multibagger Exit Monitor', desc: 'Exit Signals for Multibagger · Every 15m (09:15–15:30 IST)' },
-      'WEALTH_EXIT': { label: 'Wealth Exit Monitor', desc: 'Exit Signals & Trailing Stop · Every 5m (09:15–15:30 IST)' },
-      'WEALTH_EXIT_V1': { label: 'Wealth Exit V1 (Live)', desc: 'Canonical V1 Primary Exit Monitor · Market Hours 09:00–16:00 IST' },
-      'WEALTH_EXIT_V2': { label: 'Wealth Exit V2 (Shadow)', desc: 'Canonical V2 Shadow Research Tracker · Market Hours 09:00–16:00 IST' },
       'BayesianUpdater': { label: 'Bayesian Updater', desc: 'Machine Learning Feedback Loop · Daily 24h' }
     };
 
@@ -5052,14 +4811,7 @@ function getEarningsBadgeHtml(item) {
       const ALLOWED_SCANNERS = [
         'DAILY_BUILDER',
         'TECHNICAL',
-        'FUNDAMENTAL_WEALTH_BUY',
-        'Wealth Engine',
-        'MULTIBAGGER',
         'PERFORMANCE_TRACKER',
-        'MULTIBAGGER_EXIT',
-        'WEALTH_EXIT',
-        'WEALTH_EXIT_V1',
-        'WEALTH_EXIT_V2',
         'Pledge Worker',
         'AI Worker'
       ];
@@ -7237,7 +6989,6 @@ function getEarningsBadgeHtml(item) {
         promises.push(fetchSignalLadder());
       } else if (tab === 'watchlist-users') {
         promises.push(loadUserWatchlist());
-        promises.push(loadMultibaggerWatchlist());
         promises.push(loadPendingUsers());
         promises.push(searchUsers());
         promises.push(loadManualWatchlist());
@@ -8003,7 +7754,6 @@ async function initDashboard() {
         EXIT_HISTORY_CACHE.clear();
         populateFilters(ALL_TRADES);
         await fetchSignalLadder();
-        await loadMultibaggerWatchlist();
         renderTradeTable();
         updateSim();
         await loadCapitalInfo();
@@ -8996,11 +8746,7 @@ async function markNotificationSeen(id, symbol, title, alertId) {
             }
         }
 
-        // 2. Wealth / position closed → switch to Wealth tab natively
-        if (upTitle.includes('WEALTH') || upTitle === 'POSITION CLOSED') {
-            if (typeof switchAdminTab === 'function') switchAdminTab('wealth-engine');
-            return;
-        }
+
 
         // 3. Diagnostics / Scanner Down / System Errors → switch to health tab
         if (upTitle.includes('DOWN') || upTitle.includes('CRASHED') || upTitle.includes('ERROR') || upTitle.includes('DEGRADED') || upTitle.includes('STALE')) {

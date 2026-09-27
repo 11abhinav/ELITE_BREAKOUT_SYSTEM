@@ -4465,14 +4465,7 @@ def get_all_scanner_health() -> list[dict]:
     schedule_map = {
         "DAILY_BUILDER": "Daily 05:00 IST",
         "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan · BULL Regime)",
-        "FUNDAMENTAL_WEALTH_BUY": "Daily 16:30 IST (Fundamentally Strong 20D Breakout)",
-        "Wealth Engine": "Daily 06:00 & 17:00 IST · Market Hours (09:15 - 15:30)",
-        "MULTIBAGGER": "Daily 17:30 IST (Daily Fundamental)",
         "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
-        "MULTIBAGGER_EXIT": "Exit Monitor · Every 15min (09:15 - 15:30 IST)",
-        "WEALTH_EXIT": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
-        "WEALTH_EXIT_V1": "Exit Monitor · Live Primary (09:00 - 16:00 IST)",
-        "WEALTH_EXIT_V2": "Exit Monitor · Shadow Research (09:00 - 16:00 IST)",
         "Pledge Worker": "Continuous (Daily Refresh)",
         "AI Worker": "Continuous (Sat-Sun Active)",
     }
@@ -4641,7 +4634,10 @@ def reset_all_scanners_on_boot() -> None:
                         'BREAKOUT_5M', 'SCAN_5M_BREAKOUT', 'MULTITF_5M', 'MULTI_TF_LADDER',
                         'MULTITF_V3', 'REVERSAL_SCANNER', 'REVERSAL_V2', 'EOD_SCANNER',
                         'SCAN_SHORT_COVERING', 'SCAN_REVERSAL_KEYLEVEL', 'SCAN_ACCUMULATION',
-                        'SCAN_PULLBACK', 'SCAN_EOD'
+                        'SCAN_PULLBACK', 'SCAN_EOD', 'MULTIBAGGER', 'MULTIBAGGER_EXIT',
+                        'Wealth Engine', 'WEALTH_ENGINE', 'WEALTH', 'WEALTH_EXIT',
+                        'WEALTH_EXIT_V1', 'WEALTH_EXIT_V2', 'FUNDAMENTAL_WEALTH_BUY',
+                        'FUNDAMENTAL_BUY', 'FUNDAMENTAL_SCANNER', 'FUNDAMENTAL_BUY_SCANNER'
                     );
                 """)
 
@@ -4650,14 +4646,7 @@ def reset_all_scanners_on_boot() -> None:
                 schedule_map = {
                     "DAILY_BUILDER": "Daily 05:00 IST",
                     "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan · BULL Regime)",
-                    "FUNDAMENTAL_WEALTH_BUY": "Daily 16:30 IST (Fundamentally Strong 20D Breakout)",
-                    "Wealth Engine": "Daily 06:00 & 17:00 IST · Market Hours (09:15 - 15:30)",
-                    "MULTIBAGGER": "Daily 17:30 IST (Daily Fundamental)",
                     "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
-                    "MULTIBAGGER_EXIT": "Exit Monitor · Every 15min (09:15 - 15:30 IST)",
-                    "WEALTH_EXIT": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
-                    "WEALTH_EXIT_V1": "Exit Monitor · Live Primary (09:00 - 16:00 IST)",
-                    "WEALTH_EXIT_V2": "Exit Monitor · Shadow Research (09:00 - 16:00 IST)",
                     "Pledge Worker": "Continuous (Daily Refresh)",
                     "AI Worker": "Continuous (Sat-Sun Active)",
                 }
@@ -4788,6 +4777,18 @@ DECOMMISSIONED_SCANNERS: set[str] = {
     "EOD_SCANNER",
     "SCAN_SHORT_COVERING",
     "SCAN_REVERSAL_KEYLEVEL",
+    "MULTIBAGGER",
+    "MULTIBAGGER_EXIT",
+    "Wealth Engine",
+    "WEALTH_ENGINE",
+    "WEALTH",
+    "WEALTH_EXIT",
+    "WEALTH_EXIT_V1",
+    "WEALTH_EXIT_V2",
+    "FUNDAMENTAL_WEALTH_BUY",
+    "FUNDAMENTAL_BUY",
+    "FUNDAMENTAL_SCANNER",
+    "FUNDAMENTAL_BUY_SCANNER",
 }
 
 def is_scanner_stopped(scanner_name: str) -> bool:
@@ -4905,8 +4906,8 @@ def resume_scanner(scanner_name: str) -> bool:
 
 
 ALL_KNOWN_SCANNERS = [
-    'DAILY_BUILDER', 'TECHNICAL', 'Wealth Engine', 'MULTIBAGGER',
-    'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT',
+    'DAILY_BUILDER', 'TECHNICAL',
+    'PERFORMANCE_TRACKER',
     'Pledge Worker', 'AI Worker', 'BayesianUpdater'
 ]
 

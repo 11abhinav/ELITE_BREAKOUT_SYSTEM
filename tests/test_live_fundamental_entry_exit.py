@@ -665,8 +665,9 @@ def test_zero_broker_routing_proof():
 def test_scanner_health_and_history_logging(exit_test_env):
     """
     Validates that:
-    1. FUNDAMENTAL_WEALTH_BUY, WEALTH_EXIT_V1, and WEALTH_EXIT_V2 are present in scanner health.
-    2. When scanners and monitors run, they update scanner_health and log to scanner_execution_history.
+    1. Production scanners (TECHNICAL, DAILY_BUILDER, PERFORMANCE_TRACKER) are present in scanner health.
+    2. Decommissioned wealth and multibagger scanners are NOT in scanner health.
+    3. Scanners and monitors update scanner_health and log to scanner_execution_history.
     """
     scanner = LiveFundamentalBuyScanner()
     engine = exit_test_env
@@ -675,20 +676,19 @@ def test_scanner_health_and_history_logging(exit_test_env):
 
     health_rows = get_all_scanner_health()
     scanner_names = {r["scanner_name"] for r in health_rows}
-    assert "FUNDAMENTAL_WEALTH_BUY" in scanner_names
-    assert "WEALTH_EXIT_V1" in scanner_names
-    assert "WEALTH_EXIT_V2" in scanner_names
+    assert "TECHNICAL" in scanner_names
+    assert "DAILY_BUILDER" in scanner_names
+    assert "PERFORMANCE_TRACKER" in scanner_names
+    assert "FUNDAMENTAL_WEALTH_BUY" not in scanner_names
+    assert "WEALTH_EXIT_V1" not in scanner_names
+    assert "WEALTH_EXIT_V2" not in scanner_names
+    assert "MULTIBAGGER" not in scanner_names
+    assert "MULTIBAGGER_EXIT" not in scanner_names
 
     # Check individual get_scanner_health query
-    h_buy = get_scanner_health("FUNDAMENTAL_WEALTH_BUY")
-    assert h_buy.get("scanner_name") == "FUNDAMENTAL_WEALTH_BUY"
-    assert h_buy.get("status") in ("IDLE", "OK", "RUNNING", "PAUSED")
-
-    h_v1 = get_scanner_health("WEALTH_EXIT_V1")
-    assert h_v1.get("scanner_name") == "WEALTH_EXIT_V1"
-
-    h_v2 = get_scanner_health("WEALTH_EXIT_V2")
-    assert h_v2.get("scanner_name") == "WEALTH_EXIT_V2"
+    h_tech = get_scanner_health("TECHNICAL")
+    assert h_tech.get("scanner_name") == "TECHNICAL"
+    assert h_tech.get("status") in ("IDLE", "OK", "RUNNING", "PAUSED")
 
     # Run scan_universe and verify execution history and health update
     df = create_ideal_bars(250)
@@ -711,7 +711,7 @@ def test_scanner_health_and_history_logging(exit_test_env):
 def test_decommissioned_scanners_purged_from_health_and_ui():
     """
     Validates that:
-    All 10 decommissioned scanner families are permanently purged from:
+    All decommissioned scanner families are permanently purged from:
     1. get_all_scanner_health()
     2. Database schedule_map
     """
@@ -727,7 +727,14 @@ def test_decommissioned_scanners_purged_from_health_and_ui():
         "REVERSAL",
         "ACCUMULATION",
         "PULLBACK",
-        "EOD"
+        "EOD",
+        "MULTIBAGGER",
+        "MULTIBAGGER_EXIT",
+        "Wealth Engine",
+        "WEALTH_EXIT",
+        "WEALTH_EXIT_V1",
+        "WEALTH_EXIT_V2",
+        "FUNDAMENTAL_WEALTH_BUY"
     ]
 
     for d in decommissioned_families:

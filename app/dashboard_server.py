@@ -4240,20 +4240,8 @@ def api_pledge_worker_mode():
 @app.route("/wealth")
 @login_required
 def route_wealth():
-    """
-    [RULE 67 CHANGE-RATIONALE]:
-    Serves the dedicated wealth_dashboard.html page directly with ETag 304 and gzip compression.
-    """
-    WEALTH_DASHBOARD_PATH = get_html_path("wealth_dashboard.html")
-    resp = serve_cached_html(WEALTH_DASHBOARD_PATH, extra_headers={'X-Frame-Options': 'SAMEORIGIN'})
-    if resp is not None:
-        return resp
-    return Response(
-        "<h2 style='font-family:monospace;color:#00e5a0;background:#0b0e14;margin:0;padding:40px'>"
-        "⚠️ wealth_dashboard.html not found.</h2>",
-        mimetype="text/html",
-        status=404
-    )
+    """Redirect decommissioned wealth page to admin dashboard."""
+    return redirect("/admin", code=302)
 
 _SCANNER_STATUS_CACHE = {"ts": 0, "payload": None}
 

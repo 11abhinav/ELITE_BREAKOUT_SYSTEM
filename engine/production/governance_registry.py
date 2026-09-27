@@ -72,7 +72,19 @@ DECOMMISSIONED_SCANNERS: Set[str] = {
     "SCAN_ACCUMULATION",
     "SCAN_PULLBACK",
     "SCAN_EOD",
-    "EOD_SCANNER"
+    "EOD_SCANNER",
+    "MULTIBAGGER",
+    "MULTIBAGGER_EXIT",
+    "Wealth Engine",
+    "WEALTH_ENGINE",
+    "WEALTH",
+    "WEALTH_EXIT",
+    "WEALTH_EXIT_V1",
+    "WEALTH_EXIT_V2",
+    "FUNDAMENTAL_WEALTH_BUY",
+    "FUNDAMENTAL_BUY",
+    "FUNDAMENTAL_SCANNER",
+    "FUNDAMENTAL_BUY_SCANNER"
 }
 
 # 3. Scanners Under Certification (Zero Production Alerts Permitted)
@@ -256,7 +268,8 @@ def get_scanner_health_regime_info(scanner_name: Optional[str], current_macro_re
             "fail_closed_note": "Supported regime ≠ currently production active. Live alerts fail-closed (0 alerts)."
         }
     
-    if norm in DECOMMISSIONED_SCANNERS:
+    raw = (scanner_name or "").strip().upper()
+    if norm in DECOMMISSIONED_SCANNERS or raw in DECOMMISSIONED_SCANNERS or (scanner_name and scanner_name in DECOMMISSIONED_SCANNERS):
         disp = "Decommissioned — permanently silenced."
         return {
             "scanner": norm,
@@ -351,6 +364,10 @@ def normalize_scanner_name(scanner_name: Optional[str]) -> str:
         return "TECHNICAL"
     if "EOD" in s:
         return "EOD"
+    if "MULTIBAGGER" in s:
+        return "MULTIBAGGER"
+    if "WEALTH" in s:
+        return "WEALTH"
     return s
 
 
