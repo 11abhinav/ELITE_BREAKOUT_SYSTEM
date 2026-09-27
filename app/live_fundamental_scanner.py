@@ -105,11 +105,28 @@ class ApprovedUniverseRegistry:
 
     def _load_universe(self):
         if os.path.exists(CLEAN_UNIVERSE_JSON):
-            with open(CLEAN_UNIVERSE_JSON, "r") as f:
-                self.clean_symbols = set(json.load(f).get("symbols", []))
+            try:
+                with open(CLEAN_UNIVERSE_JSON, "r") as f:
+                    self.clean_symbols = set(json.load(f).get("symbols", []))
+            except Exception as e:
+                logger.warning(f"Failed to load clean universe JSON: {e}")
+
         if os.path.exists(QUARANTINE_JSON):
-            with open(QUARANTINE_JSON, "r") as f:
-                self.quarantined_symbols = set(json.load(f).get("symbols", []))
+            try:
+                with open(QUARANTINE_JSON, "r") as f:
+                    self.quarantined_symbols = set(json.load(f).get("symbols", []))
+            except Exception as e:
+                logger.warning(f"Failed to load quarantine JSON: {e}")
+
+        # Fallback if clean_symbols is empty: populate from 1D history parquets
+        if not self.clean_symbols:
+            history_dir = os.path.join(DATA_DIR, "history", "1d")
+            if os.path.exists(history_dir):
+                files = glob.glob(os.path.join(history_dir, "*.parquet"))
+                self.clean_symbols = {
+                    os.path.basename(p).replace(".parquet", "").upper()
+                    for p in files if not os.path.basename(p).startswith("^") and "NIFTY" not in os.path.basename(p).upper()
+                } - self.quarantined_symbols
 
     @property
     def master_symbols(self) -> set:
