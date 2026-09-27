@@ -399,7 +399,7 @@ def run_technical_intraday_pipeline(
         status_msg = f"Completed 15M scan over {len(watchlist)} symbols in {elapsed_sec}s. Alerts: {alerts_saved}"
         logger.info(f"✅ [TECHNICAL INTRADAY 15M] {status_msg}")
         
-        upsert_scanner_health("TECHNICAL_INTRADAY", "OK", status_msg)
+        upsert_scanner_health("TECHNICAL_INTRADAY", status="OK", outcome=status_msg)
         if real_run_ctx:
             real_run_ctx.set_alerts(alerts_saved)
             complete_scanner_execution_run(real_run_ctx)

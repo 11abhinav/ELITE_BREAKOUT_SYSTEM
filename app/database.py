@@ -4220,6 +4220,26 @@ def upsert_scanner_health(
         if isinstance(duration_seconds, dict):
             duration_seconds = duration_seconds.get("duration_seconds", 0.0)
 
+        # Defensive check on last_success:
+        # If a non-datetime string or status message was passed to last_success (e.g. as 3rd positional argument),
+        # safely redirect it to outcome/error_msg and sanitize last_success.
+        if last_success is not None:
+            ls_str = str(last_success).strip()
+            is_valid_date = False
+            if len(ls_str) <= 35 and any(c.isdigit() for c in ls_str):
+                try:
+                    from dateutil.parser import parse as parse_date
+                    parse_date(ls_str)
+                    is_valid_date = True
+                except Exception:
+                    is_valid_date = False
+            if not is_valid_date:
+                if status in ('OK', None) and outcome is None:
+                    outcome = ls_str
+                elif status == 'DOWN' and error_msg is None:
+                    error_msg = ls_str
+                last_success = now_str if status in ('OK', None) else None
+
         # Normalize and sanitize status values to match DB CHECK constraint
         if status is not None:
             status = str(status).upper()
@@ -6788,98 +6808,112 @@ def restore_history_bundle_from_db(interval: str = "1d") -> bool:
 
 
 def save_df_to_table(table_name: str, df: pd.DataFrame):
-    """Saves a Pandas DataFrame to a PostgreSQL table dynamically."""
+    """Saves a Pandas DataFrame to a PostgreSQL table dynamically with connection retry."""
     if df.empty:
         return
     init_db()
     today_str = datetime.now(IST).strftime("%Y-%m-%d")
 
-    with get_connection() as conn:
-        with conn.cursor() as cur:
-            # 1. Fetch destination table columns
-            cur.execute("""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_name = %s
-            """, (table_name.lower(),))
-            rows = cur.fetchall()
-            db_cols = {row[0].lower(): row[0] for row in rows}
+    for attempt in range(2):
+        try:
+            with get_connection() as conn:
+                with conn.cursor() as cur:
+                    # 1. Fetch destination table columns
+                    cur.execute("""
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_name = %s
+                    """, (table_name.lower(),))
+                    rows = cur.fetchall()
+                    db_cols = {row[0].lower(): row[0] for row in rows}
 
-            if not db_cols:
-                logger.warning(f"⚠️ Table '{table_name}' does not exist in DB or has no columns.")
-                return
+                    if not db_cols:
+                        logger.warning(f"⚠️ Table '{table_name}' does not exist in DB or has no columns.")
+                        return
 
-            # 2. Identify date column
-            # [VERSION: DB_PATCH_v1.2] Add 'build_date' as first candidate to support V2 tables daily_watchlist_v2 / daily_excluded_watchlist_v2 idempotency
-            date_col = None
-            for candidate in ["build_date", "date", "run_date", "created_at", "added_at", "updated_at"]:
-                if candidate in db_cols:
-                    date_col = db_cols[candidate]
-                    break
+                    # 2. Identify date column
+                    # [VERSION: DB_PATCH_v1.2] Add 'build_date' as first candidate to support V2 tables daily_watchlist_v2 / daily_excluded_watchlist_v2 idempotency
+                    date_col = None
+                    for candidate in ["build_date", "date", "run_date", "created_at", "added_at", "updated_at"]:
+                        if candidate in db_cols:
+                            date_col = db_cols[candidate]
+                            break
 
-            # 3. If there is old date data, delete it first
-            if date_col:
-                date_col_safe = date_col.replace("%", "%%")
-                table_name_safe = table_name.replace("%", "%%")
-                # [VERSION: DB_PATCH_v1.4] [RULE 67 CHANGE-RATIONALE]
-                # Delete NULL dates, exact date matches, and timestamp prefix matches (e.g. '2026-08-29%')
-                # to ensure idempotency across date/timestamp column formats.
-                cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" IS NULL')
-                cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" = %s', (today_str,))
-                try:
-                    cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}"::text LIKE %s', (f"{today_str}%",))
-                except Exception:
-                    pass
-            else:
-                cur.execute(f"TRUNCATE TABLE {table_name}")
+                    # 3. If there is old date data, delete it first
+                    if date_col:
+                        date_col_safe = date_col.replace("%", "%%")
+                        table_name_safe = table_name.replace("%", "%%")
+                        # [VERSION: DB_PATCH_v1.4] [RULE 67 CHANGE-RATIONALE]
+                        # Delete NULL dates, exact date matches, and timestamp prefix matches (e.g. '2026-08-29%')
+                        # to ensure idempotency across date/timestamp column formats.
+                        cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" IS NULL')
+                        cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}" = %s', (today_str,))
+                        try:
+                            cur.execute(f'DELETE FROM {table_name_safe} WHERE "{date_col_safe}"::text LIKE %s', (f"{today_str}%",))
+                        except Exception:
+                            pass
+                    else:
+                        cur.execute(f"TRUNCATE TABLE {table_name}")
 
-            # 4. Map DataFrame columns to DB columns (case-insensitive)
-            df_cols_mapped = {}
-            for col in df.columns:
-                col_lower = col.lower().replace(" ", "_").replace("%", "pct").replace("yoy", "yoy").replace("qoq", "qoq")
-                if col_lower in db_cols:
-                    df_cols_mapped[col] = db_cols[col_lower]
-                elif col.lower() in db_cols:
-                    df_cols_mapped[col] = db_cols[col.lower()]
+                    # 4. Map DataFrame columns to DB columns (case-insensitive)
+                    df_cols_mapped = {}
+                    for col in df.columns:
+                        col_lower = col.lower().replace(" ", "_").replace("%", "pct").replace("yoy", "yoy").replace("qoq", "qoq")
+                        if col_lower in db_cols:
+                            df_cols_mapped[col] = db_cols[col_lower]
+                        elif col.lower() in db_cols:
+                            df_cols_mapped[col] = db_cols[col.lower()]
 
-            insert_cols = list(df_cols_mapped.values())
-            df_source_cols = list(df_cols_mapped.keys())
+                    insert_cols = list(df_cols_mapped.values())
+                    df_source_cols = list(df_cols_mapped.keys())
 
-            # If there's a date column and it's not mapped from DataFrame, add it to insert
-            add_date_val = False
-            if date_col and date_col not in insert_cols:
-                insert_cols.append(date_col)
-                add_date_val = True
+                    # If there's a date column and it's not mapped from DataFrame, add it to insert
+                    add_date_val = False
+                    if date_col and date_col not in insert_cols:
+                        insert_cols.append(date_col)
+                        add_date_val = True
 
-            if not insert_cols:
-                logger.warning(f"⚠️ No matching columns found between DataFrame and table '{table_name}'.")
-                return
+                    if not insert_cols:
+                        logger.warning(f"⚠️ No matching columns found between DataFrame and table '{table_name}'.")
+                        return
 
-            # 5. Insert rows in batch with ON CONFLICT DO NOTHING for absolute idempotency & speed
-            col_list_str = ", ".join(f'"{c.replace("%", "%%")}"' for c in insert_cols)
-            table_name_safe = table_name.replace("%", "%%")
-            
-            data_tuples = []
-            for row_vals in df[df_source_cols].itertuples(index=False, name=None):
-                row_list = [None if pd.isna(v) else v for v in row_vals]
-                if add_date_val:
-                    row_list.append(today_str)
-                data_tuples.append(tuple(row_list))
+                    # 5. Insert rows in batch with ON CONFLICT DO NOTHING for absolute idempotency & speed
+                    col_list_str = ", ".join(f'"{c.replace("%", "%%")}"' for c in insert_cols)
+                    table_name_safe = table_name.replace("%", "%%")
+                    
+                    data_tuples = []
+                    for row_vals in df[df_source_cols].itertuples(index=False, name=None):
+                        row_list = [None if pd.isna(v) else v for v in row_vals]
+                        if add_date_val:
+                            row_list.append(today_str)
+                        data_tuples.append(tuple(row_list))
 
-            if data_tuples:
-                try:
-                    from psycopg2.extras import execute_values
-                    insert_query = f"INSERT INTO {table_name_safe} ({col_list_str}) VALUES %s ON CONFLICT DO NOTHING"
-                    execute_values(cur, insert_query, data_tuples, page_size=1000)
-                except Exception:
-                    # Fallback to standard execute if execute_values is unavailable
-                    val_placeholders = ", ".join(["%s"] * len(insert_cols))
-                    fallback_query = f"INSERT INTO {table_name_safe} ({col_list_str}) VALUES ({val_placeholders}) ON CONFLICT DO NOTHING"
-                    for vals in data_tuples:
-                        cur.execute(fallback_query, vals)
+                    if data_tuples:
+                        try:
+                            from psycopg2.extras import execute_values
+                            insert_query = f"INSERT INTO {table_name_safe} ({col_list_str}) VALUES %s ON CONFLICT DO NOTHING"
+                            execute_values(cur, insert_query, data_tuples, page_size=1000)
+                        except ImportError:
+                            # Fallback to standard execute only if execute_values is missing
+                            val_placeholders = ", ".join(["%s"] * len(insert_cols))
+                            fallback_query = f"INSERT INTO {table_name_safe} ({col_list_str}) VALUES ({val_placeholders}) ON CONFLICT DO NOTHING"
+                            for vals in data_tuples:
+                                cur.execute(fallback_query, vals)
+                        except Exception as insert_err:
+                            conn.rollback()
+                            raise insert_err
 
-        conn.commit()
-    logger.info(f"✅ Saved {len(df)} rows to table '{table_name}' in database.")
+                conn.commit()
+            logger.info(f"✅ Saved {len(df)} rows to table '{table_name}' in database.")
+            return
+        except Exception as e:
+            err_str = str(e).lower()
+            if attempt == 0 and ("closed" in err_str or "terminated" in err_str or "connection" in err_str or "broken" in err_str):
+                logger.warning(f"⚠️ [save_df_to_table] Connection dropped for '{table_name}', retrying with fresh connection: {e}")
+                time.sleep(1)
+                continue
+            logger.error(f"❌ [save_df_to_table] Failed to save {len(df)} rows to '{table_name}': {e}")
+            raise
 
 def check_data_exists_for_today() -> bool:
     """Checks if Daily Builder universe data exists for today's IST date across parquet cache or DB tables."""
@@ -10670,7 +10704,9 @@ def start_scanner_execution_run(
     retry_attempt: int = 0,
     total_stocks: int = 0,
     initial_status: str = "RUNNING",
-    allow_concurrent: bool = False
+    allow_concurrent: bool = False,
+    passed_ctx: Any = None,
+    **kwargs
 ):
     """Creates a new record in scanner_execution_history and returns a ScannerRunContext.
     
@@ -10678,6 +10714,9 @@ def start_scanner_execution_run(
     If an instance of scanner_name is already RUNNING or QUEUED, a second run is rejected
     with a RuntimeError("Scanner '<scanner_name>' is already actively running!").
     """
+    if passed_ctx is not None:
+        return passed_ctx
+
     status_upper = (initial_status or "RUNNING").upper()
     is_skip_record = status_upper in ("SKIPPED_DUPLICATE", "SKIPPED")
     if not allow_concurrent and not is_skip_record and is_scanner_actively_running(scanner_name):
@@ -10738,6 +10777,8 @@ def start_scanner_execution_run(
             pass
 
     return ctx
+
+create_scanner_execution_run = start_scanner_execution_run
 
 
 def update_scanner_run_heartbeat(run_id: str):

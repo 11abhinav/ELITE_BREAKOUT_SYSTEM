@@ -580,7 +580,7 @@ class UpstoxProvider(ProviderInterface):
         }
 
         results = {}
-        chunk_size = 200
+        chunk_size = 50
         for i in range(0, len(symbols), chunk_size):
             chunk = symbols[i:i + chunk_size]
 
@@ -598,7 +598,7 @@ class UpstoxProvider(ProviderInterface):
             try:
                 # [PHASE1_DIAG] Stage B: HTTP Network Round-Trip
                 _t_http = time.perf_counter()
-                res = _upstox_session.get(url, headers=headers, timeout=10)
+                res = _upstox_session.get(url, headers=headers, timeout=25)
                 http_ms = (time.perf_counter() - _t_http) * 1000
                 payload_kb = len(res.content) / 1024 if res.content else 0
 
@@ -680,6 +680,28 @@ class UpstoxProvider(ProviderInterface):
                     f"   Total pipeline   : {resolution_ms + http_ms + json_ms + merge_ms:.1f}ms"
                 )
 
+            except requests.Timeout as e:
+                logger.warning(f"⚠️ [Upstox] Timeout fetching quote chunk of {len(chunk)} symbols ({e}) — recovering with sub-chunks of 20")
+                sub_size = 20
+                for j in range(0, len(chunk), sub_size):
+                    sub_chunk = chunk[j:j + sub_size]
+                    sub_keys = [urllib.parse.quote(self._get_instrument_key(s)) for s in sub_chunk if s and self._get_instrument_key(s)]
+                    if not sub_keys:
+                        continue
+                    try:
+                        sub_url = f"https://api.upstox.com/v2/market-quote/quotes?instrument_key={','.join(sub_keys)}"
+                        sub_res = _upstox_session.get(sub_url, headers=headers, timeout=15)
+                        if sub_res.status_code == 200 and sub_res.content:
+                            sub_json = sub_res.json().get("data", {})
+                            for k, q in sub_json.items():
+                                results[k] = q
+                                results[k.replace(":", "|")] = q
+                                clean_s = k.split(":")[-1].split("|")[-1]
+                                results[clean_s] = q
+                                if isinstance(q, dict) and q.get("symbol"):
+                                    results[str(q["symbol"]).upper()] = q
+                    except Exception as sub_e:
+                        logger.warning(f"⚠️ [Upstox] Sub-chunk fallback failed for {len(sub_chunk)} symbols: {sub_e}")
             except requests.RequestException as e:
                 logger.error(f"Network error fetching live quote batch: {e}", exc_info=True)
             except Exception as e:
