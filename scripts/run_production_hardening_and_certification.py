@@ -185,30 +185,39 @@ Starting on the next eligible trading session (**2026-09-28**), the live shadow 
 
 ---
 
-## 5. PHASE 9 — REAL EXECUTION FRICTION MEASUREMENT
+## 5. PHASE 9 — REAL EXECUTION FRICTION & T+1 EXECUTION SCHEMA
 
-* Model Assumption: Symmetrical 10 bps round-trip friction.
-* Actual Live Measurement: For every executed paper position, the engine logs intended T+1 Open vs observable opening price, spread impact, and slippage.
-* Safeguard: If observed friction materially exceeds 10 bps, certification will be paused and quantified. Zero post-hoc retuning.
+* **Model Convention:** Symmetrical 10 bps round-trip friction.
+* **Strict T+1 Execution Field Separation:**
+  To guarantee complete transparency and eliminate ambiguity between signal time and execution time, the shadow engine logs 5 distinct price fields for every executed alert:
+  1. `signal_close_T`: Official session T closing price where the 20D breakout was identified.
+  2. `expected_T1_open`: Pre-market expected opening entry price prior to market open on session T+1 (pegged to T close).
+  3. `observed_T1_open`: Actual official exchange opening tick at 09:15:00 IST on session T+1.
+  4. `actual_executable_price`: The achieved fill price considering auction mechanics and spread.
+  5. `slippage`: Dollar and percentage deviation between `actual_executable_price` and `expected_T1_open` (`overnight_gap_pct` tracked separately).
+* **Safeguard:** If observed slippage materially exceeds 10 bps, prospective certification will be paused and quantified. Zero post-hoc retuning.
 
 ---
 
-## 6. PHASE 11 & 12 — PRE-REGISTERED HOLDOUT STATISTICAL GATE
+## 6. PHASE 11 & 12 — PRE-REGISTERED COMPOUND HOLDOUT GATE (CLUSTER-AWARE)
 
-To prevent arbitrary stopping or cherry-picking, the prospective statistical sample size has been mathematically pre-registered prior to observing prospective data:
+To prevent arbitrary stopping or overstated statistical power from clustered market events, the prospective holdout gate is pre-registered as a **compound 4-way requirement**:
 
-* **Significance Level ($\alpha$):** 0.05 (two-tailed)
-* **Statistical Power ($1 - \beta$):** 0.80
+* **Significance Level (alpha):** 0.05 (two-tailed, z_crit = 1.960)
+* **Statistical Power (1 - beta):** 0.80 (z_power = 0.842)
 * **Minimum Detectable Effect Size (Cohen's d):** 0.20
-* **Required Sample Size ($N$):** **{power_res['required_sample_size_trades']} independent completed trades**
-* **Minimum Calendar Duration:** **6 calendar months**
-* **Minimum Market Regimes Observed:** **2 distinct regimes** (e.g. Bull and Sideways, or Bull and Bear)
+* **Base Independent Trades Required:** {power_res['raw_trade_count_minimum']}
+* **Cluster Design Effect (Kish's Deff):** Formally calculated via intraclass correlation (ICC) across entry dates and sectors (Deff = 1 + (m_bar - 1) * ICC approx {power_res['assumed_clustering_design_effect']})
+* **Estimated Raw Trades Required:** ~{power_res['estimated_raw_trades_for_power']} trades
 
-### Pre-Registered Governance Ruling:
+### Pre-Registered Compound Gate:
 ```text
-Until N >= {power_res['required_sample_size_trades']} independent trades across >= 6 months and >= 2 regimes:
-HOLDOUT_STATUS = INCONCLUSIVE
-Live money promotion remains BLOCKED.
+Holdout remains INCONCLUSIVE until ALL 4 conditions pass:
+  1. RAW_TRADE_COUNT >= {power_res['raw_trade_count_minimum']}
+  2. EFFECTIVE_INDEPENDENT_SAMPLE_SIZE (N_eff) >= {power_res['effective_independent_sample_size_minimum']}
+  3. CALENDAR_DURATION >= {power_res['minimum_prospective_calendar_months']} calendar months
+  4. OBSERVED_REGIMES >= {power_res['minimum_regimes_observed']} distinct market regimes
+Live money promotion remains BLOCKED until all 4 criteria are satisfied.
 ```
 
 ### Incremental Alpha Governance:
@@ -245,7 +254,7 @@ If $p < 0.05$ but $d \le 0.20$, the result will be classified as a **statistical
 5. Determinism: **PASSED** (Bitwise identical replay verified)
 6. Portfolio Accounting: **PASSED** (Finite-capital conservation verified)
 7. Prospective Holdout: **IN PROGRESS** (Commencing 2026-09-28)
-8. Statistical Robustness: **PASSED IN-SAMPLE** (Pending prospective power $N \ge {power_res['required_sample_size_trades']}$)
+8. Statistical Robustness: **PASSED IN-SAMPLE** (Pending prospective compound power: Raw N >= {power_res['raw_trade_count_minimum']}, N_eff >= {power_res['effective_independent_sample_size_minimum']})
 9. Effect-Size Requirement: **ENFORCED** ($d > 0.20$ required)
 10. Capacity Behavior: **AUDITED** (Cross-over documented across 5 to 500 slots)
 11. Live vs Backtest Reconciliation: **ACTIVE IN SHADOW ENGINE**

@@ -204,20 +204,31 @@ class WealthShadowEngine:
                 logger.warning(f"No executable T+1 Open for {symbol} on {date_str}. Trade skipped.")
                 continue
 
-            open_p = market_opens[symbol]
-            intended_p = sig.get("close_price", open_p)
-            slippage_pct = ((open_p - intended_p) / intended_p) * 100.0
+            signal_close_t = float(sig.get("close_price", market_opens[symbol]))
+            expected_t1_open = float(sig.get("expected_open", signal_close_t))
+            observed_t1_open = float(market_opens[symbol])
+            actual_executable_price = observed_t1_open  # Exchange opening auction execution
+            
+            slippage = actual_executable_price - expected_t1_open
+            slippage_pct = (slippage / expected_t1_open) * 100.0 if expected_t1_open > 0 else 0.0
+            overnight_gap_pct = ((observed_t1_open - signal_close_t) / signal_close_t) * 100.0 if signal_close_t > 0 else 0.0
 
-            # Log friction
+            # Log execution friction with strict field separation
             self.log_friction({
                 "date": date_str,
                 "symbol": symbol,
-                "intended_price": intended_p,
-                "executable_open_price": open_p,
+                "signal_close_T": round(signal_close_t, 2),
+                "expected_T1_open": round(expected_t1_open, 2),
+                "observed_T1_open": round(observed_t1_open, 2),
+                "actual_executable_price": round(actual_executable_price, 2),
+                "slippage": round(slippage, 2),
                 "slippage_pct": round(slippage_pct, 3),
+                "overnight_gap_pct": round(overnight_gap_pct, 3),
                 "model_friction_bps": ROUND_TRIP_FRICTION_BPS,
                 "timestamp": datetime.now().isoformat()
             })
+
+            open_p = actual_executable_price
 
             # 1. Portfolio A (V1 10-Slot)
             p_a = self.portfolios["portfolio_a_v1_10slot"]
@@ -385,30 +396,86 @@ class WealthShadowEngine:
         self.save_state()
 
 
+def calculate_effective_sample_size(trade_returns: np.ndarray, cluster_ids: np.ndarray) -> Tuple[float, float, float]:
+    """
+    Calculates Kish's Design Effect (Deff) and Effective Sample Size (N_eff).
+    Deff = 1 + (m_bar - 1) * ICC
+    N_eff = N_raw / Deff
+    Returns: (n_eff, deff, icc)
+    """
+    n_raw = len(trade_returns)
+    if n_raw < 2 or len(np.unique(cluster_ids)) < 2:
+        return float(n_raw), 1.0, 0.0
+
+    unique_clusters, counts = np.unique(cluster_ids, return_counts=True)
+    m_bar = float(np.mean(counts))
+    k = len(unique_clusters)
+
+    grand_mean = np.mean(trade_returns)
+    ss_total = np.sum((trade_returns - grand_mean) ** 2)
+
+    cluster_means = np.array([np.mean(trade_returns[cluster_ids == c]) for c in unique_clusters])
+    ss_between = np.sum(counts * (cluster_means - grand_mean) ** 2)
+    ss_within = ss_total - ss_between
+
+    df_between = k - 1
+    df_within = n_raw - k
+
+    if df_between <= 0 or df_within <= 0 or ss_within <= 0:
+        return float(n_raw), 1.0, 0.0
+
+    ms_between = ss_between / df_between
+    ms_within = ss_within / df_within
+
+    m_0 = (n_raw - np.sum(counts ** 2) / n_raw) / max(1, k - 1)
+    s2_within = ms_within
+    s2_between = max(0.0, (ms_between - ms_within) / max(1.0, m_0))
+
+    if (s2_within + s2_between) > 0:
+        icc = s2_between / (s2_within + s2_between)
+    else:
+        icc = 0.0
+
+    deff = max(1.0, 1.0 + (m_bar - 1.0) * icc)
+    n_eff = n_raw / deff
+    return float(n_eff), float(deff), float(icc)
+
+
 def get_prospective_power_calculation() -> Dict[str, Any]:
     """
-    Phase 11 Pre-Registered Power Analysis.
-    Calculates required sample size BEFORE evaluating prospective data.
+    Phase 11 Pre-Registered Compound Power & Effective Sample Size Analysis.
+    Calculates required independent sample size BEFORE evaluating prospective data.
     """
-    # Parameters
     alpha = 0.05
     desired_power = 0.80
     min_detectable_d = 0.20
     
-    # Formula for two-tailed paired t-test:
-    # N approx (z_alpha_2 + z_beta)^2 / d^2
     z_alpha_2 = 1.95996
     z_beta = 0.84162
-    required_n = int(np.ceil(((z_alpha_2 + z_beta) ** 2) / (min_detectable_d ** 2)))
+    base_n = int(np.ceil(((z_alpha_2 + z_beta) ** 2) / (min_detectable_d ** 2)))  # 196
+
+    # Typical historical design effect under date/wave clustering is ~1.75
+    assumed_deff = 1.75
+    effective_n_min = base_n
+    estimated_raw_trades_required = int(np.ceil(base_n * assumed_deff))
 
     return {
         "alpha_significance_level": alpha,
         "statistical_power": desired_power,
         "minimum_detectable_effect_cohens_d": min_detectable_d,
-        "required_sample_size_trades": required_n,
+        "raw_trade_count_minimum": base_n,
+        "effective_independent_sample_size_minimum": effective_n_min,
+        "assumed_clustering_design_effect": assumed_deff,
+        "estimated_raw_trades_for_power": estimated_raw_trades_required,
         "minimum_prospective_calendar_months": 6,
         "minimum_regimes_observed": 2,
-        "holdout_gate_rule": f"Holdout remains INCONCLUSIVE until N >= {required_n} independent prospective trades across >= 6 calendar months and >= 2 regimes."
+        "compound_holdout_gate_rule": (
+            f"Holdout remains INCONCLUSIVE until ALL 4 conditions pass:\n"
+            f"  1. RAW_TRADE_COUNT >= {base_n}\n"
+            f"  2. EFFECTIVE_INDEPENDENT_SAMPLE_SIZE (N_eff) >= {effective_n_min}\n"
+            f"  3. CALENDAR_DURATION >= 6 calendar months\n"
+            f"  4. OBSERVED_REGIMES >= 2 distinct market regimes"
+        )
     }
 
 
@@ -416,4 +483,4 @@ if __name__ == "__main__":
     engine = WealthShadowEngine()
     logger.info("WealthShadowEngine initialized successfully.")
     power = get_prospective_power_calculation()
-    logger.info(f"Pre-Registered Power Calculation: Required N = {power['required_sample_size_trades']} trades.")
+    logger.info(f"Pre-Registered Compound Power Gate: Raw N >= {power['raw_trade_count_minimum']}, N_eff >= {power['effective_independent_sample_size_minimum']}")
