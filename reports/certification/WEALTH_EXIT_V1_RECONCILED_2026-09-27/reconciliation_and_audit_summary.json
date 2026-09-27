@@ -1,0 +1,52 @@
+{
+  "corporate_action_reconciliation": {
+    "total_universe_symbols": 927,
+    "certified_clean_symbols": 886,
+    "excluded_anomaly_symbols": 41,
+    "clean_trades_evaluated": 81653,
+    "purged_anomaly_trades": 3928
+  },
+  "clean_portfolio_simulation": {
+    "ARM_A": {
+      "initial_capital": 1000000.0,
+      "final_wealth": 1015444.72,
+      "total_profit": 15444.72,
+      "total_return_pct": 1.54,
+      "cagr_pct": 0.16,
+      "invested_trades": 5072,
+      "uninvested_trades": 76581,
+      "utilization_pct": 6.21
+    },
+    "ARM_B": {
+      "initial_capital": 1000000.0,
+      "final_wealth": 11978205.17,
+      "total_profit": 10978205.17,
+      "total_return_pct": 1097.82,
+      "cagr_pct": 28.74,
+      "invested_trades": 572,
+      "uninvested_trades": 81081,
+      "utilization_pct": 0.7
+    },
+    "ARM_C": {
+      "initial_capital": 1000000.0,
+      "final_wealth": 9732403.03,
+      "total_profit": 8732403.03,
+      "total_return_pct": 873.24,
+      "cagr_pct": 26.05,
+      "invested_trades": 18,
+      "uninvested_trades": 81635,
+      "utilization_pct": 0.02
+    }
+  },
+  "clean_exit_distribution": {
+    "CORRECT": 48.0,
+    "EARLY": 30.6,
+    "NEUTRAL": 21.4
+  },
+  "early_exit_forensic_insights": {
+    "primary_early_driver": "Relative Return <= -5% accounted for 70.3% of premature exits.",
+    "structural_break_type": "Close Below Prior 20D Low accounted for 64.8% of premature exits.",
+    "post_exit_60d_upside_sacrificed_in_early_exits": 33.33,
+    "post_exit_60d_downside_avoided_in_correct_exits": -19.41
+  }
+}

@@ -1,0 +1,4 @@
+macro_regime,n_trades,arm_a_mean_ret,arm_b_mean_ret,arm_c_mean_ret,delta_b_minus_a,arm_b_mean_hold_days
+BEAR,17500,-0.05,6.12,325.83,6.17,36.3
+BULL,41552,0.34,8.27,255.28,7.93,43.1
+SIDEWAYS,22601,0.33,5.22,204.33,4.89,38.0

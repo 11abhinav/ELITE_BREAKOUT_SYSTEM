@@ -1,0 +1,6 @@
+horizon_days,all_mean_fwd_ret,all_mean_max_dd,all_mean_max_gain,correct_mean_fwd_ret,correct_mean_max_dd,early_mean_fwd_ret,early_mean_max_gain
+5D,0.67,-4.91,5.62,-1.65,-6.21,4.09,8.22
+20D,2.49,-8.25,11.54,-4.57,-11.73,13.69,20.78
+60D,7.57,-12.35,22.74,-8.33,-19.41,33.33,47.6
+120D,15.23,-16.17,37.08,-3.21,-24.82,47.22,73.82
+252D,33.44,-20.63,67.39,10.86,-29.95,76.57,122.19

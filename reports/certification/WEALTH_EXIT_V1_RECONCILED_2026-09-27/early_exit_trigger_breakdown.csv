@@ -1,0 +1,6 @@
+trigger_feature,early_exits_count,share_of_early_pct,correct_exits_count,share_of_correct_pct,mean_fwd_60d_ret,mean_fwd_60d_max_dd,mean_fwd_60d_max_gain
+Relative Return <= -5%,20498,83.6,30346,78.9,8.26,-12.52,24.05
+SMA50 Slope Flat/Down,3363,13.7,7019,18.3,4.72,-12.67,18.58
+>= 2 Distribution Days,4304,17.6,7475,19.4,6.25,-11.46,19.45
+2 Closes Below SMA50,9299,37.9,16607,43.2,6.35,-12.36,20.59
+Close Below Prior 20D Low,15224,62.1,21842,56.8,8.44,-12.35,24.27
