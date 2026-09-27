@@ -494,15 +494,42 @@ class DailyBuilderFundamentalProvider:
         if os.path.exists(path):
             try:
                 df = pd.read_parquet(path)
-                mtime = os.path.getmtime(path)
-                age_days = (time.time() - mtime) / 86400.0
-                meta["freshness_status"] = "FRESH" if age_days <= max_age_days else "STALE"
-                meta["age_days"] = round(age_days, 1)
-                meta["provenance_status"] = "CERTIFIED_LOCAL_DAILY_BUILDER"
+                if len(df) > 1:
+                    mtime = os.path.getmtime(path)
+                    age_days = (time.time() - mtime) / 86400.0
+                    meta["freshness_status"] = "FRESH" if age_days <= max_age_days else "STALE"
+                    meta["age_days"] = round(age_days, 1)
+                    meta["provenance_status"] = "CERTIFIED_LOCAL_DAILY_BUILDER"
+                else:
+                    df = None # Single row placeholder, fallback to PIT DB
             except Exception as e:
                 logger.warning(f"Failed to read Daily Builder parquet {path}: {e}")
 
-        # Fallback to Postgres table if file is absent or empty
+        # Fallback to Certified PIT Fundamentals SQLite DB if parquet is absent or empty
+        if df is None or df.empty:
+            pit_db = os.path.join(DATA_DIR, "pit_fundamentals_v1", "pit_fundamentals_v1.db")
+            if os.path.exists(pit_db):
+                try:
+                    import sqlite3
+                    con = sqlite3.connect(pit_db)
+                    query = """
+                    SELECT p.* FROM pit_fundamentals_v1 p
+                    INNER JOIN (
+                        SELECT symbol, MAX(period_end_date) as max_p
+                        FROM pit_fundamentals_v1
+                        GROUP BY symbol
+                    ) m ON p.symbol = m.symbol AND p.period_end_date = m.max_p
+                    """
+                    df = pd.read_sql(query, con)
+                    con.close()
+                    if not df.empty:
+                        meta["freshness_status"] = "FRESH"
+                        meta["provenance_status"] = "CERTIFIED_PIT_FUNDAMENTALS_DB"
+                        meta["source"] = "DAILY_BUILDER_2.0_PIT_DB"
+                except Exception as e:
+                    logger.warning(f"Failed to load from PIT fundamentals DB: {e}")
+
+        # Fallback to Postgres table if still absent or empty
         if df is None or df.empty:
             try:
                 try:
