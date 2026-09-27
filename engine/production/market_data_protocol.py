@@ -138,6 +138,9 @@ class MarketDataProtocol:
 
         # 2. Schema and Native Fields Verification
         col_map = {str(c).lower(): c for c in df.columns}
+        # Invariant: Support native 'Date' or 'timestamp' exchange headers
+        if "timestamp" not in col_map and "date" in col_map:
+            col_map["timestamp"] = col_map["date"]
         missing_fields = [f for f in REQUIRED_NATIVE_FIELDS if f not in col_map]
         if missing_fields:
             raise RuntimeError(
