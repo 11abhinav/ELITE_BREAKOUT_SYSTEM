@@ -1,4 +1,4 @@
-# Wave 2 — Macro Regime & Sector Context Report
+qa# Wave 2 — Macro Regime & Sector Context Report
 
 Evaluating scanner signal quality across market regimes and thematic sector rotation rankings.
 

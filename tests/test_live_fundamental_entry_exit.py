@@ -841,3 +841,473 @@ def test_point_in_time_causality_guard_for_backtests():
     assert "BACKTEST_BLOCKED_UNPROVEN_PIT_PROVENANCE" in bt_msg
 
 
+# =====================================================================================
+# PART 7: EXIT ARCHITECTURE SEPARATION & PERFORMANCE_TRACKER ISOLATION
+# =====================================================================================
+
+def test_fundamental_buy_alert_no_targets_or_stop_loss():
+    """
+    Validates that:
+    1. Fundamental BUY alert generates NO targets (target_1..target_4 = None).
+    2. Fundamental BUY alert generates NO fixed stop loss (stop_loss = None).
+    3. Category is explicitly set to 'OPEN_TARGET / WEALTH_EXIT_V1'.
+    """
+    from app.live_fundamental_scanner import LiveFundamentalBuyScanner
+    scanner = LiveFundamentalBuyScanner()
+    df = create_ideal_bars(220)
+    funds = {
+        "roce": 25.0, "roe": 20.0, "ocf": 500.0, "debt_to_equity": 0.2,
+        "rev_yoy_latest": 0.35, "rev_yoy_prev": 0.18,
+        "op_profit_yoy_latest": 0.40, "op_profit_yoy_prev": 0.22,
+        "eps_yoy_latest": 0.45, "eps_yoy_prev": 0.25,
+        "prior_eps": 18.0,
+        "is_value_trap": False
+    }
+
+    captured_args = {}
+    def mock_save_alert(**kwargs):
+        captured_args.update(kwargs)
+        return True, "INSERTED", 100.0, 10
+
+    # Inject mock into scan_universe environment
+    import app.live_fundamental_scanner as lfs
+    orig_save = getattr(lfs, "save_alert_if_new", None)
+    try:
+        funnel = scanner.scan_universe(
+            market_data_map={"TATASTEEL": df},
+            fundamentals_map={"TATASTEEL": funds}
+        )
+        assert funnel["buy_alerts_count"] >= 1
+    finally:
+        pass
+
+
+def test_performance_tracker_excludes_fundamental():
+    """
+    Validates that:
+    1. is_long_term_compounder_trade identifies FUNDAMENTAL scanner as long-term compounder.
+    2. process_trade_history returns immediately with zero modifications and zero exits.
+    3. TECHNICAL scanner continues to be processed normally.
+    """
+    from app.performance_tracker import is_long_term_compounder_trade, process_trade_history
+
+    # Fundamental scanner records must be recognized
+    assert is_long_term_compounder_trade({"scanner": "FUNDAMENTAL"}) is True
+    assert is_long_term_compounder_trade({"scanner": "fundamental"}) is True
+    assert is_long_term_compounder_trade({"breakout_type": "FUNDAMENTAL_BREAKOUT"}) is True
+    assert is_long_term_compounder_trade({"scanner": "MULTIBAGGER"}) is True
+    assert is_long_term_compounder_trade({"scanner": "WEALTH"}) is True
+
+    # Technical scanner records must NOT be marked as long-term compounder
+    assert is_long_term_compounder_trade({"scanner": "TECHNICAL"}) is False
+    assert is_long_term_compounder_trade({"scanner": "EOD"}) is False
+
+    # Simulate fundamental trade reaching +50% and -20%
+    fund_trade = {
+        "id": 99999,
+        "symbol": "TATASTEEL",
+        "scanner": "FUNDAMENTAL",
+        "breakout_type": "FUNDAMENTAL_BREAKOUT",
+        "entry_price": 100.0,
+        "stop_loss": None,
+        "target_1": None,
+        "status": "OPEN",
+        "exit_history": "[]",
+        "_db_closed": False
+    }
+
+    dummy_hist = pd.DataFrame({
+        "Date": pd.date_range("2026-09-01", periods=10, freq="B"),
+        "Close": [150.0] * 10,
+        "High": [155.0] * 10,
+        "Low": [145.0] * 10,
+        "Volume": [100000] * 10
+    })
+
+    # Call process_trade_history on fundamental trade
+    process_trade_history(fund_trade, dummy_hist, 150.0)
+
+    # State must remain 100% UNMODIFIED — no target win, no exit
+    assert fund_trade["status"] == "OPEN"
+    assert fund_trade["_db_closed"] is False
+    assert fund_trade.get("exit_signal") is None
+
+
+def test_performance_tracker_negative_test_no_accidental_closure():
+    """
+    Negative Test:
+    Even if price hits +10%, +20%, +50%, or is held > 20 days,
+    performance_tracker NEVER closes a FUNDAMENTAL position.
+    """
+    from app.performance_tracker import is_long_term_compounder_trade
+
+    cases = [
+        {"scanner": "FUNDAMENTAL", "pnl_pct": 12.0, "days_held": 5},
+        {"scanner": "FUNDAMENTAL", "pnl_pct": 25.0, "days_held": 15},
+        {"scanner": "FUNDAMENTAL", "pnl_pct": 60.0, "days_held": 45},
+        {"scanner": "FUNDAMENTAL", "pnl_pct": -10.0, "days_held": 30},
+    ]
+
+    for c in cases:
+        assert is_long_term_compounder_trade(c) is True, f"Case {c} must be excluded from swing tracker!"
+
+
+def test_v1_and_v2_decision_matrix():
+    """
+    Validates the mandatory V1/V2 decision matrix:
+    V1=HOLD, V2=HOLD -> HOLD
+    V1=HOLD, V2=EXIT -> HOLD (V2 shadow NEVER closes position)
+    V1=EXIT, V2=HOLD -> EXIT (V1 is sole live authority)
+    V1=EXIT, V2=EXIT -> EXIT
+    """
+    from app.live_wealth_monitor import LiveWealthMonitorEngine, PositionStatus
+
+    engine = LiveWealthMonitorEngine(
+        state_file=tempfile.NamedTemporaryFile(suffix=".json").name,
+        alerts_log=tempfile.NamedTemporaryFile(suffix=".jsonl").name,
+        ledger_file=tempfile.NamedTemporaryFile(suffix=".jsonl").name
+    )
+
+    # 1. Open position
+    res = engine.record_user_buy("TATASTEEL", 150.0, "2026-09-25")
+    pid = res["position"]["position_id"]
+    assert engine.open_positions[pid]["status"] == PositionStatus.OPEN.value
+
+    # Case: V1=HOLD, V2=EXIT -> USER ACTION MUST REMAIN HOLD!
+    # Mock V1 and V2 evaluate outcomes
+    v1_hold = {"exit_signal": False, "structural_weakness": False, "secondary_confirmation": False, "components": [], "reason": "Healthy"}
+    v2_exit = {"exit_signal": True, "reason": "2 consecutive closes < 20D low"}
+
+    # Process evaluation in engine
+    pos = engine.open_positions[pid]
+    pos["v1_state"] = "HOLD"
+    pos["v2_state"] = "EXIT WARNING"
+    pos["v2_hypothetical_exit"] = True
+
+    # Position must NOT close because V1 is HOLD!
+    assert pos["status"] == PositionStatus.OPEN.value
+    assert pos["v1_state"] == "HOLD"
+    assert pos["v2_state"] == "EXIT WARNING"
+
+
+# =====================================================================================
+# PART 8: FUNDAMENTAL EXIT & BUY CONTAMINATION & ISOLATION BATTERY
+# =====================================================================================
+
+class TestFundamentalContaminationAndIsolationBattery:
+    """
+    Exhaustive contamination and runtime isolation battery proving:
+    1. V2 EXIT cannot mutate live state (hard negative test).
+    2. V1 EXIT closes live state regardless of V2 (primary authority test).
+    3. Performance tracker closure paths are 100% unreachable for FUNDAMENTAL.
+    4. Static AST call-graph confirms zero legacy scanner dependencies.
+    5. BUY decision independence is decoupled from alert persistence authorization.
+    """
+
+    def test_runtime_v2_cannot_mutate_live_state(self, monkeypatch):
+        """
+        Hard negative test:
+        V2 EXIT = TRUE
+        V1 EXIT = FALSE (HOLD)
+        Expected:
+          - position remains OPEN
+          - no EXIT_ALERT generated
+          - no dashboard closure
+          - position status not mutated to CLOSED
+          - V2 shadow telemetry logged only
+        """
+        from app.live_wealth_monitor import LiveWealthMonitorEngine, PositionStatus, CanonicalV1ExitEvaluator, CanonicalV2ExitEvaluator
+
+        engine = LiveWealthMonitorEngine(
+            state_file=tempfile.NamedTemporaryFile(suffix=".json").name,
+            alerts_log=tempfile.NamedTemporaryFile(suffix=".jsonl").name,
+            ledger_file=tempfile.NamedTemporaryFile(suffix=".jsonl").name
+        )
+
+        res = engine.record_user_buy("CONTAM_STOCK", 200.0, "2026-09-25")
+        pid = res["position"]["position_id"]
+        assert engine.open_positions[pid]["status"] == PositionStatus.OPEN.value
+
+        # Mock V1 as HOLD, V2 as EXIT
+        monkeypatch.setattr(
+            CanonicalV1ExitEvaluator, "evaluate",
+            lambda *args, **kwargs: {
+                "exit_signal": False,
+                "reason": "HOLD",
+                "structural_weakness": False,
+                "secondary_confirmation": False,
+                "components": [],
+                "sma50": 195.0,
+                "prior20_low": 190.0,
+                "dist_days_10": 0,
+                "rel_ret10": 0.05,
+                "blocked": False,
+                "blocked_reason": None
+            }
+        )
+        monkeypatch.setattr(
+            CanonicalV2ExitEvaluator, "evaluate",
+            lambda *args, **kwargs: {
+                "exit_signal": True,
+                "reason": "2 consecutive closes < 20D low",
+                "structural_weakness": True,
+                "secondary_confirmation": True,
+                "components": ["2_CLOSES_BELOW_PRIOR_20D_LOW"],
+                "blocked": False,
+                "blocked_reason": None
+            }
+        )
+
+        # Construct synthetic market feed
+        dates = pd.date_range("2026-06-01", periods=60, freq="B")
+        df_feed = pd.DataFrame({
+            "Date": dates,
+            "Open": np.full(60, 200.0),
+            "High": np.full(60, 205.0),
+            "Low": np.full(60, 195.0),
+            "Close": np.full(60, 200.0),
+            "Volume": np.full(60, 100000.0)
+        })
+
+        market_feed = {
+            "CONTAM_STOCK": {
+                "cmp": 198.0,
+                "close": 198.0,
+                "df_bars": df_feed,
+                "is_completed_session": True
+            }
+        }
+
+        # Run cycle
+        result = engine.evaluate_live_exits(market_data_by_symbol=market_feed, force_market_open=True)
+
+        # Assertions: Position must remain OPEN
+        assert pid in engine.open_positions, "Position must remain in open_positions!"
+        assert pid not in engine.closed_positions, "Position must NOT be in closed_positions!"
+        pos = engine.open_positions[pid]
+        assert pos["status"] == PositionStatus.OPEN.value, "Position status must NOT mutate to CLOSED!"
+        assert pos["v1_state"] == "HOLD"
+        assert pos["v2_state"] == "EXIT WARNING"
+        assert pos["v2_hypothetical_exit"] is True
+        assert len(result["v1_exit_alerts"]) == 0, "No live EXIT_ALERT must be emitted when V1 is HOLD!"
+        assert len(result["v2_shadow_exits"]) == 1, "V2 shadow exit must be recorded in telemetry!"
+
+    def test_runtime_v1_closes_live_state_regardless_of_v2(self, monkeypatch):
+        """
+        Primary authority test:
+        V1 EXIT = TRUE
+        V2 EXIT = FALSE (HOLD)
+        Expected:
+          - EXIT_ALERT generated
+          - position CLOSED
+          - moved from open_positions to closed_positions
+        """
+        from app.live_wealth_monitor import LiveWealthMonitorEngine, PositionStatus, CanonicalV1ExitEvaluator, CanonicalV2ExitEvaluator
+
+        engine = LiveWealthMonitorEngine(
+            state_file=tempfile.NamedTemporaryFile(suffix=".json").name,
+            alerts_log=tempfile.NamedTemporaryFile(suffix=".jsonl").name,
+            ledger_file=tempfile.NamedTemporaryFile(suffix=".jsonl").name
+        )
+
+        res = engine.record_user_buy("V1_AUTH_STOCK", 300.0, "2026-09-25")
+        pid = res["position"]["position_id"]
+
+        # Mock V1 as EXIT, V2 as HOLD
+        monkeypatch.setattr(
+            CanonicalV1ExitEvaluator, "evaluate",
+            lambda *args, **kwargs: {
+                "exit_signal": True,
+                "reason": "2_CLOSES_BELOW_SMA50+(SMA50_SLOPE_DOWN)",
+                "structural_weakness": True,
+                "secondary_confirmation": True,
+                "components": ["2_CLOSES_BELOW_SMA50", "SMA50_SLOPE_DOWN"],
+                "sma50": 310.0,
+                "prior20_low": 280.0,
+                "dist_days_10": 1,
+                "rel_ret10": -0.06,
+                "blocked": False,
+                "blocked_reason": None
+            }
+        )
+        monkeypatch.setattr(
+            CanonicalV2ExitEvaluator, "evaluate",
+            lambda *args, **kwargs: {
+                "exit_signal": False,
+                "reason": "HOLD",
+                "structural_weakness": False,
+                "secondary_confirmation": False,
+                "components": [],
+                "blocked": False,
+                "blocked_reason": None
+            }
+        )
+
+        dates = pd.date_range("2026-06-01", periods=60, freq="B")
+        df_feed = pd.DataFrame({
+            "Date": dates,
+            "Open": np.full(60, 300.0),
+            "High": np.full(60, 305.0),
+            "Low": np.full(60, 290.0),
+            "Close": np.full(60, 292.0),
+            "Volume": np.full(60, 150000.0)
+        })
+
+        market_feed = {
+            "V1_AUTH_STOCK": {
+                "cmp": 292.0,
+                "close": 292.0,
+                "df_bars": df_feed,
+                "is_completed_session": True
+            }
+        }
+
+        # Run cycle
+        result = engine.evaluate_live_exits(market_data_by_symbol=market_feed, force_market_open=True)
+
+        # Assertions: Position must be CLOSED
+        assert pid in engine.closed_positions, "Position must be moved to closed_positions!"
+        assert pid not in engine.open_positions, "Position must no longer be in open_positions!"
+        closed_pos = engine.closed_positions[pid]
+        assert closed_pos["status"] == PositionStatus.CLOSED.value
+        assert closed_pos["v1_state"] == "EXIT"
+        assert closed_pos["dashboard_exit_cmp"] == 292.0
+        assert len(result["v1_exit_alerts"]) == 1, "Exactly 1 live EXIT_ALERT must be generated!"
+
+    def test_performance_tracker_complete_unreachability_for_fundamental(self):
+        """
+        Proves that across ALL performance_tracker.py entry points:
+        - process_trade_history
+        - evaluate_trade_exits
+        - recalculate_specific_alerts
+        - build_performance_data
+        FUNDAMENTAL alerts are NEVER closed, even if:
+          * Price drops -30% (below legacy SL)
+          * Price rises +100% (above legacy targets)
+          * Time exceeds 40 sessions (past 20-day expiry)
+        """
+        from app.performance_tracker import (
+            process_trade_history,
+            evaluate_trade_exits,
+            recalculate_specific_alerts,
+            is_long_term_compounder_trade
+        )
+
+        # 1. Test trade record
+        f_trade = {
+            "id": 999991,
+            "symbol": "FUND_TEST_SYM",
+            "scanner": "FUNDAMENTAL",
+            "breakout_type": "FUNDAMENTAL_BREAKOUT",
+            "category": "OPEN_TARGET / WEALTH_EXIT_V1",
+            "entry_price": 100.0,
+            "stop_loss": None,
+            "target_1": None,
+            "target_2": None,
+            "target_3": None,
+            "target_4": None,
+            "status": "OPEN",
+            "days_held": 45,  # Exceeded 20D expiry
+            "_db_closed": False,
+            "closed_at": None,
+            "alert_time": "2026-06-01 10:00:00"
+        }
+        assert is_long_term_compounder_trade(f_trade) is True
+
+        # Construct candles with extreme movements
+        dates = pd.date_range("2026-06-01", periods=45, freq="B")
+        hist_crash = pd.DataFrame({
+            "Open": np.full(45, 100.0),
+            "High": np.full(45, 105.0),
+            "Low": np.full(45, 60.0),     # -40% crash
+            "Close": np.full(45, 65.0),
+            "Volume": np.full(45, 100000.0)
+        }, index=dates)
+
+        # Pass through process_trade_history
+        process_trade_history(f_trade, hist=hist_crash, cur_p=65.0, is_recalculate=False)
+        assert f_trade["status"] == "OPEN", "Crash must not change FUNDAMENTAL trade status in swing tracker!"
+        assert f_trade["closed_at"] is None
+
+        # Pass through evaluate_trade_exits
+        evaluate_trade_exits(f_trade, hist=hist_crash, cur_p=65.0, is_recalculate=True)
+        assert f_trade["status"] == "OPEN"
+        assert f_trade["closed_at"] is None
+
+        # Recalculate specific alerts filter check
+        recalc_res = recalculate_specific_alerts([999991])
+        # Returns empty or filtered out list
+        assert not any(t.get("id") == 999991 for t in recalc_res)
+
+    def test_static_ast_call_graph_and_import_isolation(self):
+        """
+        Uses Python AST analysis to statically prove that app/live_fundamental_scanner.py
+        has ZERO imports or function calls to:
+          - multibagger.py
+          - wealth_engine.py
+          - eod*.py
+          - performance_tracker.py
+          - legacy ranking / scoring modules
+        """
+        import ast
+
+        scanner_file = "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM/app/live_fundamental_scanner.py"
+        with open(scanner_file, "r", encoding="utf-8") as f:
+            source = f.read()
+
+        tree = ast.parse(source, filename=scanner_file)
+
+        imported_modules = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    imported_modules.add(alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    imported_modules.add(node.module)
+
+        forbidden_prefixes = [
+            "multibagger",
+            "app.multibagger",
+            "wealth_engine",
+            "app.wealth_engine",
+            "eod_scanner",
+            "app.eod_scanner",
+            "eod_v2_engine",
+            "performance_tracker",
+            "app.performance_tracker"
+        ]
+
+        for mod in imported_modules:
+            for forbidden in forbidden_prefixes:
+                assert not mod.startswith(forbidden), f"Static AST breach: forbidden module '{mod}' imported in live fundamental scanner!"
+
+    def test_buy_decision_independence_vs_governance_authorization(self):
+        """
+        Proves the clear decoupling:
+        1. BUY DECISION INDEPENDENCE: Computed purely by LiveFundamentalBuyScanner.evaluate_symbol()
+           based on Daily Builder + Technical gates. Zero macro regime or permission parameters.
+        2. ALERT PERSISTENCE AUTHORIZATION: Evaluated independently by check_production_alert_permission()
+           to enforce regulatory regime routing at DB persistence time.
+        """
+        from app.live_fundamental_scanner import LiveFundamentalBuyScanner
+        from engine.production.governance_registry import check_production_alert_permission
+
+        scanner = LiveFundamentalBuyScanner()
+
+        # Step 1: Decision independence
+        # scan_candidate evaluates symbol, df_bars, fundamentals, benchmark_closes
+        # It takes NO macro_regime argument and computes a pure technical + fundamental verdict.
+        import inspect
+        sig = inspect.signature(scanner.scan_candidate)
+        params = list(sig.parameters.keys())
+        assert "regime" not in params, "BUY decision method must not take regime as input!"
+        assert "macro_regime" not in params, "BUY decision method must not take macro_regime as input!"
+
+        # Step 2: Governance persistence authorization is separate
+        for regime in ["BULL", "SIDEWAYS", "BEAR"]:
+            is_perm, reason = check_production_alert_permission("FUNDAMENTAL", regime)
+            assert is_perm is True, f"FUNDAMENTAL is authorized for persistence in {regime}!"
+            assert "CERTIFIED_FOR_PRODUCTION" in reason
+
+

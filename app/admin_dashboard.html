@@ -5026,7 +5026,7 @@ function getEarningsBadgeHtml(item) {
           <div class="detail-item">
             <div class="detail-label">Stop Loss</div>
             <div class="detail-val neg" style="font-size:11px;">
-              ${fmt(t.stop_loss)}
+              ${t.scanner === 'FUNDAMENTAL' ? '<span style="color:var(--muted);font-weight:700;">NONE (OPEN-ENDED)</span>' : fmt(t.stop_loss)}
               ${t.initial_stop_loss && t.initial_stop_loss !== t.stop_loss ? '<br><span style="color:var(--muted); font-size:10px;">Initial SL: ' + fmt(t.initial_stop_loss) + '</span>' : ''}
             </div>
             ${t.status === 'LOSS' && t.exit_price ? `
@@ -5039,9 +5039,9 @@ function getEarningsBadgeHtml(item) {
           <div class="detail-item">
             <div class="detail-label">Targets (T1/T2/T3)</div>
             <div class="detail-val pos" style="font-size:11px;">
-              ${t.target_1 ? 'T1: ' + fmt(t.target_1) : (t.target_price ? 'TP: ' + fmt(t.target_price) : '—')}
-              ${t.target_2 ? '<br>T2: ' + fmt(t.target_2) : ''}
-              ${t.target_3 ? '<br>T3: ' + fmt(t.target_3) : ''}
+              ${t.scanner === 'FUNDAMENTAL' ? '<span style="color:#10b981;font-weight:700;">OPEN-ENDED (WEALTH_EXIT_V1)</span>' : (t.target_1 ? 'T1: ' + fmt(t.target_1) : (t.target_price ? 'TP: ' + fmt(t.target_price) : '—'))}
+              ${t.scanner !== 'FUNDAMENTAL' && t.target_2 ? '<br>T2: ' + fmt(t.target_2) : ''}
+              ${t.scanner !== 'FUNDAMENTAL' && t.target_3 ? '<br>T3: ' + fmt(t.target_3) : ''}
             </div>
             ${t.status === 'WIN' && t.exit_price ? `
               <div style="font-size:11px;color:var(--accent);margin-top:4px;font-family:var(--font-mono);line-height:1.3">

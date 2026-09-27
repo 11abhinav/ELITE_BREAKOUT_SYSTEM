@@ -43,6 +43,11 @@ import pandas as pd
 IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger("LIVE_WEALTH_MONITOR")
 
+try:
+    from app.fundamental_telemetry import WealthExitTelemetry
+except ImportError:
+    from fundamental_telemetry import WealthExitTelemetry
+
 BASE_DIR = "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM"
 DATA_DIR = os.path.join(BASE_DIR, "data")
 PROSPECTIVE_DIR = os.path.join(DATA_DIR, "prospective_holdout")
@@ -700,6 +705,20 @@ class LiveWealthMonitorEngine:
                 self.buy_alerts[buy_alert_id]["linked_position_id"] = position_id
 
             self.save_state()
+            try:
+                exit_telem = WealthExitTelemetry(scanner="FUNDAMENTAL")
+                exit_telem.record_state_transition(
+                    position_id=position_id,
+                    symbol=sym,
+                    from_state=PositionStatus.BUY_ALERT.value,
+                    to_state=PositionStatus.OPEN.value,
+                    authority="USER_BUY_ACTION",
+                    reason="USER_RECORDED_BUY_CONFIRMATION",
+                    reference_price=float(entry_price)
+                )
+            except Exception as st_err:
+                logger.debug(f"State transition log warning: {st_err}")
+
             logger.info(f"📂 [POSITION OPEN] Created position {position_id} for {sym} @ entry ref ₹{entry_price:.2f}")
             return {"success": True, "position": position_record}
 
@@ -727,6 +746,9 @@ class LiveWealthMonitorEngine:
             now_ist = current_dt or datetime.now(IST)
             self.last_scan_timestamp = now_ist.isoformat()
 
+            exit_telemetry = WealthExitTelemetry(scanner="FUNDAMENTAL")
+            exit_telemetry.log_cycle_start(open_position_count=len(self.open_positions))
+
             # 1. Market Hours Gate Check
             is_open, market_reason = MarketHoursGate.is_market_open_ist(now_ist)
             if force_market_open:
@@ -738,13 +760,15 @@ class LiveWealthMonitorEngine:
             if not is_open:
                 logger.info(f"⏸️ [EXIT MONITOR INACTIVE] Market is closed ({market_reason}). Skipping exit scan.")
                 self.save_state()
+                cycle_summary = exit_telemetry.produce_end_of_cycle_summary()
                 return {
                     "market_status": "CLOSED",
                     "reason": market_reason,
                     "scan_timestamp": self.last_scan_timestamp,
                     "evaluated_positions": 0,
                     "v1_exit_alerts": [],
-                    "v2_shadow_exits": []
+                    "v2_shadow_exits": [],
+                    "telemetry_summary": cycle_summary
                 }
 
             v1_exit_alerts_generated = []
@@ -807,11 +831,50 @@ class LiveWealthMonitorEngine:
                 is_split_anomaly = bool(feed.get("is_split_anomaly", False))
                 df_bars = feed.get("df_bars")
 
+                ref_entry = float(pos.get("entry_reference_price", 0.0))
+                holding_days = 0
+                try:
+                    if pos.get("entry_date"):
+                        entry_dt = datetime.strptime(str(pos["entry_date"]), "%Y-%m-%d").date()
+                        holding_days = max(0, (now_ist.date() - entry_dt).days)
+                except Exception:
+                    pass
+
+                exit_telemetry.record_position_audit(
+                    position_id=position_id,
+                    symbol=sym,
+                    entry_date=str(pos.get("entry_date", "")),
+                    entry_price=ref_entry,
+                    current_cmp=cmp_price,
+                    holding_days=holding_days
+                )
+
+                if not is_completed_session:
+                    exit_telemetry.record_incomplete_candle_blocked(position_id=position_id, symbol=sym)
+
                 # Data Health Gate
                 health_status, health_reason = DataHealthGate.check_health(sym, df_bars, is_split_anomaly)
                 pos["data_health_status"] = health_status.value
                 pos["data_health_reason"] = health_reason
                 pos["last_evaluation_timestamp"] = now_ist.isoformat()
+
+                latest_bar_dt = None
+                if df_bars is not None and len(df_bars) > 0:
+                    d_col = "Date" if "Date" in df_bars.columns else ("date" if "date" in df_bars.columns else df_bars.columns[0])
+                    latest_bar_dt = str(df_bars[d_col].iloc[-1])
+
+                exit_telemetry.record_exit_data_quality(
+                    position_id=position_id,
+                    symbol=sym,
+                    provider="UPSTOX",
+                    latest_bar=latest_bar_dt,
+                    rows_received=len(df_bars) if df_bars is not None else 0,
+                    required_history_available=(len(df_bars) >= 50) if df_bars is not None else False,
+                    data_age_hours=0.0,
+                    freshness="FRESH" if is_completed_session else "INTRA_SESSION",
+                    validation=health_status.value,
+                    reason_code=health_reason or "OK"
+                )
 
                 if health_status == DataHealthStatus.BLOCKED:
                     logger.warning(f"🛡️ [EXIT_MONITOR_BLOCKED] {sym}: {health_reason}. Fail closed — no exit.")
@@ -825,11 +888,14 @@ class LiveWealthMonitorEngine:
                 lows = df_bars["Low" if "Low" in df_bars.columns else "low"].values.astype(np.float64)
                 volumes = df_bars["Volume" if "Volume" in df_bars.columns else "volume"].values.astype(np.float64)
 
+                closes_len = len(closes)
+                close_t = float(closes[-1]) if closes_len > 0 else cmp_price
+                close_t_prev = float(closes[-2]) if closes_len > 1 else close_t
+
                 # Update CMP, Peak, Trough & Dashboard Reference Return
                 pos["current_cmp"] = cmp_price
                 pos["peak_price"] = max(pos["peak_price"], float(np.max(highs[-1:])) if len(highs) > 0 else cmp_price)
                 pos["trough_price"] = min(pos["trough_price"], float(np.min(lows[-1:])) if len(lows) > 0 else cmp_price)
-                ref_entry = pos["entry_reference_price"]
                 pos["dashboard_return_ref_pct"] = round(((cmp_price - ref_entry) / ref_entry) * 100.0, 2) if ref_entry > 0 else 0.0
 
                 # 3. Evaluate Primary WEALTH_EXIT_V1
@@ -845,6 +911,28 @@ class LiveWealthMonitorEngine:
                 pos["v1_confirmation"] = v1_result["secondary_confirmation"]
                 pos["v1_reasons"] = v1_result["components"]
                 pos["v1_state"] = "EXIT" if v1_result["exit_signal"] else "HOLD"
+
+                sma50_t = float(v1_result.get("sma50", 0.0))
+                sma50_series = pd.Series(closes).rolling(50, min_periods=20).mean().values
+                sma50_t_prev5 = float(sma50_series[-6]) if closes_len >= 6 and not np.isnan(sma50_series[-6]) else sma50_t
+
+                exit_telemetry.record_v1_evaluation(
+                    position_id=position_id,
+                    close_t=close_t,
+                    close_t_prev=close_t_prev,
+                    sma50_t=sma50_t,
+                    sma50_t_prev5=sma50_t_prev5,
+                    prior_20d_low=float(v1_result.get("prior20_low", 0.0)),
+                    relative_return_10d=float(v1_result.get("rel_ret10", 0.0)),
+                    distribution_days_10d=int(v1_result.get("dist_days_10", 0)),
+                    cond_2_closes_sma50="2_CLOSES_BELOW_SMA50" in v1_result.get("components", []),
+                    cond_close_prior_20d_low="BREAK_PRIOR_20D_LOW" in v1_result.get("components", []),
+                    sec_sma50_slope_down="SMA50_SLOPE_DOWN" in v1_result.get("components", []),
+                    sec_rel_ret_lte_m5="REL_RET_LE_M5PCT" in v1_result.get("components", []),
+                    sec_dist_days_ge_2="DIST_DAYS_GE_2" in v1_result.get("components", []),
+                    v1_exit=bool(v1_result["exit_signal"]),
+                    reason=str(v1_result.get("reason", "HOLD"))
+                )
 
                 # 4. Evaluate Shadow WEALTH_EXIT_V2 in Parallel
                 v2_result = CanonicalV2ExitEvaluator.evaluate(
@@ -869,6 +957,20 @@ class LiveWealthMonitorEngine:
                         "timestamp": now_ist.isoformat()
                     })
 
+                prior20_series = pd.Series(closes).shift(1).rolling(20, min_periods=10).min().values
+                prior_20d_low_t = float(v2_result.get("prior20_low", 0.0))
+                prior_20d_low_t_prev = float(prior20_series[-2]) if closes_len >= 2 and not np.isnan(prior20_series[-2]) else prior_20d_low_t
+
+                exit_telemetry.record_v2_evaluation(
+                    position_id=position_id,
+                    close_t=close_t,
+                    close_t_prev=close_t_prev,
+                    prior_20d_low_t=prior_20d_low_t,
+                    prior_20d_low_t_prev=prior_20d_low_t_prev,
+                    v2_exit=bool(v2_result["exit_signal"]),
+                    reason=str(v2_result.get("reason", "HOLD"))
+                )
+
                 # Determine V1 vs V2 Agreement
                 if v1_result["exit_signal"] and v2_result["exit_signal"]:
                     pos["v1_vs_v2_agreement"] = "AGREE"
@@ -878,6 +980,23 @@ class LiveWealthMonitorEngine:
                     pos["v1_vs_v2_agreement"] = "V2_ONLY"
                 else:
                     pos["v1_vs_v2_agreement"] = "AGREE"
+
+                # Check duplicate exit
+                dedup_key = (position_id, RULES_HASH_V1)
+                is_duplicate = (dedup_key in self.emitted_exit_events) or bool(pos.get("exit_alert_emitted", False))
+                if v1_result["exit_signal"] and is_duplicate:
+                    exit_telemetry.record_duplicate_exit_blocked(position_id=position_id, symbol=sym, prev_reason=RULES_HASH_V1)
+
+                pos_status_before = pos["status"]
+                pos_status_after = PositionStatus.CLOSED.value if (v1_result["exit_signal"] and not is_duplicate) else pos_status_before
+                exit_telemetry.record_v1_v2_independence(
+                    position_id=position_id,
+                    symbol=sym,
+                    v1_exit=bool(v1_result["exit_signal"]),
+                    v2_exit=bool(v2_result["exit_signal"]),
+                    pos_status_before=pos_status_before,
+                    pos_status_after=pos_status_after
+                )
 
                 # Log parallel research record
                 research_record = {
@@ -898,8 +1017,7 @@ class LiveWealthMonitorEngine:
 
                 # 5. Handle Primary V1 Exit Signal
                 if v1_result["exit_signal"]:
-                    dedup_key = (position_id, RULES_HASH_V1)
-                    if dedup_key not in self.emitted_exit_events and not pos.get("exit_alert_emitted", False):
+                    if not is_duplicate:
                         # Generate EXIT_ALERT
                         exit_alert_id = f"EXIT_{sym}_{now_ist.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:6]}"
                         exit_alert_payload = {
@@ -934,6 +1052,28 @@ class LiveWealthMonitorEngine:
                         self._append_to_file(self.alerts_log, exit_alert_payload)
                         v1_exit_alerts_generated.append(exit_alert_payload)
                         positions_to_close.append((position_id, pos))
+                        exit_telemetry.cycle_counts["positions_closed"] += 1
+                        exit_telemetry.cycle_counts["exit_alerts_created"] += 1
+
+                        # State Transition Audit (§26)
+                        exit_telemetry.record_state_transition(
+                            position_id=position_id,
+                            symbol=sym,
+                            from_state=PositionStatus.OPEN.value,
+                            to_state=PositionStatus.EXIT_ALERT.value,
+                            authority="WEALTH_EXIT_V1",
+                            reason=str(v1_result["reason"]),
+                            reference_price=cmp_price
+                        )
+                        exit_telemetry.record_state_transition(
+                            position_id=position_id,
+                            symbol=sym,
+                            from_state=PositionStatus.EXIT_ALERT.value,
+                            to_state=PositionStatus.CLOSED.value,
+                            authority="WEALTH_EXIT_V1",
+                            reason=str(v1_result["reason"]),
+                            reference_price=cmp_price
+                        )
 
                         logger.info(
                             f"🚨 [PRIMARY EXIT ALERT] Triggered for {sym} at CMP ₹{cmp_price:.2f}. "
@@ -987,6 +1127,7 @@ class LiveWealthMonitorEngine:
                     logger.debug(f"exit health update OK warning: {he}")
 
             self.save_state()
+            cycle_summary = exit_telemetry.produce_end_of_cycle_summary()
 
             return {
                 "market_status": "OPEN",
@@ -994,7 +1135,8 @@ class LiveWealthMonitorEngine:
                 "evaluated_positions": len(self.open_positions) + len(positions_to_close),
                 "open_positions_remaining": len(self.open_positions),
                 "v1_exit_alerts": v1_exit_alerts_generated,
-                "v2_shadow_exits": v2_shadow_exits_detected
+                "v2_shadow_exits": v2_shadow_exits_detected,
+                "telemetry_summary": cycle_summary
             }
 
     # ---------------------------------------------------------------------------------

@@ -331,6 +331,26 @@ def _calc_shares_to_sell(shares_bought: int, rem_shares: int, target_idx: int, e
         # rem_shares <= reserved_for_future: sell at least 1 share
         return 1
 
+def is_long_term_compounder_trade(record: dict) -> bool:
+    """
+    Returns True if the trade belongs to a long-term compounder / wealth strategy
+    (FUNDAMENTAL, MULTIBAGGER, WEALTH) whose exits are managed exclusively by
+    long-term structural monitors (WEALTH_EXIT_V1) rather than swing SL / targets / 20D expiry.
+    """
+    if not isinstance(record, dict):
+        return False
+    sc = str(record.get("scanner") or "").upper().strip()
+    bt = str(record.get("breakout_type") or "").upper().strip()
+    if (
+        sc in ("MULTIBAGGER", "WEALTH", "WEALTH ENGINE", "FUNDAMENTAL", "FUNDAMENTAL_WEALTH_BUY")
+        or "FUNDAMENTAL" in sc
+        or "FUNDAMENTAL" in bt
+        or "MULTIBAGGER" in sc
+        or "WEALTH" in sc
+    ):
+        return True
+    return False
+
 def evaluate_trade_exits(t: dict, hist: pd.DataFrame = None, cur_p: float = None, is_recalculate: bool = False):
     """Evaluates trade exits against price history bars (alias for process_trade_history)."""
     if cur_p is None and hist is not None and not hist.empty:
@@ -345,6 +365,10 @@ def process_trade_history(t: dict, hist: pd.DataFrame, cur_p: float, is_recalcul
     Deduplicates database writes by checking existing exit_history.
     Adjusts cost basis and SL/targets for any stock splits or bonus corporate actions.
     """
+    # Long-term compounders (FUNDAMENTAL, MULTIBAGGER, WEALTH) are managed exclusively by WEALTH_EXIT_V1
+    if is_long_term_compounder_trade(t):
+        return
+
     from database import update_partial_exit, update_alert_outcome
     from corporate_actions import adjust_trade_for_corporate_actions
     from trading_calendar import default_trading_calendar, enforce_trading_day_candles, is_valid_market_session_timestamp
@@ -1322,8 +1346,8 @@ def recalculate_specific_alerts(alert_ids: list[int]) -> list[dict]:
         logger.warning(f"⚠️ [TARGETED RECALC] No alerts found matching IDs: {clean_ids}")
         return []
 
-    # Filter out long-term trades (Multibagger/Wealth) which cannot be swing-recalculated
-    raw_alerts = [r for r in raw_alerts if r.get("scanner") not in ("MULTIBAGGER", "WEALTH", "Wealth Engine")]
+    # Filter out long-term trades (Fundamental/Multibagger/Wealth) which cannot be swing-recalculated
+    raw_alerts = [r for r in raw_alerts if not is_long_term_compounder_trade(r)]
     if not raw_alerts:
         logger.warning("⚠️ [TARGETED RECALC] All requested alerts are long-term trades, recalculation skipped.")
         return []
@@ -1639,6 +1663,8 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     now_ist = datetime.now(IST)
     market_open_ist = now_ist.replace(hour=9, minute=15, second=0, microsecond=0)
     for t in trades:
+        if is_long_term_compounder_trade(t):
+            continue
         is_target_recalc = bool(recalc_ids is not None and t["id"] in recalc_ids)
         if (t["_db_closed"] and not is_target_recalc) or t["entry_price"] is None or not t["stop_loss"] or not (t.get("target_price") or t.get("target_1")) or not t["alert_time"]:
             continue
@@ -1690,7 +1716,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
     fast_evaluated_syms = set()
     if is_open and not do_tick_replay:
         for t in trades:
-            if t["_db_closed"]:
+            if t["_db_closed"] or is_long_term_compounder_trade(t):
                 continue
             sym = t["symbol"]
             cur_p = current_prices.get(sym)
@@ -1721,7 +1747,7 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             and t["stop_loss"]
             and (t.get("target_1") or t.get("target_price"))
             and t["alert_time"]
-            and t.get("scanner") not in ("MULTIBAGGER", "WEALTH", "Wealth Engine")
+            and not is_long_term_compounder_trade(t)
             and not t.get("is_rejected")
         })
         if open_syms:
@@ -1790,11 +1816,10 @@ def build_performance_data(fast_mode=False, force_live_fetch=False, recalc_ids: 
             logger.debug(f"⏭️  {sym} already closed ({t['status']}) — skipping bar fetch")
             continue
 
-        # Long-term compounder positions (MULTIBAGGER, WEALTH) are managed exclusively
-        # by their own fundamental exit monitors (e.g. evaluate_multibagger_exits).
+        # Long-term compounder positions (FUNDAMENTAL, MULTIBAGGER, WEALTH) are managed exclusively
+        # by their own fundamental exit monitors (e.g. WEALTH_EXIT_V1).
         # Skip swing SL / target processing for them in performance_tracker.
-        if scanner in ("MULTIBAGGER", "WEALTH", "Wealth Engine"):
-            # [FIX BUG-4: removed dead code that was unreachable after continue]
+        if is_long_term_compounder_trade(t):
             continue
 
         # ── Counterfactual Shadow Tracking for Rejected Trades ──────────────────────

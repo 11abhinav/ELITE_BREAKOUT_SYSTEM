@@ -1555,6 +1555,11 @@ def init_db():
                 cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS slippage_pct NUMERIC(5, 2) DEFAULT 0.0")
                 cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS gap_pct NUMERIC(5, 2) DEFAULT 0.0")
                 cur.execute("ALTER TABLE alert_outcomes ADD COLUMN IF NOT EXISTS circuit_dist_pct NUMERIC(5, 2) DEFAULT 999.0")
+                try:
+                    cur.execute("ALTER TABLE alert_outcomes ALTER COLUMN stop_loss DROP NOT NULL")
+                    cur.execute("ALTER TABLE alert_outcomes ALTER COLUMN target_1 DROP NOT NULL")
+                except Exception:
+                    pass
 
                 # 31. sector_rankings
                 cur.execute("""
@@ -3212,12 +3217,16 @@ def save_alert_if_new(
             sector_name_val = kwargs.get('sector_name', '')
             regime_score_val = min(999.0, max(0.0, float(kwargs.get('regime_score', 80.0) or 0.0)))
 
-            risk_dist = max(0.01, float(entry_price or 0.0) - float(stop_loss or 0.0))
-            rr_val = round(min(999.0, max(-999.0, (float(target_1 or 0.0) - float(entry_price or 0.0)) / risk_dist)), 2) if entry_price and target_1 else 1.5
-            atr_pct_val = round(min(999.0, max(0.0, (risk_dist / float(entry_price or 1.0)) * 100.0)), 2) if entry_price else 2.0
+            risk_dist = max(0.01, float(entry_price or 0.0) - float(stop_loss or 0.0)) if stop_loss is not None else 0.0
+            rr_val = round(min(999.0, max(-999.0, (float(target_1 or 0.0) - float(entry_price or 0.0)) / risk_dist)), 2) if (entry_price and target_1 and risk_dist > 0) else None
+            atr_pct_val = round(min(999.0, max(0.0, (risk_dist / float(entry_price or 1.0)) * 100.0)), 2) if (entry_price and risk_dist > 0) else 0.0
 
             # Earnings Calendar removed — earnings fields set to defaults
             ed_info = {"earnings_flag": False, "days_to_earnings": 999, "earnings_date": None, "earnings_severity": "NONE", "date_status": "UNKNOWN", "warning_msg": ""}
+
+            eff_sl = float(stop_loss) if stop_loss is not None else None
+            eff_t1 = float(target_1) if target_1 is not None else None
+            is_fundamental = (str(scanner or "").upper().strip() == "FUNDAMENTAL")
 
             try:
                 cur.execute("""
@@ -3230,14 +3239,19 @@ def save_alert_if_new(
                     ON CONFLICT (alert_id, leg) DO NOTHING
                 """, (alert_id, symbol, scanner or 'EOD', bayesian_regime or 'BULL', regime_score_val,
                       int(base_score_val or 0), int(rs_bonus_val or 0), int(sector_bonus_val or 0), rs_pct_val, sector_name_val,
-                      rr_val, atr_pct_val, float(entry_price or 0.0), float(stop_loss or 0.0), float(target_1 or 0.0), target_2, target_3, target_4,
+                      rr_val, atr_pct_val, float(entry_price or 0.0), eff_sl, eff_t1, target_2, target_3, target_4,
                       ed_info["earnings_flag"], ed_info["days_to_earnings"], ed_info["earnings_date"],
                       ed_info["earnings_severity"], ed_info["date_status"]))
                 commit_cb()
             except Exception as oe:
                 logger.error(f"Failed to snapshot alert_outcome for alert {alert_id}: {oe}")
 
-            msg = f'{symbol} | {category} | Buy: ₹{entry_price} | SL: ₹{stop_loss} | T1: ₹{target_1}'
+                msg = (
+                    f"{symbol} | {category} | Entry: ₹{entry_price} | "
+                    f"Target: OPEN-ENDED | Stop Loss: NONE | Exit Model: WEALTH_EXIT_V1 | Shadow: WEALTH_EXIT_V2"
+                )
+            else:
+                msg = f'{symbol} | {category} | Buy: ₹{entry_price} | SL: ₹{stop_loss} | T1: ₹{target_1}'
             insert_notification('buy', f'Buy Alert / {scanner}', msg, symbol, alert_id=alert_id)
 
             # Trigger web push notification
@@ -4786,7 +4800,8 @@ DECOMMISSIONED_SCANNERS: set[str] = {
     "Wealth Engine",
     "WEALTH_ENGINE",
     "WEALTH",
-    "WEALTH_EXIT"
+    "WEALTH_EXIT",
+    "FUNDAMENTAL_WEALTH_BUY"
 }
 
 def is_scanner_stopped(scanner_name: str) -> bool:

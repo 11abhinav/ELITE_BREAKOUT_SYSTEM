@@ -84,17 +84,19 @@ def test_three_regime_routing_matrix():
 
 
 def test_production_safety_assertions():
-    """Verify automated production safety assertions pass for BULL (TECHNICAL only) and SIDEWAYS/BEAR (empty)."""
-    # BULL regime: TECHNICAL is the sole active production scanner
+    """Verify automated production safety assertions pass for BULL (FUNDAMENTAL + TECHNICAL) and SIDEWAYS/BEAR (FUNDAMENTAL only)."""
+    # BULL regime: FUNDAMENTAL and TECHNICAL are active production scanners
     bull_scanners = validate_production_safety_assertions("BULL")
-    assert bull_scanners == ["TECHNICAL"]
+    assert sorted(bull_scanners) == ["FUNDAMENTAL", "TECHNICAL"]
     assert all(s in CERTIFIED_PRODUCTION_SCANNERS for s in bull_scanners)
     assert not any(s in DECOMMISSIONED_SCANNERS for s in bull_scanners)
 
-    # SIDEWAYS and BEAR regimes: Zero active production scanners
+    # SIDEWAYS and BEAR regimes: TECHNICAL is blocked, FUNDAMENTAL is certified
     for regime in ["SIDEWAYS", "BEAR"]:
         active_scanners = validate_production_safety_assertions(regime)
-        assert len(active_scanners) == 0
+        assert active_scanners == ["FUNDAMENTAL"]
+        assert all(s in CERTIFIED_PRODUCTION_SCANNERS for s in active_scanners)
+        assert not any(s in DECOMMISSIONED_SCANNERS for s in active_scanners)
 
 
 def test_database_governance_gate():

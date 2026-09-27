@@ -2096,6 +2096,19 @@ def _trigger_technical(trigger_type="MANUAL", scheduler_name="MANUAL", run_ctx=N
     if is_scanner_stopped("TECHNICAL"):
         logger.info("⏸️ [TECHNICAL] Scanner is PAUSED/STOPPED by Admin. Skipping trigger.")
         return {"total_count": 0, "processed_count": 0}
+
+    # Pre-flight regime gate: TECHNICAL is certified exclusively for BULL regime
+    try:
+        from engine.production.governance_registry import get_current_macro_regime
+        current_regime = get_current_macro_regime()
+    except Exception as e:
+        logger.warning(f"⚠️ [TECHNICAL PRE-FLIGHT] Could not resolve current macro regime ({e}); defaulting to BULL")
+        current_regime = "BULL"
+
+    if current_regime != "BULL":
+        logger.info(f"⏭️ [TECHNICAL PRE-FLIGHT] Suppressed: TECHNICAL is certified exclusively in BULL regime (Current: {current_regime}). Skipping execution to conserve CPU.")
+        return {"total_count": 0, "processed_count": 0, "status": "skipped", "reason": f"REGIME_NOT_CERTIFIED_{current_regime}"}
+
     from technical_scanner import run_technical_scan
     count = run_technical_scan(trigger_type=trigger_type, scheduler_name=scheduler_name, run_ctx=run_ctx, session=session)
     return {"total_count": count, "processed_count": count}

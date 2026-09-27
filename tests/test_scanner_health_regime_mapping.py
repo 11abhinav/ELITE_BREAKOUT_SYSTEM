@@ -79,8 +79,8 @@ def test_core_invariant_supported_not_equal_production_active():
         assert sc not in CERTIFIED_PRODUCTION_SCANNERS
 
 
-def test_certified_production_set_contains_only_technical():
-    assert CERTIFIED_PRODUCTION_SCANNERS == {"TECHNICAL"}
+def test_certified_production_set():
+    assert CERTIFIED_PRODUCTION_SCANNERS == {"TECHNICAL", "FUNDAMENTAL"}
     assert len(UNDER_CERTIFICATION_SCANNERS) == 0
 
 

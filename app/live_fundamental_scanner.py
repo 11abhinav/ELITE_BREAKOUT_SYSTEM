@@ -24,6 +24,7 @@ from __future__ import annotations
 import os
 import sys
 import json
+import time
 import logging
 import math
 from datetime import datetime, date
@@ -35,6 +36,11 @@ import pandas as pd
 
 IST = ZoneInfo("Asia/Kolkata")
 logger = logging.getLogger("LIVE_FUNDAMENTAL_SCANNER")
+
+try:
+    from app.fundamental_telemetry import FundamentalScanTelemetry
+except ImportError:
+    from fundamental_telemetry import FundamentalScanTelemetry
 
 BASE_DIR = "/Users/abhinavmaheshwari/Documents/ELITE_BREAKOUT_SYSTEM"
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -102,6 +108,14 @@ class ApprovedUniverseRegistry:
         if os.path.exists(QUARANTINE_JSON):
             with open(QUARANTINE_JSON, "r") as f:
                 self.quarantined_symbols = set(json.load(f).get("symbols", []))
+
+    @property
+    def master_symbols(self) -> set:
+        return self.clean_symbols | self.quarantined_symbols
+
+    @property
+    def approved_symbols(self) -> set:
+        return self.clean_symbols
 
     def validate_symbol(self, symbol: str) -> Tuple[bool, Optional[RejectionReason]]:
         sym = symbol.upper()
@@ -397,8 +411,9 @@ class BreakoutGate:
             failures.append(RejectionReason.FAIL_BREAKOUT_EXTENSION)
 
         metrics = {
-            "prior_20d_high": round(prior_20d_high, 2),
+            "close": round(current_close, 2),
             "signal_close": round(current_close, 2),
+            "prior_20d_high": round(prior_20d_high, 2),
             "vol_ratio": round(vol_ratio, 2),
             "extension_pct": round(extension_pct, 2)
         }
@@ -577,69 +592,162 @@ class LiveFundamentalBuyScanner:
         benchmark_closes: Optional[np.ndarray] = None,
         consolidation_window: int = 20,
         provenance_valid: bool = True,
-        is_stale: bool = False
+        is_stale: bool = False,
+        telemetry: Optional[Any] = None
     ) -> Dict[str, Any]:
         """Evaluates a single candidate through the mandatory 6-gate pipeline."""
         sym = symbol.upper()
         rejections: List[RejectionReason] = []
         gate_metrics: Dict[str, Any] = {}
 
+        if telemetry is not None:
+            telemetry.record_symbol_start(sym)
+            telemetry.record_composite_scores(sym, fundamentals)
+
         # 1. Universe Gate
         univ_pass, univ_err = self.universe_registry.validate_symbol(sym)
+        if telemetry is not None:
+            telemetry.record_gate_evaluation(
+                sym, "UNIVERSE", univ_pass, {"symbol": sym},
+                [univ_err.value] if univ_err else []
+            )
         if not univ_pass and univ_err:
             rejections.append(univ_err)
-            return self._build_result(sym, False, rejections, gate_metrics)
+            res = self._build_result(sym, False, rejections, gate_metrics)
+            if telemetry is not None:
+                telemetry.record_symbol_final_decision(sym, False, [univ_err.value], univ_err.value)
+            return res
 
         # 2. Provenance & Freshness Gate
+        prov_pass = (provenance_valid and not is_stale)
+        prov_errs = []
+        if not provenance_valid:
+            prov_errs.append(RejectionReason.FUNDAMENTAL_PROVENANCE_INVALID)
+        if is_stale:
+            prov_errs.append(RejectionReason.FUNDAMENTAL_DATA_STALE)
+
+        if telemetry is not None:
+            telemetry.record_gate_evaluation(
+                sym, "PROVENANCE", prov_pass,
+                {"provenance_valid": provenance_valid, "is_stale": is_stale},
+                [e.value for e in prov_errs]
+            )
+
         if not provenance_valid:
             rejections.append(RejectionReason.FUNDAMENTAL_PROVENANCE_INVALID)
-            return self._build_result(sym, False, rejections, gate_metrics)
+            res = self._build_result(sym, False, rejections, gate_metrics)
+            if telemetry is not None:
+                telemetry.record_symbol_final_decision(sym, False, [e.value for e in rejections], RejectionReason.FUNDAMENTAL_PROVENANCE_INVALID.value)
+            return res
         if is_stale:
             rejections.append(RejectionReason.FUNDAMENTAL_DATA_STALE)
-            return self._build_result(sym, False, rejections, gate_metrics)
+            res = self._build_result(sym, False, rejections, gate_metrics)
+            if telemetry is not None:
+                telemetry.record_symbol_final_decision(sym, False, [e.value for e in rejections], RejectionReason.FUNDAMENTAL_DATA_STALE.value)
+            return res
 
         # 3. Fundamental Quality Gate (ROCE >= 15%, ROE >= 12%, OCF > 0, D/E <= 1.0)
         fq_pass, fq_errs, fq_metrics = FundamentalQualityGate.evaluate(fundamentals)
         gate_metrics.update(fq_metrics)
+        if telemetry is not None:
+            telemetry.record_gate_evaluation(sym, "FUNDAMENTAL_QUALITY", fq_pass, fq_metrics, [e.value for e in fq_errs])
+            telemetry.record_fundamental_gate_detail(sym, fq_metrics, fq_pass, [e.value for e in fq_errs])
         if not fq_pass:
             rejections.extend(fq_errs)
 
         # 4. Earnings Acceleration Gate (Rev Accel, Op Profit Accel, EPS Accel, Prior EPS > 0)
         ea_pass, ea_errs, ea_metrics = EarningsAccelerationGate.evaluate(fundamentals)
         gate_metrics.update(ea_metrics)
+        if telemetry is not None:
+            telemetry.record_gate_evaluation(sym, "EARNINGS_ACCELERATION", ea_pass, ea_metrics, [e.value for e in ea_errs])
+            telemetry.record_earnings_acceleration_gate_detail(sym, ea_metrics, ea_pass, [e.value for e in ea_errs])
         if not ea_pass:
             rejections.extend(ea_errs)
+
+        # 4.5. Value Trap Gate (§7)
+        is_trap = bool(fundamentals.get("is_value_trap", False) or (str(fundamentals.get("fundamental_category", "")).upper() == "VALUE_TRAP"))
+        if telemetry is not None:
+            telemetry.record_gate_evaluation(
+                sym, "VALUE_TRAP", not is_trap,
+                {"value_trap": is_trap, "fundamental_category": str(fundamentals.get("fundamental_category", "NONE"))},
+                [RejectionReason.FAIL_VALUE_TRAP.value] if is_trap else []
+            )
+            telemetry.record_value_trap_detail(sym, is_trap, str(fundamentals.get("fundamental_category", "NONE")))
 
         # 5. Market Data Sanity
         if df_bars is None or len(df_bars) < 200:
             rejections.append(RejectionReason.MARKET_DATA_INSUFFICIENT_LOOKBACK)
+            if telemetry is not None:
+                telemetry.record_gate_evaluation(
+                    sym, "MARKET_DATA", False,
+                    {"bars_len": len(df_bars) if df_bars is not None else 0},
+                    [RejectionReason.MARKET_DATA_INSUFFICIENT_LOOKBACK.value]
+                )
+                telemetry.record_symbol_final_decision(sym, False, [e.value for e in rejections], RejectionReason.MARKET_DATA_INSUFFICIENT_LOOKBACK.value)
             return self._build_result(sym, False, rejections, gate_metrics)
+
+        if telemetry is not None:
+            telemetry.record_gate_evaluation(
+                sym, "MARKET_DATA", True,
+                {"bars_len": len(df_bars)},
+                []
+            )
 
         closes = df_bars["Close" if "Close" in df_bars.columns else "close"].values.astype(np.float64)
         highs = df_bars["High" if "High" in df_bars.columns else "high"].values.astype(np.float64)
         lows = df_bars["Low" if "Low" in df_bars.columns else "low"].values.astype(np.float64)
         volumes = df_bars["Volume" if "Volume" in df_bars.columns else "volume"].values.astype(np.float64)
 
-        # 6. Technical Trend Gate (Close > SMA50 > SMA200, 3M/6M alpha)
+        # 6. Technical Trend Gate & Relative Strength Gate
         tt_pass, tt_errs, tt_metrics = TechnicalTrendGate.evaluate(closes, benchmark_closes)
         gate_metrics.update(tt_metrics)
+        trend_only_errs = [e for e in tt_errs if e == RejectionReason.FAIL_TREND]
+        rs_only_errs = [e for e in tt_errs if e == RejectionReason.FAIL_RELATIVE_STRENGTH]
+        trend_pass = (len(trend_only_errs) == 0)
+        rs_pass = (len(rs_only_errs) == 0)
+
+        if telemetry is not None:
+            trend_data = {
+                "close": float(closes[-1]),
+                "sma50": tt_metrics.get("sma50"),
+                "sma200": tt_metrics.get("sma200")
+            }
+            telemetry.record_gate_evaluation(sym, "TECHNICAL_TREND", trend_pass, trend_data, [e.value for e in trend_only_errs])
+            telemetry.record_technical_trend_detail(sym, trend_data, trend_pass, [e.value for e in trend_only_errs])
+
+            rs_data = {
+                "ret_3m_stock_pct": tt_metrics.get("ret_3m_stock_pct"),
+                "ret_6m_stock_pct": tt_metrics.get("ret_6m_stock_pct")
+            }
+            telemetry.record_gate_evaluation(sym, "RELATIVE_STRENGTH", rs_pass, rs_data, [e.value for e in rs_only_errs])
+            telemetry.record_relative_strength_detail(sym, rs_data, rs_pass, [e.value for e in rs_only_errs])
+
         if not tt_pass:
             rejections.extend(tt_errs)
 
         # 7. Consolidation Gate (window 20-60, DD <= 15%, ATR <= 6%, Close > SMA200)
         c_pass, c_errs, c_metrics = ConsolidationGate.evaluate(closes, highs, lows, consolidation_window)
         gate_metrics.update(c_metrics)
+        if telemetry is not None:
+            telemetry.record_gate_evaluation(sym, "CONSOLIDATION", c_pass, c_metrics, [e.value for e in c_errs])
+            telemetry.record_consolidation_detail(sym, c_metrics, c_pass, [e.value for e in c_errs])
         if not c_pass:
             rejections.extend(c_errs)
 
         # 8. Breakout Gate (Close > 20D High, Vol >= 1.5x, Ext <= 8%)
         b_pass, b_errs, b_metrics = BreakoutGate.evaluate(closes, highs, volumes, lookback=20)
         gate_metrics.update(b_metrics)
+        if telemetry is not None:
+            telemetry.record_gate_evaluation(sym, "BREAKOUT", b_pass, b_metrics, [e.value for e in b_errs])
+            telemetry.record_breakout_detail(sym, b_metrics, b_pass, [e.value for e in b_errs])
         if not b_pass:
             rejections.extend(b_errs)
 
         is_buy = (len(rejections) == 0)
-        return self._build_result(sym, is_buy, rejections, gate_metrics)
+        res = self._build_result(sym, is_buy, rejections, gate_metrics)
+        if telemetry is not None:
+            telemetry.record_symbol_final_decision(sym, is_buy, [e.value for e in rejections])
+        return res
 
     def scan_universe(
         self,
@@ -703,6 +811,29 @@ class LiveFundamentalBuyScanner:
             except Exception as e:
                 logger.debug(f"Scanner health RUNNING warning: {e}")
 
+        telemetry = FundamentalScanTelemetry(
+            scanner_version="2.0.0",
+            universe_version="certified_clean_universe_886",
+            universe_hash=RULES_HASH_BUY,
+            daily_builder_version="2.0",
+            git_commit=FROZEN_GIT_SHA
+        )
+        telemetry.log_scan_start(
+            master_count=len(self.universe_registry.master_symbols),
+            quarantined_count=len(self.universe_registry.quarantined_symbols),
+            eligible_count=len(self.universe_registry.approved_symbols)
+        )
+        telemetry.record_data_provider_audit(
+            provider="DAILY_BUILDER_2.0",
+            source=str(db_meta.get("file_path", "data/daily_builder_master_v2.parquet")),
+            rows=len(fundamentals_map) if fundamentals_map else 0,
+            latency_ms=round((time.time() - start_ts) * 1000.0, 2),
+            latest_timestamp=db_meta.get("loaded_at"),
+            data_age_days=db_meta.get("age_days", 0.0),
+            freshness_status=str(db_meta.get("freshness_status", "FRESH")),
+            validation_status=str(db_meta.get("provenance_status", "CERTIFIED_LOCAL_DAILY_BUILDER"))
+        )
+
         funnel = {
             "scanned_count": 0,
             "universe_valid_count": 0,
@@ -721,7 +852,7 @@ class LiveFundamentalBuyScanner:
             for sym, df_bars in market_data_map.items():
                 funnel["scanned_count"] += 1
                 funds = fundamentals_map.get(sym, {})
-                res = self.scan_candidate(sym, df_bars, funds, benchmark_closes=benchmark_closes)
+                res = self.scan_candidate(sym, df_bars, funds, benchmark_closes=benchmark_closes, telemetry=telemetry)
 
                 if RejectionReason.EXCLUDED_UNAPPROVED_UNIVERSE not in res["rejection_reasons"] and \
                    RejectionReason.EXCLUDED_QUARANTINED_ANOMALY not in res["rejection_reasons"]:
@@ -748,13 +879,10 @@ class LiveFundamentalBuyScanner:
                 if res["is_buy"]:
                     funnel["buy_alerts_count"] += 1
                     funnel["buy_candidates"].append(res)
-                    cmp_price = float(res.get("metrics", {}).get("close", 0.0))
-                    sma50 = float(res.get("metrics", {}).get("sma50", cmp_price * 0.92))
-                    sl = round(min(cmp_price * 0.92, sma50), 2)
-                    t1 = round(cmp_price * 1.10, 2)
-                    t2 = round(cmp_price * 1.20, 2)
-                    t3 = round(cmp_price * 1.35, 2)
-                    t4 = round(cmp_price * 1.50, 2)
+                    m = res.get("metrics", {})
+                    cmp_price = float(m.get("close") or m.get("signal_close") or 0.0)
+                    sma50 = float(m.get("sma50") or cmp_price)
+                    vol_ratio = float(m.get("vol_ratio", 1.5))
 
                     # Persist alert to unified alerts table (accessible to all dashboard views & tracking)
                     if save_alert_if_new is not None:
@@ -771,27 +899,85 @@ class LiveFundamentalBuyScanner:
                                 breakout_type="FUNDAMENTAL_BREAKOUT",
                                 alert_time=now_ist.strftime("%Y-%m-%d %H:%M:%S"),
                                 scanner="FUNDAMENTAL",
-                                category="20D BREAKOUT",
+                                category="OPEN_TARGET / WEALTH_EXIT_V1",
                                 entry_price=cmp_price,
-                                stop_loss=sl,
-                                target_1=t1,
-                                target_2=t2,
-                                target_3=t3,
-                                target_4=t4,
-                                signals="FUNDAMENTAL QUALITY + 20D BREAKOUT",
+                                stop_loss=None,
+                                target_1=None,
+                                target_2=None,
+                                target_3=None,
+                                target_4=None,
+                                signals="FUNDAMENTAL QUALITY + 20D BREAKOUT (OPEN TARGET)",
                                 score=95,
+                                volume_ratio=vol_ratio,
                                 bayesian_regime=macro_regime,
                                 context={
                                     "strategy": "FUNDAMENTAL_BREAKOUT",
-                                    "rules": "ROCE>=15%, Growth Accelerating, RS vs BM, 20D BO",
-                                    "metrics": res.get("metrics", {}),
-                                    "growth": res.get("growth_metrics", {}),
-                                    "consolidation": res.get("consolidation_metrics", {})
+                                    "rules": "ROCE>=15%, Growth Accelerating, RS vs BM, 20D BO, Open Target / WEALTH_EXIT_V1",
+                                    "fundamental_metrics": {
+                                        "roce": m.get("roce"),
+                                        "roe": m.get("roe"),
+                                        "operating_cash_flow": m.get("operating_cash_flow"),
+                                        "debt_equity": m.get("debt_equity"),
+                                        "is_value_trap": m.get("is_value_trap"),
+                                        "fundamental_category": m.get("fundamental_category"),
+                                        "quality_score": m.get("quality_score"),
+                                        "growth_score": m.get("growth_score"),
+                                    },
+                                    "growth_metrics": {
+                                        "rev_yoy_latest": m.get("rev_yoy_latest"),
+                                        "rev_yoy_prev": m.get("rev_yoy_prev"),
+                                        "op_profit_yoy_latest": m.get("op_profit_yoy_latest"),
+                                        "op_profit_yoy_prev": m.get("op_profit_yoy_prev"),
+                                        "eps_yoy_latest": m.get("eps_yoy_latest"),
+                                        "eps_yoy_prev": m.get("eps_yoy_prev"),
+                                        "prior_eps": m.get("prior_eps"),
+                                    },
+                                    "trend_metrics": {
+                                        "sma50": m.get("sma50"),
+                                        "sma200": m.get("sma200"),
+                                        "ret_3m_stock_pct": m.get("ret_3m_stock_pct"),
+                                        "ret_6m_stock_pct": m.get("ret_6m_stock_pct"),
+                                    },
+                                    "consolidation_metrics": {
+                                        "consolidation_window": m.get("consolidation_window"),
+                                        "recent_high": m.get("recent_high"),
+                                        "drawdown_pct": m.get("drawdown_pct"),
+                                        "atr_pct": m.get("atr_pct"),
+                                    },
+                                    "breakout_metrics": {
+                                        "prior_20d_high": m.get("prior_20d_high"),
+                                        "signal_close": m.get("signal_close") or m.get("close"),
+                                        "vol_ratio": m.get("vol_ratio"),
+                                        "extension_pct": m.get("extension_pct"),
+                                    },
+                                    "metrics": m
                                 }
                             )
                             logger.info(f"✅ [FUNDAMENTAL ALERT] {sym} -> unified alerts DB: inserted={inserted}, reason={reason}")
+                            telemetry.record_alert_persistence(sym, inserted, reason or ("INSERTED" if inserted else "REJECTED"), cmp_price)
                         except Exception as al_err:
                             logger.warning(f"Save alert to unified table failed for {sym}: {al_err}")
+
+                    # Register with Live Wealth Monitor Engine (V1 Exit / V2 Shadow)
+                    try:
+                        try:
+                            from live_wealth_monitor import get_live_wealth_monitor
+                        except ImportError:
+                            from app.live_wealth_monitor import get_live_wealth_monitor
+                        wealth_mon = get_live_wealth_monitor()
+                        prior_high = float(m.get("prior_20d_high", cmp_price))
+                        ext_dist = float(m.get("extension_pct", 0.0))
+                        wealth_mon.generate_buy_alert(
+                            symbol=sym.upper(),
+                            signal_date=now_ist.strftime("%Y-%m-%d"),
+                            signal_close=cmp_price,
+                            breakout_reference=prior_high,
+                            breakout_distance=ext_dist,
+                            indicator_values=m,
+                            market_regime=macro_regime
+                        )
+                    except Exception as wm_err:
+                        logger.warning(f"Registration with live wealth monitor failed for {sym}: {wm_err}")
 
                     # Persist alert to wealth_buy_alert table for wealth monitors
                     if save_wealth_buy_alert is not None:
@@ -801,7 +987,7 @@ class LiveFundamentalBuyScanner:
                                 alert_price=cmp_price,
                                 breakout_type="20D_BREAKOUT_FUNDAMENTAL",
                                 fm_score=95.0,
-                                notes="Passed Mandatory Fundamental Quality + Growth + 20D Breakout"
+                                notes="Passed Mandatory Fundamental Quality + Growth + 20D Breakout (Open Target / WEALTH_EXIT_V1)"
                             )
                         except Exception as al_err:
                             logger.debug(f"Save alert warning for {sym}: {al_err}")
@@ -809,6 +995,14 @@ class LiveFundamentalBuyScanner:
                     for r in res["rejection_reasons"]:
                         r_key = r.value if hasattr(r, "value") else str(r)
                         funnel["rejection_summary"][r_key] = funnel["rejection_summary"].get(r_key, 0) + 1
+
+            # Produce end-of-run telemetry summary and self-check (§26, §31)
+            telemetry.record_stage_latency("total_universe_scan", (time.time() - start_ts) * 1000.0)
+            telemetry_summary = telemetry.produce_end_of_run_summary()
+            integrity_pass, integrity_errors = telemetry.run_telemetry_integrity_check()
+            funnel["telemetry_summary"] = telemetry_summary
+            funnel["telemetry_integrity"] = "PASS" if integrity_pass else "FAIL"
+            funnel["telemetry_run_id"] = telemetry.scan_run_id
 
             duration_sec = round(time.time() - start_ts, 2)
             if ctx and complete_scanner_execution_run is not None:
