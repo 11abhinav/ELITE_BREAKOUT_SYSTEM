@@ -2998,7 +2998,7 @@ function changeAdminPage(type, delta) {
               <span>💡</span> How to Understand Confluence Alignment Data:
             </div>
             <div style="font-size:12px; color:var(--muted); line-height:1.6;">
-              When multiple independent breakout engines (e.g., <strong>EOD + Pullback + Accumulation</strong>) simultaneously agree on the same stock, confidence is significantly higher.<br>
+              When multiple independent certified engines (e.g., <strong>Technical + Fundamental Buy + Wealth Engine</strong>) simultaneously agree on the same stock, confidence is significantly higher.<br>
               • <strong>3+ Engines Agreeing</strong>: 🔥 <strong>APEX CONFLUENCE</strong> — Highest statistical edge. Scale position size up.<br>
               • <strong>2 Engines Agreeing</strong>: <strong>HIGH CONFLUENCE</strong> — Strong multi-tf agreement. Standard position size.<br>
               • <strong>Guard Rule</strong>: Multi-engine pairs with small historical samples ($n < 30$) are marked <em>UNVERIFIED</em> to prevent false confidence.
@@ -4122,7 +4122,7 @@ function changeAdminPage(type, delta) {
 
             <div style="background:var(--card2); border:1px solid var(--border); border-radius:12px; padding:18px;">
               <h3 style="font-size:14px; font-weight:700; color:var(--text); margin-bottom:10px;">⏱️ Scanner & Engine Execution Policy</h3>
-              <p style="font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:14px;">EOD Scanner Schedule: <strong>15:35 IST Daily</strong><br>Multi-TF Breakout Engine: <strong>Every 5 Mins</strong><br>Reversal Scanner Engine: <strong>Every 15 Mins</strong></p>
+              <p style="font-size:12px; color:var(--muted); line-height:1.5; margin-bottom:14px;">Technical Scanner (BULL): <strong>18:15 IST Daily</strong><br>Fundamental Buy Scanner: <strong>16:30 IST Daily</strong><br>Wealth Exit Monitors (V1 Live + V2 Shadow): <strong>09:00–16:00 IST</strong></p>
               <div style="font-size:11px; color:var(--win); font-weight:700;">✅ Automated Scheduler Active</div>
             </div>
 
@@ -4890,6 +4890,7 @@ function changeAdminPage(type, delta) {
     const SCANNER_META = {
       'DAILY_BUILDER': { label: 'Daily Builder', desc: 'Universe Watchlist Builder · Daily 05:00 IST' },
       'TECHNICAL': { label: 'Technical Scanner', desc: 'Multi-Pattern Technical · Daily 18:15 IST' },
+      'FUNDAMENTAL_WEALTH_BUY': { label: 'Fundamental Buy Scanner', desc: 'Mandatory Quality + Growth + 20D Breakout · Daily 16:30 IST' },
       'Wealth Engine': { label: 'Wealth Engine', desc: 'Long-term Wealth Scan · Daily 06:00 & 17:00 IST · Market Hours (09:15–15:30 IST)' },
       'MULTIBAGGER': { label: 'Multibagger Scanner', desc: 'Daily Fundamental Scan · Daily 17:30 IST' },
       'AI Worker': { label: 'AI Worker', desc: 'Concall & Fundamental Caching · Continuous (Sat-Sun Active)' },
@@ -4897,6 +4898,8 @@ function changeAdminPage(type, delta) {
       'PERFORMANCE_TRACKER': { label: 'Alerts Exit Monitor', desc: 'Exit Signals & Trade Lifecycle · Every 5m (09:15–15:30 IST)' },
       'MULTIBAGGER_EXIT': { label: 'Multibagger Exit Monitor', desc: 'Exit Signals for Multibagger · Every 15m (09:15–15:30 IST)' },
       'WEALTH_EXIT': { label: 'Wealth Exit Monitor', desc: 'Exit Signals & Trailing Stop · Every 5m (09:15–15:30 IST)' },
+      'WEALTH_EXIT_V1': { label: 'Wealth Exit V1 (Live)', desc: 'Canonical V1 Primary Exit Monitor · Market Hours 09:00–16:00 IST' },
+      'WEALTH_EXIT_V2': { label: 'Wealth Exit V2 (Shadow)', desc: 'Canonical V2 Shadow Research Tracker · Market Hours 09:00–16:00 IST' },
       'BayesianUpdater': { label: 'Bayesian Updater', desc: 'Machine Learning Feedback Loop · Daily 24h' }
     };
 
@@ -5046,7 +5049,20 @@ function getEarningsBadgeHtml(item) {
         return;
       }
 
-      const ALLOWED_SCANNERS = ['DAILY_BUILDER', 'TECHNICAL', 'Wealth Engine', 'MULTIBAGGER', 'PERFORMANCE_TRACKER', 'MULTIBAGGER_EXIT', 'WEALTH_EXIT', 'Pledge Worker', 'AI Worker'];
+      const ALLOWED_SCANNERS = [
+        'DAILY_BUILDER',
+        'TECHNICAL',
+        'FUNDAMENTAL_WEALTH_BUY',
+        'Wealth Engine',
+        'MULTIBAGGER',
+        'PERFORMANCE_TRACKER',
+        'MULTIBAGGER_EXIT',
+        'WEALTH_EXIT',
+        'WEALTH_EXIT_V1',
+        'WEALTH_EXIT_V2',
+        'Pledge Worker',
+        'AI Worker'
+      ];
       const allScanners = new Set([...Object.keys(SCANNER_META), ...Object.keys(scanner_stats)].filter(sc => ALLOWED_SCANNERS.includes(sc)));
       el.innerHTML = '';
 
@@ -12986,7 +13002,7 @@ function openStockForensics(typeOrObj, index) {
   } else if (typeof item.scanner === 'string' && item.scanner.length > 0) {
     participatingScanners = [item.scanner.trim().toUpperCase()];
   } else {
-    participatingScanners = ['EOD', 'PULLBACK'];
+    participatingScanners = ['TECHNICAL', 'FUNDAMENTAL_WEALTH_BUY'];
   }
 
   // Base pricing
@@ -12996,11 +13012,9 @@ function openStockForensics(typeOrObj, index) {
   // If item.scanners_breakdown is not already populated, synthesize immediate rich cards for every qualifying scanner
   if (!Array.isArray(item.scanners_breakdown) || item.scanners_breakdown.length === 0) {
     const defaultEnginesMeta = {
-      'EOD': { title: 'Daily Breakout Engine', tf: 'Daily (Swing)', score: item.score || 88.5, vol: item.volume_ratio || 3.4, rationale: item.why_qualifies || 'Stage 2 Breakout above key 20-day high with institutional volume expansion.', slRule: 'Structural Swing Low' },
-      'TECHNICAL': { title: 'Technical Momentum Engine', tf: 'Daily', score: item.score || 87.0, vol: item.volume_ratio || 3.0, rationale: item.why_qualifies || 'High momentum technical setup clearing multi-week resistance.', slRule: 'Structural Support Anchor' },
-      'PULLBACK': { title: 'Pullback Continuation', tf: 'Daily (Swing)', score: item.score || 84.0, vol: item.volume_ratio || 2.2, rationale: item.why_qualifies || 'Healthy 20 EMA pullback holding prior breakout resistance as new support.', slRule: 'Pullback Swing Low Anchor' },
-      'REVERSAL': { title: 'Reversal Mean-Reversion', tf: 'Daily (Counter-Trend)', score: item.score || 82.5, vol: item.volume_ratio || 2.5, rationale: item.why_qualifies || 'Oversold exhaustion reversal off major confluence support.', slRule: 'Prior Day Low Anchor' },
-      'ACCUMULATION': { title: 'Institutional Accumulation', tf: 'Daily / Weekly', score: item.score || 89.0, vol: item.volume_ratio || 3.8, rationale: item.why_qualifies || 'Smart money accumulation with multiple high-volume absorption candles.', slRule: 'Accumulation Base Floor' },
+      'TECHNICAL': { title: 'Technical Momentum Engine', tf: 'Daily', score: item.score || 87.0, vol: item.volume_ratio || 3.0, rationale: item.why_qualifies || 'High momentum technical setup clearing multi-week resistance in BULL regime.', slRule: 'Structural Support Anchor' },
+      'FUNDAMENTAL_WEALTH_BUY': { title: 'Fundamental Buy Scanner', tf: 'Daily (20D Breakout)', score: item.score || 92.0, vol: item.volume_ratio || 2.5, rationale: item.why_qualifies || 'Passes mandatory fundamental quality (ROCE>=15%, ROE>=12%, OCF>0, D/E<=1) + earnings acceleration + technical trend + 20D breakout.', slRule: '20D Breakout Floor' },
+      'Wealth Engine': { title: 'Wealth Engine', tf: 'Daily / Weekly', score: item.score || 89.0, vol: item.volume_ratio || 2.8, rationale: item.why_qualifies || 'Long term fundamental wealth compounder candidate.', slRule: 'Wealth V1 Trailing Stop' },
       'MULTIBAGGER': { title: 'Multibagger Compounder', tf: 'Weekly / Multi-Month', score: item.score || 91.0, vol: item.volume_ratio || 4.2, rationale: item.why_qualifies || 'Exceptional fundamentals with secular multi-year breakout pattern.', slRule: 'Weekly Base Support' }
     };
 

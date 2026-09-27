@@ -401,6 +401,23 @@
         <div id="em-stat-closed" style="font-size:22px; font-weight:700; color:#94a3b8;">0</div>
       </div>
     </div>
+    <!-- REAL-TIME SCANNER & EXIT HEALTH ROW -->
+    <div style="margin-top:14px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; font-size:12px;">
+      <div style="font-weight:700; color:#cbd5e1; display:flex; align-items:center; gap:6px;">
+        <span>⚕️</span> SCANNER &amp; EXIT HEALTH:
+      </div>
+      <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center;">
+        <span style="background:rgba(255,255,255,0.04); padding:4px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.08);">
+          Fundamental Buy: <strong id="health-fund-buy" style="color:#22c55e;">● OK</strong> (<span id="health-fund-alerts">0</span> alerts today)
+        </span>
+        <span style="background:rgba(255,255,255,0.04); padding:4px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.08);">
+          Wealth Exit V1 (Live): <strong id="health-v1-exit" style="color:#22c55e;">● OK</strong> (<span id="health-v1-alerts">0</span> exit alerts)
+        </span>
+        <span style="background:rgba(255,255,255,0.04); padding:4px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.08);">
+          Wealth Exit V2 (Shadow): <strong id="health-v2-exit" style="color:#38bdf8;">● OK</strong> (<span id="health-v2-alerts">0</span> shadow exits)
+        </span>
+      </div>
+    </div>
   </div>
 
   <div class="tab-bar">
@@ -1985,6 +2002,46 @@ window.addEventListener('DOMContentLoaded', () => {
         if (v2Hold) v2Hold.textContent = (sum.v2_shadow_stats && sum.v2_shadow_stats.holding) || 0;
         const v2Exit = document.getElementById('em-v2-exits');
         if (v2Exit) v2Exit.textContent = (sum.v2_shadow_stats && sum.v2_shadow_stats.hypothetical_exits) || 0;
+
+        // Fetch scanner health for real-time status of Fund Buy and Exit Monitors
+        try {
+          const resHealth = await fetch('/api/scanner_health');
+          if (resHealth.ok) {
+            const hData = await resHealth.json();
+            const fundBuy = hData['FUNDAMENTAL_WEALTH_BUY'] || hData['Fundamental Buy Scanner'];
+            if (fundBuy) {
+              const el = document.getElementById('health-fund-buy');
+              if (el) {
+                el.textContent = `● ${fundBuy.status || 'OK'}`;
+                el.style.color = fundBuy.status === 'DOWN' ? '#f43f5e' : (fundBuy.status === 'RUNNING' ? '#38bdf8' : '#22c55e');
+              }
+              const alEl = document.getElementById('health-fund-alerts');
+              if (alEl) alEl.textContent = fundBuy.today_alerts || 0;
+            }
+            const v1 = hData['WEALTH_EXIT_V1'] || hData['Wealth Exit V1'];
+            if (v1) {
+              const el = document.getElementById('health-v1-exit');
+              if (el) {
+                el.textContent = `● ${v1.status || 'OK'}`;
+                el.style.color = v1.status === 'DOWN' ? '#f43f5e' : (v1.status === 'RUNNING' ? '#38bdf8' : '#22c55e');
+              }
+              const alEl = document.getElementById('health-v1-alerts');
+              if (alEl) alEl.textContent = v1.today_alerts || 0;
+            }
+            const v2 = hData['WEALTH_EXIT_V2'] || hData['Wealth Exit V2'];
+            if (v2) {
+              const el = document.getElementById('health-v2-exit');
+              if (el) {
+                el.textContent = `● ${v2.status || 'OK'}`;
+                el.style.color = v2.status === 'DOWN' ? '#f43f5e' : (v2.status === 'RUNNING' ? '#38bdf8' : '#38bdf8');
+              }
+              const alEl = document.getElementById('health-v2-alerts');
+              if (alEl) alEl.textContent = v2.today_alerts || 0;
+            }
+          }
+        } catch (hErr) {
+          console.debug('Scanner health fetch warning:', hErr);
+        }
       }
 
       // 2. Fetch table rows

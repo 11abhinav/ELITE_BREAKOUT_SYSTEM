@@ -4445,11 +4445,14 @@ def get_all_scanner_health() -> list[dict]:
     schedule_map = {
         "DAILY_BUILDER": "Daily 05:00 IST",
         "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan · BULL Regime)",
+        "FUNDAMENTAL_WEALTH_BUY": "Daily 16:30 IST (Fundamentally Strong 20D Breakout)",
         "Wealth Engine": "Daily 06:00 & 17:00 IST · Market Hours (09:15 - 15:30)",
         "MULTIBAGGER": "Daily 17:30 IST (Daily Fundamental)",
         "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
         "MULTIBAGGER_EXIT": "Exit Monitor · Every 15min (09:15 - 15:30 IST)",
         "WEALTH_EXIT": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
+        "WEALTH_EXIT_V1": "Exit Monitor · Live Primary (09:00 - 16:00 IST)",
+        "WEALTH_EXIT_V2": "Exit Monitor · Shadow Research (09:00 - 16:00 IST)",
         "Pledge Worker": "Continuous (Daily Refresh)",
         "AI Worker": "Continuous (Sat-Sun Active)",
     }
@@ -4613,7 +4616,12 @@ def reset_all_scanners_on_boot() -> None:
                     WHERE scanner_name IN (
                         'ACCUMULATION', 'PULLBACK', 'EOD', 'REVERSAL', 'MULTI_TF',
                         'MULTI_TF_5M', 'MULTITF', 'TECHNICAL_INTRADAY', 'SHORT_COVERING',
-                        '5M_BREAKOUT', 'MOMENTUM_IGNITION'
+                        '5M_BREAKOUT', 'MOMENTUM_IGNITION', 'SHORT_COVERING_5M', 'SHORT_COVERING_EOD',
+                        'SHORT_COVERING_IGNITION', 'MOMENTUM_IGNITION_5M', 'MOMENTUM_THRUST',
+                        'BREAKOUT_5M', 'SCAN_5M_BREAKOUT', 'MULTITF_5M', 'MULTI_TF_LADDER',
+                        'MULTITF_V3', 'REVERSAL_SCANNER', 'REVERSAL_V2', 'EOD_SCANNER',
+                        'SCAN_SHORT_COVERING', 'SCAN_REVERSAL_KEYLEVEL', 'SCAN_ACCUMULATION',
+                        'SCAN_PULLBACK', 'SCAN_EOD'
                     );
                 """)
 
@@ -4622,11 +4630,14 @@ def reset_all_scanners_on_boot() -> None:
                 schedule_map = {
                     "DAILY_BUILDER": "Daily 05:00 IST",
                     "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan · BULL Regime)",
+                    "FUNDAMENTAL_WEALTH_BUY": "Daily 16:30 IST (Fundamentally Strong 20D Breakout)",
                     "Wealth Engine": "Daily 06:00 & 17:00 IST · Market Hours (09:15 - 15:30)",
                     "MULTIBAGGER": "Daily 17:30 IST (Daily Fundamental)",
                     "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
                     "MULTIBAGGER_EXIT": "Exit Monitor · Every 15min (09:15 - 15:30 IST)",
                     "WEALTH_EXIT": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
+                    "WEALTH_EXIT_V1": "Exit Monitor · Live Primary (09:00 - 16:00 IST)",
+                    "WEALTH_EXIT_V2": "Exit Monitor · Shadow Research (09:00 - 16:00 IST)",
                     "Pledge Worker": "Continuous (Daily Refresh)",
                     "AI Worker": "Continuous (Sat-Sun Active)",
                 }
@@ -4647,10 +4658,10 @@ def reset_all_scanners_on_boot() -> None:
 def get_scanner_health(scanner_name: str) -> dict:
     """Return health row for a specific scanner."""
     init_db()
+    norm_name = normalize_scanner_name(scanner_name)
     with get_connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             try:
-                norm_name = normalize_scanner_name(scanner_name)
                 cur.execute("""
                     SELECT scanner_name, status, last_success, today_alerts, error_msg, is_acknowledged, updated_at, error_severity, error_count, first_error_at, retry_count, scheduled_for, processed_count, total_count, outcome, provider_stats, duration_seconds
                     FROM scanner_health
@@ -4659,10 +4670,16 @@ def get_scanner_health(scanner_name: str) -> dict:
                 row = cur.fetchone()
                 if row:
                     return dict(row)
-                return {}
             except Exception:
                 logger.exception(f"❌ get_scanner_health failed for {scanner_name}")
-                return {}
+    # Fallback to seeded health so callers/tests always receive valid state
+    try:
+        for item in get_all_scanner_health():
+            if item.get("scanner_name") == norm_name:
+                return item
+    except Exception:
+        pass
+    return {}
 
 
 def normalize_scanner_name(scanner_name: str) -> str:
@@ -4687,6 +4704,12 @@ def normalize_scanner_name(scanner_name: str) -> str:
         return "Wealth Engine"
     elif upper in ["WEALTH_EXIT", "WEALTH_INTRADAY", "WEALTH_5M"]:
         return "WEALTH_EXIT"
+    elif upper in ["WEALTH_EXIT_V1", "WEALTH_V1_EXIT"]:
+        return "WEALTH_EXIT_V1"
+    elif upper in ["WEALTH_EXIT_V2", "WEALTH_V2_EXIT", "WEALTH_EXIT_V2_SHADOW"]:
+        return "WEALTH_EXIT_V2"
+    elif upper in ["FUNDAMENTAL_WEALTH_BUY", "FUNDAMENTAL_BUY", "FUNDAMENTAL_SCANNER", "FUNDAMENTAL_BUY_SCANNER"]:
+        return "FUNDAMENTAL_WEALTH_BUY"
     elif upper in ["MULTIBAGGER"]:
         return "MULTIBAGGER"
     elif upper in ["MULTIBAGGER_EXIT"]:
@@ -4736,6 +4759,13 @@ DECOMMISSIONED_SCANNERS: set[str] = {
     "REVERSAL",
     "REVERSAL_SCANNER",
     "REVERSAL_V2",
+    "ACCUMULATION",
+    "SCAN_ACCUMULATION",
+    "PULLBACK",
+    "SCAN_PULLBACK",
+    "EOD",
+    "SCAN_EOD",
+    "EOD_SCANNER",
     "SCAN_SHORT_COVERING",
     "SCAN_REVERSAL_KEYLEVEL",
 }

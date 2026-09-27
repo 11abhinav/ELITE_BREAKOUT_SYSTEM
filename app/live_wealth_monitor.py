@@ -751,6 +751,48 @@ class LiveWealthMonitorEngine:
             v2_shadow_exits_detected = []
             positions_to_close = []
 
+            # Initialize execution history and health heartbeat for V1 and V2 exit monitors
+            import time
+            start_ts = time.time()
+            v1_ctx = None
+            v2_ctx = None
+            try:
+                try:
+                    from database import create_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health
+                except ImportError:
+                    from app.database import create_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health
+            except Exception:
+                create_scanner_execution_run = None
+                complete_scanner_execution_run = None
+                upsert_scanner_health = None
+
+            if create_scanner_execution_run is not None:
+                try:
+                    v1_ctx = create_scanner_execution_run(
+                        scanner_name="WEALTH_EXIT_V1",
+                        trigger_type="AUTOMATED",
+                        total_stocks=len(self.open_positions),
+                        allow_concurrent=True
+                    )
+                except Exception as ce:
+                    logger.debug(f"v1_ctx start warning: {ce}")
+                try:
+                    v2_ctx = create_scanner_execution_run(
+                        scanner_name="WEALTH_EXIT_V2",
+                        trigger_type="AUTOMATED",
+                        total_stocks=len(self.open_positions),
+                        allow_concurrent=True
+                    )
+                except Exception as ce:
+                    logger.debug(f"v2_ctx start warning: {ce}")
+
+            if upsert_scanner_health is not None:
+                try:
+                    upsert_scanner_health("WEALTH_EXIT_V1", status="RUNNING", total_count=len(self.open_positions), run_id=getattr(v1_ctx, "run_id", None))
+                    upsert_scanner_health("WEALTH_EXIT_V2", status="RUNNING", total_count=len(self.open_positions), run_id=getattr(v2_ctx, "run_id", None))
+                except Exception as he:
+                    logger.debug(f"exit monitor health RUNNING warning: {he}")
+
             # 2. Iterate through all OPEN positions
             for position_id, pos in list(self.open_positions.items()):
                 sym = pos["symbol"]
@@ -902,6 +944,47 @@ class LiveWealthMonitorEngine:
             for pid, closed_pos in positions_to_close:
                 self.closed_positions[pid] = closed_pos
                 del self.open_positions[pid]
+
+            duration_sec = round(time.time() - start_ts, 2)
+            if v1_ctx and complete_scanner_execution_run is not None:
+                try:
+                    v1_ctx.fresh_data_count = len(self.open_positions) + len(positions_to_close)
+                    v1_ctx.alerts_generated = len(v1_exit_alerts_generated)
+                    complete_scanner_execution_run(v1_ctx)
+                except Exception as ce:
+                    logger.debug(f"v1 completion warning: {ce}")
+            if v2_ctx and complete_scanner_execution_run is not None:
+                try:
+                    v2_ctx.fresh_data_count = len(self.open_positions) + len(positions_to_close)
+                    v2_ctx.alerts_generated = len(v2_shadow_exits_detected)
+                    complete_scanner_execution_run(v2_ctx)
+                except Exception as ce:
+                    logger.debug(f"v2 completion warning: {ce}")
+
+            if upsert_scanner_health is not None:
+                try:
+                    upsert_scanner_health(
+                        "WEALTH_EXIT_V1",
+                        status="OK",
+                        today_alerts=len(v1_exit_alerts_generated),
+                        last_success=now_ist.isoformat(),
+                        processed_count=len(self.open_positions) + len(positions_to_close),
+                        total_count=len(self.open_positions) + len(positions_to_close),
+                        duration_seconds=duration_sec,
+                        run_id=getattr(v1_ctx, "run_id", None)
+                    )
+                    upsert_scanner_health(
+                        "WEALTH_EXIT_V2",
+                        status="OK",
+                        today_alerts=len(v2_shadow_exits_detected),
+                        last_success=now_ist.isoformat(),
+                        processed_count=len(self.open_positions) + len(positions_to_close),
+                        total_count=len(self.open_positions) + len(positions_to_close),
+                        duration_seconds=duration_sec,
+                        run_id=getattr(v2_ctx, "run_id", None)
+                    )
+                except Exception as he:
+                    logger.debug(f"exit health update OK warning: {he}")
 
             self.save_state()
 

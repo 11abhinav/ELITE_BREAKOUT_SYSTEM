@@ -495,7 +495,45 @@ class LiveFundamentalBuyScanner:
     ) -> Dict[str, Any]:
         """
         Scans all candidates across the universe and records the complete stock funnel audit.
+        Also records execution run in scanner_execution_history and scanner_health.
         """
+        import time
+        start_ts = time.time()
+        ctx = None
+
+        try:
+            try:
+                from database import create_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health, save_wealth_buy_alert
+            except ImportError:
+                from app.database import create_scanner_execution_run, complete_scanner_execution_run, upsert_scanner_health, save_wealth_buy_alert
+        except Exception:
+            create_scanner_execution_run = None
+            complete_scanner_execution_run = None
+            upsert_scanner_health = None
+            save_wealth_buy_alert = None
+
+        if create_scanner_execution_run is not None:
+            try:
+                ctx = create_scanner_execution_run(
+                    scanner_name="FUNDAMENTAL_WEALTH_BUY",
+                    trigger_type="AUTOMATED",
+                    total_stocks=len(market_data_map),
+                    allow_concurrent=True
+                )
+            except Exception as e:
+                logger.debug(f"Execution history start warning: {e}")
+
+        if upsert_scanner_health is not None:
+            try:
+                upsert_scanner_health(
+                    "FUNDAMENTAL_WEALTH_BUY",
+                    status="RUNNING",
+                    total_count=len(market_data_map),
+                    run_id=getattr(ctx, "run_id", None)
+                )
+            except Exception as e:
+                logger.debug(f"Scanner health RUNNING warning: {e}")
+
         funnel = {
             "scanned_count": 0,
             "universe_valid_count": 0,
@@ -510,39 +548,96 @@ class LiveFundamentalBuyScanner:
             "buy_candidates": []
         }
 
-        for sym, df_bars in market_data_map.items():
-            funnel["scanned_count"] += 1
-            funds = fundamentals_map.get(sym, {})
-            res = self.scan_candidate(sym, df_bars, funds, benchmark_closes=benchmark_closes)
+        try:
+            for sym, df_bars in market_data_map.items():
+                funnel["scanned_count"] += 1
+                funds = fundamentals_map.get(sym, {})
+                res = self.scan_candidate(sym, df_bars, funds, benchmark_closes=benchmark_closes)
 
-            if RejectionReason.EXCLUDED_UNAPPROVED_UNIVERSE not in res["rejection_reasons"] and \
-               RejectionReason.EXCLUDED_QUARANTINED_ANOMALY not in res["rejection_reasons"]:
-                funnel["universe_valid_count"] += 1
+                if RejectionReason.EXCLUDED_UNAPPROVED_UNIVERSE not in res["rejection_reasons"] and \
+                   RejectionReason.EXCLUDED_QUARANTINED_ANOMALY not in res["rejection_reasons"]:
+                    funnel["universe_valid_count"] += 1
 
-            if not any(r in res["rejection_reasons"] for r in [RejectionReason.FAIL_ROCE, RejectionReason.FAIL_ROE, RejectionReason.FAIL_OCF, RejectionReason.FAIL_DEBT_EQUITY]):
-                funnel["fundamental_quality_pass_count"] += 1
+                if not any(r in res["rejection_reasons"] for r in [RejectionReason.FAIL_ROCE, RejectionReason.FAIL_ROE, RejectionReason.FAIL_OCF, RejectionReason.FAIL_DEBT_EQUITY]):
+                    funnel["fundamental_quality_pass_count"] += 1
 
-            if not any(r in res["rejection_reasons"] for r in [RejectionReason.FAIL_REVENUE_ACCELERATION, RejectionReason.FAIL_OP_PROFIT_ACCELERATION, RejectionReason.FAIL_EPS_ACCELERATION, RejectionReason.FAIL_PRIOR_EPS]):
-                funnel["earnings_acceleration_pass_count"] += 1
+                if not any(r in res["rejection_reasons"] for r in [RejectionReason.FAIL_REVENUE_ACCELERATION, RejectionReason.FAIL_OP_PROFIT_ACCELERATION, RejectionReason.FAIL_EPS_ACCELERATION, RejectionReason.FAIL_PRIOR_EPS]):
+                    funnel["earnings_acceleration_pass_count"] += 1
 
-            if RejectionReason.FAIL_TREND not in res["rejection_reasons"]:
-                funnel["trend_pass_count"] += 1
+                if RejectionReason.FAIL_TREND not in res["rejection_reasons"]:
+                    funnel["trend_pass_count"] += 1
 
-            if RejectionReason.FAIL_RELATIVE_STRENGTH not in res["rejection_reasons"]:
-                funnel["relative_strength_pass_count"] += 1
+                if RejectionReason.FAIL_RELATIVE_STRENGTH not in res["rejection_reasons"]:
+                    funnel["relative_strength_pass_count"] += 1
 
-            if not any(r in res["rejection_reasons"] for r in [RejectionReason.FAIL_CONSOLIDATION_WINDOW, RejectionReason.FAIL_CONSOLIDATION_DRAWDOWN, RejectionReason.FAIL_CONSOLIDATION_ATR, RejectionReason.FAIL_CONSOLIDATION_SMA200]):
-                funnel["consolidation_pass_count"] += 1
+                if not any(r in res["rejection_reasons"] for r in [RejectionReason.FAIL_CONSOLIDATION_WINDOW, RejectionReason.FAIL_CONSOLIDATION_DRAWDOWN, RejectionReason.FAIL_CONSOLIDATION_ATR, RejectionReason.FAIL_CONSOLIDATION_SMA200]):
+                    funnel["consolidation_pass_count"] += 1
 
-            if not any(r in res["rejection_reasons"] for r in [RejectionReason.FAIL_BREAKOUT_PRICE, RejectionReason.FAIL_BREAKOUT_VOLUME, RejectionReason.FAIL_BREAKOUT_EXTENSION]):
-                funnel["breakout_pass_count"] += 1
+                if not any(r in res["rejection_reasons"] for r in [RejectionReason.FAIL_BREAKOUT_PRICE, RejectionReason.FAIL_BREAKOUT_VOLUME, RejectionReason.FAIL_BREAKOUT_EXTENSION]):
+                    funnel["breakout_pass_count"] += 1
 
-            if res["is_buy"]:
-                funnel["buy_alerts_count"] += 1
-                funnel["buy_candidates"].append(res)
-            else:
-                for r in res["rejection_reasons"]:
-                    funnel["rejection_summary"][r.value] = funnel["rejection_summary"].get(r.value, 0) + 1
+                if res["is_buy"]:
+                    funnel["buy_alerts_count"] += 1
+                    funnel["buy_candidates"].append(res)
+                    # Persist alert to database if available
+                    if save_wealth_buy_alert is not None:
+                        try:
+                            save_wealth_buy_alert(
+                                symbol=sym,
+                                alert_price=float(res.get("metrics", {}).get("close", 0.0)),
+                                breakout_type="20D_BREAKOUT_FUNDAMENTAL",
+                                fm_score=95.0,
+                                notes="Passed Mandatory Fundamental Quality + Growth + 20D Breakout"
+                            )
+                        except Exception as al_err:
+                            logger.debug(f"Save alert warning for {sym}: {al_err}")
+                else:
+                    for r in res["rejection_reasons"]:
+                        r_key = r.value if hasattr(r, "value") else str(r)
+                        funnel["rejection_summary"][r_key] = funnel["rejection_summary"].get(r_key, 0) + 1
+
+            duration_sec = round(time.time() - start_ts, 2)
+            if ctx and complete_scanner_execution_run is not None:
+                try:
+                    ctx.fresh_data_count = funnel["scanned_count"]
+                    ctx.alerts_generated = funnel["buy_alerts_count"]
+                    complete_scanner_execution_run(ctx)
+                except Exception as ce_err:
+                    logger.debug(f"Execution completion warning: {ce_err}")
+
+            if upsert_scanner_health is not None:
+                try:
+                    upsert_scanner_health(
+                        "FUNDAMENTAL_WEALTH_BUY",
+                        status="OK",
+                        today_alerts=funnel["buy_alerts_count"],
+                        last_success=datetime.now(IST).isoformat(),
+                        processed_count=funnel["scanned_count"],
+                        total_count=len(market_data_map),
+                        duration_seconds=duration_sec,
+                        run_id=getattr(ctx, "run_id", None)
+                    )
+                except Exception as he_err:
+                    logger.debug(f"Scanner health OK warning: {he_err}")
+
+        except Exception as scan_err:
+            logger.exception(f"❌ scan_universe failed: {scan_err}")
+            if ctx and complete_scanner_execution_run is not None:
+                try:
+                    complete_scanner_execution_run(ctx, exception=scan_err)
+                except Exception:
+                    pass
+            if upsert_scanner_health is not None:
+                try:
+                    upsert_scanner_health(
+                        "FUNDAMENTAL_WEALTH_BUY",
+                        status="DOWN",
+                        error_msg=str(scan_err)[:500],
+                        run_id=getattr(ctx, "run_id", None)
+                    )
+                except Exception:
+                    pass
+            raise
 
         self.last_funnel_audit = funnel
         return funnel

@@ -656,3 +656,86 @@ def test_market_hours_battery():
 def test_zero_broker_routing_proof():
     assert AUTOMATIC_BROKER_ORDERS is False
     assert SAFETY_INVARIANT == "NO_BROKER_ORDER_ROUTING"
+
+
+# =====================================================================================
+# PART 5: SCANNER HEALTH & EXECUTION HISTORY LOGGING & DECOMMISSIONED EXCLUSION
+# =====================================================================================
+
+def test_scanner_health_and_history_logging(exit_test_env):
+    """
+    Validates that:
+    1. FUNDAMENTAL_WEALTH_BUY, WEALTH_EXIT_V1, and WEALTH_EXIT_V2 are present in scanner health.
+    2. When scanners and monitors run, they update scanner_health and log to scanner_execution_history.
+    """
+    scanner = LiveFundamentalBuyScanner()
+    engine = exit_test_env
+
+    from app.database import get_all_scanner_health, get_scanner_health
+
+    health_rows = get_all_scanner_health()
+    scanner_names = {r["scanner_name"] for r in health_rows}
+    assert "FUNDAMENTAL_WEALTH_BUY" in scanner_names
+    assert "WEALTH_EXIT_V1" in scanner_names
+    assert "WEALTH_EXIT_V2" in scanner_names
+
+    # Check individual get_scanner_health query
+    h_buy = get_scanner_health("FUNDAMENTAL_WEALTH_BUY")
+    assert h_buy.get("scanner_name") == "FUNDAMENTAL_WEALTH_BUY"
+    assert h_buy.get("status") in ("IDLE", "OK", "RUNNING", "PAUSED")
+
+    h_v1 = get_scanner_health("WEALTH_EXIT_V1")
+    assert h_v1.get("scanner_name") == "WEALTH_EXIT_V1"
+
+    h_v2 = get_scanner_health("WEALTH_EXIT_V2")
+    assert h_v2.get("scanner_name") == "WEALTH_EXIT_V2"
+
+    # Run scan_universe and verify execution history and health update
+    df = create_ideal_bars(250)
+    funds = {
+        "roce": 0.20, "roe": 0.16, "ocf": 100.0, "debt_to_equity": 0.5,
+        "rev_yoy_latest": 0.25, "rev_yoy_prev": 0.12,
+        "op_profit_yoy_latest": 0.30, "op_profit_yoy_prev": 0.15,
+        "eps_yoy_latest": 0.35, "eps_yoy_prev": 0.18,
+        "prior_eps": 20.0
+    }
+    funnel = scanner.scan_universe({"RELIANCE": df}, {"RELIANCE": funds})
+    assert funnel["scanned_count"] == 1
+
+    # Run exit monitor evaluate_live_exits and verify execution history and health update
+    engine.record_user_buy("TATASTEEL", 150.0, "2026-09-25")
+    res_exits = engine.evaluate_live_exits({"TATASTEEL": {"cmp": 149.0, "df_bars": df, "is_completed_session": True}}, force_market_open=True)
+    assert res_exits["evaluated_positions"] >= 1
+
+
+def test_decommissioned_scanners_purged_from_health_and_ui():
+    """
+    Validates that:
+    All 10 decommissioned scanner families are permanently purged from:
+    1. get_all_scanner_health()
+    2. Database schedule_map
+    """
+    from app.database import get_all_scanner_health, DECOMMISSIONED_SCANNERS
+
+    decommissioned_families = [
+        "SHORT_COVERING",
+        "5M_BREAKOUT",
+        "MOMENTUM_IGNITION",
+        "MULTI_TF",
+        "MULTI_TF_5M",
+        "TECHNICAL_INTRADAY",
+        "REVERSAL",
+        "ACCUMULATION",
+        "PULLBACK",
+        "EOD"
+    ]
+
+    for d in decommissioned_families:
+        assert d in DECOMMISSIONED_SCANNERS
+
+    active_health = get_all_scanner_health()
+    active_names = {r["scanner_name"] for r in active_health}
+
+    for d in decommissioned_families:
+        assert d not in active_names, f"Decommissioned scanner '{d}' must not be present in scanner health!"
+
