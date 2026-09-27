@@ -1,0 +1,5 @@
+n_trades,arm_a_mean_ret,arm_a_median_ret,arm_a_mean_mult,arm_a_median_mult,arm_a_win_rate,arm_a_mean_hold,arm_b_mean_ret,arm_b_median_ret,arm_b_mean_mult,arm_b_median_mult,arm_b_win_rate,arm_b_mean_hold,arm_b_mean_mfe,arm_b_mean_mae,arm_c_mean_ret,arm_c_median_ret,arm_c_mean_mult,arm_c_median_mult,arm_c_win_rate,arm_c_mean_hold,delta_b_minus_a_mean_ret,delta_c_minus_a_mean_ret,delta_b_minus_c_mean_ret,temporal_cell
+12486,0.23,-0.88,1.0023,0.9912,49.3,4.8,2.39,-2.98,1.0239,0.9702,38.1,39.0,17.91,-8.47,414.14,174.94,5.1414,2.7494,89.5,2196.3,2.16,413.9,-411.74,2016-2018
+23849,0.28,-2.54,1.0028,0.9746,48.3,4.2,11.47,-2.21,1.1147,0.9779,43.7,42.6,33.36,-9.61,859.86,192.09,9.5986,2.9209,88.7,1503.8,11.19,859.58,-848.39,2019-2021
+31326,0.31,-0.99,1.0031,0.9901,49.5,4.5,7.52,-2.13,1.0752,0.9787,43.4,41.9,25.35,-8.34,125.52,42.94,2.2552,1.4294,70.6,779.8,7.21,125.21,-118.0,2022-2024
+17920,0.13,-2.54,1.0013,0.9746,47.3,4.9,2.74,-3.21,1.0274,0.9679,37.8,34.7,17.56,-8.17,18.63,2.2,1.1863,1.0219,53.3,199.7,2.62,18.5,-15.89,2025-2026

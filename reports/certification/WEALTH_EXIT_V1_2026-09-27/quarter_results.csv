@@ -1,0 +1,5 @@
+n_trades,arm_a_mean_ret,arm_a_median_ret,arm_a_mean_mult,arm_a_median_mult,arm_a_win_rate,arm_a_mean_hold,arm_b_mean_ret,arm_b_median_ret,arm_b_mean_mult,arm_b_median_mult,arm_b_win_rate,arm_b_mean_hold,arm_b_mean_mfe,arm_b_mean_mae,arm_c_mean_ret,arm_c_median_ret,arm_c_mean_mult,arm_c_median_mult,arm_c_win_rate,arm_c_mean_hold,delta_b_minus_a_mean_ret,delta_c_minus_a_mean_ret,delta_b_minus_c_mean_ret,quarter
+17075,-0.18,-3.22,0.9982,0.9678,45.1,4.3,3.88,-4.73,1.0388,0.9527,33.0,36.2,22.28,-10.04,627.9,81.62,7.279,1.8162,79.0,1270.9,4.06,628.08,-624.03,Q1
+25936,0.65,2.01,1.0065,1.0201,52.1,5.0,9.51,-0.46,1.0951,0.9954,48.6,44.8,27.43,-7.98,236.18,47.44,3.3618,1.4743,73.6,945.6,8.86,235.53,-226.67,Q2
+24153,0.13,-2.58,1.0013,0.9742,47.7,4.3,6.07,-2.72,1.0607,0.9728,40.4,38.6,23.4,-8.53,323.97,46.43,4.2397,1.4643,71.1,990.8,5.94,323.84,-317.9,Q3
+18417,0.25,-2.02,1.0025,0.9798,48.6,4.5,6.97,-2.71,1.0697,0.9729,40.9,39.4,25.56,-8.57,286.24,76.26,3.8624,1.7626,77.3,1147.8,6.73,285.99,-279.26,Q4

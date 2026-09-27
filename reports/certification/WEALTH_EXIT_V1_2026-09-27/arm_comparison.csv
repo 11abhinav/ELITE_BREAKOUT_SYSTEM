@@ -1,0 +1,2 @@
+n_trades,arm_a_mean_ret,arm_a_median_ret,arm_a_mean_mult,arm_a_median_mult,arm_a_win_rate,arm_a_mean_hold,arm_b_mean_ret,arm_b_median_ret,arm_b_mean_mult,arm_b_median_mult,arm_b_win_rate,arm_b_mean_hold,arm_b_mean_mfe,arm_b_mean_mae,arm_c_mean_ret,arm_c_median_ret,arm_c_mean_mult,arm_c_median_mult,arm_c_win_rate,arm_c_mean_hold,delta_b_minus_a_mean_ret,delta_c_minus_a_mean_ret,delta_b_minus_c_mean_ret
+85581,0.25,-1.94,1.0025,0.9806,48.7,4.5,6.87,-2.55,1.0687,0.9745,41.5,40.2,24.86,-8.68,349.89,59.29,4.4989,1.5929,74.8,1066.8,6.62,349.63,-343.01

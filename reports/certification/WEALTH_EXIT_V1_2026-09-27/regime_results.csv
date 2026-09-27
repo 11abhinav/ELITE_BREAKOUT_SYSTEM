@@ -1,0 +1,4 @@
+n_trades,arm_a_mean_ret,arm_a_median_ret,arm_a_mean_mult,arm_a_median_mult,arm_a_win_rate,arm_a_mean_hold,arm_b_mean_ret,arm_b_median_ret,arm_b_mean_mult,arm_b_median_mult,arm_b_win_rate,arm_b_mean_hold,arm_b_mean_mfe,arm_b_mean_mae,arm_c_mean_ret,arm_c_median_ret,arm_c_mean_mult,arm_c_median_mult,arm_c_win_rate,arm_c_mean_hold,delta_b_minus_a_mean_ret,delta_c_minus_a_mean_ret,delta_b_minus_c_mean_ret,macro_regime
+18210,-0.07,-2.89,0.9993,0.9711,46.4,4.8,5.92,-2.83,1.0592,0.9717,38.8,36.2,23.24,-8.82,516.67,64.37,6.1667,1.6437,76.7,1099.3,5.99,516.74,-510.75,BEAR
+43643,0.34,-1.16,1.0034,0.9884,49.4,4.3,8.21,-1.94,1.0821,0.9806,44.4,43.1,26.77,-8.59,251.31,69.53,3.5131,1.6953,76.1,1130.1,7.87,250.97,-243.1,BULL
+23728,0.33,-1.14,1.0033,0.9886,49.2,4.8,5.13,-3.27,1.0513,0.9673,38.4,37.9,22.6,-8.73,403.19,38.16,5.0319,1.3815,70.9,925.3,4.8,402.86,-398.07,SIDEWAYS
