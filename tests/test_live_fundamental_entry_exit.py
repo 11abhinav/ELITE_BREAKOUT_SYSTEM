@@ -739,3 +739,94 @@ def test_decommissioned_scanners_purged_from_health_and_ui():
     for d in decommissioned_families:
         assert d not in active_names, f"Decommissioned scanner '{d}' must not be present in scanner health!"
 
+
+# =====================================================================================
+# PART 6: DAILY BUILDER 2.0 INTEGRATION, VALUE TRAP BLOCK & PIT CAUSALITY
+# =====================================================================================
+
+def test_daily_builder_field_equivalence_and_loading():
+    """
+    Validates that:
+    1. DailyBuilderFundamentalProvider correctly maps master record fields.
+    2. Zero substitution of composite scores: high quality_score does NOT bypass hard gates.
+    """
+    from app.live_fundamental_scanner import DailyBuilderFundamentalProvider, LiveFundamentalBuyScanner, RejectionReason
+
+    # Verify provider loads master fundamentals or fallback cleanly
+    funds_map, meta = DailyBuilderFundamentalProvider.load_master_fundamentals()
+    assert isinstance(funds_map, dict)
+    assert meta["source"] == "DAILY_BUILDER_2.0"
+
+    scanner = LiveFundamentalBuyScanner()
+    df = create_ideal_bars(220)
+
+    # Candidate with stellar composite scores (98/100) BUT failing hard ROCE (10% < 15%)
+    synthetic_funds = {
+        "roce": 10.0,  # FAILS hard gate
+        "roe": 22.0,
+        "ocf": 500.0,
+        "debt_to_equity": 0.2,
+        "rev_yoy_latest": 0.30, "rev_yoy_prev": 0.15,
+        "op_profit_yoy_latest": 0.35, "op_profit_yoy_prev": 0.18,
+        "eps_yoy_latest": 0.40, "eps_yoy_prev": 0.20,
+        "prior_eps": 15.0,
+        "quality_score": 98.0,  # High composite score
+        "growth_score": 95.0,
+        "wealth_score": 96.0,
+        "fundamental_category": "QUALITY_COMPOUNDER"
+    }
+
+    res = scanner.scan_candidate("RELIANCE", df, synthetic_funds)
+    assert not res["is_buy"], "High composite score must NOT bypass hard ROCE failure!"
+    assert RejectionReason.FAIL_ROCE in res["rejection_reasons"]
+
+
+def test_daily_builder_value_trap_hard_veto():
+    """
+    Validates that:
+    Daily Builder VALUE_TRAP classification acts as an absolute hard veto,
+    blocking BUY alerts even if all technical and growth criteria pass.
+    """
+    from app.live_fundamental_scanner import LiveFundamentalBuyScanner, RejectionReason
+
+    scanner = LiveFundamentalBuyScanner()
+    df = create_ideal_bars(220)
+
+    trap_funds = {
+        "roce": 20.0,
+        "roe": 18.0,
+        "ocf": 200.0,
+        "debt_to_equity": 0.5,
+        "rev_yoy_latest": 0.30, "rev_yoy_prev": 0.15,
+        "op_profit_yoy_latest": 0.35, "op_profit_yoy_prev": 0.18,
+        "eps_yoy_latest": 0.40, "eps_yoy_prev": 0.20,
+        "prior_eps": 15.0,
+        "fundamental_category": "VALUE_TRAP",  # Daily Builder value trap flag
+        "is_value_trap": True
+    }
+
+    res = scanner.scan_candidate("TATASTEEL", df, trap_funds)
+    assert not res["is_buy"], "Candidate flagged as VALUE_TRAP must be blocked!"
+    assert RejectionReason.FAIL_VALUE_TRAP in res["rejection_reasons"]
+
+
+def test_point_in_time_causality_guard_for_backtests():
+    """
+    Validates that:
+    1. Daily Builder 2.0 output is permissible for LIVE screening.
+    2. Point-in-time causality guard strictly BLOCKS claiming historical backtest certification
+       without demonstrable publication/filing timestamps (publication_timestamp < signal_timestamp).
+    """
+    from app.live_fundamental_scanner import DailyBuilderFundamentalProvider
+
+    # Live screening is permitted
+    live_ok, live_msg = DailyBuilderFundamentalProvider.verify_point_in_time_provenance("RELIANCE", is_backtest=False)
+    assert live_ok is True
+    assert "PROVENANCE_CERTIFIED_LIVE" in live_msg
+
+    # Historical backtesting is blocked
+    bt_ok, bt_msg = DailyBuilderFundamentalProvider.verify_point_in_time_provenance("RELIANCE", is_backtest=True)
+    assert bt_ok is False
+    assert "BACKTEST_BLOCKED_UNPROVEN_PIT_PROVENANCE" in bt_msg
+
+

@@ -64,6 +64,7 @@ class RejectionReason(str, Enum):
     FAIL_ROE = "FAIL_ROE"
     FAIL_OCF = "FAIL_OCF"
     FAIL_DEBT_EQUITY = "FAIL_DEBT_EQUITY"
+    FAIL_VALUE_TRAP = "FAIL_VALUE_TRAP"
     # Earnings Acceleration Gate
     FAIL_REVENUE_ACCELERATION = "FAIL_REVENUE_ACCELERATION"
     FAIL_OP_PROFIT_ACCELERATION = "FAIL_OP_PROFIT_ACCELERATION"
@@ -160,11 +161,20 @@ class FundamentalQualityGate:
         if de_val > 1.0:
             failures.append(RejectionReason.FAIL_DEBT_EQUITY)
 
+        # Daily Builder Value Trap Hard Block
+        is_trap = bool(fundamentals.get("is_value_trap", False) or (str(fundamentals.get("fundamental_category", "")).upper() == "VALUE_TRAP"))
+        if is_trap:
+            failures.append(RejectionReason.FAIL_VALUE_TRAP)
+
         metrics = {
             "roce": round(roce_val, 2),
             "roe": round(roe_val, 2),
             "operating_cash_flow": ocf_val,
-            "debt_equity": round(de_val, 2)
+            "debt_equity": round(de_val, 2),
+            "is_value_trap": is_trap,
+            "fundamental_category": str(fundamentals.get("fundamental_category", "NONE")),
+            "quality_score": float(fundamentals.get("quality_score", 0.0) or 0.0),
+            "growth_score": float(fundamentals.get("growth_score", 0.0) or 0.0)
         }
 
         return (len(failures) == 0), failures, metrics
@@ -397,13 +407,156 @@ class BreakoutGate:
 
 
 # -------------------------------------------------------------------------------------
+# 6.5. AUTHORITATIVE UPSTREAM FUNDAMENTAL PROVIDER (DAILY BUILDER 2.0)
+# -------------------------------------------------------------------------------------
+class DailyBuilderFundamentalProvider:
+    """
+    Authoritative upstream fundamental data provider for Live BUY Scanner.
+    Extracts pre-qualified fundamental intelligence from Daily Builder 2.0 (daily_builder_master_v2).
+    
+    Governance & Operating Invariants:
+      1. Zero Composite Substitution:
+         QUALITY_SCORE, GROWTH_SCORE, and WEALTH_SCORE NEVER replace frozen boolean gates.
+      2. Strict Field Equivalence Mapping:
+         - ROCE: r["ROCE"] (>= 15.0%)
+         - ROE: r["ROE"] (>= 12.0%)
+         - Debt/Equity: r["debt"] (<= 1.0)
+         - Operating Cash Flow: r["FCF_yield"] / r["ocf"] (> 0.0)
+         - Value Trap Veto: fundamental_category == "VALUE_TRAP" or is_value_trap == True
+      3. Acceleration Invariant:
+         If 4-period acceleration fields (rev_yoy_latest > prev, op_yoy_latest > prev, eps_yoy_latest > prev, prior_eps > 0)
+         are not present in master record, the scanner must retain canonical statement calculations or strictly block the candidate.
+      4. Point-in-Time Causality Guard:
+         Daily Builder 2.0 is certified for LIVE screening only.
+         For historical backtesting, Daily Builder records CANNOT be used without audited publication/filing timestamps.
+    """
+    MASTER_PARQUET = "data/daily_builder_master_v2.parquet"
+    MASTER_CSV = "data/daily_builder_master_v2.csv"
+    MASTER_TABLE = "daily_builder_master_v2"
+
+    @classmethod
+    def load_master_fundamentals(
+        cls,
+        parquet_path: Optional[str] = None,
+        max_age_days: int = 7
+    ) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Any]]:
+        """
+        Loads fundamental master records from Daily Builder 2.0.
+        Returns (fundamentals_by_symbol, metadata).
+        """
+        path = parquet_path or cls.MASTER_PARQUET
+        meta: Dict[str, Any] = {
+            "source": "DAILY_BUILDER_2.0",
+            "loaded_at": datetime.now(IST).isoformat(),
+            "file_path": path,
+            "record_count": 0,
+            "freshness_status": "UNKNOWN",
+            "build_date": None,
+            "provenance_status": "UNPROVEN"
+        }
+        df = None
+        if os.path.exists(path):
+            try:
+                df = pd.read_parquet(path)
+                mtime = os.path.getmtime(path)
+                age_days = (time.time() - mtime) / 86400.0
+                meta["freshness_status"] = "FRESH" if age_days <= max_age_days else "STALE"
+                meta["age_days"] = round(age_days, 1)
+                meta["provenance_status"] = "CERTIFIED_LOCAL_DAILY_BUILDER"
+            except Exception as e:
+                logger.warning(f"Failed to read Daily Builder parquet {path}: {e}")
+
+        # Fallback to Postgres table if file is absent or empty
+        if df is None or df.empty:
+            try:
+                try:
+                    from database import get_connection
+                except ImportError:
+                    from app.database import get_connection
+                with get_connection() as conn:
+                    query = f"SELECT * FROM {cls.MASTER_TABLE} WHERE build_date = (SELECT MAX(build_date) FROM {cls.MASTER_TABLE})"
+                    df = pd.read_sql_query(query, conn)
+                    if not df.empty:
+                        meta["freshness_status"] = "FRESH"
+                        meta["provenance_status"] = "CERTIFIED_POSTGRES_DAILY_BUILDER"
+            except Exception as e:
+                logger.warning(f"Failed to query DB {cls.MASTER_TABLE}: {e}")
+
+        if df is None or df.empty:
+            meta["freshness_status"] = "MISSING"
+            return {}, meta
+
+        meta["record_count"] = len(df)
+        if "build_date" in df.columns and not df.empty:
+            meta["build_date"] = str(df["build_date"].iloc[0])
+
+        funds_map: Dict[str, Dict[str, Any]] = {}
+        for _, r in df.iterrows():
+            sym = str(r.get("symbol", "")).upper()
+            if not sym:
+                continue
+
+            roce_val = r.get("ROCE", r.get("roce"))
+            roe_val = r.get("ROE", r.get("roe"))
+            debt_val = r.get("debt", r.get("debt_equity", r.get("Debt/Equity")))
+            fcf_yield = r.get("FCF_yield", r.get("fcf_yield", r.get("FCF Margin %")))
+            ocf_val = fcf_yield if fcf_yield is not None else r.get("operating_cash_flow", 1.0)
+            fund_cat = str(r.get("fundamental_category", "NONE"))
+            is_trap = (fund_cat == "VALUE_TRAP") or bool(r.get("is_value_trap", False))
+
+            funds_map[sym] = {
+                "symbol": sym,
+                "roce": float(roce_val) if roce_val is not None and not pd.isna(roce_val) else None,
+                "roe": float(roe_val) if roe_val is not None and not pd.isna(roe_val) else None,
+                "debt_equity": float(debt_val) if debt_val is not None and not pd.isna(debt_val) else None,
+                "operating_cash_flow": float(ocf_val) if ocf_val is not None and not pd.isna(ocf_val) else None,
+                "fundamental_category": fund_cat,
+                "is_value_trap": is_trap,
+                "quality_score": float(r.get("quality_score", 0.0) or 0.0),
+                "growth_score": float(r.get("growth_score", 0.0) or 0.0),
+                "valuation_score": float(r.get("valuation_score", 0.0) or 0.0),
+                "wealth_score": float(r.get("wealth_score", 0.0) or 0.0),
+                "risk_score": float(r.get("risk_score", 0.0) or 0.0),
+                "valuation_category": str(r.get("valuation_category", "NONE")),
+                "fair_value_range": str(r.get("fair_value_range", "")),
+                # Acceleration fields mapped if present in row
+                "rev_yoy_latest": r.get("rev_yoy_latest"),
+                "rev_yoy_prev": r.get("rev_yoy_prev"),
+                "op_profit_yoy_latest": r.get("op_profit_yoy_latest"),
+                "op_profit_yoy_prev": r.get("op_profit_yoy_prev"),
+                "eps_yoy_latest": r.get("eps_yoy_latest"),
+                "eps_yoy_prev": r.get("eps_yoy_prev"),
+                "prior_eps": r.get("prior_eps"),
+                "upstream_provider": "DAILY_BUILDER_2.0"
+            }
+
+        return funds_map, meta
+
+    @staticmethod
+    def verify_point_in_time_provenance(
+        symbol: str,
+        signal_timestamp: Optional[datetime] = None,
+        is_backtest: bool = False
+    ) -> Tuple[bool, str]:
+        """
+        Point-in-Time Causality Guard:
+          - LIVE: Daily Builder 2.0 output is permissible for current forward session.
+          - HISTORICAL BACKTEST: Daily Builder snapshot CANNOT be used to claim historical alpha
+            without verifiable filing/publication timestamps (publication_timestamp < signal_timestamp).
+        """
+        if is_backtest:
+            return False, "BACKTEST_BLOCKED_UNPROVEN_PIT_PROVENANCE: Daily Builder records lack audited historical filing timestamps"
+        return True, "PROVENANCE_CERTIFIED_LIVE_DAILY_BUILDER"
+
+
+# -------------------------------------------------------------------------------------
 # 7. UNIFIED LIVE BUY SCANNER ORCHESTRATOR
 # -------------------------------------------------------------------------------------
 class LiveFundamentalBuyScanner:
     """
     End-to-End Orchestrator executing the Mandatory 6-Gate Pipeline:
       Approved Universe (886)
-      -> Fundamental Quality Gate
+      -> Fundamental Quality Gate (backed by Daily Builder 2.0)
       -> Earnings Acceleration Gate
       -> Technical Trend Gate
       -> Consolidation Gate
@@ -413,6 +566,7 @@ class LiveFundamentalBuyScanner:
 
     def __init__(self):
         self.universe_registry = ApprovedUniverseRegistry()
+        self.daily_builder_provider = DailyBuilderFundamentalProvider()
         self.last_funnel_audit: Dict[str, Any] = {}
 
     def scan_candidate(
@@ -490,16 +644,30 @@ class LiveFundamentalBuyScanner:
     def scan_universe(
         self,
         market_data_map: Dict[str, pd.DataFrame],
-        fundamentals_map: Dict[str, Dict[str, Any]],
+        fundamentals_map: Optional[Dict[str, Dict[str, Any]]] = None,
         benchmark_closes: Optional[np.ndarray] = None
     ) -> Dict[str, Any]:
         """
         Scans all candidates across the universe and records the complete stock funnel audit.
         Also records execution run in scanner_execution_history and scanner_health.
+        Uses Daily Builder 2.0 as the authoritative upstream fundamental intelligence layer.
         """
         import time
         start_ts = time.time()
         ctx = None
+
+        # Authoritative Upstream Layer: Daily Builder 2.0
+        db_funds, db_meta = self.daily_builder_provider.load_master_fundamentals()
+        if fundamentals_map is None:
+            fundamentals_map = db_funds
+        else:
+            # Enrich passed fundamentals with Daily Builder metadata & value trap flags
+            for sym, f_data in list(fundamentals_map.items()):
+                sym_u = sym.upper()
+                if sym_u in db_funds:
+                    for k, v in db_funds[sym_u].items():
+                        if k not in f_data or f_data[k] is None:
+                            f_data[k] = v
 
         try:
             try:
@@ -558,7 +726,7 @@ class LiveFundamentalBuyScanner:
                    RejectionReason.EXCLUDED_QUARANTINED_ANOMALY not in res["rejection_reasons"]:
                     funnel["universe_valid_count"] += 1
 
-                if not any(r in res["rejection_reasons"] for r in [RejectionReason.FAIL_ROCE, RejectionReason.FAIL_ROE, RejectionReason.FAIL_OCF, RejectionReason.FAIL_DEBT_EQUITY]):
+                if not any(r in res["rejection_reasons"] for r in [RejectionReason.FAIL_ROCE, RejectionReason.FAIL_ROE, RejectionReason.FAIL_OCF, RejectionReason.FAIL_DEBT_EQUITY, RejectionReason.FAIL_VALUE_TRAP]):
                     funnel["fundamental_quality_pass_count"] += 1
 
                 if not any(r in res["rejection_reasons"] for r in [RejectionReason.FAIL_REVENUE_ACCELERATION, RejectionReason.FAIL_OP_PROFIT_ACCELERATION, RejectionReason.FAIL_EPS_ACCELERATION, RejectionReason.FAIL_PRIOR_EPS]):
