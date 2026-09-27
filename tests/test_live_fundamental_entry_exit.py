@@ -679,9 +679,9 @@ def test_scanner_health_and_history_logging(exit_test_env):
     assert "TECHNICAL" in scanner_names
     assert "DAILY_BUILDER" in scanner_names
     assert "PERFORMANCE_TRACKER" in scanner_names
+    assert "WEALTH_EXIT_V1" in scanner_names
+    assert "WEALTH_EXIT_V2" in scanner_names
     assert "FUNDAMENTAL_WEALTH_BUY" not in scanner_names
-    assert "WEALTH_EXIT_V1" not in scanner_names
-    assert "WEALTH_EXIT_V2" not in scanner_names
     assert "MULTIBAGGER" not in scanner_names
     assert "MULTIBAGGER_EXIT" not in scanner_names
 
@@ -689,6 +689,12 @@ def test_scanner_health_and_history_logging(exit_test_env):
     h_tech = get_scanner_health("TECHNICAL")
     assert h_tech.get("scanner_name") == "TECHNICAL"
     assert h_tech.get("status") in ("IDLE", "OK", "RUNNING", "PAUSED")
+
+    h_v1 = get_scanner_health("WEALTH_EXIT_V1")
+    assert h_v1.get("scanner_name") == "WEALTH_EXIT_V1"
+
+    h_v2 = get_scanner_health("WEALTH_EXIT_V2")
+    assert h_v2.get("scanner_name") == "WEALTH_EXIT_V2"
 
     # Run scan_universe and verify execution history and health update
     df = create_ideal_bars(250)
@@ -732,8 +738,6 @@ def test_decommissioned_scanners_purged_from_health_and_ui():
         "MULTIBAGGER_EXIT",
         "Wealth Engine",
         "WEALTH_EXIT",
-        "WEALTH_EXIT_V1",
-        "WEALTH_EXIT_V2",
         "FUNDAMENTAL_WEALTH_BUY"
     ]
 

@@ -79,8 +79,6 @@ DECOMMISSIONED_SCANNERS: Set[str] = {
     "WEALTH_ENGINE",
     "WEALTH",
     "WEALTH_EXIT",
-    "WEALTH_EXIT_V1",
-    "WEALTH_EXIT_V2",
     "FUNDAMENTAL_WEALTH_BUY",
     "FUNDAMENTAL_BUY",
     "FUNDAMENTAL_SCANNER",
@@ -366,6 +364,10 @@ def normalize_scanner_name(scanner_name: Optional[str]) -> str:
         return "EOD"
     if "MULTIBAGGER" in s:
         return "MULTIBAGGER"
+    if "WEALTH_EXIT_V1" in s:
+        return "WEALTH_EXIT_V1"
+    if "WEALTH_EXIT_V2" in s:
+        return "WEALTH_EXIT_V2"
     if "WEALTH" in s:
         return "WEALTH"
     return s

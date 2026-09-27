@@ -4466,6 +4466,8 @@ def get_all_scanner_health() -> list[dict]:
         "DAILY_BUILDER": "Daily 05:00 IST",
         "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan · BULL Regime)",
         "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
+        "WEALTH_EXIT_V1": "Exit Monitor · Live Primary (09:00 - 16:00 IST)",
+        "WEALTH_EXIT_V2": "Exit Monitor · Shadow Research (09:00 - 16:00 IST)",
         "Pledge Worker": "Continuous (Daily Refresh)",
         "AI Worker": "Continuous (Sat-Sun Active)",
     }
@@ -4636,8 +4638,8 @@ def reset_all_scanners_on_boot() -> None:
                         'SCAN_SHORT_COVERING', 'SCAN_REVERSAL_KEYLEVEL', 'SCAN_ACCUMULATION',
                         'SCAN_PULLBACK', 'SCAN_EOD', 'MULTIBAGGER', 'MULTIBAGGER_EXIT',
                         'Wealth Engine', 'WEALTH_ENGINE', 'WEALTH', 'WEALTH_EXIT',
-                        'WEALTH_EXIT_V1', 'WEALTH_EXIT_V2', 'FUNDAMENTAL_WEALTH_BUY',
-                        'FUNDAMENTAL_BUY', 'FUNDAMENTAL_SCANNER', 'FUNDAMENTAL_BUY_SCANNER'
+                        'FUNDAMENTAL_WEALTH_BUY', 'FUNDAMENTAL_BUY',
+                        'FUNDAMENTAL_SCANNER', 'FUNDAMENTAL_BUY_SCANNER'
                     );
                 """)
 
@@ -4647,6 +4649,8 @@ def reset_all_scanners_on_boot() -> None:
                     "DAILY_BUILDER": "Daily 05:00 IST",
                     "TECHNICAL": "Daily 18:15 IST (Post-Close Technical Scan · BULL Regime)",
                     "PERFORMANCE_TRACKER": "Exit Monitor · Every 5min (09:15 - 15:30 IST)",
+                    "WEALTH_EXIT_V1": "Exit Monitor · Live Primary (09:00 - 16:00 IST)",
+                    "WEALTH_EXIT_V2": "Exit Monitor · Shadow Research (09:00 - 16:00 IST)",
                     "Pledge Worker": "Continuous (Daily Refresh)",
                     "AI Worker": "Continuous (Sat-Sun Active)",
                 }
@@ -4783,8 +4787,6 @@ DECOMMISSIONED_SCANNERS: set[str] = {
     "WEALTH_ENGINE",
     "WEALTH",
     "WEALTH_EXIT",
-    "WEALTH_EXIT_V1",
-    "WEALTH_EXIT_V2",
     "FUNDAMENTAL_WEALTH_BUY",
     "FUNDAMENTAL_BUY",
     "FUNDAMENTAL_SCANNER",
@@ -4908,6 +4910,7 @@ def resume_scanner(scanner_name: str) -> bool:
 ALL_KNOWN_SCANNERS = [
     'DAILY_BUILDER', 'TECHNICAL',
     'PERFORMANCE_TRACKER',
+    'WEALTH_EXIT_V1', 'WEALTH_EXIT_V2',
     'Pledge Worker', 'AI Worker', 'BayesianUpdater'
 ]
 
