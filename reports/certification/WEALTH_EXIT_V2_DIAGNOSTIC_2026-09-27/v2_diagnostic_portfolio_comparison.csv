@@ -1,0 +1,4 @@
+arm,initial_capital,final_wealth,total_profit,total_return_pct,cagr_pct,wealth_multiple,invested_trades,uninvested_trades,utilization_pct
+ARM_A (Short-Term Control),1000000.0,1015444.72,15444.72,1.54,0.16,1.02,5072,76581,6.21
+WEALTH_EXIT_V1 (Baseline Wealth),1000000.0,11978205.17,10978205.17,1097.82,28.74,11.98,572,81081,0.7
+WEALTH_EXIT_V2 (Compound Weakness),1000000.0,8263269.83,7263269.83,726.33,23.97,8.26,337,81316,0.41

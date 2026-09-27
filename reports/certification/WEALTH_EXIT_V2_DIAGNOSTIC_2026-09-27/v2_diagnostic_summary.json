@@ -1,0 +1,78 @@
+{
+  "governance_status": "RESEARCH_ONLY_DIAGNOSTIC (Pre-Holdout)",
+  "evaluation_universe": "886 Certified Clean Equities (81,653 Trades)",
+  "trade_level_comparison": {
+    "trades_count": 81653,
+    "arm_a_mean_return_pct": 0.25,
+    "arm_a_win_rate_pct": 48.7,
+    "arm_a_mean_hold_days": 4.5,
+    "v1_mean_return_pct": 6.97,
+    "v1_win_rate_pct": 41.6,
+    "v1_mean_hold_days": 40.2,
+    "v2_mean_return_pct": 15.32,
+    "v2_win_rate_pct": 45.0,
+    "v2_mean_hold_days": 76.6,
+    "v2_mean_mfe_pct": 41.29,
+    "v2_mean_mae_pct": -10.92,
+    "v2_max_dd_mean_pct": 17.39,
+    "delta_v2_minus_v1_mean_ret": 8.36,
+    "delta_v2_minus_arm_a_mean_ret": 15.07
+  },
+  "portfolio_simulation": {
+    "ARM_A (Short-Term Control)": {
+      "initial_capital": 1000000.0,
+      "final_wealth": 1015444.72,
+      "total_profit": 15444.72,
+      "total_return_pct": 1.54,
+      "cagr_pct": 0.16,
+      "wealth_multiple": 1.02,
+      "invested_trades": 5072,
+      "uninvested_trades": 76581,
+      "utilization_pct": 6.21
+    },
+    "WEALTH_EXIT_V1 (Baseline Wealth)": {
+      "initial_capital": 1000000.0,
+      "final_wealth": 11978205.17,
+      "total_profit": 10978205.17,
+      "total_return_pct": 1097.82,
+      "cagr_pct": 28.74,
+      "wealth_multiple": 11.98,
+      "invested_trades": 572,
+      "uninvested_trades": 81081,
+      "utilization_pct": 0.7
+    },
+    "WEALTH_EXIT_V2 (Compound Weakness)": {
+      "initial_capital": 1000000.0,
+      "final_wealth": 8263269.83,
+      "total_profit": 7263269.83,
+      "total_return_pct": 726.33,
+      "cagr_pct": 23.97,
+      "wealth_multiple": 8.26,
+      "invested_trades": 337,
+      "uninvested_trades": 81316,
+      "utilization_pct": 0.41
+    }
+  },
+  "exit_quality_comparison": {
+    "v1": {
+      "CORRECT": 47.1,
+      "EARLY": 30.0,
+      "NEUTRAL": 22.9
+    },
+    "v2": {
+      "CORRECT": 50.0,
+      "EARLY": 29.6,
+      "NEUTRAL": 20.5
+    }
+  },
+  "forensic_transition_audit": {
+    "v1_early_exits_count": 24523,
+    "v1_early_mean_ret_in_v1": 9.25,
+    "v1_early_mean_ret_in_v2": 42.91,
+    "v1_early_delta_gain_in_v2": 33.65,
+    "v1_correct_exits_count": 38449,
+    "v1_correct_mean_ret_in_v1": 6.25,
+    "v1_correct_mean_ret_in_v2": 1.46,
+    "v1_correct_delta_impact_in_v2": -4.8
+  }
+}
