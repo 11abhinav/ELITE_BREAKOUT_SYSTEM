@@ -637,12 +637,12 @@ class DailyBuilderFundamentalProvider:
                             if not filings:
                                 continue
                             f0 = filings[0]
-                            roce_val = f0.get("roce") or 15.0
-                            roe_val = f0.get("roe") or 12.0
-                            tot_debt = f0.get("total_debt") or 0.0
-                            tot_eq = f0.get("total_equity") or 1.0
-                            de_val = tot_debt / tot_eq if tot_eq > 0 else 0.0
-                            ocf_val = f0.get("operating_cash_flow") or f0.get("free_cash_flow") or 1.0
+                            roce_val = f0.get("roce")
+                            roe_val = f0.get("roe")
+                            tot_debt = f0.get("total_debt")
+                            tot_eq = f0.get("total_equity")
+                            de_val = (float(tot_debt) / float(tot_eq)) if tot_debt is not None and tot_eq is not None and float(tot_eq) > 0 else (0.0 if tot_debt == 0 else None)
+                            ocf_val = f0.get("operating_cash_flow") if f0.get("operating_cash_flow") is not None else f0.get("free_cash_flow")
 
                             rev_l, rev_p, op_l, op_p, eps_l, eps_p, p_eps = None, None, None, None, None, None, None
 
@@ -675,16 +675,16 @@ class DailyBuilderFundamentalProvider:
 
                             rows_list.append({
                                 "symbol": sym,
-                                "ROCE": float(roce_val),
-                                "ROE": float(roe_val),
-                                "debt": float(de_val),
-                                "operating_cash_flow": float(ocf_val),
-                                "fundamental_category": "HIGH_QUALITY" if float(roce_val) >= 15.0 else "NORMAL",
+                                "ROCE": float(roce_val) if roce_val is not None else None,
+                                "ROE": float(roe_val) if roe_val is not None else None,
+                                "debt": float(de_val) if de_val is not None else None,
+                                "operating_cash_flow": float(ocf_val) if ocf_val is not None else None,
+                                "fundamental_category": "HIGH_QUALITY" if roce_val is not None and float(roce_val) >= 15.0 else "NORMAL",
                                 "is_value_trap": False,
-                                "quality_score": 80.0,
-                                "growth_score": 75.0,
-                                "valuation_score": 70.0,
-                                "wealth_score": 75.0,
+                                "quality_score": None,
+                                "growth_score": None,
+                                "valuation_score": None,
+                                "wealth_score": None,
                                 "rev_yoy_latest": rev_l,
                                 "rev_yoy_prev": rev_p,
                                 "op_profit_yoy_latest": op_l,
@@ -1603,46 +1603,18 @@ class QualityCompounderValueV2Scanner:
             mcap = float(row.get('market_cap', row.get('mcap', 1000.0)) or 1000.0)
             adtv_90d = float(row.get('adtv_90d', row.get('adtv', 2.0)) or 2.0)
 
-            # Metrics & Multi-field Fallback Resolution
+            # Metrics & Multi-field Real Resolution (NO SYNTHETIC FALLBACKS)
             roce_5y = row.get('roce_5y_avg', row.get('roce_5y', row.get('ROCE', row.get('roce', row.get('ROE', row.get('roe'))))))
-            if (roce_5y is None or pd.isna(roce_5y)) and row.get('quality_score') is not None and not pd.isna(row.get('quality_score')):
-                roce_5y = 25.0 if float(row.get('quality_score')) >= 70.0 else 12.0
-
-            sales_cagr_5y = row.get('sales_cagr_5y', row.get('sales_cagr', row.get('rev_yoy_latest', row.get('rev_yoy'))))
-            if (sales_cagr_5y is None or pd.isna(sales_cagr_5y)) and row.get('growth_score') is not None and not pd.isna(row.get('growth_score')):
-                sales_cagr_5y = 15.0 if float(row.get('growth_score')) >= 70.0 else 10.0
-
-            pat_cagr_5y = row.get('pat_cagr_5y', row.get('pat_cagr', row.get('op_profit_yoy_latest', row.get('op_profit_yoy', row.get('eps_yoy_latest')))))
-            if (pat_cagr_5y is None or pd.isna(pat_cagr_5y)) and row.get('growth_score') is not None and not pd.isna(row.get('growth_score')):
-                pat_cagr_5y = 15.0 if float(row.get('growth_score')) >= 70.0 else 10.5
-            
-            cfo_pat_5y = row.get('cfo_pat_5y_ratio', row.get('cfo_pat_5y'))
-            if cfo_pat_5y is None or pd.isna(cfo_pat_5y):
-                ocf_val = row.get('operating_cash_flow', row.get('ocf', row.get('free_cash_flow')))
-                np_val = row.get('net_profit', row.get('net_income'))
-                if ocf_val is not None and not pd.isna(ocf_val) and np_val is not None and not pd.isna(np_val) and float(np_val) > 0:
-                    cfo_pat_5y = float(ocf_val) / float(np_val)
-                elif ocf_val is not None and not pd.isna(ocf_val) and float(ocf_val) > 0:
-                    cfo_pat_5y = 1.0
-                else:
-                    cfo_pat_5y = 1.0
-
+            sales_cagr_5y = row.get('sales_cagr_5y', row.get('sales_cagr', row.get('rev_cagr', row.get('revenue_cagr_3y'))))
+            pat_cagr_5y = row.get('pat_cagr_5y', row.get('pat_cagr', row.get('op_profit_cagr')))
+            cfo_pat_5y = row.get('cfo_pat_5y_ratio', row.get('cfo_pat_5y', row.get('cfo_pat')))
             de_ratio = row.get('debt_to_equity', row.get('debt_equity', row.get('debt', row.get('d_e'))))
-            if de_ratio is None or pd.isna(de_ratio):
-                td = row.get('total_debt')
-                te = row.get('total_equity')
-                if td is not None and te is not None and not pd.isna(td) and not pd.isna(te) and float(te) > 0:
-                    de_ratio = float(td) / float(te)
-                else:
-                    de_ratio = 0.20
-
             share_dilution_3y = row.get('share_dilution_3y_pct', row.get('share_dilution_3y', 0.0))
 
-            ev_ebitda_curr = row.get('ev_to_ebitda', row.get('ev_ebitda', row.get('current_ev_ebitda')))
-            ev_ebitda_med = row.get('ev_to_ebitda_3y_median', row.get('ev_ebitda_3y_median', row.get('ev_ebitda_median')))
-            pe_curr = row.get('pe_ratio', row.get('pe', row.get('PE Ratio')))
-            pe_med = row.get('pe_ratio_3y_median', row.get('pe_3y_median'))
-            val_score = row.get('valuation_score')
+            ev_ebitda_curr = row.get('current_ev_ebitda', row.get('ev_to_ebitda', row.get('ev_ebitda')))
+            ev_ebitda_med = row.get('ev_ebitda_3y_median', row.get('ev_to_ebitda_3y_median', row.get('ev_ebitda_median')))
+            pe_curr = row.get('current_pe', row.get('pe_ratio', row.get('pe', row.get('pe_fallback'))))
+            pe_med = row.get('pe_3y_median', row.get('pe_ratio_3y_median'))
 
             cmp_price = float(row.get('current_price', row.get('close', 0.0)) or 0.0)
             sma50 = float(row.get('sma50', cmp_price) or cmp_price)
@@ -1662,7 +1634,7 @@ class QualityCompounderValueV2Scanner:
             if adtv_90d < 2.0:
                 rejections.append("FAIL_LIQUIDITY")
 
-            # Missing Quality Data check
+            # Missing Quality Data check — STOPS candidate from passing if any real fundamental metric is missing
             if any(v is None or pd.isna(v) for v in [roce_5y, sales_cagr_5y, pat_cagr_5y, cfo_pat_5y, de_ratio]):
                 rejections.append("DATA_INSUFFICIENT_QUALITY")
                 data_blocked_count += 1
@@ -1687,7 +1659,7 @@ class QualityCompounderValueV2Scanner:
                 if quality_gate_passed:
                     quality_pass_count += 1
 
-            # Value Gate (Multi-tier resolution: EV/EBITDA -> PE -> Valuation Score)
+            # Value Gate (Continuous discounts strictly calculated from actual multiples — NO DISCRETE SCORE BRACKETS)
             ev_discount = 0.0
             pe_discount = 0.0
             calc_discount = None
@@ -1696,8 +1668,6 @@ class QualityCompounderValueV2Scanner:
                 calc_discount = (float(ev_ebitda_med) - float(ev_ebitda_curr)) / float(ev_ebitda_med)
             elif pe_curr is not None and pe_med is not None and not pd.isna(pe_curr) and not pd.isna(pe_med) and float(pe_med or 0) > 0:
                 calc_discount = (float(pe_med) - float(pe_curr)) / float(pe_med)
-            elif val_score is not None and not pd.isna(val_score):
-                calc_discount = max((float(val_score) - 45.0) / 100.0, 0.0)
 
             if calc_discount is None:
                 rejections.append("DATA_INSUFFICIENT_VALUATION")
@@ -1919,36 +1889,101 @@ class QualityCompounderValueV2Scanner:
             return {"status": "FAILED", "error": str(err)}
 
     def load_pit_dataset(self) -> Optional[pd.DataFrame]:
-        """Load certified PIT dataset from Daily Builder 2.0 master fundamentals and cache layers."""
-        paths = [
-            os.path.join(DATA_DIR, "daily_builder_master_v2.parquet"),
-            os.path.join(DATA_DIR, "pit_fundamentals_v1", "pit_fundamentals_v1.parquet"),
-            os.path.join(DATA_DIR, "pit_fundamentals_v1.parquet")
-        ]
-        for p in paths:
-            if os.path.exists(p):
-                try:
-                    df = pd.read_parquet(p)
-                    if not df.empty and ('roce' in df.columns or 'ROCE' in df.columns or 'rev_yoy_latest' in df.columns or 'sales_cagr_5y' in df.columns):
-                        logger.info(f"✅ Loaded PIT dataset from {p} ({len(df)} rows)")
-                        return df
-                except Exception as e:
-                    logger.warning(f"Failed loading parquet {p}: {e}")
+        """Load certified PIT dataset from statement filings and Daily Builder 2.0 master fundamentals."""
+        # 1. Authoritative PIT statement filings (795 clean equities)
+        p_path = os.path.join(DATA_DIR, "pit_fundamentals_v1", "pit_fundamentals_v1.parquet")
+        if not os.path.exists(p_path):
+            p_path = os.path.join(DATA_DIR, "pit_fundamentals_v1.parquet")
 
-        # Daily Builder 2.0 fallback
-        try:
-            db_funds, _ = self.daily_builder_provider.load_master_fundamentals()
-            if db_funds:
-                rows = []
-                for sym, fdict in db_funds.items():
-                    r = dict(fdict)
-                    r['symbol'] = sym
-                    rows.append(r)
-                df = pd.DataFrame(rows)
-                logger.info(f"✅ Built PIT dataset from Daily Builder 2.0 ({len(df)} rows)")
-                return df
-        except Exception as e:
-            logger.warning(f"Failed to build PIT dataset from Daily Builder: {e}")
+        if os.path.exists(p_path):
+            try:
+                raw_df = pd.read_parquet(p_path)
+                if not raw_df.empty and 'symbol' in raw_df.columns:
+                    raw_df['period_end_date'] = pd.to_datetime(raw_df['period_end_date'])
+                    raw_df['filing_date'] = pd.to_datetime(raw_df['filing_date'])
+
+                    # Load valuation cache for continuous multiples
+                    val_cache = {}
+                    for v_name in ["multibagger_fundamentals_cache.json", "fundamentals_cache.json"]:
+                        v_path = os.path.join(DATA_DIR, v_name)
+                        if os.path.exists(v_path):
+                            try:
+                                with open(v_path) as f:
+                                    val_cache.update(json.load(f))
+                            except Exception:
+                                pass
+
+                    records = []
+                    for sym, g in raw_df.groupby('symbol'):
+                        g = g.sort_values('period_end_date')
+                        n = len(g)
+                        latest_filing = g.iloc[-1]
+
+                        # ROCE / ROE
+                        roce = latest_filing.get('roce') if pd.notna(latest_filing.get('roce')) else None
+                        roe = latest_filing.get('roe') if pd.notna(latest_filing.get('roe')) else None
+                        roce_eff = roce if roce is not None else roe
+
+                        # Multi-year Revenue CAGR & PAT CAGR
+                        rev_cagr, pat_cagr = None, None
+                        if n >= 2:
+                            r0, r1 = g['revenue'].iloc[0], g['revenue'].iloc[-1]
+                            p0, p1 = g['net_profit'].iloc[0], g['net_profit'].iloc[-1]
+                            yrs = max(1.0, (g['period_end_date'].iloc[-1] - g['period_end_date'].iloc[0]).days / 365.25)
+                            if r0 and r0 > 0 and r1 and r1 > 0:
+                                rev_cagr = (pow(r1 / r0, 1.0 / yrs) - 1.0) * 100.0
+                            if p0 and p0 > 0 and p1 and p1 > 0:
+                                pat_cagr = (pow(p1 / p0, 1.0 / yrs) - 1.0) * 100.0
+
+                        # CFO / PAT Ratio
+                        ocf = latest_filing.get('operating_cash_flow') if pd.notna(latest_filing.get('operating_cash_flow')) else None
+                        pat = latest_filing.get('net_profit') if pd.notna(latest_filing.get('net_profit')) else None
+                        cfo_pat = (float(ocf) / float(pat)) if ocf is not None and pat is not None and float(pat) > 0 else None
+
+                        # Debt to Equity
+                        td = latest_filing.get('total_debt') if pd.notna(latest_filing.get('total_debt')) else 0.0
+                        te = latest_filing.get('total_equity') if pd.notna(latest_filing.get('total_equity')) else None
+                        de = (float(td) / float(te)) if te is not None and float(te) > 0 else (0.0 if float(td) == 0 else None)
+
+                        # Continuous valuation metrics from cache
+                        v_data = val_cache.get(sym, {})
+                        pe_curr = v_data.get('pe_fallback') or v_data.get('pe')
+                        pe_med = v_data.get('pe_3y_median')
+                        ev_curr = v_data.get('ev_ebitda')
+                        ev_med = v_data.get('ev_ebitda_3y_median')
+
+                        records.append({
+                            'symbol': sym,
+                            'filing_date': str(latest_filing.get('filing_date'))[:10],
+                            'financial_period_end': str(latest_filing.get('period_end_date'))[:10],
+                            'roce_5y_avg': roce_eff,
+                            'sales_cagr_5y': rev_cagr,
+                            'pat_cagr_5y': pat_cagr,
+                            'cfo_pat_5y_ratio': cfo_pat,
+                            'debt_to_equity': de,
+                            'current_pe': pe_curr,
+                            'pe_3y_median': pe_med,
+                            'current_ev_ebitda': ev_curr,
+                            'ev_ebitda_3y_median': ev_med,
+                            'provenance_status': 'CERTIFIED_PIT_STATEMENT_CALCULATED'
+                        })
+
+                    pit_df = pd.DataFrame(records)
+                    logger.info(f"✅ Loaded and calculated certified PIT dataset from statement filings ({len(pit_df)} symbols)")
+                    return pit_df
+            except Exception as e:
+                logger.warning(f"Failed to process pit_fundamentals_v1.parquet: {e}")
+
+        # Fallback 2: Daily Builder 2.0 master parquet
+        p_db = os.path.join(DATA_DIR, "daily_builder_master_v2.parquet")
+        if os.path.exists(p_db):
+            try:
+                df = pd.read_parquet(p_db)
+                if not df.empty:
+                    logger.info(f"✅ Loaded PIT dataset from Daily Builder master ({len(df)} rows)")
+                    return df
+            except Exception as e:
+                logger.warning(f"Failed loading daily_builder_master_v2.parquet: {e}")
 
         return None
 
