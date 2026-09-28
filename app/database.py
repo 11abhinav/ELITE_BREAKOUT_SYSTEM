@@ -11972,6 +11972,13 @@ def save_v2_candidate_alert(candidate: Dict[str, Any]) -> Tuple[bool, str]:
                         governance_status, context, signals, score
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+                    ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO UPDATE
+                    SET current_price = EXCLUDED.current_price,
+                        ranking_score = EXCLUDED.ranking_score,
+                        tier = EXCLUDED.tier,
+                        watchlist_state = EXCLUDED.watchlist_state,
+                        context = EXCLUDED.context,
+                        updated_at = NOW()
                 """, (
                     sym,
                     "QUALITY_COMPOUNDER_V2",

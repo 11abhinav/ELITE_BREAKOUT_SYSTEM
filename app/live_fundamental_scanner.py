@@ -1538,10 +1538,10 @@ class QualityCompounderValueV2Scanner:
             )
 
         # Record execution run start in scanner_execution_history and scanner_health
-        ctx = None
+        exec_run_ctx = None
         if create_scanner_execution_run is not None:
             try:
-                ctx = create_scanner_execution_run(
+                exec_run_ctx = create_scanner_execution_run(
                     scanner_name="QUALITY_COMPOUNDER_VALUE_V2_FINAL",
                     trigger_type=trigger_type,
                     total_stocks=886,
@@ -1556,7 +1556,7 @@ class QualityCompounderValueV2Scanner:
                     "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
                     status="RUNNING",
                     total_count=886,
-                    run_id=getattr(ctx, "run_id", None)
+                    run_id=getattr(exec_run_ctx, "run_id", None)
                 )
             except Exception as e:
                 logger.debug(f"Scanner health RUNNING warning: {e}")
@@ -1565,10 +1565,10 @@ class QualityCompounderValueV2Scanner:
         pit_df = self.load_pit_dataset()
         if pit_df is None or pit_df.empty:
             logger.error("❌ [SCANNER: V2_FINAL] Failed to load PIT dataset — scan failed!")
-            if complete_scanner_execution_run is not None and ctx and getattr(ctx, "run_id", None):
+            if complete_scanner_execution_run is not None and exec_run_ctx and getattr(exec_run_ctx, "run_id", None):
                 try:
                     complete_scanner_execution_run(
-                        run_id=ctx.run_id,
+                        run_id=exec_run_ctx.run_id,
                         lifecycle_status="FAILED",
                         quality_status="CRITICAL",
                         summary_notes="PIT dataset unavailable"
@@ -1577,7 +1577,7 @@ class QualityCompounderValueV2Scanner:
                     pass
             if upsert_scanner_health is not None:
                 try:
-                    upsert_scanner_health("QUALITY_COMPOUNDER_VALUE_V2_FINAL", status="DOWN", error_msg="PIT dataset unavailable", run_id=getattr(ctx, "run_id", None))
+                    upsert_scanner_health("QUALITY_COMPOUNDER_VALUE_V2_FINAL", status="DOWN", error_msg="PIT dataset unavailable", run_id=getattr(exec_run_ctx, "run_id", None))
                 except Exception:
                     pass
             return {"status": "FAILED", "error": "PIT_DATASET_UNAVAILABLE"}
@@ -1827,16 +1827,21 @@ class QualityCompounderValueV2Scanner:
             snapshots_inserted = save_v2_scan_snapshots(snapshot_records)
             candidates_inserted = 0
             for cand in candidate_records:
-                ok, _ = save_v2_candidate_alert(cand)
-                if ok: candidates_inserted += 1
+                ok, msg = save_v2_candidate_alert(cand)
+                if ok:
+                    candidates_inserted += 1
+                    logger.info(
+                        f"🚀 [BUY_ALERT: V2] {cand['symbol']:<12} | Tier={cand['tier']} | "
+                        f"Score={cand['ranking_score']:<5.1f} | CMP=₹{cand['current_price']:<8.2f} | Status={msg}"
+                    )
 
             duration_sec = round(time.time() - start_ts, 2)
             
             # Record execution history completion
-            if complete_scanner_execution_run is not None and ctx and getattr(ctx, "run_id", None):
+            if complete_scanner_execution_run is not None and exec_run_ctx and getattr(exec_run_ctx, "run_id", None):
                 try:
                     complete_scanner_execution_run(
-                        run_id=ctx.run_id,
+                        run_id=exec_run_ctx.run_id,
                         total_scanned=total_scanned,
                         candidate_count=candidate_count,
                         quality_status="HEALTHY",
@@ -1855,16 +1860,29 @@ class QualityCompounderValueV2Scanner:
                         processed_count=total_scanned,
                         total_count=total_scanned,
                         duration_seconds=duration_sec,
-                        run_id=getattr(ctx, "run_id", None)
+                        run_id=getattr(exec_run_ctx, "run_id", None)
                     )
                 except Exception as e:
                     logger.debug(f"Scanner health OK warning: {e}")
 
-            logger.info(
-                f"✅ [SCANNER: V2_FINAL] 17:00 IST Scan Complete: Scanned={total_scanned}, "
-                f"QualityPass={quality_pass_count}, ValuePass={value_pass_count}, Candidates={candidate_count}, "
-                f"SnapshotsInserted={snapshots_inserted}, Duration={duration_sec}s"
-            )
+            # Structured End-of-Scan Telemetry Summary Report
+            logger.info("=" * 80)
+            logger.info(f"📊 [SCANNER TELEMETRY: QUALITY_COMPOUNDER_VALUE_V2_FINAL] END-OF-SCAN REPORT ({today_str})")
+            logger.info("=" * 80)
+            logger.info(f"  • Total Equities Evaluated : {total_scanned}")
+            logger.info(f"  • Quality Gate Passed     : {quality_pass_count}")
+            logger.info(f"  • Valuation Gate Passed   : {value_pass_count}")
+            logger.info(f"  • Candidates Selected     : {candidate_count}")
+            logger.info(f"  • Data Blocked Count      : {data_blocked_count}")
+            logger.info(f"  • Snapshots Saved in DB   : {snapshots_inserted}")
+            logger.info(f"  • Candidate Alerts Saved  : {candidates_inserted}")
+            logger.info(f"  • Duration (Seconds)      : {duration_sec}s")
+            logger.info("-" * 80)
+            logger.info(f"🎯 GENERATED BUY CANDIDATE ALERTS ({len(candidate_records)} STOCKS):")
+            for idx, cand in enumerate(candidate_records, 1):
+                logger.info(f"  [{idx:02d}] {cand['symbol']:<12} | Tier={cand['tier']} | Score={cand['ranking_score']:<5.1f} | CMP=₹{cand['current_price']:<8.2f} | SignalDate={cand['signal_date']}")
+            logger.info("=" * 80)
+
             return {
                 "status": "SUCCESS",
                 "total_scanned": total_scanned,
@@ -1873,17 +1891,18 @@ class QualityCompounderValueV2Scanner:
                 "candidate_count": candidate_count,
                 "data_blocked_count": data_blocked_count,
                 "snapshots_inserted": snapshots_inserted,
+                "candidates_inserted": candidates_inserted,
                 "duration_sec": duration_sec
             }
         except Exception as err:
             logger.exception(f"❌ [SCANNER: V2_FINAL] Database persistence error: {err}")
-            if complete_scanner_execution_run is not None and ctx and getattr(ctx, "run_id", None):
+            if complete_scanner_execution_run is not None and exec_run_ctx and getattr(exec_run_ctx, "run_id", None):
                 try:
                     complete_scanner_execution_run(
-                        run_id=ctx.run_id,
+                        run_id=exec_run_ctx.run_id,
                         lifecycle_status="FAILED",
                         quality_status="CRITICAL",
-                        summary_notes=f"V2 Scan failed: {str(err)[:250]}"
+                        summary_notes=str(err)[:500]
                     )
                 except Exception:
                     pass
@@ -1893,7 +1912,7 @@ class QualityCompounderValueV2Scanner:
                         "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
                         status="DOWN",
                         error_msg=str(err)[:500],
-                        run_id=getattr(ctx, "run_id", None)
+                        run_id=getattr(exec_run_ctx, "run_id", None)
                     )
                 except Exception:
                     pass
