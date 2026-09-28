@@ -299,6 +299,16 @@ CERTIFIED_FOR_PRODUCTION
 
 ---
 
+## MANDATORY ZERO-SYNTHETIC-FALLBACK & NO-DUMMY-WATCHLIST INVARIANT
+1. **NEVER USE SYNTHETIC FALLBACK VALUES OR DUMMY WATCHLISTS**:
+   - The system must NEVER populate missing prices, fundamental metrics (ROCE, ROE, Sales CAGR, PAT CAGR, CFO/PAT, D/E), or valuation discounts with hardcoded constants, synthetic approximations, default score brackets, or dummy fallback watchlists.
+2. **STRICT DATA_UNAVAILABLE / FAIL-CLOSED PROTOCOL**:
+   - Whenever required data is missing or cannot be fetched from authoritative exchange/filing providers:
+     - Mark status explicitly as `DATA_UNAVAILABLE`, `DATA_INSUFFICIENT_QUALITY`, or `DATA_INSUFFICIENT_VALUATION`.
+     - HARD BLOCK candidate selection. Missing data MUST NEVER pass any scanner gate or become an active alert.
+
+---
+
 ## MANDATORY PRE-PUSH CODE INTEGRITY RULES
 1. **FULL IMPORT & VARIABLE SCOPE VALIDATION (ZERO UNBOUND / SHADOW VARIABLES)**:
    - All newly added functions, modified methods, and variables MUST have their imports and symbols fully declared at the proper scope level.
