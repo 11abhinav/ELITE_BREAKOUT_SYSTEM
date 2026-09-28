@@ -1472,6 +1472,8 @@ class QualityCompounderValueV2Scanner:
 
     def __init__(self):
         self.strategy_id = "QUALITY_COMPOUNDER_VALUE_V2_FINAL"
+        self.daily_builder_provider = DailyBuilderFundamentalProvider()
+        self.universe_registry = ApprovedUniverseRegistry()
 
     @staticmethod
     def is_financial_sector(industry_str: str) -> bool:
