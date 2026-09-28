@@ -11868,6 +11868,9 @@ def save_v2_scan_snapshots(snapshot_records: List[Dict[str, Any]]) -> int:
                 sanitized_ctx = _sanitize_for_json(rec.get("context", {}))
                 ctx_str = json.dumps(sanitized_ctx, default=str)
 
+                cand_st = str(rec.get("overall_candidate_status", "REJECTED")).upper()
+                db_status = "OPEN" if cand_st in ("CANDIDATE", "OPEN", "GREEN") else "REJECTED"
+
                 cur.execute("""
                     INSERT INTO alerts (
                         symbol, breakout_type, alert_time, alert_date, scanner, category,
@@ -11878,6 +11881,7 @@ def save_v2_scan_snapshots(snapshot_records: List[Dict[str, Any]]) -> int:
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
                     ON CONFLICT (symbol, breakout_type, scanner, alert_date) DO UPDATE
                     SET current_price = EXCLUDED.current_price,
+                        status = EXCLUDED.status,
                         watchlist_state = EXCLUDED.watchlist_state,
                         rejection_reason = EXCLUDED.rejection_reason,
                         quality_gate_status = EXCLUDED.quality_gate_status,
@@ -11894,7 +11898,7 @@ def save_v2_scan_snapshots(snapshot_records: List[Dict[str, Any]]) -> int:
                     "QUALITY_COMPOUNDER_VALUE_V2_FINAL",
                     "V2_DAILY_SNAPSHOT",
                     rec.get("current_price"),
-                    rec.get("overall_candidate_status", "SNAPSHOT"),
+                    db_status,
                     "SCAN_SNAPSHOT",
                     rec.get("watchlist_state", "REJECTED"),
                     rec.get("rejection_reason", "FAIL"),
