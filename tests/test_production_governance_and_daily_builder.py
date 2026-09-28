@@ -229,8 +229,15 @@ def test_value_trap_protection():
     assert len(watchlists["BEAR_VALUE"]) == 0
 
 
-def test_bear_value_engine_and_watchlists_generation():
+def test_bear_value_engine_and_watchlists_generation(tmp_path, monkeypatch):
     """Verify dedicated Bear Value Opportunities and 8 distinct watchlists."""
+    test_parquet = str(tmp_path / "daily_builder_master_v2.parquet")
+    test_csv = str(tmp_path / "daily_builder_master_v2.csv")
+    test_watchlists = str(tmp_path / "watchlists")
+    monkeypatch.setattr("app.fundamental_wealth_engine.MASTER_OUTPUT_PARQUET", test_parquet)
+    monkeypatch.setattr("app.fundamental_wealth_engine.MASTER_OUTPUT_CSV", test_csv)
+    monkeypatch.setattr("app.fundamental_wealth_engine.WATCHLISTS_DIR", test_watchlists)
+
     healthy_bear_candidate = {
         "symbol": "BEAR_OPP_1",
         "company": "Resilient Value Corp",
@@ -265,13 +272,13 @@ def test_bear_value_engine_and_watchlists_generation():
     assert watchlists["BEAR_VALUE"][0]["bear_value_archetype"] == "HIGH_QUALITY + CHEAP"
     assert len(watchlists["QUALITY_VALUE"]) == 1
 
-    # Test saving master outputs
+    # Test saving master outputs (isolated to test tmp directory)
     saved_meta = fundamental_wealth_engine.save_master_builder_outputs([healthy_bear_candidate])
     assert saved_meta["master_count"] == 1
-    assert os.path.exists("data/daily_builder_master_v2.parquet")
-    assert os.path.exists("data/daily_builder_master_v2.csv")
-    assert os.path.exists("data/watchlists/BEAR_VALUE.parquet")
-    assert os.path.exists("data/watchlists/QUALITY_VALUE.parquet")
+    assert os.path.exists(test_parquet)
+    assert os.path.exists(test_csv)
+    assert os.path.exists(os.path.join(test_watchlists, "BEAR_VALUE.parquet"))
+    assert os.path.exists(os.path.join(test_watchlists, "QUALITY_VALUE.parquet"))
 
 
 if __name__ == "__main__":

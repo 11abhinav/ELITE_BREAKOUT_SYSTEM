@@ -159,9 +159,9 @@ class FundamentalQualityGate:
     """
 
     @staticmethod
-    def evaluate(fundamentals: Dict[str, Any]) -> Tuple[bool, List[RejectionReason], Dict[str, Any]]:
+    def evaluate(fundamentals: Dict[str, Any], symbol: Optional[str] = None) -> Tuple[bool, List[RejectionReason], Dict[str, Any]]:
         failures = []
-        sym = fundamentals.get("symbol", "UNKNOWN") if fundamentals else "UNKNOWN"
+        sym = symbol or (fundamentals.get("symbol", "UNKNOWN") if fundamentals else "UNKNOWN")
         if not fundamentals:
             logger.info(f"🔍 [GATE_EVAL:FQ] {sym} REJECTED: fundamentals record is missing or empty")
             return False, [RejectionReason.FUNDAMENTAL_DATA_MISSING], {}
@@ -258,9 +258,9 @@ class EarningsAccelerationGate:
     """
 
     @staticmethod
-    def evaluate(fundamentals: Dict[str, Any]) -> Tuple[bool, List[RejectionReason], Dict[str, Any]]:
+    def evaluate(fundamentals: Dict[str, Any], symbol: Optional[str] = None) -> Tuple[bool, List[RejectionReason], Dict[str, Any]]:
         failures = []
-        sym = fundamentals.get("symbol", "UNKNOWN") if fundamentals else "UNKNOWN"
+        sym = symbol or (fundamentals.get("symbol", "UNKNOWN") if fundamentals else "UNKNOWN")
         if not fundamentals:
             logger.info(f"🔍 [GATE_EVAL:EA] {sym} REJECTED: fundamentals record is missing or empty")
             return False, [RejectionReason.FUNDAMENTAL_DATA_MISSING], {}
@@ -883,7 +883,7 @@ class LiveFundamentalBuyScanner:
             return res
 
         # 3. Fundamental Quality Gate (ROCE >= 15%, ROE >= 12%, OCF > 0, D/E <= 1.0)
-        fq_pass, fq_errs, fq_metrics = FundamentalQualityGate.evaluate(fundamentals)
+        fq_pass, fq_errs, fq_metrics = FundamentalQualityGate.evaluate(fundamentals, sym)
         gate_metrics.update(fq_metrics)
         if telemetry is not None:
             telemetry.record_gate_evaluation(sym, "FUNDAMENTAL_QUALITY", fq_pass, fq_metrics, [e.value for e in fq_errs])
@@ -892,7 +892,7 @@ class LiveFundamentalBuyScanner:
             rejections.extend(fq_errs)
 
         # 4. Earnings Acceleration Gate (Rev Accel, Op Profit Accel, EPS Accel, Prior EPS > 0)
-        ea_pass, ea_errs, ea_metrics = EarningsAccelerationGate.evaluate(fundamentals)
+        ea_pass, ea_errs, ea_metrics = EarningsAccelerationGate.evaluate(fundamentals, sym)
         gate_metrics.update(ea_metrics)
         if telemetry is not None:
             telemetry.record_gate_evaluation(sym, "EARNINGS_ACCELERATION", ea_pass, ea_metrics, [e.value for e in ea_errs])
